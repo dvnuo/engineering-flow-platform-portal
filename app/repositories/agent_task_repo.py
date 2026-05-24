@@ -77,10 +77,7 @@ class AgentTaskRepository:
                     AgentTask.assignee_agent_id == assignee_agent_id,
                     AgentTask.source == source,
                     AgentTask.task_type == task_type,
-                    or_(
-                        AgentTask.dedupe_key == dedupe_hint,
-                        and_(AgentTask.dedupe_key.is_(None), AgentTask.shared_context_ref == dedupe_hint),
-                    ),
+                    AgentTask.dedupe_key == dedupe_hint,
                     AgentTask.input_payload_json == input_payload_json,
                     AgentTask.status.in_(["queued", "running", "done", "blocked"]),
                     AgentTask.created_at >= cutoff,
@@ -126,42 +123,28 @@ class AgentTaskRepository:
             self.db.add(task)
         self.db.commit()
 
-    def list_active_github_review_tasks_for_family(
+    def list_active_tasks_for_automation_item(
         self,
         *,
         assignee_agent_id: str,
-        family_prefix: str,
-    ) -> list[AgentTask]:
-        stmt = (
-            select(AgentTask)
-            .where(
-                and_(
-                    AgentTask.assignee_agent_id == assignee_agent_id,
-                    AgentTask.source == "github",
-                    AgentTask.task_type == "github_review_task",
-                    AgentTask.status.in_(["queued", "running"]),
-                    AgentTask.shared_context_ref.like(f"{family_prefix}%"),
-                )
-            )
-            .order_by(AgentTask.created_at.desc())
-        )
-        return list(self.db.scalars(stmt).all())
-
-    def list_active_tasks_for_context(
-        self,
-        *,
-        assignee_agent_id: str,
-        shared_context_ref: str,
-        task_type: str | None = None,
+        task_type: str,
+        provider: str | None = None,
+        trigger: str | None = None,
     ) -> list[AgentTask]:
         filters = [
             AgentTask.assignee_agent_id == assignee_agent_id,
-            AgentTask.shared_context_ref == shared_context_ref,
+            AgentTask.task_type == task_type,
             AgentTask.status.in_(["queued", "running"]),
         ]
-        if task_type:
-            filters.append(AgentTask.task_type == task_type)
-        stmt = select(AgentTask).where(and_(*filters)).order_by(AgentTask.created_at.desc())
+        if provider:
+            filters.append(AgentTask.provider == provider)
+        if trigger:
+            filters.append(AgentTask.trigger == trigger)
+        stmt = (
+            select(AgentTask)
+            .where(and_(*filters))
+            .order_by(AgentTask.created_at.desc())
+        )
         return list(self.db.scalars(stmt).all())
 
     def delete(self, task: AgentTask) -> None:

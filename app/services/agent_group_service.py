@@ -11,9 +11,7 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
-from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.repositories.user_repo import UserRepository
-from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.schemas.agent_group import (
     AgentGroupCreateRequest,
     InternalAgentGroupTaskAgentCreateRequest,
@@ -42,11 +40,9 @@ class AgentGroupService:
         self.agent_repo = AgentRepository(db)
         self.task_repo = AgentTaskRepository(db)
         self.delegation_repo = AgentDelegationRepository(db)
-        self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
         self.audit_repo = AuditRepository(db)
         self.run_repo = AgentCoordinationRunRepository(db)
         self.user_repo = UserRepository(db)
-        self.policy_profile_repo = PolicyProfileRepository(db)
         self.k8s_service = K8sService()
         self.settings = get_settings()
 
@@ -178,7 +174,6 @@ class AgentGroupService:
             group = self.group_repo.create_no_commit(
                 name=payload.name,
                 leader_agent_id=payload.leader_agent_id,
-                shared_context_policy_json=payload.shared_context_policy_json,
                 task_routing_policy_json=payload.task_routing_policy_json,
                 ephemeral_agent_policy_json=payload.ephemeral_agent_policy_json,
                 specialist_agent_pool_json=None,
@@ -394,11 +389,6 @@ class AgentGroupService:
         if payload.parent_agent_id is not None:
             self._get_agent_or_raise(payload.parent_agent_id, "Parent agent not found")
 
-        if payload.shared_context_ref:
-            snapshot = self.context_snapshot_repo.get_by_group_and_ref(group.id, payload.shared_context_ref)
-            if not snapshot:
-                raise AgentGroupServiceError(status_code=404, detail="Shared context snapshot not found")
-
         return self.task_repo.create(
             group_id=group_id,
             parent_agent_id=payload.parent_agent_id,
@@ -408,7 +398,6 @@ class AgentGroupService:
             source=payload.source,
             task_type=payload.task_type,
             input_payload_json=payload.input_payload_json,
-            shared_context_ref=payload.shared_context_ref,
             status=payload.status,
             result_payload_json=payload.result_payload_json,
             retry_count=payload.retry_count,
@@ -434,8 +423,6 @@ class AgentGroupService:
                     "agent_type": agent.agent_type,
                     "status": agent.status,
                     "visibility": agent.visibility,
-                    "capability_profile_id": agent.capability_profile_id,
-                    "policy_profile_id": agent.policy_profile_id,
                 }
             )
         return descriptors
@@ -503,8 +490,6 @@ class AgentGroupService:
             cpu=template_agent.cpu,
             memory=template_agent.memory,
             agent_type="task",
-            capability_profile_id=template_agent.capability_profile_id,
-            policy_profile_id=template_agent.policy_profile_id,
             runtime_profile_id=template_agent.runtime_profile_id,
             template_agent_id=template_agent.id,
             task_scope_label=getattr(payload, "scope_label", None),
@@ -758,17 +743,10 @@ class AgentGroupService:
             else:
                 runs.append(fallback)
 
-        effective_max_parallel_tasks = None
-        leader = self.agent_repo.get_by_id(group.leader_agent_id)
-        if leader and leader.policy_profile_id:
-            policy_profile = self.policy_profile_repo.get_by_id(leader.policy_profile_id)
-            if policy_profile and policy_profile.max_parallel_tasks is not None:
-                effective_max_parallel_tasks = int(policy_profile.max_parallel_tasks)
-
         return {
             "group_id": group_id,
             "leader_agent_id": group.leader_agent_id,
-            "effective_max_parallel_tasks": effective_max_parallel_tasks,
+            "effective_max_parallel_tasks": None,
             "summary": {
                 "total": len(delegations),
                 "queued": counts["queued"],
@@ -784,18 +762,3 @@ class AgentGroupService:
             "items": delegations,
             "runs": runs,
         }
-
-    def list_group_shared_context_snapshots(self, group_id: str, user):
-        group = self._get_group_or_raise(group_id)
-        if not self._can_read_group_resources(group, user):
-            raise AgentGroupServiceError(status_code=403, detail="Not allowed to read group shared contexts")
-        return self.context_snapshot_repo.list_by_group_id(group.id)
-
-    def get_group_shared_context_snapshot(self, group_id: str, context_ref: str, user):
-        group = self._get_group_or_raise(group_id)
-        if not self._can_read_group_resources(group, user):
-            raise AgentGroupServiceError(status_code=403, detail="Not allowed to read group shared contexts")
-        snapshot = self.context_snapshot_repo.get_by_group_and_ref(group.id, context_ref)
-        if not snapshot:
-            raise AgentGroupServiceError(status_code=404, detail="Shared context snapshot not found")
-        return snapshot

@@ -1772,10 +1772,10 @@ def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
     html = tpl.render(
         {
             "skills": [
-                {"name": "unsupported_skill", "description": "No opencode support", "capability_allowed": True, "permission_state": "allowed", "runtime_compatibility": "unsupported", "disabled": True, "disabled_reason": "Unsupported by this runtime", "prompt_only": False},
-                {"name": "permission_denied", "description": "Denied", "capability_allowed": True, "permission_state": "denied", "runtime_compatibility": "full", "disabled": True, "disabled_reason": "Denied by runtime permission", "prompt_only": False},
-                {"name": "prompt_only_skill", "description": "Prompt only", "capability_allowed": True, "permission_state": "ask", "runtime_compatibility": "prompt_only", "disabled": False, "disabled_reason": "", "prompt_only": True},
-                {"name": "full_skill", "description": "Full support", "capability_allowed": True, "permission_state": "allowed", "runtime_compatibility": "full", "disabled": False, "disabled_reason": "", "prompt_only": False},
+                {"name": "unsupported_skill", "description": "No opencode support", "catalog_available": True, "permission_state": "allowed", "runtime_compatibility": "unsupported", "disabled": True, "disabled_reason": "Unsupported by this runtime", "prompt_only": False},
+                {"name": "permission_denied", "description": "Denied", "catalog_available": True, "permission_state": "denied", "runtime_compatibility": "full", "disabled": True, "disabled_reason": "Denied by runtime permission", "prompt_only": False},
+                {"name": "prompt_only_skill", "description": "Prompt only", "catalog_available": True, "permission_state": "ask", "runtime_compatibility": "prompt_only", "disabled": False, "disabled_reason": "", "prompt_only": True},
+                {"name": "full_skill", "description": "Full support", "catalog_available": True, "permission_state": "allowed", "runtime_compatibility": "full", "disabled": False, "disabled_reason": "", "prompt_only": False},
             ]
         }
     )
@@ -1788,12 +1788,12 @@ def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
     assert "portal-status-badge" in html
 
 
-def test_annotate_skill_for_panel_allows_hyphen_skill_from_underscore_capability():
+def test_annotate_skill_for_panel_allows_hyphen_skill_from_runtime_catalog_alias():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.pool import StaticPool
     from app.db import Base
-    from app.models import Agent, CapabilityProfile, User
+    from app.models import Agent, RuntimeCapabilityCatalogSnapshot, User
     from app.services.auth_service import hash_password
     from app.web import _annotate_skill_for_panel
 
@@ -1803,15 +1803,12 @@ def test_annotate_skill_for_panel_allows_hyphen_skill_from_underscore_capability
     db = SessionLocal()
     try:
         user = User(username="skill-user", password_hash=hash_password("pw"), role="admin", is_active=True)
-        profile = CapabilityProfile(name="cap", skill_set_json='["review_pull_request"]')
-        db.add_all([user, profile])
+        db.add(user)
         db.commit()
         db.refresh(user)
-        db.refresh(profile)
         agent = Agent(
             name="agent",
             owner_user_id=user.id,
-            capability_profile_id=profile.id,
             status="running",
             image="img",
             deployment_name="dep",
@@ -1819,6 +1816,26 @@ def test_annotate_skill_for_panel_allows_hyphen_skill_from_underscore_capability
             pvc_name="pvc",
         )
         db.add(agent)
+        db.commit()
+        db.refresh(agent)
+        snapshot = RuntimeCapabilityCatalogSnapshot(
+            source_agent_id=agent.id,
+            catalog_source="runtime_api",
+            payload_json=json.dumps(
+                {
+                    "capabilities": [
+                        {
+                            "id": "skill:review-pull-request",
+                            "type": "skill",
+                            "name": "review_pull_request",
+                            "permission_state": "allowed",
+                            "runtime_compatibility": "full",
+                        }
+                    ]
+                }
+            ),
+        )
+        db.add(snapshot)
         db.commit()
         annotated = _annotate_skill_for_panel(
             db,
@@ -1830,7 +1847,7 @@ def test_annotate_skill_for_panel_allows_hyphen_skill_from_underscore_capability
                 "runtime_compatibility": "full",
             },
         )
-        assert annotated["capability_allowed"] is True
+        assert annotated["catalog_available"] is True
         assert annotated["disabled"] is False
         tpl = __import__("app.web", fromlist=["templates"]).templates.get_template("partials/skills_panel.html")
         html = tpl.render({"skills": [annotated]})

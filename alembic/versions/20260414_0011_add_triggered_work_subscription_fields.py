@@ -21,6 +21,12 @@ def _has_column(table_name: str, column_name: str) -> bool:
     return any(column.get("name") == column_name for column in inspector.get_columns(table_name))
 
 
+def _has_table(table_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    return table_name in inspector.get_table_names()
+
+
 def _has_index(table_name: str, index_name: str) -> bool:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
@@ -28,20 +34,22 @@ def _has_index(table_name: str, index_name: str) -> bool:
 
 
 def upgrade() -> None:
-    if not _has_column("external_event_subscriptions", "mode"):
-        op.add_column("external_event_subscriptions", sa.Column("mode", sa.String(length=16), nullable=True))
-    if not _has_column("external_event_subscriptions", "source_kind"):
-        op.add_column("external_event_subscriptions", sa.Column("source_kind", sa.String(length=128), nullable=True))
-    if not _has_column("external_event_subscriptions", "binding_id"):
-        op.add_column("external_event_subscriptions", sa.Column("binding_id", sa.String(length=36), nullable=True))
-    if not _has_column("external_event_subscriptions", "scope_json"):
-        op.add_column("external_event_subscriptions", sa.Column("scope_json", sa.Text(), nullable=True))
-    if not _has_column("external_event_subscriptions", "matcher_json"):
-        op.add_column("external_event_subscriptions", sa.Column("matcher_json", sa.Text(), nullable=True))
-    if not _has_column("external_event_subscriptions", "routing_json"):
-        op.add_column("external_event_subscriptions", sa.Column("routing_json", sa.Text(), nullable=True))
-    if not _has_column("external_event_subscriptions", "poll_profile_json"):
-        op.add_column("external_event_subscriptions", sa.Column("poll_profile_json", sa.Text(), nullable=True))
+    has_subscription_table = _has_table("external_event_subscriptions")
+    if has_subscription_table:
+        if not _has_column("external_event_subscriptions", "mode"):
+            op.add_column("external_event_subscriptions", sa.Column("mode", sa.String(length=16), nullable=True))
+        if not _has_column("external_event_subscriptions", "source_kind"):
+            op.add_column("external_event_subscriptions", sa.Column("source_kind", sa.String(length=128), nullable=True))
+        if not _has_column("external_event_subscriptions", "binding_id"):
+            op.add_column("external_event_subscriptions", sa.Column("binding_id", sa.String(length=36), nullable=True))
+        if not _has_column("external_event_subscriptions", "scope_json"):
+            op.add_column("external_event_subscriptions", sa.Column("scope_json", sa.Text(), nullable=True))
+        if not _has_column("external_event_subscriptions", "matcher_json"):
+            op.add_column("external_event_subscriptions", sa.Column("matcher_json", sa.Text(), nullable=True))
+        if not _has_column("external_event_subscriptions", "routing_json"):
+            op.add_column("external_event_subscriptions", sa.Column("routing_json", sa.Text(), nullable=True))
+        if not _has_column("external_event_subscriptions", "poll_profile_json"):
+            op.add_column("external_event_subscriptions", sa.Column("poll_profile_json", sa.Text(), nullable=True))
 
     if not _has_column("agent_tasks", "task_family"):
         op.add_column("agent_tasks", sa.Column("task_family", sa.String(length=64), nullable=True))
@@ -54,14 +62,14 @@ def upgrade() -> None:
     if not _has_column("agent_tasks", "dedupe_key"):
         op.add_column("agent_tasks", sa.Column("dedupe_key", sa.String(length=255), nullable=True))
 
-    if not _has_index("external_event_subscriptions", "ix_external_sub_agent_enabled_mode"):
+    if has_subscription_table and not _has_index("external_event_subscriptions", "ix_external_sub_agent_enabled_mode"):
         op.create_index(
             "ix_external_sub_agent_enabled_mode",
             "external_event_subscriptions",
             ["agent_id", "enabled", "mode"],
             unique=False,
         )
-    if not _has_index("external_event_subscriptions", "ix_external_sub_source_kind_enabled"):
+    if has_subscription_table and not _has_index("external_event_subscriptions", "ix_external_sub_source_kind_enabled"):
         op.create_index(
             "ix_external_sub_source_kind_enabled",
             "external_event_subscriptions",
@@ -69,12 +77,13 @@ def upgrade() -> None:
             unique=False,
         )
 
-    op.execute("UPDATE external_event_subscriptions SET mode = 'push' WHERE mode IS NULL")
-    op.execute(
-        "UPDATE external_event_subscriptions "
-        "SET source_kind = lower(coalesce(source_type, '')) || '.' || coalesce(event_type, '') "
-        "WHERE source_kind IS NULL"
-    )
+    if has_subscription_table:
+        op.execute("UPDATE external_event_subscriptions SET mode = 'push' WHERE mode IS NULL")
+        op.execute(
+            "UPDATE external_event_subscriptions "
+            "SET source_kind = lower(coalesce(source_type, '')) || '.' || coalesce(event_type, '') "
+            "WHERE source_kind IS NULL"
+        )
 
     op.execute(
         "UPDATE agent_tasks "
@@ -92,17 +101,12 @@ def upgrade() -> None:
         "SET trigger = 'workflow_review_requested' "
         "WHERE trigger IS NULL AND task_type = 'jira_workflow_review_task'"
     )
-    op.execute(
-        "UPDATE agent_tasks "
-        "SET dedupe_key = shared_context_ref "
-        "WHERE dedupe_key IS NULL AND shared_context_ref IS NOT NULL"
-    )
-
 
 def downgrade() -> None:
-    if _has_index("external_event_subscriptions", "ix_external_sub_source_kind_enabled"):
+    has_subscription_table = _has_table("external_event_subscriptions")
+    if has_subscription_table and _has_index("external_event_subscriptions", "ix_external_sub_source_kind_enabled"):
         op.drop_index("ix_external_sub_source_kind_enabled", table_name="external_event_subscriptions")
-    if _has_index("external_event_subscriptions", "ix_external_sub_agent_enabled_mode"):
+    if has_subscription_table and _has_index("external_event_subscriptions", "ix_external_sub_agent_enabled_mode"):
         op.drop_index("ix_external_sub_agent_enabled_mode", table_name="external_event_subscriptions")
 
     if _has_column("agent_tasks", "dedupe_key"):
@@ -116,17 +120,17 @@ def downgrade() -> None:
     if _has_column("agent_tasks", "task_family"):
         op.drop_column("agent_tasks", "task_family")
 
-    if _has_column("external_event_subscriptions", "poll_profile_json"):
+    if has_subscription_table and _has_column("external_event_subscriptions", "poll_profile_json"):
         op.drop_column("external_event_subscriptions", "poll_profile_json")
-    if _has_column("external_event_subscriptions", "routing_json"):
+    if has_subscription_table and _has_column("external_event_subscriptions", "routing_json"):
         op.drop_column("external_event_subscriptions", "routing_json")
-    if _has_column("external_event_subscriptions", "matcher_json"):
+    if has_subscription_table and _has_column("external_event_subscriptions", "matcher_json"):
         op.drop_column("external_event_subscriptions", "matcher_json")
-    if _has_column("external_event_subscriptions", "scope_json"):
+    if has_subscription_table and _has_column("external_event_subscriptions", "scope_json"):
         op.drop_column("external_event_subscriptions", "scope_json")
-    if _has_column("external_event_subscriptions", "binding_id"):
+    if has_subscription_table and _has_column("external_event_subscriptions", "binding_id"):
         op.drop_column("external_event_subscriptions", "binding_id")
-    if _has_column("external_event_subscriptions", "source_kind"):
+    if has_subscription_table and _has_column("external_event_subscriptions", "source_kind"):
         op.drop_column("external_event_subscriptions", "source_kind")
-    if _has_column("external_event_subscriptions", "mode"):
+    if has_subscription_table and _has_column("external_event_subscriptions", "mode"):
         op.drop_column("external_event_subscriptions", "mode")

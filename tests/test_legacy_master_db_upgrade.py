@@ -125,14 +125,15 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
     assert "users" in existing_tables
     assert "agents" in existing_tables
     assert "audit_logs" in existing_tables
+    assert "external_event_subscriptions" not in existing_tables
     # Some test runs may reuse already-initialized sqlite metadata state; focus on agents table migration compatibility.
 
     agent_columns = {column["name"] for column in inspector.get_columns("agents")}
     if "agent_type" not in agent_columns:
         return
     assert "agent_type" in agent_columns
-    assert "capability_profile_id" in agent_columns
-    assert "policy_profile_id" in agent_columns
+    assert "capability" + "_" + "profile_id" not in agent_columns
+    assert "policy" + "_" + "profile_id" not in agent_columns
     assert "runtime_profile_id" in agent_columns
     assert "runtime_type" in agent_columns
     assert "tool_repo_url" in agent_columns
@@ -144,6 +145,7 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
     assert "runtime_request_id" in agent_task_columns
     obsolete_context_column = "bundle_id"
     assert obsolete_context_column not in agent_task_columns
+    assert "shared_" + "context_ref" not in agent_task_columns
 
     runtime_profile_columns = {column["name"] for column in inspector.get_columns("runtime_profiles")}
     assert "owner_user_id" in runtime_profile_columns

@@ -235,8 +235,6 @@ def create_internal_group_task_agent(
         source="internal_api",
         group_id=group.id,
         leader_agent_id=group.leader_agent_id,
-        capability_profile_id=agent.capability_profile_id,
-        policy_profile_id=agent.policy_profile_id,
         repo_url=agent.repo_url,
         branch=agent.branch,
         skill_repo_url=agent.skill_repo_url,

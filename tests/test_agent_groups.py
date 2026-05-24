@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AuditLog, CapabilityProfile, PolicyProfile, User
+from app.models import Agent, AuditLog, User
 from app.services.auth_service import hash_password
 
 
@@ -581,8 +581,6 @@ def test_internal_specialist_pool_returns_expected_ids():
         assert body["items"][0]["agent_type"] == "specialist"
         assert body["items"][0]["status"] == "running"
         assert body["items"][0]["visibility"] == "private"
-        assert "capability_profile_id" in body["items"][0]
-        assert "policy_profile_id" in body["items"][0]
     finally:
         cleanup()
 
@@ -603,13 +601,6 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
 
         db_gen = app.dependency_overrides[groups_api.get_db]()
         db = next(db_gen)
-        capability_profile = CapabilityProfile(name="cap-group-template", skill_set_json='["review"]')
-        policy_profile = PolicyProfile(name="policy-group-template")
-        db.add(capability_profile)
-        db.add(policy_profile)
-        db.commit()
-        db.refresh(capability_profile)
-        db.refresh(policy_profile)
 
         specialist_template = Agent(
             name="Internal Template Specialist",
@@ -635,8 +626,6 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
             pvc_name="pvc-template-internal",
             endpoint_path="/",
             agent_type="specialist",
-            capability_profile_id=capability_profile.id,
-            policy_profile_id=policy_profile.id,
         )
         db.add(specialist_template)
         db.commit()
@@ -707,8 +696,6 @@ def test_internal_task_agent_create_delete_preserves_safeguards_for_internal_rou
         assert created["group_id"] == group["id"]
         assert created["leader_agent_id"] == group["leader_agent_id"]
         assert created["agent_type"] == "task"
-        assert created["capability_profile_id"] == capability_profile.id
-        assert created["policy_profile_id"] == policy_profile.id
         assert created["repo_url"] == runtime_repo
         assert created["branch"] == runtime_branch
         assert created["runtime_type"] == "opencode"

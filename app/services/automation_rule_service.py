@@ -10,7 +10,6 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.automation_rule_repo import AutomationRuleRepository
 from app.schemas.automation_rule import AutomationRuleCreate, AutomationRuleUpdate
-from app.services.capability_context_service import CapabilityContextService
 from app.services.github_comment_mention_poller import GithubCommentMentionPoller
 from app.services.github_pr_review_poller import GithubPrReviewPoller
 from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
@@ -93,7 +92,6 @@ class AutomationRuleService:
         self.dispatcher = TaskDispatcherService()
         self.poller = GithubPrReviewPoller()
         self.comment_mention_poller = GithubCommentMentionPoller()
-        self.capability_context_service = CapabilityContextService()
 
     @staticmethod
     def _parse_json(raw: str | None) -> dict:
@@ -315,7 +313,16 @@ class AutomationRuleService:
         update_data["updated_at"] = datetime.utcnow()
         return self.repo.update(rule, update_data)
 
-    def _stale_superseded_github_review_tasks_for_context(self, *, assignee_agent_id: str, shared_context_ref: str, new_head_sha: str | None, superseding_task_id: str) -> None:
+    def _stale_superseded_github_review_tasks_for_pr(
+        self,
+        *,
+        assignee_agent_id: str,
+        owner: str,
+        repo: str,
+        pull_number,
+        new_head_sha: str | None,
+        superseding_task_id: str,
+    ) -> None:
         stale_payload = json.dumps(
             {
                 "ok": False,
@@ -325,16 +332,24 @@ class AutomationRuleService:
                 "superseded_by_head_sha": new_head_sha,
             }
         )
-        candidates = self.task_repo.list_active_tasks_for_context(
+        candidates = self.task_repo.list_active_tasks_for_automation_item(
             assignee_agent_id=assignee_agent_id,
-            shared_context_ref=shared_context_ref,
             task_type="github_review_task",
+            provider="github",
+            trigger=GITHUB_PR_REVIEW_TRIGGER,
         )
         to_update = []
         for task in candidates:
             if task.id == superseding_task_id:
                 continue
             if new_head_sha and task.version_key == new_head_sha:
+                continue
+            task_payload = self._parse_json(task.input_payload_json)
+            if str(task_payload.get("owner") or "") != str(owner or ""):
+                continue
+            if str(task_payload.get("repo") or "") != str(repo or ""):
+                continue
+            if str(task_payload.get("pull_number") or "") != str(pull_number or ""):
                 continue
             task.status = "stale"
             task.result_payload_json = stale_payload
@@ -359,36 +374,16 @@ class AutomationRuleService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     def _validate_agent_can_run_github_comment_mention_rule(self, *, agent_id: str, skill_name: str, surfaces: list[str], reply_mode: str) -> None:
+        _ = skill_name, surfaces, reply_mode
         agent = AgentRepository(self.db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent not found")
-        profile_id, resolved = self.capability_context_service.resolve_for_agent(self.db, agent)
-        context = self.capability_context_service.build_runtime_capability_context(profile_id, resolved, db=self.db, agent_id=agent.id)
-        allowed_external_systems = {str(item).strip().lower() for item in context.get("allowed_external_systems", []) if str(item).strip()}
-        if allowed_external_systems and "github" not in allowed_external_systems:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
-        allowed_webhook_triggers = {str(item).strip().lower() for item in context.get("allowed_webhook_triggers", []) if str(item).strip()}
-        if allowed_webhook_triggers and not ({"github_comment_mention", "github.comment_mention", "github.mention"} & allowed_webhook_triggers):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
-        if context.get("skill_set"):
-            skill_allowance = self.capability_context_service.get_skill_allowance_detail(self.db, agent, skill_name)
-            if not skill_allowance.allowed:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
-        allowed_actions = {str(item).strip().lower() for item in context.get("allowed_actions", []) if str(item).strip()}
-        allowed_adapter_actions = {str(item).strip().lower() for item in context.get("allowed_adapter_actions", []) if str(item).strip()}
-        combined = allowed_actions | allowed_adapter_actions
-        if allowed_actions or allowed_adapter_actions:
-            surface_set = set(surfaces)
-            if "issue_comment" in surface_set and not ({"add_comment", "adapter:github:add_comment"} & combined):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
-            if "pull_request_review_comment" in surface_set:
-                required = {"add_comment", "adapter:github:add_comment"} if reply_mode == "timeline" else {"reply_review_comment", "adapter:github:reply_review_comment"}
-                if not (required & combined):
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
-            if "commit_comment" in surface_set and not ({"add_commit_comment", "adapter:github:add_commit_comment"} & combined):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
-            if "discussion_comment" in surface_set and not ({"add_discussion_comment", "adapter:github:add_discussion_comment"} & combined):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub comment mention automation")
+        try:
+            resolve_github_for_agent(self.db, agent.id)
+        except ProviderConfigResolverError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     def create_github_review_task_for_discovered_item(self, *, rule, item: dict, task_cfg: dict) -> tuple[object | None, bool]:
         owner = item.get("owner")
@@ -432,7 +427,6 @@ class AutomationRuleService:
             return None, True
 
         skill_name = str(task_cfg.get("skill_name") or "review-pull-request").strip() or "review-pull-request"
-        shared_context_ref = f"github:pr_review:{owner}/{repo}:{pull_number}"
         input_payload = {
             "source": "automation_rule",
             "automation_rule": "github.pr_review_requested",
@@ -452,7 +446,6 @@ class AutomationRuleService:
             "skill_name": skill_name,
             "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
             "writeback_mode": task_cfg.get("writeback_mode"),
-            "shared_context_ref": shared_context_ref,
             "dedupe_key": dedupe_key,
         }
         try:
@@ -465,7 +458,6 @@ class AutomationRuleService:
                 task_type="github_review_task",
                 skill_name=skill_name,
                 input_payload_json=json.dumps(input_payload),
-                shared_context_ref=shared_context_ref,
                 task_family="review",
                 provider="github",
                 trigger=GITHUB_PR_REVIEW_TRIGGER,
@@ -480,9 +472,11 @@ class AutomationRuleService:
             if refreshed:
                 self.repo.update_event_status(refreshed, status="failed", task_id=None, error_message=str(exc)[:500])
             raise
-        self._stale_superseded_github_review_tasks_for_context(
+        self._stale_superseded_github_review_tasks_for_pr(
             assignee_agent_id=rule.target_agent_id,
-            shared_context_ref=shared_context_ref,
+            owner=owner,
+            repo=repo,
+            pull_number=pull_number,
             new_head_sha=head_sha,
             superseding_task_id=task.id,
         )
@@ -837,19 +831,19 @@ class AutomationRuleService:
         pull_number = item.get("pull_number") or item.get("issue_number")
         root_id = item.get("in_reply_to_id") or item.get("review_comment_id") or item.get("comment_id")
         if comment_kind == "pull_request_review_comment":
-            session_id = f"github:mention:{owner}/{repo}:review_thread:{pull_number}:{root_id}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:review_thread:{pull_number}:{root_id}"
+            session_id = f"github:mention:{owner}/{repo}:review_thread:{pull_number}:{root_id}:{mention_target}"
         elif context_type == "pull_request":
-            session_id = f"github:mention:{owner}/{repo}:pull_request:{pull_number}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:pull_request:{pull_number}"
+            session_id = f"github:mention:{owner}/{repo}:pull_request:{pull_number}:{mention_target}"
         elif comment_kind == "commit_comment":
             commit_id = item.get("commit_id")
-            session_id = f"github:mention:{owner}/{repo}:commit:{commit_id}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:commit:{commit_id}"
+            session_id = f"github:mention:{owner}/{repo}:commit:{commit_id}:{mention_target}"
         elif comment_kind == "discussion_comment":
             discussion_id = item.get("discussion_id")
             discussion_number = item.get("discussion_number")
             discussion_comment_id = item.get("discussion_comment_id") or item.get("comment_id")
-            session_id = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}:{discussion_comment_id}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}"
+            session_id = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}:{discussion_comment_id}:{mention_target}"
         else:
-            issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:issue:{issue_number}"
+            issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"
         try:
             missing_required = [
                 field
@@ -905,7 +899,6 @@ class AutomationRuleService:
                 "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
                 "reply_mode": task_cfg.get("reply_mode", "same_surface"),
                 "session_id": session_id,
-                "shared_context_ref": shared_context_ref,
                 "dedupe_key": dedupe_key,
             }
             task = self.task_repo.create(
@@ -917,7 +910,6 @@ class AutomationRuleService:
                 task_type="triggered_event_task",
                 skill_name=skill_name,
                 input_payload_json=json.dumps(input_payload),
-                shared_context_ref=shared_context_ref,
                 task_family="triggered_work",
                 provider="github",
                 trigger=GITHUB_COMMENT_MENTION_TRIGGER,

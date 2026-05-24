@@ -13,7 +13,6 @@ from app.redaction import redact_text, sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.proxy_service import ProxyService
-from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
 logger = logging.getLogger(__name__)
@@ -37,7 +36,6 @@ _project_llm_for_runtime = project_llm_for_runtime
 class RuntimeProfileSyncService:
     def __init__(self, proxy_service: ProxyService | None = None) -> None:
         self.proxy_service = proxy_service or ProxyService()
-        self.execution_context_service = RuntimeExecutionContextService()
 
     @staticmethod
     def _portal_trusted_headers() -> dict[str, str]:
@@ -59,14 +57,6 @@ class RuntimeProfileSyncService:
 
     def build_clear_payload_for_agent(self, _db: Session, _agent) -> dict:
         return self.build_clear_payload()
-
-    @staticmethod
-    def _skill_aliases(skill_name: str) -> set[str]:
-        raw = str(skill_name or "").strip().lower()
-        if not raw:
-            return set()
-        hyphen = raw.replace("_", "-")
-        return {raw, hyphen, f"skill:{raw}", f"skill:{hyphen}", f"opencode.skill.{raw}", f"opencode.skill.{hyphen}"}
 
     @staticmethod
     def _as_string_list(value) -> list[str]:
@@ -145,54 +135,8 @@ class RuntimeProfileSyncService:
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
-    def _merge_agent_runtime_context_into_config(self, config: dict, execution_context: dict) -> dict:
-        merged = deepcopy(config) if isinstance(config, dict) else {}
-        capability_context = dict((execution_context or {}).get("capability_context") or {})
-        policy_context = dict((execution_context or {}).get("policy_context") or {})
-
-        skill_aliases: list[str] = []
-        for skill_name in self._as_string_list(capability_context.get("skill_set")):
-            skill_aliases.extend(sorted(self._skill_aliases(skill_name)))
-
-        merged["capability_context"] = capability_context
-        merged["policy_context"] = policy_context
-
-        merged["allowed_capability_ids"] = self._merge_string_lists(
-            merged.get("allowed_capability_ids"),
-            capability_context.get("allowed_capability_ids"),
-            skill_aliases,
-        )
-        merged["allowed_capability_types"] = self._filter_broad_capability_types(
-            self._merge_string_lists(
-                merged.get("allowed_capability_types"),
-                capability_context.get("allowed_capability_types"),
-            )
-        )
-        merged["allowed_external_systems"] = self._merge_string_lists(
-            merged.get("allowed_external_systems"),
-            capability_context.get("allowed_external_systems"),
-        )
-        merged["allowed_actions"] = self._merge_string_lists(
-            merged.get("allowed_actions"),
-            capability_context.get("allowed_actions"),
-        )
-        merged["allowed_adapter_actions"] = self._merge_string_lists(
-            merged.get("allowed_adapter_actions"),
-            capability_context.get("allowed_adapter_actions"),
-        )
-        existing_rules = self._as_dict(merged.get("derived_runtime_rules"))
-        policy_rules = self._as_dict(policy_context.get("derived_runtime_rules"))
-        merged["derived_runtime_rules"] = {**existing_rules, **policy_rules}
-        for key in ["unresolved_tools", "unresolved_skills", "unresolved_channels", "unresolved_actions"]:
-            merged[key] = capability_context.get(key) or []
-        merged["resolved_action_mappings"] = capability_context.get("resolved_action_mappings") or {}
-        merged["runtime_capability_catalog_version"] = capability_context.get("runtime_capability_catalog_version")
-        merged["runtime_capability_catalog_source"] = capability_context.get("runtime_capability_catalog_source")
-        merged["catalog_validation_mode"] = capability_context.get("catalog_validation_mode")
-        merged["skill_details"] = capability_context.get("skill_details") or []
-        return merged
-
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:
+        _ = db
         payload = self.build_apply_payload_from_profile(runtime_profile)
         runtime_type = getattr(agent, "runtime_type", "") or "native"
         payload["runtime_type"] = runtime_type
@@ -210,12 +154,9 @@ class RuntimeProfileSyncService:
             "allowed_external_systems",
             "allowed_actions",
             "allowed_adapter_actions",
-            "derived_runtime_rules",
         ]:
             if key in raw_config and key not in payload["config"]:
                 payload["config"][key] = deepcopy(raw_config.get(key))
-        execution_context = self.execution_context_service.build_for_agent(db, agent)
-        payload["config"] = self._merge_agent_runtime_context_into_config(payload["config"], execution_context)
         self._grant_github_pr_review_from_runtime_profile(payload["config"])
         payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
         return payload

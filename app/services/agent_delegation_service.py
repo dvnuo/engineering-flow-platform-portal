@@ -12,9 +12,7 @@ from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.audit_repo import AuditRepository
-from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.schemas.agent_delegation import AgentDelegationCreateRequest, InternalAgentDelegationCreateRequest
-from app.services.capability_context_service import CapabilityContextService
 from app.services.task_dispatcher import TaskDispatcherService
 
 
@@ -53,25 +51,9 @@ class AgentDelegationService:
         self.agent_repo = AgentRepository(db)
         self.task_repo = AgentTaskRepository(db)
         self.delegation_repo = AgentDelegationRepository(db)
-        self.context_snapshot_repo = GroupSharedContextSnapshotRepository(db)
         self.run_repo = AgentCoordinationRunRepository(db)
         self.audit_repo = AuditRepository(db)
         self.dispatcher = TaskDispatcherService()
-        self.capability_context_service = CapabilityContextService()
-
-    def _assert_skill_allowed_for_agent(self, agent, skill_name: str, error_prefix: str) -> None:
-        allowance = self.capability_context_service.get_skill_allowance_detail(self.db, agent, skill_name)
-        if allowance.allowed:
-            return
-        if allowance.reason == "empty_skill_set":
-            raise AgentDelegationServiceError(
-                status_code=422,
-                detail=f"{error_prefix} capability profile has empty skill_set; skill '{allowance.normalized_skill_name}' is not allowed",
-            )
-        raise AgentDelegationServiceError(
-            status_code=422,
-            detail=f"{error_prefix} capability profile does not allow skill '{allowance.normalized_skill_name}'",
-        )
 
     @staticmethod
     def _parse_json_object(raw: str | None, field_name: str, default_value: dict | None = None) -> dict:
@@ -272,7 +254,6 @@ class AgentDelegationService:
             raise AgentDelegationServiceError(status_code=404, detail="Assignee agent not found")
         if assignee_agent.agent_type not in {"specialist", "task"}:
             raise AgentDelegationServiceError(status_code=422, detail="Assignee agent must be a specialist or task agent")
-        self._assert_skill_allowed_for_agent(assignee_agent, normalized.skill_name, "Assignee agent")
 
         pool_ids: list[str] = []
         has_explicit_pool = bool(group.specialist_agent_pool_json and group.specialist_agent_pool_json.strip())
@@ -302,7 +283,6 @@ class AgentDelegationService:
                 template_agent = self.agent_repo.get_by_id(template_agent_id)
                 if not template_agent:
                     raise AgentDelegationServiceError(status_code=404, detail="task_agent_template_id agent not found")
-                self._assert_skill_allowed_for_agent(template_agent, normalized.skill_name, "Template agent")
 
         if normalized.parent_agent_id and not self.agent_repo.get_by_id(normalized.parent_agent_id):
             raise AgentDelegationServiceError(status_code=404, detail="Parent agent not found")
@@ -310,11 +290,6 @@ class AgentDelegationService:
         effective_scoped_context_ref = (normalized.scoped_context_ref or "").strip() or None
         if normalized.scoped_context_payload is not None and not effective_scoped_context_ref:
             effective_scoped_context_ref = f"ctx-{uuid4()}"
-
-        if effective_scoped_context_ref and normalized.scoped_context_payload is None:
-            existing_snapshot = self.context_snapshot_repo.get_by_group_and_ref(normalized.group_id, effective_scoped_context_ref)
-            if not existing_snapshot:
-                raise AgentDelegationServiceError(status_code=409, detail="Shared context snapshot not found")
 
         ephemeral_policy = self._parse_json_object(group.ephemeral_agent_policy_json, "ephemeral_agent_policy_json", default_value={})
 
@@ -372,16 +347,6 @@ class AgentDelegationService:
                     completed_at=None,
                 )
 
-        if normalized.scoped_context_payload is not None and effective_scoped_context_ref:
-            self.context_snapshot_repo.upsert_by_group_and_ref(
-                group_id=normalized.group_id,
-                context_ref=effective_scoped_context_ref,
-                scope_kind="delegation",
-                payload_json=json.dumps(normalized.scoped_context_payload),
-                created_by_user_id=getattr(user, "id", None),
-                source_delegation_id=delegation.id,
-            )
-
         task_input_payload = {
             "delegation_id": delegation.id,
             "group_id": normalized.group_id,
@@ -401,6 +366,7 @@ class AgentDelegationService:
             "task_agent_scope": effective_scoped_context_ref or getattr(assignee_agent, "task_scope_label", None) or normalized.skill_kwargs.get("scope_label"),
             "task_agent_cleanup_policy": getattr(assignee_agent, "task_cleanup_policy", None) or normalized.skill_kwargs.get("cleanup_policy") or ephemeral_policy.get("cleanup_policy"),
             "scoped_context_ref": effective_scoped_context_ref,
+            "scoped_context_payload": normalized.scoped_context_payload,
             "input_artifacts": normalized.input_artifacts,
             "expected_output_schema": normalized.expected_output_schema,
             "deadline": normalized.deadline_at.isoformat() if normalized.deadline_at else None,
@@ -418,7 +384,6 @@ class AgentDelegationService:
             assignee_agent_id=normalized.assignee_agent_id,
             owner_user_id=assignee_agent.owner_user_id,
             created_by_user_id=getattr(user, "id", None),
-            shared_context_ref=effective_scoped_context_ref,
             input_payload_json=json.dumps(task_input_payload),
             status="queued",
             result_payload_json=None,

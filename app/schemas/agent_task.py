@@ -16,7 +16,6 @@ class AgentTaskCreateRequest(BaseModel):
     root_task_id: Optional[str] = None
     task_session_id: Optional[str] = None
     input_payload_json: Optional[str] = None
-    shared_context_ref: Optional[str] = None
     task_family: Optional[str] = None
     provider: Optional[str] = None
     trigger: Optional[str] = None
@@ -50,7 +49,6 @@ class AgentTaskResponse(BaseModel):
     root_task_id: Optional[str] = None
     task_session_id: Optional[str] = None
     input_payload_json: Optional[str] = None
-    shared_context_ref: Optional[str] = None
     task_family: Optional[str] = None
     provider: Optional[str] = None
     trigger: Optional[str] = None

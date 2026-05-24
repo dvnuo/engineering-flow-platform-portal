@@ -40,11 +40,10 @@ def test_app_chat_send_forwards_identity_and_trace_headers(monkeypatch):
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
         lambda _db, _agent: {
-            "capability_profile_id": "cap-web",
-            "policy_profile_id": "pol-web",
-            "allowed_capability_ids": ["tool:shell"],
-            "policy_context": {"policy_profile_id": "pol-web"},
-            "governance_require_explicit_allow": True,
+            "runtime_profile_id": "rp-web",
+            "runtime_profile": {"id": "rp-web", "name": "Web Runtime"},
+            "provider": "openai",
+            "model": "gpt-5",
         },
     )
 
@@ -67,9 +66,8 @@ def test_app_chat_send_forwards_identity_and_trace_headers(monkeypatch):
     assert forwarded_payload["attachments"] == [{"id": "file-1"}]
     assert "portal_user_id" not in forwarded_payload
     assert "portal_user_name" not in forwarded_payload
-    assert forwarded_payload["metadata"]["capability_profile_id"] == "cap-web"
-    assert forwarded_payload["metadata"]["policy_profile_id"] == "pol-web"
-    assert forwarded_payload["metadata"]["policy_context"]["policy_profile_id"] == "pol-web"
+    assert forwarded_payload["metadata"]["runtime_profile_id"] == "rp-web"
+    assert forwarded_payload["metadata"]["runtime_profile"]["name"] == "Web Runtime"
 
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "123"
@@ -117,10 +115,8 @@ def test_app_chat_send_drops_form_identity_and_uses_portal_identity_and_trace_he
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
         lambda _db, _agent: {
-            "capability_profile_id": "cap-web",
-            "policy_profile_id": "pol-web",
-            "allowed_capability_ids": ["tool:shell"],
-            "policy_context": {"policy_profile_id": "pol-web"},
+            "runtime_profile_id": "rp-web",
+            "runtime_profile": {"id": "rp-web", "name": "Web Runtime"},
         },
     )
 
@@ -142,8 +138,7 @@ def test_app_chat_send_drops_form_identity_and_uses_portal_identity_and_trace_he
     assert "portal_user_name" not in forwarded_payload
     assert forwarded_payload["message"] == "hello"
     assert forwarded_payload["attachments"] == [{"id": "file-2"}]
-    assert forwarded_payload["metadata"]["capability_profile_id"] == "cap-web"
-    assert forwarded_payload["metadata"]["policy_profile_id"] == "pol-web"
+    assert forwarded_payload["metadata"]["runtime_profile_id"] == "rp-web"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "456"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Bob"
     assert captured["extra_headers"]["X-Portal-Agent-Name"] == "Agent One"
@@ -180,8 +175,7 @@ def test_app_chat_send_succeeds_with_standard_form_fields(monkeypatch):
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
         lambda _db, _agent: {
-            "capability_profile_id": "cap-web",
-            "policy_profile_id": "pol-web",
+            "runtime_profile_id": "rp-web",
         },
     )
 
@@ -233,7 +227,7 @@ def test_app_chat_send_includes_display_blocks_attribute(monkeypatch):
     monkeypatch.setattr(
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
-        lambda _db, _agent: {"capability_profile_id": "cap-web", "policy_profile_id": "pol-web"},
+        lambda _db, _agent: {"runtime_profile_id": "rp-web"},
     )
 
     async def _fake_forward(**_kwargs):
@@ -287,7 +281,7 @@ def test_app_chat_send_uses_content_when_response_missing(monkeypatch):
     monkeypatch.setattr(
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
-        lambda _db, _agent: {"capability_profile_id": "cap-web", "policy_profile_id": "pol-web"},
+        lambda _db, _agent: {"runtime_profile_id": "rp-web"},
     )
 
     async def _fake_forward(**_kwargs):
@@ -341,7 +335,7 @@ def test_app_chat_send_does_not_emit_empty_response_placeholder_with_display_blo
     monkeypatch.setattr(
         web_module.runtime_execution_context_service,
         "build_runtime_metadata",
-        lambda _db, _agent: {"capability_profile_id": "cap-web", "policy_profile_id": "pol-web"},
+        lambda _db, _agent: {"runtime_profile_id": "rp-web"},
     )
 
     async def _fake_forward(**_kwargs):

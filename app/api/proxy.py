@@ -167,8 +167,6 @@ def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: 
     enriched = dict(payload)
     _ = user
     enriched.pop("metadata", None)
-    enriched.pop("capability_context", None)
-    enriched.pop("policy_context", None)
     enriched.pop("portal_user_id", None)
     enriched.pop("portal_user_name", None)
 

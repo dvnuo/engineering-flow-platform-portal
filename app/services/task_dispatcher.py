@@ -23,7 +23,6 @@ from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRep
 from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
 from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
@@ -116,23 +115,6 @@ class TaskDispatcherService:
         if raw_response_preview:
             payload["raw_response_preview"] = raw_response_preview
         return json.dumps(payload)
-
-    def _build_shared_context_not_found_payload(
-        self,
-        group_id: str | None,
-        context_ref: str,
-        trace_context: dict[str, str] | None = None,
-    ) -> str:
-        trace_context = trace_context or {}
-        return json.dumps({
-            "ok": False,
-            "error_code": "shared_context_not_found",
-            "message": "Shared context snapshot not found for delegation task",
-            "group_id": group_id,
-            "shared_context_ref": context_ref,
-            "trace_id": trace_context.get("trace_id"),
-            "portal_dispatch_id": trace_context.get("portal_dispatch_id"),
-        })
 
     @staticmethod
     def _extract_delegation_result(normalized_result_payload_json: str | None) -> tuple[dict | None, str | None]:
@@ -437,14 +419,12 @@ class TaskDispatcherService:
 
     def _grant_github_pr_review_runtime_metadata(self, metadata: dict) -> None:
         adapter_action = "adapter:github:review_pull_request"
-        metadata["capability_profile_id"] = None
         metadata["authorization_source"] = "runtime_profile"
         metadata["allowed_external_systems"] = ["github"]
         metadata["allowed_actions"] = ["review_pull_request"]
         metadata["allowed_adapter_actions"] = [adapter_action]
         metadata["allowed_capability_ids"] = [adapter_action]
         metadata["allowed_capability_types"] = ["adapter_action"]
-        metadata["allowed_webhook_triggers"] = []
         metadata["resolved_action_mappings"] = {"review_pull_request": adapter_action}
         metadata["unresolved_tools"] = []
         metadata["unresolved_skills"] = []
@@ -730,7 +710,6 @@ class TaskDispatcherService:
         task_repo = AgentTaskRepository(db)
         agent_repo = AgentRepository(db)
         delegation_repo = AgentDelegationRepository(db)
-        context_repo = GroupSharedContextSnapshotRepository(db)
 
         try:
             task = task_repo.get_by_id(task_id)
@@ -815,7 +794,6 @@ class TaskDispatcherService:
                     "portal_task_source": task.source,
                     "portal_task_type": task.task_type,
                     "portal_task_family": task.task_family,
-                    "shared_context_ref": task.shared_context_ref,
                     "current_task_id": task.id,
                     "source_type": task.source or "portal",
                     "source_ref": task.id,
@@ -853,7 +831,7 @@ class TaskDispatcherService:
                 execution_mode = input_payload.get("execution_mode")
                 if execution_mode:
                     metadata["portal_execution_mode"] = str(execution_mode)
-                dedupe_hint = task.shared_context_ref
+                dedupe_hint = task.dedupe_key or task.version_key
                 if dedupe_hint:
                     metadata["portal_dedupe_hint"] = dedupe_hint
                 if task.task_type == "agent_async_task":
@@ -871,7 +849,6 @@ class TaskDispatcherService:
                     if not isinstance(existing_system_prompt, str) or not existing_system_prompt.strip():
                         metadata["system_prompt"] = autonomous_instruction.strip()
 
-                materialized_context_ref = None
                 if task.task_type == "delegation_task":
                     delegation = delegation_repo.find_by_agent_task_id(task.id)
                     if delegation:
@@ -904,53 +881,11 @@ class TaskDispatcherService:
                     if input_payload.get("task_agent_cleanup_policy"):
                         metadata["task_agent_cleanup_policy"] = input_payload.get("task_agent_cleanup_policy")
 
-                    if task.shared_context_ref:
-                        snapshot = context_repo.get_by_group_and_ref(task.group_id or "", task.shared_context_ref) if task.group_id else None
-                        if not snapshot:
-                            failure_payload = self._build_shared_context_not_found_payload(
-                                task.group_id,
-                                task.shared_context_ref,
-                                trace_context=trace_context,
-                            )
-                            task = self._mark_task_failed(
-                                task=task,
-                                task_repo=task_repo,
-                                result_payload_json=failure_payload,
-                                error_message="Shared context snapshot not found",
-                            )
-                            if delegation:
-                                delegation.status = "failed"
-                                delegation_repo.save(delegation)
-                            return AgentTaskDispatchResult(False, task.id, None, task.status, "Shared context snapshot not found", task.result_payload_json)
-                        try:
-                            parsed_payload = json.loads(snapshot.payload_json)
-                        except json.JSONDecodeError:
-                            parsed_payload = None
-                        if not isinstance(parsed_payload, dict):
-                            failure_payload = self._build_failure_payload(
-                                "invalid_shared_context_payload",
-                                "Persisted shared context payload must be a JSON object",
-                                trace_context=trace_context,
-                            )
-                            task = self._mark_task_failed(
-                                task=task,
-                                task_repo=task_repo,
-                                result_payload_json=failure_payload,
-                                error_message="Persisted shared context payload must be a JSON object",
-                            )
-                            if delegation:
-                                delegation.status = "failed"
-                                delegation_repo.save(delegation)
-                            return AgentTaskDispatchResult(False, task.id, None, task.status, "Invalid shared context payload", task.result_payload_json)
-                        materialized_context_ref = parsed_payload
-
                 runtime_body = {
                     "task_id": task.id,
                     "task_type": task.task_type,
                     "input_payload": input_payload,
                     "source": task.source,
-                    "shared_context_ref": task.shared_context_ref,
-                    "context_ref": materialized_context_ref,
                     "metadata": metadata,
                 }
                 leader_session_id = (getattr(delegation, "origin_session_id", None) if delegation else None) or input_payload.get("leader_session_id")
@@ -990,7 +925,7 @@ class TaskDispatcherService:
                     return AgentTaskDispatchResult(False, task.id, None, task.status, f"Runtime URL resolution failed: {error_message}", task.result_payload_json)
 
                 logger.debug(
-                    "Prepared runtime dispatch body runtime_url=%s task_id=%s task_type=%s agent_id=%s service_name=%s namespace=%s source=%s shared_context_ref=%s has_session_id=%s input_payload_keys=%s metadata_keys=%s",
+                    "Prepared runtime dispatch body runtime_url=%s task_id=%s task_type=%s agent_id=%s service_name=%s namespace=%s source=%s has_session_id=%s input_payload_keys=%s metadata_keys=%s",
                     runtime_url,
                     task.id,
                     task.task_type,
@@ -998,7 +933,6 @@ class TaskDispatcherService:
                     getattr(agent, "service_name", "-"),
                     getattr(agent, "namespace", "-"),
                     task.source,
-                    task.shared_context_ref,
                     "session_id" in runtime_body,
                     sorted(input_payload.keys()),
                     sorted(metadata.keys()),

@@ -6,8 +6,6 @@ from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRep
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.audit_repo import AuditRepository
-from app.repositories.capability_profile_repo import CapabilityProfileRepository
-from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 
 
@@ -108,26 +106,6 @@ def test_audit_repo_create():
     mock_db = MagicMock()
     repo = AuditRepository(mock_db)
     assert hasattr(repo, 'create')
-
-
-def test_capability_profile_repo_methods():
-    mock_db = MagicMock()
-    repo = CapabilityProfileRepository(mock_db)
-    assert hasattr(repo, "create")
-    assert hasattr(repo, "get_by_id")
-    assert hasattr(repo, "list_all")
-    assert hasattr(repo, "save")
-    assert hasattr(repo, "delete")
-
-
-def test_policy_profile_repo_methods():
-    mock_db = MagicMock()
-    repo = PolicyProfileRepository(mock_db)
-    assert hasattr(repo, "create")
-    assert hasattr(repo, "get_by_id")
-    assert hasattr(repo, "list_all")
-    assert hasattr(repo, "save")
-    assert hasattr(repo, "delete")
 
 
 def test_agent_identity_binding_repo_methods():

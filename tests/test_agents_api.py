@@ -25,8 +25,6 @@ def test_agent_model_fields():
     assert "visibility" in columns
     assert "owner_user_id" in columns
     assert "agent_type" in columns
-    assert "capability_profile_id" in columns
-    assert "policy_profile_id" in columns
     assert "runtime_profile_id" in columns
     assert "runtime_type" in columns
     assert "tool_repo_url" in columns
@@ -43,8 +41,6 @@ def test_agent_response_schema():
     assert "status" in fields
     assert "visibility" in fields
     assert "agent_type" in fields
-    assert "capability_profile_id" in fields
-    assert "policy_profile_id" in fields
     assert "skill_repo_url" in fields
     assert "skill_branch" in fields
     assert "runtime_type" in fields
@@ -65,8 +61,6 @@ def test_agent_response_normalizes_legacy_repo_url():
         cpu="250m",
         memory="512Mi",
         agent_type="workspace",
-        capability_profile_id=None,
-        policy_profile_id=None,
         disk_size_gi=20,
         description=None,
         last_error=None,
@@ -92,8 +86,6 @@ def test_agent_response_normalizes_skill_repo_url():
         cpu="250m",
         memory="512Mi",
         agent_type="workspace",
-        capability_profile_id=None,
-        policy_profile_id=None,
         disk_size_gi=20,
         description=None,
         last_error=None,

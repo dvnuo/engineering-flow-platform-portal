@@ -26,7 +26,6 @@ class AgentGroupMemberResponse(BaseModel):
 class AgentGroupCreateRequest(BaseModel):
     name: str
     leader_agent_id: str
-    shared_context_policy_json: str | None = None
     task_routing_policy_json: str | None = None
     ephemeral_agent_policy_json: str | None = None
     member_user_ids: list[int] = Field(default_factory=list)
@@ -38,7 +37,6 @@ class AgentGroupResponse(BaseModel):
     id: str
     name: str
     leader_agent_id: str
-    shared_context_policy_json: str | None = None
     task_routing_policy_json: str | None = None
     ephemeral_agent_policy_json: str | None = None
     specialist_agent_pool_json: str | None = None
@@ -60,7 +58,6 @@ class AgentGroupTaskCreateRequest(BaseModel):
     source: str
     task_type: str
     input_payload_json: str | None = None
-    shared_context_ref: str | None = None
     status: str = "queued"
     result_payload_json: str | None = None
     retry_count: int = 0
@@ -91,8 +88,6 @@ class InternalAgentGroupSpecialistPoolItemResponse(BaseModel):
     agent_type: str
     status: str
     visibility: str
-    capability_profile_id: str | None = None
-    policy_profile_id: str | None = None
 
 
 class InternalAgentGroupSpecialistPoolResponse(BaseModel):
@@ -163,8 +158,6 @@ class InternalAgentGroupTaskAgentCreateResponse(BaseModel):
     source: str
     group_id: str
     leader_agent_id: str
-    capability_profile_id: str | None = None
-    policy_profile_id: str | None = None
     repo_url: str | None = None
     branch: str | None = None
     skill_repo_url: str | None = None

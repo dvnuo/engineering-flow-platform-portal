@@ -17,8 +17,6 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
         visibility="private",
         status="running",
         name="Agent One",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():
@@ -39,7 +37,7 @@ def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
-            lambda _db, _agent: {"capability_profile_id": None, "policy_profile_id": None, "policy_context": {"policy_profile_id": None}},
+            lambda _db, _agent: {"runtime_profile_id": None},
         )
     
         captured = {}
@@ -92,8 +90,6 @@ def test_proxy_agent_restricts_config_save_for_non_owner(monkeypatch):
         owner_user_id=55,
         visibility="public",
         status="running",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():
@@ -113,7 +109,7 @@ def test_proxy_agent_restricts_config_save_for_non_owner(monkeypatch):
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
-            lambda _db, _agent: {"capability_profile_id": None, "policy_profile_id": None},
+            lambda _db, _agent: {"runtime_profile_id": None},
         )
 
         async def _fake_forward(**kwargs):
@@ -280,8 +276,6 @@ def test_enrich_chat_payload_replaces_metadata_but_keeps_model_override():
         "model_override": "gpt-5",
     }
     runtime_metadata = {
-        "capability_profile_id": "cap-1",
-        "policy_profile_id": "pol-1",
         "runtime_profile_id": "rp-1",
         "llm_tool_loop": {"one_tool_per_turn": True},
     }
@@ -539,8 +533,6 @@ def test_proxy_agent_allows_session_manage_endpoints_for_owner(monkeypatch):
         owner_user_id=55,
         visibility="private",
         status="running",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():
@@ -560,7 +552,7 @@ def test_proxy_agent_allows_session_manage_endpoints_for_owner(monkeypatch):
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
-            lambda _db, _agent: {"capability_profile_id": None, "policy_profile_id": None},
+            lambda _db, _agent: {"runtime_profile_id": None},
         )
 
         captured = []
@@ -609,8 +601,6 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
         visibility="private",
         status="running",
         name="Agent One",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -631,11 +621,10 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
             lambda _db, _agent: {
-                "capability_profile_id": "server-cap",
-                "policy_profile_id": "server-pol",
-                "allowed_capability_ids": ["tool:shell"],
-                "policy_context": {"policy_profile_id": "server-pol"},
-                "governance_require_explicit_allow": True,
+                "runtime_profile_id": "server-runtime",
+                "runtime_profile": {"id": "server-runtime", "name": "Server Runtime"},
+                "provider": "openai",
+                "model": "gpt-5",
             },
         )
 
@@ -655,12 +644,9 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
                 "portal_user_id": "spoofed",
                 "portal_user_name": "spoofed",
                 "metadata": {
-                    "capability_profile_id": "fake",
-                    "policy_context": {"policy_profile_id": "fake"},
-                    "governance_require_explicit_allow": False,
+                    "runtime_profile_id": "fake",
+                    "provider": "fake",
                 },
-                "capability_context": {"allowed_capability_ids": ["fake"]},
-                "policy_context": {"policy_profile_id": "fake"},
             },
         )
     finally:
@@ -670,11 +656,9 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     forwarded_payload = json.loads(captured["body"].decode("utf-8"))
     assert "portal_user_id" not in forwarded_payload
     assert "portal_user_name" not in forwarded_payload
-    assert forwarded_payload["metadata"]["capability_profile_id"] == "server-cap"
-    assert forwarded_payload["metadata"]["policy_profile_id"] == "server-pol"
-    assert forwarded_payload["metadata"]["governance_require_explicit_allow"] is True
-    assert "capability_context" not in forwarded_payload
-    assert "policy_context" not in forwarded_payload
+    assert forwarded_payload["metadata"]["runtime_profile_id"] == "server-runtime"
+    assert forwarded_payload["metadata"]["runtime_profile"]["name"] == "Server Runtime"
+    assert forwarded_payload["metadata"]["provider"] == "openai"
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "77"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
@@ -698,8 +682,6 @@ def test_proxy_direct_chat_rejects_malformed_json_without_forwarding(monkeypatch
         owner_user_id=77,
         visibility="private",
         status="running",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -749,8 +731,6 @@ def test_proxy_direct_chat_rejects_non_json_content_type_without_forwarding(monk
         owner_user_id=77,
         visibility="private",
         status="running",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -799,8 +779,6 @@ def test_proxy_direct_chat_rejects_missing_content_type_without_forwarding(monke
         owner_user_id=77,
         visibility="private",
         status="running",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -848,8 +826,6 @@ def test_proxy_direct_chat_rejects_non_object_json_payload_without_forwarding(mo
         owner_user_id=77,
         visibility="private",
         status="running",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -935,8 +911,6 @@ def test_proxy_direct_chat_succeeds_with_standard_browser_request_headers(monkey
         owner_user_id=77,
         visibility="private",
         status="running",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -956,7 +930,7 @@ def test_proxy_direct_chat_succeeds_with_standard_browser_request_headers(monkey
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
-            lambda _db, _agent: {"capability_profile_id": None, "policy_profile_id": None},
+            lambda _db, _agent: {"runtime_profile_id": None},
         )
 
         calls = {"count": 0}
@@ -990,8 +964,6 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
         owner_user_id=77,
         visibility="private",
         status="running",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -1011,7 +983,7 @@ def test_proxy_chat_stream_uses_streaming_upstream_not_buffered_forward(monkeypa
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
-            lambda _db, _agent: {"capability_profile_id": "server-cap"},
+            lambda _db, _agent: {"runtime_profile_id": "server-runtime"},
         )
         monkeypatch.setattr(
             proxy_module.proxy_service,
@@ -1093,8 +1065,6 @@ def test_proxy_chat_stream_keeps_httpx_stream_context_alive_until_body_drained(m
         owner_user_id=77,
         visibility="private",
         status="running",
-        capability_profile_id="cap-1",
-        policy_profile_id="pol-1",
     )
 
     def _override_user():
@@ -1110,7 +1080,7 @@ def test_proxy_chat_stream_keeps_httpx_stream_context_alive_until_body_drained(m
         monkeypatch.setattr(
             proxy_module.runtime_execution_context_service,
             "build_runtime_metadata",
-            lambda _db, _agent: {"capability_profile_id": "server-cap"},
+            lambda _db, _agent: {"runtime_profile_id": "server-runtime"},
         )
         monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
 
@@ -1384,8 +1354,6 @@ def test_proxy_agent_server_files_download_preserves_content_disposition(monkeyp
         visibility="private",
         status="running",
         name="Agent One",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():
@@ -1431,8 +1399,6 @@ def test_proxy_agent_server_files_download_fallback_filename_when_runtime_header
         visibility="private",
         status="running",
         name="Agent One",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():
@@ -1477,8 +1443,6 @@ def test_proxy_agent_server_files_download_multiple_paths_fallback_filename(monk
         visibility="private",
         status="running",
         name="Agent One",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():
@@ -1523,8 +1487,6 @@ def test_proxy_agent_server_files_download_single_file_fallback_filename_when_ru
         visibility="private",
         status="running",
         name="Agent One",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():
@@ -1570,8 +1532,6 @@ def test_proxy_agent_server_files_content_does_not_force_attachment(monkeypatch)
         visibility="private",
         status="running",
         name="Agent One",
-        capability_profile_id=None,
-        policy_profile_id=None,
     )
 
     def _override_user():

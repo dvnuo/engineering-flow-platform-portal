@@ -412,26 +412,6 @@ def test_group_task_create_rejects_non_member_assignee():
         cleanup()
 
 
-def test_group_task_create_rejects_missing_shared_context_ref():
-    client, _db, group, parent_agent, assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
-    try:
-        response = client.post(
-            f"/api/agent-groups/{group.id}/tasks",
-            json={
-                "parent_agent_id": parent_agent.id,
-                "assignee_agent_id": assignee_agent.id,
-                "source": "portal",
-                "task_type": "group-task",
-                "shared_context_ref": "ctx-does-not-exist",
-                "status": "queued",
-            },
-        )
-        assert response.status_code == 404
-        assert response.json()["detail"] == "Shared context snapshot not found"
-    finally:
-        cleanup()
-
-
 def test_group_task_create_rejects_workspace_assignee():
     client, _db, group, parent_agent, _assignee_agent, _participant_user, _outsider_user, _set_user, cleanup = _build_client_with_overrides()
     try:

@@ -35,8 +35,6 @@ class Agent(Base):
     pvc_name: Mapped[str] = mapped_column(String(128), nullable=False)
     endpoint_path: Mapped[Optional[str]] = mapped_column(String(255))
     agent_type: Mapped[str] = mapped_column(String(32), nullable=False, default="workspace")
-    capability_profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
-    policy_profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     runtime_profile_id: Mapped[Optional[str]] = mapped_column(ForeignKey("runtime_profiles.id"), nullable=True, index=True)
     template_agent_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     task_scope_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

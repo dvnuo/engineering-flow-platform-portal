@@ -17,6 +17,7 @@ from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
+from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
@@ -28,7 +29,6 @@ from app.schemas.runtime_profile import (
     runtime_profile_model_supports_temperature,
 )
 from app.services.bundle_template_registry import list_bundle_templates
-from app.services.capability_context_service import CapabilityContextService
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
@@ -41,6 +41,7 @@ from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
+from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider_from_settings, RuntimeCapabilityCatalogProvider
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.thinking_process_view import build_thinking_process_view
@@ -634,7 +635,6 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         ("Task Family", getattr(task, "task_family", None) or "-"),
         ("Provider", getattr(task, "provider", None) or "-"),
         ("Trigger", getattr(task, "trigger", None) or "-"),
-        ("Shared Context", getattr(task, "shared_context_ref", None) or "-"),
         ("Version Key", getattr(task, "version_key", None) or "-"),
         ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
         ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
@@ -668,7 +668,6 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         "task_family": getattr(task, "task_family", None) or "-",
         "provider": getattr(task, "provider", None) or "-",
         "trigger": getattr(task, "trigger", None) or "-",
-        "shared_context_ref": getattr(task, "shared_context_ref", None) or "-",
         "version_key": getattr(task, "version_key", None) or "-",
         "dedupe_key": getattr(task, "dedupe_key", None) or "-",
         "source": getattr(task, "source", None) or "-",
@@ -835,7 +834,7 @@ def _format_utc_timestamp(value) -> str | None:
 def _is_external_trigger_task(task) -> bool:
     source = (task.source or "").strip().lower()
     task_type = (task.task_type or "").strip().lower()
-    external_sources = {"github", "jira", "confluence", "cron", "internal", "external_event"}
+    external_sources = {"github", "jira", "confluence", "cron", "internal", "automation_rule"}
     external_task_types = {"github_review_task", "jira_workflow_review_task"}
     return source in external_sources or task_type in external_task_types
 
@@ -849,7 +848,7 @@ def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
     if not tasks:
         return {
             "last_triggered_task_at_text": "No automation activity yet.",
-            "last_external_event_task_accepted_at_text": "No automation activity yet.",
+            "last_automation_task_created_at_text": "No automation activity yet.",
             "recent_failed_trigger_summary": "No recent failed triggers.",
         }
 
@@ -872,7 +871,7 @@ def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
 
     return {
         "last_triggered_task_at_text": last_triggered_text,
-        "last_external_event_task_accepted_at_text": last_accepted_text,
+        "last_automation_task_created_at_text": last_accepted_text,
         "recent_failed_trigger_summary": recent_failed_trigger_summary,
     }
 
@@ -1751,12 +1750,36 @@ def _normalize_runtime_compatibility(value) -> str:
     return aliases.get(normalized, normalized or "unknown")
 
 
+def _runtime_catalog_provider_for_panel(db, agent) -> RuntimeCapabilityCatalogProvider:
+    repo = RuntimeCapabilityCatalogSnapshotRepository(db)
+    latest = repo.get_latest_for_agent(getattr(agent, "id", "")) or repo.get_latest()
+    if latest:
+        try:
+            payload = json.loads(latest.payload_json)
+        except Exception:
+            payload = None
+        if isinstance(payload, (dict, list)):
+            return RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+                payload,
+                source=latest.catalog_source or "runtime_api",
+            )
+    return build_runtime_capability_catalog_provider_from_settings()
+
+
+def _runtime_skill_detail_for_panel(db, agent, skill_name: str | None) -> dict:
+    provider = _runtime_catalog_provider_for_panel(db, agent)
+    candidates = [skill_name, (skill_name or "").replace("_", "-"), (skill_name or "").replace("-", "_")]
+    for candidate in candidates:
+        detail = provider.get_skill_detail(candidate)
+        if detail:
+            return detail
+    return {}
+
+
 def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
     payload = _normalize_skill_payload(raw_skill)
     name = str(_skill_field(payload, "name", "id") or "").strip().lstrip('/')
-    capability_ctx = CapabilityContextService()
-    allowance = capability_ctx.get_skill_allowance_detail(db, agent, name)
-    runtime_detail = capability_ctx.get_runtime_skill_detail(db, agent, name)
+    runtime_detail = _runtime_skill_detail_for_panel(db, agent, name)
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     permission_state = _normalize_permission_state(_skill_field(payload, "permission_state") or metadata.get("permission_state") or runtime_detail.get("permission_state") or "unknown")
     runtime_compatibility = _normalize_runtime_compatibility(
@@ -1768,8 +1791,6 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
         or "unknown"
     )
     disabled_reasons = []
-    if not allowance.allowed:
-        disabled_reasons.append("Denied by CapabilityProfile")
     if permission_state in {"denied", "blocked"}:
         disabled_reasons.append("Denied by runtime permission")
     if runtime_compatibility == "unsupported":
@@ -1783,7 +1804,8 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
         else runtime_detail.get("tool_mappings")
         or {}
     )
-    return {**payload, "name": name, "description": description, "capability_allowed": allowance.allowed, "capability_reason": allowance.reason, "permission_state": permission_state, "runtime_compatibility": runtime_compatibility, "tool_mappings": tool_mappings, "disabled": bool(disabled_reasons), "disabled_reason": "; ".join(disabled_reasons), "prompt_only": runtime_compatibility == "prompt_only"}
+    catalog_available = bool(runtime_detail) or runtime_compatibility != "unknown"
+    return {**payload, "name": name, "description": description, "catalog_available": catalog_available, "permission_state": permission_state, "runtime_compatibility": runtime_compatibility, "tool_mappings": tool_mappings, "disabled": bool(disabled_reasons), "disabled_reason": "; ".join(disabled_reasons), "prompt_only": runtime_compatibility == "prompt_only"}
 
 @router.get("/app/agents/{agent_id}/skills/panel")
 async def app_agent_skills_panel(request: Request, agent_id: str):
@@ -2572,61 +2594,6 @@ async def app_group_task_board_panel(request: Request, group_id: str):
     finally:
         db.close()
 
-
-@router.get("/app/agent-groups/{group_id}/shared-contexts/panel")
-async def app_group_shared_context_list_panel(request: Request, group_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
-
-        service = AgentGroupService(db)
-        try:
-            snapshots = service.list_group_shared_context_snapshots(group_id, user=user)
-        except AgentGroupServiceError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-        return templates.TemplateResponse(
-            "partials/group_shared_context_list.html",
-            {
-                "request": request,
-                "group_id": group_id,
-                "items": snapshots,
-            },
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/agent-groups/{group_id}/shared-contexts/{context_ref}/panel")
-async def app_group_shared_context_detail_panel(request: Request, group_id: str, context_ref: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
-
-        service = AgentGroupService(db)
-        try:
-            snapshot = service.get_group_shared_context_snapshot(group_id, context_ref, user=user)
-        except AgentGroupServiceError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-        return templates.TemplateResponse(
-            "partials/group_shared_context_detail.html",
-            {
-                "request": request,
-                "group_id": group_id,
-                "item": snapshot,
-            },
-        )
-    finally:
-        db.close()
 
 
 def _triggered_work_authorize(db, user, agent_id: str):

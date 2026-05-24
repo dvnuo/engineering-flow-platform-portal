@@ -8,7 +8,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
-from app.models.capability_profile import CapabilityProfile
 from app.models.agent_task import AgentTask
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.automation_rule_repo import AutomationRuleRepository
@@ -391,7 +390,6 @@ def test_create_github_review_task_repairs_event_when_task_already_exists(monkey
         source="automation_rule",
         task_type=rule.task_type,
         input_payload_json="{}",
-        shared_context_ref="github:pr_review:acme/portal:10",
         task_family="triggered_work",
         provider="github",
         trigger="github_pr_review_requested",
@@ -493,7 +491,7 @@ async def test_run_once_failure_schedules_next_run(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_run_once_ignores_capability_profile_when_runtime_has_github(monkeypatch):
+async def test_run_once_uses_runtime_profile_when_runtime_has_github(monkeypatch):
     db = _session()
     user = User(username="u7", password_hash="x", role="admin", is_active=True)
     db.add(user); db.commit(); db.refresh(user)
@@ -502,11 +500,6 @@ async def test_run_once_ignores_capability_profile_when_runtime_has_github(monke
     agent = _mk_agent(user.id, rp.id)
     db.add(agent); db.commit(); db.refresh(agent)
     rule = _create_review_rule(db, user_id=user.id, agent_id=agent.id)
-
-    cp = CapabilityProfile(name="cap-jira-only", allowed_external_systems_json='["jira"]')
-    db.add(cp); db.commit(); db.refresh(cp)
-    agent.capability_profile_id = cp.id
-    db.add(agent); db.commit()
 
     svc = AutomationRuleService(db)
     async def _poll_empty(*_args, **_kwargs):
@@ -663,30 +656,20 @@ async def test_run_once_github_comment_mention_dedupes_same_comment(monkeypatch)
     assert db.query(AgentTask).count() == 1
 
 
-def test_github_comment_mention_capability_gate_blocks_missing_add_comment():
+def test_github_comment_mention_rule_allows_issue_comment_with_runtime_profile():
     db = _session()
     user, agent = _create_runtime_and_agent(db, "u-cap-add")
-    cp = CapabilityProfile(name="no-add", allowed_external_systems_json='["github"]', allowed_actions_json='["read_only"]')
-    db.add(cp); db.commit(); db.refresh(cp)
-    agent.capability_profile_id = cp.id
-    db.add(agent); db.commit()
     svc = AutomationRuleService(db)
-    with pytest.raises(Exception) as exc:
-        svc.create_rule(AutomationRuleCreate(name="m4", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
-    assert "does not allow" in str(exc.value)
+    rule = svc.create_rule(AutomationRuleCreate(name="m4", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal"}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
+    assert rule.id
 
 
-def test_github_comment_mention_capability_gate_blocks_missing_reply_review_comment_for_same_surface():
+def test_github_comment_mention_rule_allows_review_comment_with_runtime_profile():
     db = _session()
     user, agent = _create_runtime_and_agent(db, "u-cap-reply")
-    cp = CapabilityProfile(name="no-reply", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment"]')
-    db.add(cp); db.commit(); db.refresh(cp)
-    agent.capability_profile_id = cp.id
-    db.add(agent); db.commit()
     svc = AutomationRuleService(db)
-    with pytest.raises(Exception) as exc:
-        svc.create_rule(AutomationRuleCreate(name="m5", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["pull_request_review_comment"]}, trigger_config={"mention_target": "efp-agent"}, task_input_defaults={"reply_mode": "same_surface"}), current_user_id=user.id)
-    assert "does not allow" in str(exc.value)
+    rule = svc.create_rule(AutomationRuleCreate(name="m5", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["pull_request_review_comment"]}, trigger_config={"mention_target": "efp-agent"}, task_input_defaults={"reply_mode": "same_surface"}), current_user_id=user.id)
+    assert rule.id
 
 
 @pytest.mark.anyio
@@ -706,28 +689,12 @@ async def test_github_comment_mention_task_creation_failure_marks_event_failed(m
     assert event.status == "failed"
 
 
-def test_create_github_comment_mention_rule_allows_commit_comment_when_capability_allows():
+def test_create_github_comment_mention_rule_allows_commit_comment_with_runtime_profile():
     db = _session()
     user, agent = _create_runtime_and_agent(db, "u-commit-ok")
-    cp = CapabilityProfile(name="commit-ok", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment","add_commit_comment"]')
-    db.add(cp); db.commit(); db.refresh(cp)
-    agent.capability_profile_id = cp.id
-    db.add(agent); db.commit()
     svc = AutomationRuleService(db)
     rule = svc.create_rule(AutomationRuleCreate(name="mc", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
     assert rule.id
-
-
-def test_create_github_comment_mention_rule_blocks_commit_comment_without_commit_adapter():
-    db = _session()
-    user, agent = _create_runtime_and_agent(db, "u-commit-no")
-    cp = CapabilityProfile(name="commit-no", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment"]')
-    db.add(cp); db.commit(); db.refresh(cp)
-    agent.capability_profile_id = cp.id
-    db.add(agent); db.commit()
-    svc = AutomationRuleService(db)
-    with pytest.raises(Exception):
-        svc.create_rule(AutomationRuleCreate(name="mc", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
 
 
 @pytest.mark.anyio
@@ -804,20 +771,10 @@ async def test_run_once_github_comment_mention_passes_commit_tail_pages_to_polle
     await svc.run_rule_once(rule.id)
     assert seen.get("commit_comment_initial_tail_pages") == 3
 
-def test_create_github_comment_mention_rule_allows_discussion_comment_when_capability_allows():
+def test_create_github_comment_mention_rule_allows_discussion_comment_with_runtime_profile():
     db = _session(); user, agent = _create_runtime_and_agent(db, "u-disc-ok"); svc = AutomationRuleService(db)
-    cp = CapabilityProfile(name="disc-ok", allowed_external_systems_json='["github"]', allowed_actions_json='["add_discussion_comment"]')
-    db.add(cp); db.commit(); db.refresh(cp); agent.capability_profile_id = cp.id; db.add(agent); db.commit()
     rule = svc.create_rule(AutomationRuleCreate(name="d", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
     assert rule.id
-
-
-def test_create_github_comment_mention_rule_blocks_discussion_comment_without_adapter():
-    db = _session(); user, agent = _create_runtime_and_agent(db, "u-disc-no"); svc = AutomationRuleService(db)
-    cp = CapabilityProfile(name="disc-no", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment"]')
-    db.add(cp); db.commit(); db.refresh(cp); agent.capability_profile_id = cp.id; db.add(agent); db.commit()
-    with pytest.raises(Exception):
-        svc.create_rule(AutomationRuleCreate(name="d", target_agent_id=agent.id, trigger_type="github_comment_mention", scope={"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, trigger_config={"mention_target": "efp-agent"}), current_user_id=user.id)
 
 
 @pytest.mark.anyio

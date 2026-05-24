@@ -47,19 +47,6 @@ Access `http://localhost:8000/login`
 - Username: `admin`
 - Password: Set `BOOTSTRAP_ADMIN_PASSWORD=admin123` env var
 
-### Focused regression checks
-
-When validating routing behavior for external events and settings panel rendering, run the focused regression suite:
-
-```bash
-PYTHONPATH=. pytest -q \
-  tests/test_external_event_ingress.py \
-  tests/test_event_subscription_and_agent_tasks.py \
-  tests/test_web_runtime_profile_settings.py
-```
-
----
-
 ## Configuration
 
 ### Environment Variables
@@ -71,9 +58,6 @@ PYTHONPATH=. pytest -q \
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
-| `GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret for `/api/webhooks/github` | (empty) |
-| `JIRA_WEBHOOK_SHARED_SECRET` | Shared secret expected in `X-Efp-Webhook-Secret` for `/api/webhooks/jira` | (empty) |
-| `ALLOW_INSECURE_PROVIDER_WEBHOOKS` | **Dev-only opt-out** to allow provider webhooks without configured secrets (unsafe in production) | `false` |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `K8S_ENABLED` | Enable Kubernetes integration | `false` |
 | `K8S_INCLUSTER` | Use in-cluster config | `true` |

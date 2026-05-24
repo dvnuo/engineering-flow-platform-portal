@@ -23,7 +23,6 @@ class AgentTask(Base):
     root_task_id: Mapped[Optional[str]] = mapped_column(ForeignKey("agent_tasks.id"), nullable=True, index=True)
     task_session_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     input_payload_json: Mapped[Optional[str]] = mapped_column(Text)
-    shared_context_ref: Mapped[Optional[str]] = mapped_column(String(255))
     task_family: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     provider: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     trigger: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

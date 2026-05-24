@@ -70,8 +70,6 @@ def upgrade() -> None:
             sa.Column("pvc_name", sa.String(length=128), nullable=False),
             sa.Column("endpoint_path", sa.String(length=255), nullable=True),
             sa.Column("agent_type", sa.String(length=32), nullable=False),
-            sa.Column("capability_profile_id", sa.String(length=36), nullable=True),
-            sa.Column("policy_profile_id", sa.String(length=36), nullable=True),
             sa.Column("last_error", sa.Text(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
@@ -89,15 +87,9 @@ def upgrade() -> None:
                     server_default=sa.text("'workspace'"),
                 ),
             )
-        if not _has_column("agents", "capability_profile_id"):
-            op.add_column("agents", sa.Column("capability_profile_id", sa.String(length=36), nullable=True))
-        if not _has_column("agents", "policy_profile_id"):
-            op.add_column("agents", sa.Column("policy_profile_id", sa.String(length=36), nullable=True))
 
     for index_name, columns in [
         ("ix_agents_owner_user_id", ["owner_user_id"]),
-        ("ix_agents_capability_profile_id", ["capability_profile_id"]),
-        ("ix_agents_policy_profile_id", ["policy_profile_id"]),
     ]:
         if _has_table("agents") and not _has_index("agents", index_name):
             op.create_index(index_name, "agents", columns)
@@ -176,8 +168,6 @@ def downgrade() -> None:
 
     op.drop_table("audit_logs")
 
-    op.drop_index("ix_agents_policy_profile_id", table_name="agents")
-    op.drop_index("ix_agents_capability_profile_id", table_name="agents")
     op.drop_index("ix_agents_owner_user_id", table_name="agents")
     op.drop_table("agents")
 

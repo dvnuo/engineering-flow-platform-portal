@@ -13,7 +13,6 @@ class AgentGroup(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     leader_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
-    shared_context_policy_json: Mapped[str | None] = mapped_column(Text)
     task_routing_policy_json: Mapped[str | None] = mapped_column(Text)
     ephemeral_agent_policy_json: Mapped[str | None] = mapped_column(Text)
     specialist_agent_pool_json: Mapped[str | None] = mapped_column(Text)

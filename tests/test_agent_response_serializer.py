@@ -27,8 +27,6 @@ def test_build_agent_response_applies_effective_skill_defaults(monkeypatch):
         cpu=None,
         memory=None,
         agent_type="workspace",
-        capability_profile_id=None,
-        policy_profile_id=None,
         runtime_profile_id=None,
         disk_size_gi=20,
         description=None,

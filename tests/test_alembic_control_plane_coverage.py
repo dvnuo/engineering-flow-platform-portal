@@ -5,12 +5,15 @@ REQUIRED_NEW_TABLES = {
     "agent_groups",
     "agent_group_members",
     "agent_tasks",
-    "capability_profiles",
-    "policy_profiles",
     "workflow_transition_rules",
     "runtime_capability_catalog_snapshots",
     "agent_identity_bindings",
-    "group_shared_context_snapshots",
+}
+REMOVED_TABLES = {
+    "capability" + "_" + "profiles",
+    "policy" + "_" + "profiles",
+    "group_" + "shared_" + "context_snapshots",
+    "external_event_subscriptions",
 }
 
 EXPECTED_ALREADY_COVERED = {
@@ -30,6 +33,12 @@ def test_migrations_cover_control_plane_tables():
     source = _migration_source()
     for table_name in REQUIRED_NEW_TABLES:
         assert f'create_table("{table_name}"' in source
+
+
+def test_migrations_do_not_recreate_removed_control_planes():
+    source = _migration_source()
+    for table_name in REMOVED_TABLES:
+        assert f'create_table("{table_name}"' not in source
 
 
 def test_migrations_still_cover_existing_phase5_tables():

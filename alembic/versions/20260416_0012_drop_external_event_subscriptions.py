@@ -6,7 +6,6 @@ Create Date: 2026-04-16
 """
 
 from alembic import op
-import sqlalchemy as sa
 from sqlalchemy import inspect
 
 
@@ -44,36 +43,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.create_table(
-        "external_event_subscriptions",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("agent_id", sa.String(length=36), nullable=False),
-        sa.Column("source_type", sa.String(length=64), nullable=False),
-        sa.Column("event_type", sa.String(length=64), nullable=False),
-        sa.Column("target_ref", sa.String(length=255), nullable=True),
-        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
-        sa.Column("dedupe_key_template", sa.String(length=255), nullable=True),
-        sa.Column("config_json", sa.Text(), nullable=True),
-        sa.Column("mode", sa.String(length=16), nullable=False, server_default="push"),
-        sa.Column("source_kind", sa.String(length=128), nullable=True),
-        sa.Column("binding_id", sa.String(length=36), nullable=True),
-        sa.Column("scope_json", sa.Text(), nullable=True),
-        sa.Column("matcher_json", sa.Text(), nullable=True),
-        sa.Column("routing_json", sa.Text(), nullable=True),
-        sa.Column("poll_profile_json", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_external_event_subscriptions_agent_id", "external_event_subscriptions", ["agent_id"])
-    op.create_index(
-        "ix_external_sub_agent_enabled_mode",
-        "external_event_subscriptions",
-        ["agent_id", "enabled", "mode"],
-    )
-    op.create_index(
-        "ix_external_sub_source_kind_enabled",
-        "external_event_subscriptions",
-        ["source_kind", "enabled"],
-    )
+    pass

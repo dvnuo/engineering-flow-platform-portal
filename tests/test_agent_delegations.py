@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, AuditLog, CapabilityProfile, GroupSharedContextSnapshot, PolicyProfile, User
+from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, AuditLog, User
 from app.repositories.agent_group_member_repo import AgentGroupMemberRepository
 from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
@@ -291,82 +291,6 @@ def test_leader_can_create_delegation_and_creates_delegation_task(monkeypatch):
         cleanup()
 
 
-def test_delegation_rejects_skill_not_allowed_by_assignee_capability_profile(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        profile = CapabilityProfile(name="cap-no-github-review", skill_set_json='["other-skill"]')
-        db.add(profile)
-        db.commit()
-        db.refresh(profile)
-        assignee.capability_profile_id = profile.id
-        db.add(assignee)
-        db.commit()
-
-        set_user(leader_owner)
-        response = client.post("/api/agent-delegations", json=_payload(group.id, leader.id, assignee.id))
-        assert response.status_code == 422
-        assert response.json()["detail"] == "Assignee agent capability profile does not allow skill 'github-review'"
-    finally:
-        cleanup()
-
-
-def test_delegation_skill_gate_is_case_and_whitespace_insensitive(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        profile = CapabilityProfile(name="cap-review-normalized", skill_set_json='["  Review  "]')
-        db.add(profile)
-        db.commit()
-        db.refresh(profile)
-        assignee.capability_profile_id = profile.id
-        db.add(assignee)
-        db.commit()
-
-        set_user(leader_owner)
-        payload = _payload(group.id, leader.id, assignee.id)
-        payload["skill_name"] = "review"
-        response = client.post("/api/agent-delegations", json=payload)
-        assert response.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_delegation_rejects_when_assignee_profile_has_empty_skill_set(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        profile = CapabilityProfile(name="cap-empty-skill-set", skill_set_json="[]")
-        db.add(profile)
-        db.commit()
-        db.refresh(profile)
-        assignee.capability_profile_id = profile.id
-        db.add(assignee)
-        db.commit()
-
-        set_user(leader_owner)
-        payload = _payload(group.id, leader.id, assignee.id)
-        payload["skill_name"] = "review"
-        response = client.post("/api/agent-delegations", json=payload)
-        assert response.status_code == 422
-        assert response.json()["detail"] == "Assignee agent capability profile has empty skill_set; skill 'review' is not allowed"
-    finally:
-        cleanup()
-
-
-def test_delegation_is_permissive_when_assignee_has_no_capability_profile(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        assignee.capability_profile_id = None
-        db.add(assignee)
-        db.commit()
-
-        set_user(leader_owner)
-        payload = _payload(group.id, leader.id, assignee.id)
-        payload["skill_name"] = "review"
-        response = client.post("/api/agent-delegations", json=payload)
-        assert response.status_code == 200
-    finally:
-        cleanup()
-
-
 def test_delegation_leader_session_id_persists_and_dispatches(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
@@ -561,120 +485,7 @@ def test_shared_visibility_rule_used_by_panel_and_task_board(monkeypatch):
         cleanup()
 
 
-def test_shared_context_list_panel_auth_and_render(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        snapshot = GroupSharedContextSnapshot(
-            group_id=group.id,
-            context_ref="ctx-panel-list",
-            scope_kind="delegation",
-            payload_json='{"secret":"hidden-in-list"}',
-            created_by_user_id=leader_owner.id,
-            source_delegation_id=None,
-        )
-        db.add(snapshot)
-        db.commit()
-
-        import app.web as web_module
-
-        monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
-
-        monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: None)
-        unauthorized = client.get(f"/app/agent-groups/{group.id}/shared-contexts/panel")
-        assert unauthorized.status_code == 401
-
-        outsider_identity = {
-            "id": outsider_user.id,
-            "role": outsider_user.role,
-            "username": outsider_user.username,
-        }
-
-        monkeypatch.setattr(
-            web_module,
-            "_current_user_from_cookie",
-            lambda _request: SimpleNamespace(id=admin_user.id, role=admin_user.role, username=admin_user.username, nickname=admin_user.username),
-        )
-        allowed = client.get(f"/app/agent-groups/{group.id}/shared-contexts/panel")
-        assert allowed.status_code == 200
-        assert "ctx-panel-list" in allowed.text
-        assert "hidden-in-list" not in allowed.text
-
-        monkeypatch.setattr(
-            web_module,
-            "_current_user_from_cookie",
-            lambda _request: SimpleNamespace(
-                id=outsider_identity["id"],
-                role=outsider_identity["role"],
-                username=outsider_identity["username"],
-                nickname=outsider_identity["username"],
-            ),
-        )
-        forbidden = client.get(f"/app/agent-groups/{group.id}/shared-contexts/panel")
-        assert forbidden.status_code == 403
-    finally:
-        cleanup()
-
-
-def test_shared_context_detail_panel_auth_render_and_missing_ref(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        snapshot = GroupSharedContextSnapshot(
-            group_id=group.id,
-            context_ref="ctx-panel-detail",
-            scope_kind="delegation",
-            payload_json='{"repo":"portal","ticket":123}',
-            created_by_user_id=leader_owner.id,
-            source_delegation_id=None,
-        )
-        db.add(snapshot)
-        db.commit()
-
-        import app.web as web_module
-
-        monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
-
-        monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: None)
-        unauthorized = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-panel-detail/panel")
-        assert unauthorized.status_code == 401
-
-        outsider_identity = {
-            "id": outsider_user.id,
-            "role": outsider_user.role,
-            "username": outsider_user.username,
-        }
-
-        monkeypatch.setattr(
-            web_module,
-            "_current_user_from_cookie",
-            lambda _request: SimpleNamespace(id=leader_owner.id, role=leader_owner.role, username=leader_owner.username, nickname=leader_owner.username),
-        )
-        allowed = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-panel-detail/panel")
-        assert allowed.status_code == 200
-        assert "ctx-panel-detail" in allowed.text
-        assert "ticket" in allowed.text
-        assert "123" in allowed.text
-
-        missing = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-missing/panel")
-        assert missing.status_code == 404
-
-        monkeypatch.setattr(
-            web_module,
-            "_current_user_from_cookie",
-            lambda _request: SimpleNamespace(
-                id=outsider_identity["id"],
-                role=outsider_identity["role"],
-                username=outsider_identity["username"],
-                nickname=outsider_identity["username"],
-            ),
-        )
-        forbidden = client.get(f"/app/agent-groups/{group.id}/shared-contexts/ctx-panel-detail/panel")
-        assert forbidden.status_code == 403
-    finally:
-        cleanup()
-
-
-
-def test_delegation_creation_persists_shared_context_snapshot_with_explicit_ref(monkeypatch):
+def test_delegation_creation_passes_scoped_payload_with_explicit_ref(monkeypatch):
     client, db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         set_user(leader_owner)
@@ -694,18 +505,11 @@ def test_delegation_creation_persists_shared_context_snapshot_with_explicit_ref(
         delegation = db.get(AgentDelegation, body["id"])
         task = db.get(AgentTask, body["agent_task_id"])
         assert delegation.scoped_context_ref == "ctx-pr-12"
-        assert task.shared_context_ref == "ctx-pr-12"
-
-        snapshot = db.query(GroupSharedContextSnapshot).filter(
-            GroupSharedContextSnapshot.group_id == group.id,
-            GroupSharedContextSnapshot.context_ref == "ctx-pr-12",
-        ).first()
-        assert snapshot is not None
-        assert snapshot.scope_kind == "delegation"
-        assert json.loads(snapshot.payload_json)["pr"] == 12
-
-        assert state["captured_bodies"][0]["shared_context_ref"] == "ctx-pr-12"
-        assert state["captured_bodies"][0]["context_ref"]["repo"] == "portal"
+        task_payload = json.loads(task.input_payload_json)
+        assert task_payload["scoped_context_ref"] == "ctx-pr-12"
+        assert task_payload["scoped_context_payload"]["repo"] == "portal"
+        assert state["captured_bodies"][0]["input_payload"]["scoped_context_ref"] == "ctx-pr-12"
+        assert state["captured_bodies"][0]["input_payload"]["scoped_context_payload"]["repo"] == "portal"
     finally:
         cleanup()
 
@@ -731,88 +535,10 @@ def test_delegation_creation_auto_generates_context_ref_when_payload_provided(mo
         assert delegation.scoped_context_ref is not None
         assert delegation.scoped_context_ref.startswith("ctx-")
 
-        snapshot = db.query(GroupSharedContextSnapshot).filter(
-            GroupSharedContextSnapshot.group_id == group.id,
-            GroupSharedContextSnapshot.context_ref == delegation.scoped_context_ref,
-        ).first()
-        assert snapshot is not None
-    finally:
-        cleanup()
-
-
-def test_dispatch_fails_when_shared_context_ref_missing_snapshot(monkeypatch):
-    client, _db, group, leader, assignee, _outsider_agent, _admin, leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        set_user(leader_owner)
-        response = client.post(
-            "/api/agent-delegations",
-            json=_payload(group.id, leader.id, assignee.id, scoped_context_ref="ctx-missing", scoped_context_payload_json=None),
-        )
-        assert response.status_code == 409
-        assert "Shared context snapshot not found" in response.json()["detail"]
-    finally:
-        cleanup()
-
-
-def test_group_shared_context_list_endpoint_auth_and_shape(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, admin_user, leader_owner, direct_member_user, member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        db.add(
-            GroupSharedContextSnapshot(
-                group_id=group.id,
-                context_ref="ctx-shared-a",
-                scope_kind="delegation",
-                payload_json='{"topic":"alpha"}',
-                created_by_user_id=leader_owner.id,
-                source_delegation_id=None,
-            )
-        )
-        db.commit()
-
-        for readable_user in [admin_user, leader_owner, direct_member_user, member_agent_owner]:
-            set_user(readable_user)
-            response = client.get(f"/api/agent-groups/{group.id}/shared-contexts")
-            assert response.status_code == 200
-            items = response.json()
-            assert len(items) == 1
-            assert items[0]["context_ref"] == "ctx-shared-a"
-            assert "payload_json" not in items[0]
-
-        set_user(outsider_user)
-        forbidden = client.get(f"/api/agent-groups/{group.id}/shared-contexts")
-        assert forbidden.status_code == 403
-    finally:
-        cleanup()
-
-
-def test_group_shared_context_detail_endpoint_and_not_found(monkeypatch):
-    client, db, group, _leader, _assignee, _outsider_agent, _admin_user, leader_owner, _direct_member_user, _member_agent_owner, outsider_user, _state, set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        db.add(
-            GroupSharedContextSnapshot(
-                group_id=group.id,
-                context_ref="ctx-shared-b",
-                scope_kind="delegation",
-                payload_json='{"repo":"portal","pr":22}',
-                created_by_user_id=leader_owner.id,
-                source_delegation_id=None,
-            )
-        )
-        db.commit()
-
-        set_user(leader_owner)
-        response = client.get(f"/api/agent-groups/{group.id}/shared-contexts/ctx-shared-b")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["context_ref"] == "ctx-shared-b"
-        assert json.loads(body["payload_json"])["pr"] == 22
-
-        missing = client.get(f"/api/agent-groups/{group.id}/shared-contexts/ctx-does-not-exist")
-        assert missing.status_code == 404
-
-        set_user(outsider_user)
-        forbidden = client.get(f"/api/agent-groups/{group.id}/shared-contexts/ctx-shared-b")
-        assert forbidden.status_code == 403
+        task = db.get(AgentTask, body["agent_task_id"])
+        task_payload = json.loads(task.input_payload_json)
+        assert task_payload["scoped_context_ref"] == delegation.scoped_context_ref
+        assert task_payload["scoped_context_payload"] == {"doc": "brief"}
     finally:
         cleanup()
 
@@ -919,16 +645,12 @@ def test_internal_api_creates_delegation_task_snapshot_dispatch_and_audit(monkey
         task_payload = json.loads(task.input_payload_json)
         assert task_payload["coordination_run_id"] == "run-42"
         assert task_payload["round_index"] == 2
+        assert task_payload["scoped_context_ref"] == "ctx-internal-1"
+        assert task_payload["scoped_context_payload"] == {"repo": "portal", "pr": 44}
         run_row = db.query(AgentCoordinationRun).filter(AgentCoordinationRun.coordination_run_id == "run-42").first()
         assert run_row is not None
         assert run_row.latest_round_index == 2
         assert run_row.status == "done"
-
-        snapshot = db.query(GroupSharedContextSnapshot).filter(
-            GroupSharedContextSnapshot.group_id == group.id,
-            GroupSharedContextSnapshot.context_ref == "ctx-internal-1",
-        ).first()
-        assert snapshot is not None
 
         assert state["captured_bodies"]
         assert state["captured_bodies"][0]["metadata"]["portal_delegation_id"] == body["id"]
@@ -1224,26 +946,6 @@ def test_task_board_runs_summary_groups_by_coordination_run(monkeypatch):
         run_row = db.query(AgentCoordinationRun).filter(AgentCoordinationRun.coordination_run_id == "run-z").first()
         run_summary = json.loads(run_row.summary_json or "{}")
         assert run_summary["blocked"] == 1
-    finally:
-        cleanup()
-
-
-def test_internal_task_board_exposes_effective_max_parallel_tasks(monkeypatch):
-    client, db, group, leader, assignee, _outsider_agent, _admin, _leader_owner, _direct_member_user, _member_agent_owner, _outsider_user, _state, _set_user, _deps, cleanup = _build_client_with_overrides(monkeypatch)
-    try:
-        policy = PolicyProfile(name="bounded", max_parallel_tasks=4)
-        db.add(policy)
-        db.commit()
-        db.refresh(policy)
-        leader.policy_profile_id = policy.id
-        db.add(leader)
-        db.commit()
-
-        board = client.get(
-            f"/api/internal/agent-groups/{group.id}/task-board",
-        )
-        assert board.status_code == 200
-        assert board.json()["effective_max_parallel_tasks"] == 4
     finally:
         cleanup()
 
