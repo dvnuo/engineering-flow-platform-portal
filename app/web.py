@@ -95,6 +95,89 @@ def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
 
 
+def _session_id_is_task_session(session_id) -> bool:
+    if not isinstance(session_id, str):
+        return False
+    return session_id.strip().startswith("agent-task:")
+
+
+def _metadata_value_is_present(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _parse_metadata_json_object(metadata_json) -> dict:
+    if isinstance(metadata_json, dict):
+        return metadata_json
+    if isinstance(metadata_json, bytes):
+        try:
+            metadata_json = metadata_json.decode("utf-8")
+        except UnicodeDecodeError:
+            return {}
+    if not metadata_json:
+        return {}
+    try:
+        parsed = json.loads(metadata_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _metadata_object_is_task_session(metadata: dict) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return (
+        _metadata_value_is_present(metadata.get("current_task_id"))
+        or "portal_task_id" in metadata
+        or "portal_task_session_id" in metadata
+    )
+
+
+def _metadata_record_is_task_session(record) -> bool:
+    if not record:
+        return False
+    if _session_id_is_task_session(getattr(record, "session_id", None)):
+        return True
+    if _metadata_value_is_present(getattr(record, "current_task_id", None)):
+        return True
+    metadata = _parse_metadata_json_object(getattr(record, "metadata_json", None))
+    return _metadata_object_is_task_session(metadata)
+
+
+def _runtime_session_is_task_session(session: dict, metadata_record=None) -> bool:
+    if not isinstance(session, dict):
+        return False
+    if _session_id_is_task_session(session.get("session_id")):
+        return True
+    if _metadata_value_is_present(session.get("current_task_id")):
+        return True
+    for metadata_field in ("metadata", "metadata_json"):
+        if _metadata_object_is_task_session(_parse_metadata_json_object(session.get(metadata_field))):
+            return True
+    return _metadata_record_is_task_session(metadata_record)
+
+
+def _filter_agent_visible_sessions(runtime_sessions: list[dict], metadata_records: list) -> tuple[list[dict], list]:
+    metadata_by_session_id = {
+        getattr(record, "session_id", None): record
+        for record in metadata_records
+        if getattr(record, "session_id", None)
+    }
+    visible_runtime_sessions = [
+        session
+        for session in runtime_sessions
+        if not _runtime_session_is_task_session(
+            session,
+            metadata_by_session_id.get(session.get("session_id") if isinstance(session, dict) else None),
+        )
+    ]
+    visible_metadata_records = [record for record in metadata_records if not _metadata_record_is_task_session(record)]
+    return visible_runtime_sessions, visible_metadata_records
+
+
 def _portal_extra_headers(user, agent) -> dict[str, str]:
     return {
         **build_runtime_trace_headers(get_log_context()),
@@ -1522,7 +1605,11 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 metadata_fallback_limit = max(1, int(limit))
             except (TypeError, ValueError):
                 metadata_fallback_limit = 10
-            recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+            recent_metadata_records = [
+                record
+                for record in metadata_repo.list_by_agent(agent_id)
+                if not _metadata_record_is_task_session(record)
+            ][:metadata_fallback_limit]
             sessions = merge_runtime_sessions_with_metadata(
                 [],
                 recent_metadata_records,
@@ -1563,7 +1650,11 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
             metadata_fallback_limit = max(1, int(limit))
         except (TypeError, ValueError):
             metadata_fallback_limit = 10
-        recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+        recent_metadata_records = [
+            record
+            for record in metadata_repo.list_by_agent(agent_id)
+            if not _metadata_record_is_task_session(record)
+        ][:metadata_fallback_limit]
         all_metadata_records: list = []
         seen_session_ids: set[str] = set()
         for record in [*metadata_records, *recent_metadata_records]:
@@ -1572,6 +1663,7 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 continue
             seen_session_ids.add(record_session_id)
             all_metadata_records.append(record)
+        runtime_sessions, all_metadata_records = _filter_agent_visible_sessions(runtime_sessions, all_metadata_records)
         sessions = merge_runtime_sessions_with_metadata(
             runtime_sessions,
             all_metadata_records,
