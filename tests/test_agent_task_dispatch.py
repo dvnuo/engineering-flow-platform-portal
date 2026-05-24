@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, User
+from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, RuntimeProfile, User
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.services.auth_service import hash_password
 from app.services.task_dispatcher import TaskDispatcherService
@@ -239,6 +239,91 @@ def test_agent_async_task_dispatch_sends_session_and_metadata(db_session, monkey
     assert metadata["portal_root_task_id"] == "task-async-1"
     assert metadata["portal_task_session_id"] == "agent-task:task-async-1"
     assert metadata["system_prompt"] == "Run as a background long-running task. Finish independently."
+
+
+def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_session, monkeypatch):
+    db, agent = db_session
+    runtime_profile = RuntimeProfile(
+        owner_user_id=agent.owner_user_id,
+        name="OpenCode Copilot",
+        config_json=json.dumps(
+            {
+                "llm": {
+                    "provider": "github_copilot",
+                    "model": "gpt-5.4-mini",
+                }
+            }
+        ),
+        revision=5,
+        is_default=True,
+    )
+    db.add(runtime_profile)
+    db.commit()
+    db.refresh(runtime_profile)
+
+    agent.runtime_type = "opencode"
+    agent.runtime_profile_id = runtime_profile.id
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+
+    task = AgentTask(
+        id="task-opencode-runtime-profile",
+        assignee_agent_id=agent.id,
+        owner_user_id=agent.owner_user_id,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review branch",
+        skill_name="review",
+        root_task_id="task-opencode-runtime-profile",
+        task_session_id="agent-task:task-opencode-runtime-profile",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the branch.",
+                "skill_name": "review",
+                "task_session_id": "agent-task:task-opencode-runtime-profile",
+                "root_task_id": "task-opencode-runtime-profile",
+                "parent_task_id": None,
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "done"}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert captured["url"].endswith("/api/tasks/execute")
+    metadata = captured["body"]["metadata"]
+    assert metadata["provider"] == "github-copilot"
+    assert metadata["model"] == "github-copilot/gpt-5.4-mini"
+    assert metadata["runtime_profile"]["provider"] == "github-copilot"
+    assert metadata["runtime_profile"]["model"] == "github-copilot/gpt-5.4-mini"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "github-copilot/gpt-5.4-mini"
 
 
 def test_dispatcher_derives_summary_from_github_review_summary():

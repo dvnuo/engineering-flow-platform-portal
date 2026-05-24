@@ -119,12 +119,17 @@ def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
         },
     )
 
-    agent = SimpleNamespace(runtime_profile_id="rp-1")
+    agent = SimpleNamespace(runtime_profile_id="rp-1", runtime_type="opencode")
     metadata = service.build_runtime_metadata(db=object(), agent=agent)
 
     assert metadata["runtime_profile_id"] == "rp-1"
     assert metadata["runtime_profile"]["runtime_profile_id"] == "rp-1"
     assert metadata["runtime_profile"]["revision"] == 7
+    assert metadata["runtime_profile"]["provider"] == "github-copilot"
+    assert metadata["runtime_profile"]["model"] == "github-copilot/gpt-5.4-mini"
+    assert metadata["runtime_profile"]["config"]["llm"]["provider"] == "github_copilot"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.4-mini"
+    assert metadata["model"] == "github-copilot/gpt-5.4-mini"
     assert metadata["runtime_profile"]["config"]["llm"]["tool_loop"]["one_tool_per_turn"] is True
     assert metadata["llm_tool_loop"]["one_tool_per_turn"] is True
     assert metadata["llm_tool_loop"]["parallel_tool_calls"] is False

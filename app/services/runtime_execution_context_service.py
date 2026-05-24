@@ -211,16 +211,22 @@ class RuntimeExecutionContextService:
         metadata["runtime_profile_id"] = context.get("runtime_profile_id")
         runtime_profile_context = context.get("runtime_profile_context") or {}
         if isinstance(runtime_profile_context, dict) and runtime_profile_context:
-            metadata["runtime_profile"] = runtime_profile_context
+            runtime_profile_metadata = dict(runtime_profile_context)
+            metadata["runtime_profile"] = runtime_profile_metadata
             llm_cfg = ((runtime_profile_context.get("config") or {}).get("llm") or {})
             if isinstance(llm_cfg, dict):
                 provider = llm_cfg.get("provider")
                 model = llm_cfg.get("model")
+                runtime_type = getattr(agent, "runtime_type", "") if agent else ""
+                runtime_provider = normalize_provider_for_runtime(runtime_type, provider) if provider else None
                 if provider:
                     metadata["provider"] = provider
-                full_model = normalize_model_for_runtime(getattr(agent, "runtime_type", "") if agent else "", provider, model)
+                full_model = normalize_model_for_runtime(runtime_type, provider, model)
+                if runtime_provider:
+                    runtime_profile_metadata["provider"] = runtime_provider
                 if full_model:
                     metadata["model"] = full_model
+                    runtime_profile_metadata["model"] = full_model
                 tool_loop = llm_cfg.get("tool_loop")
                 if isinstance(tool_loop, dict) and tool_loop:
                     metadata["llm_tool_loop"] = tool_loop
