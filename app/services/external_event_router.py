@@ -241,26 +241,6 @@ class ExternalEventRouterService:
         )
 
     @staticmethod
-    def _build_bundle_id(*, request: ExternalEventIngressRequest, source_type: str, payload_obj: dict | None, task_type: str) -> str | None:
-        target_ref = (request.target_ref or "").strip()
-
-        if source_type == "github" and task_type == "github_review_task":
-            owner = payload_obj.get("owner") if payload_obj else None
-            repo = payload_obj.get("repo") if payload_obj else None
-            pull_number = payload_obj.get("pull_number") if payload_obj else None
-            if owner and repo and pull_number is not None:
-                return f"github:pr:{owner}/{repo}:{pull_number}"
-
-        if source_type == "jira" and task_type == "jira_workflow_review_task":
-            if request.issue_key:
-                return f"jira:issue:{request.issue_key}"
-            if target_ref:
-                return f"jira:project:{target_ref}"
-
-        fallback = target_ref or request.external_account_id or request.event_type
-        return f"{source_type}:{fallback}" if fallback else None
-
-    @staticmethod
     def _build_version_key(*, request: ExternalEventIngressRequest, source_type: str, payload_obj: dict | None, task_type: str) -> str | None:
         if source_type == "github" and task_type == "github_review_task":
             if payload_obj and payload_obj.get("head_sha"):
@@ -389,7 +369,6 @@ class ExternalEventRouterService:
             if duplicate:
                 return ExternalEventIngressResponse(accepted=True, matched_subscription_ids=[], routing_reason="duplicate_task", matched_agent_id=matched_agent_id, created_task_id=duplicate.id, matched_workflow_rule_id=matched_workflow_rule_id, resolved_task_type=task_type, deduped=True, message="Duplicate event detected; existing task reused")
 
-        bundle_id = self._build_bundle_id(request=request, source_type=source_type, payload_obj=payload_obj, task_type=task_type)
         version_key = self._build_version_key(request=request, source_type=source_type, payload_obj=payload_obj, task_type=task_type)
 
         task = task_repo.create(
@@ -404,7 +383,6 @@ class ExternalEventRouterService:
             task_family="triggered_work",
             provider=source_type,
             trigger=request.event_type,
-            bundle_id=bundle_id,
             version_key=version_key,
             dedupe_key=dedupe_hint,
             status="queued",

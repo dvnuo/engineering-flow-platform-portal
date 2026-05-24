@@ -27,7 +27,6 @@ class AgentTask(Base):
     task_family: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     provider: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     trigger: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    bundle_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     version_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     dedupe_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")

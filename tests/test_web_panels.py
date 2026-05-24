@@ -46,32 +46,17 @@ def _setup_create_panel_client(monkeypatch, agents):
     return TestClient(app)
 
 
-def _bundle_action_task(status: str):
+def _unsupported_task(status: str):
     now = datetime.utcnow()
     payload = {
-        "template_id": "requirement.v1",
-        "action_id": "collect_requirements",
-        "bundle_ref": {
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "bundle/checkout-flow/deadbeef",
-        },
-        "manifest_ref": {
-            "repo": "octo/engineering-flow-platform-assets",
-            "path": "requirement-bundles/payments/checkout-flow",
-            "branch": "main",
-        },
-        "sources": {
-            "jira": ["PAY-123"],
-            "confluence": [],
-            "github_docs": ["docs/spec.md"],
-            "figma": [],
-        },
+        "source": "legacy",
+        "summary": "Imported task payload",
+        "items": ["PAY-123", "docs/spec.md"],
     }
     return SimpleNamespace(
         id="task-1",
         status=status,
-        task_type="bundle_action_task",
+        task_type="legacy_import_task",
         source="portal",
         assignee_agent_id="agent-1",
         group_id="group-1",
@@ -154,22 +139,18 @@ def test_task_create_panel_has_agent_skill_textarea_and_no_template(monkeypatch)
 
 
 def test_task_detail_panel_renders_non_async_tasks_as_unsupported_read_only(monkeypatch):
-    client = _setup_task_client(monkeypatch, _bundle_action_task("done"))
+    client = _setup_task_client(monkeypatch, _unsupported_task("done"))
     response = client.get("/app/tasks/task-1/panel")
     assert response.status_code == 200
     assert "Unsupported Task" in response.text
     assert "This task type is not supported by the background task panel" in response.text
     assert "Input Payload" in response.text
     assert "Result Payload" in response.text
-    assert "Open Bundle Detail" not in response.text
-    assert "Collect Requirements" not in response.text
-    assert "Requirement Bundle" not in response.text
     assert "Task " + "Template" not in response.text
-    assert "Bundle Path" not in response.text
 
 
 def test_non_async_task_detail_does_not_auto_refresh(monkeypatch):
-    client_running = _setup_task_client(monkeypatch, _bundle_action_task("queued"))
+    client_running = _setup_task_client(monkeypatch, _unsupported_task("queued"))
     running_html = client_running.get("/app/tasks/task-1/panel").text
     assert 'hx-trigger="every 5s"' not in running_html
 

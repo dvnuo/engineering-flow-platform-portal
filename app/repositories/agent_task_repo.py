@@ -147,16 +147,16 @@ class AgentTaskRepository:
         )
         return list(self.db.scalars(stmt).all())
 
-    def list_active_tasks_for_bundle(
+    def list_active_tasks_for_context(
         self,
         *,
         assignee_agent_id: str,
-        bundle_id: str,
+        shared_context_ref: str,
         task_type: str | None = None,
     ) -> list[AgentTask]:
         filters = [
             AgentTask.assignee_agent_id == assignee_agent_id,
-            AgentTask.bundle_id == bundle_id,
+            AgentTask.shared_context_ref == shared_context_ref,
             AgentTask.status.in_(["queued", "running"]),
         ]
         if task_type:

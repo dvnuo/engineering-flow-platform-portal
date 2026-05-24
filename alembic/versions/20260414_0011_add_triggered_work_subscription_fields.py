@@ -49,8 +49,6 @@ def upgrade() -> None:
         op.add_column("agent_tasks", sa.Column("provider", sa.String(length=64), nullable=True))
     if not _has_column("agent_tasks", "trigger"):
         op.add_column("agent_tasks", sa.Column("trigger", sa.String(length=128), nullable=True))
-    if not _has_column("agent_tasks", "bundle_id"):
-        op.add_column("agent_tasks", sa.Column("bundle_id", sa.String(length=255), nullable=True))
     if not _has_column("agent_tasks", "version_key"):
         op.add_column("agent_tasks", sa.Column("version_key", sa.String(length=255), nullable=True))
     if not _has_column("agent_tasks", "dedupe_key"):
@@ -111,8 +109,6 @@ def downgrade() -> None:
         op.drop_column("agent_tasks", "dedupe_key")
     if _has_column("agent_tasks", "version_key"):
         op.drop_column("agent_tasks", "version_key")
-    if _has_column("agent_tasks", "bundle_id"):
-        op.drop_column("agent_tasks", "bundle_id")
     if _has_column("agent_tasks", "trigger"):
         op.drop_column("agent_tasks", "trigger")
     if _has_column("agent_tasks", "provider"):

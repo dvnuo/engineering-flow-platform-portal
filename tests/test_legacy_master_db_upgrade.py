@@ -142,6 +142,8 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
     assert "owner_user_id" in agent_task_columns
     assert "created_by_user_id" in agent_task_columns
     assert "runtime_request_id" in agent_task_columns
+    obsolete_context_column = "bundle" + "_id"
+    assert obsolete_context_column not in agent_task_columns
 
     runtime_profile_columns = {column["name"] for column in inspector.get_columns("runtime_profiles")}
     assert "owner_user_id" in runtime_profile_columns

@@ -314,7 +314,7 @@ class AutomationRuleService:
         update_data["updated_at"] = datetime.utcnow()
         return self.repo.update(rule, update_data)
 
-    def _stale_superseded_github_review_tasks_for_bundle(self, *, assignee_agent_id: str, bundle_id: str, new_head_sha: str | None, superseding_task_id: str) -> None:
+    def _stale_superseded_github_review_tasks_for_context(self, *, assignee_agent_id: str, shared_context_ref: str, new_head_sha: str | None, superseding_task_id: str) -> None:
         stale_payload = json.dumps(
             {
                 "ok": False,
@@ -324,9 +324,9 @@ class AutomationRuleService:
                 "superseded_by_head_sha": new_head_sha,
             }
         )
-        candidates = self.task_repo.list_active_tasks_for_bundle(
+        candidates = self.task_repo.list_active_tasks_for_context(
             assignee_agent_id=assignee_agent_id,
-            bundle_id=bundle_id,
+            shared_context_ref=shared_context_ref,
             task_type="github_review_task",
         )
         to_update = []
@@ -451,6 +451,7 @@ class AutomationRuleService:
             return None, True
 
         skill_name = str(task_cfg.get("skill_name") or "review-pull-request").strip() or "review-pull-request"
+        shared_context_ref = f"github:pr_review:{owner}/{repo}:{pull_number}"
         input_payload = {
             "source": "automation_rule",
             "automation_rule": "github.pr_review_requested",
@@ -470,9 +471,9 @@ class AutomationRuleService:
             "skill_name": skill_name,
             "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
             "writeback_mode": task_cfg.get("writeback_mode"),
+            "shared_context_ref": shared_context_ref,
             "dedupe_key": dedupe_key,
         }
-        bundle_id = f"github:pr_review:{owner}/{repo}:{pull_number}"
         try:
             task = self.task_repo.create(
                 parent_agent_id=None,
@@ -483,11 +484,10 @@ class AutomationRuleService:
                 task_type="github_review_task",
                 skill_name=skill_name,
                 input_payload_json=json.dumps(input_payload),
-                shared_context_ref=None,
+                shared_context_ref=shared_context_ref,
                 task_family="review",
                 provider="github",
                 trigger=GITHUB_PR_REVIEW_TRIGGER,
-                bundle_id=bundle_id,
                 version_key=head_sha,
                 dedupe_key=agent_task_dedupe_key,
                 status="queued",
@@ -499,9 +499,9 @@ class AutomationRuleService:
             if refreshed:
                 self.repo.update_event_status(refreshed, status="failed", task_id=None, error_message=str(exc)[:500])
             raise
-        self._stale_superseded_github_review_tasks_for_bundle(
+        self._stale_superseded_github_review_tasks_for_context(
             assignee_agent_id=rule.target_agent_id,
-            bundle_id=bundle_id,
+            shared_context_ref=shared_context_ref,
             new_head_sha=head_sha,
             superseding_task_id=task.id,
         )
@@ -857,19 +857,19 @@ class AutomationRuleService:
         pull_number = item.get("pull_number") or item.get("issue_number")
         root_id = item.get("in_reply_to_id") or item.get("review_comment_id") or item.get("comment_id")
         if comment_kind == "pull_request_review_comment":
-            session_id = f"github:mention:{owner}/{repo}:review_thread:{pull_number}:{root_id}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:review_thread:{pull_number}:{root_id}"
+            session_id = f"github:mention:{owner}/{repo}:review_thread:{pull_number}:{root_id}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:review_thread:{pull_number}:{root_id}"
         elif context_type == "pull_request":
-            session_id = f"github:mention:{owner}/{repo}:pull_request:{pull_number}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:pull_request:{pull_number}"
+            session_id = f"github:mention:{owner}/{repo}:pull_request:{pull_number}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:pull_request:{pull_number}"
         elif comment_kind == "commit_comment":
             commit_id = item.get("commit_id")
-            session_id = f"github:mention:{owner}/{repo}:commit:{commit_id}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:commit:{commit_id}"
+            session_id = f"github:mention:{owner}/{repo}:commit:{commit_id}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:commit:{commit_id}"
         elif comment_kind == "discussion_comment":
             discussion_id = item.get("discussion_id")
             discussion_number = item.get("discussion_number")
             discussion_comment_id = item.get("discussion_comment_id") or item.get("comment_id")
-            session_id = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}:{discussion_comment_id}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}"
+            session_id = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}:{discussion_comment_id}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:discussion:{discussion_number or discussion_id}"
         else:
-            issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"; bundle_id = f"github:mention:{owner}/{repo}:issue:{issue_number}"
+            issue_number = item.get("issue_number"); session_id = f"github:mention:{owner}/{repo}:issue:{issue_number}:{mention_target}"; shared_context_ref = f"github:mention:{owner}/{repo}:issue:{issue_number}"
         try:
             missing_required = [
                 field
@@ -925,6 +925,7 @@ class AutomationRuleService:
                 "execution_mode": task_cfg.get("execution_mode", "chat_tool_loop"),
                 "reply_mode": task_cfg.get("reply_mode", "same_surface"),
                 "session_id": session_id,
+                "shared_context_ref": shared_context_ref,
                 "dedupe_key": dedupe_key,
             }
             task = self.task_repo.create(
@@ -936,11 +937,10 @@ class AutomationRuleService:
                 task_type="triggered_event_task",
                 skill_name=skill_name,
                 input_payload_json=json.dumps(input_payload),
-                shared_context_ref=None,
+                shared_context_ref=shared_context_ref,
                 task_family="triggered_work",
                 provider="github",
                 trigger=GITHUB_COMMENT_MENTION_TRIGGER,
-                bundle_id=bundle_id,
                 version_key=str(comment_id),
                 dedupe_key=agent_task_dedupe_key,
                 status="queued",

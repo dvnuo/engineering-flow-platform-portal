@@ -20,7 +20,6 @@ class AgentTaskCreateRequest(BaseModel):
     task_family: Optional[str] = None
     provider: Optional[str] = None
     trigger: Optional[str] = None
-    bundle_id: Optional[str] = None
     version_key: Optional[str] = None
     dedupe_key: Optional[str] = None
     status: str = "queued"
@@ -55,7 +54,6 @@ class AgentTaskResponse(BaseModel):
     task_family: Optional[str] = None
     provider: Optional[str] = None
     trigger: Optional[str] = None
-    bundle_id: Optional[str] = None
     version_key: Optional[str] = None
     dedupe_key: Optional[str] = None
     status: str
