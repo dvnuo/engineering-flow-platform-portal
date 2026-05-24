@@ -375,6 +375,42 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists_whil
         db.close()
 
 
+def test_build_apply_payload_for_agent_grants_github_review_from_runtime_profile():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = (
+            '{"llm":{"provider":"openai"},'
+            '"github":{"enabled":true,"api_token":"secret","base_url":"https://api.github.com"}}'
+        )
+        capability = CapabilityProfile(
+            name="cp-jira-only",
+            allowed_external_systems_json='["jira"]',
+            allowed_actions_json='["jira.transition"]',
+        )
+        db.add_all([capability, rp])
+        db.commit()
+        db.refresh(rp)
+        db.refresh(capability)
+        running.capability_profile_id = capability.id
+        db.add(running)
+        db.commit()
+        db.refresh(running)
+
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        payload = service.build_apply_payload_for_agent(db, running, rp)
+        cfg = payload["config"]
+
+        assert "github" in cfg["allowed_external_systems"]
+        assert "jira" in cfg["allowed_external_systems"]
+        assert "review_pull_request" in cfg["allowed_actions"]
+        assert "adapter:github:review_pull_request" in cfg["allowed_adapter_actions"]
+        assert "adapter:github:review_pull_request" in cfg["allowed_capability_ids"]
+        assert "adapter_action" in cfg["allowed_capability_types"]
+        assert cfg["resolved_action_mappings"]["review_pull_request"] == "adapter:github:review_pull_request"
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_for_agent_sends_copilot_api_key_for_opencode():
     db, rp, running, _stopped = _build_db()
     try:

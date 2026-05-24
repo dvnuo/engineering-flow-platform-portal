@@ -125,7 +125,7 @@ def test_automation_rules_api_validation_and_missing_github_config():
         cleanup()
 
 
-def test_automation_rules_api_capability_profile_gate():
+def test_automation_rules_api_pr_review_ignores_capability_profile_gate():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
         cp_jira = CapabilityProfile(name="cap-jira-only", allowed_external_systems_json='["jira"]')
@@ -133,9 +133,10 @@ def test_automation_rules_api_capability_profile_gate():
         agent.capability_profile_id = cp_jira.id
         db.add(agent); db.commit()
 
-        resp = client.post("/api/automation-rules", json=_create_payload(agent.id))
-        assert resp.status_code == 400
-        assert "capability profile does not allow" in resp.json()["detail"]
+        payload = _create_payload(agent.id)
+        payload["name"] = "jira-only-profile-is-ignored"
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 200
 
         cp_ok = CapabilityProfile(
             name="cap-github-ok",
@@ -146,7 +147,9 @@ def test_automation_rules_api_capability_profile_gate():
         db.add(cp_ok); db.commit(); db.refresh(cp_ok)
         agent.capability_profile_id = cp_ok.id
         db.add(agent); db.commit()
-        ok = client.post("/api/automation-rules", json=_create_payload(agent.id))
+        payload = _create_payload(agent.id)
+        payload["name"] = "github-profile-still-ok"
+        ok = client.post("/api/automation-rules", json=payload)
         assert ok.status_code == 200
 
         cp_bad_trigger = CapabilityProfile(
@@ -158,9 +161,10 @@ def test_automation_rules_api_capability_profile_gate():
         db.add(cp_bad_trigger); db.commit(); db.refresh(cp_bad_trigger)
         agent.capability_profile_id = cp_bad_trigger.id
         db.add(agent); db.commit()
-        bad_trigger = client.post("/api/automation-rules", json=_create_payload(agent.id))
-        assert bad_trigger.status_code == 400
-        assert "capability profile does not allow" in bad_trigger.json()["detail"]
+        payload = _create_payload(agent.id)
+        payload["name"] = "bad-trigger-profile-is-ignored"
+        bad_trigger = client.post("/api/automation-rules", json=payload)
+        assert bad_trigger.status_code == 200
 
         cp_bad_action = CapabilityProfile(
             name="cap-bad-action",
@@ -171,9 +175,10 @@ def test_automation_rules_api_capability_profile_gate():
         db.add(cp_bad_action); db.commit(); db.refresh(cp_bad_action)
         agent.capability_profile_id = cp_bad_action.id
         db.add(agent); db.commit()
-        bad_action = client.post("/api/automation-rules", json=_create_payload(agent.id))
-        assert bad_action.status_code == 400
-        assert "capability profile does not allow" in bad_action.json()["detail"]
+        payload = _create_payload(agent.id)
+        payload["name"] = "bad-action-profile-is-ignored"
+        bad_action = client.post("/api/automation-rules", json=payload)
+        assert bad_action.status_code == 200
     finally:
         cleanup()
 

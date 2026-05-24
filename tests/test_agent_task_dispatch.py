@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, RuntimeProfile, User
+from app.models.capability_profile import CapabilityProfile
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.services.auth_service import hash_password
 from app.services.task_dispatcher import TaskDispatcherService
@@ -70,6 +71,24 @@ def _create_task(db: Session, agent_id: str) -> AgentTask:
     db.commit()
     db.refresh(task)
     return task
+
+
+def _attach_github_runtime_profile(db: Session, agent: Agent) -> RuntimeProfile:
+    profile = RuntimeProfile(
+        owner_user_id=agent.owner_user_id,
+        name=f"github-rp-{agent.id}",
+        config_json=json.dumps({"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "secret"}}),
+        revision=1,
+        is_default=True,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    agent.runtime_profile_id = profile.id
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    return profile
 
 
 def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
@@ -465,6 +484,7 @@ def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_s
 
 def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkeypatch):
     db, agent = db_session
+    _attach_github_runtime_profile(db, agent)
     task = AgentTask(
         id="task-async-cancelled",
         assignee_agent_id=agent.id,
@@ -787,6 +807,21 @@ def test_dispatch_task_sets_pending_restart_summary(db_session, monkeypatch):
 
 def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db_session):
     db, agent = db_session
+    _attach_github_runtime_profile(db, agent)
+    capability_profile = CapabilityProfile(
+        name="noisy-capability-profile-ignored-for-pr-review",
+        skill_set_json='["review"]',
+        allowed_external_systems_json='["jira"]',
+        allowed_webhook_triggers_json='["jira.assigned"]',
+        allowed_actions_json='["transition_issue"]',
+    )
+    db.add(capability_profile)
+    db.commit()
+    db.refresh(capability_profile)
+    agent.capability_profile_id = capability_profile.id
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
     task = AgentTask(
         assignee_agent_id=agent.id,
         owner_user_id=1,
@@ -839,6 +874,55 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
     assert runtime_body["task_type"] == "github_review_task"
     assert runtime_body["input_payload"]["execution_mode"] == "chat_tool_loop"
     assert runtime_body["metadata"]["portal_execution_mode"] == "chat_tool_loop"
+    metadata = runtime_body["metadata"]
+    assert metadata["capability_profile_id"] is None
+    assert metadata["authorization_source"] == "runtime_profile"
+    assert metadata["runtime_profile_id"] == agent.runtime_profile_id
+    assert metadata["runtime_profile"]["runtime_profile_id"] == agent.runtime_profile_id
+    assert "policy_context" in metadata
+    assert metadata["allowed_external_systems"] == ["github"]
+    assert metadata["allowed_actions"] == ["review_pull_request"]
+    assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_ids"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_types"] == ["adapter_action"]
+    assert metadata["allowed_webhook_triggers"] == []
+    assert metadata["resolved_action_mappings"] == {"review_pull_request": "adapter:github:review_pull_request"}
+    assert metadata["unresolved_tools"] == []
+    assert metadata["unresolved_skills"] == []
+    assert metadata["unresolved_channels"] == []
+    assert metadata["unresolved_actions"] == []
+    assert metadata["skill_details"] == []
+
+
+def test_github_review_dispatch_fails_without_github_runtime_profile(monkeypatch, db_session):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        owner_user_id=1,
+        source="automation_rule",
+        task_type="github_review_task",
+        input_payload_json=json.dumps({"owner": "octo", "repo": "portal", "pull_number": 99, "head_sha": "sha-99"}),
+        shared_context_ref="github:pr_review:octo/portal:99",
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+
+    async def fail_post(_url, _body):
+        raise AssertionError("dispatcher should not post without GitHub runtime profile config")
+
+    monkeypatch.setattr(service, "_post_to_runtime", fail_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.dispatched is False
+    assert result.task_status == "failed"
+    db.refresh(task)
+    payload = json.loads(task.result_payload_json)
+    assert payload["error_code"] == "github_runtime_profile_error"
+    assert "runtime profile" in payload["message"]
 
 
 def test_github_review_automation_dispatch_does_not_use_chat_endpoint():

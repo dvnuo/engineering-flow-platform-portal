@@ -103,6 +103,8 @@ def _base_automation_config() -> dict:
     return {
         "github": {
             "enabled": True,
+            "base_url": "https://api.github.com",
+            "api_token": "token",
             "automation": {
                 "review_requests": {"enabled": True, "repos": ["octo/portal"]},
                 "mentions": {"enabled": True, "repos": ["octo/portal"], "include_review_comments": True},
@@ -427,8 +429,8 @@ def test_github_pr_review_requested_ingress_case_insensitive_team_match(monkeypa
         cleanup()
 
 
-def test_github_pr_review_requested_ingress_capability_profile_blocked(monkeypatch):
-    client, db, admin_user, _state, cleanup = _build_client_with_overrides(monkeypatch)
+def test_github_pr_review_requested_ingress_ignores_capability_profile(monkeypatch):
+    client, db, admin_user, state, cleanup = _build_client_with_overrides(monkeypatch)
     try:
         agent = _create_agent(db, admin_user.id, {"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "token"}})
         cp = CapabilityProfile(name="cap-jira-only-ingress", allowed_external_systems_json='["jira"]')
@@ -457,9 +459,13 @@ def test_github_pr_review_requested_ingress_capability_profile_blocked(monkeypat
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["accepted"] is False
-        assert body["routing_reason"] == "capability_profile_blocked"
+        assert body["accepted"] is True
+        assert body["routing_reason"] == "matched_automation_rule"
         assert body["matched_agent_id"] == agent.id
+        assert body["created_task_id"] in state["dispatches"]
+        task = AgentTaskRepository(db).get_by_id(body["created_task_id"])
+        assert task
+        assert task.task_type == "github_review_task"
     finally:
         cleanup()
 

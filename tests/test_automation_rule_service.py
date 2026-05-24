@@ -493,7 +493,7 @@ async def test_run_once_failure_schedules_next_run(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_run_once_blocked_by_capability_profile(monkeypatch):
+async def test_run_once_ignores_capability_profile_when_runtime_has_github(monkeypatch):
     db = _session()
     user = User(username="u7", password_hash="x", role="admin", is_active=True)
     db.add(user); db.commit(); db.refresh(user)
@@ -509,11 +509,15 @@ async def test_run_once_blocked_by_capability_profile(monkeypatch):
     db.add(agent); db.commit()
 
     svc = AutomationRuleService(db)
-    with pytest.raises(Exception):
-        await svc.run_rule_once(rule.id)
+    async def _poll_empty(*_args, **_kwargs):
+        return []
 
+    monkeypatch.setattr(svc.poller, "poll_review_requests", _poll_empty)
+    result = await svc.run_rule_once(rule.id)
+    assert result.status == "success"
+    assert result.found_count == 0
     runs = AutomationRuleRepository(db).list_runs(rule.id, 5)
-    assert runs[0].status == "failed"
+    assert runs[0].status == "success"
 
 
 def _create_runtime_and_agent(db: Session, username: str = "u-mention"):

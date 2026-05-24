@@ -225,13 +225,6 @@ class AutomationRuleService:
             source_type=payload.source_type,
             trigger_type=payload.trigger_type,
         )
-        try:
-            resolve_github_for_agent(self.db, payload.target_agent_id)
-        except ProviderConfigResolverError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
         built = self._build_from_structured(
             {
                 "scope_json": data.get("scope") or {},
@@ -243,10 +236,16 @@ class AutomationRuleService:
         )
         self._validate_built_rule_config(built=built, trigger_type=kind.trigger_type)
         task_cfg = built.get("task_config_json") or {}
-        skill_name = str(task_cfg.get("skill_name") or kind.default_skill_name).strip()
         if kind.trigger_type == GITHUB_PR_REVIEW_TRIGGER:
-            self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id, skill_name=skill_name)
+            self._validate_agent_can_run_github_pr_review_rule(agent_id=payload.target_agent_id)
         elif kind.trigger_type == GITHUB_COMMENT_MENTION_TRIGGER:
+            try:
+                resolve_github_for_agent(self.db, payload.target_agent_id)
+            except ProviderConfigResolverError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            skill_name = str(task_cfg.get("skill_name") or kind.default_skill_name).strip()
             scope = built.get("scope_json") or {}
             surfaces = list(scope.get("surfaces") or ["issue_comment", "pull_request_review_comment"])
             reply_mode = str(task_cfg.get("reply_mode") or "same_surface").strip()
@@ -293,15 +292,17 @@ class AutomationRuleService:
         update_data["task_type"] = kind.task_type
 
         target_agent_id = update_data.get("target_agent_id") or rule.target_agent_id
-        try:
-            resolve_github_for_agent(self.db, target_agent_id)
-        except ProviderConfigResolverError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         task_cfg = built.get("task_config_json") or {}
-        skill_name = str(task_cfg.get("skill_name") or kind.default_skill_name).strip()
         if kind.trigger_type == GITHUB_PR_REVIEW_TRIGGER:
-            self._validate_agent_can_run_github_pr_review_rule(agent_id=target_agent_id, skill_name=skill_name)
+            self._validate_agent_can_run_github_pr_review_rule(agent_id=target_agent_id)
         elif kind.trigger_type == GITHUB_COMMENT_MENTION_TRIGGER:
+            try:
+                resolve_github_for_agent(self.db, target_agent_id)
+            except ProviderConfigResolverError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            skill_name = str(task_cfg.get("skill_name") or kind.default_skill_name).strip()
             scope = built.get("scope_json") or {}
             surfaces = list(scope.get("surfaces") or ["issue_comment", "pull_request_review_comment"])
             reply_mode = str(task_cfg.get("reply_mode") or "same_surface").strip()
@@ -346,36 +347,16 @@ class AutomationRuleService:
             return full_dedupe_key
         return "automation:" + hashlib.sha256(full_dedupe_key.encode()).hexdigest()
 
-    def _validate_agent_can_run_github_pr_review_rule(self, *, agent_id: str, skill_name: str) -> None:
+    def _validate_agent_can_run_github_pr_review_rule(self, *, agent_id: str) -> None:
         agent = AgentRepository(self.db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent not found")
-
-        profile_id, resolved = self.capability_context_service.resolve_for_agent(self.db, agent)
-        context = self.capability_context_service.build_runtime_capability_context(
-            profile_id,
-            resolved,
-            db=self.db,
-            agent_id=agent.id,
-        )
-
-        allowed_external_systems = {str(item).strip().lower() for item in context.get("allowed_external_systems", []) if str(item).strip()}
-        if allowed_external_systems and "github" not in allowed_external_systems:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub PR review automation")
-
-        allowed_webhook_triggers = {str(item).strip().lower() for item in context.get("allowed_webhook_triggers", []) if str(item).strip()}
-        if allowed_webhook_triggers and not ({"pull_request_review_requested", "github_pr_review_requested", "github.pull_request_review_requested"} & allowed_webhook_triggers):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub PR review automation")
-
-        if context.get("skill_set"):
-            skill_allowance = self.capability_context_service.get_skill_allowance_detail(self.db, agent, skill_name)
-            if not skill_allowance.allowed:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub PR review automation")
-
-        allowed_actions = {str(item).strip().lower() for item in context.get("allowed_actions", []) if str(item).strip()}
-        allowed_adapter_actions = {str(item).strip().lower() for item in context.get("allowed_adapter_actions", []) if str(item).strip()}
-        if (allowed_actions or allowed_adapter_actions) and not ({"review_pull_request", "adapter:github:review_pull_request"} & (allowed_actions | allowed_adapter_actions)):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected agent capability profile does not allow GitHub PR review automation")
+        try:
+            resolve_github_for_agent(self.db, agent.id)
+        except ProviderConfigResolverError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     def _validate_agent_can_run_github_comment_mention_rule(self, *, agent_id: str, skill_name: str, surfaces: list[str], reply_mode: str) -> None:
         agent = AgentRepository(self.db).get_by_id(agent_id)
@@ -539,7 +520,6 @@ class AutomationRuleService:
         task_cfg = self._parse_json(rule.task_config_json)
         schedule = self._parse_json(rule.schedule_json)
         interval_seconds = int(schedule.get("interval_seconds") or 60)
-        skill_name = str(task_cfg.get("skill_name") or "").strip() or "review-pull-request"
 
         found_count = 0
         created_task_count = 0
@@ -548,7 +528,7 @@ class AutomationRuleService:
         run_error_count = 0
 
         try:
-            self._validate_agent_can_run_github_pr_review_rule(agent_id=rule.target_agent_id, skill_name=skill_name)
+            self._validate_agent_can_run_github_pr_review_rule(agent_id=rule.target_agent_id)
             provider_cfg = resolve_github_for_agent(self.db, rule.target_agent_id)
             items = await self.poller.poll_review_requests(
                 provider_config=provider_cfg,

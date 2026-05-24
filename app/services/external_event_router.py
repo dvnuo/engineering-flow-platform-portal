@@ -201,21 +201,21 @@ class ExternalEventRouterService:
             "source_payload": payload_obj,
         }
         task_cfg = self._parse_json_object(matched_rule.task_config_json) or {}
-        skill_name = str(task_cfg.get("skill_name") or "").strip() or "review-pull-request"
         automation_service = AutomationRuleService(db)
         try:
             automation_service._validate_agent_can_run_github_pr_review_rule(
                 agent_id=matched_rule.target_agent_id,
-                skill_name=skill_name,
             )
         except Exception as exc:
+            detail = getattr(exc, "detail", None)
+            routing_reason = "agent_not_found" if detail == "Target agent not found" else "github_runtime_profile_error"
             return ExternalEventIngressResponse(
                 accepted=False,
                 matched_subscription_ids=[],
-                routing_reason="capability_profile_blocked",
+                routing_reason=routing_reason,
                 matched_agent_id=matched_rule.target_agent_id,
                 resolved_task_type="github_review_task",
-                message=str(getattr(exc, "detail", None) or "Selected agent capability profile does not allow GitHub PR review automation"),
+                message=str(detail or "GitHub runtime profile is not configured for PR review automation"),
             )
 
         task, skipped = automation_service.create_github_review_task_for_discovered_item(rule=matched_rule, item=item, task_cfg=task_cfg)

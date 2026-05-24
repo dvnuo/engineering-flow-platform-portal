@@ -103,6 +103,37 @@ class RuntimeProfileSyncService:
     def _as_dict(value) -> dict:
         return dict(value) if isinstance(value, dict) else {}
 
+    def _grant_github_pr_review_from_runtime_profile(self, config: dict) -> None:
+        github = config.get("github") if isinstance(config, dict) else None
+        if not isinstance(github, dict) or not github.get("enabled"):
+            return
+        if not str(github.get("api_token") or "").strip():
+            return
+
+        adapter_action = "adapter:github:review_pull_request"
+        config["allowed_external_systems"] = self._merge_string_lists(
+            config.get("allowed_external_systems"),
+            ["github"],
+        )
+        config["allowed_actions"] = self._merge_string_lists(
+            config.get("allowed_actions"),
+            ["review_pull_request"],
+        )
+        config["allowed_adapter_actions"] = self._merge_string_lists(
+            config.get("allowed_adapter_actions"),
+            [adapter_action],
+        )
+        config["allowed_capability_ids"] = self._merge_string_lists(
+            config.get("allowed_capability_ids"),
+            [adapter_action],
+        )
+        config["allowed_capability_types"] = self._filter_broad_capability_types(
+            self._merge_string_lists(config.get("allowed_capability_types"), ["adapter_action"])
+        )
+        resolved_mappings = self._as_dict(config.get("resolved_action_mappings"))
+        resolved_mappings["review_pull_request"] = adapter_action
+        config["resolved_action_mappings"] = resolved_mappings
+
     @staticmethod
     def _raw_profile_config(runtime_profile) -> dict:
         raw = getattr(runtime_profile, "config_json", None)
@@ -185,6 +216,7 @@ class RuntimeProfileSyncService:
                 payload["config"][key] = deepcopy(raw_config.get(key))
         execution_context = self.execution_context_service.build_for_agent(db, agent)
         payload["config"] = self._merge_agent_runtime_context_into_config(payload["config"], execution_context)
+        self._grant_github_pr_review_from_runtime_profile(payload["config"])
         payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
         return payload
 

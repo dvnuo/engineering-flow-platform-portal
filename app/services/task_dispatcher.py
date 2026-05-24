@@ -24,6 +24,7 @@ from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.group_shared_context_snapshot_repo import GroupSharedContextSnapshotRepository
+from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
 
@@ -434,6 +435,23 @@ class TaskDispatcherService:
         task.finished_at = datetime.utcnow()
         return task_repo.save(task)
 
+    def _grant_github_pr_review_runtime_metadata(self, metadata: dict) -> None:
+        adapter_action = "adapter:github:review_pull_request"
+        metadata["capability_profile_id"] = None
+        metadata["authorization_source"] = "runtime_profile"
+        metadata["allowed_external_systems"] = ["github"]
+        metadata["allowed_actions"] = ["review_pull_request"]
+        metadata["allowed_adapter_actions"] = [adapter_action]
+        metadata["allowed_capability_ids"] = [adapter_action]
+        metadata["allowed_capability_types"] = ["adapter_action"]
+        metadata["allowed_webhook_triggers"] = []
+        metadata["resolved_action_mappings"] = {"review_pull_request": adapter_action}
+        metadata["unresolved_tools"] = []
+        metadata["unresolved_skills"] = []
+        metadata["unresolved_channels"] = []
+        metadata["unresolved_actions"] = []
+        metadata["skill_details"] = []
+
     def _normalize_runtime_submit_response(
         self,
         response: httpx.Response,
@@ -773,6 +791,24 @@ class TaskDispatcherService:
                     )
                     return AgentTaskDispatchResult(False, task.id, None, task.status, payload_error, task.result_payload_json)
 
+                if task.task_type == "github_review_task":
+                    try:
+                        resolve_github_for_agent(db, agent.id)
+                    except (ProviderConfigResolverError, ValueError) as exc:
+                        error_message = str(exc)
+                        failure_payload = self._build_failure_payload(
+                            "github_runtime_profile_error",
+                            error_message,
+                            trace_context=trace_context,
+                        )
+                        task = self._mark_task_failed(
+                            task=task,
+                            task_repo=task_repo,
+                            result_payload_json=failure_payload,
+                            error_message=error_message,
+                        )
+                        return AgentTaskDispatchResult(False, task.id, None, task.status, error_message, task.result_payload_json)
+
                 delegation = None
                 metadata = {
                     "portal_task_id": task.id,
@@ -792,6 +828,8 @@ class TaskDispatcherService:
                 metadata["parent_span_id"] = parent_span_id
                 metadata["portal_dispatch_id"] = portal_dispatch_id
                 metadata["portal_task_id"] = task.id
+                if task.task_type == "github_review_task":
+                    self._grant_github_pr_review_runtime_metadata(metadata)
                 workflow_rule_id = input_payload.get("workflow_rule_id")
                 if workflow_rule_id:
                     metadata["portal_workflow_rule_id"] = workflow_rule_id
