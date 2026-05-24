@@ -86,7 +86,7 @@ def test_bundle_page_title_and_modal_support_template(monkeypatch):
     assert "Bundles" in response.text
     app_page = client.get("/app")
     assert 'name="template_id"' in app_page.text
-    assert "Slug (optional, used for repo path / bundle_id / branch)" in app_page.text
+    assert "Slug (optional, used for repo path / branch)" in app_page.text
 
 
 def test_create_route_accepts_template_id(monkeypatch):
@@ -165,6 +165,11 @@ def test_detail_view_model_contains_metadata_and_artifacts_only():
     )
 
     assert vm["title"] == "Checkout Flow"
+    assert vm["bundle_ref_label"] == "Checkout Flow"
+    assert "requirement-bundles/payments/checkout-flow" in vm["subtitle"]
+    assert "Requirement Bundle" in vm["subtitle"]
+    assert "draft" in vm["subtitle"]
+    assert "RB-checkout-flow" not in vm["subtitle"]
     assert vm["domain"] == "payments"
     assert vm["artifact_ready_count"] == 2
     assert [item["file_path"] for item in vm["artifacts"]] == ["requirements.yaml", "test-cases.yaml"]

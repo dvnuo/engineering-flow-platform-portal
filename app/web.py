@@ -312,10 +312,12 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates) -> dict:
     scope = manifest.get("scope") if isinstance(manifest.get("scope"), dict) else {}
     bundle_path = (bundle_detail.bundle_ref.path or "").strip()
     fallback_title = bundle_path.split("/")[-1] if bundle_path else "Bundle"
-    bundle_ref_label = manifest.get("bundle" + "_id") or fallback_title or "-"
-    title = manifest.get("title") or bundle_ref_label or fallback_title or "Bundle"
+    title = manifest.get("title") or fallback_title or "Bundle"
+    bundle_ref_label = title or fallback_title or "-"
     status_label = manifest.get("status") or "unknown"
     template_id = bundle_detail.template_id
+    template_label = bundle_detail.template_label or template_id or "-"
+    subtitle = " · ".join(part for part in (bundle_path or "-", template_label, status_label) if part)
     repo = bundle_detail.bundle_ref.repo or "-"
     branch = bundle_detail.bundle_ref.branch or "-"
     github_url = f"https://github.com/{repo}/tree/{branch}/{bundle_detail.bundle_ref.path}"
@@ -339,12 +341,12 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates) -> dict:
 
     return {
         "title": title,
-        "subtitle": f"{bundle_ref_label} · {bundle_path or '-'}",
+        "subtitle": subtitle,
         "bundle_ref_label": bundle_ref_label,
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "domain": scope.get("domain") or "-",
-        "template_label": bundle_detail.template_label,
+        "template_label": template_label,
         "template_id": template_id,
         "repo": repo,
         "branch": branch,
