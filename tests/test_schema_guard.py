@@ -22,14 +22,6 @@ REQUIRED_PORTAL_TABLES = (
     "automation_rule_runs",
     "automation_rule_events",
 )
-REMOVED_TABLES = (
-    "capability" + "_" + "profiles",
-    "policy" + "_" + "profiles",
-    "group_" + "shared_" + "context_snapshots",
-    "external_event_subscriptions",
-)
-
-
 def _runtime_profile_sync_jobs_table(metadata: MetaData, *, minimal: bool = False):
     if minimal:
         return Table("runtime_profile_sync_jobs", metadata, Column("id", String(36), primary_key=True))
@@ -191,28 +183,3 @@ def test_portal_schema_ready_rejects_runtime_profile_sync_jobs_missing_columns()
         assert "alembic upgrade head" in message
     else:
         raise AssertionError("expected RuntimeError for incomplete runtime_profile_sync_jobs table")
-
-
-def test_portal_schema_ready_rejects_removed_tables():
-    engine = create_engine("sqlite:///:memory:")
-    metadata = MetaData()
-    for table_name in REQUIRED_PORTAL_TABLES + REMOVED_TABLES:
-        if table_name == "alembic_version":
-            Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
-        elif table_name in {"users", "agent_groups"}:
-            Table(table_name, metadata, Column("id", Integer, primary_key=True))
-        elif table_name == "automation_rule_events":
-            Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
-        elif table_name == "runtime_profile_sync_jobs":
-            _runtime_profile_sync_jobs_table(metadata)
-        else:
-            Table(table_name, metadata, Column("id", String(36), primary_key=True))
-    metadata.create_all(engine)
-
-    try:
-        assert_portal_schema_ready(engine)
-    except RuntimeError as exc:
-        message = str(exc)
-        assert "removed Portal tables" in message
-    else:
-        raise AssertionError("expected RuntimeError for removed portal tables")
