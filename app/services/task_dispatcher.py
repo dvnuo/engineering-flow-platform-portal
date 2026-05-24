@@ -19,8 +19,6 @@ from app.log_context import (
     snapshot_log_context,
 )
 from app.redaction import safe_preview, sanitize_exception_message
-from app.repositories.agent_coordination_run_repo import AgentCoordinationRunRepository
-from app.repositories.agent_delegation_repo import AgentDelegationRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
@@ -115,260 +113,6 @@ class TaskDispatcherService:
         if raw_response_preview:
             payload["raw_response_preview"] = raw_response_preview
         return json.dumps(payload)
-
-    @staticmethod
-    def _extract_delegation_result(normalized_result_payload_json: str | None) -> tuple[dict | None, str | None]:
-        if not normalized_result_payload_json:
-            return None, "Missing runtime result payload"
-        try:
-            payload = json.loads(normalized_result_payload_json)
-        except json.JSONDecodeError:
-            return None, "Runtime result payload is not valid JSON"
-        if not isinstance(payload, dict):
-            return None, "Runtime result payload must be a JSON object"
-
-        output_payload = payload.get("output_payload")
-        if not isinstance(output_payload, dict):
-            return None, "Runtime response missing output_payload object"
-
-        delegation_result = output_payload.get("delegation_result")
-        if not isinstance(delegation_result, dict):
-            return None, "Runtime response missing delegation_result object"
-        return delegation_result, None
-
-    @staticmethod
-    def _extract_deleted_task_agent_ids_from_delegation(delegation) -> list[str]:
-        audit_raw = getattr(delegation, "audit_trace_json", None)
-        if not audit_raw:
-            return []
-        try:
-            parsed = json.loads(audit_raw)
-        except Exception:
-            return []
-        if not isinstance(parsed, dict):
-            return []
-        cleanup = parsed.get("cleanup")
-        if not isinstance(cleanup, dict):
-            return []
-        ids = cleanup.get("deleted_task_agent_ids")
-        if not isinstance(ids, list):
-            return []
-        return [item for item in ids if isinstance(item, str) and item]
-
-    @staticmethod
-    def _append_deleted_task_agent_id_to_delegation(delegation, agent_id: str) -> None:
-        if not agent_id:
-            return
-        try:
-            parsed = json.loads(delegation.audit_trace_json) if delegation.audit_trace_json else {}
-        except Exception:
-            parsed = {}
-        if not isinstance(parsed, dict):
-            parsed = {}
-        cleanup = parsed.get("cleanup")
-        if not isinstance(cleanup, dict):
-            cleanup = {}
-        existing = cleanup.get("deleted_task_agent_ids")
-        if not isinstance(existing, list):
-            existing = []
-        merged = list(dict.fromkeys([item for item in existing if isinstance(item, str) and item] + [agent_id]))
-        cleanup["deleted_task_agent_ids"] = merged
-        parsed["cleanup"] = cleanup
-        delegation.audit_trace_json = json.dumps(parsed)
-
-    def _delegation_status_from_task_status(self, terminal_status: str, runtime_status: str | None = None) -> str:
-        normalized_runtime = str(runtime_status or "").lower()
-        if terminal_status == "done":
-            if normalized_runtime in {"", "done", "success", "completed"}:
-                return "done"
-            if normalized_runtime in {"failed", "error", "blocked", "stale", "cancelled", "pending_restart", "cancel_failed"}:
-                return normalized_runtime
-            return "failed"
-        mapping = {
-            "failed": "failed",
-            "blocked": "blocked",
-            "stale": "stale",
-            "cancelled": "cancelled",
-            "pending_restart": "pending_restart",
-            "cancel_failed": "failed",
-        }
-        return mapping.get(terminal_status, "failed")
-
-    def _sync_delegation_from_task_result(
-        self,
-        db: Session,
-        task,
-        normalized_result_payload_json: str | None,
-        terminal_status: str,
-    ) -> None:
-        if task.task_type != "delegation_task":
-            return
-
-        delegation_repo = AgentDelegationRepository(db)
-        delegation = delegation_repo.find_by_agent_task_id(task.id)
-        if not delegation:
-            return
-
-        delegation_result, error = self._extract_delegation_result(normalized_result_payload_json)
-        if error:
-            mapped_status = self._delegation_status_from_task_status(terminal_status)
-            delegation.status = mapped_status
-            if terminal_status == "pending_restart":
-                delegation.result_summary = "Runtime reported pending_restart; restart is required before this delegation can complete."
-            elif terminal_status == "cancelled":
-                delegation.result_summary = "Task was cancelled."
-            elif terminal_status == "stale":
-                delegation.result_summary = "Runtime reported task is stale."
-            elif terminal_status == "cancel_failed":
-                delegation.result_summary = f"Runtime failed to cancel task. {error}".strip()
-            else:
-                delegation.result_summary = error
-            delegation_repo.save(delegation)
-            self._sync_coordination_run_from_delegation(db, delegation)
-            self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, mapped_status)
-            return
-
-        runtime_status = str(delegation_result.get("status") or "done").lower()
-        computed_status = self._delegation_status_from_task_status(terminal_status, runtime_status if terminal_status == "done" else None)
-        delegation.status = computed_status
-
-        summary = delegation_result.get("summary")
-        if summary is None:
-            summary = delegation_result.get("result_summary")
-        artifacts = delegation_result.get("artifacts")
-        if artifacts is None:
-            artifacts = delegation_result.get("result_artifacts")
-        blockers = delegation_result.get("blockers")
-        audit_trace = delegation_result.get("audit_trace")
-
-        delegation.result_summary = summary
-        delegation.result_artifacts_json = json.dumps(artifacts) if artifacts is not None else None
-        delegation.blockers_json = json.dumps(blockers) if blockers is not None else None
-        delegation.next_recommendation = delegation_result.get("next_recommendation")
-        delegation.audit_trace_json = json.dumps(audit_trace) if audit_trace is not None else None
-        delegation_repo.save(delegation)
-        self._sync_coordination_run_from_delegation(db, delegation)
-        self._maybe_cleanup_task_agent_after_delegation(db, task, delegation, computed_status)
-
-    def _sync_coordination_run_from_delegation(self, db: Session, delegation) -> None:
-        run_id = (getattr(delegation, "coordination_run_id", None) or "").strip()
-        if not run_id:
-            return
-        run_repo = AgentCoordinationRunRepository(db)
-        run = run_repo.get_by_coordination_run_id(run_id)
-        if not run:
-            return
-
-        delegations = AgentDelegationRepository(db).list_by_coordination_run_id(run_id)
-        counts = {"queued": 0, "running": 0, "blocked": 0, "done": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
-        latest_round_index = 1
-        has_blockers = False
-        deleted_task_agent_ids: list[str] = []
-        for item in delegations:
-            status = getattr(item, "status", "")
-            if status in counts:
-                counts[status] += 1
-            latest_round_index = max(latest_round_index, getattr(item, "round_index", 1) or 1)
-            blockers_raw = getattr(item, "blockers_json", None)
-            if blockers_raw:
-                try:
-                    parsed_blockers = json.loads(blockers_raw)
-                except Exception:
-                    parsed_blockers = blockers_raw
-                if parsed_blockers:
-                    has_blockers = True
-            deleted_task_agent_ids.extend(self._extract_deleted_task_agent_ids_from_delegation(item))
-
-        deleted_task_agent_ids = list(dict.fromkeys(deleted_task_agent_ids))
-
-        if counts["running"] > 0 or counts["queued"] > 0:
-            run_status = "running"
-        elif counts["pending_restart"] > 0:
-            run_status = "pending_restart"
-        elif counts["cancel_failed"] > 0 or counts["failed"] > 0:
-            run_status = "failed"
-        elif counts["stale"] > 0:
-            run_status = "stale"
-        elif delegations and counts["cancelled"] == len(delegations):
-            run_status = "cancelled"
-        elif has_blockers or counts["blocked"] > 0:
-            run_status = "blocked"
-        elif counts["done"] > 0 and counts["done"] == len(delegations):
-            run_status = "done"
-        else:
-            run_status = "running"
-
-        run.status = run_status
-        run.latest_round_index = latest_round_index
-        run.summary_json = json.dumps(
-            {
-                "total": len(delegations),
-                "queued": counts["queued"],
-                "running": counts["running"],
-                "blocked": counts["blocked"],
-                "done": counts["done"],
-                "failed": counts["failed"],
-                "stale": counts["stale"],
-                "cancelled": counts["cancelled"],
-                "pending_restart": counts["pending_restart"],
-                "cancel_failed": counts["cancel_failed"],
-                "deleted_task_agent_ids": deleted_task_agent_ids,
-            }
-        )
-        if run_status in {"done", "failed", "stale", "cancelled"}:
-            run.completed_at = datetime.utcnow()
-        else:
-            run.completed_at = None
-        run_repo.save(run)
-
-    @staticmethod
-    def _should_cleanup_task_agent(cleanup_policy: str | None, delegation_status: str) -> bool:
-        if cleanup_policy == "delete_on_done":
-            return delegation_status == "done"
-        if cleanup_policy == "delete_on_terminal":
-            return delegation_status in {"done", "failed", "stale", "cancelled", "cancel_failed"}
-        return False
-
-    def _maybe_cleanup_task_agent_after_delegation(self, db: Session, task, delegation, delegation_status: str) -> None:
-        input_payload, payload_error = self._parse_input_payload(task.input_payload_json)
-        if payload_error or not input_payload:
-            return
-
-        cleanup_policy = input_payload.get("task_agent_cleanup_policy")
-        if not isinstance(cleanup_policy, str) or not cleanup_policy.strip():
-            return
-        cleanup_policy = cleanup_policy.strip()
-        if cleanup_policy == "retain":
-            return
-        if not self._should_cleanup_task_agent(cleanup_policy, delegation_status):
-            return
-
-        assignee_agent_id = input_payload.get("ephemeral_task_agent_id") or task.assignee_agent_id
-        if not assignee_agent_id:
-            return
-
-        agent = AgentRepository(db).get_by_id(assignee_agent_id)
-        if not agent or agent.agent_type != "task":
-            return
-        group_id = task.group_id or delegation.group_id
-        if not group_id:
-            return
-
-        from app.services.agent_group_service import AgentGroupService
-
-        group_service = AgentGroupService(db)
-        cleaned = group_service.auto_cleanup_task_agent(
-            group_id=group_id,
-            agent_id=assignee_agent_id,
-            delegation_id=delegation.id,
-            task_id=task.id,
-            cleanup_policy=cleanup_policy,
-            coordination_run_id=getattr(delegation, "coordination_run_id", None),
-        )
-        if cleaned:
-            self._append_deleted_task_agent_id_to_delegation(delegation, assignee_agent_id)
-            AgentDelegationRepository(db).save(delegation)
-            self._sync_coordination_run_from_delegation(db, delegation)
 
     @staticmethod
     def _derive_summary_from_runtime_payload(payload: dict | None) -> str | None:
@@ -709,7 +453,6 @@ class TaskDispatcherService:
         )
         task_repo = AgentTaskRepository(db)
         agent_repo = AgentRepository(db)
-        delegation_repo = AgentDelegationRepository(db)
 
         try:
             task = task_repo.get_by_id(task_id)
@@ -788,7 +531,6 @@ class TaskDispatcherService:
                         )
                         return AgentTaskDispatchResult(False, task.id, None, task.status, error_message, task.result_payload_json)
 
-                delegation = None
                 metadata = {
                     "portal_task_id": task.id,
                     "portal_task_source": task.source,
@@ -798,8 +540,6 @@ class TaskDispatcherService:
                     "source_type": task.source or "portal",
                     "source_ref": task.id,
                 }
-                if task.group_id:
-                    metadata["group_id"] = task.group_id
                 metadata = self.runtime_execution_context_service.build_runtime_metadata(db, agent, metadata)
                 metadata["trace_id"] = trace_id
                 metadata["span_id"] = dispatch_span_id
@@ -808,15 +548,9 @@ class TaskDispatcherService:
                 metadata["portal_task_id"] = task.id
                 if task.task_type == "github_review_task":
                     self._grant_github_pr_review_runtime_metadata(metadata)
-                workflow_rule_id = input_payload.get("workflow_rule_id")
-                if workflow_rule_id:
-                    metadata["portal_workflow_rule_id"] = workflow_rule_id
                 source_kind = input_payload.get("source_kind")
                 if source_kind:
                     metadata["source_kind"] = source_kind
-                binding_id = input_payload.get("binding_id")
-                if binding_id:
-                    metadata["portal_binding_id"] = binding_id
                 automation_rule = input_payload.get("automation_rule")
                 automation_rule_id = input_payload.get("automation_rule_id") or input_payload.get("rule_id")
                 if automation_rule:
@@ -849,38 +583,6 @@ class TaskDispatcherService:
                     if not isinstance(existing_system_prompt, str) or not existing_system_prompt.strip():
                         metadata["system_prompt"] = autonomous_instruction.strip()
 
-                if task.task_type == "delegation_task":
-                    delegation = delegation_repo.find_by_agent_task_id(task.id)
-                    if delegation:
-                        metadata["portal_delegation_id"] = delegation.id
-                        metadata["current_delegation_id"] = delegation.id
-                        metadata["portal_group_id"] = delegation.group_id
-                        if delegation.group_id:
-                            metadata["group_id"] = delegation.group_id
-                        metadata["portal_leader_agent_id"] = delegation.leader_agent_id
-                        metadata["portal_assignee_agent_id"] = delegation.assignee_agent_id
-                        metadata["portal_delegation_reply_target"] = getattr(delegation, "reply_target_type", None) or "leader"
-                        if getattr(delegation, "coordination_run_id", None):
-                            metadata["portal_coordination_run_id"] = delegation.coordination_run_id
-                            metadata["current_coordination_run_id"] = delegation.coordination_run_id
-                        metadata["portal_coordination_round_index"] = getattr(delegation, "round_index", 1) or 1
-                    else:
-                        if input_payload.get("coordination_run_id"):
-                            metadata["portal_coordination_run_id"] = input_payload.get("coordination_run_id")
-                            metadata["current_coordination_run_id"] = input_payload.get("coordination_run_id")
-                        if input_payload.get("round_index") is not None:
-                            metadata["portal_coordination_round_index"] = input_payload.get("round_index")
-                    if input_payload.get("strict_delegation_result") is True:
-                        metadata["strict_delegation_result"] = True
-                    if input_payload.get("agent_mode") in {"task", "specialist"}:
-                        metadata["agent_mode"] = input_payload.get("agent_mode")
-                    if input_payload.get("ephemeral_task_agent_id"):
-                        metadata["ephemeral_task_agent_id"] = input_payload.get("ephemeral_task_agent_id")
-                    if input_payload.get("task_agent_scope"):
-                        metadata["task_agent_scope"] = input_payload.get("task_agent_scope")
-                    if input_payload.get("task_agent_cleanup_policy"):
-                        metadata["task_agent_cleanup_policy"] = input_payload.get("task_agent_cleanup_policy")
-
                 runtime_body = {
                     "task_id": task.id,
                     "task_type": task.task_type,
@@ -888,16 +590,12 @@ class TaskDispatcherService:
                     "source": task.source,
                     "metadata": metadata,
                 }
-                leader_session_id = (getattr(delegation, "origin_session_id", None) if delegation else None) or input_payload.get("leader_session_id")
                 explicit_task_session_id = getattr(task, "task_session_id", None)
                 input_session_id = input_payload.get("session_id")
                 runtime_session_id = None
                 if task.task_type == "agent_async_task" and isinstance(explicit_task_session_id, str) and explicit_task_session_id.strip():
                     runtime_session_id = explicit_task_session_id.strip()
                     metadata["portal_task_session_id"] = runtime_session_id
-                elif isinstance(leader_session_id, str) and leader_session_id.strip():
-                    runtime_session_id = leader_session_id.strip()
-                    metadata["portal_leader_session_id"] = runtime_session_id
                 elif isinstance(input_session_id, str) and input_session_id.strip():
                     runtime_session_id = input_session_id.strip()
                     metadata["portal_input_session_id"] = runtime_session_id
@@ -919,9 +617,6 @@ class TaskDispatcherService:
                         result_payload_json=failure_payload,
                         error_message=f"Runtime URL resolution failed: {error_message}",
                     )
-                    if delegation:
-                        delegation.status = "failed"
-                        delegation_repo.save(delegation)
                     return AgentTaskDispatchResult(False, task.id, None, task.status, f"Runtime URL resolution failed: {error_message}", task.result_payload_json)
 
                 logger.debug(
@@ -992,9 +687,6 @@ class TaskDispatcherService:
                         if fresh_task.started_at is None:
                             fresh_task.started_at = datetime.utcnow()
                         task_repo.save(fresh_task)
-                        if delegation:
-                            delegation.status = "running"
-                            delegation_repo.save(delegation)
                         status_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}"
                         outcome = await self._poll_runtime_task_until_terminal(
                             runtime_status_url=status_url,
@@ -1008,9 +700,6 @@ class TaskDispatcherService:
                         if fresh_task.started_at is None:
                             fresh_task.started_at = datetime.utcnow()
                         task_repo.save(fresh_task)
-                        if delegation:
-                            delegation.status = "running"
-                            delegation_repo.save(delegation)
 
                     if not outcome:
                         outcome = NormalizedRuntimeOutcome(
@@ -1056,8 +745,6 @@ class TaskDispatcherService:
                         fresh_task.summary = "Task was cancelled."
                     fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
-                    if outcome.terminal_status in {"done", "failed", "blocked", "stale", "cancelled", "pending_restart", "cancel_failed"}:
-                        self._sync_delegation_from_task_result(db, fresh_task, outcome.result_payload_json, outcome.terminal_status)
                     logger.info(
                         "Dispatch normalization outcome task_id=%s runtime_status_code=%s task_status=%s message=%s",
                         fresh_task.id,
@@ -1115,7 +802,6 @@ class TaskDispatcherService:
                         result_payload_json=failure_payload,
                         error_message=f"Runtime dispatch request failed: {error_message}",
                     )
-                    self._sync_delegation_from_task_result(db, fresh_task, fresh_task.result_payload_json, "failed")
                     return AgentTaskDispatchResult(
                         True,
                         fresh_task.id,

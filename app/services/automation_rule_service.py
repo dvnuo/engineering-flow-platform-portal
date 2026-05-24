@@ -450,7 +450,6 @@ class AutomationRuleService:
         }
         try:
             task = self.task_repo.create(
-                parent_agent_id=None,
                 assignee_agent_id=rule.target_agent_id,
                 owner_user_id=rule.owner_user_id,
                 created_by_user_id=rule.created_by_user_id,
@@ -902,7 +901,6 @@ class AutomationRuleService:
                 "dedupe_key": dedupe_key,
             }
             task = self.task_repo.create(
-                parent_agent_id=None,
                 assignee_agent_id=rule.target_agent_id,
                 owner_user_id=rule.owner_user_id,
                 created_by_user_id=rule.created_by_user_id,

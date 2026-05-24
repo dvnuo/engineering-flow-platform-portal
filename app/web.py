@@ -13,9 +13,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
-from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
@@ -28,15 +26,13 @@ from app.schemas.runtime_profile import (
     sanitize_runtime_profile_config_dict,
     runtime_profile_model_supports_temperature,
 )
-from app.services.bundle_template_registry import list_bundle_templates
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
 )
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_agent_identity_headers, build_runtime_trace_headers
+from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
-from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 from app.services.runtime_profile_service import RuntimeProfileService
@@ -182,7 +178,7 @@ def _filter_agent_visible_sessions(runtime_sessions: list[dict], metadata_record
 def _portal_extra_headers(user, agent) -> dict[str, str]:
     return {
         **build_runtime_trace_headers(get_log_context()),
-        **build_portal_agent_identity_headers(user, agent),
+        **build_portal_agent_headers(user, agent),
     }
 
 
@@ -351,21 +347,6 @@ def _normalize_runtime_error_detail(content: bytes) -> str:
     return f"Runtime error: {' '.join(parts)}"
 
 
-def _build_settings_panel_context(*, request: Request, agent_id: str, base_context: dict, db, triggered_work_state: dict | None = None) -> dict:
-    bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-    triggered_state = triggered_work_state or {}
-    context = {
-        **base_context,
-        "request": request,
-        "agent_id": agent_id,
-        "identity_bindings": bindings,
-        "triggered_work_error": triggered_state.get("error", ""),
-        "triggered_work_success": triggered_state.get("success", ""),
-        "binding_form": triggered_state.get("binding_form", {}),
-    }
-    return context
-
-
 def _short_sha(value: str | None) -> str:
     cleaned = (value or "").strip()
     return cleaned[:7] if cleaned else "-"
@@ -390,8 +371,7 @@ def _humanize_artifact_label(value: str | None) -> str:
     return cleaned.replace("_", " ").title() if cleaned else "Artifact"
 
 
-def _build_bundle_detail_view_model(bundle_detail, bundle_templates) -> dict:
-    _ = bundle_templates
+def _build_bundle_detail_view_model(bundle_detail) -> dict:
     manifest = bundle_detail.manifest if isinstance(bundle_detail.manifest, dict) else {}
     scope = manifest.get("scope") if isinstance(manifest.get("scope"), dict) else {}
     bundle_path = (bundle_detail.bundle_ref.path or "").strip()
@@ -399,9 +379,8 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates) -> dict:
     title = manifest.get("title") or fallback_title or "Bundle"
     bundle_ref_label = title or fallback_title or "-"
     status_label = manifest.get("status") or "unknown"
-    template_id = bundle_detail.template_id
-    template_label = bundle_detail.template_label or template_id or "-"
-    subtitle = " · ".join(part for part in (bundle_path or "-", template_label, status_label) if part)
+    bundle_label = getattr(bundle_detail, "bundle_label", None) or "Requirement Bundle"
+    subtitle = " · ".join(part for part in (bundle_path or "-", bundle_label, status_label) if part)
     repo = bundle_detail.bundle_ref.repo or "-"
     branch = bundle_detail.bundle_ref.branch or "-"
     github_url = f"https://github.com/{repo}/tree/{branch}/{bundle_detail.bundle_ref.path}"
@@ -430,8 +409,7 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates) -> dict:
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "domain": scope.get("domain") or "-",
-        "template_label": template_label,
-        "template_id": template_id,
+        "bundle_label": bundle_label,
         "repo": repo,
         "branch": branch,
         "path": bundle_path or "-",
@@ -532,10 +510,6 @@ def _can_manage_task_for_user(db, task, user) -> bool:
     user_id = getattr(user, "id", None)
     if getattr(task, "owner_user_id", None) == user_id or getattr(task, "created_by_user_id", None) == user_id:
         return True
-    if getattr(task, "group_id", None):
-        group_service = AgentGroupService(db)
-        group = group_service.group_repo.get_by_id(task.group_id)
-        return bool(group and group_service.can_manage_group_tasks(group, user))
     agent = AgentRepository(db).get_by_id(getattr(task, "assignee_agent_id", None))
     return bool(agent and _can_write(agent, user))
 
@@ -638,7 +612,6 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         ("Version Key", getattr(task, "version_key", None) or "-"),
         ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
         ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
-        ("Group ID", getattr(task, "group_id", None) or "-"),
         ("Owner User ID", getattr(task, "owner_user_id", None) or "-"),
         ("Created By User ID", getattr(task, "created_by_user_id", None) or "-"),
         ("Updated At", getattr(task, "updated_at", None) or "-"),
@@ -660,7 +633,6 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         "error_text": getattr(task, "error_message", None) or "",
         "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
         "assignee_agent_id": getattr(task, "assignee_agent_id", None) or "-",
-        "group_id": getattr(task, "group_id", None) or "-",
         "owner_user_id": getattr(task, "owner_user_id", None) or "-",
         "created_by_user_id": getattr(task, "created_by_user_id", None) or "-",
         "runtime_request_id": getattr(task, "runtime_request_id", None) or "-",
@@ -817,14 +789,6 @@ def _settings_error_response(
     )
 
 
-def _settings_external_identity_summary(db, agent_id: str) -> dict[str, int]:
-    bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-    return {
-        "binding_total_count": len(bindings),
-        "binding_enabled_count": sum(1 for item in bindings if item.enabled),
-    }
-
-
 def _format_utc_timestamp(value) -> str | None:
     if not value:
         return None
@@ -877,10 +841,7 @@ def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
 
 
 def _settings_settings_panel_summary(db, agent_id: str) -> dict:
-    return {
-        **_settings_external_identity_summary(db, agent_id),
-        **_settings_automation_activity_summary(db, agent_id),
-    }
+    return _settings_automation_activity_summary(db, agent_id)
 
 
 def _runtime_profile_panel_context(
@@ -1351,7 +1312,6 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
             "base_branch": settings.assets_default_base_branch,
             "root_dir": settings.assets_bundle_root_dir,
         },
-        "bundle_templates": list_bundle_templates(),
         "bundle_result": None,
         "bundle_detail": None,
         "status_type": "",
@@ -1365,22 +1325,13 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
 def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: bool = False, **kwargs):
     context = _requirement_bundles_context(request, user, db, **kwargs)
     if context.get("bundle_detail"):
-        context["bundle_view_model"] = _build_bundle_detail_view_model(
-            context["bundle_detail"],
-            context.get("bundle_templates") or [],
-        )
+        context["bundle_view_model"] = _build_bundle_detail_view_model(context["bundle_detail"])
     context["content_target"] = _content_target_from_request(
         request,
         default="#tool-panel-body" if panel_mode else "#requirement-bundles-page-content",
     )
     template_name = "partials/requirement_bundles_panel.html" if panel_mode else "requirement_bundles.html"
     return templates.TemplateResponse(template_name, context)
-
-
-def _visible_group_ids_for_user(db, user) -> list[str]:
-    group_service = AgentGroupService(db)
-    groups = AgentGroupRepository(db).list_all()
-    return [group.id for group in groups if group_service.can_view_group(group, user)]
 
 
 @router.get("/app/tasks/panel")
@@ -1391,8 +1342,7 @@ def my_tasks_panel(request: Request):
 
     db = SessionLocal()
     try:
-        group_ids = _visible_group_ids_for_user(db, user)
-        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, visible_group_ids=group_ids)
+        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id)
         summary = {"queued": 0, "running": 0, "done": 0, "blocked": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
         for task in tasks:
             if task.status in summary:
@@ -1437,10 +1387,7 @@ def task_detail_panel(request: Request, task_id: str):
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         if user.role != "admin":
-            group_ids = _visible_group_ids_for_user(db, user)
-            is_visible = task.owner_user_id == user.id or task.created_by_user_id == user.id or (
-                task.group_id and task.group_id in group_ids
-            )
+            is_visible = task.owner_user_id == user.id or task.created_by_user_id == user.id
             if not is_visible:
                 raise HTTPException(status_code=404, detail="Task not found")
         return templates.TemplateResponse(
@@ -1467,7 +1414,6 @@ async def requirement_bundle_create(request: Request):
     try:
         form_data = await request.form()
         create_form = RequirementBundleCreateForm(
-            template_id=str(form_data.get("template_id") or "requirement.v1"),
             title=str(form_data.get("title") or ""),
             domain=str(form_data.get("domain") or ""),
             slug=(str(form_data.get("slug") or "").strip() or None),
@@ -2182,7 +2128,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "",
                     "status_message": "",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2241,8 +2187,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "request": request,
                     "agent_id": agent_id,
                     "status_type": "error",
-                    "status_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
+                    "status_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2262,7 +2208,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "error",
                     "status_message": "Assigned runtime profile was not found.",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2541,12 +2487,12 @@ async def app_chat_send(request: Request):
             raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         data = json.loads(content.decode("utf-8"))
-        
+
         normalized_payload = normalize_assistant_chat_payload(
             data,
             fallback_session_id=session_id or "",
         )
-        
+
         return templates.TemplateResponse(
             "partials/chat_response.html",
             {
@@ -2560,172 +2506,6 @@ async def app_chat_send(request: Request):
                 "display_blocks": normalized_payload["display_blocks"],
                 "timestamp": datetime.now().strftime("%H:%M"),
             },
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/agent-groups/{group_id}/task-board/panel")
-async def app_group_task_board_panel(request: Request, group_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
-
-        service = AgentGroupService(db)
-        try:
-            board = service.get_group_task_board(group_id, user=user, apply_visibility=True)
-        except AgentGroupServiceError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-        return templates.TemplateResponse(
-            "partials/group_task_board.html",
-            {
-                "request": request,
-                "group_id": board["group_id"],
-                "leader_agent_id": board["leader_agent_id"],
-                "summary": board["summary"],
-                "items": board["items"],
-            },
-        )
-    finally:
-        db.close()
-
-
-
-def _triggered_work_authorize(db, user, agent_id: str):
-    agent = AgentRepository(db).get_by_id(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    if not _can_access(agent, user):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return agent
-
-
-def _render_agent_identity_bindings_panel(
-    request: Request,
-    *,
-    agent,
-    user,
-    db,
-    error: str = "",
-    success: str = "",
-    form: dict | None = None,
-):
-    return templates.TemplateResponse(
-        "partials/agent_identity_bindings_panel.html",
-        {
-            "request": request,
-            "agent_id": agent.id,
-            "bindings": AgentIdentityBindingRepository(db).list_by_agent(agent.id),
-            "error": error,
-            "success": success,
-            "form": form or {},
-            "read_only": not _can_write(agent, user),
-        },
-    )
-
-
-
-@router.get("/app/agents/{agent_id}/external-identities/panel")
-async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        return _render_agent_identity_bindings_panel(request, agent=agent, user=user, db=db)
-    finally:
-        db.close()
-
-
-@router.post("/app/agents/{agent_id}/external-identities/create")
-async def app_agent_triggered_work_bindings_create(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        form = await request.form()
-        form_data = {
-            "system_type": str(form.get("system_type") or "").strip().lower(),
-            "external_account_id": str(form.get("external_account_id") or "").strip(),
-            "username": str(form.get("username") or "").strip() or None,
-            "scope_json": str(form.get("scope_json") or "").strip(),
-            "enabled": _parse_form_bool(form.get("enabled")),
-        }
-        error = ""
-        scope_json, scope_error = _parse_json_textarea(form_data["scope_json"], field_name="scope_json")
-        if not form_data["system_type"] or not form_data["external_account_id"]:
-            error = "system_type and external_account_id are required"
-        elif scope_error:
-            error = scope_error
-        else:
-            existing = AgentIdentityBindingRepository(db).get_by_agent_and_binding_key(
-                agent_id=agent_id,
-                system_type=form_data["system_type"],
-                external_account_id=form_data["external_account_id"],
-                enabled_only=False,
-            )
-            if existing:
-                error = "External identity already exists for this agent/system/account"
-
-        if not error:
-            AgentIdentityBindingRepository(db).create(
-                agent_id=agent_id,
-                system_type=form_data["system_type"],
-                external_account_id=form_data["external_account_id"],
-                username=form_data["username"],
-                scope_json=scope_json,
-                enabled=form_data["enabled"],
-            )
-
-        return _render_agent_identity_bindings_panel(
-            request,
-            agent=agent,
-            user=user,
-            db=db,
-            error=error,
-            success="External identity added" if not error else "",
-            form=form_data,
-        )
-    finally:
-        db.close()
-
-
-@router.post("/app/agents/{agent_id}/external-identities/{binding_id}/delete")
-async def app_agent_triggered_work_bindings_delete(request: Request, agent_id: str, binding_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        repo = AgentIdentityBindingRepository(db)
-        binding = repo.get_by_id(binding_id)
-        if binding and binding.agent_id == agent_id:
-            repo.delete(binding)
-
-        return _render_agent_identity_bindings_panel(
-            request,
-            agent=agent,
-            user=user,
-            db=db,
-            success="Binding deleted",
         )
     finally:
         db.close()

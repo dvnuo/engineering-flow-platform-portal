@@ -2,7 +2,6 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.agent import Agent
 from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
@@ -215,51 +214,6 @@ class RuntimeProfileService:
         if updated_count:
             self.db.commit()
         return updated_count
-
-    def repair_legacy_runtime_profiles(self, db: Session | None = None) -> None:
-        _ = db
-        self.sanitize_all_persisted_runtime_profiles()
-        users = list(self.db.query(User).order_by(User.id.asc()).all())
-        if not users:
-            return
-
-        fallback_user = next((u for u in users if u.role == "admin"), users[0])
-        profiles = self.repo.list_all()
-        for profile in profiles:
-            bound_agents = list(self.db.query(Agent).filter(Agent.runtime_profile_id == profile.id).order_by(Agent.id.asc()).all())
-            by_owner: dict[int, list[Agent]] = {}
-            for agent in bound_agents:
-                by_owner.setdefault(agent.owner_user_id, []).append(agent)
-
-            owner_ids = list(by_owner.keys())
-            if not owner_ids:
-                if profile.owner_user_id is None:
-                    profile.owner_user_id = fallback_user.id
-                    self.db.add(profile)
-                    self.db.commit()
-                continue
-
-            first_owner = owner_ids[0]
-            profile.owner_user_id = first_owner
-            self.db.add(profile)
-            self.db.commit()
-
-            for owner_id in owner_ids[1:]:
-                cloned = RuntimeProfile(
-                    owner_user_id=owner_id,
-                    name=f"{profile.name} ({owner_id})",
-                    description=profile.description,
-                    config_json=profile.config_json,
-                    revision=profile.revision,
-                    is_default=False,
-                )
-                self.db.add(cloned)
-                self.db.commit()
-                self.db.refresh(cloned)
-                for agent in by_owner[owner_id]:
-                    agent.runtime_profile_id = cloned.id
-                    self.db.add(agent)
-                self.db.commit()
 
     def create_for_user(self, user, *, name, description, config_json=None, is_default=False) -> RuntimeProfile:
         existing_count = self.repo.count_by_owner(user.id)

@@ -26,7 +26,7 @@ def test_proxy_events_websocket_contract_exists():
 
     assert '@router.websocket("/a/{agent_id}/api/events")' in source
     assert 'upstream_url = f"{ws_base}/api/events"' in source
-    assert "**build_portal_agent_identity_headers(user, agent)" in source
+    assert "**build_portal_agent_headers(user, agent)" in source
 
 
 def test_proxy_files_upload_contract_uses_multipart_forwarding_in_web_route():

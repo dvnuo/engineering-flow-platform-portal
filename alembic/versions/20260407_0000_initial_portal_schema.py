@@ -107,65 +107,8 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
         )
 
-    if not _has_table("agent_delegations"):
-        op.create_table(
-            "agent_delegations",
-            sa.Column("id", sa.String(length=36), nullable=False),
-            sa.Column("group_id", sa.String(length=36), nullable=False),
-            sa.Column("parent_agent_id", sa.String(length=36), nullable=True),
-            sa.Column("leader_agent_id", sa.String(length=36), nullable=False),
-            sa.Column("assignee_agent_id", sa.String(length=36), nullable=False),
-            sa.Column("agent_task_id", sa.String(length=36), nullable=True),
-            sa.Column("objective", sa.Text(), nullable=False),
-            sa.Column("leader_session_id", sa.String(length=255), nullable=True),
-            sa.Column("scoped_context_ref", sa.String(length=255), nullable=True),
-            sa.Column("input_artifacts_json", sa.Text(), nullable=True),
-            sa.Column("expected_output_schema_json", sa.Text(), nullable=True),
-            sa.Column("deadline_at", sa.DateTime(), nullable=True),
-            sa.Column("retry_policy_json", sa.Text(), nullable=True),
-            sa.Column("visibility", sa.String(length=32), nullable=False),
-            sa.Column("status", sa.String(length=32), nullable=False),
-            sa.Column("result_summary", sa.Text(), nullable=True),
-            sa.Column("result_artifacts_json", sa.Text(), nullable=True),
-            sa.Column("blockers_json", sa.Text(), nullable=True),
-            sa.Column("next_recommendation", sa.Text(), nullable=True),
-            sa.Column("audit_trace_json", sa.Text(), nullable=True),
-            sa.Column("created_at", sa.DateTime(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["assignee_agent_id"], ["agents.id"]),
-            sa.ForeignKeyConstraint(["leader_agent_id"], ["agents.id"]),
-            sa.ForeignKeyConstraint(["parent_agent_id"], ["agents.id"]),
-            sa.PrimaryKeyConstraint("id"),
-        )
-    for index_name, columns in [
-        ("ix_agent_delegations_group_id", ["group_id"]),
-        ("ix_agent_delegations_parent_agent_id", ["parent_agent_id"]),
-        ("ix_agent_delegations_leader_agent_id", ["leader_agent_id"]),
-        ("ix_agent_delegations_assignee_agent_id", ["assignee_agent_id"]),
-        ("ix_agent_delegations_agent_task_id", ["agent_task_id"]),
-        ("ix_agent_delegations_leader_session_id", ["leader_session_id"]),
-        ("ix_agent_delegation_group_status", ["group_id", "status"]),
-        ("ix_agent_delegation_leader", ["leader_agent_id"]),
-        ("ix_agent_delegation_assignee", ["assignee_agent_id"]),
-        ("ix_agent_delegation_task", ["agent_task_id"]),
-    ]:
-        if _has_table("agent_delegations") and not _has_index("agent_delegations", index_name):
-            op.create_index(index_name, "agent_delegations", columns)
-
 
 def downgrade() -> None:
-    op.drop_index("ix_agent_delegation_task", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegation_assignee", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegation_leader", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegation_group_status", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegations_leader_session_id", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegations_agent_task_id", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegations_assignee_agent_id", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegations_leader_agent_id", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegations_parent_agent_id", table_name="agent_delegations")
-    op.drop_index("ix_agent_delegations_group_id", table_name="agent_delegations")
-    op.drop_table("agent_delegations")
-
     op.drop_table("audit_logs")
 
     op.drop_index("ix_agents_owner_user_id", table_name="agents")

@@ -6841,8 +6841,7 @@ function bundleListItemFromDetail(detail) {
     title: manifest?.title || "",
     domain: scope?.domain || "",
     status: manifest?.status || "",
-    template_id: detail?.template_id || "",
-    template_label: detail?.template_label || "",
+    bundle_label: detail?.bundle_label || "Requirement Bundle",
     artifacts: detail?.artifacts ?? null,
     bundle_ref: detail?.bundle_ref || null,
     manifest_ref: detail?.manifest_ref || null,
@@ -6863,8 +6862,8 @@ function upsertRequirementBundleListItem(item, { persist = true } = {}) {
     nextItems.push(item);
   }
   nextItems.sort((left, right) => {
-    const leftTuple = [left?.template_id || "", left?.domain || "", left?.title || "", left?.bundle_ref?.path || ""];
-    const rightTuple = [right?.template_id || "", right?.domain || "", right?.title || "", right?.bundle_ref?.path || ""];
+    const leftTuple = [left?.domain || "", left?.title || "", left?.bundle_ref?.path || ""];
+    const rightTuple = [right?.domain || "", right?.title || "", right?.bundle_ref?.path || ""];
     for (let i = 0; i < leftTuple.length; i += 1) {
       const cmp = String(leftTuple[i]).localeCompare(String(rightTuple[i]));
       if (cmp !== 0) return cmp;
@@ -7076,7 +7075,7 @@ function renderRequirementBundleList(errorMessage = "") {
     row.className = `portal-bundle-row${activeClass}`;
     row.innerHTML = `
       <div class="portal-bundle-title">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="portal-bundle-meta">${safe(item.template_label || item.template_id || "Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+      <div class="portal-bundle-meta">${safe(item.bundle_label || "Requirement Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
       await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false });
@@ -10935,11 +10934,10 @@ function bindEvents() {
     if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: dom.closeCreateBundleModal })) return;
     const formData = new FormData(form);
     const payload = {
-      template_id: String(formData.get("template_id") || "requirement.v1"),
       title: String(formData.get("title") || ""),
       domain: String(formData.get("domain") || ""),
       slug: String(formData.get("slug") || "").trim() || null,
-      base_skill_branch: String(formData.get("base_branch") || ""),
+      base_branch: String(formData.get("base_branch") || ""),
     };
 
     try {
@@ -10963,7 +10961,6 @@ function bindEvents() {
 
       form.reset();
       form.querySelector('[name="base_branch"]').value = payload.base_branch;
-      form.querySelector('[name="template_id"]').value = 'requirement.v1';
       dom.createBundleModal?.classList.add("hidden");
       dom.createBundleModal?.setAttribute("aria-hidden", "true");
       endSingleSubmit(form, { closeButton: dom.closeCreateBundleModal });

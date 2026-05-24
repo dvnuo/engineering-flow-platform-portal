@@ -61,7 +61,7 @@ def test_proxy_websocket_uses_runtime_trace_and_identity_headers_for_connect():
 
     assert "websockets.connect(" in source
     assert "**build_runtime_trace_headers(get_log_context())" in source
-    assert "**build_portal_agent_identity_headers(user, agent)" in source
+    assert "**build_portal_agent_headers(user, agent)" in source
 
 
 def test_proxy_websocket_connect_uses_compat_header_kwargs_helper():
@@ -71,7 +71,7 @@ def test_proxy_websocket_connect_uses_compat_header_kwargs_helper():
     assert "**_websocket_connect_header_kwargs(upstream_headers)" in source
     assert "upstream_headers = {" in source
     assert "**build_runtime_trace_headers(get_log_context())" in source
-    assert "**build_portal_agent_identity_headers(user, agent)" in source
+    assert "**build_portal_agent_headers(user, agent)" in source
 
 
 def test_proxy_websocket_runtime_url_failure_closes_1011():

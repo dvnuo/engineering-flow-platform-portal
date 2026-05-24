@@ -133,8 +133,6 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
     assert "agent_type" in agent_columns
     assert "runtime_profile_id" in agent_columns
     assert "runtime_type" in agent_columns
-    assert "tool_repo_url" in agent_columns
-    assert "tool_branch" in agent_columns
 
     agent_task_columns = {column["name"] for column in inspector.get_columns("agent_tasks")}
     assert "owner_user_id" in agent_task_columns

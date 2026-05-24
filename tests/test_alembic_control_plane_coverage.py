@@ -2,16 +2,8 @@ from pathlib import Path
 
 
 REQUIRED_NEW_TABLES = {
-    "agent_groups",
-    "agent_group_members",
     "agent_tasks",
-    "workflow_transition_rules",
     "runtime_capability_catalog_snapshots",
-    "agent_identity_bindings",
-}
-EXPECTED_ALREADY_COVERED = {
-    "agent_coordination_runs",
-    "agent_session_metadata",
 }
 
 
@@ -22,15 +14,9 @@ def _migration_source() -> str:
     return "".join(source.split())
 
 
-def test_migrations_cover_control_plane_tables():
+def test_migrations_cover_active_tables():
     source = _migration_source()
     for table_name in REQUIRED_NEW_TABLES:
-        assert f'create_table("{table_name}"' in source
-
-
-def test_migrations_still_cover_existing_phase5_tables():
-    source = _migration_source()
-    for table_name in EXPECTED_ALREADY_COVERED:
         assert f'create_table("{table_name}"' in source
 
 

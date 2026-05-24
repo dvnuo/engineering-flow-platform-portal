@@ -5,8 +5,6 @@ from typing import Optional
 
 
 class AgentTaskCreateRequest(BaseModel):
-    group_id: Optional[str] = None
-    parent_agent_id: Optional[str] = None
     assignee_agent_id: str
     source: str
     task_type: str
@@ -38,8 +36,6 @@ class CreateAgentTaskFollowupRequest(BaseModel):
 
 class AgentTaskResponse(BaseModel):
     id: str
-    group_id: Optional[str] = None
-    parent_agent_id: Optional[str] = None
     assignee_agent_id: str
     source: str
     task_type: str

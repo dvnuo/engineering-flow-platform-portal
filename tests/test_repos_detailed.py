@@ -2,11 +2,9 @@
 import pytest
 from unittest.mock import MagicMock
 from app.repositories.agent_repo import AgentRepository
-from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.audit_repo import AuditRepository
-from app.repositories.workflow_transition_rule_repo import WorkflowTransitionRuleRepository
 
 
 def test_agent_repo_init():
@@ -108,19 +106,6 @@ def test_audit_repo_create():
     assert hasattr(repo, 'create')
 
 
-def test_agent_identity_binding_repo_methods():
-    mock_db = MagicMock()
-    repo = AgentIdentityBindingRepository(mock_db)
-    assert hasattr(repo, "create")
-    assert hasattr(repo, "get_by_id")
-    assert hasattr(repo, "list_by_agent")
-    assert hasattr(repo, "list_enabled_bindings_for_agent")
-    assert hasattr(repo, "find_binding")
-    assert hasattr(repo, "get_by_agent_and_binding_key")
-    assert hasattr(repo, "save")
-    assert hasattr(repo, "delete")
-
-
 def test_agent_task_repo_methods():
     mock_db = MagicMock()
     repo = AgentTaskRepository(mock_db)
@@ -129,17 +114,5 @@ def test_agent_task_repo_methods():
     assert hasattr(repo, "list_all")
     assert hasattr(repo, "list_by_agent")
     assert hasattr(repo, "find_recent_duplicate")
-    assert hasattr(repo, "save")
-    assert hasattr(repo, "delete")
-
-
-def test_workflow_transition_rule_repo_methods():
-    mock_db = MagicMock()
-    repo = WorkflowTransitionRuleRepository(mock_db)
-    assert hasattr(repo, "create")
-    assert hasattr(repo, "get_by_id")
-    assert hasattr(repo, "list_all")
-    assert hasattr(repo, "list_enabled_for_system")
-    assert hasattr(repo, "find_matching_jira_rule")
     assert hasattr(repo, "save")
     assert hasattr(repo, "delete")

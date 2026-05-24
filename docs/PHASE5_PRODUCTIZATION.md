@@ -82,7 +82,6 @@ Internal APIs:
 - `PUT /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
 - `GET /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
 - `GET /api/internal/agents/{agent_id}/sessions/metadata` with optional filters:
-  - `group_id`
   - `latest_event_state`
   - `current_task_id`
 

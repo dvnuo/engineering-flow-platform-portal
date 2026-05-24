@@ -85,7 +85,6 @@ def test_internal_session_metadata_upsert_create_and_update():
         create_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
             json={
-                "group_id": "g-1",
                 "current_task_id": "t-1",
                 "source_type": "jira",
                 "source_ref": "task-1",
@@ -96,7 +95,6 @@ def test_internal_session_metadata_upsert_create_and_update():
         assert create_resp.status_code == 200
         created = create_resp.json()
         assert created["session_id"] == "s-1"
-        assert created["group_id"] == "g-1"
         assert created["current_task_id"] == "t-1"
         assert created["source_type"] == "jira"
         assert created["source_ref"] == "task-1"
@@ -108,7 +106,6 @@ def test_internal_session_metadata_upsert_create_and_update():
         update_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
             json={
-                "group_id": "g-2",
                 "current_task_id": "t-1",
                 "source_type": "jira",
                 "source_ref": "task-1",
@@ -119,7 +116,6 @@ def test_internal_session_metadata_upsert_create_and_update():
         assert update_resp.status_code == 200
         updated = update_resp.json()
         assert updated["id"] == created["id"]
-        assert updated["group_id"] == "g-2"
 
         get_resp = client.get(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
@@ -144,7 +140,7 @@ def test_internal_session_metadata_accepts_default_internal_route_request():
     try:
         missing_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-default-internal/metadata",
-            json={"group_id": "g-1"},
+            json={"latest_event_state": "running"},
         )
         assert missing_resp.status_code == 200
     finally:
@@ -156,11 +152,11 @@ def test_same_session_id_across_two_agents_does_not_conflict():
     try:
         resp_a = client.put(
             f"/api/internal/agents/{agent_a.id}/sessions/s-1/metadata",
-            json={"group_id": "g-a", "latest_event_state": "running"},
+            json={"latest_event_state": "running"},
         )
         resp_b = client.put(
             f"/api/internal/agents/{agent_b.id}/sessions/s-1/metadata",
-            json={"group_id": "g-b", "latest_event_state": "queued"},
+            json={"latest_event_state": "queued"},
         )
         assert resp_a.status_code == 200
         assert resp_b.status_code == 200
@@ -174,8 +170,8 @@ def test_same_session_id_across_two_agents_does_not_conflict():
         )
         assert get_a.status_code == 200
         assert get_b.status_code == 200
-        assert get_a.json()["group_id"] == "g-a"
-        assert get_b.json()["group_id"] == "g-b"
+        assert get_a.json()["latest_event_state"] == "running"
+        assert get_b.json()["latest_event_state"] == "queued"
     finally:
         cleanup()
 
@@ -189,7 +185,6 @@ def test_list_session_metadata_with_filters_and_sorting():
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
             json={
-                "group_id": "g-1",
                 "latest_event_state": "running",
                 "current_task_id": "t-1",
                 "metadata_json": '{"context_compaction_level":"low","context_objective_preview":"Obj-1","context_summary_preview":"Summary-1","context_next_step_preview":"Next-1"}',
@@ -197,18 +192,17 @@ def test_list_session_metadata_with_filters_and_sorting():
         )
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-2/metadata",
-            json={"group_id": "g-1", "latest_event_state": "done", "current_task_id": "t-2"},
+            json={"latest_event_state": "done", "current_task_id": "t-2"},
         )
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-3/metadata",
-            json={"group_id": "g-2", "latest_event_state": "running", "current_task_id": "t-3"},
+            json={"latest_event_state": "running", "current_task_id": "t-3"},
         )
         # ensure s-1 becomes most recently updated
         time.sleep(1.1)
         client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-1/metadata",
             json={
-                "group_id": "g-1",
                 "latest_event_state": "running",
                 "current_task_id": "t-1",
                 "metadata_json": '{"context_compaction_level":"low","context_objective_preview":"Obj-1","context_summary_preview":"Summary-1","context_next_step_preview":"Next-1"}',
@@ -226,12 +220,6 @@ def test_list_session_metadata_with_filters_and_sorting():
         assert items[0]["context_objective_preview"] == "Obj-1"
         assert items[0]["context_summary_preview"] == "Summary-1"
         assert items[0]["context_next_step_preview"] == "Next-1"
-
-        by_group = client.get(
-            f"/api/internal/agents/{agent.id}/sessions/metadata?group_id=g-1",
-        )
-        assert by_group.status_code == 200
-        assert {item["session_id"] for item in by_group.json()} == {"s-1", "s-2"}
 
         by_state = client.get(
             f"/api/internal/agents/{agent.id}/sessions/metadata?latest_event_state=running",
@@ -253,7 +241,7 @@ def test_internal_session_metadata_invalid_json_does_not_break_get_or_list():
     try:
         put_resp = client.put(
             f"/api/internal/agents/{agent.id}/sessions/s-bad/metadata",
-            json={"group_id": "g-1", "latest_event_state": "running", "metadata_json": "{not-valid-json"},
+            json={"latest_event_state": "running", "metadata_json": "{not-valid-json"},
         )
         assert put_resp.status_code == 200
 
@@ -307,7 +295,7 @@ def test_agent_session_metadata_upsert_recovers_from_insert_race(monkeypatch):
 
     db = _FakeDB()
     repo = AgentSessionMetadataRepository(db)  # type: ignore[arg-type]
-    existing = AgentSessionMetadata(agent_id="agent-1", session_id="s-1", group_id="old-group", latest_event_state="queued")
+    existing = AgentSessionMetadata(agent_id="agent-1", session_id="s-1", latest_event_state="queued")
     existing.id = "existing-row"
 
     calls = {"count": 0}
@@ -325,13 +313,11 @@ def test_agent_session_metadata_upsert_recovers_from_insert_race(monkeypatch):
     result = repo.upsert(
         agent_id="agent-1",
         session_id="s-1",
-        group_id="new-group",
         latest_event_state="running",
         metadata_json='{"k":"v"}',
     )
 
     assert result is existing
-    assert result.group_id == "new-group"
     assert result.latest_event_state == "running"
     assert result.metadata_json == '{"k":"v"}'
     assert db.rollback_calls == 1
@@ -339,7 +325,7 @@ def test_agent_session_metadata_upsert_recovers_from_insert_race(monkeypatch):
 def test_internal_session_metadata_delete_idempotent_and_hidden_by_default():
     client, agent, _agent_b, cleanup = _build_client()
     try:
-        client.put(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata", json={"group_id": "g"})
+        client.put(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata", json={"latest_event_state": "running"})
         deleted = client.delete(f"/api/internal/agents/{agent.id}/sessions/s-del/metadata")
         assert deleted.status_code == 200
         assert deleted.json()["success"] is True

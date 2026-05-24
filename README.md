@@ -103,7 +103,6 @@ Kubernetes runtime provisioning behavior:
 - `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.
 - OpenCode runtime then syncs `/app/skills` into `/workspace/.opencode/skills`.
 - Portal does not configure external tools repo/branch/mounts; runtime built-in tools are runtime-owned.
-- Legacy payload fields `tool_repo_url` / `tool_branch` are ignored for backward compatibility.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
 - Runtime tool availability is runtime-owned (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.
@@ -120,12 +119,6 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 - Portal runtime requests use the current trusted Portal source/header contract in the in-VPC topology.
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
 
-### Internal control-plane export contract
-
-- `GET /api/internal/workflow-transition-rules` keeps existing fields (`system_type`, `is_enabled`, `project_key`, `trigger_status`) and also provides compatibility aliases (`provider_type`, `enabled`, `project_keys`, `trigger_statuses`).
-- `GET /api/internal/agent-identity-bindings` keeps existing fields (`system_type`, `scope`, `enabled`) and also provides compatibility aliases (`provider_type`, `scope_json`).
-- Task dispatch metadata now carries canonical session-registry fields used by Runtime publishing: `group_id`, `current_task_id`, `current_delegation_id`, `current_coordination_run_id`.
-
 ### Session Metadata Registry (internal)
 
 - Registry key semantics: **`(agent_id, session_id)`** (agent-scoped), not globally-unique `session_id`.
@@ -134,7 +127,7 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
   - `GET /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
 - List/query:
   - `GET /api/internal/agents/{agent_id}/sessions/metadata`
-  - optional filters: `group_id`, `latest_event_state`, `current_task_id`
+  - optional filters: `latest_event_state`, `current_task_id`
 
 ### GitHub review supersession lifecycle
 

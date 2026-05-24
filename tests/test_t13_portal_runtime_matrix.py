@@ -109,8 +109,6 @@ def test_t13_skill_repo_changes_trigger_runtime_rollout_without_tool_repo(monkey
         )
         assert updated.skill_repo_url == "https://example.com/new-skills.git"
         assert seen["skill_repo_url"] == "https://example.com/new-skills.git"
-        assert "tool_repo_url" not in updated.model_dump()
-        assert "tool_repo_url" not in seen
     finally:
         db_session.close()
 
@@ -134,10 +132,6 @@ def test_t13_defaults_exposes_native_and_opencode_runtime_choices(monkeypatch):
     assert opencode_cfg["image_repo"] == "ghcr.io/example/efp-opencode-runtime"
     assert opencode_cfg["image_tag"] == "1.14.39"
     assert opencode_cfg["default_mount_path"] == "/workspace"
-    assert "default_tool_repo_url" not in defaults
-    assert "default_tool_branch" not in defaults
-
-
 def test_t13_runtime_profile_sync_uses_internal_apply_contract_for_all_runtime_types(monkeypatch):
     for runtime_type in ("native", "opencode"):
         service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))

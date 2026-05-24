@@ -24,14 +24,6 @@ def test_invalid_runtime_type_raises():
         AgentCreateRequest(name="a", runtime_type="bad")
 
 
-def test_legacy_tool_fields_are_ignored_on_create():
-    payload = AgentCreateRequest(name="a", tool_repo_url="git@github.com:Acme/Tools.git", tool_branch="main")
-    assert not hasattr(payload, "tool_repo_url")
-    assert not hasattr(payload, "tool_branch")
-
-
-
-
 def test_internal_runtime_type_normalizer_rejects_invalid_values():
     import app.api.agents as agents_api
     with pytest.raises(ValueError):

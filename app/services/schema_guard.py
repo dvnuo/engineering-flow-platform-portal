@@ -3,9 +3,6 @@ from sqlalchemy.engine import Engine
 
 
 REQUIRED_AGENT_COLUMNS = (
-    "template_agent_id",
-    "task_scope_label",
-    "task_cleanup_policy",
     "runtime_profile_id",
 )
 REQUIRED_RUNTIME_PROFILE_COLUMNS = (
@@ -17,16 +14,10 @@ REQUIRED_PORTAL_TABLES = (
     "users",
     "agents",
     "audit_logs",
-    "agent_delegations",
-    "agent_coordination_runs",
     "agent_session_metadata",
     "runtime_profiles",
     "runtime_profile_sync_jobs",
-    "agent_identity_bindings",
-    "workflow_transition_rules",
     "runtime_capability_catalog_snapshots",
-    "agent_groups",
-    "agent_group_members",
     "agent_tasks",
     "automation_rules",
     "automation_rule_runs",

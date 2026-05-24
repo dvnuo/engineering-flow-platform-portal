@@ -41,7 +41,6 @@ def test_main_calls_setup_logging_on_startup_not_import(monkeypatch):
         "RuntimeProfileService",
         lambda _db: SimpleNamespace(
             ensure_user_has_default_profile=lambda _user: None,
-            repair_legacy_runtime_profiles=lambda _db2: None,
             ensure_defaults_for_all_users=lambda _db2: None,
         ),
     )
@@ -72,7 +71,6 @@ def test_main_startup_does_not_call_create_all(monkeypatch):
         "RuntimeProfileService",
         lambda _db: SimpleNamespace(
             ensure_user_has_default_profile=lambda _user: None,
-            repair_legacy_runtime_profiles=lambda _db2: None,
             ensure_defaults_for_all_users=lambda _db2: None,
         ),
     )
@@ -87,7 +85,7 @@ def test_main_startup_does_not_call_create_all(monkeypatch):
     assert create_all_calls == []
 
 
-def test_main_startup_starts_worker_after_runtime_profile_repairs(monkeypatch):
+def test_main_startup_starts_worker_after_runtime_profile_defaults(monkeypatch):
     import app.main as app_main
 
     call_order: list[str] = []
@@ -110,9 +108,6 @@ def test_main_startup_starts_worker_after_runtime_profile_repairs(monkeypatch):
         def ensure_user_has_default_profile(self, _admin_user):
             call_order.append("ensure_default_for_admin")
 
-        def repair_legacy_runtime_profiles(self, _db):
-            call_order.append("repair")
-
         def ensure_defaults_for_all_users(self, _db):
             call_order.append("ensure_defaults")
 
@@ -121,12 +116,11 @@ def test_main_startup_starts_worker_after_runtime_profile_repairs(monkeypatch):
 
     app_main.on_startup()
 
-    assert call_order.index("schema_guard") < call_order.index("repair")
-    assert call_order.index("repair") < call_order.index("ensure_defaults")
+    assert call_order.index("schema_guard") < call_order.index("ensure_defaults")
     assert call_order.index("db_close") < call_order.index("worker_start")
 
 
-def test_main_startup_does_not_start_worker_when_repair_raises(monkeypatch):
+def test_main_startup_does_not_start_worker_when_default_setup_raises(monkeypatch):
     import app.main as app_main
 
     call_order: list[str] = []
@@ -149,15 +143,12 @@ def test_main_startup_does_not_start_worker_when_repair_raises(monkeypatch):
         def ensure_user_has_default_profile(self, _admin_user):
             return None
 
-        def repair_legacy_runtime_profiles(self, _db):
-            raise RuntimeError("repair boom")
-
         def ensure_defaults_for_all_users(self, _db):
-            return None
+            raise RuntimeError("default setup boom")
 
     monkeypatch.setattr(app_main, "RuntimeProfileService", DummyRuntimeProfileService)
     monkeypatch.setattr(app_main, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
 
-    with pytest.raises(RuntimeError, match="repair boom"):
+    with pytest.raises(RuntimeError, match="default setup boom"):
         app_main.on_startup()
     assert "worker_start" not in call_order

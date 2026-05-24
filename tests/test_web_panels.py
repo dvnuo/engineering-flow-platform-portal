@@ -29,7 +29,6 @@ def _setup_task_client(monkeypatch, task, chain=None, can_manage_task=True):
     user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: user)
-    monkeypatch.setattr(web_module, "_visible_group_ids_for_user", lambda _db, _user: ["group-1"])
     monkeypatch.setattr(web_module, "_can_manage_task_for_user", lambda _db, _task, _user: can_manage_task)
     monkeypatch.setattr(web_module, "AgentTaskRepository", lambda db: _FakeTaskRepo(db, task, chain=chain))
 
@@ -60,7 +59,6 @@ def _unsupported_task(status: str):
         task_type="legacy_import_task",
         source="portal",
         assignee_agent_id="agent-1",
-        group_id="group-1",
         owner_user_id=11,
         created_by_user_id=11,
         runtime_request_id="req-1",
@@ -101,7 +99,6 @@ def _agent_async_task(status: str):
         parent_task_id=None,
         root_task_id="async-task-1",
         task_session_id="agent-task:async-task-1",
-        group_id=None,
         owner_user_id=11,
         created_by_user_id=11,
         runtime_request_id="req-1" if status == "running" else None,
@@ -136,7 +133,6 @@ def test_task_create_panel_has_agent_skill_textarea_and_no_template(monkeypatch)
     assert 'name="skill_name"' in response.text
     assert 'name="task_content"' in response.text
     assert "Template" not in response.text
-    assert 'name="template_id"' not in response.text
 
 
 def test_task_detail_panel_renders_non_async_tasks_as_unsupported_read_only(monkeypatch):

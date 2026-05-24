@@ -36,7 +36,6 @@ class AgentSessionMetadataRepository:
         self,
         agent_id: str,
         *,
-        group_id: str | None = None,
         latest_event_state: str | None = None,
         current_task_id: str | None = None,
         include_deleted: bool = False,
@@ -44,8 +43,6 @@ class AgentSessionMetadataRepository:
         stmt = select(AgentSessionMetadata).where(AgentSessionMetadata.agent_id == agent_id)
         if not include_deleted:
             stmt = stmt.where(AgentSessionMetadata.deleted_at.is_(None))
-        if group_id is not None:
-            stmt = stmt.where(AgentSessionMetadata.group_id == group_id)
         if latest_event_state is not None:
             stmt = stmt.where(AgentSessionMetadata.latest_event_state == latest_event_state)
         if current_task_id is not None:

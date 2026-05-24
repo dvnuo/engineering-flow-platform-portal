@@ -12,8 +12,6 @@ class AgentTask(Base):
     __tablename__ = "agent_tasks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    group_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
-    parent_agent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("agents.id"), nullable=True, index=True)
     assignee_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     task_type: Mapped[str] = mapped_column(String(128), nullable=False)

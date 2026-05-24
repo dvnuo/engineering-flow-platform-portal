@@ -21,8 +21,6 @@ def test_build_agent_response_applies_effective_skill_defaults(monkeypatch):
         branch="main",
         skill_repo_url=None,
         skill_branch=None,
-        tool_repo_url=None,
-        tool_branch=None,
         owner_user_id=1,
         cpu=None,
         memory=None,

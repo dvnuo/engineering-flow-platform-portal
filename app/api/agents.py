@@ -382,8 +382,6 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     changes = payload.model_dump(exclude_unset=True)
     changes.pop("repo_url", None)
     changes.pop("branch", None)
-    changes.pop("tool_repo_url", None)
-    changes.pop("tool_branch", None)
 
     if "runtime_profile_id" in changes:
         if changes["runtime_profile_id"] is None:

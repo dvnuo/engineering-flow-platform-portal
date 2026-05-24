@@ -7,21 +7,17 @@ REQUIRED_PORTAL_TABLES = (
     "users",
     "agents",
     "audit_logs",
-    "agent_delegations",
-    "agent_coordination_runs",
     "agent_session_metadata",
     "runtime_profiles",
     "runtime_profile_sync_jobs",
-    "agent_identity_bindings",
-    "workflow_transition_rules",
     "runtime_capability_catalog_snapshots",
-    "agent_groups",
-    "agent_group_members",
     "agent_tasks",
     "automation_rules",
     "automation_rule_runs",
     "automation_rule_events",
 )
+
+
 def _runtime_profile_sync_jobs_table(metadata: MetaData, *, minimal: bool = False):
     if minimal:
         return Table("runtime_profile_sync_jobs", metadata, Column("id", String(36), primary_key=True))
@@ -52,9 +48,6 @@ def test_schema_guard_passes_when_agents_table_has_required_columns():
         "agents",
         metadata,
         Column("id", String(36), primary_key=True),
-        Column("template_agent_id", String(36)),
-        Column("task_scope_label", String(255)),
-        Column("task_cleanup_policy", String(32)),
         Column("runtime_profile_id", String(36)),
     )
     metadata.create_all(engine)
@@ -81,13 +74,10 @@ def test_schema_guard_raises_with_actionable_message_when_columns_missing():
         assert_phase5_schema_compatibility(engine)
     except RuntimeError as exc:
         message = str(exc)
-        assert "template_agent_id" in message
-        assert "task_scope_label" in message
-        assert "task_cleanup_policy" in message
         assert "runtime_profile_id" in message
         assert "alembic upgrade head" in message
     else:
-        raise AssertionError("expected RuntimeError for missing phase5 agent columns")
+        raise AssertionError("expected RuntimeError for missing agent columns")
 
 
 def test_portal_schema_ready_raises_when_required_tables_missing():
@@ -114,7 +104,7 @@ def test_portal_schema_ready_passes_with_all_required_tables():
     for table_name in REQUIRED_PORTAL_TABLES:
         if table_name == "alembic_version":
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
-        elif table_name in {"users", "agent_groups"}:
+        elif table_name == "users":
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
         elif table_name == "automation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
@@ -136,7 +126,7 @@ def test_portal_schema_ready_requires_runtime_profile_sync_jobs_table():
             continue
         if table_name == "alembic_version":
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
-        elif table_name in {"users", "agent_groups"}:
+        elif table_name == "users":
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
         elif table_name == "automation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
@@ -162,7 +152,7 @@ def test_portal_schema_ready_rejects_runtime_profile_sync_jobs_missing_columns()
     for table_name in REQUIRED_PORTAL_TABLES:
         if table_name == "alembic_version":
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
-        elif table_name in {"users", "agent_groups"}:
+        elif table_name == "users":
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
         elif table_name == "automation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))

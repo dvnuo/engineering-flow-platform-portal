@@ -383,7 +383,6 @@ def test_create_github_review_task_repairs_event_when_task_already_exists(monkey
     db.add(event); db.commit()
 
     existing_task = AgentTaskRepository(db).create(
-        parent_agent_id=None,
         assignee_agent_id=rule.target_agent_id,
         owner_user_id=rule.owner_user_id,
         created_by_user_id=rule.created_by_user_id,

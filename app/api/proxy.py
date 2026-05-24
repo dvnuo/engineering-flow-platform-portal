@@ -25,7 +25,7 @@ from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import (
     ProxyService,
-    build_portal_agent_identity_headers,
+    build_portal_agent_headers,
     build_runtime_trace_headers,
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -268,7 +268,7 @@ async def proxy_agent(
         is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
         extra_headers = {
             **build_runtime_trace_headers(get_log_context()),
-            **build_portal_agent_identity_headers(user, agent),
+            **build_portal_agent_headers(user, agent),
         }
 
         if is_direct_chat_execution and request_body:
@@ -454,7 +454,7 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
         try:
             upstream_headers = {
                 **build_runtime_trace_headers(get_log_context()),
-                **build_portal_agent_identity_headers(user, agent),
+                **build_portal_agent_headers(user, agent),
             }
             async with websockets.connect(
                 upstream_url,

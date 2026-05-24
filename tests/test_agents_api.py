@@ -27,8 +27,6 @@ def test_agent_model_fields():
     assert "agent_type" in columns
     assert "runtime_profile_id" in columns
     assert "runtime_type" in columns
-    assert "tool_repo_url" in columns
-    assert "tool_branch" in columns
 
 
 def test_agent_response_schema():
@@ -44,8 +42,6 @@ def test_agent_response_schema():
     assert "skill_repo_url" in fields
     assert "skill_branch" in fields
     assert "runtime_type" in fields
-    assert "tool_repo_url" not in fields
-    assert "tool_branch" not in fields
 
 
 def test_agent_response_normalizes_legacy_repo_url():
@@ -309,8 +305,6 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         values = [item["value"] for item in body["runtime_types"]]
         assert set(values) == {"native", "opencode"}
         assert values.index("opencode") < values.index("native")
-        assert "default_tool_repo_url" not in body
-        assert "default_tool_branch" not in body
         assert body["default_repo_url"] == body["default_skill_repo_url"]
         assert body["default_branch"] == body["default_skill_branch"]
     finally:
@@ -959,7 +953,7 @@ def test_agent_response_includes_effective_skill_defaults(monkeypatch):
         cleanup()
 
 
-def test_create_opencode_agent_uses_opencode_default_image_and_ignores_tool_defaults(monkeypatch):
+def test_create_opencode_agent_uses_opencode_default_image(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         import app.api.agents as agents_api
@@ -971,8 +965,6 @@ def test_create_opencode_agent_uses_opencode_default_image_and_ignores_tool_defa
         body = response.json()
         assert body["runtime_type"] == "opencode"
         assert body["image"] == "ghcr.io/acme/opencode:1.14.39-test"
-        assert "tool_repo_url" not in body
-        assert "tool_branch" not in body
     finally:
         cleanup()
 
@@ -1034,29 +1026,6 @@ def test_patch_null_runtime_type_returns_422_and_does_not_mutate_agent(monkeypat
         assert resp.json()["detail"] == "runtime_type cannot be null"
         after = client.get(f"/api/agents/{created['id']}").json()
         assert after["runtime_type"] == "opencode"
-    finally:
-        cleanup()
-
-
-def test_patch_tool_repo_fields_are_ignored_without_k8s_reprovision(monkeypatch):
-    client, _db, cleanup = _build_agents_client_with_overrides()
-    try:
-        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-        calls = {"n": 0}
-        monkeypatch.setattr(
-            "app.api.agents.k8s_service.update_agent_runtime",
-            lambda _agent: calls.__setitem__("n", calls["n"] + 1) or SimpleNamespace(status="running", message=None),
-        )
-        created = client.post("/api/agents", json={"name": "agent"}).json()
-        resp = client.patch(
-            f"/api/agents/{created['id']}",
-            json={"tool_repo_url": "git@github.com:Acme/Tools.git", "tool_branch": "tools-next"},
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert "tool_repo_url" not in body
-        assert "tool_branch" not in body
-        assert calls["n"] == 0
     finally:
         cleanup()
 
