@@ -7159,18 +7159,35 @@ function renderTaskNavList(errorMessage = "") {
 
   dom.taskNavList.innerHTML = "";
   state.myTasks.forEach((task) => {
+    const inputPayload = _safeJson(task.input_payload_json) || {};
+    const taskContent = String(inputPayload.followup_task || inputPayload.user_task || task.summary || task.task_type || task.id || "").trim();
+    const firstLine = taskContent.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || taskContent;
+    const title = String(task.title || firstLine || task.id || "Task").trim();
+    const displayTitle = title.length > 80 ? `${title.slice(0, 77).trim()}...` : title;
+    const preview = taskContent && taskContent !== title ? taskContent : "";
+    const displayPreview = preview.length > 96 ? `${preview.slice(0, 93).trim()}...` : preview;
+    const skillName = String(task.skill_name || inputPayload.skill_name || "").trim().replace(/^\/+/, "");
+    const timeLabel = formatTaskNavTime(task.updated_at || task.created_at);
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
     row.innerHTML = `
-      <div class="portal-bundle-title">${safe(task.task_type || task.id)}</div>
-      <div class="portal-bundle-meta">${safe(task.status || "unknown")} · ${safe(task.id)}</div>
+      <div class="portal-bundle-title">${safe(displayTitle)}</div>
+      ${displayPreview ? `<div class="portal-bundle-meta">${safe(displayPreview)}</div>` : ""}
+      <div class="portal-bundle-meta">${safe(task.status || "unknown")}${skillName ? ` · /${safe(skillName)}` : ""}${timeLabel ? ` · ${safe(timeLabel)}` : ""}</div>
     `;
     row.addEventListener("click", async () => {
       await openTaskDetailInMain(task.id);
     });
     dom.taskNavList.append(row);
   });
+}
+
+function formatTaskNavTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 async function refreshMyTasks() {
@@ -9466,89 +9483,115 @@ async function openTaskCreatePanelInMain() {
   dom.workspaceDetailContent.dataset.workspaceState = "task-create";
   dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task create form…</div>';
   await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
-  const formEl = dom.workspaceDetailContent.querySelector("#create-task-from-template-form");
-  if (formEl) updateCreateTaskTemplateFieldVisibility(formEl);
+  const formEl = dom.workspaceDetailContent.querySelector("#create-agent-async-task-form");
+  if (formEl) await populateCreateTaskSkillSelect(formEl);
 }
 
-async function submitCreateTaskFromTemplate(formEl) {
+function setTaskSkillSelectOption(selectEl, label, { disabled = true, value = "" } = {}) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  option.disabled = disabled;
+  option.selected = true;
+  selectEl.append(option);
+  selectEl.disabled = disabled;
+}
+
+async function loadTaskSkillsForAgent(agentId) {
+  if (!agentId) return [];
+  if (state.cachedSkillsByAgent.has(agentId)) {
+    return state.cachedSkillsByAgent.get(agentId) || [];
+  }
+  const data = await api(agentApiFor(agentId, "/api/skills"));
+  const rawSkills = Array.isArray(data?.skills) ? data.skills : (Array.isArray(data) ? data : []);
+  const mapped = rawSkills.map(toSkillSuggestion).filter((item) => item.command);
+  state.cachedSkillsByAgent.set(agentId, mapped);
+  return mapped;
+}
+
+async function populateCreateTaskSkillSelect(formEl) {
+  if (!formEl) return;
+  const agentSelect = formEl.querySelector('[name="assignee_agent_id"]');
+  const skillSelect = formEl.querySelector('[name="skill_name"]');
+  const agentId = String(agentSelect?.value || "").trim();
+  if (!skillSelect) return;
+  if (!agentId) {
+    setTaskSkillSelectOption(skillSelect, "Select an agent first");
+    return;
+  }
+  setTaskSkillSelectOption(skillSelect, "Loading skills...");
+  try {
+    const skills = await loadTaskSkillsForAgent(agentId);
+    skillSelect.innerHTML = "";
+    const callableSkills = skills.filter((skill) => skill.callable !== false);
+    if (!callableSkills.length) {
+      setTaskSkillSelectOption(skillSelect, "No callable skills found");
+      skills.filter((skill) => skill.callable === false).forEach((skill) => {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = `${skill.command} unavailable`;
+        option.disabled = true;
+        option.title = skill.title || skill.blocked_reason || skill.desc || "";
+        skillSelect.append(option);
+      });
+      return;
+    }
+    callableSkills.forEach((skill, index) => {
+      const option = document.createElement("option");
+      option.value = String(skill.command || "").replace(/^\/+/, "");
+      option.textContent = skill.command || `/${option.value}`;
+      option.title = skill.desc || "";
+      option.selected = index === 0;
+      skillSelect.append(option);
+    });
+    skills.filter((skill) => skill.callable === false).forEach((skill) => {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = `${skill.command} unavailable`;
+      option.disabled = true;
+      option.title = skill.title || skill.blocked_reason || skill.desc || "";
+      skillSelect.append(option);
+    });
+    skillSelect.disabled = false;
+  } catch (error) {
+    setTaskSkillSelectOption(skillSelect, `Failed to load skills: ${error.message}`);
+  }
+}
+
+async function submitCreateAgentAsyncTask(formEl) {
   const fd = new FormData(formEl);
-  const payloadInput = {
-    owner: String(fd.get("owner") || "").trim(),
-    repo: String(fd.get("repo") || "").trim(),
-    pull_number: Number(fd.get("pull_number") || 0) || undefined,
-    review_event: String(fd.get("review_event") || "").trim(),
-    writeback_mode: String(fd.get("writeback_mode") || "").trim(),
-    head_sha: String(fd.get("head_sha") || "").trim(),
-    bundle_template_id: String(fd.get("bundle_template_id") || "").trim(),
-    bundle_ref: {
-      repo: String(fd.get("bundle_repo") || "").trim(),
-      path: String(fd.get("bundle_path") || "").trim(),
-      skill_branch: String(fd.get("bundle_branch") || "").trim(),
-    },
-    manifest_ref: {
-      repo: String(fd.get("manifest_repo") || "").trim() || String(fd.get("bundle_repo") || "").trim(),
-      path: String(fd.get("manifest_path") || "").trim() || String(fd.get("bundle_path") || "").trim(),
-      skill_branch: String(fd.get("manifest_branch") || "").trim() || String(fd.get("bundle_branch") || "").trim(),
-    },
-    sources: {
-      jira: splitLines(fd.get("jira_sources")),
-      confluence: splitLines(fd.get("confluence_sources")),
-      github_docs: splitLines(fd.get("github_doc_sources")),
-      figma: splitLines(fd.get("figma_sources")),
-    },
-  };
-  const created = await api("/api/agent-tasks/from-template", {
+  const created = await api("/api/agent-tasks/async", {
     method: "POST",
     body: JSON.stringify({
-      template_id: String(fd.get("template_id") || "").trim(),
       assignee_agent_id: String(fd.get("assignee_agent_id") || "").trim(),
-      dispatch_immediately: fd.get("dispatch_immediately") !== null,
-      input: payloadInput,
+      skill_name: String(fd.get("skill_name") || "").trim(),
+      task_content: String(fd.get("task_content") || "").trim(),
     }),
   });
   await refreshMyTasks();
   await openTaskDetailInMain(created.id);
 }
 
-function splitLines(value) {
-  const raw = String(value || "");
-  return raw.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+async function submitContinueAgentTask(formEl) {
+  const taskId = String(formEl?.dataset?.taskId || "").trim();
+  if (!taskId) throw new Error("Missing task id");
+  const fd = new FormData(formEl);
+  const created = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/followups`, {
+    method: "POST",
+    body: JSON.stringify({
+      task_content: String(fd.get("task_content") || "").trim(),
+    }),
+  });
+  await refreshMyTasks();
+  await openTaskDetailInMain(created.id);
 }
 
-function updateCreateTaskTemplateFieldVisibility(formEl) {
-  if (!formEl) return;
-  const templateId = String(formEl.querySelector('[name="template_id"]')?.value || "").trim();
-  const bundleFields = formEl.querySelector("[data-task-bundle-fields]");
-  const sourcesFields = formEl.querySelector("[data-task-sources-fields]");
-  const githubFields = formEl.querySelector("[data-task-github-fields]");
-  const bundleTemplateSelect = formEl.querySelector('[name="bundle_template_id"]');
-
-  const isGithub = templateId === "github_pr_review";
-  const bundleTemplateIds = new Set([
-    "collect_requirements_to_bundle",
-    "design_test_cases_from_bundle",
-    "collect_research_notes_to_bundle",
-    "generate_implementation_plan_from_bundle",
-    "generate_runbook_from_bundle",
-  ]);
-  const sourcesTemplateIds = new Set(["collect_requirements_to_bundle", "collect_research_notes_to_bundle"]);
-  const isBundle = bundleTemplateIds.has(templateId);
-  const needsSources = sourcesTemplateIds.has(templateId);
-
-  if (bundleFields) bundleFields.classList.toggle("hidden", !isBundle);
-  if (sourcesFields) sourcesFields.classList.toggle("hidden", !needsSources);
-  if (githubFields) githubFields.classList.toggle("hidden", !isGithub);
-
-  const bundleDefaults = {
-    collect_requirements_to_bundle: "requirement.v1",
-    design_test_cases_from_bundle: "requirement.v1",
-    collect_research_notes_to_bundle: "research.v1",
-    generate_implementation_plan_from_bundle: "development.v1",
-    generate_runbook_from_bundle: "operations.v1",
-  };
-  if (bundleTemplateSelect && bundleDefaults[templateId]) {
-    bundleTemplateSelect.value = bundleDefaults[templateId];
-  }
+async function cancelAgentTask(taskId) {
+  const cancelled = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+  await refreshMyTasks();
+  await openTaskDetailInMain(cancelled.id);
 }
 
 async function openEditDialog(agent) {
@@ -10540,21 +10583,31 @@ function bindEvents() {
       }
       return;
     }
-    const taskForm = event.target.closest("#create-task-from-template-form");
+    const taskForm = event.target.closest("#create-agent-async-task-form");
     if (taskForm) {
       event.preventDefault();
       try {
-        await submitCreateTaskFromTemplate(taskForm);
+        await submitCreateAgentAsyncTask(taskForm);
       } catch (error) {
         showToast(`Create task failed: ${error.message}`);
       }
+      return;
+    }
+    const continueTaskForm = event.target.closest("#continue-agent-task-form");
+    if (continueTaskForm) {
+      event.preventDefault();
+      try {
+        await submitContinueAgentTask(continueTaskForm);
+      } catch (error) {
+        showToast(`Continue task failed: ${error.message}`);
+      }
     }
   });
-  dom.workspaceDetailContent?.addEventListener("change", (event) => {
-    const formEl = event.target.closest("#create-task-from-template-form");
+  dom.workspaceDetailContent?.addEventListener("change", async (event) => {
+    const formEl = event.target.closest("#create-agent-async-task-form");
     if (!formEl) return;
-    if (event.target.matches('[name="template_id"]')) {
-      updateCreateTaskTemplateFieldVisibility(formEl);
+    if (event.target.matches('[name="assignee_agent_id"]')) {
+      await populateCreateTaskSkillSelect(formEl);
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
@@ -10610,6 +10663,19 @@ function bindEvents() {
     if (taskBackBtn) {
       event.preventDefault();
       await returnFromTaskDetailToSidebar();
+      return;
+    }
+
+    const cancelTaskBtn = event.target.closest("[data-cancel-task]");
+    if (cancelTaskBtn) {
+      event.preventDefault();
+      const taskId = cancelTaskBtn.dataset.cancelTask || "";
+      if (!taskId) return;
+      try {
+        await cancelAgentTask(taskId);
+      } catch (error) {
+        showToast(`Cancel task failed: ${error.message}`);
+      }
       return;
     }
 

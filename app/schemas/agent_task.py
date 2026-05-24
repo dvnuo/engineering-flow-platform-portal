@@ -11,6 +11,11 @@ class AgentTaskCreateRequest(BaseModel):
     source: str
     task_type: str
     template_id: Optional[str] = None
+    title: Optional[str] = None
+    skill_name: Optional[str] = None
+    parent_task_id: Optional[str] = None
+    root_task_id: Optional[str] = None
+    task_session_id: Optional[str] = None
     input_payload_json: Optional[str] = None
     shared_context_ref: Optional[str] = None
     task_family: Optional[str] = None
@@ -31,6 +36,16 @@ class CreateTaskFromTemplateRequest(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
     group_id: Optional[str] = None
     parent_agent_id: Optional[str] = None
+
+
+class CreateAgentAsyncTaskRequest(BaseModel):
+    assignee_agent_id: str
+    skill_name: str
+    task_content: str
+
+
+class CreateAgentTaskFollowupRequest(BaseModel):
+    task_content: str
 
 
 class TaskTemplateRead(BaseModel):
@@ -59,6 +74,11 @@ class AgentTaskResponse(BaseModel):
     source: str
     task_type: str
     template_id: Optional[str] = None
+    title: Optional[str] = None
+    skill_name: Optional[str] = None
+    parent_task_id: Optional[str] = None
+    root_task_id: Optional[str] = None
+    task_session_id: Optional[str] = None
     input_payload_json: Optional[str] = None
     shared_context_ref: Optional[str] = None
     task_family: Optional[str] = None

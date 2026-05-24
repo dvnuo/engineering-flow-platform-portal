@@ -2,7 +2,7 @@
   <div class="portal-panel-header">
     <div>
       <h2 class="portal-panel-title">My Tasks</h2>
-      <p class="portal-panel-subtitle">Tasks you own, created, or can see through groups.</p>
+      <p class="portal-panel-subtitle">Background agent work you started or can access.</p>
     </div>
     <button class="portal-btn is-primary" type="button" data-open-create-task-main="1">+ Create Task</button>
   </div>
@@ -11,28 +11,30 @@
     <div class="portal-panel-section">queued: <strong>{{ summary.queued }}</strong></div>
     <div class="portal-panel-section">running: <strong>{{ summary.running }}</strong></div>
     <div class="portal-panel-section">done: <strong>{{ summary.done }}</strong></div>
+    <div class="portal-panel-section">blocked: <strong>{{ summary.blocked }}</strong></div>
     <div class="portal-panel-section">failed: <strong>{{ summary.failed }}</strong></div>
-    <div class="portal-panel-section">stale: <strong>{{ summary.stale }}</strong></div>
     <div class="portal-panel-section">cancelled: <strong>{{ summary.cancelled }}</strong></div>
-    <div class="portal-panel-section">pending_restart: <strong>{{ summary.pending_restart }}</strong></div>
-    <div class="portal-panel-section">cancel_failed: <strong>{{ summary.cancel_failed }}</strong></div>
   </div>
 
   <div class="portal-panel-stack">
     {% for task in tasks %}
+    {% set task_title = task.title or task.summary or task.task_type or task.id %}
     <div class="portal-panel-section">
       <div class="portal-panel-header">
-        <div class="portal-detail-code">{{ task.id }}</div>
-        <span class="portal-panel-chip">{{ task.status }}</span>
+        <div>
+          <div class="portal-bundle-title">{{ task_title }}</div>
+          <div class="portal-panel-note">
+            {% if task.skill_name %}/{{ task.skill_name }} · {% endif %}{{ task.created_at }}
+          </div>
+        </div>
+        <span class="portal-status-badge is-{{ 'success' if task.status == 'done' else ('warning' if task.status in ['queued', 'running', 'pending_restart'] else ('error' if task.status in ['failed', 'blocked', 'cancel_failed'] else 'info')) }}">{{ task.status }}</span>
       </div>
-      <div class="portal-panel-note">type: {{ task.task_type }} · source: {{ task.source }}</div>
-      <div class="portal-panel-note">family: {{ task.task_family or '-' }} · provider: {{ task.provider or '-' }} · trigger: {{ task.trigger or '-' }}</div>
-      <div class="portal-panel-note">assignee: {{ task.assignee_agent_id }}</div>
-      <div class="portal-panel-note">created: {{ task.created_at }} · updated: {{ task.updated_at }}</div>
       {% if task.error_message %}
       <div class="portal-inline-state is-error">{{ task.error_message[:180] }}</div>
-      {% elif task.summary %}
+      {% elif task.summary and task.summary != task_title %}
       <div class="portal-panel-note">{{ task.summary[:180] }}</div>
+      {% elif task.task_type != "agent_async_task" %}
+      <div class="portal-panel-note">{{ task.task_type }} · {{ task.source }}</div>
       {% endif %}
       {% if content_target == "#workspace-detail-content" %}
       <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ task.id }}">View detail</button>
@@ -46,7 +48,7 @@
       {% endif %}
     </div>
     {% else %}
-    <div class="portal-panel-empty">No visible tasks yet.</div>
+    <div class="portal-panel-empty">No background tasks yet.</div>
     {% endfor %}
   </div>
 </div>

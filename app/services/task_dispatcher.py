@@ -28,6 +28,10 @@ from app.services.runtime_execution_context_service import RuntimeExecutionConte
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
 
 logger = logging.getLogger(__name__)
+AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION = (
+    "Run as a background long-running task. Do not ask the user for more information unless truly blocked. "
+    "Make reasonable assumptions and complete as much as possible."
+)
 
 
 @dataclass
@@ -45,7 +49,7 @@ class AgentTaskDispatchResult:
 
 @dataclass
 class NormalizedRuntimeOutcome:
-    terminal_status: str  # done | failed | stale | cancelled | pending_restart | cancel_failed | running
+    terminal_status: str  # done | failed | blocked | stale | cancelled | pending_restart | cancel_failed | running
     result_payload_json: str
     message: str
     runtime_status_code: int | None
@@ -76,6 +80,13 @@ class TaskDispatcherService:
             headers.update(build_runtime_trace_headers(metadata))
         async with httpx.AsyncClient(timeout=30.0) as client:
             return await client.post(url, json=body, headers=headers)
+
+    async def _post_cancel_to_runtime(self, url: str, metadata: dict | None = None) -> httpx.Response:
+        headers = {}
+        if isinstance(metadata, dict):
+            headers.update(build_runtime_trace_headers(metadata))
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            return await client.post(url, headers=headers)
 
     async def _get_runtime_task_status(self, url: str, metadata: dict | None = None) -> httpx.Response:
         headers = {}
@@ -192,6 +203,7 @@ class TaskDispatcherService:
             return "failed"
         mapping = {
             "failed": "failed",
+            "blocked": "blocked",
             "stale": "stale",
             "cancelled": "cancelled",
             "pending_restart": "pending_restart",
@@ -381,11 +393,11 @@ class TaskDispatcherService:
             return None
         output_payload = payload.get("output_payload")
         if isinstance(output_payload, dict):
-            for key in ("summary", "review_summary", "message", "result_summary"):
+            for key in ("summary", "final_response", "response", "raw_text", "review_summary", "message", "result_summary"):
                 value = output_payload.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
-        for key in ("message", "summary"):
+        for key in ("summary", "final_response", "response", "raw_text", "message"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -450,7 +462,7 @@ class TaskDispatcherService:
             trace_context=trace_context,
             raw_response_preview=raw_response_preview,
         )
-        if outcome.terminal_status in {"done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
+        if outcome.terminal_status in {"done", "failed", "blocked", "stale", "cancelled", "pending_restart", "cancel_failed"}:
             try:
                 return "terminal", json.loads(outcome.result_payload_json), outcome
             except Exception:
@@ -658,7 +670,15 @@ class TaskDispatcherService:
                 runtime_status_code=runtime_status_code,
             )
 
-        if normalized_status in {"error", "blocked", "failed"} or ok_value is False:
+        if normalized_status == "blocked":
+            return NormalizedRuntimeOutcome(
+                terminal_status="blocked",
+                result_payload_json=normalized_payload_json,
+                message="Runtime execution reported blockers",
+                runtime_status_code=runtime_status_code,
+            )
+
+        if normalized_status in {"error", "failed"} or ok_value is False:
             return NormalizedRuntimeOutcome(
                 terminal_status="failed",
                 result_payload_json=normalized_payload_json,
@@ -799,6 +819,20 @@ class TaskDispatcherService:
                 dedupe_hint = task.shared_context_ref
                 if dedupe_hint:
                     metadata["portal_dedupe_hint"] = dedupe_hint
+                if task.task_type == "agent_async_task":
+                    metadata["portal_task_mode"] = "agent_async_task"
+                    if getattr(task, "skill_name", None):
+                        metadata["portal_skill_name"] = task.skill_name
+                    if getattr(task, "root_task_id", None):
+                        metadata["portal_root_task_id"] = task.root_task_id
+                    if getattr(task, "parent_task_id", None):
+                        metadata["portal_parent_task_id"] = task.parent_task_id
+                    autonomous_instruction = input_payload.get("autonomous_instruction")
+                    if not isinstance(autonomous_instruction, str) or not autonomous_instruction.strip():
+                        autonomous_instruction = AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION
+                    existing_system_prompt = metadata.get("system_prompt")
+                    if not isinstance(existing_system_prompt, str) or not existing_system_prompt.strip():
+                        metadata["system_prompt"] = autonomous_instruction.strip()
 
                 materialized_context_ref = None
                 if task.task_type == "delegation_task":
@@ -885,9 +919,20 @@ class TaskDispatcherService:
                     "metadata": metadata,
                 }
                 leader_session_id = (getattr(delegation, "origin_session_id", None) if delegation else None) or input_payload.get("leader_session_id")
-                if isinstance(leader_session_id, str) and leader_session_id.strip():
-                    runtime_body["session_id"] = leader_session_id.strip()
-                    metadata["portal_leader_session_id"] = leader_session_id.strip()
+                explicit_task_session_id = getattr(task, "task_session_id", None)
+                input_session_id = input_payload.get("session_id")
+                runtime_session_id = None
+                if task.task_type == "agent_async_task" and isinstance(explicit_task_session_id, str) and explicit_task_session_id.strip():
+                    runtime_session_id = explicit_task_session_id.strip()
+                    metadata["portal_task_session_id"] = runtime_session_id
+                elif isinstance(leader_session_id, str) and leader_session_id.strip():
+                    runtime_session_id = leader_session_id.strip()
+                    metadata["portal_leader_session_id"] = runtime_session_id
+                elif isinstance(input_session_id, str) and input_session_id.strip():
+                    runtime_session_id = input_session_id.strip()
+                    metadata["portal_input_session_id"] = runtime_session_id
+                if runtime_session_id:
+                    runtime_body["session_id"] = runtime_session_id
 
                 try:
                     runtime_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + "/api/tasks/execute"
@@ -962,13 +1007,14 @@ class TaskDispatcherService:
                         runtime_status_code = submit_outcome.runtime_status_code if submit_outcome else response.status_code
                         return AgentTaskDispatchResult(True, task.id, runtime_status_code, "not_found", "Task disappeared during dispatch", None)
 
-                    if fresh_task.status == "stale":
+                    if fresh_task.status in {"stale", "cancelled"}:
+                        late_status = fresh_task.status
                         return AgentTaskDispatchResult(
                             True,
                             fresh_task.id,
                             submit_outcome.runtime_status_code if submit_outcome else response.status_code,
-                            "stale",
-                            "late_runtime_result_ignored_because_task_is_stale",
+                            late_status,
+                            f"late_runtime_result_ignored_because_task_is_{late_status}",
                             fresh_task.result_payload_json,
                         )
                     if phase == "pending":
@@ -1012,13 +1058,14 @@ class TaskDispatcherService:
                     fresh_task = task_repo.get_by_id(task.id)
                     if not fresh_task:
                         return AgentTaskDispatchResult(True, task.id, outcome.runtime_status_code, "not_found", "Task disappeared during dispatch", None)
-                    if fresh_task.status == "stale":
+                    if fresh_task.status in {"stale", "cancelled"}:
+                        late_status = fresh_task.status
                         return AgentTaskDispatchResult(
                             True,
                             fresh_task.id,
                             outcome.runtime_status_code,
-                            "stale",
-                            "late_runtime_result_ignored_because_task_is_stale",
+                            late_status,
+                            f"late_runtime_result_ignored_because_task_is_{late_status}",
                             fresh_task.result_payload_json,
                         )
 
@@ -1040,7 +1087,7 @@ class TaskDispatcherService:
                         fresh_task.summary = "Task was cancelled."
                     fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
-                    if outcome.terminal_status in {"done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"}:
+                    if outcome.terminal_status in {"done", "failed", "blocked", "stale", "cancelled", "pending_restart", "cancel_failed"}:
                         self._sync_delegation_from_task_result(db, fresh_task, outcome.result_payload_json, outcome.terminal_status)
                     logger.info(
                         "Dispatch normalization outcome task_id=%s runtime_status_code=%s task_status=%s message=%s",
@@ -1077,13 +1124,14 @@ class TaskDispatcherService:
                             f"Runtime dispatch request failed: {sanitize_exception_message(exc)}",
                             None,
                         )
-                    if fresh_task.status == "stale":
+                    if fresh_task.status in {"stale", "cancelled"}:
+                        late_status = fresh_task.status
                         return AgentTaskDispatchResult(
                             True,
                             fresh_task.id,
                             None,
-                            "stale",
-                            "late_runtime_result_ignored_because_task_is_stale",
+                            late_status,
+                            f"late_runtime_result_ignored_because_task_is_{late_status}",
                             fresh_task.result_payload_json,
                         )
                     error_message = sanitize_exception_message(exc)
@@ -1111,6 +1159,65 @@ class TaskDispatcherService:
                 reset_log_context(bind_task_token)
         finally:
             reset_log_context(dispatch_context_token)
+
+    async def cancel_task(self, task_id: str, db: Session, user=None):
+        _ = user
+        task_repo = AgentTaskRepository(db)
+        agent_repo = AgentRepository(db)
+        task = task_repo.get_by_id(task_id)
+        if not task:
+            raise ValueError("Task not found")
+
+        normalized_status = (task.status or "").strip().lower()
+        terminal_statuses = {"done", "failed", "blocked", "stale", "cancelled", "pending_restart", "cancel_failed"}
+        if normalized_status in terminal_statuses:
+            return task
+        if normalized_status == "queued":
+            task.status = "cancelled"
+            task.summary = "Task was cancelled before it started."
+            task.finished_at = datetime.utcnow()
+            return task_repo.save(task)
+        if normalized_status != "running":
+            raise RuntimeError("Task is not cancellable")
+
+        agent = agent_repo.get_by_id(task.assignee_agent_id)
+        if not agent:
+            raise RuntimeError("Assignee agent not found")
+
+        metadata = {
+            "portal_task_id": task.id,
+            "portal_task_source": task.source,
+            "portal_task_type": task.task_type,
+            "current_task_id": task.id,
+            "source_type": task.source or "portal",
+            "source_ref": task.id,
+        }
+        if task.task_type == "agent_async_task":
+            metadata["portal_task_mode"] = "agent_async_task"
+            if getattr(task, "skill_name", None):
+                metadata["portal_skill_name"] = task.skill_name
+            if getattr(task, "root_task_id", None):
+                metadata["portal_root_task_id"] = task.root_task_id
+            if getattr(task, "parent_task_id", None):
+                metadata["portal_parent_task_id"] = task.parent_task_id
+            if getattr(task, "task_session_id", None):
+                metadata["portal_task_session_id"] = task.task_session_id
+
+        runtime_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}/cancel"
+        response = await self._post_cancel_to_runtime(runtime_url, metadata)
+        if not (200 <= response.status_code < 300):
+            preview = safe_preview(response.text or "", limit=500)
+            raise RuntimeError(f"Runtime cancel failed with status {response.status_code}: {preview}")
+
+        fresh_task = task_repo.get_by_id(task.id)
+        if not fresh_task:
+            raise ValueError("Task not found")
+        if (fresh_task.status or "").strip().lower() in terminal_statuses:
+            return fresh_task
+        fresh_task.status = "cancelled"
+        fresh_task.summary = "Task cancellation was requested."
+        fresh_task.finished_at = datetime.utcnow()
+        return task_repo.save(fresh_task)
 
     def dispatch_task_in_background(self, task_id: str) -> None:
         parent_context = snapshot_log_context()

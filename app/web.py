@@ -29,7 +29,7 @@ from app.schemas.runtime_profile import (
 )
 from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
 from app.services.capability_context_service import CapabilityContextService
-from app.services.task_template_registry import list_task_templates, get_task_template
+from app.services.task_template_registry import get_task_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
@@ -443,7 +443,164 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, 
     }
 
 
-def _build_task_detail_view_model(task) -> dict:
+def _extract_text_field(payload: dict | None, keys: tuple[str, ...]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _extract_async_result_payload(result_payload: dict | list | None) -> dict:
+    if not isinstance(result_payload, dict):
+        return {}
+    output_payload = result_payload.get("output_payload")
+    if isinstance(output_payload, dict):
+        merged = dict(output_payload)
+        for key, value in result_payload.items():
+            if key not in merged:
+                merged[key] = value
+        return merged
+    return result_payload
+
+
+def _stringify_blocker(item) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        for key in ("message", "summary", "reason", "detail"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return json.dumps(item, ensure_ascii=False)
+    return str(item).strip() if item is not None else ""
+
+
+def _normalize_blockers(value) -> list[str]:
+    if isinstance(value, list):
+        return [text for text in (_stringify_blocker(item) for item in value) if text]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if isinstance(value, dict):
+        text = _stringify_blocker(value)
+        return [text] if text else []
+    return []
+
+
+def _task_content_from_input(input_obj: dict) -> tuple[str, str]:
+    if isinstance(input_obj.get("followup_task"), str) and input_obj.get("followup_task").strip():
+        return input_obj.get("followup_task").strip(), "Follow-up"
+    if isinstance(input_obj.get("user_task"), str) and input_obj.get("user_task").strip():
+        return input_obj.get("user_task").strip(), "Original Task"
+    return "", "Task"
+
+
+def _fallback_title_from_content(content: str) -> str:
+    first_line = next((line.strip() for line in (content or "").splitlines() if line.strip()), "")
+    title = " ".join((first_line or content or "Agent background task").split())
+    if len(title) > 96:
+        return title[:93].rstrip() + "..."
+    return title
+
+
+def _agent_label_for_task(db, task) -> str:
+    agent_id = getattr(task, "assignee_agent_id", None) or "-"
+    if not db or agent_id == "-":
+        return agent_id
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+    except Exception:
+        agent = None
+    if not agent:
+        return agent_id
+    agent_name = (getattr(agent, "name", None) or "").strip()
+    return f"{agent_name} ({agent_id})" if agent_name else agent_id
+
+
+def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
+    repo = AgentTaskRepository(db) if db else None
+    root_task_id = (getattr(task, "root_task_id", None) or getattr(task, "id", "") or "").strip()
+    chain = []
+    if repo and root_task_id:
+        try:
+            chain = repo.list_by_root_task_id(root_task_id)
+        except Exception:
+            chain = []
+    if not chain:
+        chain = [task]
+    if all(getattr(item, "id", None) != getattr(task, "id", None) for item in chain):
+        chain.append(task)
+        chain.sort(key=lambda item: (getattr(item, "created_at", None) or datetime.min, getattr(item, "id", "")))
+
+    input_payload = _safe_json_object(getattr(task, "input_payload_json", None))
+    input_obj = input_payload if isinstance(input_payload, dict) else {}
+    result_payload = _safe_json_object(getattr(task, "result_payload_json", None))
+    result_obj = _extract_async_result_payload(result_payload)
+    task_content, task_content_label = _task_content_from_input(input_obj)
+    skill_name = (getattr(task, "skill_name", None) or input_obj.get("skill_name") or "").strip().lstrip("/")
+    final_response = _extract_text_field(result_obj, ("final_response", "response", "summary", "raw_text", "message"))
+    blockers = _normalize_blockers(result_obj.get("blockers"))
+    next_recommendation = _extract_text_field(result_obj, ("next_recommendation", "recommendation", "next_step"))
+    status_label = getattr(task, "status", None) or "unknown"
+    chain_has_active = any((getattr(item, "status", "") or "").strip().lower() in {"queued", "running"} for item in chain)
+
+    timeline = []
+    for item in chain:
+        item_input_payload = _safe_json_object(getattr(item, "input_payload_json", None))
+        item_input_obj = item_input_payload if isinstance(item_input_payload, dict) else {}
+        item_content, item_kind = _task_content_from_input(item_input_obj)
+        timeline.append(
+            {
+                "id": getattr(item, "id", ""),
+                "title": getattr(item, "title", None) or _fallback_title_from_content(item_content),
+                "status": getattr(item, "status", None) or "unknown",
+                "status_tone": _status_tone_from_value(getattr(item, "status", None)),
+                "created_at": getattr(item, "created_at", None) or "-",
+                "kind": item_kind,
+                "is_current": getattr(item, "id", None) == getattr(task, "id", None),
+            }
+        )
+
+    return {
+        "is_agent_async": True,
+        "display_title": getattr(task, "title", None) or _fallback_title_from_content(task_content),
+        "display_subtitle": "Agent background task",
+        "status_label": status_label,
+        "status_tone": _status_tone_from_value(status_label),
+        "is_active": status_label in {"queued", "running"},
+        "chain_has_active": chain_has_active,
+        "can_cancel": status_label in {"queued", "running"},
+        "show_followup_form": not chain_has_active and status_label not in {"queued", "running"},
+        "summary_text": getattr(task, "summary", None) or "",
+        "error_text": getattr(task, "error_message", None) or "",
+        "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
+        "assignee_agent_id": getattr(task, "assignee_agent_id", None) or "-",
+        "assignee_agent_label": _agent_label_for_task(db, task),
+        "skill_name": skill_name or "-",
+        "task_session_id": getattr(task, "task_session_id", None) or input_obj.get("task_session_id") or "-",
+        "root_task_id": root_task_id or "-",
+        "parent_task_id": getattr(task, "parent_task_id", None) or input_obj.get("parent_task_id") or "-",
+        "task_content": task_content,
+        "task_content_label": task_content_label,
+        "final_response": final_response,
+        "blockers": blockers,
+        "next_recommendation": next_recommendation,
+        "timeline": timeline,
+        "created_at": getattr(task, "created_at", None) or "-",
+        "started_at": getattr(task, "started_at", None) or "-",
+        "finished_at": getattr(task, "finished_at", None) or "-",
+        "updated_at": getattr(task, "updated_at", None) or "-",
+        "input_payload_pretty": _pretty_json_text(getattr(task, "input_payload_json", None)),
+        "result_payload_pretty": _pretty_json_text(getattr(task, "result_payload_json", None)),
+    }
+
+
+def _build_task_detail_view_model(task, db=None) -> dict:
+    if getattr(task, "task_type", None) == "agent_async_task":
+        return _build_agent_async_task_detail_view_model(task, db=db)
+
     input_payload = _safe_json_object(getattr(task, "input_payload_json", None))
     input_obj = input_payload if isinstance(input_payload, dict) else {}
     bundle_ref = input_obj.get("bundle_ref") if isinstance(input_obj.get("bundle_ref"), dict) else {}
@@ -509,11 +666,15 @@ def _build_task_detail_view_model(task) -> dict:
     ]
 
     return {
+        "is_agent_async": False,
         "display_title": action_label or (getattr(task, "task_type", None) or "Task Detail").replace("_", " ").title(),
         "display_subtitle": bundle_path.split("/")[-1] if bundle_path else (getattr(task, "task_type", None) or "Task"),
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "is_active": is_active,
+        "can_cancel": False,
+        "show_followup_form": False,
+        "timeline": [],
         "summary_text": getattr(task, "summary", None) or "",
         "error_text": getattr(task, "error_message", None) or "",
         "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
@@ -1259,7 +1420,7 @@ def my_tasks_panel(request: Request):
     try:
         group_ids = _visible_group_ids_for_user(db, user)
         tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, visible_group_ids=group_ids)
-        summary = {"queued": 0, "running": 0, "done": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
+        summary = {"queued": 0, "running": 0, "done": 0, "blocked": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
         for task in tasks:
             if task.status in summary:
                 summary[task.status] += 1
@@ -1285,7 +1446,6 @@ def task_create_panel(request: Request):
             "partials/task_create_panel.html",
             {
                 "request": request,
-                "task_templates": list_task_templates(),
                 "agents": _list_writable_agents(db, user),
             },
         )
@@ -1315,7 +1475,7 @@ def task_detail_panel(request: Request, task_id: str):
             {
                 "request": request,
                 "task": task,
-                "task_view_model": _build_task_detail_view_model(task),
+                "task_view_model": _build_task_detail_view_model(task, db=db),
                 "content_target": _content_target_from_request(request),
             },
         )

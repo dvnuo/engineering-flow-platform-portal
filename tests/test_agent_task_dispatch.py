@@ -180,6 +180,67 @@ def test_dispatch_task_sync_runtime_success_compatible(db_session, monkeypatch):
     assert task.status == "done"
 
 
+def test_agent_async_task_dispatch_sends_session_and_metadata(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        id="task-async-1",
+        assignee_agent_id=agent.id,
+        owner_user_id=1,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review branch",
+        skill_name="review",
+        root_task_id="task-async-1",
+        task_session_id="agent-task:task-async-1",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the branch.",
+                "skill_name": "review",
+                "task_session_id": "agent-task:task-async-1",
+                "root_task_id": "task-async-1",
+                "parent_task_id": None,
+                "autonomous_instruction": "Run as a background long-running task. Finish independently.",
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "done"}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+    assert captured["body"]["task_type"] == "agent_async_task"
+    assert captured["body"]["session_id"] == "agent-task:task-async-1"
+    metadata = captured["body"]["metadata"]
+    assert metadata["portal_task_mode"] == "agent_async_task"
+    assert metadata["portal_skill_name"] == "review"
+    assert metadata["portal_root_task_id"] == "task-async-1"
+    assert metadata["portal_task_session_id"] == "agent-task:task-async-1"
+    assert metadata["system_prompt"] == "Run as a background long-running task. Finish independently."
+
+
 def test_dispatcher_derives_summary_from_github_review_summary():
     payload = {
         "ok": True,
@@ -321,6 +382,7 @@ def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_s
 def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkeypatch):
     db, agent = db_session
     task = AgentTask(
+        id="task-async-cancelled",
         assignee_agent_id=agent.id,
         source="github",
         task_type="github_review_task",
@@ -368,6 +430,62 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
     assert result.task_status == "stale"
     db.refresh(task)
     assert task.status == "stale"
+
+
+def test_dispatch_late_runtime_success_cannot_overwrite_cancelled(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review branch",
+        skill_name="review",
+        root_task_id="task-async-cancelled",
+        task_session_id="agent-task:task-async-cancelled",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the branch.",
+                "skill_name": "review",
+                "task_session_id": "agent-task:task-async-cancelled",
+                "root_task_id": "task-async-cancelled",
+                "parent_task_id": None,
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class Resp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "ok"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "ok"}
+
+    async def fake_post(_url, _body):
+        fresh = db.get(AgentTask, task.id)
+        fresh.status = "cancelled"
+        fresh.summary = "Cancelled locally."
+        db.add(fresh)
+        db.commit()
+        return Resp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "cancelled"
+    assert result.message == "late_runtime_result_ignored_because_task_is_cancelled"
+    db.refresh(task)
+    assert task.status == "cancelled"
+    assert task.summary == "Cancelled locally."
 
 
 def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypatch):
@@ -525,6 +643,7 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
     [
         ({"ok": True, "status": "done"}, "done"),
         ({"ok": True, "status": "completed"}, "done"),
+        ({"ok": True, "status": "blocked", "blockers": ["needs access"]}, "blocked"),
         ({"ok": True, "status": "stale"}, "stale"),
         ({"ok": True, "status": "cancelled"}, "cancelled"),
         ({"ok": True, "status": "canceled"}, "cancelled"),
