@@ -9249,6 +9249,26 @@ function renderAutomationRuleNavList(rules) {
   });
 }
 
+function normalizeAutomationTriggerType(triggerType) {
+  return String(triggerType || "") === "github_comment_mention"
+    ? "github_comment_mention"
+    : "github_pr_review_requested";
+}
+
+function automationKindFromTrigger(triggerType) {
+  return normalizeAutomationTriggerType(triggerType) === "github_comment_mention"
+    ? "github_comment_mention"
+    : "github_pr_review";
+}
+
+function automationLabelForKind(kind) {
+  return kind === "github_comment_mention" ? "GitHub comment mention" : "GitHub PR review";
+}
+
+function taskTemplateIdForAutomationTrigger(triggerType) {
+  return automationKindFromTrigger(triggerType);
+}
+
 async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
   if (!ruleId) return;
   try {
@@ -9261,6 +9281,8 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
     const trigger = _safeJson(detail.trigger_config_json) || {};
     const schedule = _safeJson(detail.schedule_json) || {};
     const taskConfig = _safeJson(detail.task_config_json) || {};
+    const triggerType = String(detail.trigger_type || "");
+    const automationKind = automationKindFromTrigger(triggerType);
     const targetAgent = (state.mineAgents || []).find((item) => item.id === detail.target_agent_id);
     const runsRows = (runs || []).map((run) => `
       <tr><td>${safe(run.status || "-")}</td><td>${safe(String(run.found_count ?? 0))}</td><td>${safe(String(run.created_task_count ?? 0))}</td><td>${safe(String(run.skipped_count ?? 0))}</td><td>${safe(run.error_message || "-")}</td><td>${safe(run.started_at || "-")}</td><td>${safe(run.finished_at || "-")}</td></tr>
@@ -9272,9 +9294,10 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
       <div class="portal-panel-stack">
         <h3>${safe(detail.name)}</h3>
         <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
-        <div class="portal-inline-state">Task Template: <strong>${safe(detail.task_template_id || "-")}</strong></div>
+        <div class="portal-inline-state">Automation: <strong>${safe(automationLabelForKind(automationKind))}</strong></div>
+        <div class="portal-inline-state">Trigger: <strong>${safe(triggerType || "-")}</strong></div>
         <div class="portal-inline-state">Repository: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
-        ${detail.task_template_id === "github_comment_mention"
+        ${automationKind === "github_comment_mention"
           ? `<div class="portal-inline-state">Mention target: <strong>${safe(trigger.mention_target || "-")}</strong></div>
              <div class="portal-inline-state">Surfaces: <strong>${safe((scope.surfaces || []).join(", ") || "-")}</strong></div>
              <div class="portal-inline-state">Reply mode: <strong>${safe(taskConfig.reply_mode || "same_surface")}</strong></div>`
@@ -9345,10 +9368,6 @@ function openCreateAutomationRuleModal() {
           <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
         </section>
         <section class="portal-panel-section">
-          <h4>Task Template</h4>
-          <label class="portal-form-label"><span class="portal-form-label">Template</span><select class="portal-form-select" name="task_template_id"><option value="github_pr_review">github_pr_review</option><option value="github_comment_mention">github_comment_mention</option></select></label>
-        </section>
-        <section class="portal-panel-section">
           <h4>Agent & Task Defaults</h4>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
           <div data-pr-only="1">
@@ -9365,12 +9384,12 @@ function openCreateAutomationRuleModal() {
   `;
   const form = document.getElementById("create-automation-inline-form");
   const triggerSel = form?.querySelector('select[name="trigger_type"]');
-  const tplSel = form?.querySelector('select[name="task_template_id"]');
   const toggle = () => {
-    const isMention = (tplSel?.value || "") === "github_comment_mention";
+    const triggerType = normalizeAutomationTriggerType(triggerSel?.value);
+    const isMention = automationKindFromTrigger(triggerType) === "github_comment_mention";
+    if (triggerSel && triggerSel.value !== triggerType) triggerSel.value = triggerType;
     form?.querySelectorAll("[data-pr-only='1']").forEach((el) => { el.style.display = isMention ? "none" : ""; });
     form?.querySelectorAll("[data-mention-only='1']").forEach((el) => { el.style.display = isMention ? "" : "none"; });
-    if (triggerSel) triggerSel.value = isMention ? "github_comment_mention" : "github_pr_review_requested";
     const mode = String(form?.querySelector('select[name=\"scope_mode\"]')?.value || "repo");
     form?.querySelectorAll("[data-org-account-only='1']").forEach((el) => { el.style.display = isMention && ["org","account_notifications"].includes(mode) ? "" : "none"; });
     const repoInput = form?.querySelector('input[name=\"repo\"]');
@@ -9378,16 +9397,16 @@ function openCreateAutomationRuleModal() {
     const ownerInput = form?.querySelector('input[name="owner"]');
     if (ownerInput) ownerInput.required = !isMention || mode !== "account_notifications";
   };
-  triggerSel?.addEventListener("change", () => { if (tplSel) tplSel.value = triggerSel.value === "github_comment_mention" ? "github_comment_mention" : "github_pr_review"; toggle(); });
-  tplSel?.addEventListener("change", toggle);
+  triggerSel?.addEventListener("change", toggle);
   form?.querySelector('select[name="scope_mode"]')?.addEventListener("change", toggle);
   toggle();
 }
 
 async function submitCreateAutomationRule(formEl) {
   const fd = new FormData(formEl);
-  const taskTemplateId = String(fd.get("task_template_id") || "github_pr_review");
-  if (taskTemplateId === "github_comment_mention") {
+  const triggerType = normalizeAutomationTriggerType(fd.get("trigger_type"));
+  const taskTemplateId = taskTemplateIdForAutomationTrigger(triggerType);
+  if (automationKindFromTrigger(triggerType) === "github_comment_mention") {
     const parseCommaList = (raw) => String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
     const selectedSurfaces = fd.getAll("surfaces").map((s) => String(s));
     const mode = String(fd.get("scope_mode") || "repo");
@@ -9400,7 +9419,7 @@ async function submitCreateAutomationRule(formEl) {
         : { mode: "repo", owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || ""), surfaces: baseSurfaces };
     const payload = {
       name: String(fd.get("name") || ""), target_agent_id: String(fd.get("target_agent_id") || ""), enabled: true, source_type: "github",
-      trigger_type: "github_comment_mention", task_template_id: "github_comment_mention",
+      trigger_type: triggerType, task_template_id: taskTemplateId,
       scope,
       trigger_config: { mention_target_type: "user", mention_target: String(fd.get("mention_target") || ""), ignore_self_comments: true, ignore_bot_comments: true, ignore_efp_auto_reply_marker: true, strip_code_blocks_before_matching: true },
       task_input_defaults: { skill_name: "handle-triggered-event", execution_mode: "chat_tool_loop", reply_mode: String(fd.get("reply_mode") || "same_surface") },
@@ -9416,7 +9435,7 @@ async function submitCreateAutomationRule(formEl) {
     target_agent_id: String(fd.get("target_agent_id") || ""),
     enabled: true,
     source_type: "github",
-    trigger_type: String(fd.get("trigger_type") || "github_pr_review_requested"),
+    trigger_type: triggerType,
     task_template_id: taskTemplateId,
     scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
     trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },

@@ -17,6 +17,18 @@ def test_chat_ui_no_empty_response_literal():
     assert '(empty response)' not in source
 
 
+def test_automation_rule_ui_has_no_visible_task_template_entry_points():
+    source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    create_fn = _extract_js_function(source, "openCreateAutomationRuleModal")
+
+    assert "Task Template" not in source
+    assert 'name="task_template_id"' not in source
+    assert 'select[name="task_template_id"]' not in source
+    assert "querySelector('select[name=\"task_template_id\"]')" not in source
+    assert 'name="trigger_type"' in create_fn
+    assert "taskTemplateIdForAutomationTrigger(triggerType)" in source
+
+
 def test_render_display_blocks_empty_returns_empty_html_not_placeholder():
     source = Path('app/static/js/chat_ui.js').read_text(encoding='utf-8')
     assert 'function renderDisplayBlocksToHtml' in source
