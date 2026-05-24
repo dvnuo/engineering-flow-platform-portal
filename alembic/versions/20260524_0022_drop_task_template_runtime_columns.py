@@ -60,10 +60,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if not _has_column("agent_tasks", "template_id"):
-        op.add_column("agent_tasks", sa.Column("template_id", sa.String(length=128), nullable=True))
-    if not _has_index("agent_tasks", "ix_agent_tasks_template_id"):
-        op.create_index("ix_agent_tasks_template_id", "agent_tasks", ["template_id"])
-
-    if not _has_column("automation_rules", "task_template_id"):
-        op.add_column("automation_rules", sa.Column("task_template_id", sa.String(length=128), nullable=True))
+    # Removed compatibility columns are intentionally not recreated.
+    pass

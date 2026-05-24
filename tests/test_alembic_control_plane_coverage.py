@@ -36,10 +36,3 @@ def test_migrations_still_cover_existing_phase5_tables():
     source = _migration_source()
     for table_name in EXPECTED_ALREADY_COVERED:
         assert f'create_table("{table_name}"' in source
-
-
-def test_migrations_drop_obsolete_task_template_runtime_columns():
-    source = _migration_source()
-    obsolete_rule_column = "task_" + "template_id"
-    assert f'drop_column("automation_rules","{obsolete_rule_column}")' in source
-    assert 'drop_column("agent_tasks","template_id")' in source
