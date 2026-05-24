@@ -491,7 +491,7 @@ def _normalize_blockers(value) -> list[str]:
 
 def _task_content_from_input(input_obj: dict) -> tuple[str, str]:
     if isinstance(input_obj.get("followup_task"), str) and input_obj.get("followup_task").strip():
-        return input_obj.get("followup_task").strip(), "Follow-up"
+        return input_obj.get("followup_task").strip(), "Latest Follow-up"
     if isinstance(input_obj.get("user_task"), str) and input_obj.get("user_task").strip():
         return input_obj.get("user_task").strip(), "Original Task"
     return "", "Task"
@@ -520,6 +520,26 @@ def _agent_label_for_task(db, task) -> str:
 
 
 def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
+    return _build_agent_async_task_detail_view_model_for_user(task, db=db, user=None)
+
+
+def _can_manage_task_for_user(db, task, user) -> bool:
+    if user is None:
+        return True
+    if getattr(user, "role", None) == "admin":
+        return True
+    user_id = getattr(user, "id", None)
+    if getattr(task, "owner_user_id", None) == user_id or getattr(task, "created_by_user_id", None) == user_id:
+        return True
+    if getattr(task, "group_id", None):
+        group_service = AgentGroupService(db)
+        group = group_service.group_repo.get_by_id(task.group_id)
+        return bool(group and group_service.can_manage_group_tasks(group, user))
+    agent = AgentRepository(db).get_by_id(getattr(task, "assignee_agent_id", None))
+    return bool(agent and _can_write(agent, user))
+
+
+def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None) -> dict:
     repo = AgentTaskRepository(db) if db else None
     root_task_id = (getattr(task, "root_task_id", None) or getattr(task, "id", "") or "").strip()
     chain = []
@@ -539,12 +559,16 @@ def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
     result_payload = _safe_json_object(getattr(task, "result_payload_json", None))
     result_obj = _extract_async_result_payload(result_payload)
     task_content, task_content_label = _task_content_from_input(input_obj)
+    original_task = ""
+    if task_content_label == "Latest Follow-up":
+        original_task = _extract_text_field(input_obj, ("original_task", "user_task"))
     skill_name = (getattr(task, "skill_name", None) or input_obj.get("skill_name") or "").strip().lstrip("/")
     final_response = _extract_text_field(result_obj, ("final_response", "response", "summary", "raw_text", "message"))
     blockers = _normalize_blockers(result_obj.get("blockers"))
     next_recommendation = _extract_text_field(result_obj, ("next_recommendation", "recommendation", "next_step"))
     status_label = getattr(task, "status", None) or "unknown"
     chain_has_active = any((getattr(item, "status", "") or "").strip().lower() in {"queued", "running"} for item in chain)
+    can_manage_task = _can_manage_task_for_user(db, task, user) if db else user is None
 
     timeline = []
     for item in chain:
@@ -571,8 +595,9 @@ def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
         "status_tone": _status_tone_from_value(status_label),
         "is_active": status_label in {"queued", "running"},
         "chain_has_active": chain_has_active,
-        "can_cancel": status_label in {"queued", "running"},
-        "show_followup_form": not chain_has_active and status_label not in {"queued", "running"},
+        "can_cancel": can_manage_task and status_label in {"queued", "running"},
+        "can_rerun": can_manage_task and not chain_has_active and status_label not in {"queued", "running"},
+        "show_followup_form": can_manage_task and not chain_has_active and status_label not in {"queued", "running"},
         "summary_text": getattr(task, "summary", None) or "",
         "error_text": getattr(task, "error_message", None) or "",
         "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
@@ -584,6 +609,7 @@ def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
         "parent_task_id": getattr(task, "parent_task_id", None) or input_obj.get("parent_task_id") or "-",
         "task_content": task_content,
         "task_content_label": task_content_label,
+        "original_task": original_task,
         "final_response": final_response,
         "blockers": blockers,
         "next_recommendation": next_recommendation,
@@ -597,9 +623,9 @@ def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
     }
 
 
-def _build_task_detail_view_model(task, db=None) -> dict:
+def _build_task_detail_view_model(task, db=None, user=None) -> dict:
     if getattr(task, "task_type", None) == "agent_async_task":
-        return _build_agent_async_task_detail_view_model(task, db=db)
+        return _build_agent_async_task_detail_view_model_for_user(task, db=db, user=user)
 
     status_label = getattr(task, "status", None) or "unknown"
     context_items = [
@@ -626,6 +652,7 @@ def _build_task_detail_view_model(task, db=None) -> dict:
         "status_tone": _status_tone_from_value(status_label),
         "is_active": False,
         "can_cancel": False,
+        "can_rerun": False,
         "show_followup_form": False,
         "unsupported_message": "This task type is not supported by the background task panel. Raw payloads are available for inspection.",
         "timeline": [],
@@ -1422,7 +1449,7 @@ def task_detail_panel(request: Request, task_id: str):
             {
                 "request": request,
                 "task": task,
-                "task_view_model": _build_task_detail_view_model(task, db=db),
+                "task_view_model": _build_task_detail_view_model(task, db=db, user=user),
                 "content_target": _content_target_from_request(request),
             },
         )

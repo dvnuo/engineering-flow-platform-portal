@@ -123,7 +123,7 @@ def test_create_agent_async_task_rejects_blank_skill_and_content():
         cleanup()
 
 
-def test_followup_creates_child_reusing_root_and_session(monkeypatch):
+def test_followup_updates_original_task_reusing_session(monkeypatch):
     client, db, agent, cleanup = _client()
     scheduled = []
     monkeypatch.setattr("app.api.agent_tasks.task_dispatcher_service.dispatch_task_in_background", lambda task_id: scheduled.append(task_id))
@@ -140,19 +140,96 @@ def test_followup_creates_child_reusing_root_and_session(monkeypatch):
 
         response = client.post(f"/api/agent-tasks/{created['id']}/followups", json={"task_content": "Add tests."})
         assert response.status_code == 200
-        child = response.json()
-        assert child["id"] != created["id"]
-        assert child["parent_task_id"] == created["id"]
-        assert child["root_task_id"] == created["id"]
-        assert child["task_session_id"] == created["task_session_id"]
-        assert child["skill_name"] == "implement"
-        assert scheduled == [created["id"], child["id"]]
+        updated = response.json()
+        assert updated["id"] == created["id"]
+        assert updated["parent_task_id"] is None
+        assert updated["root_task_id"] == created["id"]
+        assert updated["task_session_id"] == created["task_session_id"]
+        assert updated["skill_name"] == "implement"
+        assert updated["status"] == "queued"
+        assert updated["result_payload_json"] is None
+        assert scheduled == [created["id"], created["id"]]
+        assert db.query(AgentTask).count() == 1
 
-        payload = json.loads(child["input_payload_json"])
+        payload = json.loads(updated["input_payload_json"])
         assert payload["followup_task"] == "Add tests."
-        assert payload["previous_task_id"] == created["id"]
+        assert "previous_task_id" not in payload
         assert payload["root_task_id"] == created["id"]
         assert payload["task_session_id"] == created["task_session_id"]
+        assert payload["original_task"] == "Build the feature."
+    finally:
+        cleanup()
+
+
+def test_rerun_agent_async_task_requeues_same_task_with_fresh_session(monkeypatch):
+    client, db, agent, cleanup = _client()
+    scheduled = []
+    monkeypatch.setattr("app.api.agent_tasks.task_dispatcher_service.dispatch_task_in_background", lambda task_id: scheduled.append(task_id))
+    try:
+        created = client.post(
+            "/api/agent-tasks/async",
+            json={"assignee_agent_id": agent.id, "skill_name": "/implement", "task_content": "Build the feature."},
+        ).json()
+        task = db.get(AgentTask, created["id"])
+        task.status = "failed"
+        task.error_message = "Runtime failed"
+        task.result_payload_json = json.dumps({"ok": False})
+        db.add(task)
+        db.commit()
+
+        response = client.post(f"/api/agent-tasks/{created['id']}/rerun")
+        assert response.status_code == 200
+        updated = response.json()
+        assert updated["id"] == created["id"]
+        assert updated["status"] == "queued"
+        assert updated["task_session_id"] != created["task_session_id"]
+        assert updated["result_payload_json"] is None
+        assert updated["error_message"] is None
+        assert scheduled == [created["id"], created["id"]]
+
+        payload = json.loads(updated["input_payload_json"])
+        assert payload["user_task"] == "Build the feature."
+        assert "followup_task" not in payload
+        assert payload["task_session_id"] == updated["task_session_id"]
+    finally:
+        cleanup()
+
+
+def test_rerun_followup_task_requeues_latest_followup_with_fresh_session(monkeypatch):
+    client, db, agent, cleanup = _client()
+    scheduled = []
+    monkeypatch.setattr("app.api.agent_tasks.task_dispatcher_service.dispatch_task_in_background", lambda task_id: scheduled.append(task_id))
+    try:
+        created = client.post(
+            "/api/agent-tasks/async",
+            json={"assignee_agent_id": agent.id, "skill_name": "/implement", "task_content": "Build the feature."},
+        ).json()
+        task = db.get(AgentTask, created["id"])
+        task.status = "done"
+        db.add(task)
+        db.commit()
+
+        followup = client.post(f"/api/agent-tasks/{created['id']}/followups", json={"task_content": "Add tests."}).json()
+        task = db.get(AgentTask, followup["id"])
+        task.status = "failed"
+        task.error_message = "Runtime failed"
+        task.result_payload_json = json.dumps({"ok": False})
+        db.add(task)
+        db.commit()
+
+        response = client.post(f"/api/agent-tasks/{created['id']}/rerun")
+        assert response.status_code == 200
+        updated = response.json()
+        assert updated["id"] == created["id"]
+        assert updated["status"] == "queued"
+        assert updated["task_session_id"] != created["task_session_id"]
+        assert scheduled == [created["id"], created["id"], created["id"]]
+
+        payload = json.loads(updated["input_payload_json"])
+        assert payload["followup_task"] == "Add tests."
+        assert payload["original_task"] == "Build the feature."
+        assert "user_task" not in payload
+        assert payload["task_session_id"] == updated["task_session_id"]
     finally:
         cleanup()
 

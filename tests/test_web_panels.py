@@ -22,7 +22,7 @@ class _FakeTaskRepo:
         return self._chain
 
 
-def _setup_task_client(monkeypatch, task, chain=None):
+def _setup_task_client(monkeypatch, task, chain=None, can_manage_task=True):
     from app.main import app
     import app.web as web_module
 
@@ -30,6 +30,7 @@ def _setup_task_client(monkeypatch, task, chain=None):
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: user)
     monkeypatch.setattr(web_module, "_visible_group_ids_for_user", lambda _db, _user: ["group-1"])
+    monkeypatch.setattr(web_module, "_can_manage_task_for_user", lambda _db, _task, _user: can_manage_task)
     monkeypatch.setattr(web_module, "AgentTaskRepository", lambda db: _FakeTaskRepo(db, task, chain=chain))
 
     return TestClient(app)
@@ -164,8 +165,19 @@ def test_agent_async_task_detail_renders_final_response_and_followup(monkeypatch
     assert "Finished the work." in response.text
     assert "Review the changes." in response.text
     assert 'id="continue-agent-task-form"' in response.text
+    assert 'data-rerun-task="async-task-1"' in response.text
+    assert "Start Follow-up" in response.text
     assert "Raw Input" in response.text
     assert "Raw Result" in response.text
+
+
+def test_read_only_agent_async_task_hides_manage_actions(monkeypatch):
+    task = _agent_async_task("done")
+    client = _setup_task_client(monkeypatch, task, can_manage_task=False)
+    html = client.get("/app/tasks/async-task-1/panel").text
+    assert 'data-rerun-task="async-task-1"' not in html
+    assert 'id="continue-agent-task-form"' not in html
+    assert "Start Follow-up" not in html
 
 
 def test_active_agent_async_task_detail_renders_cancel_and_auto_refresh(monkeypatch):
@@ -174,4 +186,5 @@ def test_active_agent_async_task_detail_renders_cancel_and_auto_refresh(monkeypa
     html = client.get("/app/tasks/async-task-1/panel").text
     assert 'hx-trigger="every 5s"' in html
     assert 'data-cancel-task="async-task-1"' in html
+    assert 'data-rerun-task="async-task-1"' not in html
     assert 'id="continue-agent-task-form"' not in html

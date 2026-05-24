@@ -106,6 +106,8 @@ def _agent_async_payload(
     root_task_id: str,
     parent_task_id: str | None,
     previous_task_id: str | None = None,
+    original_task: str | None = None,
+    is_followup: bool = False,
 ) -> dict:
     payload = {
         "schema": "agent_async_task.v1",
@@ -116,9 +118,12 @@ def _agent_async_payload(
         "autonomous": True,
         "autonomous_instruction": AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION,
     }
-    if previous_task_id:
+    if is_followup or previous_task_id:
         payload["followup_task"] = task_content
-        payload["previous_task_id"] = previous_task_id
+        if previous_task_id:
+            payload["previous_task_id"] = previous_task_id
+        if original_task and original_task.strip():
+            payload["original_task"] = original_task.strip()
     else:
         payload["user_task"] = task_content
     return payload
@@ -135,6 +140,37 @@ def _chain_has_active_task(db: Session, root_task_id: str) -> bool:
         if (item.status or "").strip().lower() in ACTIVE_TASK_STATUSES:
             return True
     return False
+
+
+def _input_payload_for_task(task) -> dict:
+    try:
+        parsed = json.loads(getattr(task, "input_payload_json", None) or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _skill_name_for_task(task) -> str:
+    skill_name = _normalize_skill_name(getattr(task, "skill_name", None))
+    if skill_name:
+        return skill_name
+    return _normalize_skill_name(_input_payload_for_task(task).get("skill_name"))
+
+
+def _reset_task_for_dispatch(task, *, input_payload: dict, title: str | None = None, task_session_id: str | None = None):
+    task.input_payload_json = json.dumps(input_payload)
+    if title:
+        task.title = title
+    if task_session_id:
+        task.task_session_id = task_session_id
+    task.status = "queued"
+    task.runtime_request_id = None
+    task.summary = None
+    task.error_message = None
+    task.started_at = None
+    task.finished_at = None
+    task.result_payload_json = None
+    return task
 
 
 @router.post("/api/agent-tasks/async", response_model=AgentTaskResponse)
@@ -192,54 +228,83 @@ def create_agent_task_followup(
     target_task = _require_visible_task(db, task_id, user)
     if target_task.task_type != AGENT_ASYNC_TASK_TYPE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Follow-up is only supported for agent async tasks")
+    if not _can_manage_task(db, target_task, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to continue task")
     if (target_task.status or "").strip().lower() in ACTIVE_TASK_STATUSES:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is still running")
 
     root_task_id = _root_id_for_task(target_task)
     if _chain_has_active_task(db, root_task_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task chain is still running")
-    skill_name = _normalize_skill_name(getattr(target_task, "skill_name", None))
-    if not skill_name:
-        input_payload = {}
-        try:
-            parsed = json.loads(target_task.input_payload_json or "{}")
-            input_payload = parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            input_payload = {}
-        skill_name = _normalize_skill_name(input_payload.get("skill_name"))
+    skill_name = _skill_name_for_task(target_task)
     if not skill_name:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing a selected skill")
 
+    existing_input = _input_payload_for_task(target_task)
+    original_task = str(existing_input.get("original_task") or existing_input.get("user_task") or "").strip()
     task_session_id = (target_task.task_session_id or f"agent-task:{root_task_id}").strip()
-    child_task_id = str(uuid4())
     task_input = _agent_async_payload(
         task_content=task_content,
         skill_name=skill_name,
         task_session_id=task_session_id,
         root_task_id=root_task_id,
-        parent_task_id=target_task.id,
-        previous_task_id=target_task.id,
+        parent_task_id=target_task.parent_task_id,
+        original_task=original_task,
+        is_followup=True,
     )
-    child_task = AgentTaskRepository(db).create(
-        id=child_task_id,
-        assignee_agent_id=target_task.assignee_agent_id,
-        owner_user_id=target_task.owner_user_id,
-        created_by_user_id=user.id,
-        source="portal",
-        task_type=AGENT_ASYNC_TASK_TYPE,
-        task_family=AGENT_ASYNC_TASK_FAMILY,
-        provider=None,
-        trigger="manual",
-        title=_derive_task_title(task_content),
+    target_task = _reset_task_for_dispatch(target_task, input_payload=task_input, task_session_id=task_session_id)
+    target_task.skill_name = skill_name
+    target_task.root_task_id = root_task_id
+    target_task = AgentTaskRepository(db).save(target_task)
+    task_dispatcher_service.dispatch_task_in_background(target_task.id)
+    return AgentTaskResponse.model_validate(target_task)
+
+
+@router.post("/api/agent-tasks/{task_id}/rerun", response_model=AgentTaskResponse)
+def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    target_task = _require_visible_task(db, task_id, user)
+    if target_task.task_type != AGENT_ASYNC_TASK_TYPE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rerun is only supported for agent async tasks")
+    if not _can_manage_task(db, target_task, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to rerun task")
+    if (target_task.status or "").strip().lower() in ACTIVE_TASK_STATUSES:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is still running")
+
+    root_task_id = _root_id_for_task(target_task)
+    if _chain_has_active_task(db, root_task_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task chain is still running")
+    skill_name = _skill_name_for_task(target_task)
+    if not skill_name:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing a selected skill")
+
+    existing_input = _input_payload_for_task(target_task)
+    followup_task = str(existing_input.get("followup_task") or "").strip()
+    original_task = str(existing_input.get("original_task") or existing_input.get("user_task") or "").strip()
+    task_content = followup_task or str(existing_input.get("user_task") or existing_input.get("original_task") or "").strip()
+    if not task_content:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing task content")
+
+    task_session_id = f"agent-task:{target_task.id}:{uuid4().hex[:12]}"
+    task_input = _agent_async_payload(
+        task_content=task_content,
         skill_name=skill_name,
-        parent_task_id=target_task.id,
-        root_task_id=root_task_id,
         task_session_id=task_session_id,
-        input_payload_json=json.dumps(task_input),
-        status="queued",
+        root_task_id=root_task_id,
+        parent_task_id=target_task.parent_task_id,
+        original_task=original_task,
+        is_followup=bool(followup_task),
     )
-    task_dispatcher_service.dispatch_task_in_background(child_task.id)
-    return AgentTaskResponse.model_validate(child_task)
+    target_task = _reset_task_for_dispatch(
+        target_task,
+        input_payload=task_input,
+        title=_derive_task_title(task_content),
+        task_session_id=task_session_id,
+    )
+    target_task.skill_name = skill_name
+    target_task.root_task_id = root_task_id
+    target_task = AgentTaskRepository(db).save(target_task)
+    task_dispatcher_service.dispatch_task_in_background(target_task.id)
+    return AgentTaskResponse.model_validate(target_task)
 
 
 @router.post("/api/agent-tasks/{task_id}/cancel", response_model=AgentTaskResponse)

@@ -7168,19 +7168,36 @@ function renderTaskNavList(errorMessage = "") {
     const displayPreview = preview.length > 96 ? `${preview.slice(0, 93).trim()}...` : preview;
     const skillName = String(task.skill_name || inputPayload.skill_name || "").trim().replace(/^\/+/, "");
     const timeLabel = formatTaskNavTime(task.updated_at || task.created_at);
+    const status = String(task.status || "unknown").trim();
+    const statusTone = taskStatusTone(status);
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
     row.innerHTML = `
-      <div class="portal-bundle-title">${safe(displayTitle)}</div>
-      ${displayPreview ? `<div class="portal-bundle-meta">${safe(displayPreview)}</div>` : ""}
-      <div class="portal-bundle-meta">${safe(task.status || "unknown")}${skillName ? ` · /${safe(skillName)}` : ""}${timeLabel ? ` · ${safe(timeLabel)}` : ""}</div>
+      <div class="portal-task-row-head">
+        <div class="portal-task-row-title">${safe(displayTitle)}</div>
+        <span class="portal-status-badge is-${safe(statusTone)}">${safe(status)}</span>
+      </div>
+      ${displayPreview ? `<div class="portal-task-row-preview">${safe(displayPreview)}</div>` : ""}
+      <div class="portal-task-row-meta">
+        ${skillName ? `<span>/${safe(skillName)}</span>` : ""}
+        <span>${safe(task.task_type || "task")}</span>
+        ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
+      </div>
     `;
     row.addEventListener("click", async () => {
       await openTaskDetailInMain(task.id);
     });
     dom.taskNavList.append(row);
   });
+}
+
+function taskStatusTone(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "done") return "success";
+  if (["queued", "running", "pending_restart"].includes(normalized)) return "warning";
+  if (["failed", "blocked", "cancel_failed"].includes(normalized)) return "error";
+  return "info";
 }
 
 function formatTaskNavTime(value) {
@@ -9591,14 +9608,20 @@ async function submitContinueAgentTask(formEl) {
   const taskId = String(formEl?.dataset?.taskId || "").trim();
   if (!taskId) throw new Error("Missing task id");
   const fd = new FormData(formEl);
-  const created = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/followups`, {
+  const updated = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/followups`, {
     method: "POST",
     body: JSON.stringify({
       task_content: String(fd.get("task_content") || "").trim(),
     }),
   });
   await refreshMyTasks();
-  await openTaskDetailInMain(created.id);
+  await openTaskDetailInMain(updated.id);
+}
+
+async function rerunAgentTask(taskId) {
+  const updated = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/rerun`, { method: "POST" });
+  await refreshMyTasks();
+  await openTaskDetailInMain(updated.id);
 }
 
 async function cancelAgentTask(taskId) {
@@ -10688,6 +10711,19 @@ function bindEvents() {
         await cancelAgentTask(taskId);
       } catch (error) {
         showToast(`Cancel task failed: ${error.message}`);
+      }
+      return;
+    }
+
+    const rerunTaskBtn = event.target.closest("[data-rerun-task]");
+    if (rerunTaskBtn) {
+      event.preventDefault();
+      const taskId = rerunTaskBtn.dataset.rerunTask || "";
+      if (!taskId) return;
+      try {
+        await rerunAgentTask(taskId);
+      } catch (error) {
+        showToast(`Rerun task failed: ${error.message}`);
       }
       return;
     }

@@ -1,43 +1,46 @@
-<div class="portal-panel-stack">
-  <div class="portal-panel-header">
+<div class="portal-panel-stack portal-task-create">
+  <div class="portal-task-toolbar">
     <div>
       <h2 class="portal-panel-title">Create Task</h2>
-      <p class="portal-panel-subtitle">Start a long-running background task on one writable agent. Include complete context so the agent can finish independently.</p>
+      <p class="portal-panel-subtitle">Start background work on one writable agent.</p>
     </div>
   </div>
 
   {% if agents %}
-  <form id="create-agent-async-task-form" class="portal-panel-stack">
-    <section class="portal-panel-section">
-      <label class="portal-form-label" for="agent-async-task-agent">Agent</label>
-      <select id="agent-async-task-agent" name="assignee_agent_id" class="portal-form-select" required>
-        {% for agent in agents %}
-        <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
-        {% endfor %}
-      </select>
+  <form id="create-agent-async-task-form" class="portal-task-create-form">
+    <section class="portal-task-form-panel">
+      <div class="portal-task-form-row">
+        <label class="portal-form-label" for="agent-async-task-agent">Agent</label>
+        <select id="agent-async-task-agent" name="assignee_agent_id" class="portal-form-select" required>
+          {% for agent in agents %}
+          <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="portal-task-form-row">
+        <label class="portal-form-label" for="agent-async-task-skill">Skill</label>
+        <select id="agent-async-task-skill" name="skill_name" class="portal-form-select" required disabled>
+          <option value="">Select an agent first</option>
+        </select>
+      </div>
     </section>
 
-    <section class="portal-panel-section">
-      <label class="portal-form-label" for="agent-async-task-skill">Skill</label>
-      <select id="agent-async-task-skill" name="skill_name" class="portal-form-select" required disabled>
-        <option value="">Select an agent first</option>
-      </select>
-    </section>
-
-    <section class="portal-panel-section">
+    <section class="portal-task-form-panel is-primary">
       <label class="portal-form-label" for="agent-async-task-content">Task Content</label>
       <textarea
         id="agent-async-task-content"
         name="task_content"
-        class="portal-form-textarea"
-        rows="10"
+        class="portal-form-textarea portal-task-textarea"
+        rows="12"
         required
-        placeholder="Describe the objective, constraints, files, acceptance criteria, and any context the agent needs to complete the work without pausing."
+        placeholder="Describe the objective, constraints, files, acceptance criteria, and context."
       ></textarea>
-      <div class="portal-panel-note">The agent will run in the background and should only return blocked when it truly cannot proceed.</div>
+      <div class="portal-task-form-actions">
+        <span class="portal-panel-note">Background task</span>
+        <button type="submit" class="portal-btn is-primary"><i data-lucide="play" class="w-4 h-4"></i>Start Task</button>
+      </div>
     </section>
-
-    <button type="submit" class="portal-btn is-primary">Start Task</button>
   </form>
   {% else %}
   <div class="portal-panel-empty">No writable agents are available. Create or request write access to an agent before starting a background task.</div>

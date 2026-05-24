@@ -1,68 +1,84 @@
-<div id="task-detail-panel-root" class="portal-panel-stack"
+<div id="task-detail-panel-root" class="portal-panel-stack portal-task-detail"
   {% if task_view_model.is_active %}
   hx-get="/app/tasks/{{ task.id }}/panel"
   hx-trigger="every 5s"
   hx-target="{{ content_target }}"
   hx-swap="innerHTML"
   {% endif %}>
-  <div class="portal-panel-header">
-    <div>
-      <h2 class="portal-panel-title">{{ task_view_model.display_title }}</h2>
-      <p class="portal-panel-subtitle">{{ task_view_model.display_subtitle }}</p>
+  <div class="portal-task-detail-hero">
+    <div class="portal-task-detail-title">
+      <span class="portal-status-badge is-{{ task_view_model.status_tone }}">{{ task_view_model.status_label }}</span>
+      <div>
+        <h2 class="portal-panel-title">{{ task_view_model.display_title }}</h2>
+        <p class="portal-panel-subtitle">{{ task_view_model.display_subtitle }}</p>
+      </div>
     </div>
-    <div class="portal-detail-actions">
-      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Refresh</button>
+    <div class="portal-task-actions">
+      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
+      {% if task_view_model.can_rerun %}
+      <button class="portal-btn is-secondary" type="button" data-rerun-task="{{ task.id }}"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>Rerun</button>
+      {% endif %}
       {% if task_view_model.can_cancel %}
-      <button class="portal-btn is-secondary" type="button" data-cancel-task="{{ task.id }}">Cancel Task</button>
+      <button class="portal-btn is-danger" type="button" data-cancel-task="{{ task.id }}"><i data-lucide="square" class="w-4 h-4"></i>Cancel</button>
       {% endif %}
     </div>
   </div>
 
   {% if task_view_model.is_agent_async %}
-  <section class="portal-panel-section">
-    <div class="portal-usage-grid">
-      <div class="portal-usage-card"><span class="portal-usage-k">Status</span><span class="portal-usage-v"><span class="portal-status-badge is-{{ task_view_model.status_tone }}">{{ task_view_model.status_label }}</span></span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Agent</span><span class="portal-usage-v">{{ task_view_model.assignee_agent_label }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Skill</span><span class="portal-usage-v">/{{ task_view_model.skill_name }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Duration</span><span class="portal-usage-v">{{ task_view_model.duration_label }}</span></div>
-    </div>
+  <section class="portal-task-metrics">
+    <div><span>Status</span><strong>{{ task_view_model.status_label }}</strong></div>
+    <div><span>Agent</span><strong>{{ task_view_model.assignee_agent_label }}</strong></div>
+    <div><span>Skill</span><strong>/{{ task_view_model.skill_name }}</strong></div>
+    <div><span>Duration</span><strong>{{ task_view_model.duration_label }}</strong></div>
   </section>
 
   {% if task_view_model.is_active %}
-  <div class="portal-callout is-warning">This background task is {{ task_view_model.status_label }}. The detail view will refresh automatically.</div>
+  <div class="portal-callout is-warning">This task is {{ task_view_model.status_label }}. The detail view refreshes automatically.</div>
   {% elif task_view_model.error_text %}
   <div class="portal-callout is-error">{{ task_view_model.error_text }}</div>
   {% elif task_view_model.summary_text %}
   <div class="portal-callout is-success">{{ task_view_model.summary_text }}</div>
   {% endif %}
 
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>{{ task_view_model.task_content_label }}</div>
-    <pre class="portal-panel-pre">{{ task_view_model.task_content or "No task content was stored." }}</pre>
-  </section>
+  <div class="portal-task-detail-grid">
+    <section class="portal-task-content-panel">
+      <div class="portal-task-section-heading">
+        <span>{{ task_view_model.task_content_label }}</span>
+      </div>
+      <pre class="portal-panel-pre portal-task-pre">{{ task_view_model.task_content or "No task content was stored." }}</pre>
+      {% if task_view_model.original_task %}
+      <details class="portal-collapsible portal-task-nested-detail">
+        <summary class="portal-collapsible-summary"><strong>Original Task</strong></summary>
+        <pre class="portal-panel-pre portal-task-pre">{{ task_view_model.original_task }}</pre>
+      </details>
+      {% endif %}
+    </section>
 
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Agent Response</div>
-    {% if task_view_model.final_response %}
-    <pre class="portal-panel-pre">{{ task_view_model.final_response }}</pre>
-    {% elif task_view_model.is_active %}
-    <div class="portal-inline-state">Waiting for the agent response.</div>
-    {% else %}
-    <div class="portal-inline-state">No final response was returned.</div>
-    {% endif %}
-  </section>
+    <section class="portal-task-content-panel">
+      <div class="portal-task-section-heading">
+        <span>Agent Response</span>
+      </div>
+      {% if task_view_model.final_response %}
+      <pre class="portal-panel-pre portal-task-pre">{{ task_view_model.final_response }}</pre>
+      {% elif task_view_model.is_active %}
+      <div class="portal-inline-state is-visible">Waiting for the agent response.</div>
+      {% else %}
+      <div class="portal-inline-state is-visible">No final response was returned.</div>
+      {% endif %}
+    </section>
+  </div>
 
   {% if task_view_model.blockers or task_view_model.next_recommendation %}
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Blockers</div>
+  <section class="portal-task-content-panel">
+    <div class="portal-task-section-heading"><span>Blockers</span></div>
     {% if task_view_model.blockers %}
-    <ul class="portal-panel-stack">
+    <div class="portal-panel-stack">
       {% for blocker in task_view_model.blockers %}
-      <li class="portal-inline-state is-warning">{{ blocker }}</li>
+      <div class="portal-inline-state is-warning">{{ blocker }}</div>
       {% endfor %}
-    </ul>
+    </div>
     {% else %}
-    <div class="portal-inline-state">No blockers were reported.</div>
+    <div class="portal-inline-state is-visible">No blockers were reported.</div>
     {% endif %}
     {% if task_view_model.next_recommendation %}
     <div class="portal-callout is-info">{{ task_view_model.next_recommendation }}</div>
@@ -70,18 +86,17 @@
   </section>
   {% endif %}
 
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Task Chain</div>
-    <div class="portal-panel-stack">
+  {% if task_view_model.timeline|length > 1 %}
+  <section class="portal-task-content-panel">
+    <div class="portal-task-section-heading"><span>Task Chain</span></div>
+    <div class="portal-task-timeline-list">
       {% for item in task_view_model.timeline %}
-      <div class="portal-panel-section">
-        <div class="portal-panel-header">
-          <div>
-            <div class="portal-bundle-title">{{ item.title }}</div>
-            <div class="portal-panel-note">{{ item.kind }} · {{ item.created_at }}</div>
-          </div>
-          <span class="portal-status-badge is-{{ item.status_tone }}">{{ item.status }}</span>
+      <div class="portal-task-timeline-item{% if item.is_current %} is-current{% endif %}">
+        <div>
+          <strong>{{ item.title }}</strong>
+          <span>{{ item.kind }} · {{ item.created_at }}</span>
         </div>
+        <span class="portal-status-badge is-{{ item.status_tone }}">{{ item.status }}</span>
         {% if not item.is_current %}
         {% if content_target == "#workspace-detail-content" %}
         <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ item.id }}">Open</button>
@@ -93,32 +108,37 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
 
   {% if task_view_model.show_followup_form %}
-  <form id="continue-agent-task-form" class="portal-panel-section" data-task-id="{{ task.id }}">
+  <form id="continue-agent-task-form" class="portal-task-followup" data-task-id="{{ task.id }}">
     <label class="portal-form-label" for="agent-task-followup">Follow-up</label>
     <textarea
       id="agent-task-followup"
       name="task_content"
       class="portal-form-textarea"
-      rows="6"
+      rows="5"
       required
-      placeholder="Add the next instruction with enough context for the agent to continue in the same background session."
+      placeholder="Add the next instruction for this same task session."
     ></textarea>
-    <div class="portal-panel-note">The follow-up will reuse this task chain's runtime session so the agent can continue from prior context.</div>
-    <button type="submit" class="portal-btn is-primary">Start Follow-up</button>
+    <div class="portal-task-form-actions">
+      <span class="portal-panel-note">Continues this task</span>
+      <button type="submit" class="portal-btn is-primary"><i data-lucide="message-square-plus" class="w-4 h-4"></i>Start Follow-up</button>
+    </div>
   </form>
   {% endif %}
 
-  <details class="portal-collapsible">
-    <summary class="portal-collapsible-summary"><strong>Raw Input</strong></summary>
-    <pre class="portal-panel-pre">{{ task_view_model.input_payload_pretty }}</pre>
-  </details>
+  <div class="portal-task-raw-grid">
+    <details class="portal-collapsible">
+      <summary class="portal-collapsible-summary"><strong>Raw Input</strong></summary>
+      <pre class="portal-panel-pre">{{ task_view_model.input_payload_pretty }}</pre>
+    </details>
 
-  <details class="portal-collapsible" {% if task_view_model.error_text %}open{% endif %}>
-    <summary class="portal-collapsible-summary"><strong>Raw Result</strong></summary>
-    <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
-  </details>
+    <details class="portal-collapsible" {% if task_view_model.error_text %}open{% endif %}>
+      <summary class="portal-collapsible-summary"><strong>Raw Result</strong></summary>
+      <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
+    </details>
+  </div>
   {% else %}
   {% if task_view_model.unsupported_message %}
   <div class="portal-callout is-warning">{{ task_view_model.unsupported_message }}</div>
@@ -132,22 +152,15 @@
   <div class="portal-callout is-warning">Task is {{ task_view_model.status_label }}...</div>
   {% endif %}
 
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Execution Summary</div>
-    <div class="portal-usage-grid">
-      <div class="portal-usage-card"><span class="portal-usage-k">Status</span><span class="portal-usage-v"><span class="portal-status-badge is-{{ task_view_model.status_tone }}">{{ task_view_model.status_label }}</span></span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Assignee</span><span class="portal-usage-v">{{ task_view_model.assignee_agent_id }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Created</span><span class="portal-usage-v">{{ task_view_model.created_at }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Started</span><span class="portal-usage-v">{{ task_view_model.started_at }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Finished</span><span class="portal-usage-v">{{ task_view_model.finished_at }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Duration</span><span class="portal-usage-v">{{ task_view_model.duration_label }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Source</span><span class="portal-usage-v">{{ task_view_model.source }}</span></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Trigger</span><span class="portal-usage-v">{{ task_view_model.trigger }}</span></div>
-    </div>
+  <section class="portal-task-metrics">
+    <div><span>Status</span><strong>{{ task_view_model.status_label }}</strong></div>
+    <div><span>Assignee</span><strong>{{ task_view_model.assignee_agent_id }}</strong></div>
+    <div><span>Created</span><strong>{{ task_view_model.created_at }}</strong></div>
+    <div><span>Duration</span><strong>{{ task_view_model.duration_label }}</strong></div>
   </section>
 
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title"><span class="portal-section-accent"></span>Context</div>
+  <section class="portal-task-content-panel">
+    <div class="portal-task-section-heading"><span>Context</span></div>
     <div class="portal-kv-grid">
       {% for label, value in task_view_model.context_items %}
       <div class="portal-kv-item"><span class="portal-usage-k">{{ label }}</span><span class="portal-usage-v">{{ value }}</span></div>
@@ -155,20 +168,22 @@
     </div>
   </section>
 
-  <details class="portal-collapsible">
-    <summary class="portal-collapsible-summary"><strong>Input Payload</strong></summary>
-    <pre class="portal-panel-pre">{{ task_view_model.input_payload_pretty }}</pre>
-  </details>
+  <div class="portal-task-raw-grid">
+    <details class="portal-collapsible">
+      <summary class="portal-collapsible-summary"><strong>Input Payload</strong></summary>
+      <pre class="portal-panel-pre">{{ task_view_model.input_payload_pretty }}</pre>
+    </details>
 
-  <details class="portal-collapsible" {% if task_view_model.error_text %}open{% endif %}>
-    <summary class="portal-collapsible-summary"><strong>Result Payload</strong></summary>
-    <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
-  </details>
+    <details class="portal-collapsible" {% if task_view_model.error_text %}open{% endif %}>
+      <summary class="portal-collapsible-summary"><strong>Result Payload</strong></summary>
+      <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
+    </details>
+  </div>
   {% endif %}
 
   {% if content_target == "#workspace-detail-content" %}
-  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1">Back to My Tasks</button>
+  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to My Tasks</button>
   {% else %}
-  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Back to My Tasks</button>
+  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to My Tasks</button>
   {% endif %}
 </div>
