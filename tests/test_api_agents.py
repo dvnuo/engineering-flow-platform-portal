@@ -118,12 +118,12 @@ class TestAgentStatus:
         assert status in ["creating", "running", "stopped", "failed", "stopping"]
 
 
-def test_validate_profile_references_rejects_other_owner():
+def test_validate_runtime_profile_reference_rejects_other_owner():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.pool import StaticPool
 
-    from app.api.agents import _validate_profile_references
+    from app.api.agents import _validate_runtime_profile_reference
     from app.db import Base
     from app.models import RuntimeProfile, User
 
@@ -138,16 +138,16 @@ def test_validate_profile_references_rejects_other_owner():
     db.add(rp); db.commit()
 
     with pytest.raises(HTTPException) as exc:
-        _validate_profile_references(db, None, None, rp.id, current_user_id=owner.id)
+        _validate_runtime_profile_reference(db, rp.id, current_user_id=owner.id)
     assert exc.value.status_code == 404
 
 
-def test_validate_profile_references_accepts_owner():
+def test_validate_runtime_profile_reference_accepts_owner():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.pool import StaticPool
 
-    from app.api.agents import _validate_profile_references
+    from app.api.agents import _validate_runtime_profile_reference
     from app.db import Base
     from app.models import RuntimeProfile, User
 
@@ -160,4 +160,4 @@ def test_validate_profile_references_accepts_owner():
     rp = RuntimeProfile(owner_user_id=owner.id, name="rp2", config_json="{}", is_default=True, revision=1)
     db.add(rp); db.commit()
 
-    _validate_profile_references(db, None, None, rp.id, current_user_id=owner.id)
+    _validate_runtime_profile_reference(db, rp.id, current_user_id=owner.id)

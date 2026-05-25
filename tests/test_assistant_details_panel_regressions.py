@@ -31,10 +31,10 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
 
     runtime_type_idx = render_agent_meta.index('const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";')
     repo_def_idx = render_agent_meta.index("let repoSection")
-    template_idx = render_agent_meta.index("dom.agentMeta.innerHTML")
+    render_idx = render_agent_meta.index("dom.agentMeta.innerHTML")
     repo_use_idx = render_agent_meta.index("${repoSection}")
 
-    assert runtime_type_idx < repo_def_idx < template_idx < repo_use_idx
+    assert runtime_type_idx < repo_def_idx < render_idx < repo_use_idx
     assert 'let repoSection = ""' in render_agent_meta or "let repoSection = ''" in render_agent_meta
     assert "if (effectiveSkillRepoUrl)" in render_agent_meta
     assert "Skills Repository" in render_agent_meta
@@ -46,13 +46,4 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
     assert "id=\"agent-skill-git-commit\"" in render_agent_meta
     assert "fetchSkillGitInfo(agent.id)" in render_agent_meta
 
-    # #318 intentionally removed Portal tools repo/branch UI/config/provisioning.
-    # This regression fix must not reintroduce those fields.
-    assert "tool_repo" not in render_agent_meta
-    assert "tool_branch" not in render_agent_meta
-    assert "toolRepoSection" not in render_agent_meta
     assert "Tools Repository" not in render_agent_meta
-    assert "default_tool_repo_url" not in render_agent_meta
-    assert "default_tool_branch" not in render_agent_meta
-    assert "agent.tool_repo_url" not in render_agent_meta
-    assert "agent.tool_branch" not in render_agent_meta

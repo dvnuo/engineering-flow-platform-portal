@@ -4,7 +4,6 @@ from app.services.runtime_profile_config_policy import canonicalize_portal_runti
 def test_canonicalize_none_and_empty():
     expected = {
         "llm": {"tools": ["*"]},
-        "capability_profile": {"skill_set": ["*"]},
     }
 
     assert canonicalize_portal_runtime_profile_config(None) == expected
@@ -21,12 +20,6 @@ def test_canonicalize_strips_hidden_llm_fields_and_preserves_other_llm_fields():
             "response_flow": {"plan_policy": "always"},
             "tool_loop": {"one_tool_per_turn": True},
         },
-        "capability_profile": {
-            "skill_set": ["old-skill"],
-            "allowed_external_systems": ["jira"],
-            "tool_set": ["*"],
-            "denied_skills": ["dangerous-skill"],
-        },
         "jira": {"enabled": True},
     }
     result = canonicalize_portal_runtime_profile_config(raw)
@@ -36,10 +29,6 @@ def test_canonicalize_strips_hidden_llm_fields_and_preserves_other_llm_fields():
     assert result["llm"]["tools"] == ["*"]
     assert "temperature" not in result["llm"]
     assert "response_flow" not in result["llm"]
-    assert result["capability_profile"]["skill_set"] == ["*"]
-    assert result["capability_profile"]["allowed_external_systems"] == ["jira"]
-    assert result["capability_profile"]["tool_set"] == ["*"]
-    assert result["capability_profile"]["denied_skills"] == ["dangerous-skill"]
     assert result["jira"] == {"enabled": True}
 
 
@@ -49,17 +38,11 @@ def test_canonicalize_does_not_mutate_input():
             "tools": [],
             "temperature": 0.1,
         },
-        "capability_profile": {
-            "skill_set": ["old-skill"],
-        },
     }
 
     result = canonicalize_portal_runtime_profile_config(raw)
 
     assert raw["llm"]["tools"] == []
     assert raw["llm"]["temperature"] == 0.1
-    assert raw["capability_profile"]["skill_set"] == ["old-skill"]
-
     assert result["llm"]["tools"] == ["*"]
     assert "temperature" not in result["llm"]
-    assert result["capability_profile"]["skill_set"] == ["*"]

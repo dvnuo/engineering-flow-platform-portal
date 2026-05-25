@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, CapabilityProfile, PolicyProfile, User
+from app.models import Agent, User
 from app.models.runtime_profile import RuntimeProfile
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 
@@ -170,7 +170,6 @@ def test_build_apply_payload_from_profile_keeps_shape_and_uses_raw_profile_confi
         assert payload["revision"] == rp.revision
         assert payload["config"] == {
             "llm": {"provider": "openai", "tools": ["*"]},
-            "capability_profile": {"skill_set": ["*"]},
         }
     finally:
         db.close()
@@ -210,7 +209,6 @@ def test_build_apply_payload_from_sparse_legacy_profile_does_not_backfill_creati
         assert set(payload.keys()) == {"runtime_profile_id", "revision", "config"}
         assert payload["config"] == {
             "llm": {"tools": ["*"]},
-            "capability_profile": {"skill_set": ["*"]},
         }
     finally:
         db.close()
@@ -245,33 +243,6 @@ def test_build_apply_payload_from_profile_includes_response_flow_when_present():
         payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
         assert "response_flow" not in payload["config"]["llm"]
         assert payload["config"]["llm"]["tools"] == ["*"]
-    finally:
-        db.close()
-
-
-def test_build_apply_payload_for_agent_adds_skill_aliases_and_filters_broad_types():
-    db, rp, running, _stopped = _build_db()
-    try:
-        capability = CapabilityProfile(name="cp1", skill_set_json='["review-pull-request"]')
-        policy = PolicyProfile(name="pp1", permission_rules_json='{"denied_capability_types":["tool"]}')
-        db.add_all([capability, policy])
-        db.commit()
-        db.refresh(capability)
-        db.refresh(policy)
-        running.capability_profile_id = capability.id
-        running.policy_profile_id = policy.id
-        db.add(running)
-        db.commit()
-        db.refresh(running)
-
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-        original_config = rp.config_json
-        payload = service.build_apply_payload_for_agent(db, running, rp)
-        assert rp.config_json == original_config
-        assert "skill:review-pull-request" in payload["config"]["allowed_capability_ids"]
-        assert "opencode.skill.review-pull-request" in payload["config"]["allowed_capability_ids"]
-        assert "skill" not in payload["config"]["allowed_capability_types"]
-        assert "review-pull-request" in payload["config"]["capability_context"]["skill_set"]
     finally:
         db.close()
 
@@ -319,7 +290,7 @@ def test_sync_profile_to_bound_agents_builds_payload_per_running_agent(monkeypat
         db.close()
 
 
-def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists_while_merging_context():
+def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists():
     db, rp, running, _stopped = _build_db()
     try:
         rp.config_json = (
@@ -329,24 +300,11 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists_whil
             '"allowed_external_systems":["github"],'
             '"allowed_actions":["runtime.action"],'
             '"allowed_adapter_actions":["runtime.adapter"],'
-            '"derived_runtime_rules":{"from_runtime_profile":true}}'
+            '"resolved_action_mappings":{"runtime.action":"runtime.adapter"}}'
         )
-        capability = CapabilityProfile(
-            name="cp-merge",
-            skill_set_json='["review-pull-request"]',
-            allowed_external_systems_json='["jira"]',
-            allowed_actions_json='["jira.transition"]',
-        )
-        policy = PolicyProfile(
-            name="pp-merge",
-            auto_run_rules_json='{"require_explicit_allow": true}',
-            permission_rules_json="{}",
-        )
-        db.add_all([capability, policy, rp])
+        db.add(rp)
         db.commit()
         db.refresh(rp)
-        running.capability_profile_id = capability.id
-        running.policy_profile_id = policy.id
         db.add(running)
         db.commit()
         db.refresh(running)
@@ -358,19 +316,41 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists_whil
         assert rp.config_json == original_config
         assert "tool:runtime-only" in cfg["allowed_capability_ids"]
         assert "opencode.skill.existing-skill" in cfg["allowed_capability_ids"]
-        assert "skill:review-pull-request" in cfg["allowed_capability_ids"]
-        assert "opencode.skill.review-pull-request" in cfg["allowed_capability_ids"]
         assert "adapter_action" in cfg["allowed_capability_types"]
-        assert "skill" not in cfg["allowed_capability_types"]
-        assert "tool" not in cfg["allowed_capability_types"]
+        assert "skill" in cfg["allowed_capability_types"]
+        assert "tool" in cfg["allowed_capability_types"]
         assert "github" in cfg["allowed_external_systems"]
-        assert "jira" in cfg["allowed_external_systems"]
         assert "runtime.action" in cfg["allowed_actions"]
         assert "runtime.adapter" in cfg["allowed_adapter_actions"]
-        assert cfg["derived_runtime_rules"]["from_runtime_profile"] is True
-        assert cfg["derived_runtime_rules"]["governance_require_explicit_allow"] is True
-        assert "review-pull-request" in cfg["capability_context"]["skill_set"]
-        assert isinstance(cfg["policy_context"], dict)
+        assert cfg["resolved_action_mappings"]["runtime.action"] == "runtime.adapter"
+    finally:
+        db.close()
+
+
+def test_build_apply_payload_for_agent_grants_github_review_from_runtime_profile():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = (
+            '{"llm":{"provider":"openai"},'
+            '"github":{"enabled":true,"api_token":"secret","base_url":"https://api.github.com"}}'
+        )
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+        db.add(running)
+        db.commit()
+        db.refresh(running)
+
+        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        payload = service.build_apply_payload_for_agent(db, running, rp)
+        cfg = payload["config"]
+
+        assert "github" in cfg["allowed_external_systems"]
+        assert "review_pull_request" in cfg["allowed_actions"]
+        assert "adapter:github:review_pull_request" in cfg["allowed_adapter_actions"]
+        assert "adapter:github:review_pull_request" in cfg["allowed_capability_ids"]
+        assert "adapter_action" in cfg["allowed_capability_types"]
+        assert cfg["resolved_action_mappings"]["review_pull_request"] == "adapter:github:review_pull_request"
     finally:
         db.close()
 

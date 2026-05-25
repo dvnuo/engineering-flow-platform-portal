@@ -21,17 +21,13 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("session_id", sa.String(length=255), nullable=False),
         sa.Column("agent_id", sa.String(length=36), nullable=False),
-        sa.Column("group_id", sa.String(length=36), nullable=True),
         sa.Column("current_task_id", sa.String(length=36), nullable=True),
-        sa.Column("current_delegation_id", sa.String(length=36), nullable=True),
-        sa.Column("current_coordination_run_id", sa.String(length=255), nullable=True),
         sa.Column("source_type", sa.String(length=64), nullable=True),
         sa.Column("source_ref", sa.String(length=255), nullable=True),
         sa.Column("last_execution_id", sa.String(length=255), nullable=True),
         sa.Column("latest_event_type", sa.String(length=128), nullable=True),
         sa.Column("latest_event_state", sa.String(length=64), nullable=True),
         sa.Column("snapshot_version", sa.String(length=64), nullable=True),
-        sa.Column("pending_delegations_json", sa.Text(), nullable=True),
         sa.Column("runtime_events_json", sa.Text(), nullable=True),
         sa.Column("metadata_json", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
@@ -47,4 +43,3 @@ def downgrade() -> None:
     op.drop_index("ix_agent_session_metadata_agent_id", table_name="agent_session_metadata")
     op.drop_index("ix_agent_session_metadata_session_id", table_name="agent_session_metadata")
     op.drop_table("agent_session_metadata")
-

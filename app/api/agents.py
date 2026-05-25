@@ -9,8 +9,6 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.agent_repo import AgentRepository
-from app.repositories.capability_profile_repo import CapabilityProfileRepository
-from app.repositories.policy_profile_repo import PolicyProfileRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.agent import (
     ALLOWED_AGENT_TYPES,
@@ -122,23 +120,11 @@ def _delete_agent_with_mode(repo: AgentRepository, agent, user, db: Session, des
     return {"ok": True, "destroy_data": destroy_data}
 
 
-def _validate_profile_references(
+def _validate_runtime_profile_reference(
     db: Session,
-    capability_profile_id: str | None,
-    policy_profile_id: str | None,
     runtime_profile_id: str | None,
     current_user_id: int | None = None,
 ) -> None:
-    if capability_profile_id is not None:
-        capability_profile = CapabilityProfileRepository(db).get_by_id(capability_profile_id)
-        if not capability_profile:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CapabilityProfile not found")
-
-    if policy_profile_id is not None:
-        policy_profile = PolicyProfileRepository(db).get_by_id(policy_profile_id)
-        if not policy_profile:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PolicyProfile not found")
-
     if runtime_profile_id is not None:
         runtime_profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
         if not runtime_profile or (current_user_id is not None and runtime_profile.owner_user_id != current_user_id):
@@ -320,7 +306,7 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @router.post("", response_model=AgentResponse)
 async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _validate_profile_references(db, payload.capability_profile_id, payload.policy_profile_id, payload.runtime_profile_id, current_user_id=user.id)
+    _validate_runtime_profile_reference(db, payload.runtime_profile_id, current_user_id=user.id)
     _validate_agent_type_or_422(payload.agent_type)
     runtime_profile_id = payload.runtime_profile_id
     if runtime_profile_id is None:
@@ -350,8 +336,6 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         cpu=payload.cpu,
         memory=payload.memory,
         agent_type=payload.agent_type,
-        capability_profile_id=payload.capability_profile_id,
-        policy_profile_id=payload.policy_profile_id,
         runtime_profile_id=runtime_profile_id,
         disk_size_gi=payload.disk_size_gi,
         mount_path=effective_mount_path,
@@ -398,13 +382,6 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     changes = payload.model_dump(exclude_unset=True)
     changes.pop("repo_url", None)
     changes.pop("branch", None)
-    changes.pop("tool_repo_url", None)
-    changes.pop("tool_branch", None)
-
-    if "capability_profile_id" in changes and changes["capability_profile_id"] is not None:
-        _validate_profile_references(db, changes["capability_profile_id"], None, None)
-    if "policy_profile_id" in changes and changes["policy_profile_id"] is not None:
-        _validate_profile_references(db, None, changes["policy_profile_id"], None)
 
     if "runtime_profile_id" in changes:
         if changes["runtime_profile_id"] is None:
@@ -412,7 +389,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="runtime_profile_id cannot be null; choose one of the user's runtime profiles.",
             )
-        _validate_profile_references(db, None, None, changes["runtime_profile_id"], current_user_id=user.id)
+        _validate_runtime_profile_reference(db, changes["runtime_profile_id"], current_user_id=user.id)
 
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")

@@ -84,7 +84,7 @@ def _bind_profile(db, agent, config=None):
     return rp
 
 
-def test_settings_panel_removes_subscriptions_ui(monkeypatch):
+def test_settings_panel_removes_retired_external_surfaces_ui(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         _bind_profile(db, agent)
@@ -92,7 +92,7 @@ def test_settings_panel_removes_subscriptions_ui(monkeypatch):
         assert resp.status_code == 200
         assert "External Event Subscriptions" not in resp.text
         assert "settings-subscriptions-panel-container" not in resp.text
-        assert "External Identities" in resp.text
+        assert "External Identities" not in resp.text
     finally:
         cleanup()
 
@@ -369,37 +369,12 @@ def test_settings_save_touched_git_blank_name_and_email_clears_git_user(monkeypa
         cleanup()
 
 
-def test_bindings_can_be_configured_without_runtime_profile(monkeypatch):
-    client, _db, agent, cleanup = _build_client(monkeypatch)
-    try:
-        resp = client.post(
-            f"/app/agents/{agent.id}/external-identities/create",
-            data={"system_type": "github", "external_account_id": "acct-1", "enabled": "on"},
-        )
-        assert resp.status_code == 200
-        assert "External identity added" in resp.text
-    finally:
-        cleanup()
-
-
-def test_settings_panel_runtime_profile_missing_message_mentions_external_identities(monkeypatch):
+def test_settings_panel_runtime_profile_missing_message(monkeypatch):
     client, _db, agent, cleanup = _build_client(monkeypatch)
     try:
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         assert "This agent has no runtime profile." in resp.text
-        assert "External identities can still be configured below." in resp.text
-        assert "External Identities" in resp.text
-    finally:
-        cleanup()
-
-
-def test_bindings_panel_available_without_runtime_profile(monkeypatch):
-    client, _db, agent, cleanup = _build_client(monkeypatch)
-    try:
-        resp = client.get(f"/app/agents/{agent.id}/external-identities/panel")
-        assert resp.status_code == 200
-        assert "Add External Identity" in resp.text
         assert "Assign one from Edit Assistant first." not in resp.text
     finally:
         cleanup()

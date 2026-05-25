@@ -24,8 +24,6 @@ class AgentCreateRequest(BaseModel):
     memory: Optional[str] = None
     description: Optional[str] = None
     agent_type: str = "workspace"
-    capability_profile_id: Optional[str] = None
-    policy_profile_id: Optional[str] = None
     runtime_profile_id: Optional[str] = None
 
     @field_validator("agent_type")
@@ -60,8 +58,6 @@ class AgentUpdateRequest(BaseModel):
     memory: Optional[str] = None
     description: Optional[str] = None
     agent_type: Optional[str] = None
-    capability_profile_id: Optional[str] = None
-    policy_profile_id: Optional[str] = None
     runtime_profile_id: Optional[str] = None
 
     @field_validator("agent_type")
@@ -123,8 +119,6 @@ class AgentResponse(BaseModel):
     cpu: Optional[str] = None
     memory: Optional[str] = None
     agent_type: str
-    capability_profile_id: Optional[str] = None
-    policy_profile_id: Optional[str] = None
     runtime_profile_id: Optional[str] = None
     disk_size_gi: int
     description: Optional[str] = None

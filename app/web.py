@@ -3,7 +3,7 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 import logging
 from datetime import datetime
-from urllib.parse import urlencode, quote
+from urllib.parse import quote
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Query
@@ -13,10 +13,9 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.db import SessionLocal
 from app.repositories.agent_repo import AgentRepository
-from app.repositories.agent_group_repo import AgentGroupRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.repositories.agent_identity_binding_repo import AgentIdentityBindingRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
+from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
@@ -27,27 +26,23 @@ from app.schemas.runtime_profile import (
     sanitize_runtime_profile_config_dict,
     runtime_profile_model_supports_temperature,
 )
-from app.services.bundle_template_registry import list_bundle_templates, require_bundle_template
-from app.services.capability_context_service import CapabilityContextService
-from app.services.task_template_registry import list_task_templates, get_task_template
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
     RequirementBundleGithubServiceError,
 )
 from app.services.auth_service import parse_session_token
-from app.services.proxy_service import ProxyService, build_portal_agent_identity_headers, build_runtime_trace_headers
+from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
-from app.services.task_dispatcher import TaskDispatcherService
-from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
+from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider_from_settings, RuntimeCapabilityCatalogProvider
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.thinking_process_view import build_thinking_process_view
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
-from app.log_context import bind_log_context, get_log_context, reset_log_context
+from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 
 router = APIRouter(tags=["web"])
@@ -64,7 +59,6 @@ templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
-task_dispatcher_service = TaskDispatcherService()
 requirement_bundle_service = RequirementBundleGithubService()
 runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
 runtime_profile_sync_queue_service = RuntimeProfileSyncQueueService(runtime_profile_sync_service=runtime_profile_sync_service)
@@ -98,34 +92,99 @@ def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
 
 
+def _session_id_is_task_session(session_id) -> bool:
+    if not isinstance(session_id, str):
+        return False
+    return session_id.strip().startswith("agent-task:")
+
+
+def _metadata_value_is_present(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _parse_metadata_json_object(metadata_json) -> dict:
+    if isinstance(metadata_json, dict):
+        return metadata_json
+    if isinstance(metadata_json, bytes):
+        try:
+            metadata_json = metadata_json.decode("utf-8")
+        except UnicodeDecodeError:
+            return {}
+    if not metadata_json:
+        return {}
+    try:
+        parsed = json.loads(metadata_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _metadata_object_is_task_session(metadata: dict) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return (
+        _metadata_value_is_present(metadata.get("current_task_id"))
+        or "portal_task_id" in metadata
+        or "portal_task_session_id" in metadata
+    )
+
+
+def _metadata_record_is_task_session(record) -> bool:
+    if not record:
+        return False
+    if _session_id_is_task_session(getattr(record, "session_id", None)):
+        return True
+    if _metadata_value_is_present(getattr(record, "current_task_id", None)):
+        return True
+    metadata = _parse_metadata_json_object(getattr(record, "metadata_json", None))
+    return _metadata_object_is_task_session(metadata)
+
+
+def _runtime_session_is_task_session(session: dict, metadata_record=None) -> bool:
+    if not isinstance(session, dict):
+        return False
+    if _session_id_is_task_session(session.get("session_id")):
+        return True
+    if _metadata_value_is_present(session.get("current_task_id")):
+        return True
+    for metadata_field in ("metadata", "metadata_json"):
+        if _metadata_object_is_task_session(_parse_metadata_json_object(session.get(metadata_field))):
+            return True
+    return _metadata_record_is_task_session(metadata_record)
+
+
+def _filter_agent_visible_sessions(runtime_sessions: list[dict], metadata_records: list) -> tuple[list[dict], list]:
+    metadata_by_session_id = {
+        getattr(record, "session_id", None): record
+        for record in metadata_records
+        if getattr(record, "session_id", None)
+    }
+    visible_runtime_sessions = [
+        session
+        for session in runtime_sessions
+        if not _runtime_session_is_task_session(
+            session,
+            metadata_by_session_id.get(session.get("session_id") if isinstance(session, dict) else None),
+        )
+    ]
+    visible_metadata_records = [record for record in metadata_records if not _metadata_record_is_task_session(record)]
+    return visible_runtime_sessions, visible_metadata_records
+
+
 def _portal_extra_headers(user, agent) -> dict[str, str]:
     return {
         **build_runtime_trace_headers(get_log_context()),
-        **build_portal_agent_identity_headers(user, agent),
+        **build_portal_agent_headers(user, agent),
     }
 
 
 def _list_writable_agents(db, user) -> list:
     agents = AgentRepository(db).list_all()
     return [agent for agent in agents if _can_write(agent, user)]
-
-
-def _parse_multivalue_text_field(raw: str) -> list[str]:
-    values: list[str] = []
-    seen: set[str] = set()
-    normalized = (raw or "").replace(",", "\n")
-    for item in normalized.splitlines():
-        cleaned = item.strip()
-        if not cleaned or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        values.append(cleaned)
-    return values
-
-
-def _has_supported_collect_sources(sources: dict) -> bool:
-    supported_source_keys = ("jira", "confluence", "github_docs")
-    return any(sources.get(source_key) for source_key in supported_source_keys)
 
 
 def _status_tone_from_value(value: str | None) -> str:
@@ -288,21 +347,6 @@ def _normalize_runtime_error_detail(content: bytes) -> str:
     return f"Runtime error: {' '.join(parts)}"
 
 
-def _build_settings_panel_context(*, request: Request, agent_id: str, base_context: dict, db, triggered_work_state: dict | None = None) -> dict:
-    bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-    triggered_state = triggered_work_state or {}
-    context = {
-        **base_context,
-        "request": request,
-        "agent_id": agent_id,
-        "identity_bindings": bindings,
-        "triggered_work_error": triggered_state.get("error", ""),
-        "triggered_work_success": triggered_state.get("success", ""),
-        "binding_form": triggered_state.get("binding_form", {}),
-    }
-    return context
-
-
 def _short_sha(value: str | None) -> str:
     cleaned = (value or "").strip()
     return cleaned[:7] if cleaned else "-"
@@ -322,37 +366,28 @@ def _format_duration_label(started_at, finished_at) -> str:
     return f"{seconds}s"
 
 
-def _bundle_action_output_artifact_key(task_template_id: str) -> str | None:
-    template = get_task_template(task_template_id)
-    if not template or not template.output_artifacts:
-        return None
-    return template.output_artifacts[0]
-
-
 def _humanize_artifact_label(value: str | None) -> str:
     cleaned = (value or "").strip()
     return cleaned.replace("_", " ").title() if cleaned else "Artifact"
 
 
-def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, form_state=None) -> dict:
-    _ = agents
+def _build_bundle_detail_view_model(bundle_detail) -> dict:
     manifest = bundle_detail.manifest if isinstance(bundle_detail.manifest, dict) else {}
     scope = manifest.get("scope") if isinstance(manifest.get("scope"), dict) else {}
     bundle_path = (bundle_detail.bundle_ref.path or "").strip()
     fallback_title = bundle_path.split("/")[-1] if bundle_path else "Bundle"
-    bundle_id = manifest.get("bundle_id") or fallback_title or "-"
-    title = manifest.get("title") or bundle_id or fallback_title or "Bundle"
+    title = manifest.get("title") or fallback_title or "Bundle"
+    bundle_ref_label = title or fallback_title or "-"
     status_label = manifest.get("status") or "unknown"
-    template_id = bundle_detail.template_id
+    bundle_label = getattr(bundle_detail, "bundle_label", None) or "Requirement Bundle"
+    subtitle = " · ".join(part for part in (bundle_path or "-", bundle_label, status_label) if part)
     repo = bundle_detail.bundle_ref.repo or "-"
     branch = bundle_detail.bundle_ref.branch or "-"
     github_url = f"https://github.com/{repo}/tree/{branch}/{bundle_detail.bundle_ref.path}"
 
     artifacts = []
-    artifact_exists_map: dict[str, bool] = {}
     for artifact in (bundle_detail.artifacts or []):
         exists = bool(artifact.exists)
-        artifact_exists_map[artifact.artifact_key] = exists
         artifacts.append(
             {
                 "artifact_key": artifact.artifact_key,
@@ -367,67 +402,14 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, 
             }
         )
 
-    form_state = form_state or {}
-    template = next((item for item in bundle_templates if item.template_id == template_id), None)
-    actions = []
-    if template:
-        for task_template_id in template.compatible_task_template_ids:
-            task_template = get_task_template(task_template_id)
-            if not task_template:
-                continue
-            output_artifact = _bundle_action_output_artifact_key(task_template_id)
-            is_complete = bool(output_artifact and artifact_exists_map.get(output_artifact))
-            missing_required = []
-            is_blocked = False
-            if task_template_id == "design_test_cases_from_bundle" and not artifact_exists_map.get("requirements"):
-                missing_required = ["requirements"]
-                is_blocked = True
-            actions.append(
-                {
-                    "task_template_id": task_template_id,
-                    "label": task_template.label,
-                    "description": task_template.description,
-                    "requires_sources": bool(task_template.requires_sources),
-                    "required_artifacts": missing_required,
-                    "missing_required": missing_required,
-                    "is_blocked": is_blocked,
-                    "is_complete": is_complete,
-                    "is_recommended": False,
-                    "status_label": "Completed" if is_complete else ("Blocked" if is_blocked else "Ready"),
-                    "status_tone": "success" if is_complete else ("error" if is_blocked else "info"),
-                    "status_reason": f"Required artifacts missing: {', '.join(missing_required)}" if is_blocked else "",
-                    "expanded": False,
-                    "selected_agent_id": form_state.get("action_agent_id") or "",
-                    "jira_sources": form_state.get("jira_sources") or "",
-                    "confluence_sources": form_state.get("confluence_sources") or "",
-                    "github_doc_sources": form_state.get("github_doc_sources") or "",
-                    "figma_sources": form_state.get("figma_sources") or "",
-                }
-            )
-
-    recommended_action_id = None
-    for action in actions:
-        if not action["is_complete"] and not action["is_blocked"]:
-            recommended_action_id = action["task_template_id"]
-            break
-    expanded_action_id = form_state.get("task_template_id") or ""
-
-    for action in actions:
-        action["is_recommended"] = action["task_template_id"] == recommended_action_id
-        action["expanded"] = action["is_recommended"] or action["task_template_id"] == expanded_action_id
-
-    recommended_action = next((item for item in actions if item["is_recommended"]), None)
-    other_actions = [item for item in actions if not item["is_recommended"]]
-
     return {
         "title": title,
-        "subtitle": f"{bundle_id} · {bundle_path or '-'}",
-        "bundle_id": bundle_id,
+        "subtitle": subtitle,
+        "bundle_ref_label": bundle_ref_label,
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "domain": scope.get("domain") or "-",
-        "template_label": bundle_detail.template_label,
-        "template_id": template_id,
+        "bundle_label": bundle_label,
         "repo": repo,
         "branch": branch,
         "path": bundle_path or "-",
@@ -437,88 +419,220 @@ def _build_bundle_detail_view_model(bundle_detail, bundle_templates, agents, *, 
         "artifact_ready_count": sum(1 for item in artifacts if item["exists"]),
         "artifact_total_count": len(artifacts),
         "artifacts": artifacts,
-        "actions": actions,
-        "recommended_action": recommended_action,
-        "other_actions": other_actions,
     }
 
 
-def _build_task_detail_view_model(task) -> dict:
+def _extract_text_field(payload: dict | None, keys: tuple[str, ...]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _extract_async_result_payload(result_payload: dict | list | None) -> dict:
+    if not isinstance(result_payload, dict):
+        return {}
+    output_payload = result_payload.get("output_payload")
+    if isinstance(output_payload, dict):
+        merged = dict(output_payload)
+        for key, value in result_payload.items():
+            if key not in merged:
+                merged[key] = value
+        return merged
+    return result_payload
+
+
+def _stringify_blocker(item) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        for key in ("message", "summary", "reason", "detail"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return json.dumps(item, ensure_ascii=False)
+    return str(item).strip() if item is not None else ""
+
+
+def _normalize_blockers(value) -> list[str]:
+    if isinstance(value, list):
+        return [text for text in (_stringify_blocker(item) for item in value) if text]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if isinstance(value, dict):
+        text = _stringify_blocker(value)
+        return [text] if text else []
+    return []
+
+
+def _task_content_from_input(input_obj: dict) -> tuple[str, str]:
+    if isinstance(input_obj.get("followup_task"), str) and input_obj.get("followup_task").strip():
+        return input_obj.get("followup_task").strip(), "Latest Follow-up"
+    if isinstance(input_obj.get("user_task"), str) and input_obj.get("user_task").strip():
+        return input_obj.get("user_task").strip(), "Original Task"
+    return "", "Task"
+
+
+def _fallback_title_from_content(content: str) -> str:
+    first_line = next((line.strip() for line in (content or "").splitlines() if line.strip()), "")
+    title = " ".join((first_line or content or "Agent background task").split())
+    if len(title) > 96:
+        return title[:93].rstrip() + "..."
+    return title
+
+
+def _agent_label_for_task(db, task) -> str:
+    agent_id = getattr(task, "assignee_agent_id", None) or "-"
+    if not db or agent_id == "-":
+        return agent_id
+    try:
+        agent = AgentRepository(db).get_by_id(agent_id)
+    except Exception:
+        agent = None
+    if not agent:
+        return agent_id
+    agent_name = (getattr(agent, "name", None) or "").strip()
+    return f"{agent_name} ({agent_id})" if agent_name else agent_id
+
+
+def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
+    return _build_agent_async_task_detail_view_model_for_user(task, db=db, user=None)
+
+
+def _can_manage_task_for_user(db, task, user) -> bool:
+    if user is None:
+        return True
+    if getattr(user, "role", None) == "admin":
+        return True
+    user_id = getattr(user, "id", None)
+    if getattr(task, "owner_user_id", None) == user_id or getattr(task, "created_by_user_id", None) == user_id:
+        return True
+    agent = AgentRepository(db).get_by_id(getattr(task, "assignee_agent_id", None))
+    return bool(agent and _can_write(agent, user))
+
+
+def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None) -> dict:
+    repo = AgentTaskRepository(db) if db else None
+    root_task_id = (getattr(task, "root_task_id", None) or getattr(task, "id", "") or "").strip()
+    chain = []
+    if repo and root_task_id:
+        try:
+            chain = repo.list_by_root_task_id(root_task_id)
+        except Exception:
+            chain = []
+    if not chain:
+        chain = [task]
+    if all(getattr(item, "id", None) != getattr(task, "id", None) for item in chain):
+        chain.append(task)
+        chain.sort(key=lambda item: (getattr(item, "created_at", None) or datetime.min, getattr(item, "id", "")))
+
     input_payload = _safe_json_object(getattr(task, "input_payload_json", None))
     input_obj = input_payload if isinstance(input_payload, dict) else {}
-    bundle_ref = input_obj.get("bundle_ref") if isinstance(input_obj.get("bundle_ref"), dict) else {}
-    manifest_ref = input_obj.get("manifest_ref") if isinstance(input_obj.get("manifest_ref"), dict) else {}
-    sources = input_obj.get("sources") if isinstance(input_obj.get("sources"), dict) else {}
-    template_id = getattr(task, "template_id", None) or (input_obj.get("template_id") if isinstance(input_obj.get("template_id"), str) else "")
-    legacy_action_id = input_obj.get("action_id") if isinstance(input_obj.get("action_id"), str) else ""
-
-    action_label = ""
-    template_label = template_id or "-"
-    if template_id:
-        task_template = get_task_template(template_id)
-        if task_template is not None:
-            action_label = task_template.label
-        else:
-            try:
-                bundle_template = require_bundle_template(template_id)
-                template_label = bundle_template.display_name or template_id
-            except ValueError:
-                pass
-    if not action_label and legacy_action_id:
-        action_label = legacy_action_id.replace("_", " ").title()
-
-    bundle_path = str(bundle_ref.get("path") or manifest_ref.get("path") or "").strip()
+    result_payload = _safe_json_object(getattr(task, "result_payload_json", None))
+    result_obj = _extract_async_result_payload(result_payload)
+    task_content, task_content_label = _task_content_from_input(input_obj)
+    original_task = ""
+    if task_content_label == "Latest Follow-up":
+        original_task = _extract_text_field(input_obj, ("original_task", "user_task"))
+    skill_name = (getattr(task, "skill_name", None) or input_obj.get("skill_name") or "").strip().lstrip("/")
+    final_response = _extract_text_field(result_obj, ("final_response", "response", "summary", "raw_text", "message"))
+    blockers = _normalize_blockers(result_obj.get("blockers"))
+    next_recommendation = _extract_text_field(result_obj, ("next_recommendation", "recommendation", "next_step"))
     status_label = getattr(task, "status", None) or "unknown"
-    is_active = status_label in {"queued", "running"}
-    source_counts = {
-        "jira": len(sources.get("jira") or []),
-        "confluence": len(sources.get("confluence") or []),
-        "github_docs": len(sources.get("github_docs") or []),
-        "figma": len(sources.get("figma") or []),
+    chain_has_active = any((getattr(item, "status", "") or "").strip().lower() in {"queued", "running"} for item in chain)
+    can_manage_task = _can_manage_task_for_user(db, task, user) if db else user is None
+
+    timeline = []
+    for item in chain:
+        item_input_payload = _safe_json_object(getattr(item, "input_payload_json", None))
+        item_input_obj = item_input_payload if isinstance(item_input_payload, dict) else {}
+        item_content, item_kind = _task_content_from_input(item_input_obj)
+        timeline.append(
+            {
+                "id": getattr(item, "id", ""),
+                "title": getattr(item, "title", None) or _fallback_title_from_content(item_content),
+                "status": getattr(item, "status", None) or "unknown",
+                "status_tone": _status_tone_from_value(getattr(item, "status", None)),
+                "created_at": getattr(item, "created_at", None) or "-",
+                "kind": item_kind,
+                "is_current": getattr(item, "id", None) == getattr(task, "id", None),
+            }
+        )
+
+    return {
+        "is_agent_async": True,
+        "display_title": getattr(task, "title", None) or _fallback_title_from_content(task_content),
+        "display_subtitle": "Agent background task",
+        "status_label": status_label,
+        "status_tone": _status_tone_from_value(status_label),
+        "is_active": status_label in {"queued", "running"},
+        "chain_has_active": chain_has_active,
+        "can_cancel": can_manage_task and status_label in {"queued", "running"},
+        "can_rerun": can_manage_task and not chain_has_active and status_label not in {"queued", "running"},
+        "show_followup_form": can_manage_task and not chain_has_active and status_label not in {"queued", "running"},
+        "summary_text": getattr(task, "summary", None) or "",
+        "error_text": getattr(task, "error_message", None) or "",
+        "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
+        "assignee_agent_id": getattr(task, "assignee_agent_id", None) or "-",
+        "assignee_agent_label": _agent_label_for_task(db, task),
+        "skill_name": skill_name or "-",
+        "task_session_id": getattr(task, "task_session_id", None) or input_obj.get("task_session_id") or "-",
+        "root_task_id": root_task_id or "-",
+        "parent_task_id": getattr(task, "parent_task_id", None) or input_obj.get("parent_task_id") or "-",
+        "task_content": task_content,
+        "task_content_label": task_content_label,
+        "original_task": original_task,
+        "final_response": final_response,
+        "blockers": blockers,
+        "next_recommendation": next_recommendation,
+        "timeline": timeline,
+        "created_at": getattr(task, "created_at", None) or "-",
+        "started_at": getattr(task, "started_at", None) or "-",
+        "finished_at": getattr(task, "finished_at", None) or "-",
+        "updated_at": getattr(task, "updated_at", None) or "-",
+        "input_payload_pretty": _pretty_json_text(getattr(task, "input_payload_json", None)),
+        "result_payload_pretty": _pretty_json_text(getattr(task, "result_payload_json", None)),
     }
 
-    bundle_open_url = None
-    if bundle_ref.get("repo") and bundle_ref.get("path") and bundle_ref.get("branch"):
-        bundle_open_url = f"/app/requirement-bundles/open?{urlencode({'repo': bundle_ref.get('repo'), 'path': bundle_ref.get('path'), 'branch': bundle_ref.get('branch')})}"
 
+def _build_task_detail_view_model(task, db=None, user=None) -> dict:
+    if getattr(task, "task_type", None) == "agent_async_task":
+        return _build_agent_async_task_detail_view_model_for_user(task, db=db, user=user)
+
+    status_label = getattr(task, "status", None) or "unknown"
     context_items = [
+        ("Task ID", getattr(task, "id", "-")),
         ("Task Type", getattr(task, "task_type", None) or "-"),
         ("Task Family", getattr(task, "task_family", None) or "-"),
         ("Provider", getattr(task, "provider", None) or "-"),
         ("Trigger", getattr(task, "trigger", None) or "-"),
-        ("Template", template_label),
-        ("Task Template", action_label or "-"),
-        ("Bundle Path", bundle_path or "-"),
-        ("Repo", bundle_ref.get("repo") or "-"),
-        ("Branch", bundle_ref.get("branch") or "-"),
-        ("Jira Sources", str(source_counts["jira"])),
-        ("Confluence Sources", str(source_counts["confluence"])),
-        ("GitHub Docs Sources", str(source_counts["github_docs"])),
-        ("Figma Sources", str(source_counts["figma"])),
-    ]
-    metadata_items = [
-        ("Task ID", getattr(task, "id", "-")),
-        ("Bundle ID", getattr(task, "bundle_id", None) or "-"),
         ("Version Key", getattr(task, "version_key", None) or "-"),
         ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
         ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
-        ("Group ID", getattr(task, "group_id", None) or "-"),
         ("Owner User ID", getattr(task, "owner_user_id", None) or "-"),
         ("Created By User ID", getattr(task, "created_by_user_id", None) or "-"),
         ("Updated At", getattr(task, "updated_at", None) or "-"),
     ]
 
     return {
-        "display_title": action_label or (getattr(task, "task_type", None) or "Task Detail").replace("_", " ").title(),
-        "display_subtitle": bundle_path.split("/")[-1] if bundle_path else (getattr(task, "task_type", None) or "Task"),
+        "is_agent_async": False,
+        "display_title": getattr(task, "title", None) or "Unsupported Task",
+        "display_subtitle": "Read-only task type",
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
-        "is_active": is_active,
+        "is_active": False,
+        "can_cancel": False,
+        "can_rerun": False,
+        "show_followup_form": False,
+        "unsupported_message": "This task type is not supported by the background task panel. Raw payloads are available for inspection.",
+        "timeline": [],
         "summary_text": getattr(task, "summary", None) or "",
         "error_text": getattr(task, "error_message", None) or "",
         "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
         "assignee_agent_id": getattr(task, "assignee_agent_id", None) or "-",
-        "group_id": getattr(task, "group_id", None) or "-",
         "owner_user_id": getattr(task, "owner_user_id", None) or "-",
         "created_by_user_id": getattr(task, "created_by_user_id", None) or "-",
         "runtime_request_id": getattr(task, "runtime_request_id", None) or "-",
@@ -526,7 +640,6 @@ def _build_task_detail_view_model(task) -> dict:
         "task_family": getattr(task, "task_family", None) or "-",
         "provider": getattr(task, "provider", None) or "-",
         "trigger": getattr(task, "trigger", None) or "-",
-        "bundle_id": getattr(task, "bundle_id", None) or "-",
         "version_key": getattr(task, "version_key", None) or "-",
         "dedupe_key": getattr(task, "dedupe_key", None) or "-",
         "source": getattr(task, "source", None) or "-",
@@ -536,10 +649,8 @@ def _build_task_detail_view_model(task) -> dict:
         "updated_at": getattr(task, "updated_at", None) or "-",
         "retry_count": getattr(task, "retry_count", 0) or 0,
         "context_items": context_items,
-        "metadata_items": metadata_items,
         "input_payload_pretty": _pretty_json_text(getattr(task, "input_payload_json", None)),
         "result_payload_pretty": _pretty_json_text(getattr(task, "result_payload_json", None)),
-        "bundle_open_url": bundle_open_url,
     }
 
 
@@ -678,14 +789,6 @@ def _settings_error_response(
     )
 
 
-def _settings_external_identity_summary(db, agent_id: str) -> dict[str, int]:
-    bindings = AgentIdentityBindingRepository(db).list_by_agent(agent_id)
-    return {
-        "binding_total_count": len(bindings),
-        "binding_enabled_count": sum(1 for item in bindings if item.enabled),
-    }
-
-
 def _format_utc_timestamp(value) -> str | None:
     if not value:
         return None
@@ -695,7 +798,7 @@ def _format_utc_timestamp(value) -> str | None:
 def _is_external_trigger_task(task) -> bool:
     source = (task.source or "").strip().lower()
     task_type = (task.task_type or "").strip().lower()
-    external_sources = {"github", "jira", "confluence", "cron", "internal", "external_event"}
+    external_sources = {"github", "jira", "confluence", "cron", "internal", "automation_rule"}
     external_task_types = {"github_review_task", "jira_workflow_review_task"}
     return source in external_sources or task_type in external_task_types
 
@@ -709,7 +812,7 @@ def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
     if not tasks:
         return {
             "last_triggered_task_at_text": "No automation activity yet.",
-            "last_external_event_task_accepted_at_text": "No automation activity yet.",
+            "last_automation_task_created_at_text": "No automation activity yet.",
             "recent_failed_trigger_summary": "No recent failed triggers.",
         }
 
@@ -732,16 +835,13 @@ def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
 
     return {
         "last_triggered_task_at_text": last_triggered_text,
-        "last_external_event_task_accepted_at_text": last_accepted_text,
+        "last_automation_task_created_at_text": last_accepted_text,
         "recent_failed_trigger_summary": recent_failed_trigger_summary,
     }
 
 
 def _settings_settings_panel_summary(db, agent_id: str) -> dict:
-    return {
-        **_settings_external_identity_summary(db, agent_id),
-        **_settings_automation_activity_summary(db, agent_id),
-    }
+    return _settings_automation_activity_summary(db, agent_id)
 
 
 def _runtime_profile_panel_context(
@@ -1212,14 +1312,10 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
             "base_branch": settings.assets_default_base_branch,
             "root_dir": settings.assets_bundle_root_dir,
         },
-        "bundle_templates": list_bundle_templates(),
-        "agents": _list_writable_agents(db, user),
         "bundle_result": None,
         "bundle_detail": None,
         "status_type": "",
         "status_message": "",
-        "task_result": None,
-        "bundle_action_form_state": {},
         "bundle_view_model": None,
     }
     context.update(kwargs)
@@ -1229,24 +1325,13 @@ def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
 def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: bool = False, **kwargs):
     context = _requirement_bundles_context(request, user, db, **kwargs)
     if context.get("bundle_detail"):
-        context["bundle_view_model"] = _build_bundle_detail_view_model(
-            context["bundle_detail"],
-            context.get("bundle_templates") or [],
-            context.get("agents") or [],
-            form_state=context.get("bundle_action_form_state") or {},
-        )
+        context["bundle_view_model"] = _build_bundle_detail_view_model(context["bundle_detail"])
     context["content_target"] = _content_target_from_request(
         request,
         default="#tool-panel-body" if panel_mode else "#requirement-bundles-page-content",
     )
     template_name = "partials/requirement_bundles_panel.html" if panel_mode else "requirement_bundles.html"
     return templates.TemplateResponse(template_name, context)
-
-
-def _visible_group_ids_for_user(db, user) -> list[str]:
-    group_service = AgentGroupService(db)
-    groups = AgentGroupRepository(db).list_all()
-    return [group.id for group in groups if group_service.can_view_group(group, user)]
 
 
 @router.get("/app/tasks/panel")
@@ -1257,9 +1342,8 @@ def my_tasks_panel(request: Request):
 
     db = SessionLocal()
     try:
-        group_ids = _visible_group_ids_for_user(db, user)
-        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, visible_group_ids=group_ids)
-        summary = {"queued": 0, "running": 0, "done": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
+        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id)
+        summary = {"queued": 0, "running": 0, "done": 0, "blocked": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
         for task in tasks:
             if task.status in summary:
                 summary[task.status] += 1
@@ -1285,7 +1369,6 @@ def task_create_panel(request: Request):
             "partials/task_create_panel.html",
             {
                 "request": request,
-                "task_templates": list_task_templates(),
                 "agents": _list_writable_agents(db, user),
             },
         )
@@ -1304,10 +1387,7 @@ def task_detail_panel(request: Request, task_id: str):
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         if user.role != "admin":
-            group_ids = _visible_group_ids_for_user(db, user)
-            is_visible = task.owner_user_id == user.id or task.created_by_user_id == user.id or (
-                task.group_id and task.group_id in group_ids
-            )
+            is_visible = task.owner_user_id == user.id or task.created_by_user_id == user.id
             if not is_visible:
                 raise HTTPException(status_code=404, detail="Task not found")
         return templates.TemplateResponse(
@@ -1315,7 +1395,7 @@ def task_detail_panel(request: Request, task_id: str):
             {
                 "request": request,
                 "task": task,
-                "task_view_model": _build_task_detail_view_model(task),
+                "task_view_model": _build_task_detail_view_model(task, db=db, user=user),
                 "content_target": _content_target_from_request(request),
             },
         )
@@ -1334,7 +1414,6 @@ async def requirement_bundle_create(request: Request):
     try:
         form_data = await request.form()
         create_form = RequirementBundleCreateForm(
-            template_id=str(form_data.get("template_id") or "requirement.v1"),
             title=str(form_data.get("title") or ""),
             domain=str(form_data.get("domain") or ""),
             slug=(str(form_data.get("slug") or "").strip() or None),
@@ -1399,357 +1478,6 @@ def requirement_bundle_open(request: Request, repo: str = Query(""), path: str =
         )
     finally:
         db.close()
-
-
-def _create_bundle_task_payload(
-    task_template_id: str,
-    bundle_template_id: str,
-    bundle_ref: BundleRef,
-    manifest_ref: BundleRef,
-    sources: dict | None = None,
-    skill_name: str | None = None,
-) -> dict:
-    payload = {
-        "task_template_id": task_template_id,
-        "bundle_template_id": bundle_template_id,
-        "bundle_ref": {
-            "repo": bundle_ref.repo,
-            "path": bundle_ref.path,
-            "branch": bundle_ref.branch,
-        },
-        "manifest_ref": {
-            "repo": manifest_ref.repo,
-            "path": manifest_ref.path,
-            "branch": manifest_ref.branch,
-        },
-    }
-    if sources is not None:
-        payload["sources"] = sources
-    if skill_name:
-        payload["skill_name"] = skill_name
-    return payload
-
-
-def _render_bundle_action_error_response(
-    request: Request,
-    *,
-    user,
-    db,
-    panel_mode: bool,
-    bundle_ref: BundleRef,
-    manifest_ref: BundleRef,
-    status_message: str,
-    form_state: dict | None = None,
-):
-    inspect_ref = manifest_ref if manifest_ref.repo and manifest_ref.path and manifest_ref.branch else bundle_ref
-    bundle_detail = None
-    try:
-        if inspect_ref.repo and inspect_ref.path and inspect_ref.branch:
-            bundle_detail = requirement_bundle_service.inspect_bundle(inspect_ref)
-    except RequirementBundleGithubServiceError:
-        bundle_detail = None
-    return _render_requirement_bundles_view(
-        request,
-        user,
-        db,
-        panel_mode=panel_mode,
-        bundle_detail=bundle_detail,
-        status_type="error",
-        status_message=status_message,
-        bundle_action_form_state=form_state or {},
-    )
-
-
-async def _create_and_dispatch_bundle_task(
-    request: Request,
-    *,
-    bundle_template_id: str,
-    task_template_id: str,
-    assignee_agent_id: str,
-    manifest_ref: BundleRef,
-    bundle_ref: BundleRef,
-    sources: dict | None = None,
-    form_state: dict | None = None,
-):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    panel_mode = _is_htmx_request(request)
-    db = SessionLocal()
-    dispatch_context_token = None
-    try:
-        template = require_bundle_template(bundle_template_id)
-        if task_template_id not in template.compatible_task_template_ids:
-            raise HTTPException(status_code=400, detail=f"Unsupported task_template_id '{task_template_id}' for template '{bundle_template_id}'")
-        task_template = get_task_template(task_template_id)
-
-        assignee = AgentRepository(db).get_by_id(assignee_agent_id)
-        if not assignee:
-            raise HTTPException(status_code=404, detail="Assignee agent not found")
-        if not _can_write(assignee, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        inspect_ref = manifest_ref if manifest_ref.repo and manifest_ref.path and manifest_ref.branch else bundle_ref
-        bundle_detail = requirement_bundle_service.inspect_bundle(inspect_ref)
-        effective_bundle_ref = bundle_detail.bundle_ref
-        effective_manifest_ref = bundle_detail.manifest_ref
-
-        if task_template and task_template.requires_sources:
-            normalized_sources = sources or {"jira": [], "confluence": [], "github_docs": [], "figma": []}
-            if not _has_supported_collect_sources(normalized_sources):
-                status_message = (
-                    "Figma-only collection is not supported in MVP"
-                    if normalized_sources.get("figma")
-                    else "At least one Jira, Confluence, or GitHub Docs source is required."
-                )
-                return _render_requirement_bundles_view(
-                    request,
-                    user,
-                    db,
-                    panel_mode=panel_mode,
-                    bundle_detail=bundle_detail,
-                    status_type="error",
-                    status_message=status_message,
-                    bundle_action_form_state=form_state or {},
-                )
-            sources = normalized_sources
-        else:
-            sources = None
-
-        artifact_exists = {item.artifact_key: item.exists for item in (bundle_detail.artifacts or [])}
-        missing_required = ["requirements"] if task_template_id == "design_test_cases_from_bundle" and not artifact_exists.get("requirements") else []
-        if missing_required:
-            hint = f"Required artifacts missing: {', '.join(missing_required)}"
-            return _render_requirement_bundles_view(
-                request,
-                user,
-                db,
-                panel_mode=panel_mode,
-                bundle_detail=bundle_detail,
-                status_type="error",
-                status_message=hint,
-                bundle_action_form_state=form_state or {},
-            )
-
-        task_payload = _create_bundle_task_payload(
-            task_template_id,
-            bundle_template_id,
-            effective_bundle_ref,
-            effective_manifest_ref,
-            sources=sources,
-            skill_name=(task_template.default_skill_name if task_template else None),
-        )
-        source_counts = sources or {}
-        logger.info(
-            "action=create_dispatch_bundle_task task_template_id=%s selected_agent_id=%s bundle_ref=%s/%s@%s manifest_ref=%s/%s@%s jira_count=%s confluence_count=%s github_docs_count=%s figma_count=%s trace_id=%s",
-            task_template_id,
-            assignee_agent_id,
-            effective_bundle_ref.repo,
-            effective_bundle_ref.path,
-            effective_bundle_ref.branch,
-            effective_manifest_ref.repo,
-            effective_manifest_ref.path,
-            effective_manifest_ref.branch,
-            len(source_counts.get("jira") or []),
-            len(source_counts.get("confluence") or []),
-            len(source_counts.get("github_docs") or []),
-            len(source_counts.get("figma") or []),
-            get_log_context().get("trace_id"),
-        )
-        task = AgentTaskRepository(db).create(
-            assignee_agent_id=assignee_agent_id,
-            owner_user_id=assignee.owner_user_id,
-            created_by_user_id=user.id,
-            source="portal",
-            task_type=task_template.task_type if task_template else "bundle_action_task",
-            template_id=task_template_id,
-            task_family=task_template.task_family if task_template else "bundle",
-            provider=task_template.provider if task_template else None,
-            trigger=task_template.default_trigger if task_template else None,
-            input_payload_json=json.dumps(task_payload),
-            status="queued",
-        )
-        dispatch_context_token = bind_log_context(portal_task_id=task.id, agent_id=assignee_agent_id)
-        logger.info(
-            "Created bundle shortcut task task_id=%s task_template_id=%s selected_agent_id=%s",
-            task.id,
-            task_template_id,
-            assignee_agent_id,
-        )
-        logger.debug("Requirement bundle background dispatch scheduled task_id=%s", task.id)
-        task_dispatcher_service.dispatch_task_in_background(task.id)
-        return _render_requirement_bundles_view(
-            request,
-            user,
-            db,
-            panel_mode=panel_mode,
-            bundle_detail=bundle_detail,
-            status_type="success",
-            status_message=f"Created task {task.id} and scheduled background dispatch. Open My Tasks to follow progress.",
-            task_result={
-                "task_id": task.id,
-                "dispatch_status": "scheduled",
-                "dispatch_message": "Task scheduled for background dispatch",
-            },
-        )
-    except RequirementBundleGithubServiceError as exc:
-        return _render_requirement_bundles_view(
-            request,
-            user,
-            db,
-            panel_mode=panel_mode,
-            status_type="error",
-            status_message=str(exc),
-            bundle_action_form_state=form_state or {},
-        )
-    finally:
-        if dispatch_context_token is not None:
-            reset_log_context(dispatch_context_token)
-        db.close()
-
-
-@router.post("/app/requirement-bundles/actions/run")
-@router.post("/app/requirement-bundles/task-shortcuts/run")
-async def requirement_bundle_task_shortcut_run(request: Request):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    form = await request.form()
-    assignee_agent_id = str(form.get("action_agent_id") or "").strip()
-    bundle_template_id = str(form.get("bundle_template_id") or "").strip()
-    task_template_id = str(form.get("task_template_id") or "").strip()
-    form_state = {
-        "task_template_id": task_template_id,
-        "action_agent_id": assignee_agent_id,
-        "jira_sources": str(form.get("jira_sources") or ""),
-        "confluence_sources": str(form.get("confluence_sources") or ""),
-        "github_doc_sources": str(form.get("github_doc_sources") or ""),
-        "figma_sources": str(form.get("figma_sources") or ""),
-    }
-
-    sources = {
-        "jira": _parse_multivalue_text_field(form_state["jira_sources"]),
-        "confluence": _parse_multivalue_text_field(form_state["confluence_sources"]),
-        "github_docs": _parse_multivalue_text_field(form_state["github_doc_sources"]),
-        "figma": _parse_multivalue_text_field(form_state["figma_sources"]),
-    }
-    bundle_ref = BundleRef(
-        repo=str(form.get("bundle_repo") or "").strip(),
-        path=str(form.get("bundle_path") or "").strip(),
-        branch=str(form.get("bundle_branch") or "").strip(),
-    )
-    manifest_ref = BundleRef(
-        repo=str(form.get("manifest_repo") or form.get("bundle_repo") or "").strip(),
-        path=str(form.get("manifest_path") or form.get("bundle_path") or "").strip(),
-        branch=str(form.get("manifest_branch") or form.get("bundle_branch") or "").strip(),
-    )
-    panel_mode = _is_htmx_request(request)
-    db = SessionLocal()
-    try:
-        if not assignee_agent_id:
-            return _render_bundle_action_error_response(
-                request,
-                user=user,
-                db=db,
-                panel_mode=panel_mode,
-                bundle_ref=bundle_ref,
-                manifest_ref=manifest_ref,
-                status_message="Action agent is required.",
-                form_state=form_state,
-            )
-        if not bundle_template_id:
-            return _render_bundle_action_error_response(
-                request,
-                user=user,
-                db=db,
-                panel_mode=panel_mode,
-                bundle_ref=bundle_ref,
-                manifest_ref=manifest_ref,
-                status_message="bundle_template_id is required",
-                form_state=form_state,
-            )
-        if not task_template_id:
-            return _render_bundle_action_error_response(
-                request,
-                user=user,
-                db=db,
-                panel_mode=panel_mode,
-                bundle_ref=bundle_ref,
-                manifest_ref=manifest_ref,
-                status_message="task_template_id is required",
-                form_state=form_state,
-            )
-    finally:
-        db.close()
-
-    return await _create_and_dispatch_bundle_task(
-        request,
-        bundle_template_id=bundle_template_id,
-        task_template_id=task_template_id,
-        assignee_agent_id=assignee_agent_id,
-        manifest_ref=manifest_ref,
-        bundle_ref=bundle_ref,
-        sources=sources,
-        form_state=form_state,
-    )
-
-
-@router.post("/app/requirement-bundles/collect")
-async def requirement_bundle_collect(request: Request):
-    form = await request.form()
-    remapped_form = {
-        "bundle_template_id": "requirement.v1",
-        "task_template_id": "collect_requirements_to_bundle",
-        "action_agent_id": str(form.get("collect_agent_id") or "").strip(),
-        "bundle_repo": form.get("bundle_repo"),
-        "bundle_path": form.get("bundle_path"),
-        "bundle_branch": form.get("bundle_branch"),
-        "manifest_repo": form.get("manifest_repo"),
-        "manifest_path": form.get("manifest_path"),
-        "manifest_branch": form.get("manifest_branch"),
-        "jira_sources": form.get("jira_sources"),
-        "confluence_sources": form.get("confluence_sources"),
-        "github_doc_sources": form.get("github_doc_sources"),
-        "figma_sources": form.get("figma_sources"),
-    }
-
-    class _LegacyForm:
-        def __init__(self, payload):
-            self._payload = payload
-
-        def get(self, key):
-            return self._payload.get(key)
-
-    request._form = _LegacyForm(remapped_form)
-    return await requirement_bundle_task_shortcut_run(request)
-
-
-@router.post("/app/requirement-bundles/design-test-cases")
-async def requirement_bundle_design_test_cases(request: Request):
-    form = await request.form()
-    remapped_form = {
-        "bundle_template_id": "requirement.v1",
-        "task_template_id": "design_test_cases_from_bundle",
-        "action_agent_id": str(form.get("design_agent_id") or "").strip(),
-        "bundle_repo": form.get("bundle_repo"),
-        "bundle_path": form.get("bundle_path"),
-        "bundle_branch": form.get("bundle_branch"),
-        "manifest_repo": form.get("manifest_repo"),
-        "manifest_path": form.get("manifest_path"),
-        "manifest_branch": form.get("manifest_branch"),
-    }
-
-    class _LegacyForm:
-        def __init__(self, payload):
-            self._payload = payload
-
-        def get(self, key):
-            return self._payload.get(key)
-
-    request._form = _LegacyForm(remapped_form)
-    return await requirement_bundle_task_shortcut_run(request)
 
 
 @router.get("/app/users/panel")
@@ -1849,7 +1577,11 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 metadata_fallback_limit = max(1, int(limit))
             except (TypeError, ValueError):
                 metadata_fallback_limit = 10
-            recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+            recent_metadata_records = [
+                record
+                for record in metadata_repo.list_by_agent(agent_id)
+                if not _metadata_record_is_task_session(record)
+            ][:metadata_fallback_limit]
             sessions = merge_runtime_sessions_with_metadata(
                 [],
                 recent_metadata_records,
@@ -1890,7 +1622,11 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
             metadata_fallback_limit = max(1, int(limit))
         except (TypeError, ValueError):
             metadata_fallback_limit = 10
-        recent_metadata_records = metadata_repo.list_by_agent(agent_id)[:metadata_fallback_limit]
+        recent_metadata_records = [
+            record
+            for record in metadata_repo.list_by_agent(agent_id)
+            if not _metadata_record_is_task_session(record)
+        ][:metadata_fallback_limit]
         all_metadata_records: list = []
         seen_session_ids: set[str] = set()
         for record in [*metadata_records, *recent_metadata_records]:
@@ -1899,6 +1635,7 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 continue
             seen_session_ids.add(record_session_id)
             all_metadata_records.append(record)
+        runtime_sessions, all_metadata_records = _filter_agent_visible_sessions(runtime_sessions, all_metadata_records)
         sessions = merge_runtime_sessions_with_metadata(
             runtime_sessions,
             all_metadata_records,
@@ -1959,12 +1696,36 @@ def _normalize_runtime_compatibility(value) -> str:
     return aliases.get(normalized, normalized or "unknown")
 
 
+def _runtime_catalog_provider_for_panel(db, agent) -> RuntimeCapabilityCatalogProvider:
+    repo = RuntimeCapabilityCatalogSnapshotRepository(db)
+    latest = repo.get_latest_for_agent(getattr(agent, "id", "")) or repo.get_latest()
+    if latest:
+        try:
+            payload = json.loads(latest.payload_json)
+        except Exception:
+            payload = None
+        if isinstance(payload, (dict, list)):
+            return RuntimeCapabilityCatalogProvider.from_runtime_catalog_payload(
+                payload,
+                source=latest.catalog_source or "runtime_api",
+            )
+    return build_runtime_capability_catalog_provider_from_settings()
+
+
+def _runtime_skill_detail_for_panel(db, agent, skill_name: str | None) -> dict:
+    provider = _runtime_catalog_provider_for_panel(db, agent)
+    candidates = [skill_name, (skill_name or "").replace("_", "-"), (skill_name or "").replace("-", "_")]
+    for candidate in candidates:
+        detail = provider.get_skill_detail(candidate)
+        if detail:
+            return detail
+    return {}
+
+
 def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
     payload = _normalize_skill_payload(raw_skill)
     name = str(_skill_field(payload, "name", "id") or "").strip().lstrip('/')
-    capability_ctx = CapabilityContextService()
-    allowance = capability_ctx.get_skill_allowance_detail(db, agent, name)
-    runtime_detail = capability_ctx.get_runtime_skill_detail(db, agent, name)
+    runtime_detail = _runtime_skill_detail_for_panel(db, agent, name)
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     permission_state = _normalize_permission_state(_skill_field(payload, "permission_state") or metadata.get("permission_state") or runtime_detail.get("permission_state") or "unknown")
     runtime_compatibility = _normalize_runtime_compatibility(
@@ -1976,8 +1737,6 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
         or "unknown"
     )
     disabled_reasons = []
-    if not allowance.allowed:
-        disabled_reasons.append("Denied by CapabilityProfile")
     if permission_state in {"denied", "blocked"}:
         disabled_reasons.append("Denied by runtime permission")
     if runtime_compatibility == "unsupported":
@@ -1991,7 +1750,8 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
         else runtime_detail.get("tool_mappings")
         or {}
     )
-    return {**payload, "name": name, "description": description, "capability_allowed": allowance.allowed, "capability_reason": allowance.reason, "permission_state": permission_state, "runtime_compatibility": runtime_compatibility, "tool_mappings": tool_mappings, "disabled": bool(disabled_reasons), "disabled_reason": "; ".join(disabled_reasons), "prompt_only": runtime_compatibility == "prompt_only"}
+    catalog_available = bool(runtime_detail) or runtime_compatibility != "unknown"
+    return {**payload, "name": name, "description": description, "catalog_available": catalog_available, "permission_state": permission_state, "runtime_compatibility": runtime_compatibility, "tool_mappings": tool_mappings, "disabled": bool(disabled_reasons), "disabled_reason": "; ".join(disabled_reasons), "prompt_only": runtime_compatibility == "prompt_only"}
 
 @router.get("/app/agents/{agent_id}/skills/panel")
 async def app_agent_skills_panel(request: Request, agent_id: str):
@@ -2368,7 +2128,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "",
                     "status_message": "",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2427,8 +2187,8 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "request": request,
                     "agent_id": agent_id,
                     "status_type": "error",
-                    "status_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
+                    "status_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2448,7 +2208,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "error",
                     "status_message": "Assigned runtime profile was not found.",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned. External identities can still be configured below.",
+                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2727,12 +2487,12 @@ async def app_chat_send(request: Request):
             raise HTTPException(status_code=502, detail=_normalize_runtime_error_detail(content))
 
         data = json.loads(content.decode("utf-8"))
-        
+
         normalized_payload = normalize_assistant_chat_payload(
             data,
             fallback_session_id=session_id or "",
         )
-        
+
         return templates.TemplateResponse(
             "partials/chat_response.html",
             {
@@ -2746,227 +2506,6 @@ async def app_chat_send(request: Request):
                 "display_blocks": normalized_payload["display_blocks"],
                 "timestamp": datetime.now().strftime("%H:%M"),
             },
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/agent-groups/{group_id}/task-board/panel")
-async def app_group_task_board_panel(request: Request, group_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
-
-        service = AgentGroupService(db)
-        try:
-            board = service.get_group_task_board(group_id, user=user, apply_visibility=True)
-        except AgentGroupServiceError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-        return templates.TemplateResponse(
-            "partials/group_task_board.html",
-            {
-                "request": request,
-                "group_id": board["group_id"],
-                "leader_agent_id": board["leader_agent_id"],
-                "summary": board["summary"],
-                "items": board["items"],
-            },
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/agent-groups/{group_id}/shared-contexts/panel")
-async def app_group_shared_context_list_panel(request: Request, group_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
-
-        service = AgentGroupService(db)
-        try:
-            snapshots = service.list_group_shared_context_snapshots(group_id, user=user)
-        except AgentGroupServiceError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-        return templates.TemplateResponse(
-            "partials/group_shared_context_list.html",
-            {
-                "request": request,
-                "group_id": group_id,
-                "items": snapshots,
-            },
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/agent-groups/{group_id}/shared-contexts/{context_ref}/panel")
-async def app_group_shared_context_detail_panel(request: Request, group_id: str, context_ref: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        from app.services.agent_group_service import AgentGroupService, AgentGroupServiceError
-
-        service = AgentGroupService(db)
-        try:
-            snapshot = service.get_group_shared_context_snapshot(group_id, context_ref, user=user)
-        except AgentGroupServiceError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-        return templates.TemplateResponse(
-            "partials/group_shared_context_detail.html",
-            {
-                "request": request,
-                "group_id": group_id,
-                "item": snapshot,
-            },
-        )
-    finally:
-        db.close()
-
-
-def _triggered_work_authorize(db, user, agent_id: str):
-    agent = AgentRepository(db).get_by_id(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    if not _can_access(agent, user):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return agent
-
-
-def _render_agent_identity_bindings_panel(
-    request: Request,
-    *,
-    agent,
-    user,
-    db,
-    error: str = "",
-    success: str = "",
-    form: dict | None = None,
-):
-    return templates.TemplateResponse(
-        "partials/agent_identity_bindings_panel.html",
-        {
-            "request": request,
-            "agent_id": agent.id,
-            "bindings": AgentIdentityBindingRepository(db).list_by_agent(agent.id),
-            "error": error,
-            "success": success,
-            "form": form or {},
-            "read_only": not _can_write(agent, user),
-        },
-    )
-
-
-
-@router.get("/app/agents/{agent_id}/external-identities/panel")
-async def app_agent_triggered_work_bindings_panel(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        return _render_agent_identity_bindings_panel(request, agent=agent, user=user, db=db)
-    finally:
-        db.close()
-
-
-@router.post("/app/agents/{agent_id}/external-identities/create")
-async def app_agent_triggered_work_bindings_create(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        form = await request.form()
-        form_data = {
-            "system_type": str(form.get("system_type") or "").strip().lower(),
-            "external_account_id": str(form.get("external_account_id") or "").strip(),
-            "username": str(form.get("username") or "").strip() or None,
-            "scope_json": str(form.get("scope_json") or "").strip(),
-            "enabled": _parse_form_bool(form.get("enabled")),
-        }
-        error = ""
-        scope_json, scope_error = _parse_json_textarea(form_data["scope_json"], field_name="scope_json")
-        if not form_data["system_type"] or not form_data["external_account_id"]:
-            error = "system_type and external_account_id are required"
-        elif scope_error:
-            error = scope_error
-        else:
-            existing = AgentIdentityBindingRepository(db).get_by_agent_and_binding_key(
-                agent_id=agent_id,
-                system_type=form_data["system_type"],
-                external_account_id=form_data["external_account_id"],
-                enabled_only=False,
-            )
-            if existing:
-                error = "External identity already exists for this agent/system/account"
-
-        if not error:
-            AgentIdentityBindingRepository(db).create(
-                agent_id=agent_id,
-                system_type=form_data["system_type"],
-                external_account_id=form_data["external_account_id"],
-                username=form_data["username"],
-                scope_json=scope_json,
-                enabled=form_data["enabled"],
-            )
-
-        return _render_agent_identity_bindings_panel(
-            request,
-            agent=agent,
-            user=user,
-            db=db,
-            error=error,
-            success="External identity added" if not error else "",
-            form=form_data,
-        )
-    finally:
-        db.close()
-
-
-@router.post("/app/agents/{agent_id}/external-identities/{binding_id}/delete")
-async def app_agent_triggered_work_bindings_delete(request: Request, agent_id: str, binding_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = _triggered_work_authorize(db, user, agent_id)
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        repo = AgentIdentityBindingRepository(db)
-        binding = repo.get_by_id(binding_id)
-        if binding and binding.agent_id == agent_id:
-            repo.delete(binding)
-
-        return _render_agent_identity_bindings_panel(
-            request,
-            agent=agent,
-            user=user,
-            db=db,
-            success="Binding deleted",
         )
     finally:
         db.close()

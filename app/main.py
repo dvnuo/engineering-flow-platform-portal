@@ -5,20 +5,9 @@ from fastapi.staticfiles import StaticFiles
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.proxy import router as proxy_router
-from app.api.capability_profiles import router as capability_profiles_router
-from app.api.policy_profiles import router as policy_profiles_router
 from app.api.runtime_profiles import router as runtime_profiles_router
-from app.api.agent_identity_bindings import router as agent_identity_bindings_router
-from app.api.runtime_router import router as runtime_router
 from app.api.agent_tasks import router as agent_tasks_router
-from app.api.agent_groups import router as agent_groups_router
-from app.api.agent_delegations import router as agent_delegations_router
-from app.api.agent_coordination_runs import router as agent_coordination_runs_router
-from app.api.external_event_ingress import router as external_event_ingress_router
-from app.api.provider_webhooks import router as provider_webhooks_router
-from app.api.internal_control_plane_exports import router as internal_control_plane_exports_router
 from app.api.internal_session_metadata import router as internal_session_metadata_router
-from app.api.workflow_transition_rules import router as workflow_transition_rules_router
 from app.api.automation_rules import router as automation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
@@ -85,7 +74,6 @@ def on_startup() -> None:
             )
             runtime_profile_service.ensure_user_has_default_profile(admin_user)
 
-        runtime_profile_service.repair_legacy_runtime_profiles(db)
         runtime_profile_service.ensure_defaults_for_all_users(db)
     finally:
         db.close()
@@ -117,23 +105,12 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(agents_router)
 app.include_router(internal_agents_router)
-app.include_router(capability_profiles_router)
-app.include_router(policy_profiles_router)
 app.include_router(runtime_profiles_router)
-app.include_router(agent_identity_bindings_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
 app.include_router(copilot_router)
 app.include_router(requirement_bundles_router)
-app.include_router(runtime_router)
 app.include_router(agent_tasks_router)
-app.include_router(agent_groups_router)
-app.include_router(agent_delegations_router)
-app.include_router(agent_coordination_runs_router)
-app.include_router(external_event_ingress_router)
-app.include_router(provider_webhooks_router)
-app.include_router(workflow_transition_rules_router)
 app.include_router(automation_rules_router)
 app.include_router(runtime_capability_catalog_router)
-app.include_router(internal_control_plane_exports_router)
 app.include_router(internal_session_metadata_router)

@@ -4,7 +4,7 @@ from app.models.agent import Agent
 
 
 def test_0017_keeps_backfill_server_default_native():
-    text = Path("alembic/versions/20260502_0017_agent_runtime_type_and_tools_repo.py").read_text(encoding="utf-8")
+    text = Path("alembic/versions/20260502_0017_agent_runtime_type.py").read_text(encoding="utf-8")
     assert 'server_default="native"' in text
 
 

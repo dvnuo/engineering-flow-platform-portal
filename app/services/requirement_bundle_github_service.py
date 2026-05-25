@@ -15,11 +15,6 @@ from app.schemas.requirement_bundle import (
     RequirementBundleInspectResponse,
     RequirementBundleListItem,
 )
-from app.services.bundle_template_registry import (
-    BundleTemplateDefinition,
-    require_bundle_template,
-    resolve_bundle_template_from_manifest,
-)
 
 
 class RequirementBundleGithubServiceError(Exception):
@@ -179,8 +174,7 @@ class RequirementBundleGithubService:
             title=str(manifest.get("title") or "").strip(),
             domain=str(scope.get("domain") or "").strip(),
             status=str(manifest.get("status") or "").strip(),
-            template_id=detail.template_id,
-            template_label=detail.template_label,
+            bundle_label=detail.bundle_label,
             artifacts=None,
             bundle_ref=detail.bundle_ref,
             manifest_ref=detail.manifest_ref,
@@ -232,7 +226,7 @@ class RequirementBundleGithubService:
                 seen.add(key)
                 items.append(self._build_list_item_from_detail(detail))
 
-        sorted_items = sorted(items, key=lambda item: (item.template_id, item.domain, item.title, item.bundle_ref.path))
+        sorted_items = sorted(items, key=lambda item: (item.domain, item.title, item.bundle_ref.path))
         if ttl > 0:
             self._bundle_list_cache = sorted_items
             self._bundle_list_cache_expires_at = monotonic() + ttl
@@ -244,7 +238,6 @@ class RequirementBundleGithubService:
     def _render_bundle_yaml(
         *,
         bundle_id: str,
-        template_id: str,
         title: str,
         domain: str,
         repo: str,
@@ -255,8 +248,6 @@ class RequirementBundleGithubService:
     ) -> str:
         payload = {
             "bundle_id": bundle_id,
-            "template_id": template_id,
-            "template_version": 1,
             "title": title,
             "status": "draft",
             "scope": {
@@ -302,56 +293,11 @@ class RequirementBundleGithubService:
             "test_cases: []\n"
         )
 
-    @staticmethod
-    def _render_research_notes_yaml(bundle_id: str) -> str:
-        payload = {
-            "bundle_id": bundle_id,
-            "sources": {"jira": [], "confluence": [], "github_docs": [], "figma": []},
-            "summary": {},
-            "findings": [],
-            "open_questions": [],
-            "references": [],
-        }
-        return yaml.safe_dump(payload, sort_keys=False)
-
-    @staticmethod
-    def _render_implementation_plan_yaml(bundle_id: str) -> str:
-        payload = {
-            "bundle_id": bundle_id,
-            "generated_from_bundle_commit": "",
-            "summary": {},
-            "workstreams": [],
-            "tasks": [],
-            "risks": [],
-            "validation_checks": [],
-        }
-        return yaml.safe_dump(payload, sort_keys=False)
-
-    @staticmethod
-    def _render_runbook_yaml(bundle_id: str) -> str:
-        payload = {
-            "bundle_id": bundle_id,
-            "generated_from_bundle_commit": "",
-            "service_summary": {},
-            "rollout_steps": [],
-            "rollback_steps": [],
-            "monitoring_checks": [],
-            "alerts": [],
-            "operational_risks": [],
-        }
-        return yaml.safe_dump(payload, sort_keys=False)
-
-    def _render_artifact_content(self, template_id: str, artifact_key: str, bundle_id: str) -> str:
-        if template_id == "requirement.v1" and artifact_key == "requirements":
+    def _render_artifact_content(self, artifact_key: str, bundle_id: str) -> str:
+        if artifact_key == "requirements":
             return self._render_requirements_yaml(bundle_id)
-        if template_id == "requirement.v1" and artifact_key == "test_cases":
+        if artifact_key == "test_cases":
             return self._render_test_cases_yaml(bundle_id)
-        if template_id == "research.v1" and artifact_key == "research_notes":
-            return self._render_research_notes_yaml(bundle_id)
-        if template_id == "development.v1" and artifact_key == "implementation_plan":
-            return self._render_implementation_plan_yaml(bundle_id)
-        if template_id == "operations.v1" and artifact_key == "runbook":
-            return self._render_runbook_yaml(bundle_id)
         return f"bundle_id: {bundle_id}\n"
 
     @staticmethod
@@ -390,8 +336,6 @@ class RequirementBundleGithubService:
         scope = manifest.get("scope")
         storage = manifest.get("storage")
         artifacts = manifest.get("artifacts")
-        links = manifest.get("links")
-        template_id = str(manifest.get("template_id") or "").strip()
 
         if not isinstance(scope, dict):
             raise RequirementBundleGithubServiceError("bundle.yaml field 'scope' must be an object")
@@ -417,33 +361,13 @@ class RequirementBundleGithubService:
         _require_non_empty_string(storage.get("working_branch"), "storage.working_branch")
         RequirementBundleGithubService.parse_repo_full_name(storage_repo)
 
-        if "template_version" in manifest and not isinstance(manifest.get("template_version"), int):
-            raise RequirementBundleGithubServiceError("bundle.yaml field 'template_version' must be an integer")
-
-        if template_id:
-            require_bundle_template(template_id)
-            if not isinstance(artifacts, dict):
-                raise RequirementBundleGithubServiceError("bundle.yaml field 'artifacts' must be an object")
-            for key, value in artifacts.items():
-                _require_non_empty_string(key, "artifacts key")
-                _require_non_empty_string(value, f"artifacts.{key}")
-            if not artifacts:
-                raise RequirementBundleGithubServiceError("bundle.yaml field 'artifacts' cannot be empty")
-            return
-
-        if isinstance(links, dict):
-            _require_non_empty_string(links.get("requirements_file"), "links.requirements_file")
-            _require_non_empty_string(links.get("test_cases_file"), "links.test_cases_file")
-            return
-
-        raise RequirementBundleGithubServiceError("bundle.yaml requires either 'artifacts' or legacy 'links'")
-
-    @staticmethod
-    def _resolve_template_from_manifest(manifest: dict) -> BundleTemplateDefinition:
-        try:
-            return resolve_bundle_template_from_manifest(manifest)
-        except ValueError as exc:
-            raise RequirementBundleGithubServiceError(str(exc)) from exc
+        if not isinstance(artifacts, dict):
+            raise RequirementBundleGithubServiceError("bundle.yaml field 'artifacts' must be an object")
+        for key, value in artifacts.items():
+            _require_non_empty_string(key, "artifacts key")
+            _require_non_empty_string(value, f"artifacts.{key}")
+        if not artifacts:
+            raise RequirementBundleGithubServiceError("bundle.yaml field 'artifacts' cannot be empty")
 
     @staticmethod
     def _resolve_artifacts_from_manifest(manifest: dict) -> dict[str, str]:
@@ -457,18 +381,6 @@ class RequirementBundleGithubService:
                     result[normalized_key] = normalized_value
             if result:
                 return result
-
-        links = manifest.get("links")
-        if isinstance(links, dict):
-            req_file = str(links.get("requirements_file") or "").strip().strip("/")
-            tc_file = str(links.get("test_cases_file") or "").strip().strip("/")
-            legacy: dict[str, str] = {}
-            if req_file:
-                legacy["requirements"] = req_file
-            if tc_file:
-                legacy["test_cases"] = tc_file
-            if legacy:
-                return legacy
 
         raise RequirementBundleGithubServiceError("bundle.yaml missing artifact mappings")
 
@@ -492,35 +404,24 @@ class RequirementBundleGithubService:
     def create_bundle(self, form: RequirementBundleCreateForm) -> BundleRef:
         slug = self.normalize_slug(form.slug if form.slug else form.title)
         domain = self.normalize_slug(form.domain)
-        try:
-            template = require_bundle_template(form.template_id)
-        except ValueError as exc:
-            raise RequirementBundleGithubServiceError(str(exc)) from exc
-
-        if template.path_segment:
-            bundle_path = f"{self.bundle_root_dir}/{template.path_segment}/{domain}/{slug}"
-        else:
-            bundle_path = f"{self.bundle_root_dir}/{domain}/{slug}"
-        bundle_id = f"{template.bundle_id_prefix}-{slug}"
+        bundle_path = f"{self.bundle_root_dir}/{domain}/{slug}"
+        bundle_id = f"RB-{slug}"
         suffix = secrets.token_hex(4)
-        if template.branch_segment:
-            working_branch = f"bundle/{template.branch_segment}/{slug}/{suffix}"
-        else:
-            working_branch = f"bundle/{slug}/{suffix}"
+        working_branch = f"bundle/{slug}/{suffix}"
+        artifact_files = {"requirements": "requirements.yaml", "test_cases": "test-cases.yaml"}
 
         base_sha = self._get_branch_head_sha(self.default_repo, form.base_branch)
         self._create_branch(self.default_repo, working_branch, base_sha)
 
         bundle_yaml = self._render_bundle_yaml(
             bundle_id=bundle_id,
-            template_id=template.template_id,
             title=form.title,
             domain=domain,
             repo=self.default_repo,
             path=bundle_path,
             base_branch=form.base_branch,
             working_branch=working_branch,
-            artifacts=template.artifact_files,
+            artifacts=artifact_files,
         )
 
         self._put_file(
@@ -531,8 +432,8 @@ class RequirementBundleGithubService:
             f"Initialize bundle {bundle_id}",
         )
 
-        for artifact_key, artifact_file in template.artifact_files.items():
-            content = self._render_artifact_content(template.template_id, artifact_key, bundle_id)
+        for artifact_key, artifact_file in artifact_files.items():
+            content = self._render_artifact_content(artifact_key, bundle_id)
             self._put_file(
                 self.default_repo,
                 f"{bundle_path}/{artifact_file}",
@@ -552,8 +453,6 @@ class RequirementBundleGithubService:
         manifest = self._parse_manifest_yaml(manifest_yaml)
         self.validate_bundle_manifest(manifest)
 
-        template = self._resolve_template_from_manifest(manifest)
-        template_version = manifest.get("template_version") if isinstance(manifest.get("template_version"), int) else 1
         artifact_map = self._resolve_artifacts_from_manifest(manifest)
 
         canonical_bundle_ref = self._canonical_bundle_ref_from_manifest(
@@ -575,9 +474,8 @@ class RequirementBundleGithubService:
         test_cases_file = artifact_map.get("test_cases")
         requirements_exists = None
         test_cases_exists = None
-        if template.template_id == "requirement.v1":
-            requirements_exists = next((item.exists for item in artifact_statuses if item.artifact_key == "requirements"), None)
-            test_cases_exists = next((item.exists for item in artifact_statuses if item.artifact_key == "test_cases"), None)
+        requirements_exists = next((item.exists for item in artifact_statuses if item.artifact_key == "requirements"), None)
+        test_cases_exists = next((item.exists for item in artifact_statuses if item.artifact_key == "test_cases"), None)
 
         last_commit_sha = self._latest_commit_sha_for_path(
             canonical_bundle_ref.repo,
@@ -589,9 +487,7 @@ class RequirementBundleGithubService:
             manifest_ref=manifest_ref,
             bundle_ref=canonical_bundle_ref,
             manifest=manifest,
-            template_id=template.template_id,
-            template_label=template.display_name,
-            template_version=template_version,
+            bundle_label="Requirement Bundle",
             artifacts=artifact_statuses,
             requirements_file=requirements_file,
             test_cases_file=test_cases_file,

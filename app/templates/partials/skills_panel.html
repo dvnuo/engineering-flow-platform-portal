@@ -8,7 +8,7 @@
       <div class="portal-bundle-title">/{{ normalized_skill_name }}</div>
       {% if skill.description %}<div class="portal-panel-note">{{ skill.description }}</div>{% endif %}
       <div class="portal-panel-note">
-        <span class="portal-status-badge {{ 'is-success' if skill.capability_allowed else 'is-error' }}">Capability: {{ 'allowed' if skill.capability_allowed else 'denied' }}</span>
+        <span class="portal-status-badge {{ 'is-success' if skill.catalog_available else 'is-warning' }}">Catalog: {{ 'available' if skill.catalog_available else 'unknown' }}</span>
         <span class="portal-status-badge {{ 'is-success' if skill.permission_state == 'allowed' else ('is-error' if skill.permission_state in ['denied', 'blocked'] else 'is-warning') }}">Permission: {{ skill.permission_state }}</span>
         <span class="portal-status-badge {{ 'is-success' if skill.runtime_compatibility == 'full' else ('is-error' if skill.runtime_compatibility == 'unsupported' else 'is-warning') }}">Runtime: {{ skill.runtime_compatibility }}</span>
       </div>

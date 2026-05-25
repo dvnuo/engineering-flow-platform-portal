@@ -6841,8 +6841,7 @@ function bundleListItemFromDetail(detail) {
     title: manifest?.title || "",
     domain: scope?.domain || "",
     status: manifest?.status || "",
-    template_id: detail?.template_id || "",
-    template_label: detail?.template_label || "",
+    bundle_label: detail?.bundle_label || "Requirement Bundle",
     artifacts: detail?.artifacts ?? null,
     bundle_ref: detail?.bundle_ref || null,
     manifest_ref: detail?.manifest_ref || null,
@@ -6863,8 +6862,8 @@ function upsertRequirementBundleListItem(item, { persist = true } = {}) {
     nextItems.push(item);
   }
   nextItems.sort((left, right) => {
-    const leftTuple = [left?.template_id || "", left?.domain || "", left?.title || "", left?.bundle_ref?.path || ""];
-    const rightTuple = [right?.template_id || "", right?.domain || "", right?.title || "", right?.bundle_ref?.path || ""];
+    const leftTuple = [left?.domain || "", left?.title || "", left?.bundle_ref?.path || ""];
+    const rightTuple = [right?.domain || "", right?.title || "", right?.bundle_ref?.path || ""];
     for (let i = 0; i < leftTuple.length; i += 1) {
       const cmp = String(leftTuple[i]).localeCompare(String(rightTuple[i]));
       if (cmp !== 0) return cmp;
@@ -7076,7 +7075,7 @@ function renderRequirementBundleList(errorMessage = "") {
     row.className = `portal-bundle-row${activeClass}`;
     row.innerHTML = `
       <div class="portal-bundle-title">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="portal-bundle-meta">${safe(item.template_label || item.template_id || "Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
+      <div class="portal-bundle-meta">${safe(item.bundle_label || "Requirement Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
     `;
     row.addEventListener("click", async () => {
       await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false });
@@ -7159,18 +7158,52 @@ function renderTaskNavList(errorMessage = "") {
 
   dom.taskNavList.innerHTML = "";
   state.myTasks.forEach((task) => {
+    const inputPayload = _safeJson(task.input_payload_json) || {};
+    const taskContent = String(inputPayload.followup_task || inputPayload.user_task || task.summary || task.task_type || task.id || "").trim();
+    const firstLine = taskContent.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || taskContent;
+    const title = String(task.title || firstLine || task.id || "Task").trim();
+    const displayTitle = title.length > 80 ? `${title.slice(0, 77).trim()}...` : title;
+    const preview = taskContent && taskContent !== title ? taskContent : "";
+    const displayPreview = preview.length > 96 ? `${preview.slice(0, 93).trim()}...` : preview;
+    const skillName = String(task.skill_name || inputPayload.skill_name || "").trim().replace(/^\/+/, "");
+    const timeLabel = formatTaskNavTime(task.updated_at || task.created_at);
+    const status = String(task.status || "unknown").trim();
+    const statusTone = taskStatusTone(status);
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
     row.innerHTML = `
-      <div class="portal-bundle-title">${safe(task.task_type || task.id)}</div>
-      <div class="portal-bundle-meta">${safe(task.status || "unknown")} · ${safe(task.id)}</div>
+      <div class="portal-task-row-head">
+        <div class="portal-task-row-title">${safe(displayTitle)}</div>
+        <span class="portal-status-badge is-${safe(statusTone)}">${safe(status)}</span>
+      </div>
+      ${displayPreview ? `<div class="portal-task-row-preview">${safe(displayPreview)}</div>` : ""}
+      <div class="portal-task-row-meta">
+        ${skillName ? `<span>/${safe(skillName)}</span>` : ""}
+        <span>${safe(task.task_type || "task")}</span>
+        ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
+      </div>
     `;
     row.addEventListener("click", async () => {
       await openTaskDetailInMain(task.id);
     });
     dom.taskNavList.append(row);
   });
+}
+
+function taskStatusTone(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "done") return "success";
+  if (["queued", "running", "pending_restart"].includes(normalized)) return "warning";
+  if (["failed", "blocked", "cancel_failed"].includes(normalized)) return "error";
+  return "info";
+}
+
+function formatTaskNavTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 async function refreshMyTasks() {
@@ -9232,6 +9265,22 @@ function renderAutomationRuleNavList(rules) {
   });
 }
 
+function normalizeAutomationTriggerType(triggerType) {
+  return String(triggerType || "") === "github_comment_mention"
+    ? "github_comment_mention"
+    : "github_pr_review_requested";
+}
+
+function automationKindFromTrigger(triggerType) {
+  return normalizeAutomationTriggerType(triggerType) === "github_comment_mention"
+    ? "github_comment_mention"
+    : "github_pr_review";
+}
+
+function automationLabelForKind(kind) {
+  return kind === "github_comment_mention" ? "GitHub comment mention" : "GitHub PR review";
+}
+
 async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
   if (!ruleId) return;
   try {
@@ -9244,6 +9293,8 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
     const trigger = _safeJson(detail.trigger_config_json) || {};
     const schedule = _safeJson(detail.schedule_json) || {};
     const taskConfig = _safeJson(detail.task_config_json) || {};
+    const triggerType = String(detail.trigger_type || "");
+    const automationKind = automationKindFromTrigger(triggerType);
     const targetAgent = (state.mineAgents || []).find((item) => item.id === detail.target_agent_id);
     const runsRows = (runs || []).map((run) => `
       <tr><td>${safe(run.status || "-")}</td><td>${safe(String(run.found_count ?? 0))}</td><td>${safe(String(run.created_task_count ?? 0))}</td><td>${safe(String(run.skipped_count ?? 0))}</td><td>${safe(run.error_message || "-")}</td><td>${safe(run.started_at || "-")}</td><td>${safe(run.finished_at || "-")}</td></tr>
@@ -9255,9 +9306,10 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
       <div class="portal-panel-stack">
         <h3>${safe(detail.name)}</h3>
         <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
-        <div class="portal-inline-state">Task Template: <strong>${safe(detail.task_template_id || "-")}</strong></div>
+        <div class="portal-inline-state">Automation: <strong>${safe(automationLabelForKind(automationKind))}</strong></div>
+        <div class="portal-inline-state">Trigger: <strong>${safe(triggerType || "-")}</strong></div>
         <div class="portal-inline-state">Repository: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
-        ${detail.task_template_id === "github_comment_mention"
+        ${automationKind === "github_comment_mention"
           ? `<div class="portal-inline-state">Mention target: <strong>${safe(trigger.mention_target || "-")}</strong></div>
              <div class="portal-inline-state">Surfaces: <strong>${safe((scope.surfaces || []).join(", ") || "-")}</strong></div>
              <div class="portal-inline-state">Reply mode: <strong>${safe(taskConfig.reply_mode || "same_surface")}</strong></div>`
@@ -9328,10 +9380,6 @@ function openCreateAutomationRuleModal() {
           <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
         </section>
         <section class="portal-panel-section">
-          <h4>Task Template</h4>
-          <label class="portal-form-label"><span class="portal-form-label">Template</span><select class="portal-form-select" name="task_template_id"><option value="github_pr_review">github_pr_review</option><option value="github_comment_mention">github_comment_mention</option></select></label>
-        </section>
-        <section class="portal-panel-section">
           <h4>Agent & Task Defaults</h4>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
           <div data-pr-only="1">
@@ -9348,12 +9396,12 @@ function openCreateAutomationRuleModal() {
   `;
   const form = document.getElementById("create-automation-inline-form");
   const triggerSel = form?.querySelector('select[name="trigger_type"]');
-  const tplSel = form?.querySelector('select[name="task_template_id"]');
   const toggle = () => {
-    const isMention = (tplSel?.value || "") === "github_comment_mention";
+    const triggerType = normalizeAutomationTriggerType(triggerSel?.value);
+    const isMention = automationKindFromTrigger(triggerType) === "github_comment_mention";
+    if (triggerSel && triggerSel.value !== triggerType) triggerSel.value = triggerType;
     form?.querySelectorAll("[data-pr-only='1']").forEach((el) => { el.style.display = isMention ? "none" : ""; });
     form?.querySelectorAll("[data-mention-only='1']").forEach((el) => { el.style.display = isMention ? "" : "none"; });
-    if (triggerSel) triggerSel.value = isMention ? "github_comment_mention" : "github_pr_review_requested";
     const mode = String(form?.querySelector('select[name=\"scope_mode\"]')?.value || "repo");
     form?.querySelectorAll("[data-org-account-only='1']").forEach((el) => { el.style.display = isMention && ["org","account_notifications"].includes(mode) ? "" : "none"; });
     const repoInput = form?.querySelector('input[name=\"repo\"]');
@@ -9361,16 +9409,15 @@ function openCreateAutomationRuleModal() {
     const ownerInput = form?.querySelector('input[name="owner"]');
     if (ownerInput) ownerInput.required = !isMention || mode !== "account_notifications";
   };
-  triggerSel?.addEventListener("change", () => { if (tplSel) tplSel.value = triggerSel.value === "github_comment_mention" ? "github_comment_mention" : "github_pr_review"; toggle(); });
-  tplSel?.addEventListener("change", toggle);
+  triggerSel?.addEventListener("change", toggle);
   form?.querySelector('select[name="scope_mode"]')?.addEventListener("change", toggle);
   toggle();
 }
 
 async function submitCreateAutomationRule(formEl) {
   const fd = new FormData(formEl);
-  const taskTemplateId = String(fd.get("task_template_id") || "github_pr_review");
-  if (taskTemplateId === "github_comment_mention") {
+  const triggerType = normalizeAutomationTriggerType(fd.get("trigger_type"));
+  if (automationKindFromTrigger(triggerType) === "github_comment_mention") {
     const parseCommaList = (raw) => String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
     const selectedSurfaces = fd.getAll("surfaces").map((s) => String(s));
     const mode = String(fd.get("scope_mode") || "repo");
@@ -9383,7 +9430,7 @@ async function submitCreateAutomationRule(formEl) {
         : { mode: "repo", owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || ""), surfaces: baseSurfaces };
     const payload = {
       name: String(fd.get("name") || ""), target_agent_id: String(fd.get("target_agent_id") || ""), enabled: true, source_type: "github",
-      trigger_type: "github_comment_mention", task_template_id: "github_comment_mention",
+      trigger_type: triggerType,
       scope,
       trigger_config: { mention_target_type: "user", mention_target: String(fd.get("mention_target") || ""), ignore_self_comments: true, ignore_bot_comments: true, ignore_efp_auto_reply_marker: true, strip_code_blocks_before_matching: true },
       task_input_defaults: { skill_name: "handle-triggered-event", execution_mode: "chat_tool_loop", reply_mode: String(fd.get("reply_mode") || "same_surface") },
@@ -9399,8 +9446,7 @@ async function submitCreateAutomationRule(formEl) {
     target_agent_id: String(fd.get("target_agent_id") || ""),
     enabled: true,
     source_type: "github",
-    trigger_type: String(fd.get("trigger_type") || "github_pr_review_requested"),
-    task_template_id: taskTemplateId,
+    trigger_type: triggerType,
     scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
     trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },
     task_input_defaults: {
@@ -9466,89 +9512,124 @@ async function openTaskCreatePanelInMain() {
   dom.workspaceDetailContent.dataset.workspaceState = "task-create";
   dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task create form…</div>';
   await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
-  const formEl = dom.workspaceDetailContent.querySelector("#create-task-from-template-form");
-  if (formEl) updateCreateTaskTemplateFieldVisibility(formEl);
+  const formEl = dom.workspaceDetailContent.querySelector("#create-agent-async-task-form");
+  if (formEl) await populateCreateTaskSkillSelect(formEl);
 }
 
-async function submitCreateTaskFromTemplate(formEl) {
+function setTaskSkillSelectOption(selectEl, label, { disabled = true, value = "" } = {}) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  option.disabled = disabled;
+  option.selected = true;
+  selectEl.append(option);
+  selectEl.disabled = disabled;
+}
+
+async function loadTaskSkillsForAgent(agentId) {
+  if (!agentId) return [];
+  if (state.cachedSkillsByAgent.has(agentId)) {
+    const cached = state.cachedSkillsByAgent.get(agentId) || [];
+    if (agentId === state.selectedAgentId) state.cachedSkills = cached;
+    return cached;
+  }
+  const data = await agentApiFor(agentId, "/api/skills");
+  const rawSkills = Array.isArray(data?.skills) ? data.skills : (Array.isArray(data) ? data : []);
+  const mapped = rawSkills.map(toSkillSuggestion).filter((item) => item.command);
+  state.cachedSkillsByAgent.set(agentId, mapped);
+  if (agentId === state.selectedAgentId) state.cachedSkills = mapped;
+  return mapped;
+}
+
+async function populateCreateTaskSkillSelect(formEl) {
+  if (!formEl) return;
+  const agentSelect = formEl.querySelector('[name="assignee_agent_id"]');
+  const skillSelect = formEl.querySelector('[name="skill_name"]');
+  const agentId = String(agentSelect?.value || "").trim();
+  if (!skillSelect) return;
+  if (!agentId) {
+    setTaskSkillSelectOption(skillSelect, "Select an agent first");
+    return;
+  }
+  setTaskSkillSelectOption(skillSelect, "Loading skills...");
+  try {
+    const skills = await loadTaskSkillsForAgent(agentId);
+    skillSelect.innerHTML = "";
+    const callableSkills = skills.filter((skill) => skill.callable !== false);
+    if (!callableSkills.length) {
+      setTaskSkillSelectOption(skillSelect, "No callable skills found");
+      skills.filter((skill) => skill.callable === false).forEach((skill) => {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = `${skill.command} unavailable`;
+        option.disabled = true;
+        option.title = skill.title || skill.blocked_reason || skill.desc || "";
+        skillSelect.append(option);
+      });
+      return;
+    }
+    callableSkills.forEach((skill, index) => {
+      const option = document.createElement("option");
+      option.value = String(skill.command || "").replace(/^\/+/, "");
+      option.textContent = skill.command || `/${option.value}`;
+      option.title = skill.desc || "";
+      option.selected = index === 0;
+      skillSelect.append(option);
+    });
+    skills.filter((skill) => skill.callable === false).forEach((skill) => {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = `${skill.command} unavailable`;
+      option.disabled = true;
+      option.title = skill.title || skill.blocked_reason || skill.desc || "";
+      skillSelect.append(option);
+    });
+    skillSelect.disabled = false;
+  } catch (error) {
+    setTaskSkillSelectOption(skillSelect, `Failed to load skills: ${error.message}`);
+  }
+}
+
+async function submitCreateAgentAsyncTask(formEl) {
   const fd = new FormData(formEl);
-  const payloadInput = {
-    owner: String(fd.get("owner") || "").trim(),
-    repo: String(fd.get("repo") || "").trim(),
-    pull_number: Number(fd.get("pull_number") || 0) || undefined,
-    review_event: String(fd.get("review_event") || "").trim(),
-    writeback_mode: String(fd.get("writeback_mode") || "").trim(),
-    head_sha: String(fd.get("head_sha") || "").trim(),
-    bundle_template_id: String(fd.get("bundle_template_id") || "").trim(),
-    bundle_ref: {
-      repo: String(fd.get("bundle_repo") || "").trim(),
-      path: String(fd.get("bundle_path") || "").trim(),
-      skill_branch: String(fd.get("bundle_branch") || "").trim(),
-    },
-    manifest_ref: {
-      repo: String(fd.get("manifest_repo") || "").trim() || String(fd.get("bundle_repo") || "").trim(),
-      path: String(fd.get("manifest_path") || "").trim() || String(fd.get("bundle_path") || "").trim(),
-      skill_branch: String(fd.get("manifest_branch") || "").trim() || String(fd.get("bundle_branch") || "").trim(),
-    },
-    sources: {
-      jira: splitLines(fd.get("jira_sources")),
-      confluence: splitLines(fd.get("confluence_sources")),
-      github_docs: splitLines(fd.get("github_doc_sources")),
-      figma: splitLines(fd.get("figma_sources")),
-    },
-  };
-  const created = await api("/api/agent-tasks/from-template", {
+  const created = await api("/api/agent-tasks/async", {
     method: "POST",
     body: JSON.stringify({
-      template_id: String(fd.get("template_id") || "").trim(),
       assignee_agent_id: String(fd.get("assignee_agent_id") || "").trim(),
-      dispatch_immediately: fd.get("dispatch_immediately") !== null,
-      input: payloadInput,
+      skill_name: String(fd.get("skill_name") || "").trim(),
+      task_content: String(fd.get("task_content") || "").trim(),
     }),
   });
   await refreshMyTasks();
   await openTaskDetailInMain(created.id);
 }
 
-function splitLines(value) {
-  const raw = String(value || "");
-  return raw.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+async function submitContinueAgentTask(formEl) {
+  const taskId = String(formEl?.dataset?.taskId || "").trim();
+  if (!taskId) throw new Error("Missing task id");
+  const fd = new FormData(formEl);
+  const updated = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/followups`, {
+    method: "POST",
+    body: JSON.stringify({
+      task_content: String(fd.get("task_content") || "").trim(),
+    }),
+  });
+  await refreshMyTasks();
+  await openTaskDetailInMain(updated.id);
 }
 
-function updateCreateTaskTemplateFieldVisibility(formEl) {
-  if (!formEl) return;
-  const templateId = String(formEl.querySelector('[name="template_id"]')?.value || "").trim();
-  const bundleFields = formEl.querySelector("[data-task-bundle-fields]");
-  const sourcesFields = formEl.querySelector("[data-task-sources-fields]");
-  const githubFields = formEl.querySelector("[data-task-github-fields]");
-  const bundleTemplateSelect = formEl.querySelector('[name="bundle_template_id"]');
+async function rerunAgentTask(taskId) {
+  const updated = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/rerun`, { method: "POST" });
+  await refreshMyTasks();
+  await openTaskDetailInMain(updated.id);
+}
 
-  const isGithub = templateId === "github_pr_review";
-  const bundleTemplateIds = new Set([
-    "collect_requirements_to_bundle",
-    "design_test_cases_from_bundle",
-    "collect_research_notes_to_bundle",
-    "generate_implementation_plan_from_bundle",
-    "generate_runbook_from_bundle",
-  ]);
-  const sourcesTemplateIds = new Set(["collect_requirements_to_bundle", "collect_research_notes_to_bundle"]);
-  const isBundle = bundleTemplateIds.has(templateId);
-  const needsSources = sourcesTemplateIds.has(templateId);
-
-  if (bundleFields) bundleFields.classList.toggle("hidden", !isBundle);
-  if (sourcesFields) sourcesFields.classList.toggle("hidden", !needsSources);
-  if (githubFields) githubFields.classList.toggle("hidden", !isGithub);
-
-  const bundleDefaults = {
-    collect_requirements_to_bundle: "requirement.v1",
-    design_test_cases_from_bundle: "requirement.v1",
-    collect_research_notes_to_bundle: "research.v1",
-    generate_implementation_plan_from_bundle: "development.v1",
-    generate_runbook_from_bundle: "operations.v1",
-  };
-  if (bundleTemplateSelect && bundleDefaults[templateId]) {
-    bundleTemplateSelect.value = bundleDefaults[templateId];
-  }
+async function cancelAgentTask(taskId) {
+  const cancelled = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+  await refreshMyTasks();
+  await openTaskDetailInMain(cancelled.id);
 }
 
 async function openEditDialog(agent) {
@@ -10540,21 +10621,31 @@ function bindEvents() {
       }
       return;
     }
-    const taskForm = event.target.closest("#create-task-from-template-form");
+    const taskForm = event.target.closest("#create-agent-async-task-form");
     if (taskForm) {
       event.preventDefault();
       try {
-        await submitCreateTaskFromTemplate(taskForm);
+        await submitCreateAgentAsyncTask(taskForm);
       } catch (error) {
         showToast(`Create task failed: ${error.message}`);
       }
+      return;
+    }
+    const continueTaskForm = event.target.closest("#continue-agent-task-form");
+    if (continueTaskForm) {
+      event.preventDefault();
+      try {
+        await submitContinueAgentTask(continueTaskForm);
+      } catch (error) {
+        showToast(`Continue task failed: ${error.message}`);
+      }
     }
   });
-  dom.workspaceDetailContent?.addEventListener("change", (event) => {
-    const formEl = event.target.closest("#create-task-from-template-form");
+  dom.workspaceDetailContent?.addEventListener("change", async (event) => {
+    const formEl = event.target.closest("#create-agent-async-task-form");
     if (!formEl) return;
-    if (event.target.matches('[name="template_id"]')) {
-      updateCreateTaskTemplateFieldVisibility(formEl);
+    if (event.target.matches('[name="assignee_agent_id"]')) {
+      await populateCreateTaskSkillSelect(formEl);
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
@@ -10610,6 +10701,32 @@ function bindEvents() {
     if (taskBackBtn) {
       event.preventDefault();
       await returnFromTaskDetailToSidebar();
+      return;
+    }
+
+    const cancelTaskBtn = event.target.closest("[data-cancel-task]");
+    if (cancelTaskBtn) {
+      event.preventDefault();
+      const taskId = cancelTaskBtn.dataset.cancelTask || "";
+      if (!taskId) return;
+      try {
+        await cancelAgentTask(taskId);
+      } catch (error) {
+        showToast(`Cancel task failed: ${error.message}`);
+      }
+      return;
+    }
+
+    const rerunTaskBtn = event.target.closest("[data-rerun-task]");
+    if (rerunTaskBtn) {
+      event.preventDefault();
+      const taskId = rerunTaskBtn.dataset.rerunTask || "";
+      if (!taskId) return;
+      try {
+        await rerunAgentTask(taskId);
+      } catch (error) {
+        showToast(`Rerun task failed: ${error.message}`);
+      }
       return;
     }
 
@@ -10820,11 +10937,10 @@ function bindEvents() {
     if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: dom.closeCreateBundleModal })) return;
     const formData = new FormData(form);
     const payload = {
-      template_id: String(formData.get("template_id") || "requirement.v1"),
       title: String(formData.get("title") || ""),
       domain: String(formData.get("domain") || ""),
       slug: String(formData.get("slug") || "").trim() || null,
-      base_skill_branch: String(formData.get("base_branch") || ""),
+      base_branch: String(formData.get("base_branch") || ""),
     };
 
     try {
@@ -10848,7 +10964,6 @@ function bindEvents() {
 
       form.reset();
       form.querySelector('[name="base_branch"]').value = payload.base_branch;
-      form.querySelector('[name="template_id"]').value = 'requirement.v1';
       dom.createBundleModal?.classList.add("hidden");
       dom.createBundleModal?.setAttribute("aria-hidden", "true");
       endSingleSubmit(form, { closeButton: dom.closeCreateBundleModal });

@@ -324,9 +324,6 @@ def test_templates_portalized_for_panel_visual_consistency():
     settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
     bundles_page_html = Path("app/templates/requirement_bundles.html").read_text(encoding="utf-8")
-    group_shared_context_list_html = Path("app/templates/partials/group_shared_context_list.html").read_text(encoding="utf-8")
-    group_shared_context_detail_html = Path("app/templates/partials/group_shared_context_detail.html").read_text(encoding="utf-8")
-    group_task_board_html = Path("app/templates/partials/group_task_board.html").read_text(encoding="utf-8")
     login_html = Path("app/templates/login.html").read_text(encoding="utf-8")
     register_html = Path("app/templates/register.html").read_text(encoding="utf-8")
 
@@ -352,22 +349,6 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert ("portal-password-toggle" in settings_html) or ("portal-password-toggle" in js_source)
     assert "portal-panel-stack" in usage_html
     assert "portal-usage-grid" in usage_html
-    assert "portal-panel-stack" in group_shared_context_list_html
-    assert "portal-panel-stack" in group_shared_context_detail_html
-    assert "portal-panel-stack" in group_task_board_html
-    assert "portal-data-table" in group_shared_context_list_html
-    assert "portal-data-table" in group_task_board_html
-    assert "portal-summary-row" in group_task_board_html
-    assert "portal-summary-chip" in group_task_board_html
-    assert "portal-detail-stack" in group_shared_context_detail_html
-    assert "portal-panel-pre" in group_shared_context_detail_html
-    assert "text-blue-600" not in group_shared_context_list_html
-    assert "border-gray-300" not in group_shared_context_list_html
-    assert "border-gray-300" not in group_shared_context_detail_html
-    assert "border-gray-300" not in group_task_board_html
-    assert "space-y-3 text-sm" not in group_shared_context_list_html
-    assert "space-y-3 text-sm" not in group_task_board_html
-    assert "space-y-2 text-sm" not in group_shared_context_detail_html
     assert "portal-auth-copy" in login_html
     assert "portal-auth-copy" in register_html
     assert "portal-auth-footnote" in login_html

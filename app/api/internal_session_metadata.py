@@ -28,11 +28,11 @@ def get_session_metadata(agent_id: str, session_id: str, include_deleted: bool =
     return AgentSessionMetadataResponse.model_validate(serialize_agent_session_metadata_with_preview(record))
 
 @router.get("/api/internal/agents/{agent_id}/sessions/metadata", response_model=list[AgentSessionMetadataResponse])
-def list_session_metadata(agent_id: str, group_id: str | None = None, latest_event_state: str | None = None, current_task_id: str | None = None, include_deleted: bool = False, db: Session = Depends(get_db)):
+def list_session_metadata(agent_id: str, latest_event_state: str | None = None, current_task_id: str | None = None, include_deleted: bool = False, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    records = AgentSessionMetadataRepository(db).list_by_agent(agent_id, group_id=group_id, latest_event_state=latest_event_state, current_task_id=current_task_id, include_deleted=include_deleted)
+    records = AgentSessionMetadataRepository(db).list_by_agent(agent_id, latest_event_state=latest_event_state, current_task_id=current_task_id, include_deleted=include_deleted)
     return [AgentSessionMetadataResponse.model_validate(serialize_agent_session_metadata_with_preview(item)) for item in records]
 
 @router.delete("/api/internal/agents/{agent_id}/sessions/{session_id}/metadata")

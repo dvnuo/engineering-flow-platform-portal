@@ -19,16 +19,6 @@ DEFAULT_RUNTIME_ADAPTER_ACTIONS_BY_SYSTEM: dict[str, dict[str, str]] = {
         "transition_issue": "adapter:jira:transition_issue",
         "add_comment": "adapter:jira:add_comment",
     },
-    "portal": {
-        "create_delegation": "adapter:portal:create_delegation",
-        "list_group_delegations": "adapter:portal:list_group_delegations",
-        "get_group_task_board": "adapter:portal:get_group_task_board",
-        "list_group_coordination_runs": "adapter:portal:list_group_coordination_runs",
-        "get_coordination_run": "adapter:portal:get_coordination_run",
-        "get_specialist_pool": "adapter:portal:get_specialist_pool",
-        "create_task_agent": "adapter:portal:create_task_agent",
-        "delete_task_agent": "adapter:portal:delete_task_agent",
-    },
 }
 
 

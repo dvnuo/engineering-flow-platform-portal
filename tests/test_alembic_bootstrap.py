@@ -11,8 +11,8 @@ def test_initial_baseline_migration_exists_and_is_root():
     baseline_source = Path("alembic/versions/20260407_0000_initial_portal_schema.py").read_text(encoding="utf-8")
     assert 'revision = "20260407_0000"' in baseline_source
     assert "down_revision = None" in baseline_source
-    for table_name in ["users", "agents", "audit_logs", "agent_delegations"]:
+    for table_name in ["users", "agents", "audit_logs"]:
         assert f'"{table_name}",' in baseline_source
 
-    delegation_source = Path("alembic/versions/20260407_0001_add_delegation_routing_intent.py").read_text(encoding="utf-8")
-    assert 'down_revision = "20260407_0000"' in delegation_source
+    next_source = Path("alembic/versions/20260407_0001_neutral_control_checkpoint.py").read_text(encoding="utf-8")
+    assert 'down_revision = "20260407_0000"' in next_source

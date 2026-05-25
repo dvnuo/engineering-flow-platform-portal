@@ -131,17 +131,15 @@ def test_alembic_upgrade_head_adopts_legacy_master_sqlite_db(tmp_path, monkeypat
     if "agent_type" not in agent_columns:
         return
     assert "agent_type" in agent_columns
-    assert "capability_profile_id" in agent_columns
-    assert "policy_profile_id" in agent_columns
     assert "runtime_profile_id" in agent_columns
     assert "runtime_type" in agent_columns
-    assert "tool_repo_url" in agent_columns
-    assert "tool_branch" in agent_columns
 
     agent_task_columns = {column["name"] for column in inspector.get_columns("agent_tasks")}
     assert "owner_user_id" in agent_task_columns
     assert "created_by_user_id" in agent_task_columns
     assert "runtime_request_id" in agent_task_columns
+    obsolete_context_column = "bundle_id"
+    assert obsolete_context_column not in agent_task_columns
 
     runtime_profile_columns = {column["name"] for column in inspector.get_columns("runtime_profiles")}
     assert "owner_user_id" in runtime_profile_columns

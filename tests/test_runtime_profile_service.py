@@ -69,32 +69,6 @@ def test_delete_default_promotes_other_and_last_delete_conflict():
         svc.delete_for_user(user, rows[0].id)
 
 
-def test_repair_legacy_shared_profiles_clones_and_rebinds():
-    db = _session()
-    u1 = User(username="u1", password_hash="test", role="admin", is_active=True)
-    u2 = User(username="u2", password_hash="test", role="user", is_active=True)
-    db.add_all([u1, u2]); db.commit(); db.refresh(u1); db.refresh(u2)
-
-    rp = RuntimeProfile(owner_user_id=u1.id, name="Global", config_json=json.dumps({"llm": {"provider": "openai"}}), revision=1, is_default=False)
-    db.add(rp); db.commit(); db.refresh(rp)
-
-    db.add_all([_mk_agent(u1.id, rp.id), _mk_agent(u2.id, rp.id)])
-    db.commit()
-
-    svc = RuntimeProfileService(db)
-    svc.repair_legacy_runtime_profiles(db)
-    svc.ensure_defaults_for_all_users(db)
-
-    a1 = db.query(Agent).filter(Agent.owner_user_id == u1.id).one()
-    a2 = db.query(Agent).filter(Agent.owner_user_id == u2.id).one()
-    assert a1.runtime_profile_id != a2.runtime_profile_id
-
-    u1_profiles = svc.list_for_user(u1)
-    u2_profiles = svc.list_for_user(u2)
-    assert len([p for p in u1_profiles if p.is_default]) == 1
-    assert len([p for p in u2_profiles if p.is_default]) == 1
-
-
 def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
     assert cfg["llm"]["model"] == "gpt-5.4-mini"

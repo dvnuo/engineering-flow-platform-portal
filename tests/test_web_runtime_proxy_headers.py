@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.proxy_service import build_portal_agent_identity_headers
+from app.services.proxy_service import build_portal_agent_headers
 
 
 def _web_source() -> str:
@@ -17,7 +17,9 @@ def _proxy_api_source() -> str:
 
 def _extract_between(source: str, start_marker: str, end_marker: str) -> str:
     start = source.index(start_marker)
-    end = source.index(end_marker, start)
+    end = source.find(end_marker, start)
+    if end == -1:
+        end = len(source)
     return source[start:end]
 
 
@@ -61,7 +63,7 @@ def test_identity_headers_helper_adds_portal_user_and_agent_fields():
     fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
     fake_agent = SimpleNamespace(name="Agent One")
 
-    assert build_portal_agent_identity_headers(fake_user, fake_agent) == {
+    assert build_portal_agent_headers(fake_user, fake_agent) == {
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "321",
         "X-Portal-User-Name": "Portal User",
@@ -98,4 +100,4 @@ def test_app_chat_send_route_uses_portal_extra_headers_not_identity_only():
     )
     assert "extra_headers=_portal_extra_headers(user, agent)" in route_source
     assert "extra_headers = _portal_extra_headers(user, agent)" in route_source or "extra_headers=_portal_extra_headers(user, agent)" in route_source
-    assert "extra_headers = build_portal_agent_identity_headers(user, agent)" not in route_source
+    assert "extra_headers = build_portal_agent_headers(user, agent)" not in route_source

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentCoordinationRun, AgentDelegation, AgentTask, User
+from app.models import Agent, AgentTask, RuntimeProfile, User
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.services.auth_service import hash_password
 from app.services.task_dispatcher import TaskDispatcherService
@@ -62,7 +62,6 @@ def _create_task(db: Session, agent_id: str) -> AgentTask:
         source="jira",
         task_type="jira_workflow_review_task",
         input_payload_json='{"a": 1}',
-        shared_context_ref="EFP-1",
         status="queued",
         retry_count=0,
     )
@@ -70,6 +69,39 @@ def _create_task(db: Session, agent_id: str) -> AgentTask:
     db.commit()
     db.refresh(task)
     return task
+
+
+def _attach_github_runtime_profile(db: Session, agent: Agent) -> RuntimeProfile:
+    profile = RuntimeProfile(
+        owner_user_id=agent.owner_user_id,
+        name=f"github-rp-{agent.id}",
+        config_json=json.dumps({"github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "secret"}}),
+        revision=1,
+        is_default=True,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    agent.runtime_profile_id = profile.id
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    return profile
+
+
+def _assert_github_review_authorization(metadata: dict) -> None:
+    assert metadata["authorization_source"] == "runtime_profile"
+    assert metadata["allowed_external_systems"] == ["github"]
+    assert metadata["allowed_actions"] == ["review_pull_request"]
+    assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_ids"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_types"] == ["adapter_action"]
+    assert metadata["resolved_action_mappings"] == {"review_pull_request": "adapter:github:review_pull_request"}
+    assert metadata["unresolved_tools"] == []
+    assert metadata["unresolved_skills"] == []
+    assert metadata["unresolved_channels"] == []
+    assert metadata["unresolved_actions"] == []
+    assert metadata["skill_details"] == []
 
 
 def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
@@ -180,13 +212,218 @@ def test_dispatch_task_sync_runtime_success_compatible(db_session, monkeypatch):
     assert task.status == "done"
 
 
+def test_agent_async_task_dispatch_sends_session_and_metadata(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        id="task-async-1",
+        assignee_agent_id=agent.id,
+        owner_user_id=1,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review branch",
+        skill_name="review",
+        root_task_id="task-async-1",
+        task_session_id="agent-task:task-async-1",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the branch.",
+                "skill_name": "review",
+                "task_session_id": "agent-task:task-async-1",
+                "root_task_id": "task-async-1",
+                "parent_task_id": None,
+                "autonomous_instruction": "Run as a background long-running task. Finish independently.",
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "done"}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "done"
+    assert captured["body"]["task_type"] == "agent_async_task"
+    assert captured["body"]["session_id"] == "agent-task:task-async-1"
+    metadata = captured["body"]["metadata"]
+    assert metadata["portal_task_mode"] == "agent_async_task"
+    assert metadata["portal_skill_name"] == "review"
+    assert metadata["portal_root_task_id"] == "task-async-1"
+    assert metadata["portal_task_session_id"] == "agent-task:task-async-1"
+    assert metadata["system_prompt"] == "Run as a background long-running task. Finish independently."
+
+
+def test_agent_async_task_dispatch_uses_runtime_profile_github_authorization(db_session, monkeypatch):
+    db, agent = db_session
+    _attach_github_runtime_profile(db, agent)
+    task = AgentTask(
+        id="task-async-github-auth",
+        assignee_agent_id=agent.id,
+        owner_user_id=agent.owner_user_id,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review pull request",
+        skill_name="review-pull-request",
+        root_task_id="task-async-github-auth",
+        task_session_id="agent-task:task-async-github-auth",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the pull request.",
+                "skill_name": "review-pull-request",
+                "task_session_id": "agent-task:task-async-github-auth",
+                "root_task_id": "task-async-github-auth",
+                "parent_task_id": None,
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "done"}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert captured["url"].endswith("/api/tasks/execute")
+    assert captured["body"]["task_type"] == "agent_async_task"
+    metadata = captured["body"]["metadata"]
+    assert metadata["runtime_profile_id"] == agent.runtime_profile_id
+    _assert_github_review_authorization(metadata)
+    assert "secret" not in json.dumps(metadata)
+
+
+def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_session, monkeypatch):
+    db, agent = db_session
+    runtime_profile = RuntimeProfile(
+        owner_user_id=agent.owner_user_id,
+        name="OpenCode Copilot",
+        config_json=json.dumps(
+            {
+                "llm": {
+                    "provider": "github_copilot",
+                    "model": "gpt-5.4-mini",
+                }
+            }
+        ),
+        revision=5,
+        is_default=True,
+    )
+    db.add(runtime_profile)
+    db.commit()
+    db.refresh(runtime_profile)
+
+    agent.runtime_type = "opencode"
+    agent.runtime_profile_id = runtime_profile.id
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+
+    task = AgentTask(
+        id="task-opencode-runtime-profile",
+        assignee_agent_id=agent.id,
+        owner_user_id=agent.owner_user_id,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review branch",
+        skill_name="review",
+        root_task_id="task-opencode-runtime-profile",
+        task_session_id="agent-task:task-opencode-runtime-profile",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the branch.",
+                "skill_name": "review",
+                "task_session_id": "agent-task:task-opencode-runtime-profile",
+                "root_task_id": "task-opencode-runtime-profile",
+                "parent_task_id": None,
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "done"}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert captured["url"].endswith("/api/tasks/execute")
+    metadata = captured["body"]["metadata"]
+    assert metadata["provider"] == "github-copilot"
+    assert metadata["model"] == "github-copilot/gpt-5.4-mini"
+    assert metadata["runtime_profile"]["provider"] == "github-copilot"
+    assert metadata["runtime_profile"]["model"] == "github-copilot/gpt-5.4-mini"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "github-copilot/gpt-5.4-mini"
+
+
 def test_dispatcher_derives_summary_from_github_review_summary():
     payload = {
         "ok": True,
         "status": "success",
         "output_payload": {
             "task_type": "github_review_task",
-            "task_template_id": "github_pr_review",
             "review_summary": "Automated PR review summary",
             "automation_rule_id": "rule-1",
             "dedupe_key": "dedupe-1",
@@ -320,12 +557,13 @@ def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_s
 
 def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkeypatch):
     db, agent = db_session
+    _attach_github_runtime_profile(db, agent)
     task = AgentTask(
+        id="task-async-cancelled",
         assignee_agent_id=agent.id,
         source="github",
         task_type="github_review_task",
         input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
-        shared_context_ref="github:review:octo/portal:1:acct:sha-1",
         status="queued",
         retry_count=0,
     )
@@ -368,6 +606,62 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
     assert result.task_status == "stale"
     db.refresh(task)
     assert task.status == "stale"
+
+
+def test_dispatch_late_runtime_success_cannot_overwrite_cancelled(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review branch",
+        skill_name="review",
+        root_task_id="task-async-cancelled",
+        task_session_id="agent-task:task-async-cancelled",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the branch.",
+                "skill_name": "review",
+                "task_session_id": "agent-task:task-async-cancelled",
+                "root_task_id": "task-async-cancelled",
+                "parent_task_id": None,
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class Resp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "ok"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "ok"}
+
+    async def fake_post(_url, _body):
+        fresh = db.get(AgentTask, task.id)
+        fresh.status = "cancelled"
+        fresh.summary = "Cancelled locally."
+        db.add(fresh)
+        db.commit()
+        return Resp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.task_status == "cancelled"
+    assert result.message == "late_runtime_result_ignored_because_task_is_cancelled"
+    db.refresh(task)
+    assert task.status == "cancelled"
+    assert task.summary == "Cancelled locally."
 
 
 def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypatch):
@@ -462,7 +756,7 @@ def test_dispatch_task_in_background_rebinds_parent_context(monkeypatch):
     assert seen["context"]["agent_id"] == "agent-9"
 
 
-def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypatch, db_session):
+def test_triggered_event_task_metadata_includes_automation(monkeypatch, db_session):
     db, agent = db_session
     task = AgentTask(
         assignee_agent_id=agent.id,
@@ -473,7 +767,6 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
         input_payload_json=json.dumps(
             {
                 "source_kind": "jira.mention",
-                "binding_id": "binding-1",
                 "automation_rule": "jira.mentions",
                 "rule_id": "rule-1",
                 "issue_key": "ENG-1",
@@ -481,7 +774,6 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
                 "body": "@agent ping",
             }
         ),
-        shared_context_ref="ENG-1",
         status="queued",
         retry_count=0,
     )
@@ -514,7 +806,6 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
     metadata = captured["body"]["metadata"]
     assert "portal_subscription_id" not in metadata
     assert metadata["source_kind"] == "jira.mention"
-    assert metadata["portal_binding_id"] == "binding-1"
     assert metadata["portal_automation_rule"] == "jira.mentions"
     assert metadata["portal_automation_rule_id"] == "rule-1"
     assert metadata["portal_task_trigger"] == "mention"
@@ -525,6 +816,7 @@ def test_triggered_event_task_metadata_includes_binding_and_automation(monkeypat
     [
         ({"ok": True, "status": "done"}, "done"),
         ({"ok": True, "status": "completed"}, "done"),
+        ({"ok": True, "status": "blocked", "blockers": ["needs access"]}, "blocked"),
         ({"ok": True, "status": "stale"}, "stale"),
         ({"ok": True, "status": "cancelled"}, "cancelled"),
         ({"ok": True, "status": "canceled"}, "cancelled"),
@@ -584,6 +876,7 @@ def test_dispatch_task_sets_pending_restart_summary(db_session, monkeypatch):
 
 def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db_session):
     db, agent = db_session
+    _attach_github_runtime_profile(db, agent)
     task = AgentTask(
         assignee_agent_id=agent.id,
         owner_user_id=1,
@@ -599,7 +892,6 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
                 "execution_mode": "chat_tool_loop",
             }
         ),
-        shared_context_ref="github:pr_review:octo/portal:99",
         status="queued",
         retry_count=0,
     )
@@ -609,6 +901,21 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
 
     service = TaskDispatcherService()
     monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    original_build_runtime_metadata = service.runtime_execution_context_service.build_runtime_metadata
+    authorization_seen = {}
+
+    def build_runtime_metadata_spy(db_arg, agent_arg, base_metadata=None):
+        metadata = original_build_runtime_metadata(db_arg, agent_arg, base_metadata)
+        authorization_seen["allowed_external_systems"] = metadata.get("allowed_external_systems")
+        authorization_seen["allowed_actions"] = metadata.get("allowed_actions")
+        authorization_seen["allowed_adapter_actions"] = metadata.get("allowed_adapter_actions")
+        return metadata
+
+    monkeypatch.setattr(
+        service.runtime_execution_context_service,
+        "build_runtime_metadata",
+        build_runtime_metadata_spy,
+    )
 
     captured = {}
 
@@ -636,16 +943,54 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
     assert runtime_body["task_type"] == "github_review_task"
     assert runtime_body["input_payload"]["execution_mode"] == "chat_tool_loop"
     assert runtime_body["metadata"]["portal_execution_mode"] == "chat_tool_loop"
+    metadata = runtime_body["metadata"]
+    assert metadata["runtime_profile_id"] == agent.runtime_profile_id
+    assert metadata["runtime_profile"]["runtime_profile_id"] == agent.runtime_profile_id
+    assert authorization_seen["allowed_external_systems"] == ["github"]
+    assert authorization_seen["allowed_actions"] == ["review_pull_request"]
+    assert authorization_seen["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    _assert_github_review_authorization(metadata)
+    assert "secret" not in json.dumps(metadata)
+
+
+def test_github_review_dispatch_fails_without_github_runtime_profile(monkeypatch, db_session):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        owner_user_id=1,
+        source="automation_rule",
+        task_type="github_review_task",
+        input_payload_json=json.dumps({"owner": "octo", "repo": "portal", "pull_number": 99, "head_sha": "sha-99"}),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+
+    async def fail_post(_url, _body):
+        raise AssertionError("dispatcher should not post without GitHub runtime profile config")
+
+    monkeypatch.setattr(service, "_post_to_runtime", fail_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+    assert result.dispatched is False
+    assert result.task_status == "failed"
+    db.refresh(task)
+    payload = json.loads(task.result_payload_json)
+    assert payload["error_code"] == "github_runtime_profile_error"
+    assert "runtime profile" in payload["message"]
 
 
 def test_github_review_automation_dispatch_does_not_use_chat_endpoint():
     source = Path("app/services/task_dispatcher.py").read_text()
     assert '"/api/tasks/execute"' in source
+    assert "_grant_github_pr_review_runtime_metadata" not in source
     automation_sources = "\n".join(
         Path(path).read_text()
         for path in [
             "app/services/automation_rule_service.py",
-            "app/services/external_event_router.py",
             "app/services/task_dispatcher.py",
         ]
     )
@@ -653,120 +998,3 @@ def test_github_review_automation_dispatch_does_not_use_chat_endpoint():
     assert "github_review_task" in automation_sources
     assert "/api/chat" not in automation_sources
     assert "/api/chat/stream" not in automation_sources
-
-def test_coordination_run_status_priority_source_markers_present():
-    from pathlib import Path
-    src = Path('app/services/task_dispatcher.py').read_text(encoding='utf-8')
-    assert 'elif counts["pending_restart"] > 0' in src
-    assert 'elif counts["cancel_failed"] > 0 or counts["failed"] > 0' in src
-    assert 'elif counts["stale"] > 0' in src
-    assert 'counts["cancelled"] == len(delegations)' in src
-    assert '"pending_restart": counts["pending_restart"]' in src
-
-
-def test_delegation_error_branch_and_cleanup_policy_source_markers_present():
-    from pathlib import Path
-    src = Path('app/services/task_dispatcher.py').read_text(encoding='utf-8')
-    assert 'mapped_status = self._delegation_status_from_task_status(terminal_status)' in src
-    assert 'Runtime reported pending_restart; restart is required before this delegation can complete.' in src
-    assert 'Task was cancelled.' in src
-    assert 'Runtime reported task is stale.' in src
-    assert 'Runtime failed to cancel task.' in src
-    assert 'return delegation_status in {"done", "failed", "stale", "cancelled", "cancel_failed"}' in src
-
-
-def test_sync_coordination_run_new_statuses_behavior(db_session):
-    db, agent = db_session
-    service = TaskDispatcherService()
-    run = AgentCoordinationRun(group_id="g1", leader_agent_id=agent.id, coordination_run_id="run-1", status="running")
-    db.add(run)
-    db.commit()
-    delegation = AgentDelegation(
-        group_id="g1",
-        parent_agent_id=agent.id,
-        leader_agent_id=agent.id,
-        assignee_agent_id=agent.id,
-        agent_task_id="task-1",
-        objective="obj",
-        coordination_run_id="run-1",
-        status="pending_restart",
-    )
-    db.add(delegation)
-    db.commit()
-    service._sync_coordination_run_from_delegation(db, delegation)
-    db.refresh(run)
-    assert run.status == "pending_restart"
-    assert json.loads(run.summary_json)["pending_restart"] == 1
-    assert run.completed_at is None
-
-    delegation.status = "stale"
-    db.commit()
-    service._sync_coordination_run_from_delegation(db, delegation)
-    db.refresh(run)
-    assert run.status == "stale"
-    assert json.loads(run.summary_json)["stale"] == 1
-    assert run.completed_at is not None
-
-    delegation.status = "cancelled"
-    db.commit()
-    service._sync_coordination_run_from_delegation(db, delegation)
-    db.refresh(run)
-    assert run.status == "cancelled"
-    assert json.loads(run.summary_json)["cancelled"] == 1
-
-    delegation.status = "cancel_failed"
-    db.commit()
-    service._sync_coordination_run_from_delegation(db, delegation)
-    db.refresh(run)
-    assert run.status == "failed"
-    assert json.loads(run.summary_json)["cancel_failed"] == 1
-
-
-@pytest.mark.parametrize(
-    "terminal_status,expected_status,summary_match",
-    [
-        ("pending_restart", "pending_restart", "restart"),
-        ("stale", "stale", "stale"),
-        ("cancelled", "cancelled", "cancelled"),
-        ("cancel_failed", "failed", "cancel"),
-    ],
-)
-def test_sync_delegation_from_task_result_error_branch_status_mapping(db_session, terminal_status, expected_status, summary_match):
-    db, agent = db_session
-    service = TaskDispatcherService()
-    task = AgentTask(
-        assignee_agent_id=agent.id,
-        owner_user_id=agent.owner_user_id,
-        source="test",
-        task_type="delegation_task",
-        input_payload_json='{"task_agent_cleanup_policy":"delete_on_terminal"}',
-        status="running",
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-    delegation = AgentDelegation(
-        group_id="g-del",
-        parent_agent_id=agent.id,
-        leader_agent_id=agent.id,
-        assignee_agent_id=agent.id,
-        agent_task_id=task.id,
-        objective="obj",
-        status="running",
-    )
-    db.add(delegation)
-    db.commit()
-    service._sync_delegation_from_task_result(db, task, "{}", terminal_status)
-    db.refresh(delegation)
-    assert delegation.status == expected_status
-    assert summary_match in (delegation.result_summary or "").lower()
-
-
-def test_should_cleanup_task_agent_delete_on_terminal_behavior():
-    service = TaskDispatcherService()
-    assert service._should_cleanup_task_agent("delete_on_terminal", "done") is True
-    assert service._should_cleanup_task_agent("delete_on_terminal", "failed") is True
-    assert service._should_cleanup_task_agent("delete_on_terminal", "stale") is True
-    assert service._should_cleanup_task_agent("delete_on_terminal", "cancelled") is True
-    assert service._should_cleanup_task_agent("delete_on_terminal", "cancel_failed") is True
-    assert service._should_cleanup_task_agent("delete_on_terminal", "pending_restart") is False

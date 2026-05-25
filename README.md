@@ -47,19 +47,6 @@ Access `http://localhost:8000/login`
 - Username: `admin`
 - Password: Set `BOOTSTRAP_ADMIN_PASSWORD=admin123` env var
 
-### Focused regression checks
-
-When validating routing behavior for external events and settings panel rendering, run the focused regression suite:
-
-```bash
-PYTHONPATH=. pytest -q \
-  tests/test_external_event_ingress.py \
-  tests/test_event_subscription_and_agent_tasks.py \
-  tests/test_web_runtime_profile_settings.py
-```
-
----
-
 ## Configuration
 
 ### Environment Variables
@@ -71,9 +58,6 @@ PYTHONPATH=. pytest -q \
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
-| `GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC secret for `/api/webhooks/github` | (empty) |
-| `JIRA_WEBHOOK_SHARED_SECRET` | Shared secret expected in `X-Efp-Webhook-Secret` for `/api/webhooks/jira` | (empty) |
-| `ALLOW_INSECURE_PROVIDER_WEBHOOKS` | **Dev-only opt-out** to allow provider webhooks without configured secrets (unsafe in production) | `false` |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `K8S_ENABLED` | Enable Kubernetes integration | `false` |
 | `K8S_INCLUSTER` | Use in-cluster config | `true` |
@@ -119,7 +103,6 @@ Kubernetes runtime provisioning behavior:
 - `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.
 - OpenCode runtime then syncs `/app/skills` into `/workspace/.opencode/skills`.
 - Portal does not configure external tools repo/branch/mounts; runtime built-in tools are runtime-owned.
-- Legacy payload fields `tool_repo_url` / `tool_branch` are ignored for backward compatibility.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
 - Runtime tool availability is runtime-owned (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.
@@ -136,12 +119,6 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
 - Portal runtime requests use the current trusted Portal source/header contract in the in-VPC topology.
 - EFP `adapter:portal:*` callbacks require `PORTAL_INTERNAL_BASE_URL`.
 
-### Internal control-plane export contract
-
-- `GET /api/internal/workflow-transition-rules` keeps existing fields (`system_type`, `is_enabled`, `project_key`, `trigger_status`) and also provides compatibility aliases (`provider_type`, `enabled`, `project_keys`, `trigger_statuses`).
-- `GET /api/internal/agent-identity-bindings` keeps existing fields (`system_type`, `scope`, `enabled`) and also provides compatibility aliases (`provider_type`, `scope_json`).
-- Task dispatch metadata now carries canonical session-registry fields used by Runtime publishing: `group_id`, `current_task_id`, `current_delegation_id`, `current_coordination_run_id`.
-
 ### Session Metadata Registry (internal)
 
 - Registry key semantics: **`(agent_id, session_id)`** (agent-scoped), not globally-unique `session_id`.
@@ -150,7 +127,7 @@ Phase 5 productization closure notes (upgrade path + capability snapshot contrac
   - `GET /api/internal/agents/{agent_id}/sessions/{session_id}/metadata`
 - List/query:
   - `GET /api/internal/agents/{agent_id}/sessions/metadata`
-  - optional filters: `group_id`, `latest_event_state`, `current_task_id`
+  - optional filters: `latest_event_state`, `current_task_id`
 
 ### GitHub review supersession lifecycle
 

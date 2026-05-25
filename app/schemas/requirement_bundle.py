@@ -8,13 +8,12 @@ class BundleRef(BaseModel):
 
 
 class RequirementBundleCreateForm(BaseModel):
-    template_id: str = "requirement.v1"
     title: str
     domain: str
     slug: str | None = None
     base_branch: str
 
-    @field_validator("title", "domain", "base_branch", "template_id")
+    @field_validator("title", "domain", "base_branch")
     @classmethod
     def _validate_required(cls, value: str) -> str:
         cleaned = value.strip()
@@ -33,9 +32,7 @@ class RequirementBundleInspectResponse(BaseModel):
     manifest_ref: BundleRef
     bundle_ref: BundleRef
     manifest: dict
-    template_id: str
-    template_label: str
-    template_version: int
+    bundle_label: str
     artifacts: list[BundleArtifactStatus]
     requirements_file: str | None = None
     test_cases_file: str | None = None
@@ -49,8 +46,7 @@ class RequirementBundleListItem(BaseModel):
     title: str
     domain: str
     status: str
-    template_id: str
-    template_label: str
+    bundle_label: str
     artifacts: list[BundleArtifactStatus] | None = None
     bundle_ref: BundleRef
     manifest_ref: BundleRef
@@ -60,13 +56,12 @@ class RequirementBundleListItem(BaseModel):
 
 
 class RequirementBundleCreateRequest(BaseModel):
-    template_id: str = "requirement.v1"
     title: str
     domain: str
     slug: str | None = None
     base_branch: str
 
-    @field_validator("title", "domain", "base_branch", "template_id")
+    @field_validator("title", "domain", "base_branch")
     @classmethod
     def _validate_required(cls, value: str) -> str:
         cleaned = value.strip()

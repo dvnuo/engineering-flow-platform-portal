@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app.services.proxy_service as proxy_module
 from app.services.proxy_service import (
     ProxyService,
-    build_portal_agent_identity_headers,
+    build_portal_agent_headers,
     build_portal_identity_fields,
     build_portal_identity_headers,
     sanitize_header_value,
@@ -350,11 +350,11 @@ def test_build_portal_identity_headers_falls_back_to_sanitized_username():
     }
 
 
-def test_build_portal_agent_identity_headers_adds_sanitized_agent_name():
+def test_build_portal_agent_headers_adds_sanitized_agent_name():
     user = SimpleNamespace(id=123, username="alice", nickname="Alice")
     agent = SimpleNamespace(name=" Agent\r\nName ")
 
-    headers = build_portal_agent_identity_headers(user, agent)
+    headers = build_portal_agent_headers(user, agent)
 
     assert headers == {
         "X-Portal-Author-Source": "portal",
@@ -364,11 +364,11 @@ def test_build_portal_agent_identity_headers_adds_sanitized_agent_name():
     }
 
 
-def test_build_portal_agent_identity_headers_omits_empty_agent_name():
+def test_build_portal_agent_headers_omits_empty_agent_name():
     user = SimpleNamespace(id=123, username="alice", nickname="Alice")
     agent = SimpleNamespace(name=" \r\n\t ")
 
-    headers = build_portal_agent_identity_headers(user, agent)
+    headers = build_portal_agent_headers(user, agent)
 
     assert headers == {
         "X-Portal-Author-Source": "portal",

@@ -269,7 +269,7 @@ def test_attachment_only_send_contract_and_textarea_not_required():
 def test_legacy_app_chat_send_allows_attachment_only_contract():
     web_py = Path("app/web.py").read_text(encoding="utf-8")
     start = web_py.index("async def app_chat_send")
-    end = web_py.index("@router.get(\"/app/agent-groups/{group_id}/task-board/panel\")", start)
+    end = len(web_py)
     block = web_py[start:end]
     assert 'raise HTTPException(status_code=400, detail="Message or attachment required")' in block
     assert '"message": request_message' in block

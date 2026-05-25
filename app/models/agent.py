@@ -23,8 +23,6 @@ class Agent(Base):
     branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated runtime branch snapshot; configured by Portal settings only.
     skill_repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     skill_branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    tool_repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # deprecated: ignored by Portal/API/K8s
-    tool_branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated: ignored by Portal/API/K8s
     cpu: Mapped[Optional[str]] = mapped_column(String(32))
     memory: Mapped[Optional[str]] = mapped_column(String(32))
     disk_size_gi: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
@@ -35,12 +33,7 @@ class Agent(Base):
     pvc_name: Mapped[str] = mapped_column(String(128), nullable=False)
     endpoint_path: Mapped[Optional[str]] = mapped_column(String(255))
     agent_type: Mapped[str] = mapped_column(String(32), nullable=False, default="workspace")
-    capability_profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
-    policy_profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     runtime_profile_id: Mapped[Optional[str]] = mapped_column(ForeignKey("runtime_profiles.id"), nullable=True, index=True)
-    template_agent_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
-    task_scope_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    task_cleanup_policy: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

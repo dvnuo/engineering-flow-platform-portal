@@ -8,7 +8,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
-from app.models.capability_profile import CapabilityProfile
 from app.repositories.automation_rule_repo import AutomationRuleRepository
 
 
@@ -53,7 +52,6 @@ def _create_payload(agent_id: str) -> dict:
         "enabled": True,
         "source_type": "github",
         "trigger_type": "github_pr_review_requested",
-        "task_template_id": "github_pr_review",
         "target_agent_id": agent_id,
         "scope": {"owner": "acme", "repo": "portal"},
         "trigger_config": {"review_target_type": "team", "review_target": "acme/reviewers"},
@@ -103,7 +101,7 @@ def test_automation_rules_api_crud_soft_delete(monkeypatch):
 def test_automation_rules_api_validation_and_missing_github_config():
     client, db, agent, cleanup = _build_client_with_overrides()
     try:
-        bad = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "task_template_id": "github_pr_review", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "invalid", "review_target": "x"}})
+        bad = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "trigger_type": "github_pr_review_requested", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "invalid", "review_target": "x"}})
         assert bad.status_code in (400, 422)
 
         created = client.post("/api/automation-rules", json=_create_payload(agent.id)).json()
@@ -119,62 +117,20 @@ def test_automation_rules_api_validation_and_missing_github_config():
         rp = db.get(RuntimeProfile, agent.runtime_profile_id)
         rp.config_json = json.dumps({"github": {"enabled": False}})
         db.add(rp); db.commit()
-        missing = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "task_template_id": "github_pr_review", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "user", "review_target": "alice"}})
+        missing = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "trigger_type": "github_pr_review_requested", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "user", "review_target": "alice"}})
         assert missing.status_code == 400
         assert "GitHub is not enabled" in missing.json()["detail"]
     finally:
         cleanup()
 
 
-def test_automation_rules_api_capability_profile_gate():
-    client, db, agent, cleanup = _build_client_with_overrides()
+def test_automation_rules_api_pr_review_uses_runtime_profile_github_config():
+    client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        cp_jira = CapabilityProfile(name="cap-jira-only", allowed_external_systems_json='["jira"]')
-        db.add(cp_jira); db.commit(); db.refresh(cp_jira)
-        agent.capability_profile_id = cp_jira.id
-        db.add(agent); db.commit()
-
-        resp = client.post("/api/automation-rules", json=_create_payload(agent.id))
-        assert resp.status_code == 400
-        assert "capability profile does not allow" in resp.json()["detail"]
-
-        cp_ok = CapabilityProfile(
-            name="cap-github-ok",
-            allowed_external_systems_json='["github"]',
-            allowed_webhook_triggers_json='["pull_request_review_requested"]',
-            allowed_actions_json='["review_pull_request"]',
-        )
-        db.add(cp_ok); db.commit(); db.refresh(cp_ok)
-        agent.capability_profile_id = cp_ok.id
-        db.add(agent); db.commit()
-        ok = client.post("/api/automation-rules", json=_create_payload(agent.id))
-        assert ok.status_code == 200
-
-        cp_bad_trigger = CapabilityProfile(
-            name="cap-bad-trigger",
-            allowed_external_systems_json='["github"]',
-            allowed_webhook_triggers_json='["jira.assigned"]',
-            allowed_actions_json='["review_pull_request"]',
-        )
-        db.add(cp_bad_trigger); db.commit(); db.refresh(cp_bad_trigger)
-        agent.capability_profile_id = cp_bad_trigger.id
-        db.add(agent); db.commit()
-        bad_trigger = client.post("/api/automation-rules", json=_create_payload(agent.id))
-        assert bad_trigger.status_code == 400
-        assert "capability profile does not allow" in bad_trigger.json()["detail"]
-
-        cp_bad_action = CapabilityProfile(
-            name="cap-bad-action",
-            allowed_external_systems_json='["github"]',
-            allowed_webhook_triggers_json='["pull_request_review_requested"]',
-            allowed_actions_json='["jira_transition"]',
-        )
-        db.add(cp_bad_action); db.commit(); db.refresh(cp_bad_action)
-        agent.capability_profile_id = cp_bad_action.id
-        db.add(agent); db.commit()
-        bad_action = client.post("/api/automation-rules", json=_create_payload(agent.id))
-        assert bad_action.status_code == 400
-        assert "capability profile does not allow" in bad_action.json()["detail"]
+        payload = _create_payload(agent.id)
+        payload["name"] = "runtime-github-config"
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 200
     finally:
         cleanup()
 
@@ -223,13 +179,13 @@ def test_automation_rules_api_update_merged_validation_and_events_updated_at():
         cleanup()
 
 
-def test_api_create_github_comment_mention_rule_success_without_trigger_type():
+def test_api_create_github_comment_mention_rule_success():
     client, _db, agent, cleanup = _build_client_with_overrides()
     try:
         payload = {
             "name": "mention rule",
             "target_agent_id": agent.id,
-            "task_template_id": "github_comment_mention",
+            "trigger_type": "github_comment_mention",
             "scope": {"owner": "acme", "repo": "portal"},
             "trigger_config": {"mention_target": "efp-agent"},
         }
@@ -248,7 +204,7 @@ def test_api_create_github_comment_mention_bad_surface_returns_400():
         payload = {
             "name": "mention rule",
             "target_agent_id": agent.id,
-            "task_template_id": "github_comment_mention",
+            "trigger_type": "github_comment_mention",
             "scope": {"owner": "acme", "repo": "portal", "surfaces": ["bad_surface"]},
             "trigger_config": {"mention_target": "efp-agent"},
         }
@@ -264,7 +220,7 @@ def test_api_create_github_comment_mention_bad_schedule_returns_400():
         payload = {
             "name": "mention rule",
             "target_agent_id": agent.id,
-            "task_template_id": "github_comment_mention",
+            "trigger_type": "github_comment_mention",
             "scope": {"owner": "acme", "repo": "portal"},
             "trigger_config": {"mention_target": "efp-agent"},
             "schedule": {"interval_seconds": "abc"},
@@ -283,7 +239,7 @@ def test_api_create_github_comment_mention_wrong_source_type_returns_400():
             "name": "mention rule",
             "target_agent_id": agent.id,
             "source_type": "jira",
-            "task_template_id": "github_comment_mention",
+            "trigger_type": "github_comment_mention",
             "scope": {"owner": "acme", "repo": "portal"},
             "trigger_config": {"mention_target": "efp-agent"},
         }
@@ -294,49 +250,40 @@ def test_api_create_github_comment_mention_wrong_source_type_returns_400():
         cleanup()
 
 
-def test_api_create_github_comment_mention_wrong_trigger_type_returns_400():
+def test_api_create_unknown_trigger_type_returns_400():
     client, _db, agent, cleanup = _build_client_with_overrides()
     try:
         payload = {
             "name": "mention rule",
             "target_agent_id": agent.id,
             "source_type": "github",
-            "trigger_type": "github_pr_review_requested",
-            "task_template_id": "github_comment_mention",
+            "trigger_type": "unsupported_trigger",
             "scope": {"owner": "acme", "repo": "portal"},
             "trigger_config": {"mention_target": "efp-agent"},
         }
         resp = client.post("/api/automation-rules", json=payload)
         assert resp.status_code == 400
-        assert "trigger_type must be github_comment_mention" in resp.json()["detail"]
+        assert "trigger_type must be one of" in resp.json()["detail"]
     finally:
         cleanup()
 
 
-def test_api_create_commit_comment_surface_success_when_capability_allows():
-    client, db, agent, cleanup = _build_client_with_overrides()
+def test_api_create_commit_comment_surface_success():
+    client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        cp_ok = CapabilityProfile(name="cap-commit-ok", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment","add_commit_comment"]')
-        db.add(cp_ok); db.commit(); db.refresh(cp_ok)
-        agent.capability_profile_id = cp_ok.id
-        db.add(agent); db.commit()
-        payload = {"name": "mention", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
+        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
         resp = client.post("/api/automation-rules", json=payload)
         assert resp.status_code == 200
     finally:
         cleanup()
 
 
-def test_api_create_commit_comment_surface_blocked_when_capability_missing():
-    client, db, agent, cleanup = _build_client_with_overrides()
+def test_api_create_commit_comment_surface_with_minimal_runtime_config():
+    client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        cp_bad = CapabilityProfile(name="cap-commit-bad", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment"]')
-        db.add(cp_bad); db.commit(); db.refresh(cp_bad)
-        agent.capability_profile_id = cp_bad.id
-        db.add(agent); db.commit()
-        payload = {"name": "mention", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
+        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
         resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 400
+        assert resp.status_code == 200
     finally:
         cleanup()
 
@@ -344,47 +291,36 @@ def test_api_create_commit_comment_surface_blocked_when_capability_missing():
 def test_api_create_org_scope_success():
     client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        payload = {"name": "org-mention", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"mode": "org", "owner": "acme", "repo_selector": {"include": ["api-*"], "exclude": ["old-*"]}}, "trigger_config": {"mention_target": "efp-agent"}}
+        payload = {"name": "org-mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"mode": "org", "owner": "acme", "repo_selector": {"include": ["api-*"], "exclude": ["old-*"]}}, "trigger_config": {"mention_target": "efp-agent"}}
         resp = client.post("/api/automation-rules", json=payload)
         assert resp.status_code == 200
     finally:
         cleanup()
 
 
-def test_api_create_discussion_comment_success_when_capability_allows():
-    client, db, agent, cleanup = _build_client_with_overrides()
+def test_api_create_discussion_comment_success():
+    client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        cp_ok = CapabilityProfile(name="cap-disc-ok", allowed_external_systems_json='["github"]', allowed_actions_json='["add_discussion_comment"]')
-        db.add(cp_ok); db.commit(); db.refresh(cp_ok)
-        agent.capability_profile_id = cp_ok.id
-        db.add(agent); db.commit()
-        payload = {"name": "mention", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
+        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
         resp = client.post("/api/automation-rules", json=payload)
         assert resp.status_code == 200
     finally:
         cleanup()
 
 
-def test_api_create_discussion_comment_returns_400_when_capability_missing():
-    client, db, agent, cleanup = _build_client_with_overrides()
+def test_api_create_discussion_comment_with_minimal_runtime_config():
+    client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        cp_bad = CapabilityProfile(name="cap-disc-bad", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment"]')
-        db.add(cp_bad); db.commit(); db.refresh(cp_bad)
-        agent.capability_profile_id = cp_bad.id
-        db.add(agent); db.commit()
-        payload = {"name": "mention", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
+        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
         resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 400
+        assert resp.status_code == 200
     finally:
         cleanup()
 
 def test_api_create_commit_comment_with_tail_pages_succeeds():
-    client, db, agent, cleanup = _build_client_with_overrides()
+    client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        cp_ok = CapabilityProfile(name="cap-commit-tail", allowed_external_systems_json='["github"]', allowed_actions_json='["add_comment","reply_review_comment","add_commit_comment"]')
-        db.add(cp_ok); db.commit(); db.refresh(cp_ok)
-        agent.capability_profile_id = cp_ok.id; db.add(agent); db.commit()
-        payload = {"name": "mention", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "commit_comment_initial_tail_pages": 3}}
+        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "commit_comment_initial_tail_pages": 3}}
         resp = client.post("/api/automation-rules", json=payload)
         assert resp.status_code == 200
     finally:
@@ -394,7 +330,7 @@ def test_api_create_commit_comment_with_tail_pages_succeeds():
 def test_api_create_org_mode_with_max_repos_per_run_succeeds():
     client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        payload = {"name": "org-limit", "target_agent_id": agent.id, "task_template_id": "github_comment_mention", "scope": {"mode": "org", "owner": "acme", "repo_selector": {"include": ["*"]}}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "max_repos_per_run": 10}}
+        payload = {"name": "org-limit", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"mode": "org", "owner": "acme", "repo_selector": {"include": ["*"]}}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "max_repos_per_run": 10}}
         resp = client.post("/api/automation-rules", json=payload)
         assert resp.status_code == 200
     finally:
@@ -405,7 +341,7 @@ def test_api_create_org_mode_with_max_repos_per_run_succeeds():
 def test_api_create_account_notifications_mode_success():
     client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        payload={"name":"acc","target_agent_id":agent.id,"task_template_id":"github_comment_mention","scope":{"mode":"account_notifications","surfaces":["issue_comment"],"notification_reasons":["mention"]},"trigger_config":{"mention_target":"efp-agent"}}
+        payload={"name":"acc","target_agent_id":agent.id,"trigger_type": "github_comment_mention","scope":{"mode":"account_notifications","surfaces":["issue_comment"],"notification_reasons":["mention"]},"trigger_config":{"mention_target":"efp-agent"}}
         r=client.post('/api/automation-rules', json=payload)
         assert r.status_code==200
         b=r.json(); assert b["trigger_type"]=="github_comment_mention" and b["task_type"]=="triggered_event_task"
@@ -415,7 +351,7 @@ def test_api_create_account_notifications_mode_success():
 def test_api_create_account_notifications_bad_notification_reasons_returns_400():
     client, _db, agent, cleanup = _build_client_with_overrides()
     try:
-        payload={"name":"acc","target_agent_id":agent.id,"task_template_id":"github_comment_mention","scope":{"mode":"account_notifications","notification_reasons":"mention"},"trigger_config":{"mention_target":"efp-agent"}}
+        payload={"name":"acc","target_agent_id":agent.id,"trigger_type": "github_comment_mention","scope":{"mode":"account_notifications","notification_reasons":"mention"},"trigger_config":{"mention_target":"efp-agent"}}
         r=client.post('/api/automation-rules', json=payload)
         assert r.status_code==400
     finally:
