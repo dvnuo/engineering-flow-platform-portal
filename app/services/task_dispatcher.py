@@ -536,6 +536,15 @@ class TaskDispatcherService:
                     metadata["source_kind"] = source_kind
                 automation_rule = input_payload.get("automation_rule")
                 automation_rule_id = input_payload.get("automation_rule_id") or input_payload.get("rule_id")
+                automation_payload = input_payload.get("automation")
+                if isinstance(automation_payload, dict):
+                    automation_rule_id = automation_rule_id or automation_payload.get("rule_id")
+                    automation_source = automation_payload.get("source")
+                    automation_provider = automation_payload.get("provider")
+                    if automation_source:
+                        metadata["portal_automation_source"] = str(automation_source)
+                    if automation_provider:
+                        metadata["portal_automation_provider"] = str(automation_provider)
                 if automation_rule:
                     metadata["portal_automation_rule"] = automation_rule
                 if automation_rule_id:

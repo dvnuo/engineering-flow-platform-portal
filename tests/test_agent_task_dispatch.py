@@ -756,22 +756,36 @@ def test_dispatch_task_in_background_rebinds_parent_context(monkeypatch):
     assert seen["context"]["agent_id"] == "agent-9"
 
 
-def test_triggered_event_task_metadata_includes_automation(monkeypatch, db_session):
+def test_agent_async_automation_task_metadata_includes_source(monkeypatch, db_session):
     db, agent = db_session
     task = AgentTask(
+        id="automation-agent-task-1",
         assignee_agent_id=agent.id,
         owner_user_id=1,
-        source="jira",
-        task_type="triggered_event_task",
-        trigger="mention",
+        source="automation",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        provider="jira",
+        trigger="jira_mention",
+        skill_name="reply-skill",
+        root_task_id="automation-agent-task-1",
+        task_session_id="automation:rule-1:event-1",
         input_payload_json=json.dumps(
             {
-                "source_kind": "jira.mention",
-                "automation_rule": "jira.mentions",
-                "rule_id": "rule-1",
-                "issue_key": "ENG-1",
-                "project_key": "ENG",
-                "body": "@agent ping",
+                "schema": "agent_async_task.v1",
+                "skill_name": "reply-skill",
+                "task_session_id": "automation:rule-1:event-1",
+                "root_task_id": "automation-agent-task-1",
+                "parent_task_id": None,
+                "user_task": "You are responding as Bot User.\nJira issue:\nhttps://jira.local/browse/ENG-1\n\nComment:\nBot User ping",
+                "automation": {
+                    "rule_id": "rule-1",
+                    "source": "jira_mention",
+                    "provider": "jira",
+                    "source_url": "https://jira.local/browse/ENG-1",
+                    "represented_identity": "Bot User",
+                    "reply_target": {"provider": "jira", "kind": "issue_comment", "issue_key": "ENG-1"},
+                },
             }
         ),
         status="queued",
@@ -805,10 +819,12 @@ def test_triggered_event_task_metadata_includes_automation(monkeypatch, db_sessi
 
     metadata = captured["body"]["metadata"]
     assert "portal_subscription_id" not in metadata
-    assert metadata["source_kind"] == "jira.mention"
-    assert metadata["portal_automation_rule"] == "jira.mentions"
     assert metadata["portal_automation_rule_id"] == "rule-1"
-    assert metadata["portal_task_trigger"] == "mention"
+    assert metadata["portal_automation_source"] == "jira_mention"
+    assert metadata["portal_automation_provider"] == "jira"
+    assert metadata["portal_task_trigger"] == "jira_mention"
+    assert metadata["portal_task_mode"] == "agent_async_task"
+    assert metadata["portal_skill_name"] == "reply-skill"
 
 
 @pytest.mark.parametrize(
@@ -987,14 +1003,9 @@ def test_github_review_automation_dispatch_does_not_use_chat_endpoint():
     source = Path("app/services/task_dispatcher.py").read_text()
     assert '"/api/tasks/execute"' in source
     assert "_grant_github_pr_review_runtime_metadata" not in source
-    automation_sources = "\n".join(
-        Path(path).read_text()
-        for path in [
-            "app/services/automation_rule_service.py",
-            "app/services/task_dispatcher.py",
-        ]
-    )
-
-    assert "github_review_task" in automation_sources
-    assert "/api/chat" not in automation_sources
-    assert "/api/chat/stream" not in automation_sources
+    automation_service = Path("app/services/automation_rule_service.py").read_text()
+    assert '"agent_async_task"' in automation_service
+    assert "github_review_task" not in automation_service
+    assert "triggered_event_task" not in automation_service
+    assert "/api/chat" not in automation_service
+    assert "/api/chat/stream" not in automation_service

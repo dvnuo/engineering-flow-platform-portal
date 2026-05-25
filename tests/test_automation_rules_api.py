@@ -21,11 +21,86 @@ def _build_client_with_overrides():
 
     db = TestingSessionLocal()
     user = User(username="owner", password_hash="pw", role="admin", is_active=True)
-    db.add(user); db.commit(); db.refresh(user)
-    rp = RuntimeProfile(owner_user_id=user.id, name="rp", config_json=json.dumps({"github": {"enabled": True, "base_url": "", "api_token": "secret"}}), is_default=True)
-    db.add(rp); db.commit(); db.refresh(rp)
-    agent = Agent(name="a", owner_user_id=user.id, visibility="private", status="running", image="img", runtime_profile_id=rp.id, disk_size_gi=20, mount_path="/root/.efp", namespace="efp", deployment_name="d", service_name="s", pvc_name="p", endpoint_path="/", agent_type="workspace")
-    db.add(agent); db.commit(); db.refresh(agent)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    both_profile = RuntimeProfile(
+        owner_user_id=user.id,
+        name="both",
+        config_json=json.dumps(
+            {
+                "github": {"enabled": True, "base_url": "https://api.github.com", "api_token": "gh-secret"},
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {
+                            "name": "jira",
+                            "url": "https://jira.local",
+                            "username": "bot@example.com",
+                            "token": "jira-secret",
+                            "enabled": True,
+                            "api_version": "2",
+                        }
+                    ],
+                },
+            }
+        ),
+        is_default=True,
+    )
+    github_profile = RuntimeProfile(
+        owner_user_id=user.id,
+        name="github",
+        config_json=json.dumps({"github": {"enabled": True, "api_token": "gh-secret"}}),
+        is_default=False,
+    )
+    jira_profile = RuntimeProfile(
+        owner_user_id=user.id,
+        name="jira",
+        config_json=json.dumps(
+            {
+                "jira": {
+                    "enabled": True,
+                    "instances": [{"url": "https://jira.local", "username": "bot@example.com", "token": "jira-secret"}],
+                }
+            }
+        ),
+        is_default=False,
+    )
+    empty_profile = RuntimeProfile(owner_user_id=user.id, name="empty", config_json="{}", is_default=False)
+    db.add_all([both_profile, github_profile, jira_profile, empty_profile])
+    db.commit()
+    for profile in (both_profile, github_profile, jira_profile, empty_profile):
+        db.refresh(profile)
+
+    def add_agent(name: str, runtime_profile_id: str):
+        agent = Agent(
+            name=name,
+            owner_user_id=user.id,
+            visibility="private",
+            status="running",
+            image="img",
+            runtime_profile_id=runtime_profile_id,
+            disk_size_gi=20,
+            mount_path="/root/.efp",
+            namespace="efp",
+            deployment_name=f"d-{name}",
+            service_name=f"s-{name}",
+            pvc_name=f"p-{name}",
+            endpoint_path="/",
+            agent_type="workspace",
+        )
+        db.add(agent)
+        db.commit()
+        db.refresh(agent)
+        return agent
+
+    agents = SimpleNamespace(
+        both=add_agent("both", both_profile.id),
+        github=add_agent("github", github_profile.id),
+        jira=add_agent("jira", jira_profile.id),
+        empty=add_agent("empty", empty_profile.id),
+    )
 
     state = {"user": user}
 
@@ -43,316 +118,136 @@ def _build_client_with_overrides():
         app.dependency_overrides.clear()
         db.close()
 
-    return TestClient(app), db, agent, _cleanup
+    return TestClient(app), db, agents, _cleanup
 
 
-def _create_payload(agent_id: str) -> dict:
+def _payload(agent_id: str, source: str = "github_pr_review") -> dict:
     return {
-        "name": "Review EFP PRs",
+        "name": f"Automation {source}",
         "enabled": True,
-        "source_type": "github",
-        "trigger_type": "github_pr_review_requested",
         "target_agent_id": agent_id,
-        "scope": {"owner": "acme", "repo": "portal"},
-        "trigger_config": {"review_target_type": "team", "review_target": "acme/reviewers"},
-        "task_input_defaults": {"skill_name": "review-pull-request", "review_event": "comment"},
-        "schedule": {"interval_seconds": 60},
+        "skill_name": "selected-skill",
+        "source": source,
+        "interval_seconds": 60,
     }
 
 
-def test_automation_rules_api_crud_soft_delete(monkeypatch):
-    client, db, agent, cleanup = _build_client_with_overrides()
+def test_api_create_accepts_all_sources():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        for source in ["github_pr_review", "github_pr_mention", "jira_assignee", "jira_mention"]:
+            resp = client.post("/api/automation-rules", json=_payload(agents.both.id, source))
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["source"] == source
+            assert body["trigger_type"] == source
+            assert body["task_type"] == "agent_async_task"
+            assert body["skill_name"] == "selected-skill"
+            assert body["interval_seconds"] == 60
+    finally:
+        cleanup()
+
+
+def test_api_rejects_unknown_source_with_400():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        resp = client.post("/api/automation-rules", json=_payload(agents.both.id, "unknown_source"))
+        assert resp.status_code == 400
+        assert "source must be one of" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_api_create_requires_skill_name():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        payload = _payload(agents.both.id)
+        payload.pop("skill_name")
+        resp = client.post("/api/automation-rules", json=payload)
+        assert resp.status_code == 422
+    finally:
+        cleanup()
+
+
+def test_api_create_github_source_requires_agent_github_runtime_profile():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        ok = client.post("/api/automation-rules", json=_payload(agents.github.id, "github_pr_review"))
+        assert ok.status_code == 200
+        missing = client.post("/api/automation-rules", json=_payload(agents.empty.id, "github_pr_review"))
+        assert missing.status_code == 400
+        assert "GitHub" in missing.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_api_create_jira_source_requires_agent_jira_runtime_profile():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        ok = client.post("/api/automation-rules", json=_payload(agents.jira.id, "jira_assignee"))
+        assert ok.status_code == 200
+        missing = client.post("/api/automation-rules", json=_payload(agents.empty.id, "jira_assignee"))
+        assert missing.status_code == 400
+        assert "Jira" in missing.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_automation_rules_api_crud_update_and_soft_delete(monkeypatch):
+    client, db, agents, cleanup = _build_client_with_overrides()
     try:
         async def _fake_run(self, rule_id, triggered_by="api"):
             from app.services.automation_rule_service import RunOnceResult
-            return RunOnceResult(rule_id=rule_id, status="success", found_count=1, created_task_count=1, skipped_count=0, run_id="run-1", created_task_ids=["task-1"])
+
+            return RunOnceResult(
+                rule_id=rule_id,
+                status="success",
+                found_count=1,
+                created_task_count=1,
+                skipped_count=0,
+                run_id="run-1",
+                created_task_ids=["task-1"],
+            )
 
         monkeypatch.setattr("app.services.automation_rule_service.AutomationRuleService.run_rule_once", _fake_run)
 
-        create_resp = client.post("/api/automation-rules", json=_create_payload(agent.id))
+        create_resp = client.post("/api/automation-rules", json=_payload(agents.both.id, "github_pr_review"))
         assert create_resp.status_code == 200
         created = create_resp.json()
+
+        patch_resp = client.patch(
+            f"/api/automation-rules/{created['id']}",
+            json={"skill_name": "other-skill", "interval_seconds": 120, "enabled": False},
+        )
+        assert patch_resp.status_code == 200
+        patched = patch_resp.json()
+        assert patched["skill_name"] == "other-skill"
+        assert patched["interval_seconds"] == 120
+        assert patched["enabled"] is False
 
         run_resp = client.post(f"/api/automation-rules/{created['id']}/run-once")
         assert run_resp.status_code == 200
 
+        repo = AutomationRuleRepository(db)
+        repo.create_event(
+            rule_id=created["id"],
+            dedupe_key="source:item:1",
+            source_payload_json="{}",
+            normalized_payload_json=json.dumps({"source": "github_pr_review", "source_url": "https://example/pr/1"}),
+            status="discovered",
+        )
+        events_resp = client.get(f"/api/automation-rules/{created['id']}/events")
+        assert events_resp.status_code == 200
+        assert events_resp.json()[0]["updated_at"] is not None
+
         delete_resp = client.delete(f"/api/automation-rules/{created['id']}")
         assert delete_resp.status_code == 200
-
         list_resp = client.get("/api/automation-rules")
         assert list_resp.status_code == 200
         assert list_resp.json() == []
 
-        get_resp = client.get(f"/api/automation-rules/{created['id']}")
-        assert get_resp.status_code == 200
-        assert get_resp.json()["enabled"] is False
-
-        from app.repositories.automation_rule_repo import AutomationRuleRepository
-        from app.models.automation_rule import AutomationRuleRun
-
         rule = AutomationRuleRepository(db).get(created["id"])
         state = json.loads(rule.state_json)
         assert state["deleted"] is True
-        assert db.query(AutomationRuleRun).filter(AutomationRuleRun.rule_id == created["id"]).count() >= 0
-    finally:
-        cleanup()
-
-
-def test_automation_rules_api_validation_and_missing_github_config():
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        bad = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "trigger_type": "github_pr_review_requested", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "invalid", "review_target": "x"}})
-        assert bad.status_code in (400, 422)
-
-        created = client.post("/api/automation-rules", json=_create_payload(agent.id)).json()
-        patch_empty = client.patch(f"/api/automation-rules/{created['id']}", json={"scope": {"owner": ""}})
-        assert patch_empty.status_code in (400, 422)
-        patch_bad = client.patch(f"/api/automation-rules/{created['id']}", json={"trigger_config": {"review_target_type": "bad"}})
-        assert patch_bad.status_code in (400, 422)
-        patch_interval = client.patch(f"/api/automation-rules/{created['id']}", json={"schedule": {"interval_seconds": 1}})
-        assert patch_interval.status_code == 200
-        ok_patch = client.patch(f"/api/automation-rules/{created['id']}", json={"enabled": False})
-        assert ok_patch.status_code == 200
-
-        rp = db.get(RuntimeProfile, agent.runtime_profile_id)
-        rp.config_json = json.dumps({"github": {"enabled": False}})
-        db.add(rp); db.commit()
-        missing = client.post("/api/automation-rules", json={"name": "x", "target_agent_id": agent.id, "trigger_type": "github_pr_review_requested", "scope": {"owner": "acme", "repo": "portal"}, "trigger_config": {"review_target_type": "user", "review_target": "alice"}})
-        assert missing.status_code == 400
-        assert "GitHub is not enabled" in missing.json()["detail"]
-    finally:
-        cleanup()
-
-
-def test_automation_rules_api_pr_review_uses_runtime_profile_github_config():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = _create_payload(agent.id)
-        payload["name"] = "runtime-github-config"
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_automation_rules_api_update_merged_validation_and_events_updated_at():
-    client, db, agent, cleanup = _build_client_with_overrides()
-    try:
-        create_payload = _create_payload(agent.id)
-        create_payload["trigger_config"] = {"review_target_type": "user", "review_target": "alice"}
-        created_resp = client.post("/api/automation-rules", json=create_payload)
-        assert created_resp.status_code == 200
-        rule = created_resp.json()
-
-        bad_target = client.patch(f"/api/automation-rules/{rule['id']}", json={"trigger_config": {"review_target": "alice bob"}})
-        assert bad_target.status_code in (400, 422)
-        saved_rule = AutomationRuleRepository(db).get(rule["id"])
-        saved_trigger = json.loads(saved_rule.trigger_config_json or "{}")
-        assert saved_trigger.get("review_target") == "alice"
-
-        good_team = client.patch(
-            f"/api/automation-rules/{rule['id']}",
-            json={"trigger_config": {"review_target_type": "team", "review_target": "acme/reviewers"}},
-        )
-        assert good_team.status_code == 200
-
-        bad_event = client.patch(f"/api/automation-rules/{rule['id']}", json={"task_input_defaults": {"review_event": "bad"}})
-        assert bad_event.status_code in (400, 422)
-        bad_owner = client.patch(f"/api/automation-rules/{rule['id']}", json={"scope": {"owner": ""}})
-        assert bad_owner.status_code in (400, 422)
-
-        repo = AutomationRuleRepository(db)
-        repo.create_event(
-            rule_id=rule["id"],
-            dedupe_key="api:event:1",
-            source_payload_json="{}",
-            normalized_payload_json="{}",
-            status="discovered",
-        )
-
-        events_resp = client.get(f"/api/automation-rules/{rule['id']}/events")
-        assert events_resp.status_code == 200
-        events = events_resp.json()
-        assert events
-        assert "updated_at" in events[0]
-    finally:
-        cleanup()
-
-
-def test_api_create_github_comment_mention_rule_success():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {
-            "name": "mention rule",
-            "target_agent_id": agent.id,
-            "trigger_type": "github_comment_mention",
-            "scope": {"owner": "acme", "repo": "portal"},
-            "trigger_config": {"mention_target": "efp-agent"},
-        }
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["trigger_type"] == "github_comment_mention"
-        assert body["task_type"] == "triggered_event_task"
-    finally:
-        cleanup()
-
-
-def test_api_create_github_comment_mention_bad_surface_returns_400():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {
-            "name": "mention rule",
-            "target_agent_id": agent.id,
-            "trigger_type": "github_comment_mention",
-            "scope": {"owner": "acme", "repo": "portal", "surfaces": ["bad_surface"]},
-            "trigger_config": {"mention_target": "efp-agent"},
-        }
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 400
-    finally:
-        cleanup()
-
-
-def test_api_create_github_comment_mention_bad_schedule_returns_400():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {
-            "name": "mention rule",
-            "target_agent_id": agent.id,
-            "trigger_type": "github_comment_mention",
-            "scope": {"owner": "acme", "repo": "portal"},
-            "trigger_config": {"mention_target": "efp-agent"},
-            "schedule": {"interval_seconds": "abc"},
-        }
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 400
-        assert "schedule.interval_seconds must be an integer" in resp.json()["detail"]
-    finally:
-        cleanup()
-
-
-def test_api_create_github_comment_mention_wrong_source_type_returns_400():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {
-            "name": "mention rule",
-            "target_agent_id": agent.id,
-            "source_type": "jira",
-            "trigger_type": "github_comment_mention",
-            "scope": {"owner": "acme", "repo": "portal"},
-            "trigger_config": {"mention_target": "efp-agent"},
-        }
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 400
-        assert "source_type must be github" in resp.json()["detail"]
-    finally:
-        cleanup()
-
-
-def test_api_create_unknown_trigger_type_returns_400():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {
-            "name": "mention rule",
-            "target_agent_id": agent.id,
-            "source_type": "github",
-            "trigger_type": "unsupported_trigger",
-            "scope": {"owner": "acme", "repo": "portal"},
-            "trigger_config": {"mention_target": "efp-agent"},
-        }
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 400
-        assert "trigger_type must be one of" in resp.json()["detail"]
-    finally:
-        cleanup()
-
-
-def test_api_create_commit_comment_surface_success():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_api_create_commit_comment_surface_with_minimal_runtime_config():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_api_create_org_scope_success():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {"name": "org-mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"mode": "org", "owner": "acme", "repo_selector": {"include": ["api-*"], "exclude": ["old-*"]}}, "trigger_config": {"mention_target": "efp-agent"}}
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_api_create_discussion_comment_success():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_api_create_discussion_comment_with_minimal_runtime_config():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["discussion_comment"]}, "trigger_config": {"mention_target": "efp-agent"}}
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-def test_api_create_commit_comment_with_tail_pages_succeeds():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {"name": "mention", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"owner": "acme", "repo": "portal", "surfaces": ["commit_comment"]}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "commit_comment_initial_tail_pages": 3}}
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-
-def test_api_create_org_mode_with_max_repos_per_run_succeeds():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload = {"name": "org-limit", "target_agent_id": agent.id, "trigger_type": "github_comment_mention", "scope": {"mode": "org", "owner": "acme", "repo_selector": {"include": ["*"]}}, "trigger_config": {"mention_target": "efp-agent"}, "schedule": {"interval_seconds": 60, "max_repos_per_run": 10}}
-        resp = client.post("/api/automation-rules", json=payload)
-        assert resp.status_code == 200
-    finally:
-        cleanup()
-
-
-
-def test_api_create_account_notifications_mode_success():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload={"name":"acc","target_agent_id":agent.id,"trigger_type": "github_comment_mention","scope":{"mode":"account_notifications","surfaces":["issue_comment"],"notification_reasons":["mention"]},"trigger_config":{"mention_target":"efp-agent"}}
-        r=client.post('/api/automation-rules', json=payload)
-        assert r.status_code==200
-        b=r.json(); assert b["trigger_type"]=="github_comment_mention" and b["task_type"]=="triggered_event_task"
-    finally:
-        cleanup()
-
-def test_api_create_account_notifications_bad_notification_reasons_returns_400():
-    client, _db, agent, cleanup = _build_client_with_overrides()
-    try:
-        payload={"name":"acc","target_agent_id":agent.id,"trigger_type": "github_comment_mention","scope":{"mode":"account_notifications","notification_reasons":"mention"},"trigger_config":{"mention_target":"efp-agent"}}
-        r=client.post('/api/automation-rules', json=payload)
-        assert r.status_code==400
     finally:
         cleanup()

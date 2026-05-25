@@ -336,3 +336,20 @@ class AutomationRuleRepository:
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
+
+    def list_events_pending_reply(self, rule_id: str, limit: int) -> list[AutomationRuleEvent]:
+        if limit <= 0:
+            return []
+        stmt = (
+            select(AutomationRuleEvent)
+            .where(
+                and_(
+                    AutomationRuleEvent.rule_id == rule_id,
+                    AutomationRuleEvent.task_id.is_not(None),
+                    AutomationRuleEvent.status.in_(("task_created", "task_done")),
+                )
+            )
+            .order_by(AutomationRuleEvent.updated_at.asc(), AutomationRuleEvent.created_at.asc())
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt).all())

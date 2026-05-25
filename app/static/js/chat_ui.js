@@ -9258,27 +9258,44 @@ function renderAutomationRuleNavList(rules) {
     row.className = `portal-bundle-row${state.selectedAutomationRuleId === rule.id ? " is-active" : ""}`;
     row.innerHTML = `
       <div class="portal-bundle-title">${safe(rule.name || "Automation")}</div>
-      <div class="portal-bundle-meta">${rule.enabled ? "Enabled" : "Disabled"}</div>
+      <div class="portal-bundle-meta">${safe(automationSourceLabel(rule.source || rule.trigger_type))} · ${rule.enabled ? "Enabled" : "Disabled"}</div>
     `;
     row.addEventListener("click", () => openAutomationRulePanel(rule.id));
     dom.automationRuleNavList.append(row);
   });
 }
 
-function normalizeAutomationTriggerType(triggerType) {
-  return String(triggerType || "") === "github_comment_mention"
-    ? "github_comment_mention"
-    : "github_pr_review_requested";
+const AUTOMATION_SOURCE_OPTIONS = [
+  ["github_pr_review", "GitHub PR Review"],
+  ["github_pr_mention", "GitHub PR Mention"],
+  ["jira_assignee", "Jira Assignee"],
+  ["jira_mention", "Jira Mention"],
+];
+
+function automationSourceLabel(source) {
+  const normalized = String(source || "").trim();
+  const found = AUTOMATION_SOURCE_OPTIONS.find(([value]) => value === normalized);
+  return found ? found[1] : normalized || "-";
 }
 
-function automationKindFromTrigger(triggerType) {
-  return normalizeAutomationTriggerType(triggerType) === "github_comment_mention"
-    ? "github_comment_mention"
-    : "github_pr_review";
+function automationEventSourceLabel(event) {
+  const normalized = _safeJson(event?.normalized_payload_json) || {};
+  return automationSourceLabel(normalized.source || normalized.provider || "");
 }
 
-function automationLabelForKind(kind) {
-  return kind === "github_comment_mention" ? "GitHub comment mention" : "GitHub PR review";
+function automationEventSourceLink(event) {
+  const normalized = _safeJson(event?.normalized_payload_json) || {};
+  const url = String(normalized.source_url || "").trim();
+  if (!url) return safe(automationEventSourceLabel(event));
+  return `<a href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener">${safe(automationEventSourceLabel(event))}</a>`;
+}
+
+function automationEventReplyLabel(event) {
+  const statusText = String(event?.status || "").trim();
+  if (statusText === "reply_sent") return "Sent";
+  if (statusText === "reply_failed") return "Failed";
+  if (statusText === "task_created" || statusText === "task_done") return "Pending";
+  return "-";
 }
 
 async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
@@ -9289,35 +9306,22 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
     const detail = await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`);
     const runs = await loadAutomationRuleRuns(ruleId);
     const events = await loadAutomationRuleEvents(ruleId);
-    const scope = _safeJson(detail.scope_json) || {};
-    const trigger = _safeJson(detail.trigger_config_json) || {};
-    const schedule = _safeJson(detail.schedule_json) || {};
-    const taskConfig = _safeJson(detail.task_config_json) || {};
-    const triggerType = String(detail.trigger_type || "");
-    const automationKind = automationKindFromTrigger(triggerType);
     const targetAgent = (state.mineAgents || []).find((item) => item.id === detail.target_agent_id);
     const runsRows = (runs || []).map((run) => `
       <tr><td>${safe(run.status || "-")}</td><td>${safe(String(run.found_count ?? 0))}</td><td>${safe(String(run.created_task_count ?? 0))}</td><td>${safe(String(run.skipped_count ?? 0))}</td><td>${safe(run.error_message || "-")}</td><td>${safe(run.started_at || "-")}</td><td>${safe(run.finished_at || "-")}</td></tr>
     `).join("");
     const eventRows = (events || []).map((event) => `
-      <tr><td>${safe(event.status || "-")}</td><td>${safe(event.dedupe_key || "-")}</td><td>${safe(event.task_id || "-")}</td><td>${safe(event.error_message || "-")}</td><td>${safe(event.created_at || "-")}</td><td>${safe(event.updated_at || "-")}</td></tr>
+      <tr><td>${safe(event.status || "-")}</td><td>${automationEventSourceLink(event)}</td><td>${safe(event.task_id || "-")}</td><td>${safe(automationEventReplyLabel(event))}</td><td>${safe(event.error_message || "-")}</td><td>${safe(event.created_at || "-")}</td><td>${safe(event.updated_at || "-")}</td></tr>
     `).join("");
     dom.workspaceDetailContent.innerHTML = `
       <div class="portal-panel-stack">
         <h3>${safe(detail.name)}</h3>
+        <div class="portal-inline-state">Source: <strong>${safe(automationSourceLabel(detail.source || detail.trigger_type))}</strong></div>
+        <div class="portal-inline-state">Agent: <strong>${safe(`${targetAgent?.name || "-"} (${detail.target_agent_id})`)}</strong></div>
+        <div class="portal-inline-state">Skill: <strong>${safe(detail.skill_name || "-")}</strong></div>
+        <div class="portal-inline-state">Interval seconds: <strong>${safe(String(detail.interval_seconds || 60))}</strong></div>
         <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
-        <div class="portal-inline-state">Automation: <strong>${safe(automationLabelForKind(automationKind))}</strong></div>
-        <div class="portal-inline-state">Trigger: <strong>${safe(triggerType || "-")}</strong></div>
-        <div class="portal-inline-state">Repository: <strong>${safe(`${scope.owner || "-"} / ${scope.repo || "-"}`)}</strong></div>
-        ${automationKind === "github_comment_mention"
-          ? `<div class="portal-inline-state">Mention target: <strong>${safe(trigger.mention_target || "-")}</strong></div>
-             <div class="portal-inline-state">Surfaces: <strong>${safe((scope.surfaces || []).join(", ") || "-")}</strong></div>
-             <div class="portal-inline-state">Reply mode: <strong>${safe(taskConfig.reply_mode || "same_surface")}</strong></div>`
-          : `<div class="portal-inline-state">Review target: <strong>${safe(`${trigger.review_target_type || "-"} / ${trigger.review_target || "-"}`)}</strong></div>`}
-        <div class="portal-inline-state">Target agent: <strong>${safe(`${targetAgent?.name || "-"} (${detail.target_agent_id})`)}</strong></div>
-        <div class="portal-inline-state">Interval seconds: <strong>${safe(String(schedule.interval_seconds || 60))}</strong></div>
-        <div class="portal-inline-state">Last run at: <strong>${safe(detail.last_run_at || "-")}</strong></div>
-        <div class="portal-inline-state">Next run at: <strong>${safe(detail.next_run_at || "-")}</strong></div>
+        <div class="portal-inline-state">Last run / Next run: <strong>${safe(`${detail.last_run_at || "-"} / ${detail.next_run_at || "-"}`)}</strong></div>
         <div class="flex gap-2">
           <button class="portal-btn is-secondary" type="button" data-run-automation-once="${safe(detail.id)}">Run once</button>
           <button class="portal-btn is-secondary" type="button" data-toggle-automation-enabled="${safe(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}">${detail.enabled ? "Disable" : "Enable"}</button>
@@ -9325,8 +9329,8 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
         </div>
         <h6>Recent Runs</h6>
         <table class="portal-table"><thead><tr><th>Status</th><th>Found</th><th>Created</th><th>Skipped</th><th>Error</th><th>Started</th><th>Finished</th></tr></thead><tbody>${runsRows || '<tr><td colspan="7">No runs</td></tr>'}</tbody></table>
-        <h6>Recent Events</h6>
-        <table class="portal-table"><thead><tr><th>Status</th><th>Dedupe key</th><th>Task</th><th>Error</th><th>Created</th><th>Updated At</th></tr></thead><tbody>${eventRows || '<tr><td colspan="6">No events</td></tr>'}</tbody></table>
+        <h6>Recent Tasks/Replies</h6>
+        <table class="portal-table"><thead><tr><th>Status</th><th>Source</th><th>Task</th><th>Reply</th><th>Error</th><th>Created</th><th>Updated</th></tr></thead><tbody>${eventRows || '<tr><td colspan="7">No events</td></tr>'}</tbody></table>
       </div>
     `;
     setMainView("detail");
@@ -9339,7 +9343,7 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
   }
 }
 
-function openCreateAutomationRuleModal() {
+async function openCreateAutomationRuleModal() {
   const mineAgents = state.mineAgents || [];
   if (!mineAgents.length) {
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">No agents available. Create or enable an agent first.</div>`;
@@ -9348,113 +9352,38 @@ function openCreateAutomationRuleModal() {
   const agentOptions = mineAgents
     .map((agent) => `<option value="${escapeHtmlAttr(agent.id)}">${safe(agent.name || agent.id)}</option>`)
     .join("");
+  const sourceOptions = AUTOMATION_SOURCE_OPTIONS
+    .map(([value, label], index) => `<option value="${escapeHtmlAttr(value)}" ${index === 0 ? "selected" : ""}>${safe(label)}</option>`)
+    .join("");
   dom.workspaceDetailContent.innerHTML = `
     <div class="portal-panel-stack">
       <h3>Create Automation</h3>
       <form id="create-automation-inline-form" class="portal-panel-stack">
-        <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="Review EFP PRs" required /></label>
         <section class="portal-panel-section">
-          <h4>Trigger</h4>
-          <label class="portal-form-label"><span class="portal-form-label">Trigger</span><select class="portal-form-select" name="trigger_type"><option value="github_pr_review_requested">GitHub PR review requested</option><option value="github_comment_mention">GitHub comment mention</option></select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Owner</span><input class="portal-form-input" name="owner" required /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Mode</span><select class="portal-form-select" name="scope_mode"><option value="repo">repo</option><option value="org">org</option><option value="account_notifications">account_notifications</option></select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Repo</span><input class="portal-form-input" name="repo" required /></label>
-          <div data-pr-only="1">
-            <label class="portal-form-label"><span class="portal-form-label">Review target type</span><select class="portal-form-select" name="review_target_type"><option value="user">user</option><option value="team">team</option></select></label>
-            <label class="portal-form-label"><span class="portal-form-label">Review target</span><input class="portal-form-input" name="review_target" /></label>
-          </div>
-          <div data-mention-only="1" style="display:none">
-            <label class="portal-form-label"><span class="portal-form-label">Mention target</span><input class="portal-form-input" name="mention_target" /></label>
-            <label><input type="checkbox" name="surfaces" value="issue_comment" checked /> issue_comment</label>
-            <label><input type="checkbox" name="surfaces" value="pull_request_review_comment" checked /> pull_request_review_comment</label>
-            <label><input type="checkbox" name="surfaces" value="commit_comment" /> commit_comment</label>
-            <label><input type="checkbox" name="surfaces" value="discussion_comment" /> discussion_comment</label>
-            <div data-org-account-only="1" style="display:none">
-              <label class="portal-form-label"><span class="portal-form-label">Repo include</span><input class="portal-form-input" name="repo_include" placeholder="api-*,portal" /></label>
-              <label class="portal-form-label"><span class="portal-form-label">Repo exclude</span><input class="portal-form-input" name="repo_exclude" placeholder="archived-*" /></label>
-              <label><input type="checkbox" name="include_forks" /> include_forks</label>
-              <label><input type="checkbox" name="include_archived" /> include_archived</label>
-              <label class="portal-form-label"><span class="portal-form-label">Max repos/run</span><input class="portal-form-input" name="max_repos_per_run" type="number" value="20" min="1" max="200" /></label>
-            </div>
-          </div>
-          <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="30" max="3600" /></label>
-        </section>
-        <section class="portal-panel-section">
-          <h4>Agent & Task Defaults</h4>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
-          <div data-pr-only="1">
-            <label class="portal-form-label"><span class="portal-form-label">Review event</span><select class="portal-form-select" name="review_event"><option value="COMMENT">COMMENT</option><option value="APPROVE">APPROVE</option><option value="REQUEST_CHANGES">REQUEST_CHANGES</option></select></label>
-            <label class="portal-form-label"><span class="portal-form-label">Writeback mode</span><input class="portal-form-input" name="writeback_mode" /></label>
-          </div>
-          <div data-mention-only="1" style="display:none">
-            <label class="portal-form-label"><span class="portal-form-label">Reply mode</span><select class="portal-form-select" name="reply_mode"><option value="same_surface">same_surface</option><option value="timeline">timeline</option></select></label>
-          </div>
+          <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="GitHub PR Review" required /></label>
+          <label class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span>Enabled</span></label>
         </section>
         <button class="portal-btn is-primary" type="submit">Create</button>
       </form>
     </div>
   `;
   const form = document.getElementById("create-automation-inline-form");
-  const triggerSel = form?.querySelector('select[name="trigger_type"]');
-  const toggle = () => {
-    const triggerType = normalizeAutomationTriggerType(triggerSel?.value);
-    const isMention = automationKindFromTrigger(triggerType) === "github_comment_mention";
-    if (triggerSel && triggerSel.value !== triggerType) triggerSel.value = triggerType;
-    form?.querySelectorAll("[data-pr-only='1']").forEach((el) => { el.style.display = isMention ? "none" : ""; });
-    form?.querySelectorAll("[data-mention-only='1']").forEach((el) => { el.style.display = isMention ? "" : "none"; });
-    const mode = String(form?.querySelector('select[name=\"scope_mode\"]')?.value || "repo");
-    form?.querySelectorAll("[data-org-account-only='1']").forEach((el) => { el.style.display = isMention && ["org","account_notifications"].includes(mode) ? "" : "none"; });
-    const repoInput = form?.querySelector('input[name=\"repo\"]');
-    if (repoInput) repoInput.required = !isMention || mode === "repo";
-    const ownerInput = form?.querySelector('input[name="owner"]');
-    if (ownerInput) ownerInput.required = !isMention || mode !== "account_notifications";
-  };
-  triggerSel?.addEventListener("change", toggle);
-  form?.querySelector('select[name="scope_mode"]')?.addEventListener("change", toggle);
-  toggle();
+  if (form) await populateCreateTaskSkillSelect(form);
 }
 
 async function submitCreateAutomationRule(formEl) {
   const fd = new FormData(formEl);
-  const triggerType = normalizeAutomationTriggerType(fd.get("trigger_type"));
-  if (automationKindFromTrigger(triggerType) === "github_comment_mention") {
-    const parseCommaList = (raw) => String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
-    const selectedSurfaces = fd.getAll("surfaces").map((s) => String(s));
-    const mode = String(fd.get("scope_mode") || "repo");
-    const baseSurfaces = selectedSurfaces.length ? selectedSurfaces : ["issue_comment", "pull_request_review_comment"];
-    const selector = { include: parseCommaList(fd.get("repo_include")), exclude: parseCommaList(fd.get("repo_exclude")), include_forks: fd.get("include_forks") !== null, include_archived: fd.get("include_archived") !== null };
-    const scope = mode === "org"
-      ? { mode: "org", owner: String(fd.get("owner") || ""), repo_selector: selector, surfaces: baseSurfaces }
-      : mode === "account_notifications"
-        ? { mode: "account_notifications", surfaces: baseSurfaces, notification_reasons: ["mention", "team_mention"], repo_selector: selector }
-        : { mode: "repo", owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || ""), surfaces: baseSurfaces };
-    const payload = {
-      name: String(fd.get("name") || ""), target_agent_id: String(fd.get("target_agent_id") || ""), enabled: true, source_type: "github",
-      trigger_type: triggerType,
-      scope,
-      trigger_config: { mention_target_type: "user", mention_target: String(fd.get("mention_target") || ""), ignore_self_comments: true, ignore_bot_comments: true, ignore_efp_auto_reply_marker: true, strip_code_blocks_before_matching: true },
-      task_input_defaults: { skill_name: "handle-triggered-event", execution_mode: "chat_tool_loop", reply_mode: String(fd.get("reply_mode") || "same_surface") },
-      schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60), initial_lookback_seconds: 0, overlap_seconds: 120, max_pages_per_surface: 10, max_repos_per_run: Number(fd.get("max_repos_per_run") || 20), max_notification_pages_per_run: 5, commit_comment_initial_tail_pages: 2, max_discussion_pages_per_run: 5, discussion_comments_tail_count: 100, discussion_replies_tail_count: 50 },
-    };
-    const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
-    await loadAutomationRules();
-    await openAutomationRulePanel(created.id);
-    return;
-  }
   const payload = {
-    name: String(fd.get("name") || ""),
-    target_agent_id: String(fd.get("target_agent_id") || ""),
-    enabled: true,
-    source_type: "github",
-    trigger_type: triggerType,
-    scope: { owner: String(fd.get("owner") || ""), repo: String(fd.get("repo") || "") },
-    trigger_config: { review_target_type: String(fd.get("review_target_type") || "user"), review_target: String(fd.get("review_target") || "") },
-    task_input_defaults: {
-      review_event: String(fd.get("review_event") || "COMMENT"),
-      skill_name: "review-pull-request",
-      writeback_mode: String(fd.get("writeback_mode") || "").trim() || undefined,
-    },
-    schedule: { interval_seconds: Number(fd.get("interval_seconds") || 60) },
+    name: String(fd.get("name") || "").trim(),
+    target_agent_id: String(fd.get("target_agent_id") || "").trim(),
+    skill_name: String(fd.get("skill_name") || "").trim(),
+    source: String(fd.get("source") || "").trim(),
+    interval_seconds: Number(fd.get("interval_seconds") || 60),
+    enabled: fd.get("enabled") !== null,
   };
   const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
   await loadAutomationRules();
@@ -9545,7 +9474,7 @@ async function loadTaskSkillsForAgent(agentId) {
 
 async function populateCreateTaskSkillSelect(formEl) {
   if (!formEl) return;
-  const agentSelect = formEl.querySelector('[name="assignee_agent_id"]');
+  const agentSelect = formEl.querySelector('[name="assignee_agent_id"], [name="target_agent_id"]');
   const skillSelect = formEl.querySelector('[name="skill_name"]');
   const agentId = String(agentSelect?.value || "").trim();
   if (!skillSelect) return;
@@ -10539,7 +10468,7 @@ function bindEvents() {
       if (!state.mineAgents || !state.mineAgents.length) {
         await loadMineAgents();
       }
-      openCreateAutomationRuleModal();
+      await openCreateAutomationRuleModal();
     } catch (error) {
       dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load agents: ${safe(error.message)}</div>`;
     }
@@ -10642,9 +10571,9 @@ function bindEvents() {
     }
   });
   dom.workspaceDetailContent?.addEventListener("change", async (event) => {
-    const formEl = event.target.closest("#create-agent-async-task-form");
+    const formEl = event.target.closest("#create-agent-async-task-form, #create-automation-inline-form");
     if (!formEl) return;
-    if (event.target.matches('[name="assignee_agent_id"]')) {
+    if (event.target.matches('[name="assignee_agent_id"], [name="target_agent_id"]')) {
       await populateCreateTaskSkillSelect(formEl);
     }
   });

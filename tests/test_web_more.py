@@ -144,6 +144,56 @@ def test_chat_ui_layout_persistence_source_markers_present():
     assert "await restorePinnedToolPanelFromPreferencesOnce();" in js
 
 
+def test_create_automation_form_uses_trigger_task_reply_fields_only():
+    js = _chat_ui_js_source()
+    create_fn = _extract_js_function(js, "openCreateAutomationRuleModal")
+    submit_fn = _extract_js_function(js, "submitCreateAutomationRule")
+
+    for expected in [
+        "Agent",
+        "Skill",
+        "Source",
+        "Interval seconds",
+        "Name",
+        "Enabled",
+    ]:
+        assert expected in create_fn
+
+    for expected in [
+        "github_pr_review",
+        "github_pr_mention",
+        "jira_assignee",
+        "jira_mention",
+    ]:
+        assert expected in js
+
+    assert '"target_agent_id"' in submit_fn
+    assert '"skill_name"' in submit_fn
+    assert '"source"' in submit_fn
+    assert '"interval_seconds"' in submit_fn
+    assert "task_content" not in submit_fn
+
+    old_fields = [
+        "owner",
+        "repo",
+        "review_target",
+        "review_target_type",
+        "review_event",
+        "writeback_mode",
+        "reply_mode",
+        "surfaces",
+        "account_notifications",
+        "max_pages_per_surface",
+        "max_repos_per_run",
+        "max_notification_pages_per_run",
+        "commit_comment_initial_tail_pages",
+        "discussion_comments_tail_count",
+        "discussion_replies_tail_count",
+    ]
+    for field in old_fields:
+        assert field not in create_fn
+
+
 def test_chat_ui_layout_persistence_calls_present_in_tool_panel_actions():
     js = _chat_ui_js_source()
     toggle_fn = _extract_js_function(js, "toggleToolPanelPinned")

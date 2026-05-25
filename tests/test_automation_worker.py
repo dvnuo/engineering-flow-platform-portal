@@ -21,37 +21,56 @@ def _session_factory():
 
 def _mk_agent(user_id: int):
     return Agent(
-        name="a", owner_user_id=user_id, visibility="private", status="running", image="img",
-        disk_size_gi=20, mount_path="/root/.efp", namespace="efp", deployment_name="d", service_name="s", pvc_name="p", endpoint_path="/", agent_type="workspace"
+        name="a",
+        owner_user_id=user_id,
+        visibility="private",
+        status="running",
+        image="img",
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp",
+        deployment_name="d",
+        service_name="s",
+        pvc_name="p",
+        endpoint_path="/",
+        agent_type="workspace",
     )
+
+
+def _create_rule(repo: AutomationRuleRepository, user, agent, **overrides):
+    data = {
+        "name": "r",
+        "enabled": True,
+        "source_type": "github",
+        "trigger_type": "github_pr_review",
+        "target_agent_id": agent.id,
+        "task_type": "agent_async_task",
+        "scope_json": "{}",
+        "trigger_config_json": "{}",
+        "task_config_json": json.dumps({"skill_name": "review"}),
+        "schedule_json": json.dumps({"interval_seconds": 60}),
+        "state_json": "{}",
+        "next_run_at": datetime.utcnow() - timedelta(seconds=1),
+        "owner_user_id": user.id,
+        "created_by_user_id": user.id,
+    }
+    data.update(overrides)
+    return repo.create(data, current_user_id=user.id)
 
 
 def test_worker_lock_semantics_and_next_run_update():
     SessionLocal = _session_factory()
     db = SessionLocal()
     user = User(username="u", password_hash="x", role="admin", is_active=True)
-    db.add(user); db.commit(); db.refresh(user)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     agent = _mk_agent(user.id)
-    db.add(agent); db.commit(); db.refresh(agent)
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
     repo = AutomationRuleRepository(db)
-    rule = repo.create(
-        {
-            "name": "r",
-            "enabled": True,
-            "source_type": "github",
-            "trigger_type": "github_pr_review_requested",
-            "target_agent_id": agent.id,
-            "task_type": "github_review_task",
-            "scope_json": "{}",
-            "trigger_config_json": "{}",
-            "task_config_json": "{}",
-            "schedule_json": "{\"interval_seconds\":60}",
-            "state_json": "{}",
-            "next_run_at": datetime.utcnow() - timedelta(seconds=1),
-            "owner_user_id": user.id,
-        },
-        current_user_id=user.id,
-    )
+    rule = _create_rule(repo, user, agent)
 
     s1 = SessionLocal()
     s2 = SessionLocal()
@@ -82,29 +101,16 @@ def test_due_list_excludes_deleted_rules():
     SessionLocal = _session_factory()
     db = SessionLocal()
     user = User(username="u2", password_hash="x", role="admin", is_active=True)
-    db.add(user); db.commit(); db.refresh(user)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     agent = _mk_agent(user.id)
-    db.add(agent); db.commit(); db.refresh(agent)
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
     repo = AutomationRuleRepository(db)
     now = datetime.utcnow()
-    repo.create(
-        {
-            "name": "deleted",
-            "enabled": True,
-            "source_type": "github",
-            "trigger_type": "github_pr_review_requested",
-            "target_agent_id": agent.id,
-            "task_type": "github_review_task",
-            "scope_json": "{}",
-            "trigger_config_json": "{}",
-            "task_config_json": "{}",
-            "schedule_json": "{\"interval_seconds\":60}",
-            "state_json": "{\"deleted\": true}",
-            "next_run_at": now - timedelta(seconds=1),
-            "owner_user_id": user.id,
-        },
-        current_user_id=user.id,
-    )
+    _create_rule(repo, user, agent, state_json='{"deleted": true}', next_run_at=now - timedelta(seconds=1))
     assert repo.list_due_rules(now=now, limit=10) == []
 
 
@@ -112,28 +118,15 @@ def test_worker_failure_path_schedules_next_run(monkeypatch):
     SessionLocal = _session_factory()
     db = SessionLocal()
     user = User(username="u3", password_hash="x", role="admin", is_active=True)
-    db.add(user); db.commit(); db.refresh(user)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     agent = _mk_agent(user.id)
-    db.add(agent); db.commit(); db.refresh(agent)
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
     repo = AutomationRuleRepository(db)
-    rule = repo.create(
-        {
-            "name": "r-fail",
-            "enabled": True,
-            "source_type": "github",
-            "trigger_type": "github_pr_review_requested",
-            "target_agent_id": agent.id,
-            "task_type": "github_review_task",
-            "scope_json": json.dumps({"owner": "acme", "repo": "portal"}),
-            "trigger_config_json": json.dumps({"review_target_type": "user", "review_target": "alice"}),
-            "task_config_json": json.dumps({"skill_name": "review-pull-request", "review_event": "COMMENT"}),
-            "schedule_json": json.dumps({"interval_seconds": 60}),
-            "state_json": "{}",
-            "next_run_at": datetime.utcnow() - timedelta(seconds=1),
-            "owner_user_id": user.id,
-        },
-        current_user_id=user.id,
-    )
+    rule = _create_rule(repo, user, agent)
     db.close()
 
     monkeypatch.setattr("app.services.automation_worker.SessionLocal", SessionLocal)
