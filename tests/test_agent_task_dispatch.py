@@ -4,6 +4,7 @@ import json
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+import httpx
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -147,6 +148,57 @@ def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
     assert task.started_at is not None
     assert task.finished_at is not None
     assert task.summary == "done"
+
+
+def test_dispatch_task_async_status_poll_timeout_retry_then_success(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-poll-timeout"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-poll-timeout"}
+
+    class SuccessResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done after retry"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done after retry"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    polls = {"count": 0}
+
+    async def fake_get(_url, _meta):
+        polls["count"] += 1
+        if polls["count"] == 1:
+            raise httpx.ReadTimeout("status read timeout")
+        return SuccessResp()
+
+    async def fake_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+    monkeypatch.setattr(task_dispatcher_module.asyncio, "sleep", fake_sleep)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.dispatched is True
+    assert result.task_status == "done"
+    assert polls["count"] == 2
+    db.refresh(task)
+    assert task.status == "done"
+    assert task.summary == "done after retry"
 
 
 def test_agent_async_task_dispatch_uses_configured_poll_timeout_and_interval(db_session, monkeypatch):
@@ -478,6 +530,77 @@ def test_dispatcher_derives_summary_from_review_summary():
         },
     }
     assert TaskDispatcherService._derive_summary_from_runtime_payload(payload) == "Automated PR review summary"
+
+
+def test_poll_runtime_task_retries_transient_status_timeout_then_success(monkeypatch):
+    service = TaskDispatcherService()
+
+    class RunningResp:
+        status_code = 200
+        text = '{"ok": true, "status": "running"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "running"}
+
+    class SuccessResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
+
+    polls = {"count": 0}
+
+    async def fake_get(_url, _meta):
+        polls["count"] += 1
+        if polls["count"] == 1:
+            raise httpx.ReadTimeout("status read timeout")
+        if polls["count"] == 2:
+            return RunningResp()
+        return SuccessResp()
+
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    outcome = asyncio.run(
+        service._poll_runtime_task_until_terminal(
+            runtime_status_url="http://runtime/api/tasks/task-1",
+            metadata={"trace_id": "trace-1"},
+            trace_context={"trace_id": "trace-1", "portal_dispatch_id": "dispatch-1"},
+            timeout_seconds=1,
+            interval_seconds=0,
+        )
+    )
+
+    assert outcome.terminal_status == "done"
+    assert polls["count"] == 3
+
+
+def test_poll_runtime_task_transient_status_failures_until_timeout(monkeypatch):
+    service = TaskDispatcherService()
+    polls = {"count": 0}
+
+    async def fake_get(_url, _meta):
+        polls["count"] += 1
+        raise httpx.ReadTimeout("status read timeout")
+
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    outcome = asyncio.run(
+        service._poll_runtime_task_until_terminal(
+            runtime_status_url="http://runtime/api/tasks/task-timeout",
+            metadata={"trace_id": "trace-timeout"},
+            trace_context={"trace_id": "trace-timeout", "portal_dispatch_id": "dispatch-timeout"},
+            timeout_seconds=0.05,
+            interval_seconds=0.001,
+        )
+    )
+
+    payload = json.loads(outcome.result_payload_json)
+    assert outcome.terminal_status == "failed"
+    assert payload["error_code"] == "runtime_poll_timeout"
+    assert polls["count"] >= 1
 
 
 def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):

@@ -224,8 +224,35 @@ class TaskDispatcherService:
         interval_seconds: int = 1,
     ) -> NormalizedRuntimeOutcome:
         deadline = time.monotonic() + timeout_seconds
-        while time.monotonic() < deadline:
-            response = await self._get_runtime_task_status(runtime_status_url, metadata)
+        last_poll_error_class: str | None = None
+        last_poll_error_message: str | None = None
+        while True:
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                break
+
+            try:
+                response = await self._get_runtime_task_status(runtime_status_url, metadata)
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                last_poll_error_class = exc.__class__.__name__
+                last_poll_error_message = sanitize_exception_message(exc)
+                remaining_after_error = max(0.0, deadline - time.monotonic())
+                logger.warning(
+                    "Runtime status poll transient failure trace_id=%s portal_dispatch_id=%s runtime_status_url=%s exception_class=%s message=%s remaining_poll_seconds=%s",
+                    trace_context.get("trace_id"),
+                    trace_context.get("portal_dispatch_id"),
+                    runtime_status_url,
+                    last_poll_error_class,
+                    last_poll_error_message,
+                    round(remaining_after_error, 2),
+                )
+                sleep_seconds = min(max(0, interval_seconds), remaining_after_error)
+                if sleep_seconds > 0:
+                    await asyncio.sleep(sleep_seconds)
+                continue
+
+            last_poll_error_class = None
+            last_poll_error_message = None
             preview = safe_preview(response.text or "", limit=800)
             phase, _payload, outcome = self._normalize_runtime_status_response(
                 response,
@@ -235,16 +262,26 @@ class TaskDispatcherService:
             )
             if phase == "terminal" and outcome is not None:
                 return outcome
-            await asyncio.sleep(interval_seconds)
+            remaining_after_poll = max(0.0, deadline - time.monotonic())
+            sleep_seconds = min(max(0, interval_seconds), remaining_after_poll)
+            if sleep_seconds > 0:
+                await asyncio.sleep(sleep_seconds)
+
+        timeout_message = "Runtime status polling timed out"
+        if last_poll_error_class and last_poll_error_message is not None:
+            timeout_message = (
+                "Runtime status polling timed out after transient status poll failure: "
+                f"{last_poll_error_class}: {last_poll_error_message}"
+            )
 
         return NormalizedRuntimeOutcome(
             terminal_status="failed",
             result_payload_json=self._build_failure_payload(
                 "runtime_poll_timeout",
-                "Runtime status polling timed out",
+                timeout_message,
                 trace_context=trace_context,
             ),
-            message="Runtime polling timed out",
+            message=timeout_message,
             runtime_status_code=None,
         )
 
