@@ -12,7 +12,7 @@ from app.models import Agent, RuntimeProfile, User
 from app.models.agent_task import AgentTask
 from app.repositories.automation_rule_repo import AutomationRuleRepository
 from app.schemas.automation_rule import AutomationRuleCreate
-from app.services.automation_source_pollers import SourcePollResult
+from app.services.automation_source_pollers import AutomationSourcePoller, SourcePollResult
 from app.services.automation_rule_service import AutomationRuleService
 
 
@@ -77,6 +77,11 @@ def _create_user_agent(db: Session, *, username: str = "u"):
     db.commit()
     db.refresh(agent)
     return user, agent
+
+
+def test_jira_mention_jql_literal_preserves_spaces_and_escapes_quotes():
+    assert AutomationSourcePoller._jira_jql_text_literal("Alice Smith") == "Alice Smith"
+    assert AutomationSourcePoller._jira_jql_text_literal('Alice "Bot"') == 'Alice \\"Bot\\"'
 
 
 def _create_rule(db: Session, user, agent, source: str = "github_pr_review", skill_name: str = "selected-skill"):

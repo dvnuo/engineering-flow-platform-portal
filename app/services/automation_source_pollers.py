@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from sqlalchemy.orm import Session
@@ -279,6 +278,10 @@ class AutomationSourcePoller:
             tokens.append(f"[~accountid:{account_id}]")
         return tokens
 
+    @staticmethod
+    def _jira_jql_text_literal(value: str) -> str:
+        return str(value or "").strip().replace("\\", "\\\\").replace('"', '\\"')
+
     async def _poll_jira_mention(self, db: Session, rule) -> SourcePollResult:
         provider_config = resolve_jira_for_agent(db, rule.target_agent_id)
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -287,7 +290,8 @@ class AutomationSourcePoller:
             represented = str(identity.get("displayName") or identity.get("emailAddress") or identity.get("accountId") or "").strip()
             if not tokens:
                 raise ValueError("Jira /myself response did not include a usable identity")
-            jql_terms = " OR ".join(f'text ~ "{quote(token)}"' for token in tokens[:2])
+            jql_literals = [self._jira_jql_text_literal(token) for token in tokens[:2]]
+            jql_terms = " OR ".join(f'text ~ "{literal}"' for literal in jql_literals if literal)
             issues = await self._jira_search(client, provider_config, f"({jql_terms}) ORDER BY updated DESC")
             items: list[dict[str, Any]] = []
             for issue in issues:
