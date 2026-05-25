@@ -194,6 +194,22 @@ def test_create_automation_form_uses_trigger_task_reply_fields_only():
         assert field not in create_fn
 
 
+def test_automation_list_and_detail_use_task_style_layout():
+    js = _chat_ui_js_source()
+    render_fn = _extract_js_function(js, "renderAutomationRuleNavList")
+    detail_fn = _extract_js_function(js, "openAutomationRulePanel")
+
+    assert "portal-task-row portal-automation-row" in render_fn
+    assert "portal-task-row-head" in render_fn
+    assert "portal-task-row-meta" in render_fn
+
+    assert "portal-task-detail-hero portal-automation-hero" in detail_fn
+    assert "portal-task-metrics portal-automation-metrics" in detail_fn
+    assert "portal-automation-flow" in detail_fn
+    assert "portal-automation-timeline-list" in detail_fn
+    assert "portal-table" not in detail_fn
+
+
 def test_chat_ui_layout_persistence_calls_present_in_tool_panel_actions():
     js = _chat_ui_js_source()
     toggle_fn = _extract_js_function(js, "toggleToolPanelPinned")

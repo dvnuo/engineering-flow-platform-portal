@@ -9253,12 +9253,29 @@ function renderAutomationRuleNavList(rules) {
   }
   dom.automationRuleNavList.innerHTML = "";
   items.forEach((rule) => {
+    const source = rule.source || rule.trigger_type;
+    const sourceLabel = automationSourceLabel(source);
+    const skillLabel = automationRuleSkillLabel(rule);
+    const title = String(rule.name || sourceLabel || "Automation").trim();
+    const intervalLabel = automationIntervalLabel(rule.interval_seconds || 60);
+    const statusLabel = automationRuleStatusLabel(rule);
+    const statusTone = automationRuleStatusTone(rule);
+    const timeLabel = rule.enabled ? `Next ${automationDisplayTime(rule.next_run_at)}` : `Last ${automationDisplayTime(rule.last_run_at)}`;
+    const flowPreview = `${sourceLabel} -> ${skillLabel} -> ${automationReplyTargetLabel(source)}`;
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `portal-bundle-row${state.selectedAutomationRuleId === rule.id ? " is-active" : ""}`;
+    row.className = `portal-task-row portal-automation-row${state.selectedAutomationRuleId === rule.id ? " is-active" : ""}`;
     row.innerHTML = `
-      <div class="portal-bundle-title">${safe(rule.name || "Automation")}</div>
-      <div class="portal-bundle-meta">${safe(automationSourceLabel(rule.source || rule.trigger_type))} · ${rule.enabled ? "Enabled" : "Disabled"}</div>
+      <div class="portal-task-row-head">
+        <div class="portal-task-row-title">${safe(title)}</div>
+        <span class="portal-status-badge is-${safe(statusTone)}">${safe(statusLabel)}</span>
+      </div>
+      <div class="portal-task-row-preview">${safe(flowPreview)}</div>
+      <div class="portal-task-row-meta">
+        <span>${safe(skillLabel)}</span>
+        <span>Every ${safe(intervalLabel)}</span>
+        <span>${safe(timeLabel)}</span>
+      </div>
     `;
     row.addEventListener("click", () => openAutomationRulePanel(rule.id));
     dom.automationRuleNavList.append(row);
@@ -9278,6 +9295,77 @@ function automationSourceLabel(source) {
   return found ? found[1] : normalized || "-";
 }
 
+function automationProviderLabel(source) {
+  const normalized = String(source || "").trim();
+  if (normalized.startsWith("github_")) return "GitHub";
+  if (normalized.startsWith("jira_")) return "Jira";
+  return normalized || "-";
+}
+
+function automationReplyTargetLabel(source) {
+  const provider = automationProviderLabel(source);
+  if (provider === "GitHub") return "PR comment";
+  if (provider === "Jira") return "Jira comment";
+  return "Reply";
+}
+
+function automationInputLabel(source) {
+  const normalized = String(source || "").trim();
+  if (normalized === "github_pr_review") return "PR URL";
+  if (normalized === "github_pr_mention") return "PR URL + comment";
+  if (normalized === "jira_assignee") return "Jira URL";
+  if (normalized === "jira_mention") return "Jira URL + comment";
+  return "Source payload";
+}
+
+function automationRuleSkillLabel(rule) {
+  const skillName = String(rule?.skill_name || "").trim().replace(/^\/+/, "");
+  return skillName ? `/${skillName}` : "-";
+}
+
+function automationRuleStatusLabel(rule) {
+  return rule?.enabled ? "Enabled" : "Paused";
+}
+
+function automationRuleStatusTone(rule) {
+  return rule?.enabled ? "success" : "neutral";
+}
+
+function automationIntervalLabel(seconds) {
+  const value = Number(seconds || 60);
+  if (!Number.isFinite(value) || value <= 0) return "60s";
+  if (value % 3600 === 0) return `${value / 3600}h`;
+  if (value % 60 === 0) return `${value / 60}m`;
+  return `${value}s`;
+}
+
+function automationDisplayTime(value) {
+  return formatTaskNavTime(value) || "-";
+}
+
+function automationAgentLabel(agent, agentId) {
+  const name = String(agent?.name || "").trim();
+  const id = String(agentId || "").trim();
+  if (name && id) return `${name} (${id})`;
+  return name || id || "-";
+}
+
+function automationRunStatusTone(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "success") return "success";
+  if (normalized === "partial") return "warning";
+  if (normalized === "failed") return "error";
+  return "info";
+}
+
+function automationEventStatusTone(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "reply_sent") return "success";
+  if (["reply_failed", "failed"].includes(normalized)) return "error";
+  if (["creating_task", "task_created"].includes(normalized)) return "warning";
+  return "info";
+}
+
 function automationEventSourceLabel(event) {
   const normalized = _safeJson(event?.normalized_payload_json) || {};
   return automationSourceLabel(normalized.source || normalized.provider || "");
@@ -9287,15 +9375,82 @@ function automationEventSourceLink(event) {
   const normalized = _safeJson(event?.normalized_payload_json) || {};
   const url = String(normalized.source_url || "").trim();
   if (!url) return safe(automationEventSourceLabel(event));
-  return `<a href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener">${safe(automationEventSourceLabel(event))}</a>`;
+  return `<a class="portal-automation-source-link" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener">${safe(automationEventSourceLabel(event))}</a>`;
 }
 
 function automationEventReplyLabel(event) {
   const statusText = String(event?.status || "").trim();
-  if (statusText === "reply_sent") return "Sent";
-  if (statusText === "reply_failed") return "Failed";
-  if (statusText === "task_created" || statusText === "task_done") return "Pending";
+  if (statusText === "reply_sent") return "Reply sent";
+  if (statusText === "reply_failed") return "Reply failed";
+  if (statusText === "task_created" || statusText === "task_done") return "Reply pending";
   return "-";
+}
+
+function automationTruncate(value, maxLength = 160) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function automationRunTimelineItems(runs) {
+  const items = Array.isArray(runs) ? runs : [];
+  if (!items.length) return '<div class="portal-inline-state is-visible">No runs yet.</div>';
+  return items.slice(0, 8).map((run) => {
+    const status = String(run.status || "unknown").trim();
+    const tone = automationRunStatusTone(status);
+    const started = automationDisplayTime(run.started_at);
+    const finished = automationDisplayTime(run.finished_at);
+    const error = String(run.error_message || "").trim();
+    return `
+      <article class="portal-automation-timeline-item">
+        <div class="portal-automation-timeline-main">
+          <div class="portal-automation-timeline-head">
+            <span class="portal-status-badge is-${safe(tone)}">${safe(status)}</span>
+            <span class="portal-panel-note">${safe(started)}</span>
+          </div>
+          <strong>Found ${safe(String(run.found_count ?? 0))} · Created ${safe(String(run.created_task_count ?? 0))} · Skipped ${safe(String(run.skipped_count ?? 0))}</strong>
+          <div class="portal-automation-timeline-meta">Finished ${safe(finished)}</div>
+          ${error ? `<div class="portal-callout is-error">${safe(error)}</div>` : ""}
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function automationEventTimelineItems(events) {
+  const items = Array.isArray(events) ? events : [];
+  if (!items.length) return '<div class="portal-inline-state is-visible">No tasks or replies yet.</div>';
+  return items.slice(0, 12).map((event) => {
+    const normalized = _safeJson(event?.normalized_payload_json) || {};
+    const status = String(event.status || "unknown").trim();
+    const tone = automationEventStatusTone(status);
+    const replyLabel = automationEventReplyLabel(event);
+    const replyTone = replyLabel === "Reply sent" ? "success" : (replyLabel === "Reply failed" ? "error" : "neutral");
+    const comment = automationTruncate(normalized.source_comment || "", 180);
+    const identity = String(normalized.represented_identity || "").trim();
+    const taskId = String(event.task_id || "").trim();
+    const error = String(event.error_message || "").trim();
+    return `
+      <article class="portal-automation-timeline-item">
+        <div class="portal-automation-timeline-main">
+          <div class="portal-automation-timeline-head">
+            <span class="portal-status-badge is-${safe(tone)}">${safe(status)}</span>
+            <span class="portal-status-badge is-${safe(replyTone)}">${safe(replyLabel)}</span>
+          </div>
+          <strong>${automationEventSourceLink(event)}</strong>
+          <div class="portal-automation-timeline-meta">
+            <span>${safe(automationDisplayTime(event.created_at))}</span>
+            ${identity ? `<span>As ${safe(identity)}</span>` : ""}
+          </div>
+          ${comment ? `<div class="portal-automation-comment">${safe(comment)}</div>` : ""}
+          ${error ? `<div class="portal-callout is-error">${safe(error)}</div>` : ""}
+        </div>
+        <div class="portal-automation-timeline-actions">
+          ${taskId ? `<button class="portal-btn is-secondary" type="button" data-open-task-main="${escapeHtmlAttr(taskId)}"><i data-lucide="external-link" class="w-4 h-4"></i>Task</button>` : `<span class="portal-panel-note">No task</span>`}
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
@@ -9307,32 +9462,75 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
     const runs = await loadAutomationRuleRuns(ruleId);
     const events = await loadAutomationRuleEvents(ruleId);
     const targetAgent = (state.mineAgents || []).find((item) => item.id === detail.target_agent_id);
-    const runsRows = (runs || []).map((run) => `
-      <tr><td>${safe(run.status || "-")}</td><td>${safe(String(run.found_count ?? 0))}</td><td>${safe(String(run.created_task_count ?? 0))}</td><td>${safe(String(run.skipped_count ?? 0))}</td><td>${safe(run.error_message || "-")}</td><td>${safe(run.started_at || "-")}</td><td>${safe(run.finished_at || "-")}</td></tr>
-    `).join("");
-    const eventRows = (events || []).map((event) => `
-      <tr><td>${safe(event.status || "-")}</td><td>${automationEventSourceLink(event)}</td><td>${safe(event.task_id || "-")}</td><td>${safe(automationEventReplyLabel(event))}</td><td>${safe(event.error_message || "-")}</td><td>${safe(event.created_at || "-")}</td><td>${safe(event.updated_at || "-")}</td></tr>
-    `).join("");
+    const source = detail.source || detail.trigger_type;
+    const sourceLabel = automationSourceLabel(source);
+    const providerLabel = automationProviderLabel(source);
+    const intervalLabel = automationIntervalLabel(detail.interval_seconds || 60);
+    const skillLabel = automationRuleSkillLabel(detail);
+    const statusLabel = automationRuleStatusLabel(detail);
+    const statusTone = automationRuleStatusTone(detail);
+    const agentLabel = automationAgentLabel(targetAgent, detail.target_agent_id);
     dom.workspaceDetailContent.innerHTML = `
-      <div class="portal-panel-stack">
-        <h3>${safe(detail.name)}</h3>
-        <div class="portal-inline-state">Source: <strong>${safe(automationSourceLabel(detail.source || detail.trigger_type))}</strong></div>
-        <div class="portal-inline-state">Agent: <strong>${safe(`${targetAgent?.name || "-"} (${detail.target_agent_id})`)}</strong></div>
-        <div class="portal-inline-state">Skill: <strong>${safe(detail.skill_name || "-")}</strong></div>
-        <div class="portal-inline-state">Interval seconds: <strong>${safe(String(detail.interval_seconds || 60))}</strong></div>
-        <div class="portal-inline-state">Enabled: <strong>${detail.enabled ? "true" : "false"}</strong></div>
-        <div class="portal-inline-state">Last run / Next run: <strong>${safe(`${detail.last_run_at || "-"} / ${detail.next_run_at || "-"}`)}</strong></div>
-        <div class="flex gap-2">
-          <button class="portal-btn is-secondary" type="button" data-run-automation-once="${safe(detail.id)}">Run once</button>
-          <button class="portal-btn is-secondary" type="button" data-toggle-automation-enabled="${safe(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}">${detail.enabled ? "Disable" : "Enable"}</button>
-          <button class="portal-btn" type="button" data-delete-automation-rule="${safe(detail.id)}">Delete</button>
+      <div class="portal-panel-stack portal-automation-detail">
+        <div class="portal-task-detail-hero portal-automation-hero">
+          <div class="portal-task-detail-title">
+            <span class="portal-status-badge is-${safe(statusTone)}">${safe(statusLabel)}</span>
+            <div>
+              <h2 class="portal-panel-title">${safe(detail.name || sourceLabel)}</h2>
+              <p class="portal-panel-subtitle">${safe(sourceLabel)} · ${safe(agentLabel)} · ${safe(skillLabel)}</p>
+            </div>
+          </div>
+          <div class="portal-task-actions">
+            <button class="portal-btn is-secondary" type="button" data-run-automation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>Run once</button>
+            <button class="portal-btn is-secondary" type="button" data-toggle-automation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? "Pause" : "Enable"}</button>
+            <button class="portal-btn is-danger" type="button" data-delete-automation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>Delete</button>
+          </div>
         </div>
-        <h6>Recent Runs</h6>
-        <table class="portal-table"><thead><tr><th>Status</th><th>Found</th><th>Created</th><th>Skipped</th><th>Error</th><th>Started</th><th>Finished</th></tr></thead><tbody>${runsRows || '<tr><td colspan="7">No runs</td></tr>'}</tbody></table>
-        <h6>Recent Tasks/Replies</h6>
-        <table class="portal-table"><thead><tr><th>Status</th><th>Source</th><th>Task</th><th>Reply</th><th>Error</th><th>Created</th><th>Updated</th></tr></thead><tbody>${eventRows || '<tr><td colspan="7">No events</td></tr>'}</tbody></table>
+
+        <section class="portal-task-metrics portal-automation-metrics">
+          <div><span>Source</span><strong>${safe(sourceLabel)}</strong></div>
+          <div><span>Interval</span><strong>Every ${safe(intervalLabel)}</strong></div>
+          <div><span>Last Run</span><strong>${safe(automationDisplayTime(detail.last_run_at))}</strong></div>
+          <div><span>Next Run</span><strong>${safe(automationDisplayTime(detail.next_run_at))}</strong></div>
+        </section>
+
+        <section class="portal-automation-flow" aria-label="Automation flow">
+          <div class="portal-automation-flow-step">
+            <span>Trigger</span>
+            <strong>${safe(sourceLabel)}</strong>
+            <small>${safe(providerLabel)} · ${safe(automationInputLabel(source))}</small>
+          </div>
+          <div class="portal-automation-flow-step">
+            <span>Task</span>
+            <strong>${safe(skillLabel)}</strong>
+            <small>${safe(agentLabel)}</small>
+          </div>
+          <div class="portal-automation-flow-step">
+            <span>Reply</span>
+            <strong>${safe(automationReplyTargetLabel(source))}</strong>
+            <small>${safe(providerLabel)}</small>
+          </div>
+        </section>
+
+        <div class="portal-task-detail-grid portal-automation-detail-grid">
+          <section class="portal-task-content-panel">
+            <div class="portal-task-section-heading">
+              <span>Recent Runs</span>
+              <span>${safe(String((runs || []).length))}</span>
+            </div>
+            <div class="portal-automation-timeline-list">${automationRunTimelineItems(runs)}</div>
+          </section>
+          <section class="portal-task-content-panel">
+            <div class="portal-task-section-heading">
+              <span>Tasks / Replies</span>
+              <span>${safe(String((events || []).length))}</span>
+            </div>
+            <div class="portal-automation-timeline-list">${automationEventTimelineItems(events)}</div>
+          </section>
+        </div>
       </div>
     `;
+    renderIcons();
     setMainView("detail");
     dom.workspaceDetailContent.dataset.workspaceState = "automation-rule-detail";
     if (updateRoute && !isApplyingPortalRoute) {
