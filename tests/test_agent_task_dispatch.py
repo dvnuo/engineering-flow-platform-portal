@@ -60,7 +60,7 @@ def _create_task(db: Session, agent_id: str) -> AgentTask:
         assignee_agent_id=agent_id,
         owner_user_id=1,
         source="jira",
-        task_type="jira_workflow_review_task",
+        task_type="agent_async_task",
         input_payload_json='{"a": 1}',
         status="queued",
         retry_count=0,
@@ -915,6 +915,7 @@ def test_automation_dispatch_uses_agent_async_and_tasks_execute_endpoint():
     assert '"/api/tasks/execute"' in source
     assert "_grant_github_pr_review_runtime_metadata" not in source
     assert "github_review_task" not in source
+    assert "jira_workflow_review_task" not in source
     automation_service = Path("app/services/automation_rule_service.py").read_text()
     assert '"agent_async_task"' in automation_service
     assert "github_review_task" not in automation_service
