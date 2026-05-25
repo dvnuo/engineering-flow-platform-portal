@@ -9531,12 +9531,15 @@ function setTaskSkillSelectOption(selectEl, label, { disabled = true, value = ""
 async function loadTaskSkillsForAgent(agentId) {
   if (!agentId) return [];
   if (state.cachedSkillsByAgent.has(agentId)) {
-    return state.cachedSkillsByAgent.get(agentId) || [];
+    const cached = state.cachedSkillsByAgent.get(agentId) || [];
+    if (agentId === state.selectedAgentId) state.cachedSkills = cached;
+    return cached;
   }
-  const data = await api(agentApiFor(agentId, "/api/skills"));
+  const data = await agentApiFor(agentId, "/api/skills");
   const rawSkills = Array.isArray(data?.skills) ? data.skills : (Array.isArray(data) ? data : []);
   const mapped = rawSkills.map(toSkillSuggestion).filter((item) => item.command);
   state.cachedSkillsByAgent.set(agentId, mapped);
+  if (agentId === state.selectedAgentId) state.cachedSkills = mapped;
   return mapped;
 }
 

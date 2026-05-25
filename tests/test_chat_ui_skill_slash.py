@@ -33,3 +33,15 @@ def test_chat_ui_runtime_proxy_paths_still_used_for_chat_send():
     assert "/a/${agentIdAtSend}/api/chat" in js
     assert "/a/${agentIdAtSend}/api/chat/stream" in js
     assert "/api/agents/${agentIdAtSend}/" not in js
+
+
+def test_create_task_skill_loader_uses_agent_runtime_proxy_directly():
+    js = _chat_ui_js_source()
+    start = js.index("async function loadTaskSkillsForAgent(agentId)")
+    end = js.index("async function populateCreateTaskSkillSelect", start)
+    loader = js[start:end]
+
+    assert 'const data = await agentApiFor(agentId, "/api/skills");' in loader
+    assert "api(agentApiFor(" not in loader
+    assert "state.cachedSkillsByAgent.set(agentId, mapped);" in loader
+    assert "if (agentId === state.selectedAgentId) state.cachedSkills = mapped;" in loader
