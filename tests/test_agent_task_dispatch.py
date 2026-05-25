@@ -418,12 +418,12 @@ def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_se
     assert metadata["runtime_profile"]["config"]["llm"]["model"] == "github-copilot/gpt-5.4-mini"
 
 
-def test_dispatcher_derives_summary_from_github_review_summary():
+def test_dispatcher_derives_summary_from_review_summary():
     payload = {
         "ok": True,
         "status": "success",
         "output_payload": {
-            "task_type": "github_review_task",
+            "task_type": "agent_async_task",
             "review_summary": "Automated PR review summary",
             "automation_rule_id": "rule-1",
             "dedupe_key": "dedupe-1",
@@ -557,13 +557,33 @@ def test_dispatch_task_runtime_exception_sets_error_message_and_finished_at(db_s
 
 def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkeypatch):
     db, agent = db_session
-    _attach_github_runtime_profile(db, agent)
     task = AgentTask(
         id="task-async-cancelled",
         assignee_agent_id=agent.id,
-        source="github",
-        task_type="github_review_task",
-        input_payload_json='{"owner":"octo","repo":"portal","pull_number":1,"head_sha":"sha-1"}',
+        owner_user_id=agent.owner_user_id,
+        source="automation",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Automation PR review",
+        skill_name="review",
+        root_task_id="task-async-cancelled",
+        task_session_id="automation:rule-1:event-1",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review https://github.com/octo/portal/pull/1.",
+                "skill_name": "review",
+                "task_session_id": "automation:rule-1:event-1",
+                "root_task_id": "task-async-cancelled",
+                "parent_task_id": None,
+                "automation": {
+                    "rule_id": "rule-1",
+                    "source": "github_pr_review",
+                    "provider": "github",
+                    "source_url": "https://github.com/octo/portal/pull/1",
+                },
+            }
+        ),
         status="queued",
         retry_count=0,
     )
@@ -578,7 +598,7 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
         {
             "ok": False,
             "error_code": "superseded_by_new_head_sha",
-            "message": "GitHub review task superseded by a newer PR head_sha",
+            "message": "Automation task superseded by a newer source version",
             "superseded_by_task_id": "new-task-1",
             "superseded_by_head_sha": "sha-2",
         }
@@ -890,119 +910,11 @@ def test_dispatch_task_sets_pending_restart_summary(db_session, monkeypatch):
     assert task.summary
 
 
-def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db_session):
-    db, agent = db_session
-    _attach_github_runtime_profile(db, agent)
-    task = AgentTask(
-        assignee_agent_id=agent.id,
-        owner_user_id=1,
-        source="automation_rule",
-        task_type="github_review_task",
-        trigger="github_pr_review_requested",
-        input_payload_json=json.dumps(
-            {
-                "owner": "octo",
-                "repo": "portal",
-                "pull_number": 99,
-                "head_sha": "sha-99",
-                "execution_mode": "chat_tool_loop",
-            }
-        ),
-        status="queued",
-        retry_count=0,
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-
-    service = TaskDispatcherService()
-    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
-    original_build_runtime_metadata = service.runtime_execution_context_service.build_runtime_metadata
-    authorization_seen = {}
-
-    def build_runtime_metadata_spy(db_arg, agent_arg, base_metadata=None):
-        metadata = original_build_runtime_metadata(db_arg, agent_arg, base_metadata)
-        authorization_seen["allowed_external_systems"] = metadata.get("allowed_external_systems")
-        authorization_seen["allowed_actions"] = metadata.get("allowed_actions")
-        authorization_seen["allowed_adapter_actions"] = metadata.get("allowed_adapter_actions")
-        return metadata
-
-    monkeypatch.setattr(
-        service.runtime_execution_context_service,
-        "build_runtime_metadata",
-        build_runtime_metadata_spy,
-    )
-
-    captured = {}
-
-    class SubmitResp:
-        status_code = 200
-        text = '{"ok": true, "status": "success", "output_payload": {"summary": "ok"}}'
-
-        @staticmethod
-        def json():
-            return {"ok": True, "status": "success", "output_payload": {"summary": "ok"}}
-
-    async def fake_post(_url, body):
-        captured["url"] = _url
-        captured["body"] = body
-        return SubmitResp()
-
-    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
-    result = asyncio.run(service.dispatch_task(task.id, db))
-    assert result.task_status == "done"
-
-    runtime_body = captured["body"]
-    assert captured["url"].endswith("/api/tasks/execute")
-    assert "/api/chat" not in captured["url"]
-    assert "/api/chat/stream" not in captured["url"]
-    assert runtime_body["task_type"] == "github_review_task"
-    assert runtime_body["input_payload"]["execution_mode"] == "chat_tool_loop"
-    assert runtime_body["metadata"]["portal_execution_mode"] == "chat_tool_loop"
-    metadata = runtime_body["metadata"]
-    assert metadata["runtime_profile_id"] == agent.runtime_profile_id
-    assert metadata["runtime_profile"]["runtime_profile_id"] == agent.runtime_profile_id
-    assert authorization_seen["allowed_external_systems"] == ["github"]
-    assert authorization_seen["allowed_actions"] == ["review_pull_request"]
-    assert authorization_seen["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
-    _assert_github_review_authorization(metadata)
-    assert "secret" not in json.dumps(metadata)
-
-
-def test_github_review_dispatch_fails_without_github_runtime_profile(monkeypatch, db_session):
-    db, agent = db_session
-    task = AgentTask(
-        assignee_agent_id=agent.id,
-        owner_user_id=1,
-        source="automation_rule",
-        task_type="github_review_task",
-        input_payload_json=json.dumps({"owner": "octo", "repo": "portal", "pull_number": 99, "head_sha": "sha-99"}),
-        status="queued",
-        retry_count=0,
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-
-    service = TaskDispatcherService()
-
-    async def fail_post(_url, _body):
-        raise AssertionError("dispatcher should not post without GitHub runtime profile config")
-
-    monkeypatch.setattr(service, "_post_to_runtime", fail_post)
-    result = asyncio.run(service.dispatch_task(task.id, db))
-    assert result.dispatched is False
-    assert result.task_status == "failed"
-    db.refresh(task)
-    payload = json.loads(task.result_payload_json)
-    assert payload["error_code"] == "github_runtime_profile_error"
-    assert "runtime profile" in payload["message"]
-
-
-def test_github_review_automation_dispatch_does_not_use_chat_endpoint():
+def test_automation_dispatch_uses_agent_async_and_tasks_execute_endpoint():
     source = Path("app/services/task_dispatcher.py").read_text()
     assert '"/api/tasks/execute"' in source
     assert "_grant_github_pr_review_runtime_metadata" not in source
+    assert "github_review_task" not in source
     automation_service = Path("app/services/automation_rule_service.py").read_text()
     assert '"agent_async_task"' in automation_service
     assert "github_review_task" not in automation_service

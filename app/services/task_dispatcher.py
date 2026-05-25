@@ -21,7 +21,6 @@ from app.log_context import (
 from app.redaction import safe_preview, sanitize_exception_message
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
 
@@ -497,24 +496,6 @@ class TaskDispatcherService:
                         error_message=payload_error,
                     )
                     return AgentTaskDispatchResult(False, task.id, None, task.status, payload_error, task.result_payload_json)
-
-                if task.task_type == "github_review_task":
-                    try:
-                        resolve_github_for_agent(db, agent.id)
-                    except (ProviderConfigResolverError, ValueError) as exc:
-                        error_message = str(exc)
-                        failure_payload = self._build_failure_payload(
-                            "github_runtime_profile_error",
-                            error_message,
-                            trace_context=trace_context,
-                        )
-                        task = self._mark_task_failed(
-                            task=task,
-                            task_repo=task_repo,
-                            result_payload_json=failure_payload,
-                            error_message=error_message,
-                        )
-                        return AgentTaskDispatchResult(False, task.id, None, task.status, error_message, task.result_payload_json)
 
                 metadata = {
                     "portal_task_id": task.id,

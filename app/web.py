@@ -799,7 +799,7 @@ def _is_external_trigger_task(task) -> bool:
     source = (task.source or "").strip().lower()
     task_type = (task.task_type or "").strip().lower()
     external_sources = {"github", "jira", "confluence", "cron", "internal", "automation", "automation_rule"}
-    external_task_types = {"github_review_task", "jira_workflow_review_task"}
+    external_task_types = {"jira_workflow_review_task"}
     return source in external_sources or task_type in external_task_types
 
 
