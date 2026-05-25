@@ -2,7 +2,6 @@ import json
 import logging
 import asyncio
 import time
-from copy import deepcopy
 from dataclasses import asdict, dataclass
 
 from sqlalchemy import select
@@ -13,6 +12,10 @@ from app.redaction import redact_text, sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.proxy_service import ProxyService
+from app.services.runtime_profile_authorization import (
+    apply_runtime_profile_authorization,
+    raw_runtime_profile_config,
+)
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
 logger = logging.getLogger(__name__)
@@ -58,83 +61,6 @@ class RuntimeProfileSyncService:
     def build_clear_payload_for_agent(self, _db: Session, _agent) -> dict:
         return self.build_clear_payload()
 
-    @staticmethod
-    def _as_string_list(value) -> list[str]:
-        if not isinstance(value, list):
-            return []
-        result: list[str] = []
-        for item in value:
-            if isinstance(item, str):
-                normalized = item.strip()
-                if normalized:
-                    result.append(normalized)
-        return result
-
-    @staticmethod
-    def _merge_string_lists(*values) -> list[str]:
-        result: list[str] = []
-        seen: set[str] = set()
-        for value in values:
-            for item in RuntimeProfileSyncService._as_string_list(value):
-                key = item.strip().lower()
-                if key and key not in seen:
-                    seen.add(key)
-                    result.append(item)
-        return result
-
-    @staticmethod
-    def _filter_broad_capability_types(values) -> list[str]:
-        return [
-            item for item in RuntimeProfileSyncService._as_string_list(values)
-            if item.strip().lower() not in {"skill", "tool"}
-        ]
-
-    @staticmethod
-    def _as_dict(value) -> dict:
-        return dict(value) if isinstance(value, dict) else {}
-
-    def _grant_github_pr_review_from_runtime_profile(self, config: dict) -> None:
-        github = config.get("github") if isinstance(config, dict) else None
-        if not isinstance(github, dict) or not github.get("enabled"):
-            return
-        if not str(github.get("api_token") or "").strip():
-            return
-
-        adapter_action = "adapter:github:review_pull_request"
-        config["allowed_external_systems"] = self._merge_string_lists(
-            config.get("allowed_external_systems"),
-            ["github"],
-        )
-        config["allowed_actions"] = self._merge_string_lists(
-            config.get("allowed_actions"),
-            ["review_pull_request"],
-        )
-        config["allowed_adapter_actions"] = self._merge_string_lists(
-            config.get("allowed_adapter_actions"),
-            [adapter_action],
-        )
-        config["allowed_capability_ids"] = self._merge_string_lists(
-            config.get("allowed_capability_ids"),
-            [adapter_action],
-        )
-        config["allowed_capability_types"] = self._filter_broad_capability_types(
-            self._merge_string_lists(config.get("allowed_capability_types"), ["adapter_action"])
-        )
-        resolved_mappings = self._as_dict(config.get("resolved_action_mappings"))
-        resolved_mappings["review_pull_request"] = adapter_action
-        config["resolved_action_mappings"] = resolved_mappings
-
-    @staticmethod
-    def _raw_profile_config(runtime_profile) -> dict:
-        raw = getattr(runtime_profile, "config_json", None)
-        if not isinstance(raw, str) or not raw.strip():
-            return {}
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:
         _ = db
         payload = self.build_apply_payload_from_profile(runtime_profile)
@@ -147,17 +73,8 @@ class RuntimeProfileSyncService:
             runtime_type = getattr(agent, "runtime_type", "") or "native"
             payload["config"]["llm"] = project_llm_for_runtime(llm, runtime_type)
         payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
-        raw_config = self._raw_profile_config(runtime_profile)
-        for key in [
-            "allowed_capability_ids",
-            "allowed_capability_types",
-            "allowed_external_systems",
-            "allowed_actions",
-            "allowed_adapter_actions",
-        ]:
-            if key in raw_config and key not in payload["config"]:
-                payload["config"][key] = deepcopy(raw_config.get(key))
-        self._grant_github_pr_review_from_runtime_profile(payload["config"])
+        raw_config = raw_runtime_profile_config(runtime_profile)
+        apply_runtime_profile_authorization(payload["config"], raw_config)
         payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
         return payload
 

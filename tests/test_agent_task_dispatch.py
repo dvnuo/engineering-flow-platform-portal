@@ -89,6 +89,21 @@ def _attach_github_runtime_profile(db: Session, agent: Agent) -> RuntimeProfile:
     return profile
 
 
+def _assert_github_review_authorization(metadata: dict) -> None:
+    assert metadata["authorization_source"] == "runtime_profile"
+    assert metadata["allowed_external_systems"] == ["github"]
+    assert metadata["allowed_actions"] == ["review_pull_request"]
+    assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_ids"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_types"] == ["adapter_action"]
+    assert metadata["resolved_action_mappings"] == {"review_pull_request": "adapter:github:review_pull_request"}
+    assert metadata["unresolved_tools"] == []
+    assert metadata["unresolved_skills"] == []
+    assert metadata["unresolved_channels"] == []
+    assert metadata["unresolved_actions"] == []
+    assert metadata["skill_details"] == []
+
+
 def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
     db, agent = db_session
     task = _create_task(db, agent.id)
@@ -256,6 +271,66 @@ def test_agent_async_task_dispatch_sends_session_and_metadata(db_session, monkey
     assert metadata["portal_root_task_id"] == "task-async-1"
     assert metadata["portal_task_session_id"] == "agent-task:task-async-1"
     assert metadata["system_prompt"] == "Run as a background long-running task. Finish independently."
+
+
+def test_agent_async_task_dispatch_uses_runtime_profile_github_authorization(db_session, monkeypatch):
+    db, agent = db_session
+    _attach_github_runtime_profile(db, agent)
+    task = AgentTask(
+        id="task-async-github-auth",
+        assignee_agent_id=agent.id,
+        owner_user_id=agent.owner_user_id,
+        source="portal",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        title="Review pull request",
+        skill_name="review-pull-request",
+        root_task_id="task-async-github-auth",
+        task_session_id="agent-task:task-async-github-auth",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "user_task": "Review the pull request.",
+                "skill_name": "review-pull-request",
+                "task_session_id": "agent-task:task-async-github-auth",
+                "root_task_id": "task-async-github-auth",
+                "parent_task_id": None,
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "done"}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert captured["url"].endswith("/api/tasks/execute")
+    assert captured["body"]["task_type"] == "agent_async_task"
+    metadata = captured["body"]["metadata"]
+    assert metadata["runtime_profile_id"] == agent.runtime_profile_id
+    _assert_github_review_authorization(metadata)
+    assert "secret" not in json.dumps(metadata)
 
 
 def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_session, monkeypatch):
@@ -826,6 +901,21 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
 
     service = TaskDispatcherService()
     monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    original_build_runtime_metadata = service.runtime_execution_context_service.build_runtime_metadata
+    authorization_seen = {}
+
+    def build_runtime_metadata_spy(db_arg, agent_arg, base_metadata=None):
+        metadata = original_build_runtime_metadata(db_arg, agent_arg, base_metadata)
+        authorization_seen["allowed_external_systems"] = metadata.get("allowed_external_systems")
+        authorization_seen["allowed_actions"] = metadata.get("allowed_actions")
+        authorization_seen["allowed_adapter_actions"] = metadata.get("allowed_adapter_actions")
+        return metadata
+
+    monkeypatch.setattr(
+        service.runtime_execution_context_service,
+        "build_runtime_metadata",
+        build_runtime_metadata_spy,
+    )
 
     captured = {}
 
@@ -854,20 +944,13 @@ def test_github_review_dispatch_includes_execution_mode_metadata(monkeypatch, db
     assert runtime_body["input_payload"]["execution_mode"] == "chat_tool_loop"
     assert runtime_body["metadata"]["portal_execution_mode"] == "chat_tool_loop"
     metadata = runtime_body["metadata"]
-    assert metadata["authorization_source"] == "runtime_profile"
     assert metadata["runtime_profile_id"] == agent.runtime_profile_id
     assert metadata["runtime_profile"]["runtime_profile_id"] == agent.runtime_profile_id
-    assert metadata["allowed_external_systems"] == ["github"]
-    assert metadata["allowed_actions"] == ["review_pull_request"]
-    assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
-    assert metadata["allowed_capability_ids"] == ["adapter:github:review_pull_request"]
-    assert metadata["allowed_capability_types"] == ["adapter_action"]
-    assert metadata["resolved_action_mappings"] == {"review_pull_request": "adapter:github:review_pull_request"}
-    assert metadata["unresolved_tools"] == []
-    assert metadata["unresolved_skills"] == []
-    assert metadata["unresolved_channels"] == []
-    assert metadata["unresolved_actions"] == []
-    assert metadata["skill_details"] == []
+    assert authorization_seen["allowed_external_systems"] == ["github"]
+    assert authorization_seen["allowed_actions"] == ["review_pull_request"]
+    assert authorization_seen["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    _assert_github_review_authorization(metadata)
+    assert "secret" not in json.dumps(metadata)
 
 
 def test_github_review_dispatch_fails_without_github_runtime_profile(monkeypatch, db_session):
@@ -903,6 +986,7 @@ def test_github_review_dispatch_fails_without_github_runtime_profile(monkeypatch
 def test_github_review_automation_dispatch_does_not_use_chat_endpoint():
     source = Path("app/services/task_dispatcher.py").read_text()
     assert '"/api/tasks/execute"' in source
+    assert "_grant_github_pr_review_runtime_metadata" not in source
     automation_sources = "\n".join(
         Path(path).read_text()
         for path in [

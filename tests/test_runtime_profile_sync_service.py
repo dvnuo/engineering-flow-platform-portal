@@ -299,7 +299,8 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists():
             '"allowed_capability_types":["adapter_action","skill","tool"],'
             '"allowed_external_systems":["github"],'
             '"allowed_actions":["runtime.action"],'
-            '"allowed_adapter_actions":["runtime.adapter"]}'
+            '"allowed_adapter_actions":["runtime.adapter"],'
+            '"resolved_action_mappings":{"runtime.action":"runtime.adapter"}}'
         )
         db.add(rp)
         db.commit()
@@ -321,6 +322,7 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists():
         assert "github" in cfg["allowed_external_systems"]
         assert "runtime.action" in cfg["allowed_actions"]
         assert "runtime.adapter" in cfg["allowed_adapter_actions"]
+        assert cfg["resolved_action_mappings"]["runtime.action"] == "runtime.adapter"
     finally:
         db.close()
 

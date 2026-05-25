@@ -161,21 +161,6 @@ class TaskDispatcherService:
         task.finished_at = datetime.utcnow()
         return task_repo.save(task)
 
-    def _grant_github_pr_review_runtime_metadata(self, metadata: dict) -> None:
-        adapter_action = "adapter:github:review_pull_request"
-        metadata["authorization_source"] = "runtime_profile"
-        metadata["allowed_external_systems"] = ["github"]
-        metadata["allowed_actions"] = ["review_pull_request"]
-        metadata["allowed_adapter_actions"] = [adapter_action]
-        metadata["allowed_capability_ids"] = [adapter_action]
-        metadata["allowed_capability_types"] = ["adapter_action"]
-        metadata["resolved_action_mappings"] = {"review_pull_request": adapter_action}
-        metadata["unresolved_tools"] = []
-        metadata["unresolved_skills"] = []
-        metadata["unresolved_channels"] = []
-        metadata["unresolved_actions"] = []
-        metadata["skill_details"] = []
-
     def _normalize_runtime_submit_response(
         self,
         response: httpx.Response,
@@ -546,8 +531,6 @@ class TaskDispatcherService:
                 metadata["parent_span_id"] = parent_span_id
                 metadata["portal_dispatch_id"] = portal_dispatch_id
                 metadata["portal_task_id"] = task.id
-                if task.task_type == "github_review_task":
-                    self._grant_github_pr_review_runtime_metadata(metadata)
                 source_kind = input_payload.get("source_kind")
                 if source_kind:
                     metadata["source_kind"] = source_kind

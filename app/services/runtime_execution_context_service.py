@@ -7,19 +7,29 @@ from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_tool_loop,
 )
+from app.services.runtime_profile_authorization import (
+    AUTHORIZATION_ALLOWLIST_KEYS,
+    RUNTIME_AUTHORIZATION_EMPTY_LIST_KEYS,
+    raw_runtime_profile_config,
+    runtime_profile_authorization_metadata,
+)
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
 
 class RuntimeExecutionContextService:
-    def _build_runtime_profile_context(self, db: Session, agent: Agent | None) -> tuple[str | None, dict | None]:
+    def _build_runtime_profile_context_and_authorization(
+        self,
+        db: Session,
+        agent: Agent | None,
+    ) -> tuple[str | None, dict | None, dict]:
         runtime_profile_id = getattr(agent, "runtime_profile_id", None) if agent else None
         if not runtime_profile_id:
-            return None, None
+            return None, None, {}
 
         profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
         if not profile:
-            return runtime_profile_id, None
+            return runtime_profile_id, None, {}
 
         try:
             parsed_config = parse_runtime_profile_config_json(
@@ -29,16 +39,20 @@ class RuntimeExecutionContextService:
         except TypeError:
             parsed_config = parse_runtime_profile_config_json(getattr(profile, "config_json", None))
         except ValueError:
-            return runtime_profile_id, None
+            return runtime_profile_id, None, {}
 
         materialized_config = RuntimeProfileService.merge_with_managed_defaults(parsed_config)
+        authorization_metadata = runtime_profile_authorization_metadata(
+            materialized_config,
+            raw_runtime_profile_config(profile),
+        )
         llm = materialized_config.get("llm") if isinstance(materialized_config, dict) else {}
         raw_tool_loop = llm.get("tool_loop") if isinstance(llm, dict) else {}
 
         try:
             tool_loop = sanitize_runtime_profile_tool_loop(raw_tool_loop)
         except ValueError:
-            return runtime_profile_id, None
+            return runtime_profile_id, None, {}
 
         runtime_type = getattr(agent, "runtime_type", "") if agent else ""
         projected_llm = project_llm_for_runtime(llm, runtime_type) if isinstance(llm, dict) else {}
@@ -61,26 +75,45 @@ class RuntimeExecutionContextService:
                 runtime_cfg["llm"]["api_key"] = api_key
             if oauth:
                 runtime_cfg["llm"]["oauth"] = dict(oauth)
-        return runtime_profile_id, {
-            "runtime_profile_id": runtime_profile_id,
-            "name": getattr(profile, "name", "") or "",
-            "revision": getattr(profile, "revision", None),
-            "managed_sections": ["llm"],
-            "config": runtime_cfg,
-            "source": "portal.runtime_profile",
-        }
+        return (
+            runtime_profile_id,
+            {
+                "runtime_profile_id": runtime_profile_id,
+                "name": getattr(profile, "name", "") or "",
+                "revision": getattr(profile, "revision", None),
+                "managed_sections": ["llm"],
+                "config": runtime_cfg,
+                "source": "portal.runtime_profile",
+            },
+            authorization_metadata,
+        )
+
+    def _build_runtime_profile_context(self, db: Session, agent: Agent | None) -> tuple[str | None, dict | None]:
+        runtime_profile_id, runtime_profile_context, _authorization_metadata = (
+            self._build_runtime_profile_context_and_authorization(db, agent)
+        )
+        return runtime_profile_id, runtime_profile_context
 
     def build_for_agent(self, db: Session, agent: Agent | None) -> dict:
-        runtime_profile_id, runtime_profile_context = self._build_runtime_profile_context(db, agent)
+        runtime_profile_id, runtime_profile_context, authorization_metadata = (
+            self._build_runtime_profile_context_and_authorization(db, agent)
+        )
 
         return {
             "runtime_profile_id": runtime_profile_id,
             "runtime_profile_context": runtime_profile_context,
+            "runtime_profile_authorization": authorization_metadata,
         }
 
     def build_runtime_metadata(self, db: Session, agent: Agent | None, base_metadata: dict | None = None) -> dict:
         metadata = dict(base_metadata or {})
         context = self.build_for_agent(db, agent)
+        for key in (
+            "authorization_source",
+            *AUTHORIZATION_ALLOWLIST_KEYS,
+            *RUNTIME_AUTHORIZATION_EMPTY_LIST_KEYS,
+        ):
+            metadata.pop(key, None)
 
         metadata["runtime_profile_id"] = context.get("runtime_profile_id")
         runtime_profile_context = context.get("runtime_profile_context") or {}
@@ -104,5 +137,8 @@ class RuntimeExecutionContextService:
                 tool_loop = llm_cfg.get("tool_loop")
                 if isinstance(tool_loop, dict) and tool_loop:
                     metadata["llm_tool_loop"] = tool_loop
+        authorization_metadata = context.get("runtime_profile_authorization")
+        if isinstance(authorization_metadata, dict) and authorization_metadata:
+            metadata.update(authorization_metadata)
 
         return metadata

@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import User
+from app.models import RuntimeProfile, User
 from app.services.auth_service import hash_password
 from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -188,3 +189,44 @@ def runtime_db():
     db.refresh(user)
     yield db, user
     db.close()
+
+
+def test_runtime_metadata_includes_github_authorization_without_token(runtime_db):
+    db, user = runtime_db
+    profile = RuntimeProfile(
+        owner_user_id=user.id,
+        name="github-auth",
+        config_json=json.dumps(
+            {
+                "github": {
+                    "enabled": True,
+                    "base_url": "https://api.github.com",
+                    "api_token": "ghp_SECRET",
+                }
+            }
+        ),
+        revision=4,
+        is_default=True,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+
+    service = RuntimeExecutionContextService()
+    agent = SimpleNamespace(id="agent-1", runtime_profile_id=profile.id, runtime_type="native")
+    metadata = service.build_runtime_metadata(db, agent)
+
+    assert metadata["authorization_source"] == "runtime_profile"
+    assert metadata["allowed_external_systems"] == ["github"]
+    assert metadata["allowed_actions"] == ["review_pull_request"]
+    assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_ids"] == ["adapter:github:review_pull_request"]
+    assert metadata["allowed_capability_types"] == ["adapter_action"]
+    assert metadata["resolved_action_mappings"] == {"review_pull_request": "adapter:github:review_pull_request"}
+    assert metadata["unresolved_tools"] == []
+    assert metadata["unresolved_skills"] == []
+    assert metadata["unresolved_channels"] == []
+    assert metadata["unresolved_actions"] == []
+    assert metadata["skill_details"] == []
+    assert "github" not in metadata["runtime_profile"]["config"]
+    assert "ghp_SECRET" not in json.dumps(metadata)
