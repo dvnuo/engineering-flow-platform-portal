@@ -78,6 +78,22 @@ class DelegationSourcePoller:
         except Exception:
             return None
 
+    @staticmethod
+    def _github_pr_directly_requests_login(pull_payload: dict, login: str) -> bool:
+        requested_reviewers = pull_payload.get("requested_reviewers")
+        if not isinstance(requested_reviewers, list):
+            return False
+        normalized_login = str(login or "").strip().lower()
+        if not normalized_login:
+            return False
+        for reviewer in requested_reviewers:
+            if not isinstance(reviewer, dict):
+                continue
+            reviewer_login = str(reviewer.get("login") or "").strip().lower()
+            if reviewer_login == normalized_login:
+                return True
+        return False
+
     async def _poll_github_pr_review(self, db: Session, rule) -> SourcePollResult:
         provider_config = resolve_github_for_agent(db, rule.target_agent_id)
         base_url = provider_config.base_url.rstrip("/")
@@ -102,6 +118,8 @@ class DelegationSourcePoller:
                 pull_response = await client.get(pull_url, headers=headers)
                 pull_response.raise_for_status()
                 pull_payload = pull_response.json()
+                if not self._github_pr_directly_requests_login(pull_payload, login):
+                    continue
                 owner, repo, pull_number = repo_tuple
                 head_sha = str(((pull_payload.get("head") or {}).get("sha")) or "").strip()
                 pr_url = str(pull_payload.get("html_url") or issue.get("html_url") or "").strip()
