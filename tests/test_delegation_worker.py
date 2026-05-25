@@ -8,8 +8,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, User
-from app.repositories.automation_rule_repo import AutomationRuleRepository
-from app.services.automation_worker import AutomationWorker
+from app.repositories.delegation_rule_repo import DelegationRuleRepository
+from app.services.delegation_worker import DelegationWorker
 
 
 def _session_factory():
@@ -37,7 +37,7 @@ def _mk_agent(user_id: int):
     )
 
 
-def _create_rule(repo: AutomationRuleRepository, user, agent, **overrides):
+def _create_rule(repo: DelegationRuleRepository, user, agent, **overrides):
     data = {
         "name": "r",
         "enabled": True,
@@ -69,13 +69,13 @@ def test_worker_lock_semantics_and_next_run_update():
     db.add(agent)
     db.commit()
     db.refresh(agent)
-    repo = AutomationRuleRepository(db)
+    repo = DelegationRuleRepository(db)
     rule = _create_rule(repo, user, agent)
 
     s1 = SessionLocal()
     s2 = SessionLocal()
-    r1 = AutomationRuleRepository(s1)
-    r2 = AutomationRuleRepository(s2)
+    r1 = DelegationRuleRepository(s1)
+    r2 = DelegationRuleRepository(s2)
     now = datetime.utcnow()
 
     lock1 = r1.acquire_due_rule_lock(rule.id, now=now, lease_seconds=120)
@@ -92,7 +92,7 @@ def test_worker_lock_semantics_and_next_run_update():
 
 
 def test_worker_stop_is_idempotent():
-    worker = AutomationWorker()
+    worker = DelegationWorker()
     worker.stop()
     worker.stop()
 
@@ -108,7 +108,7 @@ def test_due_list_excludes_deleted_rules():
     db.add(agent)
     db.commit()
     db.refresh(agent)
-    repo = AutomationRuleRepository(db)
+    repo = DelegationRuleRepository(db)
     now = datetime.utcnow()
     _create_rule(repo, user, agent, state_json='{"deleted": true}', next_run_at=now - timedelta(seconds=1))
     assert repo.list_due_rules(now=now, limit=10) == []
@@ -125,16 +125,16 @@ def test_worker_failure_path_schedules_next_run(monkeypatch):
     db.add(agent)
     db.commit()
     db.refresh(agent)
-    repo = AutomationRuleRepository(db)
+    repo = DelegationRuleRepository(db)
     rule = _create_rule(repo, user, agent)
     db.close()
 
-    monkeypatch.setattr("app.services.automation_worker.SessionLocal", SessionLocal)
-    worker = AutomationWorker()
+    monkeypatch.setattr("app.services.delegation_worker.SessionLocal", SessionLocal)
+    worker = DelegationWorker()
     asyncio.run(worker._run_once())
 
     check_db = SessionLocal()
-    refreshed = AutomationRuleRepository(check_db).get(rule.id)
+    refreshed = DelegationRuleRepository(check_db).get(rule.id)
     assert refreshed.last_run_at is not None
     assert refreshed.next_run_at is not None
     assert refreshed.next_run_at > datetime.utcnow() - timedelta(seconds=1)

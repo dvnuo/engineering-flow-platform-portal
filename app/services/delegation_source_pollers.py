@@ -15,10 +15,10 @@ from app.services.provider_config_resolver import (
 )
 
 
-AUTO_REPLY_MARKER_PREFIX = "<!-- efp:auto-reply "
+DELEGATION_REPLY_MARKER_PREFIX = "<!-- efp:delegation-reply "
 GITHUB_SOURCES = {"github_pr_review", "github_pr_mention"}
 JIRA_SOURCES = {"jira_assignee", "jira_mention"}
-SUPPORTED_AUTOMATION_SOURCES = GITHUB_SOURCES | JIRA_SOURCES
+SUPPORTED_DELEGATION_SOURCES = GITHUB_SOURCES | JIRA_SOURCES
 SOURCE_PROVIDER = {
     "github_pr_review": "github",
     "github_pr_mention": "github",
@@ -33,7 +33,7 @@ class SourcePollResult:
     state_patch: dict[str, Any] = field(default_factory=dict)
 
 
-class AutomationSourcePoller:
+class DelegationSourcePoller:
     async def poll(self, db: Session, rule) -> SourcePollResult:
         source = str(rule.trigger_type or "").strip()
         if source == "github_pr_review":
@@ -44,7 +44,7 @@ class AutomationSourcePoller:
             return await self._poll_jira_assignee(db, rule)
         if source == "jira_mention":
             return await self._poll_jira_mention(db, rule)
-        raise ValueError(f"Unsupported automation source: {source}")
+        raise ValueError(f"Unsupported delegation source: {source}")
 
     @staticmethod
     def _github_headers(provider_config: GithubProviderConfig) -> dict:
@@ -178,7 +178,7 @@ class AutomationSourcePoller:
                 comments.extend(await self._github_review_comments(client, base_url, headers, owner, repo, pull_number))
                 for comment in comments:
                     body = str(comment.get("body") or "")
-                    if not body or AUTO_REPLY_MARKER_PREFIX in body or not self._mentions_login(body, login):
+                    if not body or DELEGATION_REPLY_MARKER_PREFIX in body or not self._mentions_login(body, login):
                         continue
                     comment_id = str(comment.get("id") or "").strip()
                     if not comment_id:
@@ -304,7 +304,7 @@ class AutomationSourcePoller:
                 comments = comments_block.get("comments") if isinstance(comments_block, dict) else []
                 for comment in comments if isinstance(comments, list) else []:
                     body = self._jira_comment_text(comment.get("body"))
-                    if AUTO_REPLY_MARKER_PREFIX in body:
+                    if DELEGATION_REPLY_MARKER_PREFIX in body:
                         continue
                     lowered = body.lower()
                     if not any(token.lower() in lowered for token in tokens):

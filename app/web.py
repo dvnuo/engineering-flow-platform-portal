@@ -798,7 +798,7 @@ def _format_utc_timestamp(value) -> str | None:
 def _is_external_trigger_task(task) -> bool:
     source = (task.source or "").strip().lower()
     task_type = (task.task_type or "").strip().lower()
-    external_sources = {"github", "jira", "confluence", "cron", "internal", "automation", "automation_rule"}
+    external_sources = {"github", "jira", "confluence", "cron", "internal", "delegation"}
     return source in external_sources or task_type == "agent_async_task"
 
 
@@ -806,20 +806,20 @@ def _task_activity_time(task):
     return task.finished_at or task.started_at or task.updated_at or task.created_at
 
 
-def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
+def _settings_delegation_activity_summary(db, agent_id: str) -> dict[str, str]:
     tasks = [task for task in AgentTaskRepository(db).list_by_agent(agent_id) if _is_external_trigger_task(task)]
     if not tasks:
         return {
-            "last_triggered_task_at_text": "No automation activity yet.",
-            "last_automation_task_created_at_text": "No automation activity yet.",
+            "last_triggered_task_at_text": "No delegation activity yet.",
+            "last_delegation_task_created_at_text": "No delegation activity yet.",
             "recent_failed_trigger_summary": "No recent failed triggers.",
         }
 
     latest_task = max(tasks, key=lambda task: _task_activity_time(task) or datetime.min)
     latest_accepted_task = max(tasks, key=lambda task: task.created_at or datetime.min)
 
-    last_triggered_text = _format_utc_timestamp(_task_activity_time(latest_task)) or "No automation activity yet."
-    last_accepted_text = _format_utc_timestamp(latest_accepted_task.created_at) or "No automation activity yet."
+    last_triggered_text = _format_utc_timestamp(_task_activity_time(latest_task)) or "No delegation activity yet."
+    last_accepted_text = _format_utc_timestamp(latest_accepted_task.created_at) or "No delegation activity yet."
 
     failed_tasks = [task for task in tasks if (task.status or "").strip().lower() == "failed" or bool((task.error_message or "").strip())]
     recent_failed_trigger_summary = "No recent failed triggers."
@@ -834,13 +834,13 @@ def _settings_automation_activity_summary(db, agent_id: str) -> dict[str, str]:
 
     return {
         "last_triggered_task_at_text": last_triggered_text,
-        "last_automation_task_created_at_text": last_accepted_text,
+        "last_delegation_task_created_at_text": last_accepted_text,
         "recent_failed_trigger_summary": recent_failed_trigger_summary,
     }
 
 
 def _settings_settings_panel_summary(db, agent_id: str) -> dict:
-    return _settings_automation_activity_summary(db, agent_id)
+    return _settings_delegation_activity_summary(db, agent_id)
 
 
 def _runtime_profile_panel_context(

@@ -107,9 +107,9 @@ class Settings(BaseSettings):
         default=60,
         validation_alias="ASSETS_BUNDLE_LIST_CACHE_TTL_SECONDS",
     )
-    automation_rules_worker_enabled: bool = Field(default=True, validation_alias="AUTOMATION_RULES_WORKER_ENABLED")
-    automation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="AUTOMATION_RULES_WORKER_INTERVAL_SECONDS")
-    automation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="AUTOMATION_RULE_LOCK_LEASE_SECONDS")
+    delegation_rules_worker_enabled: bool = Field(default=True, validation_alias="DELEGATION_RULES_WORKER_ENABLED")
+    delegation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="DELEGATION_RULES_WORKER_INTERVAL_SECONDS")
+    delegation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="DELEGATION_RULE_LOCK_LEASE_SECONDS")
     runtime_profile_sync_worker_enabled: bool = Field(default=True, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_ENABLED")
     runtime_profile_sync_worker_interval_seconds: int = Field(default=5, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_INTERVAL_SECONDS")
     runtime_profile_sync_worker_batch_size: int = Field(default=20, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_BATCH_SIZE")

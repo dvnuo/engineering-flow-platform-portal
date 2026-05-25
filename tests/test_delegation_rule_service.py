@@ -10,10 +10,10 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
 from app.models.agent_task import AgentTask
-from app.repositories.automation_rule_repo import AutomationRuleRepository
-from app.schemas.automation_rule import AutomationRuleCreate
-from app.services.automation_source_pollers import AutomationSourcePoller, SourcePollResult
-from app.services.automation_rule_service import AutomationRuleService
+from app.repositories.delegation_rule_repo import DelegationRuleRepository
+from app.schemas.delegation_rule import DelegationRuleCreate
+from app.services.delegation_source_pollers import DelegationSourcePoller, SourcePollResult
+from app.services.delegation_rule_service import DelegationRuleService
 
 
 def _session():
@@ -80,14 +80,14 @@ def _create_user_agent(db: Session, *, username: str = "u"):
 
 
 def test_jira_mention_jql_literal_preserves_spaces_and_escapes_quotes():
-    assert AutomationSourcePoller._jira_jql_text_literal("Alice Smith") == "Alice Smith"
-    assert AutomationSourcePoller._jira_jql_text_literal('Alice "Bot"') == 'Alice \\"Bot\\"'
+    assert DelegationSourcePoller._jira_jql_text_literal("Alice Smith") == "Alice Smith"
+    assert DelegationSourcePoller._jira_jql_text_literal('Alice "Bot"') == 'Alice \\"Bot\\"'
 
 
 def _create_rule(db: Session, user, agent, source: str = "github_pr_review", skill_name: str = "selected-skill"):
-    svc = AutomationRuleService(db)
+    svc = DelegationRuleService(db)
     rule = svc.create_rule(
-        AutomationRuleCreate(
+        DelegationRuleCreate(
             name=f"rule-{source}",
             target_agent_id=agent.id,
             skill_name=skill_name,
@@ -153,7 +153,7 @@ def _source_item(source: str) -> dict:
     raise AssertionError(source)
 
 
-def _run_once_with_items(svc: AutomationRuleService, rule_id: str, items: list[dict]):
+def _run_once_with_items(svc: DelegationRuleService, rule_id: str, items: list[dict]):
     async def _poll(_db, _rule):
         return SourcePollResult(items=items)
 
@@ -182,7 +182,7 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     assert result.found_count == 1
     assert result.created_task_count == 1
     task = db.query(AgentTask).one()
-    assert task.source == "automation"
+    assert task.source == "delegation"
     assert task.task_type == "agent_async_task"
     assert task.task_family == "agent_task"
     assert task.provider == ("github" if source.startswith("github") else "jira")
@@ -195,13 +195,14 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     assert payload["skill_name"] == "custom-skill"
     assert payload["root_task_id"] == task.id
     assert payload["parent_task_id"] is None
-    assert payload["task_session_id"].startswith(f"automation:{rule.id}:")
+    assert payload["task_session_id"].startswith(f"delegation:{rule.id}:")
     for fragment in expected_fragments:
         assert fragment in payload["user_task"]
-    assert payload["automation"]["rule_id"] == rule.id
-    assert payload["automation"]["source"] == source
-    assert payload["automation"]["reply_target"]
-    event = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert payload["delegation_rule_id"] == rule.id
+    assert payload["delegation"]["delegation_rule_id"] == rule.id
+    assert payload["delegation"]["source"] == source
+    assert payload["delegation"]["reply_target"]
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
     assert event.status == "task_created"
     assert event.task_id == task.id
 
@@ -220,7 +221,7 @@ def test_dedupe_same_source_item_does_not_create_duplicate_task():
     assert second.created_task_count == 0
     assert second.skipped_count == 1
     assert db.query(AgentTask).count() == 1
-    assert len(AutomationRuleRepository(db).list_events(rule.id, 10)) == 1
+    assert len(DelegationRuleRepository(db).list_events(rule.id, 10)) == 1
 
 
 def test_reply_sent_when_task_done(monkeypatch):
@@ -248,12 +249,14 @@ def test_reply_sent_when_task_done(monkeypatch):
     result = _run_once_with_items(svc, rule.id, [])
 
     assert result.created_task_count == 0
-    event = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
     assert event.status == "reply_sent"
     assert captured["reply_target"]["kind"] == "pr_comment"
     assert "Reply body" in captured["text"]
-    assert f"automation_id={rule.id}" in captured["text"]
+    assert "<!-- efp:delegation-reply " in captured["text"]
+    assert f"delegation_id={rule.id}" in captured["text"]
     assert f"event_id={event.id}" in captured["text"]
+    assert "efp:auto-reply" not in captured["text"]
 
 
 def test_reply_failure_marks_event_failed():
@@ -274,7 +277,7 @@ def test_reply_failure_marks_event_failed():
     svc.reply_service.send_reply = _send_reply
     _run_once_with_items(svc, rule.id, [])
 
-    event = AutomationRuleRepository(db).list_events(rule.id, 10)[0]
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
     assert event.status == "reply_failed"
     assert "reply unavailable" in event.error_message
 
@@ -292,8 +295,8 @@ def test_run_once_failure_schedules_next_run():
     with pytest.raises(Exception):
         asyncio.run(svc.run_rule_once(rule.id))
 
-    refreshed_rule = AutomationRuleRepository(db).get(rule.id)
-    runs = AutomationRuleRepository(db).list_runs(rule.id, 5)
+    refreshed_rule = DelegationRuleRepository(db).get(rule.id)
+    runs = DelegationRuleRepository(db).list_runs(rule.id, 5)
     assert runs[0].status == "failed"
     assert refreshed_rule.last_run_at is not None
     assert refreshed_rule.next_run_at is not None
@@ -305,7 +308,7 @@ def test_get_or_create_event_by_dedupe_handles_unique_conflict():
     db = _session()
     user, agent = _create_user_agent(db, username="u-event")
     _svc, rule = _create_rule(db, user, agent, source="github_pr_review")
-    repo = AutomationRuleRepository(db)
+    repo = DelegationRuleRepository(db)
     event1, created1 = repo.get_or_create_event_by_dedupe(
         rule_id=rule.id,
         dedupe_key="k1",

@@ -8,12 +8,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Agent, RuntimeProfile, User
-from app.repositories.automation_rule_repo import AutomationRuleRepository
+from app.repositories.delegation_rule_repo import DelegationRuleRepository
 
 
 def _build_client_with_overrides():
     from app.main import app
-    import app.api.automation_rules as api_module
+    import app.api.delegation_rules as api_module
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -123,7 +123,7 @@ def _build_client_with_overrides():
 
 def _payload(agent_id: str, source: str = "github_pr_review") -> dict:
     return {
-        "name": f"Automation {source}",
+        "name": f"Delegation {source}",
         "enabled": True,
         "target_agent_id": agent_id,
         "skill_name": "selected-skill",
@@ -136,7 +136,7 @@ def test_api_create_accepts_all_sources():
     client, _db, agents, cleanup = _build_client_with_overrides()
     try:
         for source in ["github_pr_review", "github_pr_mention", "jira_assignee", "jira_mention"]:
-            resp = client.post("/api/automation-rules", json=_payload(agents.both.id, source))
+            resp = client.post("/api/delegation-rules", json=_payload(agents.both.id, source))
             assert resp.status_code == 200
             body = resp.json()
             assert body["source"] == source
@@ -151,7 +151,7 @@ def test_api_create_accepts_all_sources():
 def test_api_rejects_unknown_source_with_400():
     client, _db, agents, cleanup = _build_client_with_overrides()
     try:
-        resp = client.post("/api/automation-rules", json=_payload(agents.both.id, "unknown_source"))
+        resp = client.post("/api/delegation-rules", json=_payload(agents.both.id, "unknown_source"))
         assert resp.status_code == 400
         assert "source must be one of" in resp.json()["detail"]
     finally:
@@ -163,7 +163,7 @@ def test_api_create_requires_skill_name():
     try:
         payload = _payload(agents.both.id)
         payload.pop("skill_name")
-        resp = client.post("/api/automation-rules", json=payload)
+        resp = client.post("/api/delegation-rules", json=payload)
         assert resp.status_code == 422
     finally:
         cleanup()
@@ -172,9 +172,9 @@ def test_api_create_requires_skill_name():
 def test_api_create_github_source_requires_agent_github_runtime_profile():
     client, _db, agents, cleanup = _build_client_with_overrides()
     try:
-        ok = client.post("/api/automation-rules", json=_payload(agents.github.id, "github_pr_review"))
+        ok = client.post("/api/delegation-rules", json=_payload(agents.github.id, "github_pr_review"))
         assert ok.status_code == 200
-        missing = client.post("/api/automation-rules", json=_payload(agents.empty.id, "github_pr_review"))
+        missing = client.post("/api/delegation-rules", json=_payload(agents.empty.id, "github_pr_review"))
         assert missing.status_code == 400
         assert "GitHub" in missing.json()["detail"]
     finally:
@@ -184,20 +184,20 @@ def test_api_create_github_source_requires_agent_github_runtime_profile():
 def test_api_create_jira_source_requires_agent_jira_runtime_profile():
     client, _db, agents, cleanup = _build_client_with_overrides()
     try:
-        ok = client.post("/api/automation-rules", json=_payload(agents.jira.id, "jira_assignee"))
+        ok = client.post("/api/delegation-rules", json=_payload(agents.jira.id, "jira_assignee"))
         assert ok.status_code == 200
-        missing = client.post("/api/automation-rules", json=_payload(agents.empty.id, "jira_assignee"))
+        missing = client.post("/api/delegation-rules", json=_payload(agents.empty.id, "jira_assignee"))
         assert missing.status_code == 400
         assert "Jira" in missing.json()["detail"]
     finally:
         cleanup()
 
 
-def test_automation_rules_api_crud_update_and_soft_delete(monkeypatch):
+def test_delegation_rules_api_crud_update_and_soft_delete(monkeypatch):
     client, db, agents, cleanup = _build_client_with_overrides()
     try:
         async def _fake_run(self, rule_id, triggered_by="api"):
-            from app.services.automation_rule_service import RunOnceResult
+            from app.services.delegation_rule_service import RunOnceResult
 
             return RunOnceResult(
                 rule_id=rule_id,
@@ -209,14 +209,14 @@ def test_automation_rules_api_crud_update_and_soft_delete(monkeypatch):
                 created_task_ids=["task-1"],
             )
 
-        monkeypatch.setattr("app.services.automation_rule_service.AutomationRuleService.run_rule_once", _fake_run)
+        monkeypatch.setattr("app.services.delegation_rule_service.DelegationRuleService.run_rule_once", _fake_run)
 
-        create_resp = client.post("/api/automation-rules", json=_payload(agents.both.id, "github_pr_review"))
+        create_resp = client.post("/api/delegation-rules", json=_payload(agents.both.id, "github_pr_review"))
         assert create_resp.status_code == 200
         created = create_resp.json()
 
         patch_resp = client.patch(
-            f"/api/automation-rules/{created['id']}",
+            f"/api/delegation-rules/{created['id']}",
             json={"skill_name": "other-skill", "interval_seconds": 120, "enabled": False},
         )
         assert patch_resp.status_code == 200
@@ -225,10 +225,10 @@ def test_automation_rules_api_crud_update_and_soft_delete(monkeypatch):
         assert patched["interval_seconds"] == 120
         assert patched["enabled"] is False
 
-        run_resp = client.post(f"/api/automation-rules/{created['id']}/run-once")
+        run_resp = client.post(f"/api/delegation-rules/{created['id']}/run-once")
         assert run_resp.status_code == 200
 
-        repo = AutomationRuleRepository(db)
+        repo = DelegationRuleRepository(db)
         repo.create_event(
             rule_id=created["id"],
             dedupe_key="source:item:1",
@@ -236,17 +236,17 @@ def test_automation_rules_api_crud_update_and_soft_delete(monkeypatch):
             normalized_payload_json=json.dumps({"source": "github_pr_review", "source_url": "https://example/pr/1"}),
             status="discovered",
         )
-        events_resp = client.get(f"/api/automation-rules/{created['id']}/events")
+        events_resp = client.get(f"/api/delegation-rules/{created['id']}/events")
         assert events_resp.status_code == 200
         assert events_resp.json()[0]["updated_at"] is not None
 
-        delete_resp = client.delete(f"/api/automation-rules/{created['id']}")
+        delete_resp = client.delete(f"/api/delegation-rules/{created['id']}")
         assert delete_resp.status_code == 200
-        list_resp = client.get("/api/automation-rules")
+        list_resp = client.get("/api/delegation-rules")
         assert list_resp.status_code == 200
         assert list_resp.json() == []
 
-        rule = AutomationRuleRepository(db).get(created["id"])
+        rule = DelegationRuleRepository(db).get(created["id"])
         state = json.loads(rule.state_json)
         assert state["deleted"] is True
     finally:

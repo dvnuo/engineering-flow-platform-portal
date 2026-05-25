@@ -515,21 +515,21 @@ class TaskDispatcherService:
                 source_kind = input_payload.get("source_kind")
                 if source_kind:
                     metadata["source_kind"] = source_kind
-                automation_rule = input_payload.get("automation_rule")
-                automation_rule_id = input_payload.get("automation_rule_id") or input_payload.get("rule_id")
-                automation_payload = input_payload.get("automation")
-                if isinstance(automation_payload, dict):
-                    automation_rule_id = automation_rule_id or automation_payload.get("rule_id")
-                    automation_source = automation_payload.get("source")
-                    automation_provider = automation_payload.get("provider")
-                    if automation_source:
-                        metadata["portal_automation_source"] = str(automation_source)
-                    if automation_provider:
-                        metadata["portal_automation_provider"] = str(automation_provider)
-                if automation_rule:
-                    metadata["portal_automation_rule"] = automation_rule
-                if automation_rule_id:
-                    metadata["portal_automation_rule_id"] = str(automation_rule_id)
+                delegation_rule = input_payload.get("delegation_rule")
+                delegation_rule_id = input_payload.get("delegation_rule_id")
+                delegation_payload = input_payload.get("delegation")
+                if isinstance(delegation_payload, dict):
+                    delegation_rule_id = delegation_rule_id or delegation_payload.get("delegation_rule_id")
+                    delegation_source = delegation_payload.get("source")
+                    delegation_provider = delegation_payload.get("provider")
+                    if delegation_source:
+                        metadata["portal_delegation_source"] = str(delegation_source)
+                    if delegation_provider:
+                        metadata["portal_delegation_provider"] = str(delegation_provider)
+                if delegation_rule:
+                    metadata["portal_delegation_rule"] = delegation_rule
+                if delegation_rule_id:
+                    metadata["portal_delegation_rule_id"] = str(delegation_rule_id)
                 if task.trigger:
                     metadata["portal_task_trigger"] = task.trigger
                 head_sha = input_payload.get("head_sha")

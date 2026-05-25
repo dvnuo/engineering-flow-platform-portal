@@ -425,7 +425,7 @@ def test_dispatcher_derives_summary_from_review_summary():
         "output_payload": {
             "task_type": "agent_async_task",
             "review_summary": "Automated PR review summary",
-            "automation_rule_id": "rule-1",
+            "delegation_rule_id": "rule-1",
             "dedupe_key": "dedupe-1",
         },
     }
@@ -561,23 +561,24 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
         id="task-async-cancelled",
         assignee_agent_id=agent.id,
         owner_user_id=agent.owner_user_id,
-        source="automation",
+        source="delegation",
         task_type="agent_async_task",
         task_family="agent_task",
-        title="Automation PR review",
+        title="Delegation PR review",
         skill_name="review",
         root_task_id="task-async-cancelled",
-        task_session_id="automation:rule-1:event-1",
+        task_session_id="delegation:rule-1:event-1",
         input_payload_json=json.dumps(
             {
                 "schema": "agent_async_task.v1",
                 "user_task": "Review https://github.com/octo/portal/pull/1.",
                 "skill_name": "review",
-                "task_session_id": "automation:rule-1:event-1",
+                "task_session_id": "delegation:rule-1:event-1",
                 "root_task_id": "task-async-cancelled",
                 "parent_task_id": None,
-                "automation": {
-                    "rule_id": "rule-1",
+                "delegation_rule_id": "rule-1",
+                "delegation": {
+                    "delegation_rule_id": "rule-1",
                     "source": "github_pr_review",
                     "provider": "github",
                     "source_url": "https://github.com/octo/portal/pull/1",
@@ -598,7 +599,7 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
         {
             "ok": False,
             "error_code": "superseded_by_new_head_sha",
-            "message": "Automation task superseded by a newer source version",
+            "message": "Delegation task superseded by a newer source version",
             "superseded_by_task_id": "new-task-1",
             "superseded_by_head_sha": "sha-2",
         }
@@ -776,30 +777,31 @@ def test_dispatch_task_in_background_rebinds_parent_context(monkeypatch):
     assert seen["context"]["agent_id"] == "agent-9"
 
 
-def test_agent_async_automation_task_metadata_includes_source(monkeypatch, db_session):
+def test_agent_async_delegation_task_metadata_includes_source(monkeypatch, db_session):
     db, agent = db_session
     task = AgentTask(
-        id="automation-agent-task-1",
+        id="delegation-agent-task-1",
         assignee_agent_id=agent.id,
         owner_user_id=1,
-        source="automation",
+        source="delegation",
         task_type="agent_async_task",
         task_family="agent_task",
         provider="jira",
         trigger="jira_mention",
         skill_name="reply-skill",
-        root_task_id="automation-agent-task-1",
-        task_session_id="automation:rule-1:event-1",
+        root_task_id="delegation-agent-task-1",
+        task_session_id="delegation:rule-1:event-1",
         input_payload_json=json.dumps(
             {
                 "schema": "agent_async_task.v1",
                 "skill_name": "reply-skill",
-                "task_session_id": "automation:rule-1:event-1",
-                "root_task_id": "automation-agent-task-1",
+                "task_session_id": "delegation:rule-1:event-1",
+                "root_task_id": "delegation-agent-task-1",
                 "parent_task_id": None,
+                "delegation_rule_id": "rule-1",
                 "user_task": "You are responding as Bot User.\nJira issue:\nhttps://jira.local/browse/ENG-1\n\nComment:\nBot User ping",
-                "automation": {
-                    "rule_id": "rule-1",
+                "delegation": {
+                    "delegation_rule_id": "rule-1",
                     "source": "jira_mention",
                     "provider": "jira",
                     "source_url": "https://jira.local/browse/ENG-1",
@@ -839,9 +841,12 @@ def test_agent_async_automation_task_metadata_includes_source(monkeypatch, db_se
 
     metadata = captured["body"]["metadata"]
     assert "portal_subscription_id" not in metadata
-    assert metadata["portal_automation_rule_id"] == "rule-1"
-    assert metadata["portal_automation_source"] == "jira_mention"
-    assert metadata["portal_automation_provider"] == "jira"
+    assert "portal_automation_rule_id" not in metadata
+    assert "portal_automation_source" not in metadata
+    assert "portal_automation_provider" not in metadata
+    assert metadata["portal_delegation_rule_id"] == "rule-1"
+    assert metadata["portal_delegation_source"] == "jira_mention"
+    assert metadata["portal_delegation_provider"] == "jira"
     assert metadata["portal_task_trigger"] == "jira_mention"
     assert metadata["portal_task_mode"] == "agent_async_task"
     assert metadata["portal_skill_name"] == "reply-skill"
@@ -910,15 +915,15 @@ def test_dispatch_task_sets_pending_restart_summary(db_session, monkeypatch):
     assert task.summary
 
 
-def test_automation_dispatch_uses_agent_async_and_tasks_execute_endpoint():
+def test_delegation_dispatch_uses_agent_async_and_tasks_execute_endpoint():
     source = Path("app/services/task_dispatcher.py").read_text()
     assert '"/api/tasks/execute"' in source
     assert "_grant_github_pr_review_runtime_metadata" not in source
     assert "github_review_task" not in source
     assert "jira_workflow_review_task" not in source
-    automation_service = Path("app/services/automation_rule_service.py").read_text()
-    assert '"agent_async_task"' in automation_service
-    assert "github_review_task" not in automation_service
-    assert "triggered_event_task" not in automation_service
-    assert "/api/chat" not in automation_service
-    assert "/api/chat/stream" not in automation_service
+    delegation_service = Path("app/services/delegation_rule_service.py").read_text()
+    assert '"agent_async_task"' in delegation_service
+    assert "github_review_task" not in delegation_service
+    assert "triggered_event_task" not in delegation_service
+    assert "/api/chat" not in delegation_service
+    assert "/api/chat/stream" not in delegation_service

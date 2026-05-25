@@ -12,9 +12,9 @@ REQUIRED_PORTAL_TABLES = (
     "runtime_profile_sync_jobs",
     "runtime_capability_catalog_snapshots",
     "agent_tasks",
-    "automation_rules",
-    "automation_rule_runs",
-    "automation_rule_events",
+    "delegation_rules",
+    "delegation_rule_runs",
+    "delegation_rule_events",
 )
 
 
@@ -106,7 +106,7 @@ def test_portal_schema_ready_passes_with_all_required_tables():
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
         elif table_name == "users":
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
-        elif table_name == "automation_rule_events":
+        elif table_name == "delegation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
         elif table_name == "runtime_profile_sync_jobs":
             _runtime_profile_sync_jobs_table(metadata)
@@ -115,6 +115,15 @@ def test_portal_schema_ready_passes_with_all_required_tables():
     metadata.create_all(engine)
 
     assert_portal_schema_ready(engine)
+
+
+def test_portal_schema_guard_requires_delegation_tables_not_automation_tables():
+    assert "delegation_rules" in REQUIRED_PORTAL_TABLES
+    assert "delegation_rule_runs" in REQUIRED_PORTAL_TABLES
+    assert "delegation_rule_events" in REQUIRED_PORTAL_TABLES
+    assert "automation_rules" not in REQUIRED_PORTAL_TABLES
+    assert "automation_rule_runs" not in REQUIRED_PORTAL_TABLES
+    assert "automation_rule_events" not in REQUIRED_PORTAL_TABLES
 
 
 def test_portal_schema_ready_requires_runtime_profile_sync_jobs_table():
@@ -128,7 +137,7 @@ def test_portal_schema_ready_requires_runtime_profile_sync_jobs_table():
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
         elif table_name == "users":
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
-        elif table_name == "automation_rule_events":
+        elif table_name == "delegation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
         else:
             Table(table_name, metadata, Column("id", String(36), primary_key=True))
@@ -154,7 +163,7 @@ def test_portal_schema_ready_rejects_runtime_profile_sync_jobs_missing_columns()
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
         elif table_name == "users":
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
-        elif table_name == "automation_rule_events":
+        elif table_name == "delegation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
         elif table_name == "runtime_profile_sync_jobs":
             _runtime_profile_sync_jobs_table(metadata, minimal=True)

@@ -5,7 +5,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, field_validator, model_validator
 
 
-class AutomationRuleCreate(BaseModel):
+class DelegationRuleCreate(BaseModel):
     name: str
     enabled: bool = True
     target_agent_id: str
@@ -33,7 +33,7 @@ class AutomationRuleCreate(BaseModel):
         return parsed
 
 
-class AutomationRuleUpdate(BaseModel):
+class DelegationRuleUpdate(BaseModel):
     name: Optional[str] = None
     enabled: Optional[bool] = None
     target_agent_id: Optional[str] = None
@@ -74,7 +74,7 @@ def _parse_json_object(raw: str | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-class AutomationRuleRead(BaseModel):
+class DelegationRuleRead(BaseModel):
     id: str
     name: str
     enabled: bool
@@ -136,7 +136,7 @@ class AutomationRuleRead(BaseModel):
         from_attributes = True
 
 
-class AutomationRuleRunRead(BaseModel):
+class DelegationRuleRunRead(BaseModel):
     id: str
     rule_id: str
     status: str
@@ -152,7 +152,7 @@ class AutomationRuleRunRead(BaseModel):
         from_attributes = True
 
 
-class AutomationRuleEventRead(BaseModel):
+class DelegationRuleEventRead(BaseModel):
     id: str
     rule_id: str
     dedupe_key: str
@@ -168,7 +168,7 @@ class AutomationRuleEventRead(BaseModel):
         from_attributes = True
 
 
-class AutomationRuleRunOnceResponse(BaseModel):
+class DelegationRuleRunOnceResponse(BaseModel):
     rule_id: str
     status: str
     found_count: int

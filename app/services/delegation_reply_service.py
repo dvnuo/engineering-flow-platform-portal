@@ -6,11 +6,11 @@ from sqlalchemy.orm import Session
 from app.services.provider_config_resolver import resolve_github_for_agent, resolve_jira_for_agent
 
 
-def automation_reply_marker(rule_id: str, event_id: str) -> str:
-    return f"<!-- efp:auto-reply automation_id={rule_id} event_id={event_id} -->"
+def delegation_reply_marker(rule_id: str, event_id: str) -> str:
+    return f"<!-- efp:delegation-reply delegation_id={rule_id} event_id={event_id} -->"
 
 
-class AutomationReplyService:
+class DelegationReplyService:
     async def send_reply(self, db: Session, *, rule, event, reply_target: dict, text: str) -> None:
         provider = str((reply_target or {}).get("provider") or rule.source_type or "").strip().lower()
         if provider == "github":

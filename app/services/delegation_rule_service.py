@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.repositories.automation_rule_repo import AutomationRuleRepository
-from app.schemas.automation_rule import AutomationRuleCreate, AutomationRuleUpdate
-from app.services.automation_reply_service import AutomationReplyService, automation_reply_marker
-from app.services.automation_source_pollers import SOURCE_PROVIDER, SUPPORTED_AUTOMATION_SOURCES, AutomationSourcePoller
+from app.repositories.delegation_rule_repo import DelegationRuleRepository
+from app.schemas.delegation_rule import DelegationRuleCreate, DelegationRuleUpdate
+from app.services.delegation_reply_service import DelegationReplyService, delegation_reply_marker
+from app.services.delegation_source_pollers import SOURCE_PROVIDER, SUPPORTED_DELEGATION_SOURCES, DelegationSourcePoller
 from app.services.provider_config_resolver import (
     ProviderConfigResolverError,
     resolve_github_for_agent,
@@ -42,14 +42,14 @@ class RunOnceResult:
     created_task_ids: list[str]
 
 
-class AutomationRuleService:
+class DelegationRuleService:
     def __init__(self, db: Session):
         self.db = db
-        self.repo = AutomationRuleRepository(db)
+        self.repo = DelegationRuleRepository(db)
         self.task_repo = AgentTaskRepository(db)
         self.dispatcher = TaskDispatcherService()
-        self.source_poller = AutomationSourcePoller()
-        self.reply_service = AutomationReplyService()
+        self.source_poller = DelegationSourcePoller()
+        self.reply_service = DelegationReplyService()
 
     @staticmethod
     def _parse_json(raw: str | None) -> dict:
@@ -68,8 +68,8 @@ class AutomationRuleService:
     @staticmethod
     def _validate_source(source: str | None) -> str:
         normalized = str(source or "").strip()
-        if normalized not in SUPPORTED_AUTOMATION_SOURCES:
-            expected = ", ".join(sorted(SUPPORTED_AUTOMATION_SOURCES))
+        if normalized not in SUPPORTED_DELEGATION_SOURCES:
+            expected = ", ".join(sorted(SUPPORTED_DELEGATION_SOURCES))
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"source must be one of: {expected}")
         return normalized
 
@@ -81,12 +81,12 @@ class AutomationRuleService:
     def _agent_task_dedupe_key(full_dedupe_key: str) -> str:
         if len(full_dedupe_key) <= 240:
             return full_dedupe_key
-        return "automation:" + hashlib.sha256(full_dedupe_key.encode()).hexdigest()
+        return "delegation:" + hashlib.sha256(full_dedupe_key.encode()).hexdigest()
 
     @staticmethod
     def _derive_task_title(task_content: str) -> str:
         first_line = next((line.strip() for line in str(task_content or "").splitlines() if line.strip()), "")
-        title = " ".join((first_line or "Automation task").split())
+        title = " ".join((first_line or "Delegation task").split())
         if len(title) > 96:
             return title[:93].rstrip() + "..."
         return title
@@ -107,7 +107,7 @@ class AutomationRuleService:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    def create_rule(self, payload: AutomationRuleCreate, current_user_id: int) -> object:
+    def create_rule(self, payload: DelegationRuleCreate, current_user_id: int) -> object:
         source = self._validate_source(payload.source)
         provider = self._provider_for_source(source)
         self._validate_agent_provider_config(agent_id=payload.target_agent_id, provider=provider)
@@ -134,7 +134,7 @@ class AutomationRuleService:
         }
         return self.repo.create(create_data, current_user_id=current_user_id)
 
-    def update_rule(self, rule, payload: AutomationRuleUpdate, current_user_id: int) -> object:
+    def update_rule(self, rule, payload: DelegationRuleUpdate, current_user_id: int) -> object:
         _ = current_user_id
         data = payload.model_dump(exclude_unset=True)
         source = self._validate_source(rule.trigger_type)
@@ -211,7 +211,7 @@ class AutomationRuleService:
         refreshed_event = self.repo.get_event(event.id) or event
         existing_task = self.task_repo.find_by_dedupe_key(
             assignee_agent_id=rule.target_agent_id,
-            source="automation",
+            source="delegation",
             task_type=AGENT_ASYNC_TASK_TYPE,
             dedupe_key=agent_task_dedupe_key,
         )
@@ -222,11 +222,11 @@ class AutomationRuleService:
         task_config = self._parse_json(rule.task_config_json)
         skill_name = str(task_config.get("skill_name") or "").strip()
         if not skill_name:
-            raise ValueError("Automation rule is missing skill_name")
+            raise ValueError("Delegation rule is missing skill_name")
         task_id = str(uuid4())
-        task_session_id = f"automation:{rule.id}:{event.id}"
-        automation_payload = {
-            "rule_id": rule.id,
+        task_session_id = f"delegation:{rule.id}:{event.id}"
+        delegation_payload = {
+            "delegation_rule_id": rule.id,
             "source": source,
             "provider": provider,
             "source_url": normalized_item.get("source_url"),
@@ -240,10 +240,11 @@ class AutomationRuleService:
             "task_session_id": task_session_id,
             "root_task_id": task_id,
             "parent_task_id": None,
+            "delegation_rule_id": rule.id,
             "autonomous": True,
             "autonomous_instruction": AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION,
             "user_task": task_content,
-            "automation": automation_payload,
+            "delegation": delegation_payload,
         }
         try:
             task = self.task_repo.create(
@@ -251,7 +252,7 @@ class AutomationRuleService:
                 assignee_agent_id=rule.target_agent_id,
                 owner_user_id=rule.owner_user_id,
                 created_by_user_id=rule.created_by_user_id,
-                source="automation",
+                source="delegation",
                 task_type=AGENT_ASYNC_TASK_TYPE,
                 task_family=AGENT_ASYNC_TASK_FAMILY,
                 provider=provider,
@@ -279,7 +280,7 @@ class AutomationRuleService:
 
     @staticmethod
     def _extract_task_result_text(task) -> str | None:
-        payload = AutomationRuleService._parse_json(getattr(task, "result_payload_json", None))
+        payload = DelegationRuleService._parse_json(getattr(task, "result_payload_json", None))
         output_payload = payload.get("output_payload")
         if isinstance(output_payload, dict):
             for key in ("summary", "final_response", "response", "raw_text", "review_summary", "message", "result_summary"):
@@ -316,7 +317,7 @@ class AutomationRuleService:
                 self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message="Task completed without reply text")
                 failed_count += 1
                 continue
-            reply_text = f"{automation_reply_marker(rule.id, event.id)}\n\n{result_text}"
+            reply_text = f"{delegation_reply_marker(rule.id, event.id)}\n\n{result_text}"
             try:
                 await self.reply_service.send_reply(self.db, rule=rule, event=event, reply_target=reply_target, text=reply_text)
             except Exception as exc:
@@ -330,9 +331,9 @@ class AutomationRuleService:
     async def run_rule_once(self, rule_id: str, triggered_by: str = "api") -> RunOnceResult:
         rule = self.repo.get(rule_id)
         if not rule:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutomationRule not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
         if self.repo.is_deleted_rule(rule):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AutomationRule is archived")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="DelegationRule is archived")
 
         source = self._validate_source(rule.trigger_type)
         provider = self._provider_for_source(source)

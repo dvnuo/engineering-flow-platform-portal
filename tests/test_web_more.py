@@ -13,6 +13,14 @@ def _repo_root() -> Path:
 def _chat_ui_js_source() -> str:
     chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
     return chat_ui_path.read_text(encoding="utf-8")
+
+
+def _app_template_source() -> str:
+    return (_repo_root() / "app" / "templates" / "app.html").read_text(encoding="utf-8")
+
+
+def _app_css_source() -> str:
+    return (_repo_root() / "app" / "static" / "css" / "app.css").read_text(encoding="utf-8")
 from fastapi.testclient import TestClient
 import pytest
 from _js_extract_helpers import _extract_js_function, _extract_js_helper_block
@@ -144,10 +152,10 @@ def test_chat_ui_layout_persistence_source_markers_present():
     assert "await restorePinnedToolPanelFromPreferencesOnce();" in js
 
 
-def test_create_automation_form_uses_trigger_task_reply_fields_only():
+def test_create_delegation_form_uses_trigger_task_reply_fields_only():
     js = _chat_ui_js_source()
-    create_fn = _extract_js_function(js, "openCreateAutomationRuleModal")
-    submit_fn = _extract_js_function(js, "submitCreateAutomationRule")
+    create_fn = _extract_js_function(js, "openCreateDelegationRuleModal")
+    submit_fn = _extract_js_function(js, "submitCreateDelegationRule")
 
     for expected in [
         "Agent",
@@ -194,20 +202,39 @@ def test_create_automation_form_uses_trigger_task_reply_fields_only():
         assert field not in create_fn
 
 
-def test_automation_list_and_detail_use_task_style_layout():
+def test_delegation_list_and_detail_use_task_style_layout():
     js = _chat_ui_js_source()
-    render_fn = _extract_js_function(js, "renderAutomationRuleNavList")
-    detail_fn = _extract_js_function(js, "openAutomationRulePanel")
+    render_fn = _extract_js_function(js, "renderDelegationRuleNavList")
+    detail_fn = _extract_js_function(js, "openDelegationRulePanel")
 
-    assert "portal-task-row portal-automation-row" in render_fn
+    assert "portal-task-row portal-delegation-row" in render_fn
     assert "portal-task-row-head" in render_fn
     assert "portal-task-row-meta" in render_fn
 
-    assert "portal-task-detail-hero portal-automation-hero" in detail_fn
-    assert "portal-task-metrics portal-automation-metrics" in detail_fn
-    assert "portal-automation-flow" in detail_fn
-    assert "portal-automation-timeline-list" in detail_fn
+    assert "portal-task-detail-hero portal-delegation-hero" in detail_fn
+    assert "portal-task-metrics portal-delegation-metrics" in detail_fn
+    assert "portal-delegation-flow" in detail_fn
+    assert "portal-delegation-timeline-list" in detail_fn
     assert "portal-table" not in detail_fn
+
+
+def test_delegations_ui_uses_clean_names_and_endpoint():
+    js = _chat_ui_js_source()
+    css = _app_css_source()
+    template = _app_template_source()
+
+    assert "Delegations" in template
+    assert "Create Delegation" in template
+    assert "/api/delegation-rules" in js
+    assert "portal-delegation-" in js
+    assert "portal-delegation-" in css
+
+    assert "/api/automation-rules" not in js
+    assert "portal-automation-" not in js
+    assert "portal-automation-" not in css
+    assert "Automation" not in template
+    assert "Automation" not in js
+    assert "#/automations" not in js
 
 
 def test_chat_ui_layout_persistence_calls_present_in_tool_panel_actions():

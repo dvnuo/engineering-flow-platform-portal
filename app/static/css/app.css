@@ -2408,21 +2408,21 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   min-height: 280px;
 }
 
-.portal-automation-detail {
+.portal-delegation-detail {
   gap: 14px;
 }
 
-.portal-automation-row .portal-task-row-preview {
+.portal-delegation-row .portal-task-row-preview {
   color: var(--portal-text-secondary);
 }
 
-.portal-automation-flow {
+.portal-delegation-flow {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
-.portal-automation-flow-step {
+.portal-delegation-flow-step {
   border: 1px solid var(--portal-border);
   background: var(--portal-surface);
   border-radius: var(--portal-radius-sm);
@@ -2432,7 +2432,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 5px;
 }
 
-.portal-automation-flow-step span {
+.portal-delegation-flow-step span {
   color: var(--portal-text-muted);
   font-size: 11px;
   font-weight: 700;
@@ -2440,26 +2440,26 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   letter-spacing: .04em;
 }
 
-.portal-automation-flow-step strong {
+.portal-delegation-flow-step strong {
   color: var(--portal-text);
   font-size: 14px;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
-.portal-automation-flow-step small {
+.portal-delegation-flow-step small {
   color: var(--portal-text-muted);
   font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-.portal-automation-timeline-list {
+.portal-delegation-timeline-list {
   display: grid;
   gap: 10px;
 }
 
-.portal-automation-timeline-item {
+.portal-delegation-timeline-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -2470,47 +2470,47 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   padding: 10px;
 }
 
-.portal-automation-timeline-main {
+.portal-delegation-timeline-main {
   min-width: 0;
   display: grid;
   gap: 8px;
 }
 
-.portal-automation-timeline-main > strong {
+.portal-delegation-timeline-main > strong {
   color: var(--portal-text);
   font-size: 13px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-.portal-automation-timeline-head,
-.portal-automation-timeline-meta {
+.portal-delegation-timeline-head,
+.portal-delegation-timeline-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.portal-automation-timeline-meta {
+.portal-delegation-timeline-meta {
   color: var(--portal-text-muted);
   font-size: 12px;
 }
 
-.portal-automation-timeline-actions {
+.portal-delegation-timeline-actions {
   display: flex;
   justify-content: flex-end;
 }
 
-.portal-automation-source-link {
+.portal-delegation-source-link {
   color: var(--portal-accent);
   text-decoration: none;
 }
 
-.portal-automation-source-link:hover {
+.portal-delegation-source-link:hover {
   text-decoration: underline;
 }
 
-.portal-automation-comment {
+.portal-delegation-comment {
   border-left: 3px solid var(--portal-border-strong);
   background: var(--portal-surface);
   border-radius: var(--portal-radius-sm);
@@ -2809,8 +2809,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .portal-automation-flow,
-  .portal-automation-timeline-item {
+  .portal-delegation-flow,
+  .portal-delegation-timeline-item {
     grid-template-columns: 1fr;
   }
 
@@ -2827,7 +2827,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
     justify-content: flex-start;
   }
 
-  .portal-automation-timeline-actions {
+  .portal-delegation-timeline-actions {
     justify-content: flex-start;
   }
 }

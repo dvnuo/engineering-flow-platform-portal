@@ -43,7 +43,7 @@ const dom = {
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
-  automationsMenuBtn: document.getElementById("automations-menu-btn"),
+  delegationsMenuBtn: document.getElementById("delegations-menu-btn"),
   bundlesMenuBtn: document.getElementById("bundles-menu-btn"),
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
@@ -57,16 +57,16 @@ const dom = {
   bundlesNavSection: document.getElementById("bundles-nav-section"),
   tasksNavSection: document.getElementById("tasks-nav-section"),
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
-  automationsNavSection: document.getElementById("automations-nav-section"),
+  delegationsNavSection: document.getElementById("delegations-nav-section"),
   bundleNavList: document.getElementById("bundle-nav-list"),
   taskNavList: document.getElementById("task-nav-list"),
   runtimeProfileNavList: document.getElementById("runtime-profile-nav-list"),
-  automationRuleNavList: document.getElementById("automation-rule-nav-list"),
+  delegationRuleNavList: document.getElementById("delegation-rule-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
   addTaskBtn: document.getElementById("add-task-btn"),
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
-  addAutomationBtn: document.getElementById("add-automation-btn"),
+  addDelegationBtn: document.getElementById("add-delegation-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
   chatModelWrap: document.getElementById("composer-model-wrap"),
@@ -135,7 +135,7 @@ const PORTAL_ROUTE_SECTIONS = new Set([
   "bundles",
   "tasks",
   "runtime-profiles",
-  "automations",
+  "delegations",
 ]);
 
 function normalizeUtilityPanelKey(panelKey) {
@@ -298,8 +298,8 @@ const state = {
   serverFilesCurrentPath: null,
   runtimeProfiles: [],
   selectedRuntimeProfileId: null,
-  automations: [],
-  selectedAutomationRuleId: null,
+  delegations: [],
+  selectedDelegationRuleId: null,
   agentDefaults: null,
 };
 let thinkingPanelRefreshRaf = null;
@@ -324,7 +324,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
     agentId: "",
     taskId: "",
     runtimeProfileId: "",
-    automationRuleId: "",
+    delegationRuleId: "",
     bundleRef: null,
     hadHash,
     raw,
@@ -372,8 +372,8 @@ function parsePortalHashRoute(hash = window.location.hash) {
     parsed.taskId = decodedId;
   } else if (section === "runtime-profiles") {
     parsed.runtimeProfileId = decodedId;
-  } else if (section === "automations") {
-    parsed.automationRuleId = decodedId;
+  } else if (section === "delegations") {
+    parsed.delegationRuleId = decodedId;
   }
   return parsed;
 }
@@ -408,9 +408,9 @@ function portalHashForRoute(route = {}) {
     return runtimeProfileId ? `#/runtime-profiles/${encodeURIComponent(runtimeProfileId)}` : "#/runtime-profiles";
   }
 
-  if (section === "automations") {
-    const automationRuleId = route.automationRuleId ? String(route.automationRuleId) : "";
-    return automationRuleId ? `#/automations/${encodeURIComponent(automationRuleId)}` : "#/automations";
+  if (section === "delegations") {
+    const delegationRuleId = route.delegationRuleId ? String(route.delegationRuleId) : "";
+    return delegationRuleId ? `#/delegations/${encodeURIComponent(delegationRuleId)}` : "#/delegations";
   }
 
   return "#/assistants";
@@ -439,8 +439,8 @@ function currentPortalRouteFromState() {
     return { section, runtimeProfileId: state.selectedRuntimeProfileId || "" };
   }
 
-  if (section === "automations") {
-    return { section, automationRuleId: state.selectedAutomationRuleId || "" };
+  if (section === "delegations") {
+    return { section, delegationRuleId: state.selectedDelegationRuleId || "" };
   }
 
   return { section: "assistants", agentId: state.selectedAgentId || "" };
@@ -470,8 +470,8 @@ function clearPortalSectionDetailSelection(section) {
     state.selectedTaskId = null;
   } else if (section === "runtime-profiles") {
     state.selectedRuntimeProfileId = null;
-  } else if (section === "automations") {
-    state.selectedAutomationRuleId = null;
+  } else if (section === "delegations") {
+    state.selectedDelegationRuleId = null;
   }
 }
 
@@ -493,7 +493,7 @@ async function openPortalSection(section, {
     (section === "bundles" && !!state.selectedBundleKey) ||
     (section === "tasks" && !!state.selectedTaskId) ||
     (section === "runtime-profiles" && !!state.selectedRuntimeProfileId) ||
-    (section === "automations" && !!state.selectedAutomationRuleId)
+    (section === "delegations" && !!state.selectedDelegationRuleId)
   );
 
   // Section-only navigation means the user clicked the rail/menu to open the column page,
@@ -613,13 +613,13 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
     return;
   }
 
-  if (route.section === "automations") {
-    if (route.automationRuleId) {
-      await setActiveNavSection("automations", { toggleIfSame: false, updateRoute: false });
-      await loadAutomationRules();
-      await openAutomationRulePanel(route.automationRuleId, { updateRoute: false });
+  if (route.section === "delegations") {
+    if (route.delegationRuleId) {
+      await setActiveNavSection("delegations", { toggleIfSame: false, updateRoute: false });
+      await loadDelegationRules();
+      await openDelegationRulePanel(route.delegationRuleId, { updateRoute: false });
     } else {
-      await setActiveNavSection("automations", {
+      await setActiveNavSection("delegations", {
         toggleIfSame: false,
         updateRoute: false,
         preferSectionLanding: true,
@@ -6621,7 +6621,7 @@ function getSecondaryPaneLabel() {
   if (state.activeNavSection === "bundles") return "Bundles";
   if (state.activeNavSection === "tasks") return "Tasks";
   if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
-  if (state.activeNavSection === "automations") return "Automations";
+  if (state.activeNavSection === "delegations") return "Delegations";
   return "Assistants";
 }
 
@@ -6661,13 +6661,13 @@ function renderSecondaryPaneHeader() {
   const refreshBundlesBtn = dom.refreshBundlesBtn;
   const addTaskBtn = dom.addTaskBtn;
   const addRuntimeProfileBtn = dom.addRuntimeProfileBtn;
-  const addAutomationBtn = dom.addAutomationBtn;
+  const addDelegationBtn = dom.addDelegationBtn;
   if (addAgentBtn) addAgentBtn.classList.add("hidden");
   if (addBundleBtn) addBundleBtn.classList.add("hidden");
   if (refreshBundlesBtn) refreshBundlesBtn.classList.add("hidden");
   if (addTaskBtn) addTaskBtn.classList.add("hidden");
   if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.add("hidden");
-  if (addAutomationBtn) addAutomationBtn.classList.add("hidden");
+  if (addDelegationBtn) addDelegationBtn.classList.add("hidden");
 
   if (state.activeNavSection === "assistants") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
@@ -6682,10 +6682,10 @@ function renderSecondaryPaneHeader() {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Tasks";
     if (addTaskBtn) addTaskBtn.classList.remove("hidden");
-  } else if (state.activeNavSection === "automations") {
+  } else if (state.activeNavSection === "delegations") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
-    dom.secondaryPaneTitle.textContent = "Automations";
-    if (addAutomationBtn) addAutomationBtn.classList.remove("hidden");
+    dom.secondaryPaneTitle.textContent = "Delegations";
+    if (addDelegationBtn) addDelegationBtn.classList.remove("hidden");
   } else {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Runtime Profiles";
@@ -6712,9 +6712,9 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "My Tasks";
       setChatStatus("Browse tasks and open task detail in the main stage");
-    } else if (state.activeNavSection === "automations") {
-      dom.embedTitle.textContent = "Automations";
-      setChatStatus("Manage automation rules");
+    } else if (state.activeNavSection === "delegations") {
+      dom.embedTitle.textContent = "Delegations";
+      setChatStatus("Manage delegations");
     } else {
       dom.embedTitle.textContent = "Runtime Profiles";
       setChatStatus("Browse and manage your runtime profiles");
@@ -6780,8 +6780,8 @@ function syncDefaultMainViewForSection(section) {
     renderWorkspaceDetailPlaceholder("Select a runtime profile from the left sidebar.", "runtime-profiles-placeholder");
     return;
   }
-  if (section === "automations") {
-    renderWorkspaceDetailPlaceholder("Select an automation rule from the left sidebar.", "automations-placeholder");
+  if (section === "delegations") {
+    renderWorkspaceDetailPlaceholder("Select a delegation from the left sidebar.", "delegations-placeholder");
   }
 }
 
@@ -6883,7 +6883,7 @@ async function setActiveNavSection(section, {
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = typeof PORTAL_ROUTE_SECTIONS !== "undefined"
     ? PORTAL_ROUTE_SECTIONS
-    : new Set(["assistants", "bundles", "tasks", "runtime-profiles", "automations"]);
+    : new Set(["assistants", "bundles", "tasks", "runtime-profiles", "delegations"]);
   if (!validSections.has(section)) return;
 
   if (preferSectionLanding) {
@@ -6903,13 +6903,13 @@ async function setActiveNavSection(section, {
   dom.bundlesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "bundles");
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
-  dom.automationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "automations");
+  dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.bundlesNavSection?.classList.toggle("hidden", state.activeNavSection !== "bundles");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
   dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
-  dom.automationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "automations");
+  dom.delegationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "delegations");
 
   applySecondaryPaneState();
   renderSecondaryPaneHeader();
@@ -6950,8 +6950,8 @@ async function setActiveNavSection(section, {
       showTasksLoadingMainView();
     } else if (section === "runtime-profiles") {
       renderWorkspaceDetailPlaceholder("Loading runtime profiles…", "runtime-profiles-loading");
-    } else if (section === "automations") {
-      renderWorkspaceDetailPlaceholder("Loading automations…", "automations-loading");
+    } else if (section === "delegations") {
+      renderWorkspaceDetailPlaceholder("Loading delegations…", "delegations-loading");
     }
   }
 
@@ -7033,20 +7033,20 @@ async function setActiveNavSection(section, {
       showTasksDefaultMainView();
     }
   }
-  if (state.activeNavSection === "automations" && shouldRefreshVisibleSection) {
-    await loadAutomationRules();
-    const first = state.automations[0];
+  if (state.activeNavSection === "delegations" && shouldRefreshVisibleSection) {
+    await loadDelegationRules();
+    const first = state.delegations[0];
     if (preferSectionLanding) {
-      state.selectedAutomationRuleId = null;
-      renderAutomationRuleNavList(state.automations);
+      state.selectedDelegationRuleId = null;
+      renderDelegationRuleNavList(state.delegations);
       if (first) {
-        renderWorkspaceDetailPlaceholder("Select an automation rule from the left sidebar.", "automations-placeholder");
+        renderWorkspaceDetailPlaceholder("Select a delegation from the left sidebar.", "delegations-placeholder");
         syncMainHeader();
       } else {
-        renderWorkspaceDetailPlaceholder("No automations found.", "automations-placeholder");
+        renderWorkspaceDetailPlaceholder("No delegations found.", "delegations-placeholder");
       }
     } else if (!first) {
-      renderWorkspaceDetailPlaceholder("No automations found.", "automations-placeholder");
+      renderWorkspaceDetailPlaceholder("No delegations found.", "delegations-placeholder");
     }
   }
 
@@ -9233,38 +9233,38 @@ async function refreshRuntimeProfileList({ preserveSelection = true } = {}) {
   renderRuntimeProfileList();
 }
 
-async function loadAutomationRules() {
+async function loadDelegationRules() {
   try {
-    const rules = await api("/api/automation-rules");
-    state.automations = Array.isArray(rules) ? rules : [];
+    const rules = await api("/api/delegation-rules");
+    state.delegations = Array.isArray(rules) ? rules : [];
   } catch (_err) {
-    state.automations = [];
+    state.delegations = [];
   }
-  renderAutomationRuleNavList(state.automations);
-  return state.automations;
+  renderDelegationRuleNavList(state.delegations);
+  return state.delegations;
 }
 
-function renderAutomationRuleNavList(rules) {
-  if (!dom.automationRuleNavList) return;
+function renderDelegationRuleNavList(rules) {
+  if (!dom.delegationRuleNavList) return;
   const items = Array.isArray(rules) ? rules : [];
   if (!items.length) {
-    dom.automationRuleNavList.innerHTML = '<div class="portal-bundle-list-state">No automations found.</div>';
+    dom.delegationRuleNavList.innerHTML = '<div class="portal-bundle-list-state">No delegations found.</div>';
     return;
   }
-  dom.automationRuleNavList.innerHTML = "";
+  dom.delegationRuleNavList.innerHTML = "";
   items.forEach((rule) => {
     const source = rule.source || rule.trigger_type;
-    const sourceLabel = automationSourceLabel(source);
-    const skillLabel = automationRuleSkillLabel(rule);
-    const title = String(rule.name || sourceLabel || "Automation").trim();
-    const intervalLabel = automationIntervalLabel(rule.interval_seconds || 60);
-    const statusLabel = automationRuleStatusLabel(rule);
-    const statusTone = automationRuleStatusTone(rule);
-    const timeLabel = rule.enabled ? `Next ${automationDisplayTime(rule.next_run_at)}` : `Last ${automationDisplayTime(rule.last_run_at)}`;
-    const flowPreview = `${sourceLabel} -> ${skillLabel} -> ${automationReplyTargetLabel(source)}`;
+    const sourceLabel = delegationSourceLabel(source);
+    const skillLabel = delegationRuleSkillLabel(rule);
+    const title = String(rule.name || sourceLabel || "Delegation").trim();
+    const intervalLabel = delegationIntervalLabel(rule.interval_seconds || 60);
+    const statusLabel = delegationRuleStatusLabel(rule);
+    const statusTone = delegationRuleStatusTone(rule);
+    const timeLabel = rule.enabled ? `Next ${delegationDisplayTime(rule.next_run_at)}` : `Last ${delegationDisplayTime(rule.last_run_at)}`;
+    const flowPreview = `${sourceLabel} -> ${skillLabel} -> ${delegationReplyTargetLabel(source)}`;
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `portal-task-row portal-automation-row${state.selectedAutomationRuleId === rule.id ? " is-active" : ""}`;
+    row.className = `portal-task-row portal-delegation-row${state.selectedDelegationRuleId === rule.id ? " is-active" : ""}`;
     row.innerHTML = `
       <div class="portal-task-row-head">
         <div class="portal-task-row-title">${safe(title)}</div>
@@ -9277,39 +9277,39 @@ function renderAutomationRuleNavList(rules) {
         <span>${safe(timeLabel)}</span>
       </div>
     `;
-    row.addEventListener("click", () => openAutomationRulePanel(rule.id));
-    dom.automationRuleNavList.append(row);
+    row.addEventListener("click", () => openDelegationRulePanel(rule.id));
+    dom.delegationRuleNavList.append(row);
   });
 }
 
-const AUTOMATION_SOURCE_OPTIONS = [
+const DELEGATION_SOURCE_OPTIONS = [
   ["github_pr_review", "GitHub PR Review"],
   ["github_pr_mention", "GitHub PR Mention"],
   ["jira_assignee", "Jira Assignee"],
   ["jira_mention", "Jira Mention"],
 ];
 
-function automationSourceLabel(source) {
+function delegationSourceLabel(source) {
   const normalized = String(source || "").trim();
-  const found = AUTOMATION_SOURCE_OPTIONS.find(([value]) => value === normalized);
+  const found = DELEGATION_SOURCE_OPTIONS.find(([value]) => value === normalized);
   return found ? found[1] : normalized || "-";
 }
 
-function automationProviderLabel(source) {
+function delegationProviderLabel(source) {
   const normalized = String(source || "").trim();
   if (normalized.startsWith("github_")) return "GitHub";
   if (normalized.startsWith("jira_")) return "Jira";
   return normalized || "-";
 }
 
-function automationReplyTargetLabel(source) {
-  const provider = automationProviderLabel(source);
+function delegationReplyTargetLabel(source) {
+  const provider = delegationProviderLabel(source);
   if (provider === "GitHub") return "PR comment";
   if (provider === "Jira") return "Jira comment";
   return "Reply";
 }
 
-function automationInputLabel(source) {
+function delegationInputLabel(source) {
   const normalized = String(source || "").trim();
   if (normalized === "github_pr_review") return "PR URL";
   if (normalized === "github_pr_mention") return "PR URL + comment";
@@ -9318,20 +9318,20 @@ function automationInputLabel(source) {
   return "Source payload";
 }
 
-function automationRuleSkillLabel(rule) {
+function delegationRuleSkillLabel(rule) {
   const skillName = String(rule?.skill_name || "").trim().replace(/^\/+/, "");
   return skillName ? `/${skillName}` : "-";
 }
 
-function automationRuleStatusLabel(rule) {
+function delegationRuleStatusLabel(rule) {
   return rule?.enabled ? "Enabled" : "Paused";
 }
 
-function automationRuleStatusTone(rule) {
+function delegationRuleStatusTone(rule) {
   return rule?.enabled ? "success" : "neutral";
 }
 
-function automationIntervalLabel(seconds) {
+function delegationIntervalLabel(seconds) {
   const value = Number(seconds || 60);
   if (!Number.isFinite(value) || value <= 0) return "60s";
   if (value % 3600 === 0) return `${value / 3600}h`;
@@ -9339,18 +9339,18 @@ function automationIntervalLabel(seconds) {
   return `${value}s`;
 }
 
-function automationDisplayTime(value) {
+function delegationDisplayTime(value) {
   return formatTaskNavTime(value) || "-";
 }
 
-function automationAgentLabel(agent, agentId) {
+function delegationAgentLabel(agent, agentId) {
   const name = String(agent?.name || "").trim();
   const id = String(agentId || "").trim();
   if (name && id) return `${name} (${id})`;
   return name || id || "-";
 }
 
-function automationRunStatusTone(status) {
+function delegationRunStatusTone(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "success") return "success";
   if (normalized === "partial") return "warning";
@@ -9358,7 +9358,7 @@ function automationRunStatusTone(status) {
   return "info";
 }
 
-function automationEventStatusTone(status) {
+function delegationEventStatusTone(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "reply_sent") return "success";
   if (["reply_failed", "failed"].includes(normalized)) return "error";
@@ -9366,19 +9366,19 @@ function automationEventStatusTone(status) {
   return "info";
 }
 
-function automationEventSourceLabel(event) {
+function delegationEventSourceLabel(event) {
   const normalized = _safeJson(event?.normalized_payload_json) || {};
-  return automationSourceLabel(normalized.source || normalized.provider || "");
+  return delegationSourceLabel(normalized.source || normalized.provider || "");
 }
 
-function automationEventSourceLink(event) {
+function delegationEventSourceLink(event) {
   const normalized = _safeJson(event?.normalized_payload_json) || {};
   const url = String(normalized.source_url || "").trim();
-  if (!url) return safe(automationEventSourceLabel(event));
-  return `<a class="portal-automation-source-link" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener">${safe(automationEventSourceLabel(event))}</a>`;
+  if (!url) return safe(delegationEventSourceLabel(event));
+  return `<a class="portal-delegation-source-link" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener">${safe(delegationEventSourceLabel(event))}</a>`;
 }
 
-function automationEventReplyLabel(event) {
+function delegationEventReplyLabel(event) {
   const statusText = String(event?.status || "").trim();
   if (statusText === "reply_sent") return "Reply sent";
   if (statusText === "reply_failed") return "Reply failed";
@@ -9386,30 +9386,30 @@ function automationEventReplyLabel(event) {
   return "-";
 }
 
-function automationTruncate(value, maxLength = 160) {
+function delegationTruncate(value, maxLength = 160) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
-function automationRunTimelineItems(runs) {
+function delegationRunTimelineItems(runs) {
   const items = Array.isArray(runs) ? runs : [];
   if (!items.length) return '<div class="portal-inline-state is-visible">No runs yet.</div>';
   return items.slice(0, 8).map((run) => {
     const status = String(run.status || "unknown").trim();
-    const tone = automationRunStatusTone(status);
-    const started = automationDisplayTime(run.started_at);
-    const finished = automationDisplayTime(run.finished_at);
+    const tone = delegationRunStatusTone(status);
+    const started = delegationDisplayTime(run.started_at);
+    const finished = delegationDisplayTime(run.finished_at);
     const error = String(run.error_message || "").trim();
     return `
-      <article class="portal-automation-timeline-item">
-        <div class="portal-automation-timeline-main">
-          <div class="portal-automation-timeline-head">
+      <article class="portal-delegation-timeline-item">
+        <div class="portal-delegation-timeline-main">
+          <div class="portal-delegation-timeline-head">
             <span class="portal-status-badge is-${safe(tone)}">${safe(status)}</span>
             <span class="portal-panel-note">${safe(started)}</span>
           </div>
           <strong>Found ${safe(String(run.found_count ?? 0))} · Created ${safe(String(run.created_task_count ?? 0))} · Skipped ${safe(String(run.skipped_count ?? 0))}</strong>
-          <div class="portal-automation-timeline-meta">Finished ${safe(finished)}</div>
+          <div class="portal-delegation-timeline-meta">Finished ${safe(finished)}</div>
           ${error ? `<div class="portal-callout is-error">${safe(error)}</div>` : ""}
         </div>
       </article>
@@ -9417,35 +9417,35 @@ function automationRunTimelineItems(runs) {
   }).join("");
 }
 
-function automationEventTimelineItems(events) {
+function delegationEventTimelineItems(events) {
   const items = Array.isArray(events) ? events : [];
   if (!items.length) return '<div class="portal-inline-state is-visible">No tasks or replies yet.</div>';
   return items.slice(0, 12).map((event) => {
     const normalized = _safeJson(event?.normalized_payload_json) || {};
     const status = String(event.status || "unknown").trim();
-    const tone = automationEventStatusTone(status);
-    const replyLabel = automationEventReplyLabel(event);
+    const tone = delegationEventStatusTone(status);
+    const replyLabel = delegationEventReplyLabel(event);
     const replyTone = replyLabel === "Reply sent" ? "success" : (replyLabel === "Reply failed" ? "error" : "neutral");
-    const comment = automationTruncate(normalized.source_comment || "", 180);
+    const comment = delegationTruncate(normalized.source_comment || "", 180);
     const identity = String(normalized.represented_identity || "").trim();
     const taskId = String(event.task_id || "").trim();
     const error = String(event.error_message || "").trim();
     return `
-      <article class="portal-automation-timeline-item">
-        <div class="portal-automation-timeline-main">
-          <div class="portal-automation-timeline-head">
+      <article class="portal-delegation-timeline-item">
+        <div class="portal-delegation-timeline-main">
+          <div class="portal-delegation-timeline-head">
             <span class="portal-status-badge is-${safe(tone)}">${safe(status)}</span>
             <span class="portal-status-badge is-${safe(replyTone)}">${safe(replyLabel)}</span>
           </div>
-          <strong>${automationEventSourceLink(event)}</strong>
-          <div class="portal-automation-timeline-meta">
-            <span>${safe(automationDisplayTime(event.created_at))}</span>
+          <strong>${delegationEventSourceLink(event)}</strong>
+          <div class="portal-delegation-timeline-meta">
+            <span>${safe(delegationDisplayTime(event.created_at))}</span>
             ${identity ? `<span>As ${safe(identity)}</span>` : ""}
           </div>
-          ${comment ? `<div class="portal-automation-comment">${safe(comment)}</div>` : ""}
+          ${comment ? `<div class="portal-delegation-comment">${safe(comment)}</div>` : ""}
           ${error ? `<div class="portal-callout is-error">${safe(error)}</div>` : ""}
         </div>
-        <div class="portal-automation-timeline-actions">
+        <div class="portal-delegation-timeline-actions">
           ${taskId ? `<button class="portal-btn is-secondary" type="button" data-open-task-main="${escapeHtmlAttr(taskId)}"><i data-lucide="external-link" class="w-4 h-4"></i>Task</button>` : `<span class="portal-panel-note">No task</span>`}
         </div>
       </article>
@@ -9453,26 +9453,26 @@ function automationEventTimelineItems(events) {
   }).join("");
 }
 
-async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
+async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
   if (!ruleId) return;
   try {
-    state.selectedAutomationRuleId = ruleId;
-    renderAutomationRuleNavList(state.automations);
-    const detail = await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`);
-    const runs = await loadAutomationRuleRuns(ruleId);
-    const events = await loadAutomationRuleEvents(ruleId);
+    state.selectedDelegationRuleId = ruleId;
+    renderDelegationRuleNavList(state.delegations);
+    const detail = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`);
+    const runs = await loadDelegationRuleRuns(ruleId);
+    const events = await loadDelegationRuleEvents(ruleId);
     const targetAgent = (state.mineAgents || []).find((item) => item.id === detail.target_agent_id);
     const source = detail.source || detail.trigger_type;
-    const sourceLabel = automationSourceLabel(source);
-    const providerLabel = automationProviderLabel(source);
-    const intervalLabel = automationIntervalLabel(detail.interval_seconds || 60);
-    const skillLabel = automationRuleSkillLabel(detail);
-    const statusLabel = automationRuleStatusLabel(detail);
-    const statusTone = automationRuleStatusTone(detail);
-    const agentLabel = automationAgentLabel(targetAgent, detail.target_agent_id);
+    const sourceLabel = delegationSourceLabel(source);
+    const providerLabel = delegationProviderLabel(source);
+    const intervalLabel = delegationIntervalLabel(detail.interval_seconds || 60);
+    const skillLabel = delegationRuleSkillLabel(detail);
+    const statusLabel = delegationRuleStatusLabel(detail);
+    const statusTone = delegationRuleStatusTone(detail);
+    const agentLabel = delegationAgentLabel(targetAgent, detail.target_agent_id);
     dom.workspaceDetailContent.innerHTML = `
-      <div class="portal-panel-stack portal-automation-detail">
-        <div class="portal-task-detail-hero portal-automation-hero">
+      <div class="portal-panel-stack portal-delegation-detail">
+        <div class="portal-task-detail-hero portal-delegation-hero">
           <div class="portal-task-detail-title">
             <span class="portal-status-badge is-${safe(statusTone)}">${safe(statusLabel)}</span>
             <div>
@@ -9481,67 +9481,67 @@ async function openAutomationRulePanel(ruleId, { updateRoute = true } = {}) {
             </div>
           </div>
           <div class="portal-task-actions">
-            <button class="portal-btn is-secondary" type="button" data-run-automation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>Run once</button>
-            <button class="portal-btn is-secondary" type="button" data-toggle-automation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? "Pause" : "Enable"}</button>
-            <button class="portal-btn is-danger" type="button" data-delete-automation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>Delete</button>
+            <button class="portal-btn is-secondary" type="button" data-run-delegation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>Run once</button>
+            <button class="portal-btn is-secondary" type="button" data-toggle-delegation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? "Pause" : "Enable"}</button>
+            <button class="portal-btn is-danger" type="button" data-delete-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>Delete</button>
           </div>
         </div>
 
-        <section class="portal-task-metrics portal-automation-metrics">
+        <section class="portal-task-metrics portal-delegation-metrics">
           <div><span>Source</span><strong>${safe(sourceLabel)}</strong></div>
           <div><span>Interval</span><strong>Every ${safe(intervalLabel)}</strong></div>
-          <div><span>Last Run</span><strong>${safe(automationDisplayTime(detail.last_run_at))}</strong></div>
-          <div><span>Next Run</span><strong>${safe(automationDisplayTime(detail.next_run_at))}</strong></div>
+          <div><span>Last Run</span><strong>${safe(delegationDisplayTime(detail.last_run_at))}</strong></div>
+          <div><span>Next Run</span><strong>${safe(delegationDisplayTime(detail.next_run_at))}</strong></div>
         </section>
 
-        <section class="portal-automation-flow" aria-label="Automation flow">
-          <div class="portal-automation-flow-step">
+        <section class="portal-delegation-flow" aria-label="Delegation flow">
+          <div class="portal-delegation-flow-step">
             <span>Trigger</span>
             <strong>${safe(sourceLabel)}</strong>
-            <small>${safe(providerLabel)} · ${safe(automationInputLabel(source))}</small>
+            <small>${safe(providerLabel)} · ${safe(delegationInputLabel(source))}</small>
           </div>
-          <div class="portal-automation-flow-step">
+          <div class="portal-delegation-flow-step">
             <span>Task</span>
             <strong>${safe(skillLabel)}</strong>
             <small>${safe(agentLabel)}</small>
           </div>
-          <div class="portal-automation-flow-step">
+          <div class="portal-delegation-flow-step">
             <span>Reply</span>
-            <strong>${safe(automationReplyTargetLabel(source))}</strong>
+            <strong>${safe(delegationReplyTargetLabel(source))}</strong>
             <small>${safe(providerLabel)}</small>
           </div>
         </section>
 
-        <div class="portal-task-detail-grid portal-automation-detail-grid">
+        <div class="portal-task-detail-grid portal-delegation-detail-grid">
           <section class="portal-task-content-panel">
             <div class="portal-task-section-heading">
               <span>Recent Runs</span>
               <span>${safe(String((runs || []).length))}</span>
             </div>
-            <div class="portal-automation-timeline-list">${automationRunTimelineItems(runs)}</div>
+            <div class="portal-delegation-timeline-list">${delegationRunTimelineItems(runs)}</div>
           </section>
           <section class="portal-task-content-panel">
             <div class="portal-task-section-heading">
               <span>Tasks / Replies</span>
               <span>${safe(String((events || []).length))}</span>
             </div>
-            <div class="portal-automation-timeline-list">${automationEventTimelineItems(events)}</div>
+            <div class="portal-delegation-timeline-list">${delegationEventTimelineItems(events)}</div>
           </section>
         </div>
       </div>
     `;
     renderIcons();
     setMainView("detail");
-    dom.workspaceDetailContent.dataset.workspaceState = "automation-rule-detail";
+    dom.workspaceDetailContent.dataset.workspaceState = "delegation-rule-detail";
     if (updateRoute && !isApplyingPortalRoute) {
-      commitPortalRoute({ section: "automations", automationRuleId: ruleId });
+      commitPortalRoute({ section: "delegations", delegationRuleId: ruleId });
     }
   } catch (error) {
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load automation: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load delegation: ${safe(error.message)}</div>`;
   }
 }
 
-async function openCreateAutomationRuleModal() {
+async function openCreateDelegationRuleModal() {
   const mineAgents = state.mineAgents || [];
   if (!mineAgents.length) {
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">No agents available. Create or enable an agent first.</div>`;
@@ -9550,13 +9550,13 @@ async function openCreateAutomationRuleModal() {
   const agentOptions = mineAgents
     .map((agent) => `<option value="${escapeHtmlAttr(agent.id)}">${safe(agent.name || agent.id)}</option>`)
     .join("");
-  const sourceOptions = AUTOMATION_SOURCE_OPTIONS
+  const sourceOptions = DELEGATION_SOURCE_OPTIONS
     .map(([value, label], index) => `<option value="${escapeHtmlAttr(value)}" ${index === 0 ? "selected" : ""}>${safe(label)}</option>`)
     .join("");
   dom.workspaceDetailContent.innerHTML = `
     <div class="portal-panel-stack">
-      <h3>Create Automation</h3>
-      <form id="create-automation-inline-form" class="portal-panel-stack">
+      <h3>Create Delegation</h3>
+      <form id="create-delegation-inline-form" class="portal-panel-stack">
         <section class="portal-panel-section">
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
           <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
@@ -9565,15 +9565,15 @@ async function openCreateAutomationRuleModal() {
           <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="GitHub PR Review" required /></label>
           <label class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span>Enabled</span></label>
         </section>
-        <button class="portal-btn is-primary" type="submit">Create</button>
+        <button class="portal-btn is-primary" type="submit">Create Delegation</button>
       </form>
     </div>
   `;
-  const form = document.getElementById("create-automation-inline-form");
+  const form = document.getElementById("create-delegation-inline-form");
   if (form) await populateCreateTaskSkillSelect(form);
 }
 
-async function submitCreateAutomationRule(formEl) {
+async function submitCreateDelegationRule(formEl) {
   const fd = new FormData(formEl);
   const payload = {
     name: String(fd.get("name") || "").trim(),
@@ -9583,42 +9583,42 @@ async function submitCreateAutomationRule(formEl) {
     interval_seconds: Number(fd.get("interval_seconds") || 60),
     enabled: fd.get("enabled") !== null,
   };
-  const created = await api("/api/automation-rules", { method: "POST", body: JSON.stringify(payload) });
-  await loadAutomationRules();
-  await openAutomationRulePanel(created.id);
+  const created = await api("/api/delegation-rules", { method: "POST", body: JSON.stringify(payload) });
+  await loadDelegationRules();
+  await openDelegationRulePanel(created.id);
 }
 
-async function runAutomationRuleOnce(ruleId) {
-  const result = await api(`/api/automation-rules/${encodeURIComponent(ruleId)}/run-once`, { method: "POST" });
+async function runDelegationRuleOnce(ruleId) {
+  const result = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}/run-once`, { method: "POST" });
   showToast(`Run finished: created ${result.created_task_count} task(s)`);
-  await openAutomationRulePanel(ruleId);
+  await openDelegationRulePanel(ruleId);
 }
 
-async function toggleAutomationRuleEnabled(ruleId, enabled) {
-  await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`, {
+async function toggleDelegationRuleEnabled(ruleId, enabled) {
+  await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`, {
     method: "PATCH",
     body: JSON.stringify({ enabled: !!enabled }),
   });
-  await loadAutomationRules();
-  await openAutomationRulePanel(ruleId);
+  await loadDelegationRules();
+  await openDelegationRulePanel(ruleId);
 }
 
-async function deleteAutomationRule(ruleId) {
-  await api(`/api/automation-rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
-  await loadAutomationRules();
-  if (state.automations.length) {
-    await openAutomationRulePanel(state.automations[0].id);
+async function deleteDelegationRule(ruleId) {
+  await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
+  await loadDelegationRules();
+  if (state.delegations.length) {
+    await openDelegationRulePanel(state.delegations[0].id);
   } else {
-    renderWorkspaceDetailPlaceholder("No automations found.", "automations-placeholder");
+    renderWorkspaceDetailPlaceholder("No delegations found.", "delegations-placeholder");
   }
 }
 
-async function loadAutomationRuleRuns(ruleId) {
-  return api(`/api/automation-rules/${encodeURIComponent(ruleId)}/runs`);
+async function loadDelegationRuleRuns(ruleId) {
+  return api(`/api/delegation-rules/${encodeURIComponent(ruleId)}/runs`);
 }
 
-async function loadAutomationRuleEvents(ruleId) {
-  return api(`/api/automation-rules/${encodeURIComponent(ruleId)}/events`);
+async function loadDelegationRuleEvents(ruleId) {
+  return api(`/api/delegation-rules/${encodeURIComponent(ruleId)}/events`);
 }
 
 function _safeJson(raw) {
@@ -10660,13 +10660,13 @@ function bindEvents() {
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
   dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"));
-  dom.automationsMenuBtn?.addEventListener("click", () => openPortalSection("automations"));
-  dom.addAutomationBtn?.addEventListener("click", async () => {
+  dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"));
+  dom.addDelegationBtn?.addEventListener("click", async () => {
     try {
       if (!state.mineAgents || !state.mineAgents.length) {
         await loadMineAgents();
       }
-      await openCreateAutomationRuleModal();
+      await openCreateDelegationRuleModal();
     } catch (error) {
       dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load agents: ${safe(error.message)}</div>`;
     }
@@ -10738,13 +10738,13 @@ function bindEvents() {
 
   });
   dom.workspaceDetailContent?.addEventListener("submit", async (event) => {
-    const automationForm = event.target.closest("#create-automation-inline-form");
-    if (automationForm) {
+    const delegationForm = event.target.closest("#create-delegation-inline-form");
+    if (delegationForm) {
       event.preventDefault();
       try {
-        await submitCreateAutomationRule(automationForm);
+        await submitCreateDelegationRule(delegationForm);
       } catch (error) {
-        showToast(`Create automation failed: ${error.message}`);
+        showToast(`Create delegation failed: ${error.message}`);
       }
       return;
     }
@@ -10769,38 +10769,38 @@ function bindEvents() {
     }
   });
   dom.workspaceDetailContent?.addEventListener("change", async (event) => {
-    const formEl = event.target.closest("#create-agent-async-task-form, #create-automation-inline-form");
+    const formEl = event.target.closest("#create-agent-async-task-form, #create-delegation-inline-form");
     if (!formEl) return;
     if (event.target.matches('[name="assignee_agent_id"], [name="target_agent_id"]')) {
       await populateCreateTaskSkillSelect(formEl);
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
-    const runBtn = event.target.closest("[data-run-automation-once]");
+    const runBtn = event.target.closest("[data-run-delegation-once]");
     if (runBtn) {
       event.preventDefault();
       try {
-        await runAutomationRuleOnce(runBtn.dataset.runAutomationOnce || "");
+        await runDelegationRuleOnce(runBtn.dataset.runDelegationOnce || "");
       } catch (error) {
         dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Run once failed: ${safe(error.message)}</div>`;
       }
       return;
     }
-    const toggleBtn = event.target.closest("[data-toggle-automation-enabled]");
+    const toggleBtn = event.target.closest("[data-toggle-delegation-enabled]");
     if (toggleBtn) {
       event.preventDefault();
       try {
-        await toggleAutomationRuleEnabled(toggleBtn.dataset.toggleAutomationEnabled || "", toggleBtn.dataset.nextEnabled === "true");
+        await toggleDelegationRuleEnabled(toggleBtn.dataset.toggleDelegationEnabled || "", toggleBtn.dataset.nextEnabled === "true");
       } catch (error) {
         dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Update failed: ${safe(error.message)}</div>`;
       }
       return;
     }
-    const deleteBtn = event.target.closest("[data-delete-automation-rule]");
+    const deleteBtn = event.target.closest("[data-delete-delegation-rule]");
     if (deleteBtn) {
       event.preventDefault();
       try {
-        await deleteAutomationRule(deleteBtn.dataset.deleteAutomationRule || "");
+        await deleteDelegationRule(deleteBtn.dataset.deleteDelegationRule || "");
       } catch (error) {
         dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Delete failed: ${safe(error.message)}</div>`;
       }

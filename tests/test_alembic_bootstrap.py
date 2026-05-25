@@ -1,5 +1,9 @@
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, inspect
+
 
 def test_env_runs_standard_migrations_without_create_all_shortcut():
     source = Path("alembic/env.py").read_text(encoding="utf-8")
@@ -16,3 +20,31 @@ def test_initial_baseline_migration_exists_and_is_root():
 
     next_source = Path("alembic/versions/20260407_0001_neutral_control_checkpoint.py").read_text(encoding="utf-8")
     assert 'down_revision = "20260407_0000"' in next_source
+
+
+def test_alembic_upgrade_head_bootstraps_delegation_tables(tmp_path, monkeypatch):
+    from app.config import get_settings
+
+    db_path = tmp_path / "bootstrap.db"
+    database_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+
+    alembic_cfg = Config(str(Path("alembic.ini")))
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(alembic_cfg, "head")
+
+    engine = create_engine(database_url)
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    assert {"delegation_rules", "delegation_rule_runs", "delegation_rule_events"}.issubset(tables)
+    assert "automation_rules" not in tables
+    assert "automation_rule_runs" not in tables
+    assert "automation_rule_events" not in tables
+
+    delegation_indexes = {index["name"] for index in inspector.get_indexes("delegation_rules")}
+    assert "ix_delegation_rules_enabled_next_run_at" in delegation_indexes
+    event_unique_constraints = {constraint["name"] for constraint in inspector.get_unique_constraints("delegation_rule_events")}
+    assert "uq_delegation_rule_events_rule_dedupe" in event_unique_constraints
+
+    get_settings.cache_clear()
