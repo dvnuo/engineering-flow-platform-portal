@@ -48,6 +48,14 @@ class K8sService:
             except Exception:
                 self.enabled = False
 
+    @staticmethod
+    def _positive_int_setting(value, default: int) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = default
+        return normalized if normalized > 0 else default
+
     def create_agent_runtime(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="running")
@@ -811,12 +819,15 @@ class K8sService:
                 configured_repos_dir = str(getattr(self.settings, "opencode_workspace_repos_dir", "") or "").strip()
                 workspace_repos_dir = configured_repos_dir or f"{workspace_dir.rstrip('/')}/repos"
                 configured_checkout_timeout = getattr(self.settings, "opencode_git_checkout_timeout_seconds", 120)
-                try:
-                    checkout_timeout = int(configured_checkout_timeout)
-                except (TypeError, ValueError):
-                    checkout_timeout = 120
-                if checkout_timeout <= 0:
-                    checkout_timeout = 120
+                checkout_timeout = self._positive_int_setting(configured_checkout_timeout, 120)
+                task_completion_timeout = self._positive_int_setting(
+                    getattr(self.settings, "opencode_task_completion_timeout_seconds", 3600),
+                    3600,
+                )
+                chat_submit_timeout = self._positive_int_setting(
+                    getattr(self.settings, "opencode_chat_submit_timeout_seconds", 900),
+                    900,
+                )
                 env.append(client.V1EnvVar(name="EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT", value="true"))
                 env.append(client.V1EnvVar(name="HOME", value="/root"))
                 env.append(client.V1EnvVar(name="OPENCODE_DATA_DIR", value=self._opencode_state_dir()))
@@ -824,6 +835,9 @@ class K8sService:
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
                 env.append(client.V1EnvVar(name="EFP_WORKSPACE_REPOS_DIR", value=workspace_repos_dir))
                 env.append(client.V1EnvVar(name="EFP_GIT_CHECKOUT_TIMEOUT_SECONDS", value=str(checkout_timeout)))
+                env.append(client.V1EnvVar(name="EFP_TASK_COMPLETION_TIMEOUT_SECONDS", value=str(task_completion_timeout)))
+                env.append(client.V1EnvVar(name="EFP_CHAT_SUBMIT_TIMEOUT_SECONDS", value=str(chat_submit_timeout)))
+                env.append(client.V1EnvVar(name="EFP_CHAT_COMPLETION_TIMEOUT_SECONDS", value=str(chat_submit_timeout)))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value=f"http://127.0.0.1:{OPENCODE_INTERNAL_HTTP_PORT}"))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_PERMISSION_MODE", value=str(getattr(self.settings, "default_opencode_permission_mode", "workspace_full_access") or "workspace_full_access")))

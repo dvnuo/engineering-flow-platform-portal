@@ -9,6 +9,7 @@ import threading
 import httpx
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.log_context import (
     bind_log_context,
@@ -57,6 +58,14 @@ class TaskDispatcherService:
     def __init__(self) -> None:
         self.proxy_service = ProxyService()
         self.runtime_execution_context_service = RuntimeExecutionContextService()
+
+    @staticmethod
+    def _coerce_min_int(value, *, default: int, minimum: int) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = default
+        return max(minimum, normalized)
 
     @staticmethod
     def _parse_input_payload(input_payload_json: str | None) -> tuple[dict | None, str | None]:
@@ -661,10 +670,25 @@ class TaskDispatcherService:
                             fresh_task.started_at = datetime.utcnow()
                         task_repo.save(fresh_task)
                         status_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}"
+                        poll_kwargs = {
+                            "runtime_status_url": status_url,
+                            "metadata": metadata,
+                            "trace_context": trace_context,
+                        }
+                        if task.task_type == "agent_async_task":
+                            settings = get_settings()
+                            poll_kwargs["timeout_seconds"] = self._coerce_min_int(
+                                getattr(settings, "agent_task_runtime_poll_timeout_seconds", 3600),
+                                default=3600,
+                                minimum=60,
+                            )
+                            poll_kwargs["interval_seconds"] = self._coerce_min_int(
+                                getattr(settings, "agent_task_runtime_poll_interval_seconds", 1),
+                                default=1,
+                                minimum=1,
+                            )
                         outcome = await self._poll_runtime_task_until_terminal(
-                            runtime_status_url=status_url,
-                            metadata=metadata,
-                            trace_context=trace_context,
+                            **poll_kwargs,
                         )
                     else:
                         outcome = submit_outcome

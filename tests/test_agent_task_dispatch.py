@@ -3,6 +3,7 @@ import json
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -146,6 +147,53 @@ def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
     assert task.started_at is not None
     assert task.finished_at is not None
     assert task.summary == "done"
+
+
+def test_agent_async_task_dispatch_uses_configured_poll_timeout_and_interval(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    monkeypatch.setattr(
+        task_dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            agent_task_runtime_poll_timeout_seconds=3660,
+            agent_task_runtime_poll_interval_seconds=7,
+        ),
+    )
+
+    class SubmitResp:
+        status_code = 202
+        text = '{"ok": true, "status": "accepted", "request_id": "req-timeout"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "accepted", "request_id": "req-timeout"}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    captured = {}
+
+    async def fake_poll(**kwargs):
+        captured.update(kwargs)
+        return task_dispatcher_module.NormalizedRuntimeOutcome(
+            terminal_status="done",
+            result_payload_json=json.dumps({"ok": True, "status": "success", "output_payload": {"summary": "done"}}),
+            message="Task dispatched successfully",
+            runtime_status_code=200,
+        )
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_poll_runtime_task_until_terminal", fake_poll)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert captured["timeout_seconds"] == 3660
+    assert captured["interval_seconds"] == 7
+    assert captured["runtime_status_url"] == f"http://runtime/api/tasks/{task.id}"
 
 
 def test_dispatch_task_async_submit_then_error(db_session, monkeypatch):
@@ -462,7 +510,17 @@ def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
 
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
     monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
-    monkeypatch.setattr(service, "_poll_runtime_task_until_terminal", lambda **_kwargs: TaskDispatcherService._poll_runtime_task_until_terminal(service, timeout_seconds=0, interval_seconds=0, **_kwargs))
+    async def fast_timeout_poll(**kwargs):
+        kwargs.pop("timeout_seconds", None)
+        kwargs.pop("interval_seconds", None)
+        return await TaskDispatcherService._poll_runtime_task_until_terminal(
+            service,
+            timeout_seconds=0,
+            interval_seconds=0,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(service, "_poll_runtime_task_until_terminal", fast_timeout_poll)
 
     result = asyncio.run(service.dispatch_task(task.id, db))
     assert result.task_status == "failed"
@@ -567,13 +625,13 @@ def test_dispatch_late_runtime_success_cannot_overwrite_stale(db_session, monkey
         title="Delegation PR review",
         skill_name="review",
         root_task_id="task-async-cancelled",
-        task_session_id="delegation:rule-1:event-1",
+        task_session_id="agent-task:task-async-cancelled",
         input_payload_json=json.dumps(
             {
                 "schema": "agent_async_task.v1",
                 "user_task": "Review https://github.com/octo/portal/pull/1.",
                 "skill_name": "review",
-                "task_session_id": "delegation:rule-1:event-1",
+                "task_session_id": "agent-task:task-async-cancelled",
                 "root_task_id": "task-async-cancelled",
                 "parent_task_id": None,
                 "delegation_rule_id": "rule-1",
@@ -790,12 +848,12 @@ def test_agent_async_delegation_task_metadata_includes_source(monkeypatch, db_se
         trigger="jira_mention",
         skill_name="reply-skill",
         root_task_id="delegation-agent-task-1",
-        task_session_id="delegation:rule-1:event-1",
+        task_session_id="agent-task:delegation-agent-task-1",
         input_payload_json=json.dumps(
             {
                 "schema": "agent_async_task.v1",
                 "skill_name": "reply-skill",
-                "task_session_id": "delegation:rule-1:event-1",
+                "task_session_id": "agent-task:delegation-agent-task-1",
                 "root_task_id": "delegation-agent-task-1",
                 "parent_task_id": None,
                 "delegation_rule_id": "rule-1",
@@ -840,6 +898,7 @@ def test_agent_async_delegation_task_metadata_includes_source(monkeypatch, db_se
     assert result.task_status == "done"
 
     metadata = captured["body"]["metadata"]
+    assert captured["body"]["session_id"] == "agent-task:delegation-agent-task-1"
     assert "portal_subscription_id" not in metadata
     assert "portal_automation_rule_id" not in metadata
     assert "portal_automation_source" not in metadata
@@ -850,6 +909,7 @@ def test_agent_async_delegation_task_metadata_includes_source(monkeypatch, db_se
     assert metadata["portal_task_trigger"] == "jira_mention"
     assert metadata["portal_task_mode"] == "agent_async_task"
     assert metadata["portal_skill_name"] == "reply-skill"
+    assert metadata["portal_task_session_id"] == "agent-task:delegation-agent-task-1"
 
 
 @pytest.mark.parametrize(

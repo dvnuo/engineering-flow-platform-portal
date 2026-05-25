@@ -195,7 +195,9 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     assert payload["skill_name"] == "custom-skill"
     assert payload["root_task_id"] == task.id
     assert payload["parent_task_id"] is None
-    assert payload["task_session_id"].startswith(f"delegation:{rule.id}:")
+    assert task.task_session_id == f"agent-task:{task.id}"
+    assert payload["task_session_id"] == task.task_session_id
+    assert not payload["task_session_id"].startswith("delegation:")
     for fragment in expected_fragments:
         assert fragment in payload["user_task"]
     assert payload["delegation_rule_id"] == rule.id

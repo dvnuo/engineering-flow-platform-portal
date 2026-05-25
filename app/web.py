@@ -95,7 +95,7 @@ def _can_write(agent, user) -> bool:
 def _session_id_is_task_session(session_id) -> bool:
     if not isinstance(session_id, str):
         return False
-    return session_id.strip().startswith("agent-task:")
+    return session_id.strip().startswith(("agent-task:", "delegation:"))
 
 
 def _metadata_value_is_present(value) -> bool:

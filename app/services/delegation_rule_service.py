@@ -224,7 +224,7 @@ class DelegationRuleService:
         if not skill_name:
             raise ValueError("Delegation rule is missing skill_name")
         task_id = str(uuid4())
-        task_session_id = f"delegation:{rule.id}:{event.id}"
+        task_session_id = f"agent-task:{task_id}"
         delegation_payload = {
             "delegation_rule_id": rule.id,
             "source": source,
