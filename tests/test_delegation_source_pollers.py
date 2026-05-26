@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from app.services.delegation_source_pollers import DelegationSourcePoller
-from app.services.provider_config_resolver import GithubProviderConfig
+from app.services.provider_config_resolver import GithubProviderConfig, JiraProviderConfig
 
 
 class _FakeResponse:
@@ -53,7 +53,10 @@ class _FakeGithubAsyncClient:
 def _pull_payload(*, requested_reviewers: list[dict], requested_teams: list[dict]) -> dict:
     return {
         "html_url": "https://github.com/acme/portal/pull/1",
+        "title": "Improve portal flow",
         "head": {"sha": "abc123"},
+        "base": {"sha": "def456"},
+        "user": {"login": "alice"},
         "requested_reviewers": requested_reviewers,
         "requested_teams": requested_teams,
     }
@@ -93,6 +96,22 @@ def test_github_pr_review_direct_requested_reviewer_creates_source_item(monkeypa
     assert result.items[0]["source"] == "github_pr_review"
     assert result.items[0]["represented_identity"] == "octocat"
     assert result.items[0]["source_url"] == "https://github.com/acme/portal/pull/1"
+    assert result.items[0]["reaction_target"] == {
+        "provider": "github",
+        "kind": "pull_request",
+        "owner": "acme",
+        "repo": "portal",
+        "pull_number": 1,
+        "html_url": "https://github.com/acme/portal/pull/1",
+        "api_path": "/repos/acme/portal/issues/1/reactions",
+    }
+    assert result.items[0]["source_payload"]["pull_request"]["owner"] == "acme"
+    assert result.items[0]["source_payload"]["pull_request"]["repo"] == "portal"
+    assert result.items[0]["source_payload"]["pull_request"]["number"] == 1
+    assert result.items[0]["source_payload"]["pull_request"]["title"] == "Improve portal flow"
+    assert result.items[0]["source_payload"]["pull_request"]["head_sha"] == "abc123"
+    assert result.items[0]["source_payload"]["pull_request"]["base_sha"] == "def456"
+    assert result.items[0]["source_payload"]["pull_request"]["author"] == "alice"
 
 
 def test_github_pr_review_team_only_request_creates_no_source_items(monkeypatch):
@@ -118,3 +137,101 @@ def test_github_pr_review_direct_requested_reviewer_matches_case_insensitively(m
 
     assert len(result.items) == 1
     assert result.items[0]["represented_identity"] == "octocat"
+
+
+def test_github_pr_mention_reaction_target_preserves_comment_kind():
+    issue_target = DelegationSourcePoller._github_comment_reaction_target(
+        owner="acme",
+        repo="portal",
+        pull_number=12,
+        comment_id=456,
+        comment_kind="issue_comment",
+        html_url="https://github.com/acme/portal/pull/12#issuecomment-456",
+    )
+    review_target = DelegationSourcePoller._github_comment_reaction_target(
+        owner="acme",
+        repo="portal",
+        pull_number=12,
+        comment_id=789,
+        comment_kind="pull_request_review_comment",
+        html_url="https://github.com/acme/portal/pull/12#discussion_r789",
+    )
+
+    assert issue_target["kind"] == "issue_comment"
+    assert issue_target["api_path"] == "/repos/acme/portal/issues/comments/456/reactions"
+    assert issue_target["comment_id"] == 456
+    assert issue_target["html_url"] == "https://github.com/acme/portal/pull/12#issuecomment-456"
+    assert review_target["kind"] == "pull_request_review_comment"
+    assert review_target["api_path"] == "/repos/acme/portal/pulls/comments/789/reactions"
+    assert review_target["comment_id"] == 789
+    assert review_target["html_url"] == "https://github.com/acme/portal/pull/12#discussion_r789"
+
+
+class _FakeJiraAsyncClient:
+    def __init__(self, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def get(self, url, *, headers=None, params=None):
+        if url == "https://jira.local/rest/api/2/myself":
+            return _FakeResponse({"displayName": "Bot User", "accountId": "bot-1"})
+        if url == "https://jira.local/rest/api/2/search":
+            assert params["jql"] == "assignee = currentUser() ORDER BY updated DESC"
+            assert params["fields"] == "summary,status,reporter,assignee,updated,comment"
+            return _FakeResponse(
+                {
+                    "issues": [
+                        {
+                            "key": "ENG-1",
+                            "fields": {
+                                "summary": "Handle delegated issue",
+                                "updated": "2026-01-01T00:00:00.000+0000",
+                                "status": {"id": "3", "name": "In Progress", "statusCategory": {"name": "In Progress"}},
+                                "reporter": {
+                                    "accountId": "reporter-1",
+                                    "displayName": "Reporter User",
+                                    "key": "reporter",
+                                    "name": "reporter",
+                                },
+                                "assignee": {"accountId": "bot-1", "displayName": "Bot User"},
+                            },
+                        }
+                    ]
+                }
+            )
+        raise AssertionError(f"Unexpected Jira request: {url}")
+
+
+def test_jira_assignee_source_payload_includes_reporter_identity(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.resolve_jira_for_agent",
+        lambda _db, _agent_id: JiraProviderConfig(
+            base_url="https://jira.local",
+            headers={"Authorization": "Bearer jira-secret"},
+            runtime_profile_id="runtime-profile-1",
+            api_version="2",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.httpx.AsyncClient",
+        lambda **kwargs: _FakeJiraAsyncClient(**kwargs),
+    )
+
+    rule = SimpleNamespace(target_agent_id="agent-1")
+    result = asyncio.run(DelegationSourcePoller()._poll_jira_assignee(object(), rule))
+
+    assert len(result.items) == 1
+    issue = result.items[0]["source_payload"]["issue"]
+    assert issue["key"] == "ENG-1"
+    assert issue["url"] == "https://jira.local/browse/ENG-1"
+    assert issue["summary"] == "Handle delegated issue"
+    assert issue["status"] == {"id": "3", "name": "In Progress", "category": "In Progress"}
+    assert issue["reporter"]["accountId"] == "reporter-1"
+    assert issue["reporter"]["displayName"] == "Reporter User"
+    assert issue["reporter"]["key"] == "reporter"
+    assert issue["assignee"]["accountId"] == "bot-1"

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -109,8 +110,28 @@ def _source_item(source: str) -> dict:
             "source_url": "https://github.com/acme/portal/pull/1",
             "task_content": "Review this GitHub PR:\nhttps://github.com/acme/portal/pull/1",
             "represented_identity": "octocat",
-            "source_payload": {"pull_number": 1},
+            "source_payload": {
+                "pull_request": {
+                    "owner": "acme",
+                    "repo": "portal",
+                    "number": 1,
+                    "url": "https://github.com/acme/portal/pull/1",
+                    "title": "Improve portal",
+                    "head_sha": "sha1",
+                    "base_sha": "base1",
+                    "author": "alice",
+                }
+            },
             "reply_target": {"provider": "github", "kind": "pr_comment", "owner": "acme", "repo": "portal", "pull_number": 1},
+            "reaction_target": {
+                "provider": "github",
+                "kind": "pull_request",
+                "owner": "acme",
+                "repo": "portal",
+                "pull_number": 1,
+                "html_url": "https://github.com/acme/portal/pull/1",
+                "api_path": "/repos/acme/portal/issues/1/reactions",
+            },
         }
     if source == "github_pr_mention":
         return {
@@ -122,8 +143,34 @@ def _source_item(source: str) -> dict:
             "source_comment": "@octocat please handle this",
             "task_content": "You are responding as @octocat.\nGitHub PR:\nhttps://github.com/acme/portal/pull/2\n\nComment:\n@octocat please handle this",
             "represented_identity": "@octocat",
-            "source_payload": {"comment_id": 100},
+            "source_payload": {
+                "pull_request": {
+                    "owner": "acme",
+                    "repo": "portal",
+                    "number": 2,
+                    "url": "https://github.com/acme/portal/pull/2",
+                    "head_sha": "sha2",
+                    "base_sha": "base2",
+                },
+                "comment": {
+                    "kind": "issue_comment",
+                    "id": 100,
+                    "body": "@octocat please handle this",
+                    "html_url": "https://github.com/acme/portal/pull/2#issuecomment-100",
+                    "author": "alice",
+                },
+            },
             "reply_target": {"provider": "github", "kind": "pr_comment", "owner": "acme", "repo": "portal", "pull_number": 2},
+            "reaction_target": {
+                "provider": "github",
+                "kind": "issue_comment",
+                "owner": "acme",
+                "repo": "portal",
+                "pull_number": 2,
+                "comment_id": 100,
+                "html_url": "https://github.com/acme/portal/pull/2#issuecomment-100",
+                "api_path": "/repos/acme/portal/issues/comments/100/reactions",
+            },
         }
     if source == "jira_assignee":
         return {
@@ -134,7 +181,16 @@ def _source_item(source: str) -> dict:
             "source_url": "https://jira.local/browse/ENG-1",
             "task_content": "Work on this Jira issue:\nhttps://jira.local/browse/ENG-1",
             "represented_identity": "Bot User",
-            "source_payload": {"issue_key": "ENG-1"},
+            "source_payload": {
+                "issue": {
+                    "key": "ENG-1",
+                    "url": "https://jira.local/browse/ENG-1",
+                    "summary": "Fix flow",
+                    "status": {"name": "In Progress"},
+                    "reporter": {"accountId": "reporter-1", "displayName": "Reporter User"},
+                    "assignee": {"accountId": "bot-1", "displayName": "Bot User"},
+                }
+            },
             "reply_target": {"provider": "jira", "kind": "issue_comment", "issue_key": "ENG-1"},
         }
     if source == "jira_mention":
@@ -147,7 +203,19 @@ def _source_item(source: str) -> dict:
             "source_comment": "Bot User please check this",
             "task_content": "You are responding as Bot User.\nJira issue:\nhttps://jira.local/browse/ENG-2\n\nComment:\nBot User please check this",
             "represented_identity": "Bot User",
-            "source_payload": {"comment_id": 200},
+            "source_payload": {
+                "issue": {
+                    "key": "ENG-2",
+                    "url": "https://jira.local/browse/ENG-2",
+                    "summary": "Mention task",
+                    "reporter": {"accountId": "reporter-2", "displayName": "Second Reporter"},
+                },
+                "comment": {
+                    "id": "200",
+                    "body": "Bot User please check this",
+                    "author": {"accountId": "reporter-2", "displayName": "Second Reporter"},
+                },
+            },
             "reply_target": {"provider": "jira", "kind": "issue_comment", "issue_key": "ENG-2"},
         }
     raise AssertionError(source)
@@ -176,8 +244,9 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     svc, rule = _create_rule(db, user, agent, source=source, skill_name="custom-skill")
     dispatched = []
     svc.dispatcher.dispatch_task_in_background = lambda task_id: dispatched.append(task_id)
+    source_item = _source_item(source)
 
-    result = _run_once_with_items(svc, rule.id, [_source_item(source)])
+    result = _run_once_with_items(svc, rule.id, [source_item])
 
     assert result.found_count == 1
     assert result.created_task_count == 1
@@ -204,9 +273,13 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     assert payload["delegation"]["delegation_rule_id"] == rule.id
     assert payload["delegation"]["source"] == source
     assert payload["delegation"]["reply_target"]
+    assert payload["delegation"]["source_payload"] == source_item["source_payload"]
+    if "reaction_target" in source_item:
+        assert payload["delegation"]["reaction_target"] == source_item["reaction_target"]
     event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
     assert event.status == "task_created"
     assert event.task_id == task.id
+    assert json.loads(event.source_payload_json) == source_item["source_payload"]
 
 
 def test_dedupe_same_source_item_does_not_create_duplicate_task():
@@ -259,6 +332,45 @@ def test_reply_sent_when_task_done(monkeypatch):
     assert f"delegation_id={rule.id}" in captured["text"]
     assert f"event_id={event.id}" in captured["text"]
     assert "efp:auto-reply" not in captured["text"]
+
+
+def test_reply_skipped_when_task_result_was_handled_by_skill():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-reply-skip")
+    svc, rule = _create_rule(db, user, agent, source="jira_assignee")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _run_once_with_items(svc, rule.id, [_source_item("jira_assignee")])
+    task = db.query(AgentTask).one()
+    task.status = "done"
+    task.result_payload_json = json.dumps({"status": "success", "output_payload": {"reply_handled_by_skill": True}})
+    db.add(task)
+    db.commit()
+
+    async def _send_reply(*_args, **_kwargs):
+        raise AssertionError("send_reply should not be called")
+
+    svc.reply_service.send_reply = _send_reply
+    result = _run_once_with_items(svc, rule.id, [])
+
+    assert result.created_task_count == 0
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "reply_sent"
+    assert event.error_message is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"reply_handled_by_skill": True},
+        {"output_payload": {"reply_handled_by_skill": True}},
+        {"normalized_payload": {"reply_handled_by_skill": True}},
+        {"external_actions": [{"type": "reply_handled_by_skill", "status": "success"}]},
+    ],
+)
+def test_reply_handled_by_skill_flag_supports_expected_result_shapes(payload):
+    task = SimpleNamespace(result_payload_json=json.dumps(payload))
+
+    assert DelegationRuleService._task_reply_handled_by_skill(task) is True
 
 
 def test_reply_failure_marks_event_failed():

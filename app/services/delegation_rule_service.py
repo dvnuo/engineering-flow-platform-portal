@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -29,6 +30,7 @@ AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION = (
     "Run as a background long-running task. Do not ask the user for more information unless truly blocked. "
     "Make reasonable assumptions and complete as much as possible."
 )
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -179,6 +181,11 @@ class DelegationRuleService:
         source_payload = item.get("source_payload")
         return source_payload if isinstance(source_payload, dict) else {}
 
+    @staticmethod
+    def _reaction_target_for_task(item: dict) -> dict:
+        reaction_target = item.get("reaction_target")
+        return reaction_target if isinstance(reaction_target, dict) else {}
+
     def _create_task_for_source_item(self, *, rule, item: dict) -> tuple[object | None, bool]:
         source = self._validate_source(item.get("source") or rule.trigger_type)
         provider = self._provider_for_source(source)
@@ -233,7 +240,11 @@ class DelegationRuleService:
             "source_comment": normalized_item.get("source_comment"),
             "represented_identity": normalized_item.get("represented_identity"),
             "reply_target": normalized_item.get("reply_target") or {},
+            "source_payload": self._source_payload_for_event(normalized_item),
         }
+        reaction_target = self._reaction_target_for_task(normalized_item)
+        if reaction_target:
+            delegation_payload["reaction_target"] = reaction_target
         input_payload = {
             "schema": "agent_async_task.v1",
             "skill_name": skill_name,
@@ -296,6 +307,39 @@ class DelegationRuleService:
             return summary.strip()
         return None
 
+    @staticmethod
+    def _truthy_flag(value) -> bool:
+        if value is True:
+            return True
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+        return False
+
+    @classmethod
+    def _task_reply_handled_by_skill(cls, task) -> bool:
+        payload = cls._parse_json(getattr(task, "result_payload_json", None))
+        candidates = [payload]
+        for key in ("output_payload", "normalized_payload"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                candidates.append(nested)
+
+        for candidate in candidates:
+            if cls._truthy_flag(candidate.get("reply_handled_by_skill")):
+                return True
+            external_actions = candidate.get("external_actions")
+            if not isinstance(external_actions, list):
+                continue
+            for action in external_actions:
+                if not isinstance(action, dict):
+                    continue
+                if str(action.get("type") or "").strip() != "reply_handled_by_skill":
+                    continue
+                status_value = str(action.get("status") or "").strip().lower()
+                if status_value in {"success", "succeeded", "done", "completed", "ok"} or cls._truthy_flag(action.get("success")):
+                    return True
+        return False
+
     async def _process_pending_replies(self, rule) -> tuple[int, int]:
         sent_count = 0
         failed_count = 0
@@ -308,6 +352,17 @@ class DelegationRuleService:
                 continue
             normalized = self._parse_json(event.normalized_payload_json)
             reply_target = normalized.get("reply_target")
+            if self._task_reply_handled_by_skill(task):
+                logger.info(
+                    "Skipping automatic delegation reply for event %s task %s source %s reply_target=%s: reply handled by skill",
+                    event.id,
+                    event.task_id,
+                    normalized.get("source"),
+                    reply_target,
+                )
+                self.repo.update_event_status(event, status="reply_sent", task_id=event.task_id, error_message=None)
+                sent_count += 1
+                continue
             if not isinstance(reply_target, dict) or not reply_target:
                 self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message="Missing reply target")
                 failed_count += 1
