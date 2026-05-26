@@ -100,6 +100,33 @@ def _create_rule(db: Session, user, agent, source: str = "github_pr_review", ski
     return svc, rule
 
 
+def _stub_start_reaction(svc: DelegationRuleService, calls: list | None = None, reaction_id: int = 9001):
+    async def _add_github_reaction(_db, *, rule, reaction_target, content="eyes"):
+        if calls is not None:
+            calls.append({"rule_id": rule.id, "reaction_target": reaction_target, "content": content})
+        api_path = reaction_target["api_path"]
+        return {
+            "provider": "github",
+            "content": content,
+            "api_path": api_path,
+            "reaction_id": reaction_id,
+            "cleanup_api_path": f"{api_path.rstrip('/')}/{reaction_id}",
+            "target": dict(reaction_target),
+        }
+
+    svc.reply_service.add_github_reaction = _add_github_reaction
+
+
+def _stub_reaction_cleanup(svc: DelegationRuleService, calls: list | None = None):
+    async def _delete_github_reaction(_db, *, rule, cleanup_api_path=None, portal_start_reaction=None):
+        path = cleanup_api_path or portal_start_reaction["cleanup_api_path"]
+        if calls is not None:
+            calls.append({"rule_id": rule.id, "cleanup_api_path": path, "portal_start_reaction": portal_start_reaction})
+        return {"provider": "github", "status": "deleted", "cleanup_api_path": path}
+
+    svc.reply_service.delete_github_reaction = _delete_github_reaction
+
+
 def _source_item(source: str) -> dict:
     if source == "github_pr_review":
         return {
@@ -160,7 +187,19 @@ def _source_item(source: str) -> dict:
                     "author": "alice",
                 },
             },
-            "reply_target": {"provider": "github", "kind": "pr_comment", "owner": "acme", "repo": "portal", "pull_number": 2},
+            "reply_target": {
+                "provider": "github",
+                "kind": "pr_comment",
+                "owner": "acme",
+                "repo": "portal",
+                "pull_number": 2,
+                "reply_mode": "quote_reply",
+                "comment_kind": "issue_comment",
+                "comment_id": 100,
+                "comment_html_url": "https://github.com/acme/portal/pull/2#issuecomment-100",
+                "comment_author": "alice",
+                "comment_body": "@octocat please handle this",
+            },
             "reaction_target": {
                 "provider": "github",
                 "kind": "issue_comment",
@@ -244,6 +283,8 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     svc, rule = _create_rule(db, user, agent, source=source, skill_name="custom-skill")
     dispatched = []
     svc.dispatcher.dispatch_task_in_background = lambda task_id: dispatched.append(task_id)
+    if source.startswith("github"):
+        _stub_start_reaction(svc)
     source_item = _source_item(source)
 
     result = _run_once_with_items(svc, rule.id, [source_item])
@@ -282,11 +323,39 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     assert json.loads(event.source_payload_json) == source_item["source_payload"]
 
 
+def test_github_pr_mention_task_creation_records_portal_start_reaction():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-start-reaction")
+    svc, rule = _create_rule(db, user, agent, source="github_pr_mention")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    reaction_calls = []
+    _stub_start_reaction(svc, calls=reaction_calls, reaction_id=12345)
+    source_item = _source_item("github_pr_mention")
+
+    _run_once_with_items(svc, rule.id, [source_item])
+
+    assert len(reaction_calls) == 1
+    assert reaction_calls[0]["reaction_target"] == source_item["reaction_target"]
+    assert reaction_calls[0]["content"] == "eyes"
+    task = db.query(AgentTask).one()
+    task_payload = json.loads(task.input_payload_json)
+    start_reaction = task_payload["delegation"]["portal_start_reaction"]
+    assert start_reaction["reaction_id"] == 12345
+    assert start_reaction["api_path"] == "/repos/acme/portal/issues/comments/100/reactions"
+    assert start_reaction["cleanup_api_path"] == "/repos/acme/portal/issues/comments/100/reactions/12345"
+    assert start_reaction["content"] == "eyes"
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    normalized = json.loads(event.normalized_payload_json)
+    assert normalized["portal_start_reaction"] == start_reaction
+    assert "portal_start_reaction_error" not in normalized
+
+
 def test_dedupe_same_source_item_does_not_create_duplicate_task():
     db = _session()
     user, agent = _create_user_agent(db, username="u-dedupe")
     svc, rule = _create_rule(db, user, agent, source="github_pr_review")
     svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_start_reaction(svc)
     item = _source_item("github_pr_review")
 
     first = _run_once_with_items(svc, rule.id, [item])
@@ -304,6 +373,8 @@ def test_reply_sent_when_task_done(monkeypatch):
     user, agent = _create_user_agent(db, username="u-reply")
     svc, rule = _create_rule(db, user, agent, source="github_pr_mention")
     svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_start_reaction(svc)
+    _stub_reaction_cleanup(svc)
     _run_once_with_items(svc, rule.id, [_source_item("github_pr_mention")])
     task = db.query(AgentTask).one()
     task.status = "done"
@@ -334,11 +405,59 @@ def test_reply_sent_when_task_done(monkeypatch):
     assert "efp:auto-reply" not in captured["text"]
 
 
+def test_github_pr_mention_pending_reply_posts_quote_reply_and_cleans_reaction():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-quote-reply")
+    svc, rule = _create_rule(db, user, agent, source="github_pr_mention")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_start_reaction(svc, reaction_id=777)
+    cleanup_calls = []
+    _stub_reaction_cleanup(svc, calls=cleanup_calls)
+    _run_once_with_items(svc, rule.id, [_source_item("github_pr_mention")])
+    task = db.query(AgentTask).one()
+    task.status = "done"
+    task.result_payload_json = json.dumps({"status": "success", "output_payload": {"final_response": "Final answer"}})
+    db.add(task)
+    db.commit()
+
+    captured = {}
+
+    async def _send_github_reply(_db, *, rule, reply_target, text):
+        captured["rule_id"] = rule.id
+        captured["reply_target"] = reply_target
+        captured["text"] = text
+
+    svc.reply_service._send_github_reply = _send_github_reply
+
+    _run_once_with_items(svc, rule.id, [])
+
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "reply_sent"
+    assert captured["reply_target"]["reply_mode"] == "quote_reply"
+    assert captured["text"].startswith("<!-- efp:delegation-reply ")
+    assert f"delegation_id={rule.id}" in captured["text"]
+    assert f"event_id={event.id}" in captured["text"]
+    assert "Replying to @alice's [comment](https://github.com/acme/portal/pull/2#issuecomment-100):" in captured["text"]
+    assert "> @octocat please handle this" in captured["text"]
+    assert captured["text"].endswith("\n\nFinal answer")
+    assert cleanup_calls == [
+        {
+            "rule_id": rule.id,
+            "cleanup_api_path": "/repos/acme/portal/issues/comments/100/reactions/777",
+            "portal_start_reaction": json.loads(event.normalized_payload_json)["portal_start_reaction"],
+        }
+    ]
+    normalized = json.loads(event.normalized_payload_json)
+    assert normalized["portal_start_reaction_cleanup"]["status"] == "deleted"
+
+
 def test_github_reply_uses_final_response_before_output_summary():
     db = _session()
     user, agent = _create_user_agent(db, username="u-reply-final")
     svc, rule = _create_rule(db, user, agent, source="github_pr_review")
     svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_start_reaction(svc)
+    _stub_reaction_cleanup(svc)
     _run_once_with_items(svc, rule.id, [_source_item("github_pr_review")])
     task = db.query(AgentTask).one()
     task.status = "done"
@@ -406,6 +525,34 @@ def test_reply_skipped_when_task_result_was_handled_by_skill():
     event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
     assert event.status == "reply_sent"
     assert event.error_message is None
+
+
+def test_reply_handled_by_skill_skips_github_reply_but_cleans_start_reaction():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-skill-cleanup")
+    svc, rule = _create_rule(db, user, agent, source="github_pr_mention")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_start_reaction(svc, reaction_id=888)
+    cleanup_calls = []
+    _stub_reaction_cleanup(svc, calls=cleanup_calls)
+    _run_once_with_items(svc, rule.id, [_source_item("github_pr_mention")])
+    task = db.query(AgentTask).one()
+    task.status = "done"
+    task.result_payload_json = json.dumps({"status": "success", "output_payload": {"reply_handled_by_skill": True}})
+    db.add(task)
+    db.commit()
+
+    async def _send_reply(*_args, **_kwargs):
+        raise AssertionError("send_reply should not be called")
+
+    svc.reply_service.send_reply = _send_reply
+    _run_once_with_items(svc, rule.id, [])
+
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "reply_sent"
+    assert cleanup_calls[0]["cleanup_api_path"] == "/repos/acme/portal/issues/comments/100/reactions/888"
+    normalized = json.loads(event.normalized_payload_json)
+    assert normalized["portal_start_reaction_cleanup"]["status"] == "deleted"
 
 
 @pytest.mark.parametrize(

@@ -169,6 +169,40 @@ class TaskDispatcherService:
         task.finished_at = datetime.utcnow()
         return task_repo.save(task)
 
+    async def _process_delegation_reply_after_done(self, db: Session, task) -> None:
+        try:
+            if (getattr(task, "source", None) or "").strip().lower() != "delegation":
+                return
+            if (getattr(task, "task_type", None) or "").strip() != "agent_async_task":
+                return
+            if (getattr(task, "status", None) or "").strip().lower() != "done":
+                return
+            input_payload, payload_error = self._parse_input_payload(getattr(task, "input_payload_json", None))
+            if payload_error or not isinstance(input_payload, dict):
+                return
+            delegation_payload = input_payload.get("delegation")
+            delegation_rule_id = input_payload.get("delegation_rule_id")
+            if isinstance(delegation_payload, dict):
+                delegation_rule_id = delegation_rule_id or delegation_payload.get("delegation_rule_id")
+            rule_id = str(delegation_rule_id or "").strip()
+            if not rule_id:
+                return
+
+            from app.services.delegation_rule_service import DelegationRuleService
+
+            rule_service = DelegationRuleService(db)
+            rule = rule_service.repo.get(rule_id)
+            if not rule:
+                logger.warning("Completed delegation task %s references missing delegation rule %s", task.id, rule_id)
+                return
+            await rule_service._process_pending_replies(rule)
+        except Exception:
+            logger.warning(
+                "Failed to process immediate delegation reply for task %s",
+                getattr(task, "id", "-"),
+                exc_info=True,
+            )
+
     def _normalize_runtime_submit_response(
         self,
         response: httpx.Response,
@@ -779,6 +813,8 @@ class TaskDispatcherService:
                         fresh_task.summary = "Task was cancelled."
                     fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
+                    if fresh_task.status == "done":
+                        await self._process_delegation_reply_after_done(db, fresh_task)
                     logger.info(
                         "Dispatch normalization outcome task_id=%s runtime_status_code=%s task_status=%s message=%s",
                         fresh_task.id,

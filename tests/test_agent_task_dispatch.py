@@ -150,6 +150,50 @@ def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
     assert task.summary == "done"
 
 
+def test_dispatch_task_done_delegation_triggers_immediate_reply_processing(db_session, monkeypatch):
+    db, agent = db_session
+    task = AgentTask(
+        assignee_agent_id=agent.id,
+        owner_user_id=agent.owner_user_id,
+        source="delegation",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        input_payload_json=json.dumps({"schema": "agent_async_task.v1", "delegation_rule_id": "rule-1"}),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    service = TaskDispatcherService()
+
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done"}}
+
+    async def fake_post(_url, _body):
+        return SubmitResp()
+
+    calls = []
+
+    async def fake_process_reply(db_arg, task_arg):
+        calls.append({"same_db": db_arg is db, "task_id": task_arg.id, "status": task_arg.status})
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    monkeypatch.setattr(service, "_process_delegation_reply_after_done", fake_process_reply)
+
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert calls == [{"same_db": True, "task_id": task.id, "status": "done"}]
+
+
 def test_dispatch_task_async_status_poll_timeout_retry_then_success(db_session, monkeypatch):
     db, agent = db_session
     task = _create_task(db, agent.id)

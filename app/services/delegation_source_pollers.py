@@ -17,6 +17,7 @@ from app.services.provider_config_resolver import (
 
 DELEGATION_REPLY_MARKER_PREFIX = "<!-- efp:delegation-reply "
 MAX_SOURCE_TEXT_CHARS = 20000
+MAX_GITHUB_REPLY_CONTEXT_CHARS = 8000
 GITHUB_SOURCES = {"github_pr_review", "github_pr_mention"}
 JIRA_SOURCES = {"jira_assignee", "jira_mention"}
 SUPPORTED_DELEGATION_SOURCES = GITHUB_SOURCES | JIRA_SOURCES
@@ -362,6 +363,8 @@ class DelegationSourcePoller:
                         comment_id = str(comment.get("id") or "").strip()
                         if not comment_id:
                             continue
+                        comment_html_url = str(comment.get("html_url") or "").strip()
+                        comment_author = self._github_user_login(comment.get("user"))
                         dedupe_key = f"github_pr_mention:{owner}/{repo}:{pull_number}:comment:{comment_id}"
                         items.append(
                             {
@@ -383,6 +386,12 @@ class DelegationSourcePoller:
                                     "owner": owner,
                                     "repo": repo,
                                     "pull_number": pull_number,
+                                    "reply_mode": "quote_reply",
+                                    "comment_kind": comment_kind,
+                                    "comment_id": comment.get("id"),
+                                    "comment_html_url": comment_html_url,
+                                    "comment_author": comment_author,
+                                    "comment_body": self._bounded_text(body, limit=MAX_GITHUB_REPLY_CONTEXT_CHARS),
                                 },
                                 "reaction_target": self._github_comment_reaction_target(
                                     owner=owner,
@@ -390,7 +399,7 @@ class DelegationSourcePoller:
                                     pull_number=pull_number,
                                     comment_id=comment.get("id"),
                                     comment_kind=comment_kind,
-                                    html_url=str(comment.get("html_url") or "").strip() or None,
+                                    html_url=comment_html_url or None,
                                 ),
                             }
                         )

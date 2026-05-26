@@ -167,6 +167,90 @@ def test_github_pr_mention_reaction_target_preserves_comment_kind():
     assert review_target["html_url"] == "https://github.com/acme/portal/pull/12#discussion_r789"
 
 
+class _FakeGithubMentionAsyncClient:
+    def __init__(self, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def get(self, url, *, headers=None, params=None):
+        if url == "https://api.github.com/user":
+            return _FakeResponse({"login": "octocat"})
+        if url == "https://api.github.com/search/issues":
+            assert params["q"] == "is:pr is:open mentions:octocat"
+            return _FakeResponse(
+                {
+                    "items": [
+                        {
+                            "html_url": "https://github.com/acme/portal/pull/2",
+                            "url": "https://api.github.com/repos/acme/portal/issues/2",
+                            "pull_request": {"url": "https://api.github.com/repos/acme/portal/pulls/2"},
+                        }
+                    ]
+                }
+            )
+        if url == "https://api.github.com/repos/acme/portal/pulls/2":
+            return _FakeResponse(
+                {
+                    "html_url": "https://github.com/acme/portal/pull/2",
+                    "title": "Mentioned PR",
+                    "head": {"sha": "head2"},
+                    "base": {"sha": "base2"},
+                    "user": {"login": "bob"},
+                }
+            )
+        if url == "https://api.github.com/repos/acme/portal/issues/2/comments":
+            return _FakeResponse(
+                [
+                    {
+                        "id": 100,
+                        "body": "@octocat please summarize this PR\nInclude tests.",
+                        "html_url": "https://github.com/acme/portal/pull/2#issuecomment-100",
+                        "user": {"login": "alice"},
+                    }
+                ]
+            )
+        if url == "https://api.github.com/repos/acme/portal/pulls/2/comments":
+            return _FakeResponse([])
+        raise AssertionError(f"Unexpected GitHub request: {url}")
+
+
+def test_github_pr_mention_reply_target_includes_quote_context(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.resolve_github_for_agent",
+        lambda _db, _agent_id: GithubProviderConfig(
+            base_url="https://api.github.com",
+            api_token="gh-secret",
+            runtime_profile_id="runtime-profile-1",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.httpx.AsyncClient",
+        lambda **kwargs: _FakeGithubMentionAsyncClient(**kwargs),
+    )
+
+    rule = SimpleNamespace(target_agent_id="agent-1")
+    result = asyncio.run(DelegationSourcePoller()._poll_github_pr_mention(object(), rule))
+
+    assert len(result.items) == 1
+    reply_target = result.items[0]["reply_target"]
+    assert reply_target["provider"] == "github"
+    assert reply_target["kind"] == "pr_comment"
+    assert reply_target["owner"] == "acme"
+    assert reply_target["repo"] == "portal"
+    assert reply_target["pull_number"] == 2
+    assert reply_target["reply_mode"] == "quote_reply"
+    assert reply_target["comment_kind"] == "issue_comment"
+    assert reply_target["comment_id"] == 100
+    assert reply_target["comment_html_url"] == "https://github.com/acme/portal/pull/2#issuecomment-100"
+    assert reply_target["comment_author"] == "alice"
+    assert reply_target["comment_body"] == "@octocat please summarize this PR\nInclude tests."
+
+
 class _FakeJiraAsyncClient:
     def __init__(self, **_kwargs):
         pass

@@ -283,6 +283,14 @@ class DelegationRuleRepository:
         self.db.refresh(event)
         return event
 
+    def update_event_normalized_payload(self, event: DelegationRuleEvent, normalized_payload: dict) -> DelegationRuleEvent:
+        event.normalized_payload_json = json.dumps(normalized_payload or {})
+        event.updated_at = datetime.utcnow()
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        return event
+
     def claim_event_for_task_creation(
         self,
         event_id: str,

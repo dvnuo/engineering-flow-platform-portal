@@ -5,6 +5,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException, status
@@ -186,7 +187,87 @@ class DelegationRuleService:
         reaction_target = item.get("reaction_target")
         return reaction_target if isinstance(reaction_target, dict) else {}
 
-    def _create_task_for_source_item(self, *, rule, item: dict) -> tuple[object | None, bool]:
+    @staticmethod
+    def _portal_start_reaction_error(exc: Exception, reaction_target: dict) -> dict[str, Any]:
+        return {
+            "type": exc.__class__.__name__,
+            "message": str(exc),
+            "api_path": str((reaction_target or {}).get("api_path") or ""),
+            "target": reaction_target or {},
+        }
+
+    async def _record_portal_start_reaction(self, *, rule, event, normalized_item: dict) -> dict:
+        reaction_target = self._reaction_target_for_task(normalized_item)
+        if not reaction_target:
+            return normalized_item
+        if str(reaction_target.get("provider") or "github").strip().lower() != "github":
+            return normalized_item
+
+        updated_item = dict(normalized_item)
+        try:
+            start_reaction = await self.reply_service.add_github_reaction(
+                self.db,
+                rule=rule,
+                reaction_target=reaction_target,
+                content="eyes",
+            )
+            updated_item["portal_start_reaction"] = start_reaction
+            updated_item.pop("portal_start_reaction_error", None)
+        except Exception as exc:
+            error_payload = self._portal_start_reaction_error(exc, reaction_target)
+            updated_item["portal_start_reaction_error"] = error_payload
+            logger.warning(
+                "Failed to add portal start reaction for delegation event %s rule %s target=%s error=%s",
+                getattr(event, "id", "-"),
+                getattr(rule, "id", "-"),
+                reaction_target,
+                error_payload["message"],
+                exc_info=True,
+            )
+
+        self.repo.update_event_normalized_payload(event, updated_item)
+        return updated_item
+
+    async def _cleanup_portal_start_reaction(self, *, rule, event, normalized: dict) -> None:
+        start_reaction = normalized.get("portal_start_reaction") if isinstance(normalized, dict) else None
+        if not isinstance(start_reaction, dict) or not start_reaction:
+            return
+
+        cleanup_payload: dict[str, Any]
+        updated = dict(normalized)
+        try:
+            cleanup_payload = await self.reply_service.delete_github_reaction(
+                self.db,
+                rule=rule,
+                portal_start_reaction=start_reaction,
+            )
+            updated["portal_start_reaction_cleanup"] = cleanup_payload
+            updated.pop("portal_start_reaction_cleanup_error", None)
+        except Exception as exc:
+            cleanup_payload = {
+                "type": exc.__class__.__name__,
+                "message": str(exc),
+                "cleanup_api_path": str(start_reaction.get("cleanup_api_path") or ""),
+            }
+            updated["portal_start_reaction_cleanup_error"] = cleanup_payload
+            logger.warning(
+                "Failed to clean up portal start reaction for delegation event %s rule %s error=%s",
+                getattr(event, "id", "-"),
+                getattr(rule, "id", "-"),
+                cleanup_payload["message"],
+                exc_info=True,
+            )
+
+        try:
+            self.repo.update_event_normalized_payload(event, updated)
+        except Exception:
+            logger.warning(
+                "Failed to persist portal start reaction cleanup state for delegation event %s",
+                getattr(event, "id", "-"),
+                exc_info=True,
+            )
+
+    async def _create_task_for_source_item(self, *, rule, item: dict) -> tuple[object | None, bool]:
         source = self._validate_source(item.get("source") or rule.trigger_type)
         provider = self._provider_for_source(source)
         dedupe_key = str(item.get("dedupe_key") or "").strip()
@@ -226,6 +307,11 @@ class DelegationRuleService:
             self.repo.update_event_status(refreshed_event, status="task_created", task_id=existing_task.id, error_message=None)
             return None, True
 
+        normalized_item = await self._record_portal_start_reaction(
+            rule=rule,
+            event=refreshed_event,
+            normalized_item=normalized_item,
+        )
         task_config = self._parse_json(rule.task_config_json)
         skill_name = str(task_config.get("skill_name") or "").strip()
         if not skill_name:
@@ -245,6 +331,10 @@ class DelegationRuleService:
         reaction_target = self._reaction_target_for_task(normalized_item)
         if reaction_target:
             delegation_payload["reaction_target"] = reaction_target
+        if isinstance(normalized_item.get("portal_start_reaction"), dict):
+            delegation_payload["portal_start_reaction"] = normalized_item["portal_start_reaction"]
+        if isinstance(normalized_item.get("portal_start_reaction_error"), dict):
+            delegation_payload["portal_start_reaction_error"] = normalized_item["portal_start_reaction_error"]
         input_payload = {
             "schema": "agent_async_task.v1",
             "skill_name": skill_name,
@@ -360,26 +450,36 @@ class DelegationRuleService:
                     normalized.get("source"),
                     reply_target,
                 )
-                self.repo.update_event_status(event, status="reply_sent", task_id=event.task_id, error_message=None)
+                event = self.repo.update_event_status(event, status="reply_sent", task_id=event.task_id, error_message=None)
+                await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
                 sent_count += 1
                 continue
             if not isinstance(reply_target, dict) or not reply_target:
-                self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message="Missing reply target")
+                event = self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message="Missing reply target")
+                await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
                 failed_count += 1
                 continue
             result_text = self._extract_task_result_text(task)
             if not result_text:
-                self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message="Task completed without reply text")
+                event = self.repo.update_event_status(
+                    event,
+                    status="reply_failed",
+                    task_id=event.task_id,
+                    error_message="Task completed without reply text",
+                )
+                await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
                 failed_count += 1
                 continue
             reply_text = f"{delegation_reply_marker(rule.id, event.id)}\n\n{result_text}"
             try:
                 await self.reply_service.send_reply(self.db, rule=rule, event=event, reply_target=reply_target, text=reply_text)
             except Exception as exc:
-                self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message=str(exc)[:500])
+                event = self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message=str(exc)[:500])
+                await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
                 failed_count += 1
                 continue
-            self.repo.update_event_status(event, status="reply_sent", task_id=event.task_id, error_message=None)
+            event = self.repo.update_event_status(event, status="reply_sent", task_id=event.task_id, error_message=None)
+            await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
             sent_count += 1
         return sent_count, failed_count
 
@@ -410,7 +510,7 @@ class DelegationRuleService:
             found_count = len(items)
             for item in items:
                 try:
-                    task, skipped = self._create_task_for_source_item(rule=rule, item=item)
+                    task, skipped = await self._create_task_for_source_item(rule=rule, item=item)
                     if skipped:
                         skipped_count += 1
                         continue
