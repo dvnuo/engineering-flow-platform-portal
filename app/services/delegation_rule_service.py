@@ -294,11 +294,11 @@ class DelegationRuleService:
         payload = DelegationRuleService._parse_json(getattr(task, "result_payload_json", None))
         output_payload = payload.get("output_payload")
         if isinstance(output_payload, dict):
-            for key in ("summary", "final_response", "response", "raw_text", "review_summary", "message", "result_summary"):
+            for key in ("final_response", "response", "review_summary", "result_summary", "summary", "raw_text", "message"):
                 value = output_payload.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
-        for key in ("summary", "final_response", "response", "raw_text", "message"):
+        for key in ("final_response", "response", "summary", "raw_text", "message"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()

@@ -334,6 +334,56 @@ def test_reply_sent_when_task_done(monkeypatch):
     assert "efp:auto-reply" not in captured["text"]
 
 
+def test_github_reply_uses_final_response_before_output_summary():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-reply-final")
+    svc, rule = _create_rule(db, user, agent, source="github_pr_review")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _run_once_with_items(svc, rule.id, [_source_item("github_pr_review")])
+    task = db.query(AgentTask).one()
+    task.status = "done"
+    task.result_payload_json = json.dumps(
+        {
+            "status": "success",
+            "output_payload": {
+                "summary": "Short summary",
+                "final_response": "Detailed final response",
+            },
+        }
+    )
+    db.add(task)
+    db.commit()
+
+    captured = {}
+
+    async def _send_reply(_db, *, rule, event, reply_target, text):
+        captured["reply_target"] = reply_target
+        captured["text"] = text
+
+    svc.reply_service.send_reply = _send_reply
+    result = _run_once_with_items(svc, rule.id, [])
+
+    assert result.created_task_count == 0
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "reply_sent"
+    assert captured["reply_target"]["kind"] == "pr_comment"
+    assert captured["text"].endswith("\n\nDetailed final response")
+    assert "Short summary" not in captured["text"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"output_payload": {"summary": "Short summary", "final_response": "Detailed final response"}},
+        {"summary": "Short summary", "final_response": "Detailed final response"},
+    ],
+)
+def test_extract_task_result_text_prefers_final_response_over_summary(payload):
+    task = SimpleNamespace(result_payload_json=json.dumps(payload), summary="Fallback summary")
+
+    assert DelegationRuleService._extract_task_result_text(task) == "Detailed final response"
+
+
 def test_reply_skipped_when_task_result_was_handled_by_skill():
     db = _session()
     user, agent = _create_user_agent(db, username="u-reply-skip")
