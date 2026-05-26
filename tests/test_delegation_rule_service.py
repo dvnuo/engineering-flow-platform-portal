@@ -127,6 +127,38 @@ def _stub_reaction_cleanup(svc: DelegationRuleService, calls: list | None = None
     svc.reply_service.delete_github_reaction = _delete_github_reaction
 
 
+def _stub_jira_start_comment(svc: DelegationRuleService, calls: list | None = None, comment_id: str = "5001"):
+    async def _add_jira_start_comment(_db, rule, reply_target, *, source, source_url=None, source_comment=None):
+        issue_key = reply_target["issue_key"]
+        if calls is not None:
+            calls.append(
+                {
+                    "rule_id": rule.id,
+                    "reply_target": reply_target,
+                    "source": source,
+                    "source_url": source_url,
+                    "source_comment": source_comment,
+                }
+            )
+        return {
+            "provider": "jira",
+            "status": "created",
+            "issue_key": issue_key,
+            "comment_id": comment_id,
+            "api_path": f"/rest/api/2/issue/{issue_key}/comment",
+            "content": f"Automated EFP delegation run has started.\n\nSource: {source}",
+        }
+
+    svc.reply_service.add_jira_start_comment = _add_jira_start_comment
+
+
+def _stub_jira_start_comment_failure(svc: DelegationRuleService, message: str = "jira comment unavailable"):
+    async def _add_jira_start_comment(*_args, **_kwargs):
+        raise RuntimeError(message)
+
+    svc.reply_service.add_jira_start_comment = _add_jira_start_comment
+
+
 def _source_item(source: str) -> dict:
     if source == "github_pr_review":
         return {
@@ -285,6 +317,8 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     svc.dispatcher.dispatch_task_in_background = lambda task_id: dispatched.append(task_id)
     if source.startswith("github"):
         _stub_start_reaction(svc)
+    if source.startswith("jira"):
+        _stub_jira_start_comment(svc)
     source_item = _source_item(source)
 
     result = _run_once_with_items(svc, rule.id, [source_item])
@@ -323,6 +357,32 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     assert json.loads(event.source_payload_json) == source_item["source_payload"]
 
 
+def test_github_pr_review_task_creation_records_portal_start_reaction():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-review-start-reaction")
+    svc, rule = _create_rule(db, user, agent, source="github_pr_review")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    reaction_calls = []
+    _stub_start_reaction(svc, calls=reaction_calls, reaction_id=23456)
+    source_item = _source_item("github_pr_review")
+
+    _run_once_with_items(svc, rule.id, [source_item])
+
+    assert len(reaction_calls) == 1
+    assert reaction_calls[0]["reaction_target"] == source_item["reaction_target"]
+    assert reaction_calls[0]["content"] == "eyes"
+    task = db.query(AgentTask).one()
+    task_payload = json.loads(task.input_payload_json)
+    start_reaction = task_payload["delegation"]["portal_start_reaction"]
+    assert start_reaction["reaction_id"] == 23456
+    assert start_reaction["api_path"] == "/repos/acme/portal/issues/1/reactions"
+    assert start_reaction["cleanup_api_path"] == "/repos/acme/portal/issues/1/reactions/23456"
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    normalized = json.loads(event.normalized_payload_json)
+    assert normalized["portal_start_reaction"] == start_reaction
+    assert "portal_start_reaction_error" not in normalized
+
+
 def test_github_pr_mention_task_creation_records_portal_start_reaction():
     db = _session()
     user, agent = _create_user_agent(db, username="u-start-reaction")
@@ -348,6 +408,88 @@ def test_github_pr_mention_task_creation_records_portal_start_reaction():
     normalized = json.loads(event.normalized_payload_json)
     assert normalized["portal_start_reaction"] == start_reaction
     assert "portal_start_reaction_error" not in normalized
+
+
+@pytest.mark.parametrize(
+    "source,expected_issue_key,expected_source_comment",
+    [
+        ("jira_assignee", "ENG-1", None),
+        ("jira_mention", "ENG-2", "Bot User please check this"),
+    ],
+)
+def test_jira_task_creation_records_portal_start_reply(source, expected_issue_key, expected_source_comment):
+    db = _session()
+    user, agent = _create_user_agent(db, username=f"u-{source}-start-reply")
+    svc, rule = _create_rule(db, user, agent, source=source)
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    start_calls = []
+    _stub_jira_start_comment(svc, calls=start_calls, comment_id="jira-start-123")
+    source_item = _source_item(source)
+
+    _run_once_with_items(svc, rule.id, [source_item])
+
+    assert start_calls == [
+        {
+            "rule_id": rule.id,
+            "reply_target": source_item["reply_target"],
+            "source": source,
+            "source_url": source_item["source_url"],
+            "source_comment": expected_source_comment,
+        }
+    ]
+    task = db.query(AgentTask).one()
+    task_payload = json.loads(task.input_payload_json)
+    reply_target = task_payload["delegation"]["reply_target"]
+    assert reply_target == {
+        "provider": "jira",
+        "kind": "issue_comment",
+        "issue_key": expected_issue_key,
+        "reply_mode": "update_comment",
+        "comment_id": "jira-start-123",
+    }
+    start_reply = task_payload["delegation"]["portal_start_reply"]
+    assert start_reply["provider"] == "jira"
+    assert start_reply["status"] == "created"
+    assert start_reply["issue_key"] == expected_issue_key
+    assert start_reply["comment_id"] == "jira-start-123"
+    assert "portal_start_reply_error" not in task_payload["delegation"]
+
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    normalized = json.loads(event.normalized_payload_json)
+    assert normalized["reply_target"] == reply_target
+    assert normalized["portal_start_reply"] == start_reply
+    assert "portal_start_reply_error" not in normalized
+
+
+@pytest.mark.parametrize("source", ["jira_assignee", "jira_mention"])
+def test_jira_task_creation_succeeds_when_portal_start_reply_fails(source):
+    db = _session()
+    user, agent = _create_user_agent(db, username=f"u-{source}-start-reply-fail")
+    svc, rule = _create_rule(db, user, agent, source=source)
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_jira_start_comment_failure(svc)
+    source_item = _source_item(source)
+
+    result = _run_once_with_items(svc, rule.id, [source_item])
+
+    assert result.created_task_count == 1
+    task = db.query(AgentTask).one()
+    task_payload = json.loads(task.input_payload_json)
+    assert task_payload["delegation"]["reply_target"] == source_item["reply_target"]
+    assert "reply_mode" not in task_payload["delegation"]["reply_target"]
+    assert "comment_id" not in task_payload["delegation"]["reply_target"]
+    assert "portal_start_reply" not in task_payload["delegation"]
+    error_payload = task_payload["delegation"]["portal_start_reply_error"]
+    assert error_payload["type"] == "RuntimeError"
+    assert error_payload["message"] == "jira comment unavailable"
+    assert error_payload["issue_key"] == source_item["reply_target"]["issue_key"]
+
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "task_created"
+    normalized = json.loads(event.normalized_payload_json)
+    assert normalized["reply_target"] == source_item["reply_target"]
+    assert normalized["portal_start_reply_error"] == error_payload
+    assert "portal_start_reply" not in normalized
 
 
 def test_dedupe_same_source_item_does_not_create_duplicate_task():
@@ -508,6 +650,7 @@ def test_reply_skipped_when_task_result_was_handled_by_skill():
     user, agent = _create_user_agent(db, username="u-reply-skip")
     svc, rule = _create_rule(db, user, agent, source="jira_assignee")
     svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_jira_start_comment(svc)
     _run_once_with_items(svc, rule.id, [_source_item("jira_assignee")])
     task = db.query(AgentTask).one()
     task.status = "done"
@@ -525,6 +668,41 @@ def test_reply_skipped_when_task_result_was_handled_by_skill():
     event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
     assert event.status == "reply_sent"
     assert event.error_message is None
+
+
+def test_jira_pending_reply_updates_portal_start_comment():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-jira-update-reply")
+    svc, rule = _create_rule(db, user, agent, source="jira_mention")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_jira_start_comment(svc, comment_id="jira-start-789")
+    _run_once_with_items(svc, rule.id, [_source_item("jira_mention")])
+    task = db.query(AgentTask).one()
+    task.status = "done"
+    task.result_payload_json = json.dumps({"status": "success", "output_payload": {"final_response": "Jira final answer"}})
+    db.add(task)
+    db.commit()
+
+    captured = {}
+
+    async def _send_reply(_db, *, rule, event, reply_target, text):
+        captured["reply_target"] = reply_target
+        captured["text"] = text
+
+    svc.reply_service.send_reply = _send_reply
+    _run_once_with_items(svc, rule.id, [])
+
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "reply_sent"
+    assert captured["reply_target"] == {
+        "provider": "jira",
+        "kind": "issue_comment",
+        "issue_key": "ENG-2",
+        "reply_mode": "update_comment",
+        "comment_id": "jira-start-789",
+    }
+    assert captured["text"].startswith("<!-- efp:delegation-reply ")
+    assert captured["text"].endswith("\n\nJira final answer")
 
 
 def test_reply_handled_by_skill_skips_github_reply_but_cleans_start_reaction():
@@ -575,6 +753,7 @@ def test_reply_failure_marks_event_failed():
     user, agent = _create_user_agent(db, username="u-reply-fail")
     svc, rule = _create_rule(db, user, agent, source="jira_assignee")
     svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_jira_start_comment(svc)
     _run_once_with_items(svc, rule.id, [_source_item("jira_assignee")])
     task = db.query(AgentTask).one()
     task.status = "done"

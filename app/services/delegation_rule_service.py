@@ -188,6 +188,11 @@ class DelegationRuleService:
         return reaction_target if isinstance(reaction_target, dict) else {}
 
     @staticmethod
+    def _reply_target_for_task(item: dict) -> dict:
+        reply_target = item.get("reply_target")
+        return reply_target if isinstance(reply_target, dict) else {}
+
+    @staticmethod
     def _portal_start_reaction_error(exc: Exception, reaction_target: dict) -> dict[str, Any]:
         return {
             "type": exc.__class__.__name__,
@@ -227,6 +232,71 @@ class DelegationRuleService:
 
         self.repo.update_event_normalized_payload(event, updated_item)
         return updated_item
+
+    @staticmethod
+    def _portal_start_reply_error(exc: Exception, reply_target: dict) -> dict[str, Any]:
+        return {
+            "type": exc.__class__.__name__,
+            "message": str(exc),
+            "provider": str((reply_target or {}).get("provider") or ""),
+            "issue_key": str((reply_target or {}).get("issue_key") or ""),
+            "target": reply_target or {},
+        }
+
+    async def _record_portal_start_reply(self, *, rule, event, normalized_item: dict) -> dict:
+        reply_target = self._reply_target_for_task(normalized_item)
+        if not reply_target:
+            return normalized_item
+        provider = str(reply_target.get("provider") or normalized_item.get("provider") or rule.source_type or "").strip().lower()
+        if provider != "jira":
+            return normalized_item
+        if str(reply_target.get("kind") or "").strip() != "issue_comment":
+            return normalized_item
+        if str(reply_target.get("reply_mode") or "").strip() == "update_comment" and str(reply_target.get("comment_id") or "").strip():
+            return normalized_item
+
+        updated_item = dict(normalized_item)
+        try:
+            start_reply = await self.reply_service.add_jira_start_comment(
+                self.db,
+                rule,
+                reply_target,
+                source=str(normalized_item.get("source") or rule.trigger_type or ""),
+                source_url=normalized_item.get("source_url"),
+                source_comment=normalized_item.get("source_comment"),
+            )
+            updated_reply_target = dict(reply_target)
+            updated_reply_target["reply_mode"] = "update_comment"
+            updated_reply_target["comment_id"] = str(start_reply["comment_id"])
+            updated_item["reply_target"] = updated_reply_target
+            updated_item["portal_start_reply"] = start_reply
+            updated_item.pop("portal_start_reply_error", None)
+        except Exception as exc:
+            error_payload = self._portal_start_reply_error(exc, reply_target)
+            updated_item["portal_start_reply_error"] = error_payload
+            logger.warning(
+                "Failed to add portal Jira start comment for delegation event %s rule %s target=%s error=%s",
+                getattr(event, "id", "-"),
+                getattr(rule, "id", "-"),
+                reply_target,
+                error_payload["message"],
+                exc_info=True,
+            )
+
+        self.repo.update_event_normalized_payload(event, updated_item)
+        return updated_item
+
+    async def _record_portal_start_feedback(self, *, rule, event, normalized_item: dict) -> dict:
+        updated_item = await self._record_portal_start_reaction(
+            rule=rule,
+            event=event,
+            normalized_item=normalized_item,
+        )
+        return await self._record_portal_start_reply(
+            rule=rule,
+            event=event,
+            normalized_item=updated_item,
+        )
 
     async def _cleanup_portal_start_reaction(self, *, rule, event, normalized: dict) -> None:
         start_reaction = normalized.get("portal_start_reaction") if isinstance(normalized, dict) else None
@@ -307,7 +377,7 @@ class DelegationRuleService:
             self.repo.update_event_status(refreshed_event, status="task_created", task_id=existing_task.id, error_message=None)
             return None, True
 
-        normalized_item = await self._record_portal_start_reaction(
+        normalized_item = await self._record_portal_start_feedback(
             rule=rule,
             event=refreshed_event,
             normalized_item=normalized_item,
@@ -335,6 +405,10 @@ class DelegationRuleService:
             delegation_payload["portal_start_reaction"] = normalized_item["portal_start_reaction"]
         if isinstance(normalized_item.get("portal_start_reaction_error"), dict):
             delegation_payload["portal_start_reaction_error"] = normalized_item["portal_start_reaction_error"]
+        if isinstance(normalized_item.get("portal_start_reply"), dict):
+            delegation_payload["portal_start_reply"] = normalized_item["portal_start_reply"]
+        if isinstance(normalized_item.get("portal_start_reply_error"), dict):
+            delegation_payload["portal_start_reply_error"] = normalized_item["portal_start_reply_error"]
         input_payload = {
             "schema": "agent_async_task.v1",
             "skill_name": skill_name,

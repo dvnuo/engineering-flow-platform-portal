@@ -10,6 +10,7 @@ from app.services.provider_config_resolver import resolve_github_for_agent, reso
 
 DELEGATION_REPLY_MARKER_PREFIX = "<!-- efp:delegation-reply "
 GITHUB_QUOTE_REPLY_MAX_CHARS = 4000
+JIRA_SOURCE_CONTEXT_MAX_CHARS = 1200
 
 
 def delegation_reply_marker(rule_id: str, event_id: str) -> str:
@@ -137,6 +138,104 @@ class DelegationReplyService:
         return {"provider": "github", "status": "deleted", "cleanup_api_path": path}
 
     @staticmethod
+    def _jira_comment_api_path(api_version: str, issue_key: str, comment_id: str | None = None) -> str:
+        path = f"/rest/api/{api_version}/issue/{issue_key}/comment"
+        if comment_id not in (None, ""):
+            path = f"{path}/{comment_id}"
+        return path
+
+    @staticmethod
+    def _bounded_jira_context(value: str | None, *, limit: int = JIRA_SOURCE_CONTEXT_MAX_CHARS) -> str:
+        text = str(value or "").strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "\n[truncated]"
+
+    @classmethod
+    def _format_jira_start_comment_body(
+        cls,
+        *,
+        issue_key: str,
+        source: str,
+        source_url: str | None = None,
+        source_comment: str | None = None,
+    ) -> str:
+        source_label = str(source or "").strip() or "delegation"
+        lines = [
+            "Automated EFP delegation run has started.",
+            "",
+            f"Source: {source_label}",
+            f"Issue: {issue_key}",
+        ]
+        url = str(source_url or "").strip()
+        if url:
+            lines.append(f"Link: {url}")
+        comment = cls._bounded_jira_context(source_comment)
+        if comment:
+            lines.extend(["", "Triggering comment:", comment])
+        return "\n".join(lines)
+
+    async def add_jira_start_comment(
+        self,
+        db: Session,
+        rule,
+        reply_target: dict,
+        *,
+        source: str,
+        source_url: str | None = None,
+        source_comment: str | None = None,
+    ) -> dict[str, Any]:
+        target = reply_target if isinstance(reply_target, dict) else {}
+        provider = str(target.get("provider") or "jira").strip().lower()
+        if provider != "jira":
+            raise ValueError(f"Unsupported Jira start comment provider: {provider or 'empty'}")
+        kind = str(target.get("kind") or "").strip()
+        if kind != "issue_comment":
+            raise ValueError(f"Unsupported Jira start comment target: {kind or 'empty'}")
+        issue_key = str(target.get("issue_key") or "").strip()
+        if not issue_key:
+            raise ValueError("Jira start comment target is missing issue_key")
+
+        provider_config = resolve_jira_for_agent(db, rule.target_agent_id)
+        api_path = self._jira_comment_api_path(provider_config.api_version, issue_key)
+        content = self._format_jira_start_comment_body(
+            issue_key=issue_key,
+            source=source,
+            source_url=source_url,
+            source_comment=source_comment,
+        )
+        base_url = provider_config.base_url.rstrip("/")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{base_url}{api_path}",
+                headers={**provider_config.headers, "Accept": "application/json", "Content-Type": "application/json"},
+                json={"body": content},
+            )
+            response.raise_for_status()
+
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {}
+        payload = payload if isinstance(payload, dict) else {}
+        comment_id = str(payload.get("id") or "").strip()
+        if not comment_id:
+            raise RuntimeError(f"Jira start comment response for {issue_key} did not include comment id")
+
+        metadata: dict[str, Any] = {
+            "provider": "jira",
+            "status": "created",
+            "issue_key": issue_key,
+            "comment_id": comment_id,
+            "api_path": api_path,
+            "content": content,
+        }
+        comment_url = str(payload.get("self") or "").strip()
+        if comment_url:
+            metadata["comment_url"] = comment_url
+        return metadata
+
+    @staticmethod
     def _split_marker_prefixed_text(text: str) -> tuple[str | None, str]:
         normalized = str(text or "")
         lines = normalized.splitlines()
@@ -207,10 +306,18 @@ class DelegationReplyService:
         if not issue_key:
             raise ValueError("Jira reply target is missing issue_key")
         provider_config = resolve_jira_for_agent(db, rule.target_agent_id)
+        base_api_path = self._jira_comment_api_path(provider_config.api_version, issue_key)
+        comment_id = str(reply_target.get("comment_id") or "").strip()
+        should_update = str(reply_target.get("reply_mode") or "").strip() == "update_comment" and bool(comment_id)
+        api_path = self._jira_comment_api_path(provider_config.api_version, issue_key, comment_id) if should_update else base_api_path
+        base_url = provider_config.base_url.rstrip("/")
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{provider_config.base_url}/rest/api/{provider_config.api_version}/issue/{issue_key}/comment",
-                headers={**provider_config.headers, "Accept": "application/json", "Content-Type": "application/json"},
-                json={"body": text},
-            )
+            request_kwargs = {
+                "headers": {**provider_config.headers, "Accept": "application/json", "Content-Type": "application/json"},
+                "json": {"body": text},
+            }
+            if should_update:
+                response = await client.put(f"{base_url}{api_path}", **request_kwargs)
+            else:
+                response = await client.post(f"{base_url}{api_path}", **request_kwargs)
             response.raise_for_status()
