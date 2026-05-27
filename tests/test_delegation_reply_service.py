@@ -168,7 +168,8 @@ def test_add_jira_start_comment_returns_created_comment_metadata(monkeypatch):
         status_code=201,
     )
     svc = DelegationReplyService()
-    rule = SimpleNamespace(target_agent_id="agent-1")
+    rule = SimpleNamespace(id="rule-1", target_agent_id="agent-1")
+    event = SimpleNamespace(id="event-1")
 
     metadata = asyncio.run(
         svc.add_jira_start_comment(
@@ -178,6 +179,7 @@ def test_add_jira_start_comment_returns_created_comment_metadata(monkeypatch):
             source="jira_mention",
             source_url="https://jira.local/browse/ENG-1",
             source_comment="Bot User please check this",
+            event=event,
         )
     )
 
@@ -185,10 +187,11 @@ def test_add_jira_start_comment_returns_created_comment_metadata(monkeypatch):
     assert calls[0]["method"] == "POST"
     assert calls[0]["url"] == "https://jira.local/rest/api/2/issue/ENG-1/comment"
     body = calls[0]["json"]["body"]
+    assert body.startswith("<!-- efp:delegation-reply delegation_id=rule-1 event_id=event-1 -->\n\n")
     assert "Automated EFP delegation run has started." in body
     assert "Source: jira_mention" in body
     assert "Link: https://jira.local/browse/ENG-1" in body
-    assert "Triggering comment:\nBot User please check this" in body
+    assert "Bot User please check this" not in body
     assert metadata["provider"] == "jira"
     assert metadata["status"] == "created"
     assert metadata["issue_key"] == "ENG-1"

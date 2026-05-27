@@ -219,6 +219,67 @@ class _FakeGithubMentionAsyncClient:
         raise AssertionError(f"Unexpected GitHub request: {url}")
 
 
+class _FakeGithubSelfMentionAsyncClient:
+    def __init__(self, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def get(self, url, *, headers=None, params=None):
+        if url == "https://api.github.com/user":
+            return _FakeResponse({"login": "octocat"})
+        if url == "https://api.github.com/search/issues":
+            assert params["q"] == "is:pr is:open mentions:octocat"
+            return _FakeResponse(
+                {
+                    "items": [
+                        {
+                            "html_url": "https://github.com/acme/portal/pull/2",
+                            "url": "https://api.github.com/repos/acme/portal/issues/2",
+                            "pull_request": {"url": "https://api.github.com/repos/acme/portal/pulls/2"},
+                        }
+                    ]
+                }
+            )
+        if url == "https://api.github.com/repos/acme/portal/pulls/2":
+            return _FakeResponse(
+                {
+                    "html_url": "https://github.com/acme/portal/pull/2",
+                    "title": "Mentioned PR",
+                    "head": {"sha": "head2"},
+                    "base": {"sha": "base2"},
+                    "user": {"login": "bob"},
+                }
+            )
+        if url == "https://api.github.com/repos/acme/portal/issues/2/comments":
+            return _FakeResponse(
+                [
+                    {
+                        "id": 101,
+                        "body": "@octocat portal-created issue comment",
+                        "html_url": "https://github.com/acme/portal/pull/2#issuecomment-101",
+                        "user": {"login": "octocat"},
+                    }
+                ]
+            )
+        if url == "https://api.github.com/repos/acme/portal/pulls/2/comments":
+            return _FakeResponse(
+                [
+                    {
+                        "id": 102,
+                        "body": "@octocat portal-created review comment",
+                        "html_url": "https://github.com/acme/portal/pull/2#discussion_r102",
+                        "user": {"login": "OCTOCAT"},
+                    }
+                ]
+            )
+        raise AssertionError(f"Unexpected GitHub request: {url}")
+
+
 def test_github_pr_mention_reply_target_includes_quote_context(monkeypatch):
     monkeypatch.setattr(
         "app.services.delegation_source_pollers.resolve_github_for_agent",
@@ -249,6 +310,26 @@ def test_github_pr_mention_reply_target_includes_quote_context(monkeypatch):
     assert reply_target["comment_html_url"] == "https://github.com/acme/portal/pull/2#issuecomment-100"
     assert reply_target["comment_author"] == "alice"
     assert reply_target["comment_body"] == "@octocat please summarize this PR\nInclude tests."
+
+
+def test_github_pr_mention_ignores_self_authored_issue_and_review_comments(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.resolve_github_for_agent",
+        lambda _db, _agent_id: GithubProviderConfig(
+            base_url="https://api.github.com",
+            api_token="gh-secret",
+            runtime_profile_id="runtime-profile-1",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.httpx.AsyncClient",
+        lambda **kwargs: _FakeGithubSelfMentionAsyncClient(**kwargs),
+    )
+
+    rule = SimpleNamespace(target_agent_id="agent-1")
+    result = asyncio.run(DelegationSourcePoller()._poll_github_pr_mention(object(), rule))
+
+    assert result.items == []
 
 
 class _FakeJiraAsyncClient:
@@ -319,3 +400,74 @@ def test_jira_assignee_source_payload_includes_reporter_identity(monkeypatch):
     assert issue["reporter"]["displayName"] == "Reporter User"
     assert issue["reporter"]["key"] == "reporter"
     assert issue["assignee"]["accountId"] == "bot-1"
+    assert result.items[0]["dedupe_key"] == "jira_assignee:ENG-1"
+    assert result.items[0]["version_key"] == "2026-01-01T00:00:00.000+0000"
+
+
+class _FakeJiraMentionMarkerAsyncClient:
+    def __init__(self, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def get(self, url, *, headers=None, params=None):
+        if url == "https://jira.local/rest/api/2/myself":
+            return _FakeResponse({"displayName": "Bot User", "accountId": "bot-1"})
+        if url == "https://jira.local/rest/api/2/search":
+            assert params["jql"] == '(text ~ "Bot User" OR text ~ "bot-1") ORDER BY updated DESC'
+            return _FakeResponse(
+                {
+                    "issues": [
+                        {
+                            "key": "ENG-2",
+                            "fields": {
+                                "summary": "Mention task",
+                                "updated": "2026-01-01T00:00:00.000+0000",
+                                "comment": {
+                                    "comments": [
+                                        {
+                                            "id": "300",
+                                            "body": (
+                                                "<!-- efp:delegation-reply delegation_id=rule-1 event_id=event-1 -->\n\n"
+                                                "Automated EFP delegation run has started.\n\n"
+                                                "Source: jira_mention\n"
+                                                "Issue: ENG-2\n"
+                                                "Link: https://jira.local/browse/ENG-2\n\n"
+                                                "Bot User"
+                                            ),
+                                            "author": {"accountId": "bot-1", "displayName": "Bot User"},
+                                            "created": "2026-01-01T00:00:00.000+0000",
+                                        }
+                                    ]
+                                },
+                            },
+                        }
+                    ]
+                }
+            )
+        raise AssertionError(f"Unexpected Jira request: {url}")
+
+
+def test_jira_mention_skips_marker_prefixed_portal_start_comment(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.resolve_jira_for_agent",
+        lambda _db, _agent_id: JiraProviderConfig(
+            base_url="https://jira.local",
+            headers={"Authorization": "Bearer jira-secret"},
+            runtime_profile_id="runtime-profile-1",
+            api_version="2",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.httpx.AsyncClient",
+        lambda **kwargs: _FakeJiraMentionMarkerAsyncClient(**kwargs),
+    )
+
+    rule = SimpleNamespace(target_agent_id="agent-1")
+    result = asyncio.run(DelegationSourcePoller()._poll_jira_mention(object(), rule))
+
+    assert result.items == []

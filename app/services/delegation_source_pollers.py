@@ -360,11 +360,13 @@ class DelegationSourcePoller:
                         body = str(comment.get("body") or "")
                         if not body or DELEGATION_REPLY_MARKER_PREFIX in body or not self._mentions_login(body, login):
                             continue
+                        comment_author = self._github_user_login(comment.get("user"))
+                        if comment_author and comment_author.lower() == login.lower():
+                            continue
                         comment_id = str(comment.get("id") or "").strip()
                         if not comment_id:
                             continue
                         comment_html_url = str(comment.get("html_url") or "").strip()
-                        comment_author = self._github_user_login(comment.get("user"))
                         dedupe_key = f"github_pr_mention:{owner}/{repo}:{pull_number}:comment:{comment_id}"
                         items.append(
                             {
@@ -506,7 +508,7 @@ class DelegationSourcePoller:
                     {
                         "source": "jira_assignee",
                         "provider": "jira",
-                        "dedupe_key": f"jira_assignee:{key}:{updated or 'unknown'}",
+                        "dedupe_key": f"jira_assignee:{key}",
                         "version_key": updated or key,
                         "source_url": issue_url,
                         "task_content": f"Work on this Jira issue:\n{issue_url}",

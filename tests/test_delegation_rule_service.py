@@ -13,6 +13,7 @@ from app.models import Agent, RuntimeProfile, User
 from app.models.agent_task import AgentTask
 from app.repositories.delegation_rule_repo import DelegationRuleRepository
 from app.schemas.delegation_rule import DelegationRuleCreate
+from app.services.delegation_reply_service import delegation_reply_marker
 from app.services.delegation_source_pollers import DelegationSourcePoller, SourcePollResult
 from app.services.delegation_rule_service import DelegationRuleService
 
@@ -128,7 +129,17 @@ def _stub_reaction_cleanup(svc: DelegationRuleService, calls: list | None = None
 
 
 def _stub_jira_start_comment(svc: DelegationRuleService, calls: list | None = None, comment_id: str = "5001"):
-    async def _add_jira_start_comment(_db, rule, reply_target, *, source, source_url=None, source_comment=None):
+    async def _add_jira_start_comment(
+        _db,
+        rule,
+        reply_target,
+        *,
+        source,
+        source_url=None,
+        source_comment=None,
+        event=None,
+        marker=None,
+    ):
         issue_key = reply_target["issue_key"]
         if calls is not None:
             calls.append(
@@ -140,13 +151,28 @@ def _stub_jira_start_comment(svc: DelegationRuleService, calls: list | None = No
                     "source_comment": source_comment,
                 }
             )
+        marker_line = marker or (delegation_reply_marker(rule.id, event.id) if event is not None else "")
+        content_lines = []
+        if marker_line:
+            content_lines.extend([marker_line, ""])
+        content_lines.extend(
+            [
+                "Automated EFP delegation run has started.",
+                "",
+                f"Source: {source}",
+                f"Issue: {issue_key}",
+            ]
+        )
+        if source_url:
+            content_lines.append(f"Link: {source_url}")
+        content = "\n".join(content_lines)
         return {
             "provider": "jira",
             "status": "created",
             "issue_key": issue_key,
             "comment_id": comment_id,
             "api_path": f"/rest/api/2/issue/{issue_key}/comment",
-            "content": f"Automated EFP delegation run has started.\n\nSource: {source}",
+            "content": content,
         }
 
     svc.reply_service.add_jira_start_comment = _add_jira_start_comment
@@ -247,7 +273,7 @@ def _source_item(source: str) -> dict:
         return {
             "source": source,
             "provider": "jira",
-            "dedupe_key": "jira-assignee:ENG-1:2026-01-01",
+            "dedupe_key": "jira_assignee:ENG-1",
             "version_key": "2026-01-01",
             "source_url": "https://jira.local/browse/ENG-1",
             "task_content": "Work on this Jira issue:\nhttps://jira.local/browse/ENG-1",
@@ -452,9 +478,13 @@ def test_jira_task_creation_records_portal_start_reply(source, expected_issue_ke
     assert start_reply["status"] == "created"
     assert start_reply["issue_key"] == expected_issue_key
     assert start_reply["comment_id"] == "jira-start-123"
+    assert start_reply["content"].startswith("<!-- efp:delegation-reply ")
+    assert f"delegation_id={rule.id}" in start_reply["content"]
+    assert "Bot User please check this" not in start_reply["content"]
     assert "portal_start_reply_error" not in task_payload["delegation"]
 
     event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert f"event_id={event.id}" in start_reply["content"]
     normalized = json.loads(event.normalized_payload_json)
     assert normalized["reply_target"] == reply_target
     assert normalized["portal_start_reply"] == start_reply
@@ -508,6 +538,29 @@ def test_dedupe_same_source_item_does_not_create_duplicate_task():
     assert second.skipped_count == 1
     assert db.query(AgentTask).count() == 1
     assert len(DelegationRuleRepository(db).list_events(rule.id, 10)) == 1
+
+
+def test_jira_assignee_stable_dedupe_skips_changed_version_key():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-jira-assignee-dedupe")
+    svc, rule = _create_rule(db, user, agent, source="jira_assignee")
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: None
+    _stub_jira_start_comment(svc)
+    first_item = _source_item("jira_assignee")
+    second_item = json.loads(json.dumps(first_item))
+    second_item["version_key"] = "2026-01-02"
+    second_item["source_payload"]["issue"]["updated"] = "2026-01-02"
+
+    first = _run_once_with_items(svc, rule.id, [first_item])
+    second = _run_once_with_items(svc, rule.id, [second_item])
+
+    assert first.created_task_count == 1
+    assert second.created_task_count == 0
+    assert second.skipped_count == 1
+    assert db.query(AgentTask).count() == 1
+    events = DelegationRuleRepository(db).list_events(rule.id, 10)
+    assert len(events) == 1
+    assert events[0].dedupe_key == "jira_assignee:ENG-1"
 
 
 def test_reply_sent_when_task_done(monkeypatch):

@@ -264,6 +264,7 @@ class DelegationRuleService:
                 source=str(normalized_item.get("source") or rule.trigger_type or ""),
                 source_url=normalized_item.get("source_url"),
                 source_comment=normalized_item.get("source_comment"),
+                event=event,
             )
             updated_reply_target = dict(reply_target)
             updated_reply_target["reply_mode"] = "update_comment"

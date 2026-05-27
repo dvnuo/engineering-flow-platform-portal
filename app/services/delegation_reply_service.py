@@ -10,7 +10,6 @@ from app.services.provider_config_resolver import resolve_github_for_agent, reso
 
 DELEGATION_REPLY_MARKER_PREFIX = "<!-- efp:delegation-reply "
 GITHUB_QUOTE_REPLY_MAX_CHARS = 4000
-JIRA_SOURCE_CONTEXT_MAX_CHARS = 1200
 
 
 def delegation_reply_marker(rule_id: str, event_id: str) -> str:
@@ -145,34 +144,29 @@ class DelegationReplyService:
         return path
 
     @staticmethod
-    def _bounded_jira_context(value: str | None, *, limit: int = JIRA_SOURCE_CONTEXT_MAX_CHARS) -> str:
-        text = str(value or "").strip()
-        if len(text) <= limit:
-            return text
-        return text[:limit].rstrip() + "\n[truncated]"
-
-    @classmethod
     def _format_jira_start_comment_body(
-        cls,
         *,
         issue_key: str,
         source: str,
         source_url: str | None = None,
-        source_comment: str | None = None,
+        marker: str | None = None,
     ) -> str:
         source_label = str(source or "").strip() or "delegation"
-        lines = [
-            "Automated EFP delegation run has started.",
-            "",
-            f"Source: {source_label}",
-            f"Issue: {issue_key}",
-        ]
+        lines: list[str] = []
+        marker_line = str(marker or "").strip()
+        if marker_line:
+            lines.extend([marker_line, ""])
+        lines.extend(
+            [
+                "Automated EFP delegation run has started.",
+                "",
+                f"Source: {source_label}",
+                f"Issue: {issue_key}",
+            ]
+        )
         url = str(source_url or "").strip()
         if url:
             lines.append(f"Link: {url}")
-        comment = cls._bounded_jira_context(source_comment)
-        if comment:
-            lines.extend(["", "Triggering comment:", comment])
         return "\n".join(lines)
 
     async def add_jira_start_comment(
@@ -184,6 +178,8 @@ class DelegationReplyService:
         source: str,
         source_url: str | None = None,
         source_comment: str | None = None,
+        event=None,
+        marker: str | None = None,
     ) -> dict[str, Any]:
         target = reply_target if isinstance(reply_target, dict) else {}
         provider = str(target.get("provider") or "jira").strip().lower()
@@ -198,11 +194,16 @@ class DelegationReplyService:
 
         provider_config = resolve_jira_for_agent(db, rule.target_agent_id)
         api_path = self._jira_comment_api_path(provider_config.api_version, issue_key)
+        marker_line = str(marker or "").strip()
+        if not marker_line and event is not None:
+            marker_line = delegation_reply_marker(rule.id, event.id)
+        # Do not echo source_comment here; Jira mention text can retrigger polling.
+        _ = source_comment
         content = self._format_jira_start_comment_body(
             issue_key=issue_key,
             source=source,
             source_url=source_url,
-            source_comment=source_comment,
+            marker=marker_line,
         )
         base_url = provider_config.base_url.rstrip("/")
         async with httpx.AsyncClient(timeout=30.0) as client:
