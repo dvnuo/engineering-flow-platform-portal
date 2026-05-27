@@ -230,3 +230,56 @@ def test_runtime_metadata_includes_github_authorization_without_token(runtime_db
     assert metadata["skill_details"] == []
     assert "github" not in metadata["runtime_profile"]["config"]
     assert "ghp_SECRET" not in json.dumps(metadata)
+
+
+def test_runtime_metadata_includes_jira_issue_authorization_without_credentials(runtime_db):
+    db, user = runtime_db
+    profile = RuntimeProfile(
+        owner_user_id=user.id,
+        name="jira-auth",
+        config_json=json.dumps(
+            {
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {
+                            "url": "https://jira.local",
+                            "username": "bot@example.com",
+                            "token": "jira_SECRET",
+                        }
+                    ],
+                }
+            }
+        ),
+        revision=5,
+        is_default=True,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+
+    service = RuntimeExecutionContextService()
+    agent = SimpleNamespace(id="agent-1", runtime_profile_id=profile.id, runtime_type="native")
+    metadata = service.build_runtime_metadata(db, agent)
+
+    assert metadata["authorization_source"] == "runtime_profile"
+    assert metadata["allowed_external_systems"] == ["jira"]
+    assert metadata["allowed_actions"] == ["read_issue", "assign_issue"]
+    assert metadata["allowed_adapter_actions"] == [
+        "adapter:jira:read_issue",
+        "adapter:jira:assign_issue",
+    ]
+    assert metadata["allowed_capability_ids"] == [
+        "adapter:jira:read_issue",
+        "adapter:jira:assign_issue",
+    ]
+    assert metadata["allowed_capability_types"] == ["adapter_action"]
+    assert metadata["resolved_action_mappings"] == {
+        "read_issue": "adapter:jira:read_issue",
+        "assign_issue": "adapter:jira:assign_issue",
+    }
+    assert "adapter:jira:add_comment" not in metadata["allowed_adapter_actions"]
+    assert "adapter:jira:update_issue" not in metadata["allowed_adapter_actions"]
+    assert "adapter:jira:transition_issue" not in metadata["allowed_adapter_actions"]
+    assert "jira" not in metadata["runtime_profile"]["config"]
+    assert "jira_SECRET" not in json.dumps(metadata)

@@ -91,6 +91,37 @@ def _attach_github_runtime_profile(db: Session, agent: Agent) -> RuntimeProfile:
     return profile
 
 
+def _attach_jira_runtime_profile(db: Session, agent: Agent) -> RuntimeProfile:
+    profile = RuntimeProfile(
+        owner_user_id=agent.owner_user_id,
+        name=f"jira-rp-{agent.id}",
+        config_json=json.dumps(
+            {
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {
+                            "url": "https://jira.local",
+                            "username": "bot@example.com",
+                            "token": "secret",
+                        }
+                    ],
+                }
+            }
+        ),
+        revision=1,
+        is_default=True,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    agent.runtime_profile_id = profile.id
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    return profile
+
+
 def _assert_github_review_authorization(metadata: dict) -> None:
     assert metadata["authorization_source"] == "runtime_profile"
     assert metadata["allowed_external_systems"] == ["github"]
@@ -104,6 +135,23 @@ def _assert_github_review_authorization(metadata: dict) -> None:
     assert metadata["unresolved_channels"] == []
     assert metadata["unresolved_actions"] == []
     assert metadata["skill_details"] == []
+
+
+def _assert_jira_issue_authorization(metadata: dict) -> None:
+    assert metadata["authorization_source"] == "runtime_profile"
+    assert "jira" in metadata["allowed_external_systems"]
+    assert "read_issue" in metadata["allowed_actions"]
+    assert "assign_issue" in metadata["allowed_actions"]
+    assert "adapter:jira:read_issue" in metadata["allowed_adapter_actions"]
+    assert "adapter:jira:assign_issue" in metadata["allowed_adapter_actions"]
+    assert "adapter:jira:read_issue" in metadata["allowed_capability_ids"]
+    assert "adapter:jira:assign_issue" in metadata["allowed_capability_ids"]
+    assert metadata["allowed_capability_types"] == ["adapter_action"]
+    assert metadata["resolved_action_mappings"]["read_issue"] == "adapter:jira:read_issue"
+    assert metadata["resolved_action_mappings"]["assign_issue"] == "adapter:jira:assign_issue"
+    assert "adapter:jira:add_comment" not in metadata["allowed_adapter_actions"]
+    assert "adapter:jira:update_issue" not in metadata["allowed_adapter_actions"]
+    assert "adapter:jira:transition_issue" not in metadata["allowed_adapter_actions"]
 
 
 def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
@@ -474,6 +522,85 @@ def test_agent_async_task_dispatch_uses_runtime_profile_github_authorization(db_
     metadata = captured["body"]["metadata"]
     assert metadata["runtime_profile_id"] == agent.runtime_profile_id
     _assert_github_review_authorization(metadata)
+    assert "secret" not in json.dumps(metadata)
+
+
+@pytest.mark.parametrize("delegation_source", ["jira_mention", "jira_assignee"])
+def test_agent_async_jira_delegation_dispatch_uses_runtime_profile_jira_authorization(
+    delegation_source,
+    db_session,
+    monkeypatch,
+):
+    db, agent = db_session
+    _attach_jira_runtime_profile(db, agent)
+    task_id = f"task-async-{delegation_source}-auth"
+    task = AgentTask(
+        id=task_id,
+        assignee_agent_id=agent.id,
+        owner_user_id=agent.owner_user_id,
+        source="delegation",
+        task_type="agent_async_task",
+        task_family="agent_task",
+        provider="jira",
+        trigger=delegation_source,
+        skill_name="jira-delegation-skill",
+        root_task_id=task_id,
+        task_session_id=f"agent-task:{task_id}",
+        input_payload_json=json.dumps(
+            {
+                "schema": "agent_async_task.v1",
+                "skill_name": "jira-delegation-skill",
+                "task_session_id": f"agent-task:{task_id}",
+                "root_task_id": task_id,
+                "parent_task_id": None,
+                "delegation_rule_id": "rule-1",
+                "user_task": "Handle the Jira delegation for https://jira.local/browse/ENG-1.",
+                "delegation": {
+                    "delegation_rule_id": "rule-1",
+                    "source": delegation_source,
+                    "provider": "jira",
+                    "source_url": "https://jira.local/browse/ENG-1",
+                    "reply_target": {"provider": "jira", "kind": "issue_comment", "issue_key": "ENG-1"},
+                },
+            }
+        ),
+        status="queued",
+        retry_count=0,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    captured = {}
+
+    class SubmitResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "final_response": "done"}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "final_response": "done"}
+
+    async def fake_post(url, body):
+        captured["url"] = url
+        captured["body"] = body
+        return SubmitResp()
+
+    monkeypatch.setattr(service, "_post_to_runtime", fake_post)
+    result = asyncio.run(service.dispatch_task(task.id, db))
+
+    assert result.task_status == "done"
+    assert captured["url"].endswith("/api/tasks/execute")
+    assert captured["body"]["task_type"] == "agent_async_task"
+    assert captured["body"]["session_id"] == f"agent-task:{task_id}"
+    metadata = captured["body"]["metadata"]
+    assert metadata["runtime_profile_id"] == agent.runtime_profile_id
+    assert metadata["portal_delegation_source"] == delegation_source
+    assert metadata["portal_delegation_provider"] == "jira"
+    assert metadata["portal_task_trigger"] == delegation_source
+    _assert_jira_issue_authorization(metadata)
     assert "secret" not in json.dumps(metadata)
 
 
