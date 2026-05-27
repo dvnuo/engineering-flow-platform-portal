@@ -404,6 +404,21 @@ def test_jira_assignee_source_payload_includes_reporter_identity(monkeypatch):
     assert result.items[0]["version_key"] == "2026-01-01T00:00:00.000+0000"
 
 
+def test_jira_comment_identity_match_uses_display_name_only_without_stable_ids():
+    assert DelegationSourcePoller._jira_comment_authored_by_identity(
+        {"author": {"accountId": "bot-1", "displayName": "Bot User"}},
+        {"accountId": "bot-1", "displayName": "Bot User"},
+    )
+    assert not DelegationSourcePoller._jira_comment_authored_by_identity(
+        {"author": {"displayName": "Bot User"}},
+        {"accountId": "bot-1", "displayName": "Bot User"},
+    )
+    assert DelegationSourcePoller._jira_comment_authored_by_identity(
+        {"author": {"displayName": "Bot User"}},
+        {"displayName": "Bot User"},
+    )
+
+
 class _FakeJiraMentionMarkerAsyncClient:
     def __init__(self, **_kwargs):
         pass
@@ -452,6 +467,57 @@ class _FakeJiraMentionMarkerAsyncClient:
         raise AssertionError(f"Unexpected Jira request: {url}")
 
 
+class _FakeJiraMentionSelfAuthoredAsyncClient:
+    def __init__(self, **_kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def get(self, url, *, headers=None, params=None):
+        if url == "https://jira.local/rest/api/2/myself":
+            return _FakeResponse(
+                {
+                    "displayName": "Bot User",
+                    "accountId": "bot-1",
+                    "emailAddress": "bot@example.com",
+                }
+            )
+        if url == "https://jira.local/rest/api/2/search":
+            assert params["jql"] == '(text ~ "Bot User" OR text ~ "bot@example.com") ORDER BY updated DESC'
+            return _FakeResponse(
+                {
+                    "issues": [
+                        {
+                            "key": "ENG-2",
+                            "fields": {
+                                "summary": "Mention task",
+                                "updated": "2026-01-01T00:00:00.000+0000",
+                                "comment": {
+                                    "comments": [
+                                        {
+                                            "id": "301",
+                                            "body": "Automated EFP delegation run has started.\n\nBot User",
+                                            "author": {
+                                                "accountId": "bot-1",
+                                                "displayName": "Bot User",
+                                                "emailAddress": "BOT@example.com",
+                                            },
+                                            "created": "2026-01-01T00:00:00.000+0000",
+                                        }
+                                    ]
+                                },
+                            },
+                        }
+                    ]
+                }
+            )
+        raise AssertionError(f"Unexpected Jira request: {url}")
+
+
 def test_jira_mention_skips_marker_prefixed_portal_start_comment(monkeypatch):
     monkeypatch.setattr(
         "app.services.delegation_source_pollers.resolve_jira_for_agent",
@@ -465,6 +531,27 @@ def test_jira_mention_skips_marker_prefixed_portal_start_comment(monkeypatch):
     monkeypatch.setattr(
         "app.services.delegation_source_pollers.httpx.AsyncClient",
         lambda **kwargs: _FakeJiraMentionMarkerAsyncClient(**kwargs),
+    )
+
+    rule = SimpleNamespace(target_agent_id="agent-1")
+    result = asyncio.run(DelegationSourcePoller()._poll_jira_mention(object(), rule))
+
+    assert result.items == []
+
+
+def test_jira_mention_skips_self_authored_comment_without_marker(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.resolve_jira_for_agent",
+        lambda _db, _agent_id: JiraProviderConfig(
+            base_url="https://jira.local",
+            headers={"Authorization": "Bearer jira-secret"},
+            runtime_profile_id="runtime-profile-1",
+            api_version="2",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.httpx.AsyncClient",
+        lambda **kwargs: _FakeJiraMentionSelfAuthoredAsyncClient(**kwargs),
     )
 
     rule = SimpleNamespace(target_agent_id="agent-1")

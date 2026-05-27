@@ -545,7 +545,11 @@ class DelegationRuleService:
                 await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
                 failed_count += 1
                 continue
-            reply_text = f"{delegation_reply_marker(rule.id, event.id)}\n\n{result_text}"
+            reply_provider = str((reply_target or {}).get("provider") or rule.source_type or "").strip().lower()
+            if reply_provider == "github":
+                reply_text = f"{delegation_reply_marker(rule.id, event.id)}\n\n{result_text}"
+            else:
+                reply_text = result_text
             try:
                 await self.reply_service.send_reply(self.db, rule=rule, event=event, reply_target=reply_target, text=reply_text)
             except Exception as exc:

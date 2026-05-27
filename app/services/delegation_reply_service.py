@@ -152,18 +152,13 @@ class DelegationReplyService:
         marker: str | None = None,
     ) -> str:
         source_label = str(source or "").strip() or "delegation"
-        lines: list[str] = []
-        marker_line = str(marker or "").strip()
-        if marker_line:
-            lines.extend([marker_line, ""])
-        lines.extend(
-            [
-                "Automated EFP delegation run has started.",
-                "",
-                f"Source: {source_label}",
-                f"Issue: {issue_key}",
-            ]
-        )
+        _ = marker
+        lines: list[str] = [
+            "Automated EFP delegation run has started.",
+            "",
+            f"Source: {source_label}",
+            f"Issue: {issue_key}",
+        ]
         url = str(source_url or "").strip()
         if url:
             lines.append(f"Link: {url}")
@@ -194,16 +189,12 @@ class DelegationReplyService:
 
         provider_config = resolve_jira_for_agent(db, rule.target_agent_id)
         api_path = self._jira_comment_api_path(provider_config.api_version, issue_key)
-        marker_line = str(marker or "").strip()
-        if not marker_line and event is not None:
-            marker_line = delegation_reply_marker(rule.id, event.id)
         # Do not echo source_comment here; Jira mention text can retrigger polling.
-        _ = source_comment
+        _ = event, marker, source_comment
         content = self._format_jira_start_comment_body(
             issue_key=issue_key,
             source=source,
             source_url=source_url,
-            marker=marker_line,
         )
         base_url = provider_config.base_url.rstrip("/")
         async with httpx.AsyncClient(timeout=30.0) as client:

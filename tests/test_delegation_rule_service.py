@@ -13,7 +13,6 @@ from app.models import Agent, RuntimeProfile, User
 from app.models.agent_task import AgentTask
 from app.repositories.delegation_rule_repo import DelegationRuleRepository
 from app.schemas.delegation_rule import DelegationRuleCreate
-from app.services.delegation_reply_service import delegation_reply_marker
 from app.services.delegation_source_pollers import DelegationSourcePoller, SourcePollResult
 from app.services.delegation_rule_service import DelegationRuleService
 
@@ -151,18 +150,13 @@ def _stub_jira_start_comment(svc: DelegationRuleService, calls: list | None = No
                     "source_comment": source_comment,
                 }
             )
-        marker_line = marker or (delegation_reply_marker(rule.id, event.id) if event is not None else "")
-        content_lines = []
-        if marker_line:
-            content_lines.extend([marker_line, ""])
-        content_lines.extend(
-            [
-                "Automated EFP delegation run has started.",
-                "",
-                f"Source: {source}",
-                f"Issue: {issue_key}",
-            ]
-        )
+        _ = event, marker
+        content_lines = [
+            "Automated EFP delegation run has started.",
+            "",
+            f"Source: {source}",
+            f"Issue: {issue_key}",
+        ]
         if source_url:
             content_lines.append(f"Link: {source_url}")
         content = "\n".join(content_lines)
@@ -478,13 +472,17 @@ def test_jira_task_creation_records_portal_start_reply(source, expected_issue_ke
     assert start_reply["status"] == "created"
     assert start_reply["issue_key"] == expected_issue_key
     assert start_reply["comment_id"] == "jira-start-123"
-    assert start_reply["content"].startswith("<!-- efp:delegation-reply ")
-    assert f"delegation_id={rule.id}" in start_reply["content"]
+    assert "Automated EFP delegation run has started." in start_reply["content"]
+    assert f"Source: {source}" in start_reply["content"]
+    assert f"Issue: {expected_issue_key}" in start_reply["content"]
+    assert f"Link: {source_item['source_url']}" in start_reply["content"]
+    assert "<!-- efp:delegation-reply" not in start_reply["content"]
+    assert f"delegation_id={rule.id}" not in start_reply["content"]
     assert "Bot User please check this" not in start_reply["content"]
     assert "portal_start_reply_error" not in task_payload["delegation"]
 
     event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
-    assert f"event_id={event.id}" in start_reply["content"]
+    assert f"event_id={event.id}" not in start_reply["content"]
     normalized = json.loads(event.normalized_payload_json)
     assert normalized["reply_target"] == reply_target
     assert normalized["portal_start_reply"] == start_reply
@@ -754,8 +752,8 @@ def test_jira_pending_reply_updates_portal_start_comment():
         "reply_mode": "update_comment",
         "comment_id": "jira-start-789",
     }
-    assert captured["text"].startswith("<!-- efp:delegation-reply ")
-    assert captured["text"].endswith("\n\nJira final answer")
+    assert captured["text"] == "Jira final answer"
+    assert "<!-- efp:delegation-reply" not in captured["text"]
 
 
 def test_reply_handled_by_skill_skips_github_reply_but_cleans_start_reaction():

@@ -431,6 +431,36 @@ class DelegationSourcePoller:
                 payload[key] = value
         return payload
 
+    @staticmethod
+    def _jira_identity_value(user: dict[str, Any], key: str) -> str:
+        value = str(user.get(key) or "").strip()
+        if key == "emailAddress":
+            return value.casefold()
+        return value
+
+    @classmethod
+    def _jira_comment_authored_by_identity(cls, comment: dict, identity: dict[str, Any]) -> bool:
+        author = comment.get("author") if isinstance(comment, dict) else None
+        if not isinstance(author, dict) or not isinstance(identity, dict):
+            return False
+
+        identity_has_stable_value = False
+        author_has_stable_value = False
+        for key in ("accountId", "key", "name", "emailAddress"):
+            identity_value = cls._jira_identity_value(identity, key)
+            author_value = cls._jira_identity_value(author, key)
+            identity_has_stable_value = identity_has_stable_value or bool(identity_value)
+            author_has_stable_value = author_has_stable_value or bool(author_value)
+            if identity_value and author_value and identity_value == author_value:
+                return True
+
+        if identity_has_stable_value or author_has_stable_value:
+            return False
+
+        identity_display_name = str(identity.get("displayName") or "").strip()
+        author_display_name = str(author.get("displayName") or "").strip()
+        return bool(identity_display_name and author_display_name and identity_display_name == author_display_name)
+
     @classmethod
     def _jira_issue_source_payload(cls, provider_config: JiraProviderConfig, issue: dict) -> dict[str, Any]:
         key = str(issue.get("key") or "").strip()
@@ -566,6 +596,8 @@ class DelegationSourcePoller:
                 for comment in comments if isinstance(comments, list) else []:
                     body = self._jira_comment_text(comment.get("body"))
                     if DELEGATION_REPLY_MARKER_PREFIX in body:
+                        continue
+                    if self._jira_comment_authored_by_identity(comment, identity):
                         continue
                     lowered = body.lower()
                     if not any(token.lower() in lowered for token in tokens):
