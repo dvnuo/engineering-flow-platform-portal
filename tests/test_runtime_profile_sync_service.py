@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine
@@ -327,7 +328,7 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists():
         db.close()
 
 
-def test_build_apply_payload_for_agent_grants_github_review_from_runtime_profile():
+def test_build_apply_payload_for_agent_does_not_infer_github_authorization_from_credentials():
     db, rp, running, _stopped = _build_db()
     try:
         rp.config_json = (
@@ -345,12 +346,13 @@ def test_build_apply_payload_for_agent_grants_github_review_from_runtime_profile
         payload = service.build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
 
-        assert "github" in cfg["allowed_external_systems"]
-        assert "review_pull_request" in cfg["allowed_actions"]
-        assert "adapter:github:review_pull_request" in cfg["allowed_adapter_actions"]
-        assert "adapter:github:review_pull_request" in cfg["allowed_capability_ids"]
-        assert "adapter_action" in cfg["allowed_capability_types"]
-        assert cfg["resolved_action_mappings"]["review_pull_request"] == "adapter:github:review_pull_request"
+        assert "allowed_external_systems" not in cfg
+        assert "allowed_actions" not in cfg
+        assert "allowed_adapter_actions" not in cfg
+        assert "allowed_capability_ids" not in cfg
+        assert "allowed_capability_types" not in cfg
+        assert "resolved_action_mappings" not in cfg
+        assert "review_pull_request" not in json.dumps(cfg)
     finally:
         db.close()
 

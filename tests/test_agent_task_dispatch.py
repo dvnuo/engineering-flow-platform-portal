@@ -91,19 +91,19 @@ def _attach_github_runtime_profile(db: Session, agent: Agent) -> RuntimeProfile:
     return profile
 
 
-def _assert_github_review_authorization(metadata: dict) -> None:
-    assert metadata["authorization_source"] == "runtime_profile"
-    assert metadata["allowed_external_systems"] == ["github"]
-    assert metadata["allowed_actions"] == ["review_pull_request"]
-    assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
-    assert metadata["allowed_capability_ids"] == ["adapter:github:review_pull_request"]
-    assert metadata["allowed_capability_types"] == ["adapter_action"]
-    assert metadata["resolved_action_mappings"] == {"review_pull_request": "adapter:github:review_pull_request"}
-    assert metadata["unresolved_tools"] == []
-    assert metadata["unresolved_skills"] == []
-    assert metadata["unresolved_channels"] == []
-    assert metadata["unresolved_actions"] == []
-    assert metadata["skill_details"] == []
+def _assert_no_runtime_profile_authorization_metadata(metadata: dict) -> None:
+    assert "authorization_source" not in metadata
+    assert "allowed_external_systems" not in metadata
+    assert "allowed_actions" not in metadata
+    assert "allowed_adapter_actions" not in metadata
+    assert "allowed_capability_ids" not in metadata
+    assert "allowed_capability_types" not in metadata
+    assert "resolved_action_mappings" not in metadata
+    assert "unresolved_tools" not in metadata
+    assert "unresolved_skills" not in metadata
+    assert "unresolved_channels" not in metadata
+    assert "unresolved_actions" not in metadata
+    assert "skill_details" not in metadata
 
 
 def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
@@ -417,7 +417,7 @@ def test_agent_async_task_dispatch_sends_session_and_metadata(db_session, monkey
     assert metadata["system_prompt"] == "Run as a background long-running task. Finish independently."
 
 
-def test_agent_async_task_dispatch_uses_runtime_profile_github_authorization(db_session, monkeypatch):
+def test_agent_async_task_dispatch_does_not_infer_github_authorization_from_credentials(db_session, monkeypatch):
     db, agent = db_session
     _attach_github_runtime_profile(db, agent)
     task = AgentTask(
@@ -439,6 +439,12 @@ def test_agent_async_task_dispatch_uses_runtime_profile_github_authorization(db_
                 "task_session_id": "agent-task:task-async-github-auth",
                 "root_task_id": "task-async-github-auth",
                 "parent_task_id": None,
+                "delegation_rule": {"id": "rule-1", "name": "Review PR"},
+                "delegation": {
+                    "delegation_rule_id": "rule-1",
+                    "source": "github",
+                    "provider": "github",
+                },
             }
         ),
         status="queued",
@@ -473,7 +479,20 @@ def test_agent_async_task_dispatch_uses_runtime_profile_github_authorization(db_
     assert captured["body"]["task_type"] == "agent_async_task"
     metadata = captured["body"]["metadata"]
     assert metadata["runtime_profile_id"] == agent.runtime_profile_id
-    _assert_github_review_authorization(metadata)
+    assert metadata["runtime_profile"]["runtime_profile_id"] == agent.runtime_profile_id
+    assert metadata["runtime_profile"]["source"] == "portal.runtime_profile"
+    assert "github" not in metadata["runtime_profile"]["config"]
+    assert metadata["portal_task_mode"] == "agent_async_task"
+    assert metadata["portal_skill_name"] == "review-pull-request"
+    assert metadata["portal_root_task_id"] == "task-async-github-auth"
+    assert metadata["portal_task_session_id"] == "agent-task:task-async-github-auth"
+    assert metadata["portal_task_id"] == "task-async-github-auth"
+    assert metadata["portal_task_source"] == "portal"
+    assert metadata["portal_task_family"] == "agent_task"
+    assert metadata["portal_delegation_rule_id"] == "rule-1"
+    assert metadata["portal_delegation_source"] == "github"
+    assert metadata["portal_delegation_provider"] == "github"
+    _assert_no_runtime_profile_authorization_metadata(metadata)
     assert "secret" not in json.dumps(metadata)
 
 
