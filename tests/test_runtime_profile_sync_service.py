@@ -1,8 +1,6 @@
 import asyncio
-import json
 from types import SimpleNamespace
 
-import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -353,79 +351,6 @@ def test_build_apply_payload_for_agent_grants_github_review_from_runtime_profile
         assert "adapter:github:review_pull_request" in cfg["allowed_capability_ids"]
         assert "adapter_action" in cfg["allowed_capability_types"]
         assert cfg["resolved_action_mappings"]["review_pull_request"] == "adapter:github:review_pull_request"
-    finally:
-        db.close()
-
-
-def test_build_apply_payload_for_agent_grants_jira_issue_access_from_runtime_profile():
-    db, rp, running, _stopped = _build_db()
-    try:
-        rp.config_json = (
-            '{"llm":{"provider":"openai"},'
-            '"jira":{"enabled":true,"instances":[{"url":"https://jira.local","username":"bot@example.com","token":"secret"}]}}'
-        )
-        db.add(rp)
-        db.commit()
-        db.refresh(rp)
-        db.add(running)
-        db.commit()
-        db.refresh(running)
-
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-        payload = service.build_apply_payload_for_agent(db, running, rp)
-        cfg = payload["config"]
-
-        assert "jira" in cfg["allowed_external_systems"]
-        assert "read_issue" in cfg["allowed_actions"]
-        assert "assign_issue" in cfg["allowed_actions"]
-        assert "adapter:jira:read_issue" in cfg["allowed_adapter_actions"]
-        assert "adapter:jira:assign_issue" in cfg["allowed_adapter_actions"]
-        assert "adapter:jira:read_issue" in cfg["allowed_capability_ids"]
-        assert "adapter:jira:assign_issue" in cfg["allowed_capability_ids"]
-        assert "adapter_action" in cfg["allowed_capability_types"]
-        assert cfg["resolved_action_mappings"]["read_issue"] == "adapter:jira:read_issue"
-        assert cfg["resolved_action_mappings"]["assign_issue"] == "adapter:jira:assign_issue"
-        assert "adapter:jira:add_comment" not in cfg["allowed_adapter_actions"]
-        assert "adapter:jira:update_issue" not in cfg["allowed_adapter_actions"]
-        assert "adapter:jira:transition_issue" not in cfg["allowed_adapter_actions"]
-    finally:
-        db.close()
-
-
-@pytest.mark.parametrize(
-    "jira_config",
-    [
-        {
-            "enabled": False,
-            "instances": [{"url": "https://jira.local", "username": "bot@example.com", "token": "secret"}],
-        },
-        {"enabled": True, "instances": []},
-        {"enabled": True, "instances": [{"url": "https://jira.local", "username": "bot@example.com"}]},
-        {"enabled": True, "instances": [{"username": "bot@example.com", "token": "secret"}]},
-    ],
-)
-def test_build_apply_payload_for_agent_does_not_grant_jira_without_usable_instance(jira_config):
-    db, rp, running, _stopped = _build_db()
-    try:
-        rp.config_json = json.dumps({"llm": {"provider": "openai"}, "jira": jira_config})
-        db.add(rp)
-        db.commit()
-        db.refresh(rp)
-        db.add(running)
-        db.commit()
-        db.refresh(running)
-
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-        payload = service.build_apply_payload_for_agent(db, running, rp)
-        cfg = payload["config"]
-
-        assert "jira" not in cfg.get("allowed_external_systems", [])
-        assert "read_issue" not in cfg.get("allowed_actions", [])
-        assert "assign_issue" not in cfg.get("allowed_actions", [])
-        assert "adapter:jira:read_issue" not in cfg.get("allowed_adapter_actions", [])
-        assert "adapter:jira:assign_issue" not in cfg.get("allowed_capability_ids", [])
-        assert "read_issue" not in cfg.get("resolved_action_mappings", {})
-        assert "assign_issue" not in cfg.get("resolved_action_mappings", {})
     finally:
         db.close()
 

@@ -24,10 +24,6 @@ RUNTIME_AUTHORIZATION_EMPTY_LIST_KEYS: tuple[str, ...] = (
 
 GITHUB_REVIEW_ACTION = "review_pull_request"
 GITHUB_REVIEW_ADAPTER_ACTION = "adapter:github:review_pull_request"
-JIRA_READ_ISSUE_ACTION = "read_issue"
-JIRA_ASSIGN_ISSUE_ACTION = "assign_issue"
-JIRA_READ_ISSUE_ADAPTER_ACTION = "adapter:jira:read_issue"
-JIRA_ASSIGN_ISSUE_ADAPTER_ACTION = "adapter:jira:assign_issue"
 
 
 def raw_runtime_profile_config(runtime_profile: Any) -> dict:
@@ -90,26 +86,6 @@ def _as_string_dict(value: Any) -> dict[str, str]:
     return result
 
 
-def _has_usable_jira_instance(instances: Any) -> bool:
-    if not isinstance(instances, list):
-        return False
-    for item in instances:
-        if not isinstance(item, dict):
-            continue
-        if item.get("enabled") is False:
-            continue
-        url = str(item.get("url") or "").strip()
-        token = str(item.get("token") or "").strip()
-        username = str(item.get("username") or "").strip()
-        password = str(item.get("password") or "").strip()
-        has_username_token = bool(username and token)
-        has_token_only = bool(token and not username)
-        has_username_password = bool(username and password)
-        if url and (has_username_token or has_token_only or has_username_password):
-            return True
-    return False
-
-
 def preserve_raw_runtime_profile_authorization(config: dict, raw_config: dict | None) -> dict:
     if not isinstance(raw_config, dict):
         return config
@@ -151,47 +127,10 @@ def grant_github_pr_review_from_runtime_profile(config: dict) -> dict:
     return config
 
 
-def grant_jira_issue_access_from_runtime_profile(config: dict) -> dict:
-    jira = config.get("jira") if isinstance(config, dict) else None
-    if not isinstance(jira, dict) or not jira.get("enabled"):
-        return config
-    if not _has_usable_jira_instance(jira.get("instances")):
-        return config
-
-    jira_actions = [JIRA_READ_ISSUE_ACTION, JIRA_ASSIGN_ISSUE_ACTION]
-    jira_adapter_actions = [JIRA_READ_ISSUE_ADAPTER_ACTION, JIRA_ASSIGN_ISSUE_ADAPTER_ACTION]
-
-    config["allowed_external_systems"] = _merge_string_lists(
-        config.get("allowed_external_systems"),
-        ["jira"],
-    )
-    config["allowed_actions"] = _merge_string_lists(
-        config.get("allowed_actions"),
-        jira_actions,
-    )
-    config["allowed_adapter_actions"] = _merge_string_lists(
-        config.get("allowed_adapter_actions"),
-        jira_adapter_actions,
-    )
-    config["allowed_capability_ids"] = _merge_string_lists(
-        config.get("allowed_capability_ids"),
-        jira_adapter_actions,
-    )
-    config["allowed_capability_types"] = _filter_broad_capability_types(
-        _merge_string_lists(config.get("allowed_capability_types"), ["adapter_action"])
-    )
-    resolved_mappings = _as_dict(config.get("resolved_action_mappings"))
-    resolved_mappings[JIRA_READ_ISSUE_ACTION] = JIRA_READ_ISSUE_ADAPTER_ACTION
-    resolved_mappings[JIRA_ASSIGN_ISSUE_ACTION] = JIRA_ASSIGN_ISSUE_ADAPTER_ACTION
-    config["resolved_action_mappings"] = resolved_mappings
-    return config
-
-
 def apply_runtime_profile_authorization(config: dict | None, raw_config: dict | None = None) -> dict:
     authorized_config = config if isinstance(config, dict) else {}
     preserve_raw_runtime_profile_authorization(authorized_config, raw_config)
     grant_github_pr_review_from_runtime_profile(authorized_config)
-    grant_jira_issue_access_from_runtime_profile(authorized_config)
     return authorized_config
 
 
