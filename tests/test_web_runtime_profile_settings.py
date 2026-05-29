@@ -126,6 +126,40 @@ def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
         cleanup()
 
 
+def test_settings_panel_renders_runtime_v2_section_and_controls(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(
+            db,
+            agent,
+            {
+                "enabled_tools": ["bash", "read"],
+                "tool_permissions": {"bash": {"allowed": True}},
+                "max_iterations": 8,
+                "enable_plan_tool": False,
+                "runtime_mode": "plan",
+                "structured_output_schema": {"type": "object"},
+            },
+        )
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        for marker in [
+            'name="__touch_runtime_v2" value="0" data-touch-flag="runtime_v2"',
+            'data-managed-section="runtime_v2"',
+            'name="enabled_tools"',
+            'name="tool_permissions"',
+            'name="max_iterations"',
+            'name="enable_plan_tool"',
+            'name="runtime_mode"',
+            'name="structured_output_schema"',
+            'name="track_usage"',
+        ]:
+            assert marker in resp.text
+        assert "compaction_preserve_recent_turns" not in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_view_payload_normalizes_copilot_provider_alias():
     from app.web import _settings_view_payload
 
@@ -135,6 +169,32 @@ def test_settings_view_payload_normalizes_copilot_provider_alias():
     )
     assert payload["raw_llm"]["provider"] == "github_copilot"
     assert payload["llm"]["provider"] == "github_copilot"
+
+
+def test_settings_view_payload_runtime_v2_uses_raw_values_for_rendering():
+    from app.web import _settings_view_payload
+
+    payload = _settings_view_payload(
+        {
+            "enabled_tools": ["bash", "read"],
+            "tool_permissions": {"bash": {"allowed": True}},
+            "compaction_auto": True,
+            "enable_plan_tool": False,
+            "runtime_mode": "plan",
+            "max_iterations": 6,
+        },
+        {},
+    )
+
+    runtime_v2 = payload["runtime_v2"]
+    assert runtime_v2["enabled_tools"] == "bash\nread"
+    assert '"allowed": true' in runtime_v2["tool_permissions"]
+    assert runtime_v2["compaction_auto"] is True
+    assert runtime_v2["compaction_prune"] is False
+    assert runtime_v2["enable_plan_tool"] == "false"
+    assert runtime_v2["runtime_mode"] == "plan"
+    assert runtime_v2["max_iterations"] == "6"
+    assert runtime_v2["max_context_tokens"] == ""
 
 
 def test_settings_save_ignores_legacy_automation_fields(monkeypatch):

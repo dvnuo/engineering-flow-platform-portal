@@ -50,7 +50,7 @@ Removed legacy aliases such as `read_file`, `write_file`, `list_dir`, `shell_exe
 
 ## 3) Runtime profile apply/config contract
 
-Portal preserves safe Runtime v2 `RuntimeConfig` fields in profile JSON, internal apply payloads, and trusted chat metadata under `runtime_profile.config`. This includes tool selection/permissions, skill and command directories, loop/context/compaction controls, prompt and instruction assembly controls, prompt reference limits, tool output limits, stream/usage flags, and optional mode controls. This pass is transport-focused; adding dedicated UI controls for every preserved Runtime v2 field is separate product work.
+Portal preserves safe Runtime v2 `RuntimeConfig` fields in profile JSON, internal apply payloads, and trusted chat metadata under `runtime_profile.config`. This includes tool selection/permissions, skill and command directories, loop/context/compaction controls, prompt and instruction assembly controls, prompt reference limits, tool output limits, stream/usage flags, and optional mode controls. Portal now exposes advanced Runtime v2 controls for the preserved field surface in both Agent Settings and Runtime Profile management.
 
 Portal keeps the managed Copilot provider/model projection, including `llm.provider` and `llm.model`. Legacy `llm.tools` remains compatible, but Portal does not force `llm.tools=["*"]` when a profile already contains explicit Runtime v2 tool selection through `enabled_tools`, `disabled_tools`, or `tool_permissions`.
 

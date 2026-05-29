@@ -52,7 +52,8 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "max_iterations" in text
     assert "compaction_preserve_recent_tokens" in text
     assert "include_default_system_prompt" in text
-    assert "Dedicated UI controls for every Runtime v2 field are not part of this pass" in text
+    assert "exposes advanced Runtime v2 controls for the preserved field surface" in text
+    assert "Dedicated UI controls for every Runtime v2 field are not part of this pass" not in text
     assert "compaction_preserve_recent_" "turns" not in text
     assert "RuntimeConfig" in text
     assert "runtime_profile.config" in text
@@ -86,5 +87,6 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "Runtime profile apply/config contract" in phase5
     assert "enabled_tools" in phase5
     assert "runtime_profile.config" in phase5
-    assert "transport-focused" in phase5
+    assert "Portal now exposes advanced Runtime v2 controls for the preserved field surface" in phase5
+    assert "transport-focused" not in phase5
     assert "summary, revert, and unrevert" in phase5

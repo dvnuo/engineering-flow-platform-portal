@@ -20,6 +20,17 @@ from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
 from app.schemas.runtime_profile import (
+    RUNTIME_V2_BOOL_FIELDS,
+    RUNTIME_V2_CONFIG_FIELD_NAMES,
+    RUNTIME_V2_INT_FIELDS,
+    RUNTIME_V2_INT_MIN_VALUES,
+    RUNTIME_V2_NULLABLE_BOOL_FIELDS,
+    RUNTIME_V2_OBJECT_FIELDS,
+    RUNTIME_V2_OPTIONAL_INT_FIELDS,
+    RUNTIME_V2_STRING_FIELD_ALLOWED_VALUES,
+    RUNTIME_V2_STRING_FIELDS,
+    RUNTIME_V2_STRING_LIST_FIELDS,
+    RUNTIME_V2_TEXT_LIST_FIELDS,
     dump_runtime_profile_config_json,
     normalize_runtime_profile_llm_tools,
     parse_runtime_profile_config_json,
@@ -252,6 +263,49 @@ def _parse_json_textarea(raw: str | None, *, field_name: str) -> tuple[str | Non
     if not isinstance(parsed, dict):
         return None, f"{field_name} must be a JSON object"
     return json.dumps(parsed, ensure_ascii=False), None
+
+
+def _settings_runtime_v2_bool_value(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _settings_runtime_v2_list_text(value) -> str:
+    if isinstance(value, list):
+        return "\n".join(str(item) for item in value)
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _settings_runtime_v2_json_text(value) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, indent=2, ensure_ascii=False)
+    return ""
+
+
+def _settings_runtime_v2_view_payload(raw_config: dict) -> dict:
+    source = raw_config if isinstance(raw_config, dict) else {}
+    runtime_v2: dict[str, object] = {}
+    for field_name in sorted(RUNTIME_V2_CONFIG_FIELD_NAMES):
+        value = source.get(field_name)
+        if field_name in RUNTIME_V2_STRING_LIST_FIELDS:
+            runtime_v2[field_name] = _settings_runtime_v2_list_text(value)
+        elif field_name in RUNTIME_V2_OBJECT_FIELDS:
+            runtime_v2[field_name] = _settings_runtime_v2_json_text(value)
+        elif field_name in RUNTIME_V2_BOOL_FIELDS:
+            runtime_v2[field_name] = _settings_runtime_v2_bool_value(value) if field_name in source else False
+        elif field_name in RUNTIME_V2_NULLABLE_BOOL_FIELDS:
+            if value is True:
+                runtime_v2[field_name] = "true"
+            elif value is False:
+                runtime_v2[field_name] = "false"
+            else:
+                runtime_v2[field_name] = ""
+        else:
+            runtime_v2[field_name] = "" if value is None else str(value)
+    return runtime_v2
 
 
 def _parse_form_bool(value) -> bool:
@@ -742,6 +796,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
         "raw_proxy": raw_proxy,
         "debug": effective_config.get("debug") if isinstance(effective_config.get("debug"), dict) else {},
+        "runtime_v2": _settings_runtime_v2_view_payload(raw_config),
     }
 
 
@@ -1030,6 +1085,135 @@ def _settings_parse_response_flow_min_tokens(form, field_name: str) -> tuple[int
     return parsed, None
 
 
+_RUNTIME_V2_REJECTED_FIELD_NAMES = {
+    "workspace_root",
+    "default_provider_id",
+    "default_model",
+    "mcp_servers",
+    "compaction_preserve_recent_turns",
+}
+
+
+def _settings_parse_runtime_v2_text_list(raw: str | None) -> list[str] | None:
+    text = str(raw or "")
+    if not text.strip():
+        return None
+    return text.splitlines()
+
+
+def _settings_parse_runtime_v2_int(raw: str | None, *, field_name: str) -> tuple[int | None, str | None]:
+    value = str(raw or "").strip()
+    if not value:
+        return None, None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None, f"{field_name} must be an integer."
+    minimum = RUNTIME_V2_INT_MIN_VALUES.get(field_name, 0)
+    if parsed < minimum:
+        return None, f"{field_name} must be an integer greater than or equal to {minimum}."
+    return parsed, None
+
+
+def _settings_parse_runtime_v2_nullable_bool(raw: str | None, *, field_name: str) -> tuple[bool | None, bool, str | None]:
+    value = str(raw or "").strip().lower()
+    if not value:
+        return None, False, None
+    if value == "true":
+        return True, True, None
+    if value == "false":
+        return False, True, None
+    return None, False, f"{field_name} must be true, false, or blank."
+
+
+def _settings_parse_runtime_v2_enum(raw: str | None, *, field_name: str) -> tuple[str | None, str | None]:
+    value = str(raw or "").strip()
+    if not value:
+        return None, None
+    allowed = RUNTIME_V2_STRING_FIELD_ALLOWED_VALUES.get(field_name, set())
+    if value not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        return None, f"{field_name} must be one of: {allowed_text}."
+    return value, None
+
+
+def _settings_parse_runtime_v2_json_object(raw: str | None, *, field_name: str) -> tuple[dict | None, str | None]:
+    value = str(raw or "").strip()
+    if not value:
+        return None, None
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None, f"{field_name} must be valid JSON."
+    if not isinstance(parsed, dict):
+        return None, f"{field_name} must be a JSON object."
+    return parsed, None
+
+
+def _settings_parse_runtime_v2_payload(form) -> tuple[dict, str | None]:
+    updates: dict = {}
+
+    for field_name in sorted(RUNTIME_V2_STRING_LIST_FIELDS):
+        if field_name in RUNTIME_V2_TEXT_LIST_FIELDS:
+            parsed_text_list = _settings_parse_runtime_v2_text_list(form.get(field_name))
+            if parsed_text_list is not None:
+                updates[field_name] = parsed_text_list
+            continue
+
+        parsed_list = _parse_multiline_csv_list(form.get(field_name))
+        if parsed_list:
+            updates[field_name] = parsed_list
+
+    for field_name in sorted(RUNTIME_V2_INT_FIELDS | RUNTIME_V2_OPTIONAL_INT_FIELDS):
+        parsed_int, error = _settings_parse_runtime_v2_int(form.get(field_name), field_name=field_name)
+        if error:
+            return {}, error
+        if parsed_int is not None:
+            updates[field_name] = parsed_int
+
+    for field_name in sorted(RUNTIME_V2_BOOL_FIELDS):
+        updates[field_name] = _parse_form_bool(form.get(field_name))
+
+    for field_name in sorted(RUNTIME_V2_NULLABLE_BOOL_FIELDS):
+        parsed_bool, has_value, error = _settings_parse_runtime_v2_nullable_bool(form.get(field_name), field_name=field_name)
+        if error:
+            return {}, error
+        if has_value:
+            updates[field_name] = parsed_bool
+
+    for field_name in sorted(RUNTIME_V2_STRING_FIELDS):
+        if field_name in RUNTIME_V2_STRING_FIELD_ALLOWED_VALUES:
+            parsed_enum, error = _settings_parse_runtime_v2_enum(form.get(field_name), field_name=field_name)
+            if error:
+                return {}, error
+            if parsed_enum is not None:
+                updates[field_name] = parsed_enum
+            continue
+
+        value = str(form.get(field_name) or "").strip()
+        if value:
+            updates[field_name] = value
+
+    for field_name in sorted(RUNTIME_V2_OBJECT_FIELDS):
+        parsed_object, error = _settings_parse_runtime_v2_json_object(form.get(field_name), field_name=field_name)
+        if error:
+            return {}, error
+        if parsed_object is not None:
+            updates[field_name] = parsed_object
+
+    return updates, None
+
+
+def _settings_strip_rejected_runtime_v2_fields(config_payload: dict) -> None:
+    for field_name in _RUNTIME_V2_REJECTED_FIELD_NAMES:
+        config_payload.pop(field_name, None)
+
+
+def _settings_finalize_config_payload(config_payload: dict) -> dict:
+    config_payload.pop("ssh", None)
+    _settings_strip_rejected_runtime_v2_fields(config_payload)
+    return canonicalize_portal_runtime_profile_config(config_payload)
+
 
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
@@ -1042,7 +1226,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     def is_github_copilot_provider(provider_value: str) -> bool:
         return (provider_value or "").strip().lower() in {"github_copilot", "github-copilot", "copilot", "github"}
 
-    config_payload = config_payload if isinstance(config_payload, dict) else {}
+    config_payload = dict(config_payload) if isinstance(config_payload, dict) else {}
     config_payload.pop("ssh", None)
 
     existing_proxy_password = None
@@ -1218,9 +1402,15 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             debug_cfg["log_level"] = log_level
         config_payload["debug"] = debug_cfg
 
-    config_payload.pop("ssh", None)
-    config_payload = canonicalize_portal_runtime_profile_config(config_payload)
-    return config_payload, None
+    if is_section_touched("runtime_v2"):
+        runtime_v2_updates, runtime_v2_error = _settings_parse_runtime_v2_payload(form)
+        if runtime_v2_error:
+            return config_payload, runtime_v2_error
+        for field_name in RUNTIME_V2_CONFIG_FIELD_NAMES:
+            config_payload.pop(field_name, None)
+        config_payload.update(runtime_v2_updates)
+
+    return _settings_finalize_config_payload(config_payload), None
 
 
 @router.get("/")
