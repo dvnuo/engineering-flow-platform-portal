@@ -115,13 +115,13 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
 def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        _bind_profile(db, agent, {"llm": {"tools": ["git_clone", "jira_*"]}})
+        _bind_profile(db, agent, {"llm": {"tools": ["bash", "webfetch"]}})
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         assert 'name="llm_tools_mode"' not in resp.text
         assert 'name="llm_tools_count"' not in resp.text
-        assert "git_clone" not in resp.text
-        assert "jira_*" not in resp.text
+        assert "bash" not in resp.text
+        assert "webfetch" not in resp.text
     finally:
         cleanup()
 
@@ -186,10 +186,10 @@ def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
             "__touch_llm": "1",
             "llm_tools_mode": "custom",
             "llm_tools_count": "4",
-            "llm_tools_0_pattern": " git_clone ",
-            "llm_tools_1_pattern": "jira_*",
+            "llm_tools_0_pattern": " bash ",
+            "llm_tools_1_pattern": "webfetch",
             "llm_tools_2_pattern": "",
-            "llm_tools_3_pattern": "GIT_CLONE",
+            "llm_tools_3_pattern": "BASH",
         }
         resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
         assert resp.status_code == 200

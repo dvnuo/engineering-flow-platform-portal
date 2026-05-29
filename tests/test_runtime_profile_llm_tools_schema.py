@@ -15,13 +15,13 @@ def test_llm_tools_string_wildcard_normalizes_to_list():
 
 
 def test_llm_tools_string_pattern_normalizes_to_single_item_list():
-    parsed = parse_runtime_profile_config_json('{"llm": {"tools": "jira_*"}}')
-    assert parsed["llm"]["tools"] == ["jira_*"]
+    parsed = parse_runtime_profile_config_json('{"llm": {"tools": "webfetch"}}')
+    assert parsed["llm"]["tools"] == ["webfetch"]
 
 
 def test_llm_tools_list_trim_drop_empty_and_dedupe():
-    parsed = parse_runtime_profile_config_json('{"llm": {"tools": [" git_clone ", "jira_*", "", "GIT_CLONE"]}}')
-    assert parsed["llm"]["tools"] == ["git_clone", "jira_*"]
+    parsed = parse_runtime_profile_config_json('{"llm": {"tools": [" bash ", "webfetch", "", "BASH"]}}')
+    assert parsed["llm"]["tools"] == ["bash", "webfetch"]
 
 
 def test_llm_tools_none_and_blank_string_normalize_to_empty_list():
@@ -33,11 +33,11 @@ def test_llm_tools_none_and_blank_string_normalize_to_empty_list():
 
 def test_llm_tools_non_string_in_list_raises_value_error():
     with pytest.raises(ValueError, match=r"llm\.tools must be a string or list of strings"):
-        parse_runtime_profile_config_json('{"llm": {"tools": ["jira_*", 123]}}')
+        parse_runtime_profile_config_json('{"llm": {"tools": ["webfetch", 123]}}')
 
 
 def test_validate_and_dump_use_llm_tools_normalization():
-    normalized = validate_runtime_profile_config_json('{"llm": {"tools": "jira_*"}}')
+    normalized = validate_runtime_profile_config_json('{"llm": {"tools": "webfetch"}}')
     dumped = dump_runtime_profile_config_json({"llm": {"tools": "*"}})
-    assert json.loads(normalized)["llm"]["tools"] == ["jira_*"]
+    assert json.loads(normalized)["llm"]["tools"] == ["webfetch"]
     assert json.loads(dumped)["llm"]["tools"] == ["*"]

@@ -32,6 +32,37 @@ def test_canonicalize_strips_hidden_llm_fields_and_preserves_other_llm_fields():
     assert result["jira"] == {"enabled": True}
 
 
+def test_canonicalize_does_not_force_legacy_llm_tools_when_runtime_v2_selection_exists():
+    raw = {
+        "llm": {
+            "provider": "github_copilot",
+            "model": "gpt-5-mini",
+        },
+        "enabled_tools": ["bash", "read"],
+        "disabled_tools": ["webfetch"],
+        "tool_permissions": {"bash": "ask"},
+    }
+
+    result = canonicalize_portal_runtime_profile_config(raw)
+
+    assert result["enabled_tools"] == ["bash", "read"]
+    assert result["disabled_tools"] == ["webfetch"]
+    assert result["tool_permissions"] == {"bash": "ask"}
+    assert "tools" not in result["llm"]
+
+
+def test_canonicalize_preserves_legacy_llm_tools_with_runtime_v2_selection():
+    raw = {
+        "llm": {"tools": ["read"]},
+        "enabled_tools": ["bash"],
+    }
+
+    result = canonicalize_portal_runtime_profile_config(raw)
+
+    assert result["llm"]["tools"] == ["read"]
+    assert result["enabled_tools"] == ["bash"]
+
+
 def test_canonicalize_does_not_mutate_input():
     raw = {
         "llm": {

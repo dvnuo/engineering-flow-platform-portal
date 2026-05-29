@@ -228,6 +228,121 @@ def test_build_apply_payload_from_profile_includes_context_budget_when_present()
         db.close()
 
 
+def test_build_apply_payload_from_profile_preserves_runtime_v2_config_surface():
+    db, rp, _running, _stopped = _build_db()
+    try:
+        rp.config_json = (
+            '{"llm":{"provider":"github_copilot","model":"gpt-5-mini"},'
+            '"enabled_tools":["bash","read"],'
+            '"disabled_tools":["webfetch"],'
+            '"tool_permissions":{"bash":"ask"},'
+            '"max_iterations":6,'
+            '"doom_loop_threshold":null,'
+            '"active_skills":["review"],'
+            '"skill_directories":["/app/skills"],'
+            '"command_directories":["/workspace/.efp/commands"],'
+            '"enable_command_expansion":true,'
+            '"max_context_parts":12,'
+            '"max_context_chars":200000,'
+            '"max_context_tokens":64000,'
+            '"context_reserve_chars":4000,'
+            '"context_reserve_tokens":1200,'
+            '"compaction_auto":true,'
+            '"compaction_prune":false,'
+            '"compaction_tail_turns":8,'
+            '"compaction_preserve_recent_chars":12000,'
+            '"compaction_preserve_recent_tokens":4800,'
+            '"compaction_reserved_chars":6000,'
+            '"compaction_tool_output_max_chars":24000,'
+            '"compaction_prune_min_chars":20000,'
+            '"compaction_prune_protect_chars":40000,'
+            '"enable_compaction_summarizer":true,'
+            '"enable_context_overflow_retry":true,'
+            '"enable_session_revert_snapshots":true,'
+            '"include_default_system_prompt":true,'
+            '"include_environment_context":false,'
+            '"include_runtime_reminders":true,'
+            '"system_prompt_texts":["system"],'
+            '"system_prompt_paths":["/workspace/SYSTEM.md"],'
+            '"max_system_prompt_chars":30000,'
+            '"include_default_instructions":true,'
+            '"attach_read_instructions":false,'
+            '"instruction_texts":["instruction"],'
+            '"instruction_paths":["/workspace/AGENTS.md"],'
+            '"max_instruction_chars":28000,'
+            '"include_skill_sidecar_content":true,'
+            '"max_skill_sidecar_chars":7000,'
+            '"max_command_chars":25000,'
+            '"resolve_prompt_references":true,'
+            '"max_prompt_reference_chars":18000,'
+            '"max_prompt_directory_entries":300,'
+            '"inject_background_task_results":false,'
+            '"emit_llm_stream_events":true,'
+            '"track_usage":false,'
+            '"tool_output_max_lines":500,'
+            '"tool_output_max_bytes":131072,'
+            '"tool_output_truncation_direction":"tail",'
+            '"archive_truncated_tool_outputs":true,'
+            '"tool_output_dir":"/workspace/.efp/tool-output",'
+            '"runtime_mode":"plan",'
+            '"enable_plan_tool":true,'
+            '"plan_mode_read_only":false,'
+            '"enable_question_tool":true,'
+            '"enable_lsp_tool":false,'
+            '"model_aware_tool_selection":true,'
+            '"structured_output_schema":{"type":"object"}}'
+        )
+        db.add(rp)
+        db.commit()
+        db.refresh(rp)
+
+        payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
+        cfg = payload["config"]
+
+        assert cfg["llm"]["provider"] == "github_copilot"
+        assert cfg["llm"]["model"] == "gpt-5-mini"
+        assert "tools" not in cfg["llm"]
+        assert cfg["enabled_tools"] == ["bash", "read"]
+        assert cfg["disabled_tools"] == ["webfetch"]
+        assert cfg["tool_permissions"] == {"bash": "ask"}
+        assert cfg["max_iterations"] == 6
+        assert cfg["doom_loop_threshold"] is None
+        assert cfg["active_skills"] == ["review"]
+        assert cfg["skill_directories"] == ["/app/skills"]
+        assert cfg["command_directories"] == ["/workspace/.efp/commands"]
+        assert cfg["enable_command_expansion"] is True
+        assert cfg["max_context_parts"] == 12
+        assert cfg["compaction_auto"] is True
+        assert cfg["compaction_prune"] is False
+        assert cfg["compaction_preserve_recent_tokens"] == 4800
+        assert cfg["compaction_prune_min_chars"] == 20000
+        assert cfg["enable_session_revert_snapshots"] is True
+        assert cfg["include_default_system_prompt"] is True
+        assert cfg["include_environment_context"] is False
+        assert cfg["include_runtime_reminders"] is True
+        assert cfg["system_prompt_paths"] == ["/workspace/SYSTEM.md"]
+        assert cfg["max_system_prompt_chars"] == 30000
+        assert cfg["include_default_instructions"] is True
+        assert cfg["attach_read_instructions"] is False
+        assert cfg["instruction_paths"] == ["/workspace/AGENTS.md"]
+        assert cfg["max_instruction_chars"] == 28000
+        assert cfg["include_skill_sidecar_content"] is True
+        assert cfg["max_skill_sidecar_chars"] == 7000
+        assert cfg["max_command_chars"] == 25000
+        assert cfg["resolve_prompt_references"] is True
+        assert cfg["max_prompt_reference_chars"] == 18000
+        assert cfg["max_prompt_directory_entries"] == 300
+        assert cfg["inject_background_task_results"] is False
+        assert cfg["emit_llm_stream_events"] is True
+        assert cfg["track_usage"] is False
+        assert cfg["tool_output_truncation_direction"] == "tail"
+        assert cfg["archive_truncated_tool_outputs"] is True
+        assert cfg["runtime_mode"] == "plan"
+        assert cfg["structured_output_schema"] == {"type": "object"}
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_from_profile_includes_response_flow_when_present():
     db, rp, _running, _stopped = _build_db()
     try:
@@ -365,6 +480,32 @@ def test_build_apply_payload_for_agent_sends_copilot_api_key_for_opencode():
         assert payload["config"]["llm"]["api_key"] == "gho_A"
         assert payload["config"]["llm"]["provider"] == "github-copilot"
         assert "oauth" not in payload["config"]["llm"]
+    finally:
+        db.close()
+
+
+def test_build_apply_payload_for_agent_projects_copilot_and_keeps_runtime_v2_tool_selection():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = (
+            '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","api_key":"OA"},'
+            '"enabled_tools":["bash"],"tool_permissions":{"bash":"ask"}}'
+        )
+        running.runtime_type = "opencode"
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(rp)
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        cfg = payload["config"]
+
+        assert cfg["llm"]["provider"] == "github-copilot"
+        assert cfg["llm"]["model"] == "github-copilot/gpt-5-mini"
+        assert cfg["llm"]["api_key"] == "OA"
+        assert "tools" not in cfg["llm"]
+        assert cfg["enabled_tools"] == ["bash"]
+        assert cfg["tool_permissions"] == {"bash": "ask"}
     finally:
         db.close()
 

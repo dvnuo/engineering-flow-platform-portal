@@ -42,14 +42,26 @@ Accepted payload forms:
 
 If parsing fails or data is missing, Portal falls back to deterministic local seed mappings.
 
-## 3) Portal container env contract
+Runtime v2 capability snapshots should include the runtime-owned core tool surface as `capability_type: "tool"` entries. Current core tool ids to expect are:
+
+`apply_patch`, `bash`, `edit`, `glob`, `grep`, `invalid`, `read`, `skill`, `task`, `todowrite`, `webfetch`, `write`.
+
+Removed legacy aliases such as `read_file`, `write_file`, `list_dir`, `shell_exec`, `todo_write`, `skill_list`, and old `fetch` are compatibility decisions inside the runtime. They are not Portal-owned tool controls.
+
+## 3) Runtime profile apply/config contract
+
+Portal preserves safe Runtime v2 `RuntimeConfig` fields in profile JSON, internal apply payloads, and trusted chat metadata under `runtime_profile.config`. This includes tool selection/permissions, skill and command directories, loop/context/compaction controls, prompt and instruction assembly controls, prompt reference limits, tool output limits, stream/usage flags, and optional mode controls. This pass is transport-focused; adding dedicated UI controls for every preserved Runtime v2 field is separate product work.
+
+Portal keeps the managed Copilot provider/model projection, including `llm.provider` and `llm.model`. Legacy `llm.tools` remains compatible, but Portal does not force `llm.tools=["*"]` when a profile already contains explicit Runtime v2 tool selection through `enabled_tools`, `disabled_tools`, or `tool_permissions`.
+
+## 4) Portal container env contract
 
 Portal container should be configured with:
 
 - `BOOTSTRAP_ADMIN_PASSWORD`
 - `PORTAL_INTERNAL_BASE_URL` (usually Portal service DNS, for example `http://efp-portal-service.default.svc.cluster.local`)
 
-## 4) Portal-managed runtime env contract (`efp-agents-secret`)
+## 5) Portal-managed runtime env contract (`efp-agents-secret`)
 
 Portal injects runtime container env from `efp-agents-secret`:
 
@@ -59,7 +71,7 @@ Portal also injects plain env:
 
 - `PORTAL_INTERNAL_BASE_URL` (only when configured; omitted if empty)
 
-## 5) Kubernetes git credential key wiring
+## 6) Kubernetes git credential key wiring
 
 Portal runtime creation reads git credentials from `efp-agents-secret`.
 
@@ -72,7 +84,7 @@ The askpass username response is fixed to `x-access-token`.
 Clone URL is not rewritten to authenticated HTTPS and credentials are not embedded in URL.
 If token is absent, clone proceeds with unauthenticated URL.
 
-## 6) Session Metadata Registry semantics
+## 7) Session Metadata Registry semantics
 
 Portal keeps runtime session metadata in `agent_session_metadata` using **composite key `(agent_id, session_id)`**.
 This is intentionally agent-scoped and avoids collisions across different agents reusing the same external session id.
@@ -87,7 +99,9 @@ Internal APIs:
 
 Registry scope is metadata-only; it is not a full chat-history store.
 
-## 7) GitHub review stale terminal semantics
+Portal currently proxies runtime session list/delete/chatlog. Runtime v2 summary, revert, and unrevert controls should wait for stable runtime endpoint names and methods before UI work.
+
+## 8) GitHub review stale terminal semantics
 
 For GitHub review tasks superseded by newer PR `head_sha`:
 

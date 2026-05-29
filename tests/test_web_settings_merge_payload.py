@@ -68,10 +68,10 @@ def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_promp
             "__touch_llm": "1",
             "llm_tools_mode": "custom",
             "llm_tools_count": "4",
-            "llm_tools_0_pattern": " git_clone ",
-            "llm_tools_1_pattern": "jira_*",
+            "llm_tools_0_pattern": " bash ",
+            "llm_tools_1_pattern": "webfetch",
             "llm_tools_2_pattern": "",
-            "llm_tools_3_pattern": "GIT_CLONE",
+            "llm_tools_3_pattern": "BASH",
         },
     )
     assert error is None
@@ -104,7 +104,7 @@ def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_lis
         ({"tools": []}, ("none", [])),
         ({"tools": None}, ("none", [])),
         ({"tools": ""}, ("none", [])),
-        ({"tools": ["git_clone", "jira_*"]}, ("custom", ["git_clone", "jira_*"])),
+        ({"tools": ["bash", "webfetch"]}, ("custom", ["bash", "webfetch"])),
     ],
 )
 def test_settings_llm_tools_view_modes(llm, expected):
@@ -115,9 +115,9 @@ def test_settings_parse_llm_tools_patterns_handles_plain_dict_invalid_count_and_
     parsed = _settings_parse_llm_tools_patterns(
         {
             "llm_tools_count": "invalid",
-            "llm_tools_0_pattern": "git_clone",
-            "llm_tools_1_pattern": " GIT_CLONE ",
-            "llm_tools_2_pattern": "jira_*",
+            "llm_tools_0_pattern": "bash",
+            "llm_tools_1_pattern": " BASH ",
+            "llm_tools_2_pattern": "webfetch",
         }
     )
     assert parsed == []

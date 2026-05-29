@@ -3,6 +3,21 @@ from app.services.runtime_capability_catalog import (
     build_runtime_capability_catalog_provider,
 )
 
+RUNTIME_V2_CORE_TOOL_IDS = (
+    "apply_patch",
+    "bash",
+    "edit",
+    "glob",
+    "grep",
+    "invalid",
+    "read",
+    "skill",
+    "task",
+    "todowrite",
+    "webfetch",
+    "write",
+)
+
 
 def test_seed_fallback_resolves_github_create_pull_request_alias():
     provider = build_default_runtime_capability_catalog_provider()
@@ -34,3 +49,24 @@ def test_runtime_snapshot_remains_source_of_truth_over_seed_fallback():
     )
     assert provider.get_catalog_source() == "runtime_snapshot_payload"
     assert provider.resolve_action_to_capability_id("create_pull_request") == "adapter:github:create_pull_request_runtime"
+
+
+def test_runtime_v2_core_tool_snapshot_entries_are_accepted_and_resolved():
+    provider = build_runtime_capability_catalog_provider(
+        runtime_catalog_snapshot_payload={
+            "catalog_version": "runtime-v2",
+            "supports_snapshot_contract": True,
+            "capabilities": [
+                {
+                    "capability_id": tool_id,
+                    "capability_type": "tool",
+                    "logical_name": tool_id,
+                }
+                for tool_id in RUNTIME_V2_CORE_TOOL_IDS
+            ],
+        }
+    )
+
+    assert provider.has_full_catalog() is True
+    for tool_id in RUNTIME_V2_CORE_TOOL_IDS:
+        assert provider.resolve_tool_name_to_capability_id(tool_id) == tool_id

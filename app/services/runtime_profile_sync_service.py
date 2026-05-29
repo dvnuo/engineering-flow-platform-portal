@@ -16,7 +16,7 @@ from app.services.runtime_profile_authorization import (
     apply_runtime_profile_authorization,
     raw_runtime_profile_config,
 )
-from app.services.runtime_profile_llm_projection import project_llm_for_runtime
+from app.services.runtime_profile_runtime_v2_projection import build_trusted_runtime_v2_config
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,6 @@ class RuntimeProfilePushResult:
 
 
 
-_project_llm_for_runtime = project_llm_for_runtime
-
 class RuntimeProfileSyncService:
     def __init__(self, proxy_service: ProxyService | None = None) -> None:
         self.proxy_service = proxy_service or ProxyService()
@@ -47,7 +45,7 @@ class RuntimeProfileSyncService:
     @staticmethod
     def build_apply_payload_from_profile(runtime_profile) -> dict:
         parsed_config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        parsed_config = canonicalize_portal_runtime_profile_config(parsed_config)
+        parsed_config = build_trusted_runtime_v2_config(parsed_config)
         return {
             "runtime_profile_id": runtime_profile.id,
             "revision": runtime_profile.revision,
@@ -68,14 +66,14 @@ class RuntimeProfileSyncService:
         payload["runtime_type"] = runtime_type
         payload["agent_id"] = getattr(agent, "id", None)
         payload["config"]["runtime_type"] = runtime_type
-        llm = payload.get("config", {}).get("llm")
-        if isinstance(llm, dict):
-            runtime_type = getattr(agent, "runtime_type", "") or "native"
-            payload["config"]["llm"] = project_llm_for_runtime(llm, runtime_type)
-        payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
+        payload["config"] = build_trusted_runtime_v2_config(
+            payload.get("config"),
+            runtime_type=runtime_type,
+        )
         raw_config = raw_runtime_profile_config(runtime_profile)
         apply_runtime_profile_authorization(payload["config"], raw_config)
         payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
+        payload["config"]["runtime_type"] = runtime_type
         return payload
 
     async def push_payload_to_agent_with_retry(self, agent, payload: dict, timeout_seconds: int = 180, interval_seconds: float = 3.0) -> RuntimeProfilePushResult:

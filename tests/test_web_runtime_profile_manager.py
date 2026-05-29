@@ -298,15 +298,15 @@ def test_runtime_profile_save_sparse_llm_tools_none_does_not_inject_provider_or_
 def test_runtime_profile_panel_get_renders_llm_tools_custom_patterns(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
-        rp.config_json = json.dumps({"llm": {"tools": ["git_clone", "jira_*"]}})
+        rp.config_json = json.dumps({"llm": {"tools": ["bash", "webfetch"]}})
         db.add(rp)
         db.commit()
 
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
         assert 'name="llm_tools_mode"' not in resp.text
-        assert "git_clone" not in resp.text
-        assert "jira_*" not in resp.text
+        assert "bash" not in resp.text
+        assert "webfetch" not in resp.text
         assert 'data-action="add-llm-tool-pattern"' not in resp.text
     finally:
         cleanup()
@@ -441,7 +441,7 @@ def test_runtime_profile_save_ignores_hidden_llm_advanced_fields(monkeypatch):
                 "llm_temperature": "nan",
                 "llm_tools_mode": "none",
                 "llm_tools_count": "1",
-                "llm_tools_0_pattern": "jira_*",
+                "llm_tools_0_pattern": "webfetch",
                 "llm_response_flow_plan_policy": "always",
                 "llm_response_flow_complexity_prompt_budget_ratio": "bad",
                 "llm_response_flow_complexity_min_request_tokens": "bad",
