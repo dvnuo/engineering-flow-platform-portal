@@ -50,9 +50,11 @@ Removed legacy aliases such as `read_file`, `write_file`, `list_dir`, `shell_exe
 
 ## 3) Runtime profile apply/config contract
 
-Portal preserves safe Runtime v2 `RuntimeConfig` fields in profile JSON, internal apply payloads, and trusted chat metadata under `runtime_profile.config`. This includes tool selection/permissions, skill and command directories, loop/context/compaction controls, prompt and instruction assembly controls, prompt reference limits, tool output limits, stream/usage flags, and optional mode controls. Portal now exposes advanced Runtime v2 controls for the preserved field surface in both Agent Settings and Runtime Profile management.
+Portal preserves safe Runtime v2 `RuntimeConfig` fields in profile JSON and, for non-OpenCode runtimes, internal apply payloads and trusted chat metadata under `runtime_profile.config`. This includes tool selection/permissions, skill and command directories, loop/context/compaction controls, prompt and instruction assembly controls, prompt reference limits, tool output limits, stream/usage flags, and optional mode controls. Portal now exposes advanced Runtime v2 controls for the preserved field surface in both Agent Settings and Runtime Profile management.
 
-Portal keeps the managed Copilot provider/model projection, including `llm.provider` and `llm.model`. Legacy `llm.tools` remains compatible, but Portal does not force `llm.tools=["*"]` when a profile already contains explicit Runtime v2 tool selection through `enabled_tools`, `disabled_tools`, or `tool_permissions`.
+Portal keeps the managed Copilot provider/model projection, including `llm.provider` and `llm.model`. Legacy `llm.tools` remains compatible, but Portal does not force `llm.tools=["*"]` for non-OpenCode runtimes when a profile already contains explicit Runtime v2 tool selection through `enabled_tools`, `disabled_tools`, or `tool_permissions`.
+
+For `runtime_type=opencode`, Portal keeps the stored profile fields but filters permission-restricting transport fields before sending apply payloads or chat metadata to opencode-runtime. The filtered fields include Runtime v2 tool selection, authorization allowlists, unresolved authorization metadata, and legacy allow/deny policy fields, while non-restrictive LLM credentials and integration context remain available to the runtime.
 
 ## 4) Portal container env contract
 

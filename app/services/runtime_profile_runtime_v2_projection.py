@@ -5,11 +5,76 @@ from typing import Any
 
 from app.schemas.runtime_profile import (
     RUNTIME_V2_CONFIG_FIELD_NAMES,
+    RUNTIME_V2_TOOL_SELECTION_FIELDS,
     sanitize_runtime_profile_config_dict,
     sanitize_runtime_profile_tool_loop,
 )
+from app.services.runtime_profile_authorization import (
+    AUTHORIZATION_ALLOWLIST_KEYS,
+    RUNTIME_AUTHORIZATION_EMPTY_LIST_KEYS,
+)
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
+
+
+OPENCODE_RUNTIME_RESTRICTION_FIELDS = frozenset(
+    set(RUNTIME_V2_TOOL_SELECTION_FIELDS)
+    | set(AUTHORIZATION_ALLOWLIST_KEYS)
+    | set(RUNTIME_AUTHORIZATION_EMPTY_LIST_KEYS)
+    | {
+        "allowed_skills",
+        "denied_skills",
+        "denied_actions",
+        "denied_capability_types",
+        "skill_set",
+        "policy_context",
+        "derived_runtime_rules",
+    }
+)
+
+
+def is_opencode_runtime_type(runtime_type: str | None) -> bool:
+    return str(runtime_type or "").strip().lower() == "opencode"
+
+
+def strip_opencode_runtime_restrictions(
+    config: dict[str, Any] | None,
+    runtime_type: str | None,
+) -> dict[str, Any]:
+    """Remove Portal-managed permission restriction fields before opencode transport."""
+    projected = deepcopy(config) if isinstance(config, dict) else {}
+    if not is_opencode_runtime_type(runtime_type):
+        return projected
+
+    for key in OPENCODE_RUNTIME_RESTRICTION_FIELDS:
+        projected.pop(key, None)
+
+    llm = projected.get("llm")
+    if isinstance(llm, dict):
+        llm_projected = deepcopy(llm)
+        llm_projected["tools"] = ["*"]
+        projected["llm"] = llm_projected
+
+    return projected
+
+
+def strip_opencode_runtime_restriction_keys(
+    data: dict[str, Any] | None,
+    runtime_type: str | None,
+) -> dict[str, Any]:
+    projected = deepcopy(data) if isinstance(data, dict) else {}
+    if not is_opencode_runtime_type(runtime_type):
+        return projected
+    for key in OPENCODE_RUNTIME_RESTRICTION_FIELDS:
+        projected.pop(key, None)
+    return projected
+
+
+def project_config_for_runtime_type(
+    config: dict[str, Any] | None,
+    runtime_type: str | None,
+) -> dict[str, Any]:
+    return strip_opencode_runtime_restrictions(config, runtime_type)
 
 
 def _copy_runtime_v2_fields(config: dict[str, Any]) -> dict[str, Any]:
@@ -77,4 +142,4 @@ def build_trusted_runtime_v2_config(
         else:
             canonical.pop("llm", None)
 
-    return canonical
+    return project_config_for_runtime_type(canonical, runtime_type)

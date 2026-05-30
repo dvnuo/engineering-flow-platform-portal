@@ -9,7 +9,11 @@ from app.schemas.runtime_profile import (
     validate_runtime_profile_config_json,
 )
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
-from app.services.runtime_profile_runtime_v2_projection import build_trusted_runtime_v2_config
+from app.services.runtime_profile_runtime_v2_projection import (
+    OPENCODE_RUNTIME_RESTRICTION_FIELDS,
+    build_trusted_runtime_v2_config,
+    strip_opencode_runtime_restrictions,
+)
 
 
 def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config():
@@ -405,6 +409,8 @@ def test_runtime_v2_projection_sanitizes_raw_config_before_trusting_it():
     projected = build_trusted_runtime_v2_config(
         {
             "enabled_tools": None,
+            "disabled_tools": ["write"],
+            "tool_permissions": {"bash": "ask"},
             "runtime_mode": "agent",
             "tool_output_truncation_direction": "middle",
             "compaction_preserve_recent_turns": 4,
@@ -417,11 +423,62 @@ def test_runtime_v2_projection_sanitizes_raw_config_before_trusting_it():
         include_llm_credentials=False,
     )
 
-    assert projected["enabled_tools"] is None
+    assert "enabled_tools" not in projected
+    assert "disabled_tools" not in projected
+    assert "tool_permissions" not in projected
     assert projected["llm"]["provider"] == "github-copilot"
     assert projected["llm"]["model"] == "github-copilot/gpt-5-mini"
+    assert projected["llm"]["tools"] == ["*"]
     assert "runtime_mode" not in projected
     assert "tool_output_truncation_direction" not in projected
     assert "compaction_preserve_recent_turns" not in projected
     assert "workspace_root" not in projected
     assert "mcp_servers" not in projected
+
+
+def test_runtime_v2_projection_keeps_tool_selection_for_native_runtime():
+    projected = build_trusted_runtime_v2_config(
+        {
+            "enabled_tools": None,
+            "disabled_tools": ["write"],
+            "tool_permissions": {"bash": "ask"},
+            "llm": {"provider": "github_copilot", "model": "gpt-5-mini"},
+        },
+        runtime_type="native",
+        include_portal_sections=False,
+        include_llm_credentials=False,
+    )
+
+    assert projected["enabled_tools"] is None
+    assert projected["disabled_tools"] == ["write"]
+    assert projected["tool_permissions"] == {"bash": "ask"}
+    assert projected["llm"]["provider"] == "github_copilot"
+    assert projected["llm"]["model"] == "gpt-5-mini"
+    assert "tools" not in projected["llm"]
+
+
+def test_opencode_restriction_projection_does_not_mutate_input_and_removes_legacy_limits():
+    original = {
+        "runtime_type": "opencode",
+        "llm": {"provider": "openai", "tools": ["read"]},
+        "enabled_tools": ["bash"],
+        "allowed_actions": ["runtime.action"],
+        "allowed_skills": ["skill-a"],
+        "denied_skills": ["skill-b"],
+        "denied_actions": ["runtime.deny"],
+        "denied_capability_types": ["tool"],
+        "skill_set": ["narrow"],
+        "policy_context": {"mode": "strict"},
+        "derived_runtime_rules": {"rule": True},
+        "runtime": {"workspace": "/workspace"},
+    }
+
+    projected = strip_opencode_runtime_restrictions(original, "opencode")
+
+    assert original["enabled_tools"] == ["bash"]
+    assert original["llm"]["tools"] == ["read"]
+    for key in OPENCODE_RUNTIME_RESTRICTION_FIELDS:
+        assert key not in projected
+    assert projected["runtime_type"] == "opencode"
+    assert projected["llm"]["tools"] == ["*"]
+    assert projected["runtime"] == {"workspace": "/workspace"}

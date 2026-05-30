@@ -13,7 +13,11 @@ from app.services.runtime_profile_authorization import (
     runtime_profile_authorization_metadata,
 )
 from app.services.runtime_profile_service import RuntimeProfileService
-from app.services.runtime_profile_runtime_v2_projection import build_trusted_runtime_v2_config
+from app.services.runtime_profile_runtime_v2_projection import (
+    build_trusted_runtime_v2_config,
+    is_opencode_runtime_type,
+    strip_opencode_runtime_restriction_keys,
+)
 
 
 class RuntimeExecutionContextService:
@@ -41,17 +45,21 @@ class RuntimeExecutionContextService:
             return runtime_profile_id, None, {}
 
         materialized_config = RuntimeProfileService.merge_with_managed_defaults(parsed_config)
-        authorization_metadata = runtime_profile_authorization_metadata(
-            materialized_config,
-            raw_runtime_profile_config(profile),
-        )
         runtime_type = getattr(agent, "runtime_type", "") if agent else ""
+        authorization_metadata = {}
+        if not is_opencode_runtime_type(runtime_type):
+            authorization_metadata = runtime_profile_authorization_metadata(
+                materialized_config,
+                raw_runtime_profile_config(profile),
+            )
         runtime_cfg = build_trusted_runtime_v2_config(
             parsed_config,
             runtime_type=runtime_type,
             default_llm=RuntimeProfileService.default_profile_config().get("llm"),
             include_portal_sections=False,
         )
+        if is_opencode_runtime_type(runtime_type):
+            runtime_cfg["runtime_type"] = "opencode"
         return (
             runtime_profile_id,
             {
@@ -84,6 +92,7 @@ class RuntimeExecutionContextService:
 
     def build_runtime_metadata(self, db: Session, agent: Agent | None, base_metadata: dict | None = None) -> dict:
         metadata = dict(base_metadata or {})
+        runtime_type = getattr(agent, "runtime_type", "") if agent else ""
         context = self.build_for_agent(db, agent)
         for key in (
             "authorization_source",
@@ -101,7 +110,6 @@ class RuntimeExecutionContextService:
             if isinstance(llm_cfg, dict):
                 provider = llm_cfg.get("provider")
                 model = llm_cfg.get("model")
-                runtime_type = getattr(agent, "runtime_type", "") if agent else ""
                 runtime_provider = normalize_provider_for_runtime(runtime_type, provider) if provider else None
                 if provider:
                     metadata["provider"] = provider
@@ -118,4 +126,4 @@ class RuntimeExecutionContextService:
         if isinstance(authorization_metadata, dict) and authorization_metadata:
             metadata.update(authorization_metadata)
 
-        return metadata
+        return strip_opencode_runtime_restriction_keys(metadata, runtime_type)

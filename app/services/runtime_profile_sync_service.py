@@ -16,7 +16,10 @@ from app.services.runtime_profile_authorization import (
     apply_runtime_profile_authorization,
     raw_runtime_profile_config,
 )
-from app.services.runtime_profile_runtime_v2_projection import build_trusted_runtime_v2_config
+from app.services.runtime_profile_runtime_v2_projection import (
+    build_trusted_runtime_v2_config,
+    project_config_for_runtime_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,7 @@ class RuntimeProfileSyncService:
         apply_runtime_profile_authorization(payload["config"], raw_config)
         payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
         payload["config"]["runtime_type"] = runtime_type
+        payload["config"] = project_config_for_runtime_type(payload.get("config"), runtime_type)
         return payload
 
     async def push_payload_to_agent_with_retry(self, agent, payload: dict, timeout_seconds: int = 180, interval_seconds: float = 3.0) -> RuntimeProfilePushResult:

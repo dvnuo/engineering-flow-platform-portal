@@ -11,6 +11,36 @@ from app.models.runtime_profile import RuntimeProfile
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 
 
+OPENCODE_RESTRICTION_KEYS = {
+    "enabled_tools",
+    "disabled_tools",
+    "tool_permissions",
+    "allowed_external_systems",
+    "allowed_actions",
+    "allowed_adapter_actions",
+    "allowed_capability_ids",
+    "allowed_capability_types",
+    "resolved_action_mappings",
+    "unresolved_tools",
+    "unresolved_skills",
+    "unresolved_channels",
+    "unresolved_actions",
+    "skill_details",
+    "allowed_skills",
+    "denied_skills",
+    "denied_actions",
+    "denied_capability_types",
+    "skill_set",
+    "policy_context",
+    "derived_runtime_rules",
+}
+
+
+def _assert_no_opencode_restriction_keys(config: dict) -> None:
+    for key in OPENCODE_RESTRICTION_KEYS:
+        assert key not in config
+
+
 def _build_db():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -405,11 +435,15 @@ def test_sync_profile_to_bound_agents_builds_payload_per_running_agent(monkeypat
         db.close()
 
 
-def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists():
+def test_build_apply_payload_for_native_agent_preserves_runtime_profile_tool_selection_and_allowlists():
     db, rp, running, _stopped = _build_db()
     try:
+        running.runtime_type = "native"
         rp.config_json = (
             '{"llm":{"provider":"openai"},'
+            '"enabled_tools":["bash","read"],'
+            '"disabled_tools":["webfetch"],'
+            '"tool_permissions":{"bash":"ask"},'
             '"allowed_capability_ids":["tool:runtime-only","opencode.skill.existing-skill"],'
             '"allowed_capability_types":["adapter_action","skill","tool"],'
             '"allowed_external_systems":["github"],'
@@ -429,6 +463,10 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists():
         payload = service.build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
         assert rp.config_json == original_config
+        assert cfg["runtime_type"] == "native"
+        assert cfg["enabled_tools"] == ["bash", "read"]
+        assert cfg["disabled_tools"] == ["webfetch"]
+        assert cfg["tool_permissions"] == {"bash": "ask"}
         assert "tool:runtime-only" in cfg["allowed_capability_ids"]
         assert "opencode.skill.existing-skill" in cfg["allowed_capability_ids"]
         assert "adapter_action" in cfg["allowed_capability_types"]
@@ -445,6 +483,7 @@ def test_build_apply_payload_for_agent_preserves_runtime_profile_allowlists():
 def test_build_apply_payload_for_agent_grants_github_review_from_runtime_profile():
     db, rp, running, _stopped = _build_db()
     try:
+        running.runtime_type = "native"
         rp.config_json = (
             '{"llm":{"provider":"openai"},'
             '"github":{"enabled":true,"api_token":"secret","base_url":"https://api.github.com"}}'
@@ -484,12 +523,28 @@ def test_build_apply_payload_for_agent_sends_copilot_api_key_for_opencode():
         db.close()
 
 
-def test_build_apply_payload_for_agent_projects_copilot_and_keeps_runtime_v2_tool_selection():
+def test_build_apply_payload_for_opencode_agent_filters_tool_selection_and_authorization_limits():
     db, rp, running, _stopped = _build_db()
     try:
         rp.config_json = (
             '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","api_key":"OA"},'
-            '"enabled_tools":["bash"],"tool_permissions":{"bash":"ask"}}'
+            '"github":{"enabled":true,"api_token":"secret","base_url":"https://api.github.com"},'
+            '"enabled_tools":["bash"],'
+            '"disabled_tools":["webfetch"],'
+            '"tool_permissions":{"bash":"ask"},'
+            '"allowed_capability_ids":["tool:runtime-only","opencode.skill.existing-skill"],'
+            '"allowed_capability_types":["adapter_action","skill","tool"],'
+            '"allowed_external_systems":["github"],'
+            '"allowed_actions":["runtime.action"],'
+            '"allowed_adapter_actions":["runtime.adapter"],'
+            '"resolved_action_mappings":{"runtime.action":"runtime.adapter"},'
+            '"allowed_skills":["legacy-skill"],'
+            '"denied_skills":["legacy-deny"],'
+            '"denied_actions":["legacy-action"],'
+            '"denied_capability_types":["legacy-type"],'
+            '"skill_set":["legacy-set"],'
+            '"policy_context":{"mode":"strict"},'
+            '"derived_runtime_rules":{"x":true}}'
         )
         running.runtime_type = "opencode"
         db.add_all([rp, running])
@@ -503,9 +558,10 @@ def test_build_apply_payload_for_agent_projects_copilot_and_keeps_runtime_v2_too
         assert cfg["llm"]["provider"] == "github-copilot"
         assert cfg["llm"]["model"] == "github-copilot/gpt-5-mini"
         assert cfg["llm"]["api_key"] == "OA"
-        assert "tools" not in cfg["llm"]
-        assert cfg["enabled_tools"] == ["bash"]
-        assert cfg["tool_permissions"] == {"bash": "ask"}
+        assert cfg["llm"]["tools"] == ["*"]
+        assert cfg["runtime_type"] == "opencode"
+        assert cfg["github"]["enabled"] is True
+        _assert_no_opencode_restriction_keys(cfg)
     finally:
         db.close()
 

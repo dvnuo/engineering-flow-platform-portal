@@ -4,6 +4,36 @@ from types import SimpleNamespace
 from app.api import proxy
 
 
+OPENCODE_RESTRICTION_KEYS = {
+    "enabled_tools",
+    "disabled_tools",
+    "tool_permissions",
+    "allowed_external_systems",
+    "allowed_actions",
+    "allowed_adapter_actions",
+    "allowed_capability_ids",
+    "allowed_capability_types",
+    "resolved_action_mappings",
+    "unresolved_tools",
+    "unresolved_skills",
+    "unresolved_channels",
+    "unresolved_actions",
+    "skill_details",
+    "allowed_skills",
+    "denied_skills",
+    "denied_actions",
+    "denied_capability_types",
+    "skill_set",
+    "policy_context",
+    "derived_runtime_rules",
+}
+
+
+def _assert_no_opencode_restriction_keys(data: dict) -> None:
+    for key in OPENCODE_RESTRICTION_KEYS:
+        assert key not in data
+
+
 def _proxy_source() -> str:
     from pathlib import Path
 
@@ -89,6 +119,12 @@ def test_runtime_metadata_carries_trusted_runtime_v2_config_surface(monkeypatch)
                 "enabled_tools": ["bash", "read"],
                 "disabled_tools": ["webfetch"],
                 "tool_permissions": {"bash": "ask"},
+                "allowed_external_systems": ["github"],
+                "allowed_actions": ["runtime.action"],
+                "allowed_adapter_actions": ["runtime.adapter"],
+                "allowed_capability_ids": ["runtime.adapter"],
+                "allowed_capability_types": ["adapter_action", "skill", "tool"],
+                "resolved_action_mappings": {"runtime.action": "runtime.adapter"},
                 "max_iterations": 6,
                 "doom_loop_threshold": None,
                 "active_skills": ["review"],
@@ -142,10 +178,10 @@ def test_runtime_metadata_carries_trusted_runtime_v2_config_surface(monkeypatch)
     assert cfg["llm"]["provider"] == "github-copilot"
     assert cfg["llm"]["model"] == "github-copilot/gpt-5-mini"
     assert cfg["llm"]["api_key"] == "OA"
-    assert "tools" not in cfg["llm"]
-    assert cfg["enabled_tools"] == ["bash", "read"]
-    assert cfg["disabled_tools"] == ["webfetch"]
-    assert cfg["tool_permissions"] == {"bash": "ask"}
+    assert cfg["llm"]["tools"] == ["*"]
+    assert cfg["runtime_type"] == "opencode"
+    _assert_no_opencode_restriction_keys(cfg)
+    _assert_no_opencode_restriction_keys(metadata)
     assert cfg["max_iterations"] == 6
     assert cfg["doom_loop_threshold"] is None
     assert cfg["active_skills"] == ["review"]
@@ -180,6 +216,54 @@ def test_runtime_metadata_carries_trusted_runtime_v2_config_surface(monkeypatch)
     assert "github" not in cfg
 
 
+def test_runtime_metadata_for_native_keeps_tool_selection_and_authorization_metadata(monkeypatch):
+    import app.services.runtime_execution_context_service as module
+    from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+
+    profile = SimpleNamespace(
+        id="rp-native",
+        name="Native Runtime v2",
+        revision=8,
+        config_json=json.dumps(
+            {
+                "llm": {"provider": "github_copilot", "model": "gpt-5-mini"},
+                "enabled_tools": ["bash", "read"],
+                "disabled_tools": ["webfetch"],
+                "tool_permissions": {"bash": "ask"},
+                "allowed_external_systems": ["github"],
+                "allowed_actions": ["runtime.action"],
+                "allowed_adapter_actions": ["runtime.adapter"],
+                "allowed_capability_ids": ["runtime.adapter"],
+                "allowed_capability_types": ["adapter_action", "skill", "tool"],
+                "resolved_action_mappings": {"runtime.action": "runtime.adapter"},
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        module,
+        "RuntimeProfileRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: profile),
+    )
+
+    metadata = RuntimeExecutionContextService().build_runtime_metadata(
+        db=object(),
+        agent=SimpleNamespace(id="agent-1", runtime_profile_id="rp-native", runtime_type="native"),
+    )
+    cfg = metadata["runtime_profile"]["config"]
+
+    assert cfg["enabled_tools"] == ["bash", "read"]
+    assert cfg["disabled_tools"] == ["webfetch"]
+    assert cfg["tool_permissions"] == {"bash": "ask"}
+    assert metadata["authorization_source"] == "runtime_profile"
+    assert metadata["allowed_external_systems"] == ["github"]
+    assert metadata["allowed_actions"] == ["runtime.action"]
+    assert metadata["allowed_adapter_actions"] == ["runtime.adapter"]
+    assert metadata["allowed_capability_ids"] == ["runtime.adapter"]
+    assert metadata["allowed_capability_types"] == ["adapter_action", "skill", "tool"]
+    assert metadata["resolved_action_mappings"] == {"runtime.action": "runtime.adapter"}
+
+
 def test_runtime_metadata_keeps_default_llm_when_profile_only_has_runtime_v2_tools(monkeypatch):
     import app.services.runtime_execution_context_service as module
     from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -203,7 +287,8 @@ def test_runtime_metadata_keeps_default_llm_when_profile_only_has_runtime_v2_too
     )
     cfg = metadata["runtime_profile"]["config"]
 
-    assert cfg["enabled_tools"] == ["bash"]
+    assert "enabled_tools" not in cfg
+    assert cfg["runtime_type"] == "opencode"
     assert cfg["llm"]["provider"] == "github-copilot"
     assert cfg["llm"]["model"] == "github-copilot/gpt-5.4-mini"
-    assert "tools" not in cfg["llm"]
+    assert cfg["llm"]["tools"] == ["*"]

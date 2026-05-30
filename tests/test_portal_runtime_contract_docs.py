@@ -58,6 +58,8 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "RuntimeConfig" in text
     assert "runtime_profile.config" in text
     assert 'llm.tools=["*"]' in text
+    assert "runtime_type=opencode" in text
+    assert "filters permission-restricting fields" in text
     assert "Removed legacy aliases" in text
     assert "runtime-owned compatibility decisions" in text
     assert "summary, revert, and unrevert" in text
@@ -88,5 +90,7 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "enabled_tools" in phase5
     assert "runtime_profile.config" in phase5
     assert "Portal now exposes advanced Runtime v2 controls for the preserved field surface" in phase5
+    assert "runtime_type=opencode" in phase5
+    assert "filters permission-restricting transport fields" in phase5
     assert "transport-focused" not in phase5
     assert "summary, revert, and unrevert" in phase5
