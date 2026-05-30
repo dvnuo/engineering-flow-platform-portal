@@ -68,10 +68,10 @@ def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_promp
             "__touch_llm": "1",
             "llm_tools_mode": "custom",
             "llm_tools_count": "4",
-            "llm_tools_0_pattern": " git_clone ",
-            "llm_tools_1_pattern": "jira_*",
+            "llm_tools_0_pattern": " bash ",
+            "llm_tools_1_pattern": "webfetch",
             "llm_tools_2_pattern": "",
-            "llm_tools_3_pattern": "GIT_CLONE",
+            "llm_tools_3_pattern": "BASH",
         },
     )
     assert error is None
@@ -104,7 +104,7 @@ def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_lis
         ({"tools": []}, ("none", [])),
         ({"tools": None}, ("none", [])),
         ({"tools": ""}, ("none", [])),
-        ({"tools": ["git_clone", "jira_*"]}, ("custom", ["git_clone", "jira_*"])),
+        ({"tools": ["bash", "webfetch"]}, ("custom", ["bash", "webfetch"])),
     ],
 )
 def test_settings_llm_tools_view_modes(llm, expected):
@@ -115,9 +115,9 @@ def test_settings_parse_llm_tools_patterns_handles_plain_dict_invalid_count_and_
     parsed = _settings_parse_llm_tools_patterns(
         {
             "llm_tools_count": "invalid",
-            "llm_tools_0_pattern": "git_clone",
-            "llm_tools_1_pattern": " GIT_CLONE ",
-            "llm_tools_2_pattern": "jira_*",
+            "llm_tools_0_pattern": "bash",
+            "llm_tools_1_pattern": " BASH ",
+            "llm_tools_2_pattern": "webfetch",
         }
     )
     assert parsed == []
@@ -543,3 +543,143 @@ def test_settings_merge_new_confluence_instance_same_current_identity_does_not_i
     assert error is None
     row = merged["confluence"]["instances"][0]
     assert row.get("token", "") == ""
+
+
+def test_settings_merge_touched_runtime_v2_saves_representative_fields():
+    merged, error = _settings_merge_payload(
+        {},
+        {
+            "__touch_runtime_v2": "1",
+            "enabled_tools": "bash, read\nbash",
+            "disabled_tools": "write",
+            "tool_permissions": '{"bash": {"allowed": true}}',
+            "max_iterations": "12",
+            "doom_loop_threshold": "3",
+            "compaction_auto": "on",
+            "enable_context_overflow_retry": "on",
+            "system_prompt_texts": "first system prompt\nsecond system prompt",
+            "instruction_paths": "/repo/AGENTS.md\n/repo/docs/instructions.md",
+            "active_skills": "code-review, testing",
+            "enable_command_expansion": "on",
+            "enable_plan_tool": "false",
+            "runtime_mode": "plan",
+            "tool_output_truncation_direction": "head",
+            "tool_output_max_lines": "200",
+            "structured_output_schema": '{"type": "object", "properties": {"ok": {"type": "boolean"}}}',
+            "track_usage": "on",
+        },
+    )
+
+    assert error is None
+    assert merged["enabled_tools"] == ["bash", "read"]
+    assert merged["disabled_tools"] == ["write"]
+    assert merged["tool_permissions"] == {"bash": {"allowed": True}}
+    assert merged["max_iterations"] == 12
+    assert merged["doom_loop_threshold"] == 3
+    assert merged["compaction_auto"] is True
+    assert merged["enable_context_overflow_retry"] is True
+    assert merged["compaction_prune"] is False
+    assert merged["system_prompt_texts"] == ["first system prompt", "second system prompt"]
+    assert merged["instruction_paths"] == ["/repo/AGENTS.md", "/repo/docs/instructions.md"]
+    assert merged["active_skills"] == ["code-review", "testing"]
+    assert merged["enable_command_expansion"] is True
+    assert merged["enable_plan_tool"] is False
+    assert merged["runtime_mode"] == "plan"
+    assert merged["tool_output_truncation_direction"] == "head"
+    assert merged["tool_output_max_lines"] == 200
+    assert merged["structured_output_schema"]["properties"]["ok"]["type"] == "boolean"
+    assert merged["track_usage"] is True
+    assert "llm" not in merged
+
+
+def test_settings_merge_touched_runtime_v2_blank_fields_remove_stale_values():
+    merged, error = _settings_merge_payload(
+        {
+            "enabled_tools": ["bash"],
+            "max_iterations": 9,
+            "enable_plan_tool": True,
+            "runtime_mode": "build",
+            "tool_output_truncation_direction": "tail",
+            "tool_permissions": {"bash": {"allowed": True}},
+            "structured_output_schema": {"type": "object"},
+            "tool_output_dir": "/tmp/runtime-tools",
+        },
+        {
+            "__touch_runtime_v2": "1",
+            "enabled_tools": "",
+            "max_iterations": "",
+            "enable_plan_tool": "",
+            "runtime_mode": "",
+            "tool_output_truncation_direction": "",
+            "tool_permissions": "",
+            "structured_output_schema": "",
+            "tool_output_dir": "",
+        },
+    )
+
+    assert error is None
+    for field_name in [
+        "enabled_tools",
+        "max_iterations",
+        "enable_plan_tool",
+        "runtime_mode",
+        "tool_output_truncation_direction",
+        "tool_permissions",
+        "structured_output_schema",
+        "tool_output_dir",
+    ]:
+        assert field_name not in merged
+    assert merged["llm"]["tools"] == ["*"]
+
+
+@pytest.mark.parametrize(
+    ("form_overrides", "expected_error", "bad_field"),
+    [
+        ({"max_iterations": "NaN"}, "max_iterations must be an integer.", "max_iterations"),
+        ({"doom_loop_threshold": "1"}, "doom_loop_threshold must be an integer greater than or equal to 2.", "doom_loop_threshold"),
+        ({"runtime_mode": "chat"}, "runtime_mode must be one of: build, plan.", "runtime_mode"),
+        ({"tool_output_truncation_direction": "middle"}, "tool_output_truncation_direction must be one of: head, tail.", "tool_output_truncation_direction"),
+        ({"tool_permissions": '{"bash":'}, "tool_permissions must be valid JSON.", "tool_permissions"),
+        ({"structured_output_schema": '["not", "object"]'}, "structured_output_schema must be a JSON object.", "structured_output_schema"),
+        ({"enable_plan_tool": "maybe"}, "enable_plan_tool must be true, false, or blank.", "enable_plan_tool"),
+    ],
+)
+def test_settings_merge_touched_runtime_v2_invalid_values_return_clear_error(form_overrides, expected_error, bad_field):
+    form = {"__touch_runtime_v2": "1", **form_overrides}
+
+    merged, error = _settings_merge_payload({}, form)
+
+    assert error == expected_error
+    assert bad_field not in merged
+
+
+def test_settings_merge_touched_runtime_v2_rejects_unsupported_runtime_fields():
+    merged, error = _settings_merge_payload(
+        {
+            "workspace_root": "/old",
+            "default_provider_id": "openai",
+            "default_model": "gpt-5",
+            "mcp_servers": {"local": {}},
+            "compaction_preserve_recent_turns": 4,
+        },
+        {
+            "__touch_runtime_v2": "1",
+            "enabled_tools": "bash",
+            "workspace_root": "/new",
+            "default_provider_id": "anthropic",
+            "default_model": "claude",
+            "mcp_servers": '{"local": {}}',
+            "compaction_preserve_recent_turns": "10",
+        },
+    )
+
+    assert error is None
+    assert merged["enabled_tools"] == ["bash"]
+    for field_name in [
+        "workspace_root",
+        "default_provider_id",
+        "default_model",
+        "mcp_servers",
+        "compaction_preserve_recent_turns",
+    ]:
+        assert field_name not in merged

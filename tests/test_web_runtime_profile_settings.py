@@ -115,13 +115,47 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
 def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        _bind_profile(db, agent, {"llm": {"tools": ["git_clone", "jira_*"]}})
+        _bind_profile(db, agent, {"llm": {"tools": ["bash", "webfetch"]}})
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         assert 'name="llm_tools_mode"' not in resp.text
         assert 'name="llm_tools_count"' not in resp.text
-        assert "git_clone" not in resp.text
-        assert "jira_*" not in resp.text
+        assert "bash" not in resp.text
+        assert "webfetch" not in resp.text
+    finally:
+        cleanup()
+
+
+def test_settings_panel_renders_runtime_v2_section_and_controls(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(
+            db,
+            agent,
+            {
+                "enabled_tools": ["bash", "read"],
+                "tool_permissions": {"bash": {"allowed": True}},
+                "max_iterations": 8,
+                "enable_plan_tool": False,
+                "runtime_mode": "plan",
+                "structured_output_schema": {"type": "object"},
+            },
+        )
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        for marker in [
+            'name="__touch_runtime_v2" value="0" data-touch-flag="runtime_v2"',
+            'data-managed-section="runtime_v2"',
+            'name="enabled_tools"',
+            'name="tool_permissions"',
+            'name="max_iterations"',
+            'name="enable_plan_tool"',
+            'name="runtime_mode"',
+            'name="structured_output_schema"',
+            'name="track_usage"',
+        ]:
+            assert marker in resp.text
+        assert "compaction_preserve_recent_turns" not in resp.text
     finally:
         cleanup()
 
@@ -135,6 +169,32 @@ def test_settings_view_payload_normalizes_copilot_provider_alias():
     )
     assert payload["raw_llm"]["provider"] == "github_copilot"
     assert payload["llm"]["provider"] == "github_copilot"
+
+
+def test_settings_view_payload_runtime_v2_uses_raw_values_for_rendering():
+    from app.web import _settings_view_payload
+
+    payload = _settings_view_payload(
+        {
+            "enabled_tools": ["bash", "read"],
+            "tool_permissions": {"bash": {"allowed": True}},
+            "compaction_auto": True,
+            "enable_plan_tool": False,
+            "runtime_mode": "plan",
+            "max_iterations": 6,
+        },
+        {},
+    )
+
+    runtime_v2 = payload["runtime_v2"]
+    assert runtime_v2["enabled_tools"] == "bash\nread"
+    assert '"allowed": true' in runtime_v2["tool_permissions"]
+    assert runtime_v2["compaction_auto"] is True
+    assert runtime_v2["compaction_prune"] is False
+    assert runtime_v2["enable_plan_tool"] == "false"
+    assert runtime_v2["runtime_mode"] == "plan"
+    assert runtime_v2["max_iterations"] == "6"
+    assert runtime_v2["max_context_tokens"] == ""
 
 
 def test_settings_save_ignores_legacy_automation_fields(monkeypatch):
@@ -186,10 +246,10 @@ def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
             "__touch_llm": "1",
             "llm_tools_mode": "custom",
             "llm_tools_count": "4",
-            "llm_tools_0_pattern": " git_clone ",
-            "llm_tools_1_pattern": "jira_*",
+            "llm_tools_0_pattern": " bash ",
+            "llm_tools_1_pattern": "webfetch",
             "llm_tools_2_pattern": "",
-            "llm_tools_3_pattern": "GIT_CLONE",
+            "llm_tools_3_pattern": "BASH",
         }
         resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
         assert resp.status_code == 200

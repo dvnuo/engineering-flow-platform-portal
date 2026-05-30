@@ -12,7 +12,7 @@
         <span class="portal-status-badge {{ 'is-success' if skill.permission_state == 'allowed' else ('is-error' if skill.permission_state in ['denied', 'blocked'] else 'is-warning') }}">Permission: {{ skill.permission_state }}</span>
         <span class="portal-status-badge {{ 'is-success' if skill.runtime_compatibility == 'full' else ('is-error' if skill.runtime_compatibility == 'unsupported' else 'is-warning') }}">Runtime: {{ skill.runtime_compatibility }}</span>
       </div>
-      {% if skill.prompt_only %}<div class="portal-panel-note">Prompt-only in this runtime; Python skill.py is not executed.</div>{% endif %}
+      {% if skill.prompt_only %}<div class="portal-panel-note">Prompt-only in this runtime; Runtime v2 handles skill execution.</div>{% endif %}
     </button>{% endif %}
   {% endfor %}</div>{% else %}<div class="portal-panel-empty">No skills available.</div>{% endif %}
 </div>

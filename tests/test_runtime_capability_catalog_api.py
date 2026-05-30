@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -9,6 +10,23 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 from app.models import Agent, User
 from app.services.auth_service import hash_password
+from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider
+
+
+RUNTIME_V2_CORE_TOOL_IDS = (
+    "apply_patch",
+    "bash",
+    "edit",
+    "glob",
+    "grep",
+    "invalid",
+    "read",
+    "skill",
+    "task",
+    "todowrite",
+    "webfetch",
+    "write",
+)
 
 
 def _build_client(monkeypatch):
@@ -159,6 +177,45 @@ def test_latest_api_can_filter_by_agent_id(monkeypatch):
         latest_resp = client.get(f"/api/runtime-capability-catalog/latest?agent_id={agent.id}")
         assert latest_resp.status_code == 200
         assert latest_resp.json()["source_agent_id"] == agent.id
+    finally:
+        cleanup()
+
+
+def test_sync_api_accepts_runtime_v2_core_tool_snapshot(monkeypatch):
+    client, agent, _other_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client(monkeypatch)
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "catalog_version": "runtime-v2",
+                "supports_snapshot_contract": True,
+                "capabilities": [
+                    {
+                        "capability_id": tool_id,
+                        "capability_type": "tool",
+                        "logical_name": tool_id,
+                    }
+                    for tool_id in RUNTIME_V2_CORE_TOOL_IDS
+                ],
+            }
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _FakeResponse())
+    try:
+        set_user(owner_user)
+        sync_resp = client.post("/api/runtime-capability-catalog/sync", json={"agent_id": agent.id})
+        assert sync_resp.status_code == 200
+        payload = sync_resp.json()
+        assert payload["catalog_version"] == "runtime-v2"
+        snapshot_payload = json.loads(payload["payload_json"])
+
+        provider = build_runtime_capability_catalog_provider(
+            runtime_catalog_snapshot_payload=snapshot_payload
+        )
+        for tool_id in RUNTIME_V2_CORE_TOOL_IDS:
+            assert provider.resolve_tool_name_to_capability_id(tool_id) == tool_id
     finally:
         cleanup()
 

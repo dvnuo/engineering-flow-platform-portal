@@ -8253,7 +8253,7 @@ function addLlmToolPatternRow(root, value = "") {
   div.className = "flex items-center gap-2";
   div.dataset.llmToolsItem = "";
   div.innerHTML = `
-    <input type="text" value="${safe(value)}" placeholder="e.g. git_clone or jira_*" class="portal-form-input" />
+    <input type="text" value="${safe(value)}" placeholder="e.g. bash or webfetch" class="portal-form-input" />
     <button type="button" class="portal-btn is-secondary" data-action="remove-llm-tool-pattern">Remove</button>
   `;
   container.append(div);

@@ -5,7 +5,6 @@ from app.contracts.opencode_provider import normalize_model_for_runtime, normali
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,
-    sanitize_runtime_profile_tool_loop,
 )
 from app.services.runtime_profile_authorization import (
     AUTHORIZATION_ALLOWLIST_KEYS,
@@ -14,7 +13,11 @@ from app.services.runtime_profile_authorization import (
     runtime_profile_authorization_metadata,
 )
 from app.services.runtime_profile_service import RuntimeProfileService
-from app.services.runtime_profile_llm_projection import project_llm_for_runtime
+from app.services.runtime_profile_runtime_v2_projection import (
+    build_trusted_runtime_v2_config,
+    is_opencode_runtime_type,
+    strip_opencode_runtime_restriction_keys,
+)
 
 
 class RuntimeExecutionContextService:
@@ -42,46 +45,28 @@ class RuntimeExecutionContextService:
             return runtime_profile_id, None, {}
 
         materialized_config = RuntimeProfileService.merge_with_managed_defaults(parsed_config)
-        authorization_metadata = runtime_profile_authorization_metadata(
-            materialized_config,
-            raw_runtime_profile_config(profile),
-        )
-        llm = materialized_config.get("llm") if isinstance(materialized_config, dict) else {}
-        raw_tool_loop = llm.get("tool_loop") if isinstance(llm, dict) else {}
-
-        try:
-            tool_loop = sanitize_runtime_profile_tool_loop(raw_tool_loop)
-        except ValueError:
-            return runtime_profile_id, None, {}
-
         runtime_type = getattr(agent, "runtime_type", "") if agent else ""
-        projected_llm = project_llm_for_runtime(llm, runtime_type) if isinstance(llm, dict) else {}
-        provider = projected_llm.get("provider") if isinstance(projected_llm, dict) else None
-        model = str(projected_llm.get("model") or "").strip() if isinstance(projected_llm, dict) else ""
-        base_url = ""
-        if isinstance(projected_llm, dict):
-            base_url = str(projected_llm.get("base_url") or projected_llm.get("api_base") or projected_llm.get("baseURL") or projected_llm.get("endpoint") or "").strip()
-        runtime_cfg = {"llm": {"tool_loop": dict(tool_loop)}}
-        if provider:
-            runtime_cfg["llm"]["provider"] = provider
-        if model:
-            runtime_cfg["llm"]["model"] = model
-        if base_url:
-            runtime_cfg["llm"]["base_url"] = base_url
-        if isinstance(projected_llm, dict):
-            api_key = str(projected_llm.get("api_key") or "").strip()
-            oauth = projected_llm.get("oauth") if isinstance(projected_llm.get("oauth"), dict) else None
-            if api_key:
-                runtime_cfg["llm"]["api_key"] = api_key
-            if oauth:
-                runtime_cfg["llm"]["oauth"] = dict(oauth)
+        authorization_metadata = {}
+        if not is_opencode_runtime_type(runtime_type):
+            authorization_metadata = runtime_profile_authorization_metadata(
+                materialized_config,
+                raw_runtime_profile_config(profile),
+            )
+        runtime_cfg = build_trusted_runtime_v2_config(
+            parsed_config,
+            runtime_type=runtime_type,
+            default_llm=RuntimeProfileService.default_profile_config().get("llm"),
+            include_portal_sections=False,
+        )
+        if is_opencode_runtime_type(runtime_type):
+            runtime_cfg["runtime_type"] = "opencode"
         return (
             runtime_profile_id,
             {
                 "runtime_profile_id": runtime_profile_id,
                 "name": getattr(profile, "name", "") or "",
                 "revision": getattr(profile, "revision", None),
-                "managed_sections": ["llm"],
+                "managed_sections": ["llm", "runtime_v2"],
                 "config": runtime_cfg,
                 "source": "portal.runtime_profile",
             },
@@ -107,6 +92,7 @@ class RuntimeExecutionContextService:
 
     def build_runtime_metadata(self, db: Session, agent: Agent | None, base_metadata: dict | None = None) -> dict:
         metadata = dict(base_metadata or {})
+        runtime_type = getattr(agent, "runtime_type", "") if agent else ""
         context = self.build_for_agent(db, agent)
         for key in (
             "authorization_source",
@@ -124,7 +110,6 @@ class RuntimeExecutionContextService:
             if isinstance(llm_cfg, dict):
                 provider = llm_cfg.get("provider")
                 model = llm_cfg.get("model")
-                runtime_type = getattr(agent, "runtime_type", "") if agent else ""
                 runtime_provider = normalize_provider_for_runtime(runtime_type, provider) if provider else None
                 if provider:
                     metadata["provider"] = provider
@@ -141,4 +126,4 @@ class RuntimeExecutionContextService:
         if isinstance(authorization_metadata, dict) and authorization_metadata:
             metadata.update(authorization_metadata)
 
-        return metadata
+        return strip_opencode_runtime_restriction_keys(metadata, runtime_type)
