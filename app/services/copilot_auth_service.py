@@ -18,14 +18,10 @@ COPILOT_ACCESS_TOKEN_URL = f"{COPILOT_GITHUB_OAUTH_BASE_URL}/login/oauth/access_
 
 
 def normalize_copilot_runtime_type(value: str | None) -> str:
-    raw = (value or "").strip().lower()
-    if not raw:
-        return "opencode"
-    if raw == "efp":
+    raw = str(value or "").strip().lower()
+    if not raw or raw == "native":
         return "native"
-    if raw in {"native", "opencode"}:
-        return raw
-    raise ValueError("runtime_type must be one of: native, opencode")
+    raise ValueError("runtime_type is fixed to native")
 
 _pending_authorizations: dict[str, dict[str, Any]] = {}
 
@@ -134,7 +130,7 @@ class CopilotAuthService:
         if record.get("status") == "authorized" and isinstance(record.get("oauth"), dict):
             oauth = record["oauth"]
             _pending_authorizations.pop(auth_id, None)
-            return 200, {"status": "authorized", "oauth": oauth, "oauth_summary": self._oauth_summary(oauth, record.get("runtime_type", "opencode")), "token": oauth.get("access", ""), "runtime_type": record.get("runtime_type", "opencode")}
+            return 200, {"status": "authorized", "oauth": oauth, "oauth_summary": self._oauth_summary(oauth, record.get("runtime_type", "native")), "token": oauth.get("access", ""), "runtime_type": record.get("runtime_type", "native")}
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -167,7 +163,7 @@ class CopilotAuthService:
             record["status"] = "authorized"
             record["oauth"] = oauth
             _pending_authorizations.pop(auth_id, None)
-            return 200, {"status": "authorized", "oauth": oauth, "oauth_summary": self._oauth_summary(oauth, record.get("runtime_type", "opencode")), "token": access_token, "runtime_type": record.get("runtime_type", "opencode")}
+            return 200, {"status": "authorized", "oauth": oauth, "oauth_summary": self._oauth_summary(oauth, record.get("runtime_type", "native")), "token": access_token, "runtime_type": record.get("runtime_type", "native")}
 
         return 200, {"status": "failed", "message": sanitize_exception_message(error or f"GitHub API returned {response.status_code}")}
 

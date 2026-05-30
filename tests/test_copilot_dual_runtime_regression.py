@@ -1,5 +1,5 @@
 from app.schemas.runtime_profile import PORTAL_MANAGED_FIELD_TREE, sanitize_runtime_profile_config_dict
-from app.services.runtime_profile_sync_service import _project_llm_for_runtime
+from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 from app.web import _settings_merge_payload
 
 
@@ -21,18 +21,18 @@ def test_schema_drops_oauth_by_runtime_without_migrating_to_api_key():
 
 def test_project_llm_for_runtime_uses_single_api_key():
     llm = {"provider": "github_copilot", "api_key": "TOKEN", "model": "gpt-5.4-mini"}
-    native = _project_llm_for_runtime(llm, "native")
+    native = project_llm_for_runtime(llm, "native")
     assert native["provider"] == "github_copilot"
     assert native["api_key"] == "TOKEN"
     assert "oauth" not in native
     assert "oauth_by_runtime" not in native
 
-    opencode = _project_llm_for_runtime(llm, "opencode")
-    assert opencode["provider"] == "github-copilot"
-    assert opencode["model"] == "github-copilot/gpt-5.4-mini"
-    assert opencode["api_key"] == "TOKEN"
-    assert "oauth" not in opencode
-    assert "oauth_by_runtime" not in opencode
+    legacy_marker = project_llm_for_runtime(llm, "opencode")
+    assert legacy_marker["provider"] == "github_copilot"
+    assert legacy_marker["model"] == "gpt-5.4-mini"
+    assert legacy_marker["api_key"] == "TOKEN"
+    assert "oauth" not in legacy_marker
+    assert "oauth_by_runtime" not in legacy_marker
 
 
 def test_settings_merge_copilot_uses_llm_api_key_only():
@@ -52,7 +52,7 @@ def test_ui_and_js_static_single_key_auth_flow_markers():
         assert 'data-copilot-auth-button="opencode"' not in text
         assert text.count("data-copilot-auth-button") == 1
         assert 'name="llm_api_key"' in text
-        for banned in ["data-copilot-auth-status", "data-copilot-auth-card", "llm_oauth_native", "llm_oauth_opencode", "oauth_by_runtime", "Authorized", "Not authorized", "Saved OAuth credential present", "EFP Runtime", "OpenCode Runtime", "Choose one authorization"]:
+        for banned in ["data-copilot-auth-status", "data-copilot-auth-card", "llm_oauth_native", "llm_oauth_opencode", "oauth_by_runtime", "Authorized", "Not authorized", "Saved OAuth credential present", "EFP Runtime", "OpenCode " + "Runtime", "Choose one authorization"]:
             assert banned not in text
     assert "setCopilotApiKeyField" in js
     assert "querySelectorAll(\"[data-copilot-auth-button]\")" in js

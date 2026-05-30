@@ -36,10 +36,9 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert 'name="branch"' not in html
     assert 'name="skill_repo_url"' in html
     assert 'name="skill_branch"' in html
-    assert 'name="runtime_type"' in html
     assert "Skill Repository" in html
     assert "Skill Branch" in html
-    assert "Runtime Type" in html
+    assert "Runtime Type" not in html
     assert "Tools Repository" not in html
     assert "Tools Branch" not in html
 
@@ -50,11 +49,11 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "updates.skill_branch =" in js
     assert "skill_repo_url: repoUrl || null" in js
     assert "skill_branch: branch || null" in js
-    assert "runtime_types" in js
-    assert "runtime_type: runtimeType" in js
-    assert "updates.runtime_type = runtimeType" in js
-    assert "const runtimeTypeBadge" in js
-    assert 'agent.runtime_type || "native"' in js
+    assert "runtime" + "_types" not in js
+    assert "runtime_type: runtimeType" not in js
+    assert "updates.runtime_type = runtimeType" not in js
+    assert "const runtimeTypeBadge" not in js
+    assert 'agent.runtime_type || "native"' not in js
     assert "toolRepoSection" not in js
     assert 'image: defaults.image_repo + ":"' not in js
     assert "/api/skill-git-info" in js

@@ -7,7 +7,6 @@
     <input type="hidden" name="__touch_github" value="0" data-touch-flag="github" />
     <input type="hidden" name="__touch_git" value="0" data-touch-flag="git" />
     <input type="hidden" name="__touch_debug" value="0" data-touch-flag="debug" />
-    <input type="hidden" name="__touch_runtime_v2" value="0" data-touch-flag="runtime_v2" />
     {% if status_message %}
       <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'warning' %}is-warning{% elif status_type == 'success' %}is-success{% endif %}" data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
     {% endif %}
@@ -65,8 +64,6 @@
         <div class="portal-inline-note" data-copilot-auth-help>GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.</div>
       </div>
     </section>
-
-    {% include "partials/runtime_v2_settings_section.html" %}
 
     <section class="portal-panel-section" data-instance-group="jira" data-managed-section="jira">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">

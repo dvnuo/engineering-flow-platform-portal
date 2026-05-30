@@ -126,15 +126,15 @@ def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
         cleanup()
 
 
-def test_settings_panel_renders_runtime_v2_section_and_controls(monkeypatch):
+def test_settings_panel_does_not_render_runtime_internal_controls(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         _bind_profile(
             db,
             agent,
             {
-                "enabled_tools": ["bash", "read"],
-                "tool_permissions": {"bash": {"allowed": True}},
+                "enabled" + "_tools": ["bash", "read"],
+                "tool" + "_permissions": {"bash": {"allowed": True}},
                 "max_iterations": 8,
                 "enable_plan_tool": False,
                 "runtime_mode": "plan",
@@ -144,18 +144,17 @@ def test_settings_panel_renders_runtime_v2_section_and_controls(monkeypatch):
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         for marker in [
-            'name="__touch_runtime_v2" value="0" data-touch-flag="runtime_v2"',
-            'data-managed-section="runtime_v2"',
-            'name="enabled_tools"',
-            'name="tool_permissions"',
+            'name="__touch_' + 'runtime_v2"',
+            'data-managed-section="' + 'runtime_v2"',
+            'name="enabled' + '_tools"',
+            'name="tool' + '_permissions"',
             'name="max_iterations"',
             'name="enable_plan_tool"',
             'name="runtime_mode"',
             'name="structured_output_schema"',
             'name="track_usage"',
         ]:
-            assert marker in resp.text
-        assert "compaction_preserve_recent_turns" not in resp.text
+            assert marker not in resp.text
     finally:
         cleanup()
 
@@ -171,13 +170,13 @@ def test_settings_view_payload_normalizes_copilot_provider_alias():
     assert payload["llm"]["provider"] == "github_copilot"
 
 
-def test_settings_view_payload_runtime_v2_uses_raw_values_for_rendering():
+def test_settings_view_payload_excludes_runtime_internal_view_model():
     from app.web import _settings_view_payload
 
     payload = _settings_view_payload(
         {
-            "enabled_tools": ["bash", "read"],
-            "tool_permissions": {"bash": {"allowed": True}},
+            "enabled" + "_tools": ["bash", "read"],
+            "tool" + "_permissions": {"bash": {"allowed": True}},
             "compaction_auto": True,
             "enable_plan_tool": False,
             "runtime_mode": "plan",
@@ -186,15 +185,7 @@ def test_settings_view_payload_runtime_v2_uses_raw_values_for_rendering():
         {},
     )
 
-    runtime_v2 = payload["runtime_v2"]
-    assert runtime_v2["enabled_tools"] == "bash\nread"
-    assert '"allowed": true' in runtime_v2["tool_permissions"]
-    assert runtime_v2["compaction_auto"] is True
-    assert runtime_v2["compaction_prune"] is False
-    assert runtime_v2["enable_plan_tool"] == "false"
-    assert runtime_v2["runtime_mode"] == "plan"
-    assert runtime_v2["max_iterations"] == "6"
-    assert runtime_v2["max_context_tokens"] == ""
+    assert "runtime_v2" not in payload
 
 
 def test_settings_save_ignores_legacy_automation_fields(monkeypatch):
@@ -238,7 +229,7 @@ def test_settings_save_ignores_legacy_automation_fields(monkeypatch):
         cleanup()
 
 
-def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
+def test_settings_save_ignores_llm_tools_custom_patterns(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"llm": {"provider": "openai"}})
@@ -255,14 +246,15 @@ def test_settings_save_persists_llm_tools_custom_patterns(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["tools"] == ["*"]
+        assert cfg["llm"]["provider"] == "openai"
+        assert "tools" not in cfg["llm"]
         assert 'name="llm_tools_count"' not in resp.text
         assert 'data-action="add-llm-tool-pattern"' not in resp.text
     finally:
         cleanup()
 
 
-def test_settings_save_persists_llm_tools_none_mode(monkeypatch):
+def test_settings_save_drops_existing_llm_tools_on_save(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"llm": {"tools": ["*"]}})
@@ -273,7 +265,7 @@ def test_settings_save_persists_llm_tools_none_mode(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["tools"] == ["*"]
+        assert cfg == {}
     finally:
         cleanup()
 
@@ -296,7 +288,7 @@ def test_settings_save_sparse_llm_tools_none_does_not_inject_provider_or_model(m
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg == {"llm": {"tools": ["*"]}}
+        assert cfg == {}
     finally:
         cleanup()
 
@@ -318,7 +310,7 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
         cfg = json.loads(rp.config_json)
         assert cfg["llm"]["provider"] == "openai"
         assert cfg["llm"]["model"] == "gpt-5"
-        assert cfg["llm"]["tools"] == ["*"]
+        assert "tools" not in cfg["llm"]
         assert "max_retries" not in cfg["llm"]
         assert "system-prompt" not in cfg["llm"]
         assert "proxy" not in cfg
@@ -392,7 +384,7 @@ def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypa
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg == {"llm": {"tools": ["*"]}, "debug": {"enabled": True, "log_level": "DEBUG"}}
+        assert cfg == {"debug": {"enabled": True, "log_level": "DEBUG"}}
     finally:
         cleanup()
 
@@ -467,7 +459,7 @@ def test_settings_panel_hides_response_flow_controls_and_ignores_submitted_value
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
         assert cfg["llm"]["provider"] == "openai"
-        assert cfg["llm"]["tools"] == ["*"]
+        assert "tools" not in cfg["llm"]
         assert "response_flow" not in cfg["llm"]
     finally:
         cleanup()

@@ -4,7 +4,7 @@ import logging
 from uuid import uuid4
 
 from app.config import get_settings
-from app.contracts.runtime_types import InvalidRuntimeType, normalize_runtime_type, normalize_runtime_type_or_default
+from app.contracts.runtime_type import InvalidRuntimeType, normalize_runtime_type, normalize_runtime_type_or_default
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
@@ -33,14 +33,16 @@ from app.utils.state_machine import can_transition, is_valid_status
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+SINGLE_RUNTIME_TYPE = "native"
+SINGLE_RUNTIME_WORKSPACE_PATH = "/workspace"
 
 
 @router.get("/defaults")
 def get_agent_defaults(user=Depends(get_current_user)):
     """Get default configuration for agent creation."""
     return {
-        "image_repo": _native_runtime_image_repo(),
-        "image_tag": _native_runtime_image_tag(),
+        "image_repo": _single_runtime_image_repo(),
+        "image_tag": _single_runtime_image_tag(),
         "git_image": settings.default_agent_git_image,
         "default_runtime_repo_url": _runtime_repo_url_from_settings(),
         "default_runtime_branch": _runtime_branch_from_settings(),
@@ -53,24 +55,7 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "disk_size_gi": settings.default_agent_disk_size_gi,
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,
-        "mount_path": settings.default_agent_mount_path,
-        "default_runtime_type": _default_runtime_type_from_settings(),
-        "runtime_types": [
-            {
-                "value": "opencode",
-                "label": "OpenCode Runtime",
-                "image_repo": _opencode_runtime_image_repo(),
-                "image_tag": _opencode_runtime_image_tag(),
-                "default_mount_path": "/workspace",
-            },
-            {
-                "value": "native",
-                "label": "EFP Native Runtime",
-                "image_repo": _native_runtime_image_repo(),
-                "image_tag": _native_runtime_image_tag(),
-                "default_mount_path": settings.default_agent_mount_path or "/root/.efp",
-            },
-        ],
+        "mount_path": SINGLE_RUNTIME_WORKSPACE_PATH,
         "enable_runtime_source_overlay": settings.enable_runtime_source_overlay,
     }
 
@@ -139,7 +124,7 @@ def _validate_agent_type_or_422(agent_type: str | None) -> None:
 
 
 def _default_agent_image() -> str:
-    return _default_agent_image_for_runtime("native")
+    return _default_agent_image_for_runtime(SINGLE_RUNTIME_TYPE)
 
 
 def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -> str:
@@ -152,26 +137,15 @@ def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -
 
 
 def _default_runtime_type_from_settings() -> str:
-    raw = (settings.default_runtime_type or "").strip()
-    if not raw:
-        return "opencode"
-    return _normalize_runtime_type(raw, allow_default=False)
+    return SINGLE_RUNTIME_TYPE
 
 
-def _native_runtime_image_repo() -> str:
-    return (settings.default_native_runtime_image_repo or settings.default_agent_image_repo or "").strip()
+def _single_runtime_image_repo() -> str:
+    return (settings.default_agent_image_repo or "").strip()
 
 
-def _native_runtime_image_tag() -> str:
-    return (settings.default_native_runtime_image_tag or settings.default_agent_image_tag or "latest").strip() or "latest"
-
-
-def _opencode_runtime_image_repo() -> str:
-    return (settings.default_opencode_runtime_image_repo or "ghcr.io/dvnuo/efp-opencode-runtime").strip()
-
-
-def _opencode_runtime_image_tag() -> str:
-    return (settings.default_opencode_runtime_image_tag or "1.14.39").strip() or "1.14.39"
+def _single_runtime_image_tag() -> str:
+    return (settings.default_agent_image_tag or "latest").strip() or "latest"
 
 
 async def _sync_runtime_profile_to_running_agent_or_record_warning(db: Session, agent) -> None:
@@ -199,10 +173,8 @@ async def _sync_runtime_profile_to_running_agent_or_record_warning(db: Session, 
 
 
 def _runtime_image_parts(runtime_type: str) -> tuple[str, str]:
-    runtime_type = _normalize_runtime_type(runtime_type)
-    if runtime_type == "opencode":
-        return _opencode_runtime_image_repo(), _opencode_runtime_image_tag()
-    return _native_runtime_image_repo(), _native_runtime_image_tag()
+    _normalize_runtime_type(runtime_type)
+    return _single_runtime_image_repo(), _single_runtime_image_tag()
 
 
 def _default_agent_image_for_runtime(runtime_type: str) -> str:
@@ -237,20 +209,18 @@ def _resolve_create_skill_branch(payload: AgentCreateRequest) -> str:
 
 
 def _resolve_create_runtime_type(payload: AgentCreateRequest) -> str:
-    if "runtime_type" not in payload.model_fields_set:
-        return _default_runtime_type_from_settings()
-    return _normalize_runtime_type(payload.runtime_type)
+    _ = payload
+    return SINGLE_RUNTIME_TYPE
 
 
 def _resolve_create_image(payload: AgentCreateRequest, runtime_type: str) -> str:
-    image = (payload.image or "").strip()
-    return image or _default_agent_image_for_runtime(runtime_type)
+    _ = payload
+    return _default_agent_image_for_runtime(runtime_type)
 
 
 def _default_mount_path_for_runtime(runtime_type: str) -> str:
-    if _normalize_runtime_type(runtime_type) == "opencode":
-        return "/workspace"
-    return settings.default_agent_mount_path or "/root/.efp"
+    _normalize_runtime_type(runtime_type)
+    return SINGLE_RUNTIME_WORKSPACE_PATH
 
 
 def _resolve_create_mount_path(payload: AgentCreateRequest, runtime_type: str) -> str:
@@ -266,21 +236,16 @@ def _normalize_runtime_type_update_change(agent, changes: dict) -> bool:
         return False
     if changes["runtime_type"] is None:
         raise ValueError("runtime_type cannot be null")
-    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None), allow_default=True)
     new_runtime_type = _normalize_runtime_type(changes["runtime_type"])
-    changes["runtime_type"] = new_runtime_type
-    return new_runtime_type != old_runtime_type
+    if new_runtime_type != SINGLE_RUNTIME_TYPE:
+        raise ValueError("runtime_type is fixed to native")
+    changes.pop("runtime_type", None)
+    return False
+
 
 def _maybe_add_mount_path_switch_for_runtime_change(agent, changes: dict) -> None:
-    if "runtime_type" not in changes:
-        return
-    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None), allow_default=True)
-    new_runtime_type = _normalize_runtime_type(changes.get("runtime_type"))
-    if old_runtime_type == new_runtime_type:
-        return
-    old_default_mount = _default_mount_path_for_runtime(old_runtime_type)
-    if getattr(agent, "mount_path", None) == old_default_mount:
-        changes["mount_path"] = _default_mount_path_for_runtime(new_runtime_type)
+    _ = agent, changes
+    return
 
 
 
@@ -288,7 +253,7 @@ def _validate_runtime_type_or_422(runtime_type: str | None) -> None:
     if runtime_type is None:
         return
     if runtime_type not in ALLOWED_RUNTIME_TYPES:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type must be one of: native, opencode")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type is fixed to native")
 
 
 @router.get("/mine", response_model=list[AgentResponse])
@@ -359,12 +324,19 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         target_type="agent",
         target_id=agent.id,
         user_id=user.id,
-        details={"name": agent.name, "image": effective_image, "status": agent.status, "skill_repo_url": effective_skill_repo_url, "skill_branch": effective_skill_branch , "runtime_type": effective_runtime_type},
+        details={
+            "name": agent.name,
+            "image": effective_image,
+            "status": agent.status,
+            "skill_repo_url": effective_skill_repo_url,
+            "skill_branch": effective_skill_branch,
+            "runtime_type": effective_runtime_type,
+        },
     )
 
     # Do not push runtime profile synchronously during agent creation.
     # Creating K8s resources does not mean the runtime HTTP endpoint is ready,
-    # especially for OpenCode runtime cold starts. POST /api/agents must return
+    # especially during runtime cold starts. POST /api/agents must return
     # after Portal has persisted the agent and submitted K8s resources. Runtime
     # readiness is reflected by /api/agents/{agent_id}/status.
     try:

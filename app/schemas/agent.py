@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
-from app.contracts.runtime_types import ALLOWED_RUNTIME_TYPES, normalize_runtime_type, normalize_runtime_type_or_default
+from app.contracts.runtime_type import ALLOWED_RUNTIME_TYPES, normalize_runtime_type, normalize_runtime_type_or_default
 from app.utils.git_urls import normalize_git_repo_url
 
 ALLOWED_AGENT_TYPES = {"workspace", "specialist", "task"}
@@ -19,7 +19,7 @@ class AgentCreateRequest(BaseModel):
     skill_repo_url: Optional[str] = None
     skill_branch: Optional[str] = None
     disk_size_gi: int = 20
-    mount_path: str = "/root/.efp"
+    mount_path: str = "/workspace"
     cpu: Optional[str] = None
     memory: Optional[str] = None
     description: Optional[str] = None
@@ -41,7 +41,9 @@ class AgentCreateRequest(BaseModel):
     @field_validator("runtime_type")
     @classmethod
     def validate_runtime_type(cls, value: Optional[str]) -> str:
-        return normalize_runtime_type_or_default(value)
+        if value is None:
+            return "native"
+        return normalize_runtime_type(value)
 
 
 class AgentUpdateRequest(BaseModel):

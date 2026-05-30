@@ -38,7 +38,7 @@ def test_ensure_user_has_default_profile_creates_default():
     assert profile.name == "Default"
     assert profile.is_default is True
     saved = json.loads(profile.config_json)
-    assert saved == {"llm": {"tools": ["*"]}}
+    assert saved == {}
 
 
 def test_switch_default_keeps_exactly_one_default():
@@ -74,20 +74,12 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert cfg["llm"]["model"] == "gpt-5.4-mini"
     assert cfg["llm"]["max_tokens"] == 64000
     assert "temperature" not in cfg["llm"]
-    assert cfg["llm"]["max_retries"] == 3
-    assert cfg["llm"]["retry_delay"] == 1
-    assert cfg["llm"]["tools"] == ["*"]
-    assert cfg["llm"]["tool_loop"]["one_tool_per_turn"] is True
-    assert cfg["llm"]["tool_loop"]["parallel_tool_calls"] is False
-    assert cfg["llm"]["tool_loop"]["max_repeated_tool_signature"] == 2
-    assert cfg["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
-    assert cfg["llm"]["response_flow"]["staging_policy"] == "explicit_or_complex"
-    assert cfg["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
-    assert cfg["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
-    assert cfg["llm"]["response_flow"]["active_skill_conflict_policy"] == "auto_switch_direct"
-    assert cfg["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
-    assert cfg["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
-    assert cfg["llm"]["system-prompt"]["daily_notes"]["enabled"] is True
+    assert "max_retries" not in cfg["llm"]
+    assert "retry_delay" not in cfg["llm"]
+    assert "tools" not in cfg["llm"]
+    assert "tool_loop" not in cfg["llm"]
+    assert "response_flow" not in cfg["llm"]
+    assert "system-prompt" not in cfg["llm"]
     assert cfg["debug"]["log_level"] == "INFO"
 
     assert "api_key" not in cfg["llm"]
@@ -121,7 +113,7 @@ def test_parse_runtime_profile_config_json_keeps_temperature_for_exact_gpt4():
 
 def test_parse_runtime_profile_config_json_strips_temperature_without_gpt4_model():
     parsed = parse_runtime_profile_config_json('{"llm":{"temperature":0.2}}')
-    assert parsed == {"llm": {}}
+    assert parsed == {}
 
 
 def test_parse_runtime_profile_config_json_strips_temperature_for_gpt4o():
@@ -196,7 +188,7 @@ def test_create_for_user_with_empty_config_stays_canonicalized_sparse():
         is_default=False,
     )
     saved = json.loads(profile.config_json)
-    assert saved == {"llm": {"tools": ["*"]}}
+    assert saved == {}
     assert "proxy" not in saved
     assert "jira" not in saved
 
@@ -206,7 +198,7 @@ def test_materialize_create_config_json_canonicalizes_raw_without_default_expans
         json.dumps({"llm": {"provider": "openai"}, "ssh": {"hack": True}})
     )
     saved = json.loads(materialized)
-    assert saved == {"llm": {"provider": "openai", "tools": ["*"]}}
+    assert saved == {"llm": {"provider": "openai"}}
     assert "proxy" not in saved
 
 
@@ -238,7 +230,7 @@ def test_create_for_user_persists_raw_snapshot_without_hidden_default_injection(
     db.refresh(profile)
     saved = json.loads(profile.config_json)
 
-    assert saved == {"llm": {"provider": "openai", "tools": ["*"]}}
+    assert saved == {"llm": {"provider": "openai"}}
     assert "max_retries" not in saved["llm"]
     assert "system-prompt" not in saved["llm"]
     assert "proxy" not in saved
@@ -262,7 +254,6 @@ def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields_but_keep
         "llm": {
             "provider": "openai",
             "api_base": "https://example.invalid",
-            "tools": ["*"],
         }
     }
 
@@ -278,7 +269,6 @@ def test_normalize_persisted_config_json_strips_legacy_provider_automation_field
     normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
     saved = json.loads(normalized)
     assert saved == {
-        "llm": {"tools": ["*"]},
         "github": {"enabled": True},
         "jira": {"enabled": True},
         "confluence": {"enabled": True},
@@ -335,7 +325,7 @@ def test_update_for_user_sanitizes_runtime_profile_config():
         config_json=json.dumps({"github": {"enabled": True, "automation": {"mentions": {"enabled": True}}}}),
     )
     saved = json.loads(updated.config_json)
-    assert saved == {"llm": {"tools": ["*"]}, "github": {"enabled": True}}
+    assert saved == {"github": {"enabled": True}}
 
 
 def test_create_for_user_sanitizes_runtime_profile_config():
@@ -361,15 +351,13 @@ def test_create_for_user_sanitizes_runtime_profile_config():
     assert saved["github"] == {"enabled": True}
     assert saved["jira"] == {"enabled": True}
     assert saved["confluence"] == {"enabled": True}
-def test_runtime_profile_json_sanitizer_preserves_llm_context_budget_and_projection():
+def test_runtime_profile_json_sanitizer_drops_llm_context_budget_and_projection():
     raw = '{"llm":{"provider":"openai","context_budget":{"tool_loop":{"max_prompt_tokens":32000}},"context_projection":{"enabled":true}}}'
     parsed = parse_runtime_profile_config_json(raw)
     dumped = json.loads(dump_runtime_profile_config_json(parsed))
 
-    assert parsed["llm"]["context_budget"]["tool_loop"]["max_prompt_tokens"] == 32000
-    assert parsed["llm"]["context_projection"]["enabled"] is True
-    assert dumped["llm"]["context_budget"]["tool_loop"]["max_prompt_tokens"] == 32000
-    assert dumped["llm"]["context_projection"]["enabled"] is True
+    assert parsed == {"llm": {"provider": "openai"}}
+    assert dumped == {"llm": {"provider": "openai"}}
 
 
 def test_normal_settings_form_like_save_remains_sparse_without_context_fields():
@@ -377,13 +365,13 @@ def test_normal_settings_form_like_save_remains_sparse_without_context_fields():
     normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
     saved = json.loads(normalized)
 
-    assert saved == {"llm": {"provider": "openai", "model": "gpt-5-mini", "tools": ["*"]}}
+    assert saved == {"llm": {"provider": "openai", "model": "gpt-5-mini"}}
     assert "context_budget" not in saved["llm"]
     assert "context_projection" not in saved["llm"]
     assert "response_flow" not in saved["llm"]
 
 
-def test_runtime_profile_json_sanitizer_preserves_valid_llm_response_flow():
+def test_runtime_profile_json_sanitizer_drops_valid_llm_response_flow():
     raw = json.dumps(
         {
             "llm": {
@@ -403,16 +391,8 @@ def test_runtime_profile_json_sanitizer_preserves_valid_llm_response_flow():
     parsed = parse_runtime_profile_config_json(raw)
     dumped = json.loads(dump_runtime_profile_config_json(parsed))
 
-    assert parsed["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
-    assert parsed["llm"]["response_flow"]["staging_policy"] == "always"
-    assert parsed["llm"]["response_flow"]["default_skill_execution_style"] == "direct"
-    assert parsed["llm"]["response_flow"]["ask_user_policy"] == "blocked_only"
-    assert parsed["llm"]["response_flow"]["active_skill_conflict_policy"] == "always_ask"
-    assert parsed["llm"]["response_flow"]["complexity_prompt_budget_ratio"] == 0.85
-    assert parsed["llm"]["response_flow"]["complexity_min_request_tokens"] == 24000
-    assert dumped["llm"]["response_flow"]["plan_policy"] == "explicit_or_complex"
-    assert dumped["llm"]["response_flow"]["staging_policy"] == "always"
-    assert dumped["llm"]["response_flow"]["active_skill_conflict_policy"] == "always_ask"
+    assert parsed == {"llm": {"provider": "openai"}}
+    assert dumped == {"llm": {"provider": "openai"}}
 
 
 def test_runtime_profile_json_sanitizer_omits_response_flow_when_absent():

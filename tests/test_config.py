@@ -47,20 +47,6 @@ def test_settings_k8s_defaults():
     assert settings.k8s_agent_service_type == "ClusterIP"
 
 
-def test_settings_default_opencode_permission_env_defaults():
-    settings = Settings()
-    assert settings.default_opencode_permission_mode == "workspace_full_access"
-    assert settings.default_opencode_allow_bash_all is True
-
-
-def test_settings_default_opencode_permission_env_overrides(monkeypatch):
-    monkeypatch.setenv("DEFAULT_OPENCODE_PERMISSION_MODE", "profile_policy")
-    monkeypatch.setenv("DEFAULT_OPENCODE_ALLOW_BASH_ALL", "false")
-    settings = Settings()
-    assert settings.default_opencode_permission_mode == "profile_policy"
-    assert settings.default_opencode_allow_bash_all is False
-
-
 def test_settings_default_skill_asset_env_defaults():
     settings = Settings()
     assert settings.default_skill_repo_subdir == ""
@@ -79,17 +65,11 @@ def test_settings_agent_task_timeout_defaults():
     settings = Settings()
     assert settings.agent_task_runtime_poll_timeout_seconds == 3600
     assert settings.agent_task_runtime_poll_interval_seconds == 1
-    assert settings.opencode_task_completion_timeout_seconds == 3600
-    assert settings.opencode_chat_submit_timeout_seconds == 900
 
 
 def test_settings_agent_task_timeout_env_overrides(monkeypatch):
     monkeypatch.setenv("AGENT_TASK_RUNTIME_POLL_TIMEOUT_SECONDS", "3700")
     monkeypatch.setenv("AGENT_TASK_RUNTIME_POLL_INTERVAL_SECONDS", "3")
-    monkeypatch.setenv("OPENCODE_TASK_COMPLETION_TIMEOUT_SECONDS", "3800")
-    monkeypatch.setenv("OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS", "920")
     settings = Settings()
     assert settings.agent_task_runtime_poll_timeout_seconds == 3700
     assert settings.agent_task_runtime_poll_interval_seconds == 3
-    assert settings.opencode_task_completion_timeout_seconds == 3800
-    assert settings.opencode_chat_submit_timeout_seconds == 920

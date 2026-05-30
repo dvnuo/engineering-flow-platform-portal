@@ -145,7 +145,7 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         )
         assert no_config.status_code == 200
         no_config_payload = json.loads(no_config.json()["config_json"])
-        assert no_config_payload == {"llm": {"tools": ["*"], "api_key_present": False}}
+        assert no_config_payload == {}
 
         empty_config = client.post(
             "/api/runtime-profiles",
@@ -153,7 +153,7 @@ def test_runtime_profile_create_materializes_creation_seed_defaults(monkeypatch)
         )
         assert empty_config.status_code == 200
         empty_config_payload = json.loads(empty_config.json()["config_json"])
-        assert empty_config_payload == {"llm": {"tools": ["*"], "api_key_present": False}}
+        assert empty_config_payload == {}
     finally:
         cleanup()
 

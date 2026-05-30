@@ -195,7 +195,7 @@
                   <button type="button"
                           id="abort-chat-run-btn"
                           class="composer-pill-btn hidden"
-                          title="Stop current OpenCode run"
+                          title="Stop current run"
                           aria-hidden="true">
                     <i data-lucide="square" class="w-4 h-4"></i>
                     <span>Stop run</span>
@@ -319,49 +319,6 @@
         <label>Assistant Name</label>
         <input name="name" placeholder="MyAgent" value="MyAgent" required />
       </div>
-      <fieldset class="runtime-type-fieldset">
-        <legend>Runtime Type</legend>
-        <div
-          id="create-runtime-type-select"
-          class="runtime-type-radio-group"
-          role="radiogroup"
-          aria-describedby="create-runtime-type-hint"
-        >
-          <label class="runtime-type-radio-option">
-            <input
-              class="runtime-type-radio-input"
-              type="radio"
-              name="runtime_type"
-              value="opencode"
-              checked
-            />
-            <span class="runtime-type-radio-card">
-              <span class="runtime-type-radio-control" aria-hidden="true"></span>
-              <span class="runtime-type-radio-copy">
-                <span class="runtime-type-radio-title">OpenCode Runtime</span>
-                <span class="runtime-type-radio-description">Recommended default for new assistants.</span>
-              </span>
-            </span>
-          </label>
-
-          <label class="runtime-type-radio-option">
-            <input
-              class="runtime-type-radio-input"
-              type="radio"
-              name="runtime_type"
-              value="native"
-            />
-            <span class="runtime-type-radio-card">
-              <span class="runtime-type-radio-control" aria-hidden="true"></span>
-              <span class="runtime-type-radio-copy">
-                <span class="runtime-type-radio-title">EFP Native Runtime</span>
-                <span class="runtime-type-radio-description">Use the native EFP Python runtime.</span>
-              </span>
-            </span>
-          </label>
-        </div>
-        <p id="create-runtime-type-hint" class="portal-modal-copy"></p>
-      </fieldset>
       <div>
         <label>Skill Repository</label>
         <input name="skill_repo_url" placeholder="https://github.com/org/engineering-flow-platform-skills" />
@@ -392,14 +349,6 @@
       <div>
         <label>Assistant Name</label>
         <input name="name" placeholder="MyAgent" required />
-      </div>
-      <div>
-        <label>Runtime Type</label>
-        <select name="runtime_type" id="edit-runtime-type-select">
-          <option value="native">EFP Native Runtime</option>
-          <option value="opencode">OpenCode Runtime</option>
-        </select>
-        <p class="portal-modal-copy">Changing runtime type may recreate the runtime deployment.</p>
       </div>
       <div>
         <label>Skill Repository</label>

@@ -70,13 +70,7 @@ Access `http://localhost:8000/login`
 | `K8S_PVC_ACCESS_MODES` | PVC access modes | `["ReadWriteOnce"]` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
-| `DEFAULT_RUNTIME_TYPE` | Default runtime type for new agents (`native`/`opencode`) | `opencode` |
-| `DEFAULT_NATIVE_RUNTIME_IMAGE_REPO` | Native runtime image repository override | falls back to `DEFAULT_AGENT_IMAGE_REPO` |
-| `DEFAULT_NATIVE_RUNTIME_IMAGE_TAG` | Native runtime image tag override | falls back to `DEFAULT_AGENT_IMAGE_TAG` |
-| `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
-| `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | EFP OpenCode runtime image tag. This is not injected as `OPENCODE_VERSION` and is not used for OpenCode CLI version gating. | `1.14.39` |
-| `DEFAULT_OPENCODE_PERMISSION_MODE` | Default OpenCode runtime permission mode. For workspace coding agents the default is `workspace_full_access`, which asks the runtime adapter to allow workspace file read/write/edit tools. Applied only when `runtime_type=opencode`. | `workspace_full_access` |
-| `DEFAULT_OPENCODE_ALLOW_BASH_ALL` | When true, opencode runtime adapter should generate Bash permission as `{"*": "allow"}` without command-level deny patterns. Adapter/runtime env only; Portal does not execute bash. Applied only when `runtime_type=opencode`. | `true` |
+| `DEFAULT_RUNTIME_TYPE` | Internal runtime marker for legacy rows. Portal provisions the single Python EFP runtime and does not expose runtime selection. | `native` |
 | `ENABLE_RUNTIME_SOURCE_OVERLAY` | Enable native runtime source overlay clone/mount (`/app/src`, `/app/.git`) | `false` |
 | `DEFAULT_AGENT_RUNTIME_REPO_URL` | Runtime source repository URL used when source overlay is enabled | (empty) |
 | `DEFAULT_AGENT_RUNTIME_BRANCH` | Runtime source branch used when source overlay is enabled | `master` |
@@ -86,22 +80,17 @@ Access `http://localhost:8000/login`
 For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite).
 
 Kubernetes runtime provisioning behavior:
-- `native` runtime always mounts workspace/default mount path.
-- `native` mounts `/app/skills` when skill repo/default exists.
-- `native` mounts `/app/src` and `/app/.git` only when source overlay is enabled.
-- `opencode` uses packaged runtime image (no `/app/src`, no `/app/.git`).
-- `opencode` mounts `/workspace`, `/app/skills`, and opencode state dirs.
+- Portal provisions the Python EFP runtime image from `DEFAULT_AGENT_IMAGE_REPO` / `DEFAULT_AGENT_IMAGE_TAG`.
+- New agents mount `/workspace` by default.
+- Portal mounts `/app/skills` when a skill repo/default exists.
+- Portal mounts `/app/src` and `/app/.git` only when source overlay is enabled.
 - Portal does not parse slash commands and does not clone user-requested business repos at pod startup.
-- OpenCode runtime owns on-demand checkout (for example `/create-pull-request in git repo <url> from branch <head> to <base>`) using:
-  - `EFP_WORKSPACE_DIR=/workspace`
-  - `EFP_WORKSPACE_REPOS_DIR=/workspace/repos` (checkout path `/workspace/repos/<owner>/<repo>`)
-  - `EFP_GIT_CHECKOUT_TIMEOUT_SECONDS=120` (configurable via `OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS`)
+- Runtime owns on-demand checkout flows such as `/create-pull-request in git repo <url> from branch <head> to <base>`.
 - Skills repo is cloned by Portal initContainers into `/app/skills`.
 - Portal does not parse skills and does not copy only `SKILL.md`; it provisions the full selected skill package tree.
 - Root-layout skill repos should contain entries such as `<skill-name>/SKILL.md`, `<skill-name>/scripts/...`, `<skill-name>/templates/...`, `<skill-name>/reference/...`, or `<skill-name>/examples/...`.
 - Nested skill repo layouts can be enabled with `DEFAULT_SKILL_REPO_SUBDIR=skills`, which copies `repo/skills/.` directly into `/app/skills` instead of nesting it as `/app/skills/skills`.
 - `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.
-- OpenCode runtime then syncs `/app/skills` into `/workspace/.opencode/skills`.
 - Portal does not configure external tools repo/branch/mounts; runtime built-in tools are runtime-owned.
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.

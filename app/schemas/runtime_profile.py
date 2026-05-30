@@ -6,128 +6,6 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
-RUNTIME_V2_STRING_LIST_FIELDS = {
-    "enabled_tools",
-    "disabled_tools",
-    "active_skills",
-    "skill_directories",
-    "command_directories",
-    "system_prompt_texts",
-    "system_prompt_paths",
-    "instruction_texts",
-    "instruction_paths",
-}
-
-RUNTIME_V2_NULLABLE_STRING_LIST_FIELDS = {
-    "enabled_tools",
-}
-
-RUNTIME_V2_TEXT_LIST_FIELDS = {
-    "system_prompt_texts",
-    "instruction_texts",
-}
-
-RUNTIME_V2_BOOL_FIELDS = {
-    "enable_command_expansion",
-    "compaction_auto",
-    "compaction_prune",
-    "enable_compaction_summarizer",
-    "enable_context_overflow_retry",
-    "enable_session_revert_snapshots",
-    "include_default_system_prompt",
-    "include_environment_context",
-    "include_runtime_reminders",
-    "include_default_instructions",
-    "attach_read_instructions",
-    "include_skill_sidecar_content",
-    "resolve_prompt_references",
-    "inject_background_task_results",
-    "emit_llm_stream_events",
-    "track_usage",
-    "archive_truncated_tool_outputs",
-    "plan_mode_read_only",
-    "enable_question_tool",
-    "enable_lsp_tool",
-    "model_aware_tool_selection",
-}
-
-RUNTIME_V2_NULLABLE_BOOL_FIELDS = {
-    "enable_plan_tool",
-}
-
-RUNTIME_V2_INT_FIELDS = {
-    "max_iterations",
-    "context_reserve_chars",
-    "compaction_tail_turns",
-    "compaction_tool_output_max_chars",
-    "compaction_prune_min_chars",
-    "compaction_prune_protect_chars",
-    "max_system_prompt_chars",
-    "max_instruction_chars",
-    "max_skill_sidecar_chars",
-    "max_command_chars",
-    "max_prompt_reference_chars",
-    "max_prompt_directory_entries",
-}
-
-RUNTIME_V2_OPTIONAL_INT_FIELDS = {
-    "doom_loop_threshold",
-    "max_context_parts",
-    "max_context_chars",
-    "max_context_tokens",
-    "context_reserve_tokens",
-    "compaction_preserve_recent_chars",
-    "compaction_preserve_recent_tokens",
-    "compaction_reserved_chars",
-    "tool_output_max_lines",
-    "tool_output_max_bytes",
-}
-
-RUNTIME_V2_INT_MIN_VALUES = {
-    "max_iterations": 1,
-    "doom_loop_threshold": 2,
-    "max_context_parts": 1,
-    "max_context_chars": 1,
-}
-
-RUNTIME_V2_STRING_FIELDS = {
-    "tool_output_truncation_direction",
-    "tool_output_dir",
-    "runtime_mode",
-}
-
-RUNTIME_V2_STRING_FIELD_ALLOWED_VALUES = {
-    "runtime_mode": {"build", "plan"},
-    "tool_output_truncation_direction": {"head", "tail"},
-}
-
-RUNTIME_V2_OBJECT_FIELDS = {
-    "tool_permissions",
-    "structured_output_schema",
-}
-
-RUNTIME_V2_NULLABLE_OBJECT_FIELDS = {
-    "structured_output_schema",
-}
-
-RUNTIME_V2_CONFIG_FIELD_NAMES = frozenset(
-    RUNTIME_V2_STRING_LIST_FIELDS
-    | RUNTIME_V2_BOOL_FIELDS
-    | RUNTIME_V2_NULLABLE_BOOL_FIELDS
-    | RUNTIME_V2_INT_FIELDS
-    | RUNTIME_V2_OPTIONAL_INT_FIELDS
-    | RUNTIME_V2_STRING_FIELDS
-    | RUNTIME_V2_OBJECT_FIELDS
-)
-
-RUNTIME_V2_TOOL_SELECTION_FIELDS = frozenset(
-    {
-        "enabled_tools",
-        "disabled_tools",
-        "tool_permissions",
-    }
-)
-
 ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "llm",
     "proxy",
@@ -136,7 +14,7 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "github",
     "git",
     "debug",
-} | set(RUNTIME_V2_CONFIG_FIELD_NAMES)
+}
 
 PORTAL_MANAGED_FIELD_TREE = {
     "llm": {
@@ -153,15 +31,6 @@ PORTAL_MANAGED_FIELD_TREE = {
         "chunkTimeout": True,
         "temperature": True,
         "max_tokens": True,
-        "tools": True,
-        "context_budget": True,
-        "context_projection": True,
-        "response_flow": True,
-        "tool_loop": {
-            "one_tool_per_turn": True,
-            "parallel_tool_calls": True,
-            "max_repeated_tool_signature": True,
-        },
     },
     "proxy": {
         "enabled": True,
@@ -197,13 +66,8 @@ PORTAL_MANAGED_FIELD_TREE = {
         "enabled": True,
         "log_level": True,
     },
-} | {key: True for key in sorted(RUNTIME_V2_CONFIG_FIELD_NAMES)}
+}
 
-_RESPONSE_FLOW_PLAN_POLICIES = {"explicit_or_complex", "always", "never"}
-_RESPONSE_FLOW_STAGING_POLICIES = {"explicit_or_complex", "always", "never"}
-_RESPONSE_FLOW_DEFAULT_SKILL_EXECUTION_STYLES = {"direct", "stepwise"}
-_RESPONSE_FLOW_ASK_USER_POLICIES = {"blocked_only", "permissive"}
-_RESPONSE_FLOW_ACTIVE_SKILL_CONFLICT_POLICIES = {"auto_switch_direct", "always_ask"}
 _TRUE_BOOL_VALUES = {"1", "true", "on", "yes", "y", "enabled"}
 _FALSE_BOOL_VALUES = {"0", "false", "off", "no", "n", "disabled", ""}
 
@@ -223,82 +87,6 @@ def _runtime_profile_bool(value) -> bool:
     return False
 
 
-def sanitize_runtime_profile_response_flow(value) -> dict:
-    if not isinstance(value, dict):
-        return {}
-
-    sanitized: dict = {}
-
-    plan_policy = value.get("plan_policy")
-    if isinstance(plan_policy, str) and plan_policy in _RESPONSE_FLOW_PLAN_POLICIES:
-        sanitized["plan_policy"] = plan_policy
-
-    staging_policy = value.get("staging_policy")
-    if isinstance(staging_policy, str) and staging_policy in _RESPONSE_FLOW_STAGING_POLICIES:
-        sanitized["staging_policy"] = staging_policy
-
-    default_skill_execution_style = value.get("default_skill_execution_style")
-    if isinstance(default_skill_execution_style, str) and default_skill_execution_style in _RESPONSE_FLOW_DEFAULT_SKILL_EXECUTION_STYLES:
-        sanitized["default_skill_execution_style"] = default_skill_execution_style
-
-    ask_user_policy = value.get("ask_user_policy")
-    if isinstance(ask_user_policy, str) and ask_user_policy in _RESPONSE_FLOW_ASK_USER_POLICIES:
-        sanitized["ask_user_policy"] = ask_user_policy
-
-    active_skill_conflict_policy = value.get("active_skill_conflict_policy")
-    if isinstance(active_skill_conflict_policy, str) and active_skill_conflict_policy in _RESPONSE_FLOW_ACTIVE_SKILL_CONFLICT_POLICIES:
-        sanitized["active_skill_conflict_policy"] = active_skill_conflict_policy
-
-    ratio = value.get("complexity_prompt_budget_ratio")
-    try:
-        parsed_ratio = float(ratio)
-        if 0 < parsed_ratio <= 1:
-            sanitized["complexity_prompt_budget_ratio"] = parsed_ratio
-    except (TypeError, ValueError):
-        pass
-
-    min_tokens = value.get("complexity_min_request_tokens")
-    try:
-        parsed_min_tokens = int(min_tokens)
-        if parsed_min_tokens > 0:
-            sanitized["complexity_min_request_tokens"] = parsed_min_tokens
-    except (TypeError, ValueError):
-        pass
-
-    return sanitized
-
-
-def sanitize_runtime_profile_tool_loop(value) -> dict:
-    if not isinstance(value, dict):
-        return {}
-
-    sanitized: dict = {}
-
-    if "one_tool_per_turn" in value:
-        if not isinstance(value.get("one_tool_per_turn"), bool):
-            raise ValueError("llm.tool_loop.one_tool_per_turn must be a boolean")
-        sanitized["one_tool_per_turn"] = value.get("one_tool_per_turn")
-
-    if "parallel_tool_calls" in value:
-        if not isinstance(value.get("parallel_tool_calls"), bool):
-            raise ValueError("llm.tool_loop.parallel_tool_calls must be a boolean")
-        sanitized["parallel_tool_calls"] = value.get("parallel_tool_calls")
-
-    if "max_repeated_tool_signature" in value:
-        raw_repeat = value.get("max_repeated_tool_signature")
-        if isinstance(raw_repeat, bool):
-            raise ValueError("llm.tool_loop.max_repeated_tool_signature must be an integer")
-        try:
-            parsed = int(raw_repeat)
-        except (TypeError, ValueError):
-            raise ValueError("llm.tool_loop.max_repeated_tool_signature must be an integer") from None
-        if parsed < 1 or parsed > 10:
-            raise ValueError("llm.tool_loop.max_repeated_tool_signature must be between 1 and 10")
-        sanitized["max_repeated_tool_signature"] = parsed
-
-    return sanitized
-
-
 def _filter_by_field_tree(data, field_tree):
     if field_tree is True:
         return deepcopy(data)
@@ -313,162 +101,6 @@ def _filter_by_field_tree(data, field_tree):
             continue
         filtered[key] = value
     return filtered
-
-
-def normalize_runtime_profile_llm_tools(value) -> list[str]:
-    if value is None:
-        return []
-
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return []
-        return ["*"] if text == "*" else [text]
-
-    if not isinstance(value, list):
-        raise ValueError("llm.tools must be a string or list of strings")
-
-    normalized: list[str] = []
-    seen_lower: set[str] = set()
-    for item in value:
-        if not isinstance(item, str):
-            raise ValueError("llm.tools must be a string or list of strings")
-        cleaned = item.strip()
-        if not cleaned:
-            continue
-        if cleaned == "*":
-            return ["*"]
-        dedupe_key = cleaned.lower()
-        if dedupe_key in seen_lower:
-            continue
-        seen_lower.add(dedupe_key)
-        normalized.append(cleaned)
-    return normalized
-
-
-def normalize_runtime_profile_string_list(value, *, field_name: str, preserve_text: bool = False) -> list[str]:
-    if value is None:
-        return []
-
-    if isinstance(value, str):
-        if preserve_text:
-            return [value]
-        text = value.strip()
-        return [text] if text else []
-
-    if not isinstance(value, list):
-        raise ValueError(f"{field_name} must be a string or list of strings")
-
-    if preserve_text:
-        for item in value:
-            if not isinstance(item, str):
-                raise ValueError(f"{field_name} must be a string or list of strings")
-        return list(value)
-
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, str):
-            raise ValueError(f"{field_name} must be a string or list of strings")
-        cleaned = item.strip()
-        if not cleaned:
-            continue
-        dedupe_key = cleaned.lower()
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-        normalized.append(cleaned)
-    return normalized
-
-
-_INVALID_RUNTIME_V2_VALUE = object()
-
-
-def normalize_runtime_profile_int(value, *, field_name: str, allow_none: bool = False):
-    if value is None:
-        return None if allow_none else _INVALID_RUNTIME_V2_VALUE
-    if isinstance(value, bool):
-        return _INVALID_RUNTIME_V2_VALUE
-    if isinstance(value, str) and not value.strip():
-        return _INVALID_RUNTIME_V2_VALUE
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return _INVALID_RUNTIME_V2_VALUE
-    minimum = RUNTIME_V2_INT_MIN_VALUES.get(field_name, 0)
-    return parsed if parsed >= minimum else _INVALID_RUNTIME_V2_VALUE
-
-
-def sanitize_runtime_v2_config_fields(data: dict, sanitized: dict) -> dict:
-    for key in sorted(RUNTIME_V2_STRING_LIST_FIELDS):
-        if key in data:
-            if key in RUNTIME_V2_NULLABLE_STRING_LIST_FIELDS and data.get(key) is None:
-                sanitized[key] = None
-                continue
-            sanitized[key] = normalize_runtime_profile_string_list(
-                data.get(key),
-                field_name=key,
-                preserve_text=key in RUNTIME_V2_TEXT_LIST_FIELDS,
-            )
-
-    for key in sorted(RUNTIME_V2_BOOL_FIELDS):
-        if key in data:
-            sanitized[key] = _runtime_profile_bool(data.get(key))
-
-    for key in sorted(RUNTIME_V2_NULLABLE_BOOL_FIELDS):
-        if key not in data:
-            continue
-        if data.get(key) is None:
-            sanitized[key] = None
-        else:
-            sanitized[key] = _runtime_profile_bool(data.get(key))
-
-    for key in sorted(RUNTIME_V2_INT_FIELDS):
-        if key not in data:
-            continue
-        parsed_int = normalize_runtime_profile_int(data.get(key), field_name=key)
-        if parsed_int is _INVALID_RUNTIME_V2_VALUE:
-            sanitized.pop(key, None)
-        else:
-            sanitized[key] = parsed_int
-
-    for key in sorted(RUNTIME_V2_OPTIONAL_INT_FIELDS):
-        if key not in data:
-            continue
-        parsed_int = normalize_runtime_profile_int(data.get(key), field_name=key, allow_none=True)
-        if parsed_int is _INVALID_RUNTIME_V2_VALUE:
-            sanitized.pop(key, None)
-        else:
-            sanitized[key] = parsed_int
-
-    for key in sorted(RUNTIME_V2_STRING_FIELDS):
-        if key not in data:
-            continue
-        value = data.get(key)
-        if isinstance(value, str):
-            cleaned = value.strip()
-            allowed_values = RUNTIME_V2_STRING_FIELD_ALLOWED_VALUES.get(key)
-            if cleaned and (allowed_values is None or cleaned in allowed_values):
-                sanitized[key] = cleaned
-            else:
-                sanitized.pop(key, None)
-        else:
-            sanitized.pop(key, None)
-
-    for key in sorted(RUNTIME_V2_OBJECT_FIELDS):
-        if key not in data:
-            continue
-        value = data.get(key)
-        if isinstance(value, dict):
-            sanitized[key] = deepcopy(value)
-        elif value is None and key in RUNTIME_V2_NULLABLE_OBJECT_FIELDS:
-            sanitized[key] = None
-        else:
-            sanitized.pop(key, None)
-
-    return sanitized
-
-
 
 
 def normalize_runtime_profile_model_id_for_capabilities(value) -> str:
@@ -675,36 +307,7 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         return {}
     top_level = {key: value for key, value in data.items() if key in ALLOWED_RUNTIME_PROFILE_SECTIONS}
     sanitized = _filter_by_field_tree(top_level, PORTAL_MANAGED_FIELD_TREE) or {}
-    sanitized = sanitize_runtime_v2_config_fields(top_level, sanitized)
-    raw_llm = top_level.get("llm") if isinstance(top_level.get("llm"), dict) else {}
-    if "tools" in raw_llm:
-        sanitized_llm = sanitized.get("llm") if isinstance(sanitized.get("llm"), dict) else {}
-        sanitized_llm = sanitized_llm.copy()
-        sanitized_llm["tools"] = raw_llm.get("tools")
-        sanitized["llm"] = sanitized_llm
     llm = sanitized.get("llm")
-    if isinstance(llm, dict) and "tools" in llm:
-        llm_copy = llm.copy()
-        llm_copy["tools"] = normalize_runtime_profile_llm_tools(llm_copy.get("tools"))
-        llm = llm_copy
-
-    if isinstance(llm, dict) and "response_flow" in llm:
-        llm_copy = llm.copy()
-        sanitized_response_flow = sanitize_runtime_profile_response_flow(llm_copy.get("response_flow"))
-        if sanitized_response_flow:
-            llm_copy["response_flow"] = sanitized_response_flow
-        else:
-            llm_copy.pop("response_flow", None)
-        llm = llm_copy
-
-    if isinstance(llm, dict) and "tool_loop" in llm:
-        llm_copy = llm.copy()
-        sanitized_tool_loop = sanitize_runtime_profile_tool_loop(llm_copy.get("tool_loop"))
-        if sanitized_tool_loop:
-            llm_copy["tool_loop"] = sanitized_tool_loop
-        else:
-            llm_copy.pop("tool_loop", None)
-        llm = llm_copy
 
     if isinstance(llm, dict):
         llm_copy = llm.copy()
@@ -758,7 +361,7 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         sanitized["git"] = sanitize_runtime_profile_git(sanitized.get("git"))
     if "debug" in sanitized:
         sanitized["debug"] = sanitize_runtime_profile_debug(sanitized.get("debug"))
-    return sanitized
+    return {key: value for key, value in sanitized.items() if not (isinstance(value, dict) and not value)}
 
 
 def parse_runtime_profile_config_json(raw: str | None, *, fallback_to_empty: bool = False) -> dict:
@@ -828,10 +431,6 @@ def validate_runtime_profile_config_json(value: str | None) -> str:
 
     if not isinstance(decoded, dict):
         raise ValueError("config_json must decode to a JSON object")
-
-    invalid_keys = sorted([key for key in decoded.keys() if key not in ALLOWED_RUNTIME_PROFILE_SECTIONS])
-    if invalid_keys:
-        raise ValueError(f"config_json has unsupported top-level sections: {', '.join(invalid_keys)}")
 
     return dump_runtime_profile_config_json(decoded)
 

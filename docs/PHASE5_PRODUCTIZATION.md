@@ -42,7 +42,7 @@ Accepted payload forms:
 
 If parsing fails or data is missing, Portal falls back to deterministic local seed mappings.
 
-Runtime v2 capability snapshots should include the runtime-owned core tool surface as `capability_type: "tool"` entries. Current core tool ids to expect are:
+Runtime capability snapshots should include the runtime-owned core tool surface as `capability_type: "tool"` entries. Current core tool ids to expect are:
 
 `apply_patch`, `bash`, `edit`, `glob`, `grep`, `invalid`, `read`, `skill`, `task`, `todowrite`, `webfetch`, `write`.
 
@@ -50,11 +50,11 @@ Removed legacy aliases such as `read_file`, `write_file`, `list_dir`, `shell_exe
 
 ## 3) Runtime profile apply/config contract
 
-Portal preserves safe Runtime v2 `RuntimeConfig` fields in profile JSON and, for non-OpenCode runtimes, internal apply payloads and trusted chat metadata under `runtime_profile.config`. This includes tool selection/permissions, skill and command directories, loop/context/compaction controls, prompt and instruction assembly controls, prompt reference limits, tool output limits, stream/usage flags, and optional mode controls. Portal now exposes advanced Runtime v2 controls for the preserved field surface in both Agent Settings and Runtime Profile management.
+Portal now sends only concise Portal-owned profile context under `runtime_profile.config`: LLM provider/model/Copilot API key fields, proxy, and external integration sections for Jira, Confluence, GitHub, Git, and debug.
 
-Portal keeps the managed Copilot provider/model projection, including `llm.provider` and `llm.model`. Legacy `llm.tools` remains compatible, but Portal does not force `llm.tools=["*"]` for non-OpenCode runtimes when a profile already contains explicit Runtime v2 tool selection through `enabled_tools`, `disabled_tools`, or `tool_permissions`.
+Portal keeps the managed Copilot provider/model projection, including `llm.provider` and `llm.model`, without coupling it to a runtime selection UI.
 
-For `runtime_type=opencode`, Portal keeps the stored profile fields but filters permission-restricting transport fields before sending apply payloads or chat metadata to opencode-runtime. The filtered fields include Runtime v2 tool selection, authorization allowlists, unresolved authorization metadata, and legacy allow/deny policy fields, while non-restrictive LLM credentials and integration context remain available to the runtime.
+Runtime internals for tools, skills, loop control, context shaping, compaction, prompt assembly, structured output, and runtime mode are owned by the Python EFP runtime and are not Portal-managed profile settings.
 
 ## 4) Portal container env contract
 
@@ -101,7 +101,7 @@ Internal APIs:
 
 Registry scope is metadata-only; it is not a full chat-history store.
 
-Portal currently proxies runtime session list/delete/chatlog. Runtime v2 summary, revert, and unrevert controls should wait for stable runtime endpoint names and methods before UI work.
+Portal currently proxies runtime session list/delete/chatlog. Runtime summary, revert, and unrevert controls should wait for stable runtime endpoint names and methods before UI work.
 
 ## 8) GitHub review stale terminal semantics
 

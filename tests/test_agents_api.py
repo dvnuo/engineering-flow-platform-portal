@@ -171,8 +171,6 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
 
         monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/acme/portal-agent")
         monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode-runtime")
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "v1.2.3")
         monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "git@github.com:Acme/Portal.git")
         monkeypatch.setattr(agents_api.settings, "enable_runtime_source_overlay", False)
         monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
@@ -186,8 +184,8 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
         response = client.post("/api/agents", json={"name": "defaulted-agent"})
         assert response.status_code == 200
         body = response.json()
-        assert body["runtime_type"] == "opencode"
-        assert body["image"] == "ghcr.io/acme/opencode-runtime:v1.2.3"
+        assert body["runtime_type"] == "native"
+        assert body["image"] == "ghcr.io/acme/portal-agent:v2.4.1"
         assert body["branch"] is None
         assert body["repo_url"] is None
     finally:
@@ -215,13 +213,13 @@ def test_create_agent_does_not_wait_for_runtime_profile_sync(monkeypatch):
 
         response = client.post(
             "/api/agents",
-            json={"name": "fast-opencode-create", "runtime_type": "opencode"},
+            json={"name": "fast-create"},
         )
 
         assert response.status_code == 200
         body = response.json()
-        assert body["name"] == "fast-opencode-create"
-        assert body["runtime_type"] == "opencode"
+        assert body["name"] == "fast-create"
+        assert body["runtime_type"] == "native"
     finally:
         cleanup()
 
@@ -246,7 +244,7 @@ def test_create_agent_enqueues_runtime_profile_sync_without_runtime_push(monkeyp
         monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _unexpected)
         monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent_with_retry", _unexpected)
 
-        response = client.post("/api/agents", json={"name": "enqueue-create", "runtime_type": "opencode"})
+        response = client.post("/api/agents", json={"name": "enqueue-create"})
         assert response.status_code == 200
         assert calls["enqueue"] == 1
     finally:
@@ -271,7 +269,7 @@ def test_create_agent_enqueue_failure_still_returns_created_agent(monkeypatch):
 
         response = client.post(
             "/api/agents",
-            json={"name": "enqueue-failure-create", "runtime_type": "opencode"},
+            json={"name": "enqueue-failure-create"},
         )
 
         assert response.status_code == 200
@@ -300,18 +298,16 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         assert body["runtime_branch"] == body["default_runtime_branch"]
         assert "default_skill_repo_url" in body
         assert "default_skill_branch" in body
-        assert body["default_runtime_type"] == "opencode"
-        assert "runtime_types" in body
-        values = [item["value"] for item in body["runtime_types"]]
-        assert set(values) == {"native", "opencode"}
-        assert values.index("opencode") < values.index("native")
+        assert "default_runtime_type" not in body
+        assert "runtime" + "_types" not in body
+        assert body["mount_path"] == "/workspace"
         assert body["default_repo_url"] == body["default_skill_repo_url"]
         assert body["default_branch"] == body["default_skill_branch"]
     finally:
         cleanup()
 
 
-def test_defaults_blank_runtime_type_falls_back_to_opencode(monkeypatch):
+def test_defaults_blank_runtime_type_does_not_expose_runtime_choice(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         import app.api.agents as agents_api
@@ -320,7 +316,8 @@ def test_defaults_blank_runtime_type_falls_back_to_opencode(monkeypatch):
         response = client.get("/api/agents/defaults")
         assert response.status_code == 200
         body = response.json()
-        assert body["default_runtime_type"] == "opencode"
+        assert "default_runtime_type" not in body
+        assert "runtime" + "_types" not in body
     finally:
         cleanup()
 
@@ -821,8 +818,7 @@ def test_patch_same_skill_repo_branch_sets_rollout_marker(monkeypatch):
         create_resp = client.post(
             "/api/agents",
             json={
-                "name": "opencode-skill-agent",
-                "runtime_type": "opencode",
+                "name": "skill-agent",
                 "skill_repo_url": "https://github.com/acme/skills.git",
                 "skill_branch": "main",
             },
@@ -953,27 +949,18 @@ def test_agent_response_includes_effective_skill_defaults(monkeypatch):
         cleanup()
 
 
-def test_create_opencode_agent_uses_opencode_default_image(monkeypatch):
+def test_create_agent_rejects_legacy_runtime_choice(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
-        import app.api.agents as agents_api
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode")
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39-test")
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-        response = client.post("/api/agents", json={"name": "opencode-agent", "runtime_type": "opencode"})
-        assert response.status_code == 200
-        body = response.json()
-        assert body["runtime_type"] == "opencode"
-        assert body["image"] == "ghcr.io/acme/opencode:1.14.39-test"
+        response = client.post("/api/agents", json={"name": "legacy-agent", "runtime_type": "opencode"})
+        assert response.status_code == 422
     finally:
         cleanup()
 
-def test_patch_runtime_type_switches_default_image_and_triggers_k8s_update(monkeypatch):
+def test_patch_runtime_type_native_marker_is_ignored(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
-        import app.api.agents as agents_api
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_repo", "ghcr.io/acme/opencode")
-        monkeypatch.setattr(agents_api.settings, "default_opencode_runtime_image_tag", "1.14.39-test")
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         calls = {"n": 0}
         monkeypatch.setattr(
@@ -981,26 +968,22 @@ def test_patch_runtime_type_switches_default_image_and_triggers_k8s_update(monke
             lambda _agent: calls.__setitem__("n", calls["n"] + 1) or SimpleNamespace(status="running", message=None),
         )
         created = client.post("/api/agents", json={"name": "agent"}).json()
-        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "opencode"})
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "native"})
         assert resp.status_code == 200
         body = resp.json()
-        assert body["runtime_type"] == "opencode"
-        assert body["image"] == "ghcr.io/acme/opencode:1.14.39-test"
-        assert calls["n"] == 1
+        assert body["runtime_type"] == "native"
+        assert calls["n"] == 0
     finally:
         cleanup()
 
 
-def test_patch_runtime_type_respects_explicit_image(monkeypatch):
+def test_patch_runtime_type_legacy_choice_returns_422(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         created = client.post("/api/agents", json={"name": "agent"}).json()
-        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "opencode", "image": "custom/runtime:v1"})
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["runtime_type"] == "opencode"
-        assert body["image"] == "custom/runtime:v1"
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "opencode"})
+        assert resp.status_code == 422
     finally:
         cleanup()
 
@@ -1025,16 +1008,16 @@ def test_patch_null_runtime_type_returns_422_and_does_not_mutate_agent(monkeypat
         assert resp.status_code == 422
         assert resp.json()["detail"] == "runtime_type cannot be null"
         after = client.get(f"/api/agents/{created['id']}").json()
-        assert after["runtime_type"] == "opencode"
+        assert after["runtime_type"] == "native"
     finally:
         cleanup()
 
 
-def test_create_opencode_agent_backend_defaults_mount_path_to_workspace(monkeypatch):
+def test_create_agent_backend_defaults_mount_path_to_workspace(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-        response = client.post("/api/agents", json={"name": "opencode-agent", "runtime_type": "opencode"})
+        response = client.post("/api/agents", json={"name": "workspace-agent"})
         assert response.status_code == 200
         agent_id = response.json()["id"]
         agent = db.get(Agent, agent_id)
@@ -1043,7 +1026,7 @@ def test_create_opencode_agent_backend_defaults_mount_path_to_workspace(monkeypa
         cleanup()
 
 
-def test_patch_runtime_type_switches_mount_path_when_old_mount_path_was_default(monkeypatch):
+def test_patch_runtime_type_native_marker_does_not_rewrite_mount_path(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -1053,11 +1036,11 @@ def test_patch_runtime_type_switches_mount_path_when_old_mount_path_was_default(
             lambda _agent: calls.__setitem__("n", calls["n"] + 1) or SimpleNamespace(status="running", message=None),
         )
         created = client.post("/api/agents", json={"name": "agent"}).json()
-        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "opencode"})
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "native"})
         assert resp.status_code == 200
         agent = db.get(Agent, created["id"])
         assert agent.mount_path == "/workspace"
-        assert calls["n"] == 1
+        assert calls["n"] == 0
     finally:
         cleanup()
 
@@ -1068,7 +1051,7 @@ def test_patch_runtime_type_does_not_override_custom_mount_path(monkeypatch):
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         created = client.post("/api/agents", json={"name": "agent", "mount_path": "/custom/workspace"}).json()
-        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "opencode"})
+        resp = client.patch(f"/api/agents/{created['id']}", json={"runtime_type": "native"})
         assert resp.status_code == 200
         agent = db.get(Agent, created["id"])
         assert agent.mount_path == "/custom/workspace"

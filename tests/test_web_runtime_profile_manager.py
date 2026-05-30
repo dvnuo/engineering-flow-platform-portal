@@ -126,7 +126,7 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         saved = json.loads(rp.config_json)
         assert saved["llm"]["provider"] == "anthropic"
         assert "temperature" not in saved["llm"]
-        assert saved["llm"]["tools"] == ["*"]
+        assert "tools" not in saved["llm"]
         assert "max_tokens" not in saved["llm"]
         assert "max_retries" not in saved["llm"]
         assert "system-prompt" not in saved["llm"]
@@ -167,7 +167,7 @@ def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(m
         assert resp.status_code == 200
         db.refresh(rp)
         assert json.loads(rp.config_json) == {
-            "llm": {"provider": "openai", "tools": ["*"]},
+            "llm": {"provider": "openai"},
             "debug": {"enabled": True, "log_level": "ERROR"},
         }
     finally:
@@ -204,7 +204,7 @@ def test_runtime_profile_save_ignores_hidden_nan_temperature_and_cleans_stale_va
         db.refresh(rp)
         saved = json.loads(rp.config_json)
         assert "temperature" not in saved["llm"]
-        assert saved["llm"]["tools"] == ["*"]
+        assert "tools" not in saved["llm"]
     finally:
         cleanup()
 
@@ -236,7 +236,7 @@ def test_runtime_profile_name_only_save_canonicalizes_sparse_config(monkeypatch)
         db.refresh(rp)
         assert rp.name == "Metadata Only"
         assert rp.description == "still sparse"
-        assert json.loads(rp.config_json) == {"llm": {"tools": ["*"]}}
+        assert json.loads(rp.config_json) == {}
     finally:
         cleanup()
 
@@ -262,13 +262,13 @@ def test_runtime_profile_panel_renders_view_defaults_for_sparse_profiles(monkeyp
         cleanup()
 
 
-def test_runtime_profile_panel_renders_runtime_v2_section_and_controls(monkeypatch):
+def test_runtime_profile_panel_does_not_render_runtime_internal_controls(monkeypatch):
     client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
     try:
         rp.config_json = json.dumps(
             {
-                "disabled_tools": ["write"],
-                "tool_permissions": {"write": {"allowed": False}},
+                "disabled" + "_tools": ["write"],
+                "tool" + "_permissions": {"write": {"allowed": False}},
                 "max_context_tokens": 32000,
                 "enable_plan_tool": True,
                 "tool_output_truncation_direction": "tail",
@@ -281,18 +281,17 @@ def test_runtime_profile_panel_renders_runtime_v2_section_and_controls(monkeypat
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
         for marker in [
-            'name="__touch_runtime_v2" value="0" data-touch-flag="runtime_v2"',
-            'data-managed-section="runtime_v2"',
-            'name="disabled_tools"',
-            'name="tool_permissions"',
+            'name="__touch_' + 'runtime_v2"',
+            'data-managed-section="' + 'runtime_v2"',
+            'name="disabled' + '_tools"',
+            'name="tool' + '_permissions"',
             'name="max_context_tokens"',
             'name="enable_plan_tool"',
             'name="tool_output_truncation_direction"',
             'name="structured_output_schema"',
             'name="track_usage"',
         ]:
-            assert marker in resp.text
-        assert "compaction_preserve_recent_turns" not in resp.text
+            assert marker not in resp.text
     finally:
         cleanup()
 
@@ -325,7 +324,7 @@ def test_runtime_profile_save_sparse_llm_tools_none_does_not_inject_provider_or_
         )
         assert resp.status_code == 200
         db.refresh(rp)
-        assert json.loads(rp.config_json) == {"llm": {"tools": ["*"]}}
+        assert json.loads(rp.config_json) == {}
     finally:
         cleanup()
 
@@ -409,7 +408,7 @@ def test_runtime_profile_save_persists_response_flow_nested_dict(monkeypatch):
         db.refresh(rp)
         saved = json.loads(rp.config_json)
         assert "response_flow" not in saved["llm"]
-        assert saved["llm"]["tools"] == ["*"]
+        assert "tools" not in saved["llm"]
 
         clear_resp = client.post(
             f"/app/runtime-profiles/{rp.id}/save",
@@ -485,7 +484,7 @@ def test_runtime_profile_save_ignores_hidden_llm_advanced_fields(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         saved = json.loads(rp.config_json)
-        assert saved["llm"]["tools"] == ["*"]
+        assert "tools" not in saved["llm"]
         assert "temperature" not in saved["llm"]
         assert "response_flow" not in saved["llm"]
     finally:

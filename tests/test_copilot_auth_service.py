@@ -47,17 +47,19 @@ def test_start_ignores_enterprise_base_url_for_copilot_oauth(monkeypatch):
     assert rec["access_token_url"] == "https://github.com/login/oauth/access_token"
     assert rec["oauth_base_url"] == "https://github.com"
     assert payload["auth_id"] and payload["device_code"] and payload["user_code"]
-    assert payload["runtime_type"] == "opencode"
+    assert payload["runtime_type"] == "native"
 
 def test_start_runtime_type_does_not_select_client_id(monkeypatch):
     calls=[]
     monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})))
     svc=CopilotAuthService()
     asyncio.run(svc.start_authorization("u","",runtime_type="native"))
-    asyncio.run(svc.start_authorization("u","",runtime_type="efp"))
-    asyncio.run(svc.start_authorization("u","",runtime_type="opencode"))
     asyncio.run(svc.start_authorization("u","",runtime_type=None))
-    assert [call["json"]["client_id"] for call in calls] == [COPILOT_OAUTH_CLIENT_ID] * 4
+    assert [call["json"]["client_id"] for call in calls] == [COPILOT_OAUTH_CLIENT_ID] * 2
+    for invalid_runtime_type in ["efp", "opencode", "bad_runtime"]:
+        with pytest.raises(ValueError):
+            asyncio.run(svc.start_authorization("u", "", runtime_type=invalid_runtime_type))
+
     assert "Ov23li8tweQw6odWQebz" not in Path("app/services/copilot_auth_service.py").read_text()
 
 def test_check_authorization_authorized_returns_oauth(monkeypatch):
@@ -153,7 +155,7 @@ def test_authorized_response_contains_oauth_summary(monkeypatch):
 def test_oauth_summary_does_not_expose_short_token():
     summary = CopilotAuthService._oauth_summary(
         {"type": "oauth", "access": "short", "refresh": "short", "expires": 0},
-        "opencode",
+        "native",
     )
     dumped = json.dumps(summary)
     assert "short" not in dumped

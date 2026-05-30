@@ -290,7 +290,7 @@ async def proxy_agent(
             )
             runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
             parsed_payload = _enrich_chat_payload_with_runtime_metadata(
-                parsed_payload, runtime_metadata, user, runtime_type=getattr(agent, "runtime_type", "")
+                parsed_payload, runtime_metadata, user, runtime_type="native"
             )
             request_body = json.dumps(parsed_payload).encode("utf-8")
 

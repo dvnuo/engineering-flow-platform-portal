@@ -3846,12 +3846,10 @@ function renderAgentList() {
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
-      const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
-      const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
           <span class="portal-agent-name">${safe(agent.name)}</span>
-          <span class="portal-agent-row-badges">${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}</span>
+          <span class="portal-agent-row-badges">${runtimeBadge}${unreadBadge}${sharedBadge}</span>
         </div>
         <div class="portal-agent-row-foot">
           <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
@@ -3885,7 +3883,6 @@ function renderAgentMeta(agent) {
   const effectiveSkillRepoUrl = agent.effective_skill_repo_url || agent.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
   const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
-  const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
 
   // Build Skills Repository section if present.
   // Tool repo/branch configuration was intentionally removed from Portal agent flows in #318;
@@ -3918,10 +3915,6 @@ function renderAgentMeta(agent) {
       <div class="portal-detail-section">
         <div class="portal-detail-label">Assistant ID</div>
         <code class="portal-detail-code">${safe(agent.id)}</code>
-      </div>
-      <div class="portal-detail-section">
-        <div class="portal-detail-label">Runtime Type</div>
-        <div class="portal-detail-value">${safe(runtimeType)}</div>
       </div>
       <div class="portal-detail-section">
         <div class="portal-detail-label">Image</div>
@@ -8233,40 +8226,6 @@ function addInstanceRow(root, group) {
   if (window.initPasswordToggles) window.initPasswordToggles(root);
 }
 
-function normalizeLlmToolPatternInputs(root) {
-  const container = root?.querySelector("[data-llm-tools-container]");
-  const countInput = root?.querySelector("[data-llm-tools-count]");
-  if (!container || !countInput) return;
-  const items = Array.from(container.querySelectorAll("[data-llm-tools-item]"));
-  items.forEach((item, idx) => {
-    const input = item.querySelector("input");
-    if (!input) return;
-    input.name = `llm_tools_${idx}_pattern`;
-  });
-  countInput.value = String(items.length);
-}
-
-function addLlmToolPatternRow(root, value = "") {
-  const container = root?.querySelector("[data-llm-tools-container]");
-  if (!container) return;
-  const div = document.createElement("div");
-  div.className = "flex items-center gap-2";
-  div.dataset.llmToolsItem = "";
-  div.innerHTML = `
-    <input type="text" value="${safe(value)}" placeholder="e.g. bash or webfetch" class="portal-form-input" />
-    <button type="button" class="portal-btn is-secondary" data-action="remove-llm-tool-pattern">Remove</button>
-  `;
-  container.append(div);
-  normalizeLlmToolPatternInputs(root);
-}
-
-function toggleLlmToolsEditor(root) {
-  const mode = root?.querySelector('input[name="llm_tools_mode"]:checked')?.value || "inherit";
-  const editor = root?.querySelector("[data-llm-tools-editor]");
-  if (!editor) return;
-  editor.classList.toggle("hidden", mode !== "custom");
-}
-
 function markManagedSectionTouched(root, section) {
   if (!root || !section) return;
   const flag = root.querySelector(`[data-touch-flag="${section}"]`);
@@ -8592,8 +8551,6 @@ function initializeManagedSettingsRoot(root) {
   if (!root) return;
   normalizeInstanceInputs(root, "jira");
   normalizeInstanceInputs(root, "confluence");
-  toggleLlmToolsEditor(root);
-  normalizeLlmToolPatternInputs(root);
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -8619,7 +8576,6 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
-    if (event.target?.name === "llm_tools_mode") toggleLlmToolsEditor(root);
     const section = sectionNameForElement(event.target);
     if (section) markManagedSectionTouched(root, section);
   });
@@ -8628,21 +8584,6 @@ function initializeManagedSettingsRoot(root) {
     if (section) markManagedSectionTouched(root, section);
   });
   root.addEventListener("click", async (event) => {
-    const addToolBtn = event.target.closest('[data-action="add-llm-tool-pattern"]');
-    if (addToolBtn) {
-      event.preventDefault();
-      addLlmToolPatternRow(root);
-      markManagedSectionTouched(root, "llm");
-      return;
-    }
-    const removeToolBtn = event.target.closest('[data-action="remove-llm-tool-pattern"]');
-    if (removeToolBtn) {
-      event.preventDefault();
-      removeToolBtn.closest("[data-llm-tools-item]")?.remove();
-      normalizeLlmToolPatternInputs(root);
-      markManagedSectionTouched(root, "llm");
-      return;
-    }
     const addBtn = event.target.closest('[data-action="add-instance"]');
     if (addBtn) {
       event.preventDefault();
@@ -9019,118 +8960,6 @@ async function loadAgentDefaults(force = false) {
   return defaults;
 }
 
-function getRuntimeTypes(defaults) {
-  const runtimeTypes = Array.isArray(defaults?.runtime_types) ? defaults.runtime_types : [];
-  if (runtimeTypes.length) return runtimeTypes;
-  return [{ value: "native", label: "EFP Native Runtime", image_repo: defaults?.image_repo || "", image_tag: defaults?.image_tag || "latest", default_mount_path: defaults?.mount_path || "/root/.efp" }];
-}
-
-function normalizeRuntimeTypeValue(value, defaults) {
-  const raw = String(value || "").trim().toLowerCase();
-  const runtimeTypes = getRuntimeTypes(defaults);
-  if (runtimeTypes.some((item) => item.value === raw)) return raw;
-  return String(defaults?.default_runtime_type || "native").trim().toLowerCase() || "native";
-}
-
-function findRuntimeTypeConfig(defaults, runtimeType) {
-  const normalized = normalizeRuntimeTypeValue(runtimeType, defaults);
-  return getRuntimeTypes(defaults).find((item) => item.value === normalized) || getRuntimeTypes(defaults)[0] || null;
-}
-
-function runtimeImagePreview(config) {
-  const repo = String(config?.image_repo || "").trim();
-  const tag = String(config?.image_tag || "latest").trim() || "latest";
-  return repo ? `${repo}:${tag}` : "";
-}
-
-function isRuntimeTypeAvailable(defaults, value) {
-  const target = String(value || "").trim().toLowerCase();
-  return getRuntimeTypes(defaults).some((item) => String(item?.value || "").trim().toLowerCase() === target);
-}
-
-function getCreateRuntimeTypes(defaults) {
-  const runtimeTypes = getRuntimeTypes(defaults);
-  const opencodeTypes = runtimeTypes.filter((item) => String(item?.value || "").trim().toLowerCase() === "opencode");
-  const otherTypes = runtimeTypes.filter((item) => String(item?.value || "").trim().toLowerCase() !== "opencode");
-  return [...opencodeTypes, ...otherTypes];
-}
-
-function getCreateDefaultRuntimeType(defaults) {
-  if (isRuntimeTypeAvailable(defaults, "opencode")) {
-    return "opencode";
-  }
-  const normalized = normalizeRuntimeTypeValue(defaults?.default_runtime_type || "opencode", defaults);
-  if (isRuntimeTypeAvailable(defaults, normalized)) {
-    return normalized;
-  }
-  const firstRuntimeType = getCreateRuntimeTypes(defaults)[0]?.value;
-  return normalizeRuntimeTypeValue(firstRuntimeType || normalized, defaults);
-}
-
-function runtimeTypeDescription(item) {
-  const value = String(item?.value || "").trim().toLowerCase();
-  if (value === "opencode") return "Recommended default for new assistants.";
-  if (value === "native") return "Use the native EFP Python runtime.";
-  return "Use this runtime for the assistant.";
-}
-
-function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
-  if (!selectEl) return;
-  const runtimeTypes = getRuntimeTypes(defaults);
-  const selected = normalizeRuntimeTypeValue(selectedValue || defaults?.default_runtime_type || "native", defaults);
-  selectEl.innerHTML = runtimeTypes.map((item) => {
-    const value = String(item.value || "").trim();
-    const label = item.label || value;
-    const selectedAttr = value === selected ? " selected" : "";
-    return `<option value="${escapeHtmlAttr(value)}"${selectedAttr}>${safe(label)}</option>`;
-  }).join("");
-  selectEl.value = selected;
-}
-
-function populateRuntimeTypeRadioGroup(groupEl, defaults, selectedValue = "") {
-  if (!groupEl) return;
-  const runtimeTypes = getCreateRuntimeTypes(defaults);
-  const selected = normalizeRuntimeTypeValue(selectedValue || getCreateDefaultRuntimeType(defaults), defaults);
-  groupEl.innerHTML = runtimeTypes.map((item) => {
-    const value = String(item.value || "").trim();
-    const label = item.label || value;
-    const checkedAttr = value === selected ? " checked" : "";
-    const image = runtimeImagePreview(item);
-    const mountPath = item.default_mount_path || "";
-    const meta = image
-      ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}`
-      : runtimeTypeDescription(item);
-
-    return `
-      <label class="runtime-type-radio-option">
-        <input
-          class="runtime-type-radio-input"
-          type="radio"
-          name="runtime_type"
-          value="${escapeHtmlAttr(value)}"${checkedAttr}
-        />
-        <span class="runtime-type-radio-card">
-          <span class="runtime-type-radio-control" aria-hidden="true"></span>
-          <span class="runtime-type-radio-copy">
-            <span class="runtime-type-radio-title">${safe(label)}</span>
-            <span class="runtime-type-radio-description">${safe(meta)}</span>
-          </span>
-        </span>
-      </label>
-    `;
-  }).join("");
-}
-
-function updateCreateRuntimeTypeHint(form, defaults) {
-  const runtimeTypeControl = form?.elements?.["runtime_type"];
-  const hintEl = document.getElementById("create-runtime-type-hint");
-  const runtimeTypeValue = runtimeTypeControl?.value || getCreateDefaultRuntimeType(defaults);
-  const config = findRuntimeTypeConfig(defaults, runtimeTypeValue);
-  const image = runtimeImagePreview(config);
-  const mountPath = config?.default_mount_path || defaults?.mount_path || "";
-  if (hintEl) hintEl.textContent = image ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}` : "";
-}
-
 function applyCreateAgentDefaults(form, defaults) {
   if (!form?.elements) return;
   const repoInput = form.elements["skill_repo_url"];
@@ -9151,9 +8980,6 @@ function applyCreateAgentDefaults(form, defaults) {
     const defaultRuntimeProfileId = defaults?.default_runtime_profile_id || "";
     if (defaultRuntimeProfileId) runtimeProfileSelect.value = defaultRuntimeProfileId;
   }
-  const runtimeTypeGroup = document.getElementById("create-runtime-type-select");
-  populateRuntimeTypeRadioGroup(runtimeTypeGroup, defaults, getCreateDefaultRuntimeType(defaults));
-  updateCreateRuntimeTypeHint(form, defaults);
 }
 
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
@@ -9765,9 +9591,6 @@ async function openEditDialog(agent) {
   if (form && form.elements) {
     if (form.elements["id"]) form.elements["id"].value = agent.id ?? "";
     if (form.elements["name"]) form.elements["name"].value = agent.name || "";
-    if (form.elements["runtime_type"]) {
-      populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
-    }
     if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
       form.elements["skill_branch"].value = agent.skill_branch || "";
@@ -10366,13 +10189,11 @@ function bindEvents() {
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
-    const runtimeType = (formData.get("runtime_type") || "").toString().trim().toLowerCase();
 
     // Always include skill_repo_url and skill_branch; empty values mean "use configured default".
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
-    if (runtimeType) updates.runtime_type = runtimeType;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -10967,10 +10788,6 @@ function bindEvents() {
     dom.createBundleModal?.classList.add("hidden");
     dom.createBundleModal?.setAttribute("aria-hidden", "true");
   });
-  document.getElementById("create-runtime-type-select")?.addEventListener("change", () => {
-    updateCreateRuntimeTypeHint(document.getElementById("create-form"), state.agentDefaults || {});
-  });
-
   dom.addAgentBtn?.addEventListener("click", async () => {
     const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
     const createForm = document.getElementById("create-form");
@@ -11005,7 +10822,6 @@ function bindEvents() {
     const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
     const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
-    const runtimeType = normalizeRuntimeTypeValue(formData.get("runtime_type"), state.agentDefaults || {});
 
     const msgEl = document.getElementById("create-msg");
 
@@ -11015,18 +10831,16 @@ function bindEvents() {
       if (!defaults.disk_size_gi) {
         throw new Error("Invalid defaults configuration");
       }
-      const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
 
       // Use form values if provided, or null to skip repo
       const data = {
         name: name,
-        runtime_type: runtimeType,
         skill_repo_url: repoUrl || null,
         skill_branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,
-        mount_path: runtimeConfig?.default_mount_path || defaults.mount_path,
+        mount_path: defaults.mount_path,
         runtime_profile_id: runtimeProfileId || null,
       };
 
@@ -11468,30 +11282,11 @@ function initFilePanelPreview() {
 
 // ===== System Prompt Configuration =====
 function getAgentRuntimeType(agent) {
-  var normalized = String((agent && agent.runtime_type) || 'native').trim().toLowerCase();
-  if (!normalized) return 'native';
-  return normalized === 'opencode' ? 'opencode' : 'native';
-}
-
-function isOpenCodeAgent(agent) {
-  return getAgentRuntimeType(agent) === 'opencode';
+  return 'native';
 }
 
 function getSystemPromptUiModel(agent, config) {
   var runtimeType = getAgentRuntimeType(agent);
-  if (runtimeType === 'opencode') {
-    return {
-      runtimeType: runtimeType,
-      title: 'OpenCode Rules',
-      description: 'OpenCode uses the project-root AGENTS.md as its editable instruction file. SOUL, USER, MEMORY and DAILY NOTES are native EFP prompt sections and are not supported for this runtime.',
-      sections: ['agents'],
-      labels: { agents: (config && config.agents && config.agents.label) || 'AGENTS.md' },
-      editable: { agents: true },
-      canToggle: { agents: false },
-      forcedEnabled: { agents: true }
-    };
-  }
-
   return {
     runtimeType: runtimeType,
     title: 'System Prompt',
@@ -11605,20 +11400,6 @@ function loadSystemPromptConfig(agentId) {
 }
 
 function updateSystemPromptEnabled(agentId, section, enabled) {
-  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  if (isOpenCodeAgent(currentAgent)) {
-    if (section !== 'agents') {
-      showToast('OpenCode runtime only supports AGENTS.md');
-      loadSystemPromptConfig(agentId);
-      return;
-    }
-    if (enabled === false) {
-      showToast('AGENTS.md cannot be disabled for OpenCode runtime');
-      loadSystemPromptConfig(agentId);
-      return;
-    }
-    return;
-  }
   var payload = {};
   payload[section] = { enabled: enabled };
   api('/a/' + agentId + '/api/agent/system-prompt/config', { method: 'PUT', body: JSON.stringify(payload) }).catch(function(e) {
@@ -11629,11 +11410,6 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
 }
 
 function editSystemPromptSection(agentId, section) {
-  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  if (isOpenCodeAgent(currentAgent) && section !== 'agents') {
-    showToast('OpenCode runtime only supports AGENTS.md');
-    return;
-  }
   api('/a/' + agentId + '/api/agent/system-prompt/' + section).then(function(data) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled);
   }).catch(function(e) {
@@ -11644,9 +11420,8 @@ function editSystemPromptSection(agentId, section) {
 
 function showSystemPromptEditor(agentId, section, content, enabled) {
   var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  var runtimeIsOpenCode = isOpenCodeAgent(currentAgent);
   var label = resolveSystemPromptLabel(currentAgent, section, {});
-  var title = runtimeIsOpenCode && section === 'agents' ? 'AGENTS.md Configuration' : (label + ' Configuration');
+  var title = label + ' Configuration';
 
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) {
@@ -11678,17 +11453,10 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
   document.getElementById('sp-editor-title').textContent = title;
   var enabledCheckbox = document.getElementById('sp-editor-enabled');
   var enabledNote = document.getElementById('sp-editor-enabled-note');
-  if (runtimeIsOpenCode) {
-    enabledCheckbox.checked = true;
-    enabledCheckbox.disabled = true;
-    enabledNote.textContent = 'AGENTS.md is always active for OpenCode.';
-    enabledNote.classList.remove('hidden');
-  } else {
-    enabledCheckbox.checked = enabled;
-    enabledCheckbox.disabled = false;
-    enabledNote.textContent = '';
-    enabledNote.classList.add('hidden');
-  }
+  enabledCheckbox.checked = enabled;
+  enabledCheckbox.disabled = false;
+  enabledNote.textContent = '';
+  enabledNote.classList.add('hidden');
   document.getElementById('sp-editor-content').value = content;
   modal.dataset.section = section;
   modal.dataset.agentId = agentId;
@@ -11720,16 +11488,8 @@ function closeSystemPromptEditor() {
 }
 
 function saveSystemPromptSection(agentId, section) {
-  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  var runtimeIsOpenCode = isOpenCodeAgent(currentAgent);
-  if (runtimeIsOpenCode && section !== 'agents') {
-    showToast('OpenCode runtime only supports AGENTS.md');
-    return;
-  }
-
   var enabled = document.getElementById('sp-editor-enabled').checked;
   var content = document.getElementById('sp-editor-content').value;
-  if (runtimeIsOpenCode) enabled = true;
 
   api('/a/' + agentId + '/api/agent/system-prompt/' + section, {
     method: 'PUT',

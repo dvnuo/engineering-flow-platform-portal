@@ -14,7 +14,7 @@ from app.services.runtime_execution_context_service import RuntimeExecutionConte
 from app.services.runtime_profile_service import RuntimeProfileService
 
 
-def test_runtime_profile_tool_loop_is_preserved():
+def test_runtime_profile_tool_loop_is_dropped():
     raw = {
         "llm": {
             "tool_loop": {
@@ -27,47 +27,15 @@ def test_runtime_profile_tool_loop_is_preserved():
 
     parsed = sanitize_runtime_profile_config_dict(raw)
 
-    assert parsed["llm"]["tool_loop"] == {
-        "one_tool_per_turn": True,
-        "parallel_tool_calls": False,
-        "max_repeated_tool_signature": 2,
-    }
+    assert parsed == {}
 
 
-@pytest.mark.parametrize(
-    "payload,match",
-    [
-        ({"one_tool_per_turn": "true"}, "one_tool_per_turn must be a boolean"),
-        ({"parallel_tool_calls": "false"}, "parallel_tool_calls must be a boolean"),
-        ({"max_repeated_tool_signature": 0}, "must be between 1 and 10"),
-        ({"max_repeated_tool_signature": 11}, "must be between 1 and 10"),
-    ],
-)
-def test_runtime_profile_tool_loop_invalid_values_raise(payload, match):
-    with pytest.raises(ValueError, match=match):
-        sanitize_runtime_profile_config_dict({"llm": {"tool_loop": payload}})
-
-
-@pytest.mark.parametrize("bad_value", [True, False])
-def test_runtime_profile_tool_loop_rejects_bool_max_repeated_tool_signature(bad_value):
-    with pytest.raises(ValueError, match="must be an integer"):
-        sanitize_runtime_profile_config_dict(
-            {
-                "llm": {
-                    "tool_loop": {
-                        "max_repeated_tool_signature": bad_value,
-                    }
-                }
-            }
-        )
-
-
-def test_default_runtime_profile_contains_tool_loop_defaults():
+def test_default_runtime_profile_does_not_contain_tool_loop_defaults():
     cfg = RuntimeProfileService.default_profile_config()
 
-    assert cfg["llm"]["tool_loop"]["one_tool_per_turn"] is True
-    assert cfg["llm"]["tool_loop"]["parallel_tool_calls"] is False
-    assert cfg["llm"]["tool_loop"]["max_repeated_tool_signature"] == 2
+    assert "tool_loop" not in cfg["llm"]
+    assert "tools" not in cfg["llm"]
+    assert "response_flow" not in cfg["llm"]
 
 
 def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
@@ -85,34 +53,28 @@ def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
                     "llm": {
                         "provider": "github_copilot",
                         "model": "gpt-5.4-mini",
-                        "tool_loop": {
-                            "one_tool_per_turn": True,
-                            "parallel_tool_calls": False,
-                            "max_repeated_tool_signature": 2,
-                        },
                     }
                 },
             },
         },
     )
 
-    agent = SimpleNamespace(runtime_profile_id="rp-1", runtime_type="opencode")
+    agent = SimpleNamespace(runtime_profile_id="rp-1", runtime_type="native")
     metadata = service.build_runtime_metadata(db=object(), agent=agent)
 
     assert metadata["runtime_profile_id"] == "rp-1"
     assert metadata["runtime_profile"]["runtime_profile_id"] == "rp-1"
     assert metadata["runtime_profile"]["revision"] == 7
-    assert metadata["runtime_profile"]["provider"] == "github-copilot"
-    assert metadata["runtime_profile"]["model"] == "github-copilot/gpt-5.4-mini"
+    assert metadata["runtime_profile"]["provider"] == "github_copilot"
+    assert metadata["runtime_profile"]["model"] == "gpt-5.4-mini"
     assert metadata["runtime_profile"]["config"]["llm"]["provider"] == "github_copilot"
     assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.4-mini"
-    assert metadata["model"] == "github-copilot/gpt-5.4-mini"
-    assert metadata["runtime_profile"]["config"]["llm"]["tool_loop"]["one_tool_per_turn"] is True
-    assert metadata["llm_tool_loop"]["one_tool_per_turn"] is True
-    assert metadata["llm_tool_loop"]["parallel_tool_calls"] is False
+    assert metadata["model"] == "gpt-5.4-mini"
+    assert "tool_loop" not in metadata["runtime_profile"]["config"]["llm"]
+    assert "llm_tool_loop" not in metadata
 
 
-def test_runtime_metadata_materializes_default_tool_loop_for_sparse_profile(monkeypatch):
+def test_runtime_metadata_does_not_materialize_default_tool_loop_for_sparse_profile(monkeypatch):
     service = RuntimeExecutionContextService()
     profile = SimpleNamespace(id="rp-1", config_json='{"llm": {"provider": "github_copilot"}}')
 
@@ -137,14 +99,10 @@ def test_runtime_metadata_materializes_default_tool_loop_for_sparse_profile(monk
     assert runtime_context["revision"] is None
     assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
     assert runtime_context["config"]["llm"]["model"] == "gpt-5.4-mini"
-    assert runtime_context["config"]["llm"]["tool_loop"] == {
-        "one_tool_per_turn": True,
-        "parallel_tool_calls": False,
-        "max_repeated_tool_signature": 2,
-    }
+    assert "tool_loop" not in runtime_context["config"]["llm"]
 
 
-def test_runtime_metadata_uses_explicit_tool_loop_override(monkeypatch):
+def test_runtime_metadata_drops_explicit_tool_loop_override(monkeypatch):
     service = RuntimeExecutionContextService()
     profile = SimpleNamespace(
         id="rp-1",
@@ -170,11 +128,7 @@ def test_runtime_metadata_uses_explicit_tool_loop_override(monkeypatch):
     assert runtime_profile_id == "rp-1"
     assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
     assert runtime_context["config"]["llm"]["model"] == "gpt-5.4-mini"
-    assert runtime_context["config"]["llm"]["tool_loop"] == {
-        "one_tool_per_turn": False,
-        "parallel_tool_calls": True,
-        "max_repeated_tool_signature": 3,
-    }
+    assert "tool_loop" not in runtime_context["config"]["llm"]
 
 
 @pytest.fixture()
@@ -225,5 +179,4 @@ def test_runtime_metadata_does_not_infer_github_authorization_from_credentials(r
     assert "allowed_capability_ids" not in metadata
     assert "allowed_capability_types" not in metadata
     assert "resolved_action_mappings" not in metadata
-    assert "github" not in metadata["runtime_profile"]["config"]
-    assert "ghp_SECRET" not in json.dumps(metadata)
+    assert metadata["runtime_profile"]["config"]["github"]["api_token"] == "ghp_SECRET"

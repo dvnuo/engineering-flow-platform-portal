@@ -25,8 +25,6 @@ class K8sServiceNoopTest(unittest.TestCase):
                 "default_skill_branch",
                 "default_skill_repo_subdir",
                 "default_skill_asset_version",
-                "opencode_task_completion_timeout_seconds",
-                "opencode_chat_submit_timeout_seconds",
             )
         }
         self.service.settings.enable_runtime_source_overlay = False
@@ -502,8 +500,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("No skill entries found", command)
         self.assertIn("SKILL.md", command)
 
-    def test_opencode_skill_clone_uses_full_package_command_and_mounts_app_skills(self):
-        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="opencode", mount_path="/workspace", skill_repo_url="https://example.com/skills.git", skill_branch="main")
+    def test_single_runtime_skill_clone_uses_full_package_command_and_mounts_app_skills(self):
+        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", mount_path="/workspace", skill_repo_url="https://example.com/skills.git", skill_branch="main")
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
         init_names = {c.name for c in inits}
         self.assertIn("skills-git-clone", init_names)
@@ -519,7 +517,7 @@ class K8sServiceNoopTest(unittest.TestCase):
 
     def test_default_skill_repo_subdir_passed_to_skill_clone_env(self):
         self.service.settings.default_skill_repo_subdir = "skills"
-        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="opencode", mount_path="/workspace", skill_repo_url="https://example.com/skills.git", skill_branch="main")
+        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", mount_path="/workspace", skill_repo_url="https://example.com/skills.git", skill_branch="main")
         inits, _ = self.service._build_code_and_skill_init_containers_and_mounts(agent)
         skill_init = self._find_init_container(inits, "skills-git-clone")
         env_map = {e.name: getattr(e, "value", None) for e in skill_init.env}
@@ -547,7 +545,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         agent = SimpleNamespace(
             id="a1",
             owner_user_id=1,
-            runtime_type="opencode",
+            runtime_type="native",
             skill_repo_url="https://example.com/skills.git",
             skill_branch="main",
             skill_asset_version="agent-skill-save-test",
@@ -606,8 +604,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("/app/src", {m.mount_path for m in mounts})
         self.assertIn("/app/.git", {m.mount_path for m in mounts})
 
-    def test_opencode_env_excludes_tools_contract(self):
-        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+    def test_single_runtime_env_excludes_tools_contract(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
         env = self.service._build_agent_container_env(agent)
         env_map = {e.name: getattr(e, 'value', None) for e in env}
         self.assertNotIn("EFP_TOOLS_DIR", env_map)
@@ -617,27 +615,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("EFP_OPENCODE_TOOL_REGISTRY_REQUEST_TIMEOUT_SECONDS", env_map)
         self.assertIn("EFP_SKILLS_DIR", env_map)
 
-    def test_opencode_env_includes_agent_timeout_settings(self):
-        self.service.settings.opencode_task_completion_timeout_seconds = 3660
-        self.service.settings.opencode_chat_submit_timeout_seconds = 910
-        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
+    def test_single_runtime_env_excludes_old_timeout_contract(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
         env = self.service._build_agent_container_env(agent)
         env_map = {e.name: getattr(e, 'value', None) for e in env}
 
-        self.assertEqual(env_map["EFP_TASK_COMPLETION_TIMEOUT_SECONDS"], "3660")
-        self.assertEqual(env_map["EFP_CHAT_SUBMIT_TIMEOUT_SECONDS"], "910")
-        self.assertEqual(env_map["EFP_CHAT_COMPLETION_TIMEOUT_SECONDS"], "910")
-
-    def test_opencode_env_timeout_settings_fallback_to_safe_defaults(self):
-        self.service.settings.opencode_task_completion_timeout_seconds = 0
-        self.service.settings.opencode_chat_submit_timeout_seconds = "invalid"
-        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace")
-        env = self.service._build_agent_container_env(agent)
-        env_map = {e.name: getattr(e, 'value', None) for e in env}
-
-        self.assertEqual(env_map["EFP_TASK_COMPLETION_TIMEOUT_SECONDS"], "3600")
-        self.assertEqual(env_map["EFP_CHAT_SUBMIT_TIMEOUT_SECONDS"], "900")
-        self.assertEqual(env_map["EFP_CHAT_COMPLETION_TIMEOUT_SECONDS"], "900")
+        self.assertNotIn("EFP_TASK_COMPLETION_TIMEOUT_SECONDS", env_map)
+        self.assertNotIn("EFP_CHAT_SUBMIT_TIMEOUT_SECONDS", env_map)
+        self.assertNotIn("EFP_CHAT_COMPLETION_TIMEOUT_SECONDS", env_map)
 
     def test_labels_annotations_exclude_tool_git_metadata(self):
         agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", skill_repo_url="https://example.com/skills.git", skill_branch="main")

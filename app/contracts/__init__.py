@@ -2,7 +2,7 @@ from app.contracts.runtime_capabilities import (
     DEFAULT_RUNTIME_ADAPTER_ACTIONS_BY_SYSTEM,
     get_default_runtime_adapter_actions_by_system,
 )
-from app.contracts.runtime_types import (
+from app.contracts.runtime_type import (
     ALLOWED_RUNTIME_TYPES,
     DEFAULT_RUNTIME_TYPE,
     InvalidRuntimeType,

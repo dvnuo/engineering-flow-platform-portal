@@ -3,19 +3,17 @@ from datetime import datetime, timezone
 import hashlib
 import logging
 import re
-logger = logging.getLogger(__name__)
 from typing import Optional
 from urllib.parse import urlparse
 from uuid import uuid4
 
 from app.config import get_settings
-from app.contracts.runtime_types import InvalidRuntimeType, normalize_runtime_type_or_default
 from app.redaction import sanitize_exception_message
 from app.utils.git_urls import normalize_git_repo_url
 
 
-OPENCODE_INTERNAL_HTTP_PORT = 2 ** 12
 MERGE_PATCH_CONTENT_TYPE = "application/merge-patch+json"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -65,7 +63,7 @@ class K8sService:
             self._ensure_deployment(agent)
             self._ensure_service(agent)
             # Resource creation is accepted, but the Deployment/Pod may still be
-            # pulling images, running init containers, or starting OpenCode. The
+            # pulling images, running init containers, or starting the runtime. The
             # status endpoint is the source of truth for readiness.
             return RuntimeStatus(status="creating")
         except Exception as exc:
@@ -76,7 +74,7 @@ class K8sService:
         """Update agent runtime (deployment) with new config."""
         if not self.enabled:
             return RuntimeStatus(status="running")
-        
+
         try:
             self._patch_deployment(agent)
             self._patch_service_metadata(agent)
@@ -84,7 +82,6 @@ class K8sService:
         except Exception as exc:
             logger.exception("Failed to update agent runtime")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
-
 
     def _runtime_repo_url(self) -> str | None:
         if not bool(getattr(self.settings, "enable_runtime_source_overlay", False)):
@@ -125,20 +122,14 @@ class K8sService:
         ).strip()
 
     def _runtime_type(self, agent) -> str:
-        raw = getattr(agent, "runtime_type", None)
-        try:
-            return normalize_runtime_type_or_default(raw)
-        except InvalidRuntimeType as exc:
-            agent_id = getattr(agent, "id", "-")
-            raise ValueError(f"Invalid runtime_type for agent {agent_id}: {exc}") from exc
+        _ = agent
+        return "native"
 
     def _effective_mount_path(self, agent) -> str:
         mount_path = getattr(agent, "mount_path", None)
         if mount_path:
             return mount_path
-        if self._runtime_type(agent) == "opencode":
-            return "/workspace"
-        return self.settings.default_agent_mount_path or "/root/.efp"
+        return "/workspace"
 
     def _skills_assets_dir(self) -> str:
         return "/app/skills"
@@ -147,7 +138,7 @@ class K8sService:
         prefix = self.settings.agents_volume_sub_path_prefix
         return f"/agent-data/{prefix}/{agent.id}"
 
-    def _build_asset_dirs_init_container(self, agent, *, include_opencode_state: bool = False):
+    def _build_asset_dirs_init_container(self, agent):
         from kubernetes import client
 
         git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
@@ -156,10 +147,6 @@ class K8sService:
             'mkdir -p "$AGENT_STATE_ROOT/data"',
         ]
         name = "agent-asset-dirs-init"
-        if include_opencode_state:
-            name = "opencode-persistent-dirs-init"
-            commands.append('mkdir -p "$AGENT_STATE_ROOT/data/.opencode" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state"')
-            commands.append('chown -R 0:0 "$AGENT_STATE_ROOT/data" "$AGENT_STATE_ROOT/opencode-state" "$AGENT_STATE_ROOT/adapter-state" || true')
 
         return client.V1Container(
             name=name,
@@ -170,26 +157,10 @@ class K8sService:
             volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/agent-data")],
         )
 
-    def _opencode_state_dir(self) -> str:
-        return "/root/.local/share/opencode"
-
-    def _opencode_adapter_state_dir(self) -> str:
-        return "/root/.local/share/efp-compat"
-
-    def _opencode_config_path(self, agent) -> str:
-        workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
-        return f"{workspace}/.opencode/opencode.json"
-
-
     def _agent_container_working_dir(self, agent) -> str | None:
-        if self._runtime_type(agent) == "opencode":
-            return self._effective_mount_path(agent)
-        return None
+        return self._effective_mount_path(agent)
 
     def _build_code_and_skill_init_containers_and_mounts(self, agent):
-        runtime_type = self._runtime_type(agent)
-        if runtime_type == "opencode":
-            return self._build_opencode_init_containers_and_mounts(agent)
         return self._build_native_init_containers_and_mounts(agent)
 
     def _build_native_init_containers_and_mounts(self, agent):
@@ -239,48 +210,6 @@ class K8sService:
                 sub_path=f"{prefix}/{agent.id}/data",
             )
         )
-        return init_containers, volume_mounts
-
-    def _build_opencode_init_containers_and_mounts(self, agent):
-        from kubernetes import client
-
-        git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
-        prefix = self.settings.agents_volume_sub_path_prefix
-        data_sub_path = f"{prefix}/{agent.id}/data"
-        volume_mounts = [
-            client.V1VolumeMount(
-                name="agent-data",
-                mount_path=self._effective_mount_path(agent),
-                sub_path=data_sub_path,
-            ),
-            client.V1VolumeMount(
-                name="agent-data",
-                mount_path=self._opencode_state_dir(),
-                sub_path=f"{prefix}/{agent.id}/opencode-state",
-            ),
-            client.V1VolumeMount(
-                name="agent-data",
-                mount_path=self._opencode_adapter_state_dir(),
-                sub_path=f"{prefix}/{agent.id}/adapter-state",
-            ),
-        ]
-        init_containers = [self._build_asset_dirs_init_container(agent, include_opencode_state=True)]
-        skill_repo_url = self._skill_repo_url(agent)
-        skill_branch = self._skill_branch(agent)
-        skill_repo_subdir = self._skill_repo_subdir(agent)
-        if skill_repo_url:
-            skills_sub_path = f"{prefix}/{agent.id}/skills-code"
-            init_containers.append(
-                client.V1Container(
-                    name="skills-git-clone",
-                    image=git_image,
-                    command=["sh", "-c"],
-                    args=[self._skill_git_clone_shell_command("/skills-code")],
-                    env=self._build_skill_git_clone_env(skill_repo_url, skill_branch, skill_repo_subdir),
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/skills-code", sub_path=skills_sub_path)],
-                )
-            )
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path=self._skills_assets_dir(), sub_path=skills_sub_path))
         return init_containers, volume_mounts
 
     def _patch_deployment(self, agent) -> None:
@@ -815,33 +744,6 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
-            if runtime_type == "opencode":
-                configured_repos_dir = str(getattr(self.settings, "opencode_workspace_repos_dir", "") or "").strip()
-                workspace_repos_dir = configured_repos_dir or f"{workspace_dir.rstrip('/')}/repos"
-                configured_checkout_timeout = getattr(self.settings, "opencode_git_checkout_timeout_seconds", 120)
-                checkout_timeout = self._positive_int_setting(configured_checkout_timeout, 120)
-                task_completion_timeout = self._positive_int_setting(
-                    getattr(self.settings, "opencode_task_completion_timeout_seconds", 3600),
-                    3600,
-                )
-                chat_submit_timeout = self._positive_int_setting(
-                    getattr(self.settings, "opencode_chat_submit_timeout_seconds", 900),
-                    900,
-                )
-                env.append(client.V1EnvVar(name="EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT", value="true"))
-                env.append(client.V1EnvVar(name="HOME", value="/root"))
-                env.append(client.V1EnvVar(name="OPENCODE_DATA_DIR", value=self._opencode_state_dir()))
-                env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
-                env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
-                env.append(client.V1EnvVar(name="EFP_WORKSPACE_REPOS_DIR", value=workspace_repos_dir))
-                env.append(client.V1EnvVar(name="EFP_GIT_CHECKOUT_TIMEOUT_SECONDS", value=str(checkout_timeout)))
-                env.append(client.V1EnvVar(name="EFP_TASK_COMPLETION_TIMEOUT_SECONDS", value=str(task_completion_timeout)))
-                env.append(client.V1EnvVar(name="EFP_CHAT_SUBMIT_TIMEOUT_SECONDS", value=str(chat_submit_timeout)))
-                env.append(client.V1EnvVar(name="EFP_CHAT_COMPLETION_TIMEOUT_SECONDS", value=str(chat_submit_timeout)))
-                env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
-                env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value=f"http://127.0.0.1:{OPENCODE_INTERNAL_HTTP_PORT}"))
-                env.append(client.V1EnvVar(name="EFP_OPENCODE_PERMISSION_MODE", value=str(getattr(self.settings, "default_opencode_permission_mode", "workspace_full_access") or "workspace_full_access")))
-                env.append(client.V1EnvVar(name="EFP_OPENCODE_ALLOW_BASH_ALL", value="true" if bool(getattr(self.settings, "default_opencode_allow_bash_all", True)) else "false"))
         return env
 
     def _build_agent_container_resources(self, agent):
