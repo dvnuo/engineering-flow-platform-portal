@@ -19,11 +19,11 @@ REQUIRED_PORTAL_TABLES = (
     "runtime_profile_sync_jobs",
     "runtime_capability_catalog_snapshots",
     "agent_tasks",
-    "automation_rules",
-    "automation_rule_runs",
-    "automation_rule_events",
+    "delegation_rules",
+    "delegation_rule_runs",
+    "delegation_rule_events",
 )
-REQUIRED_AUTOMATION_RULE_EVENT_COLUMNS = (
+REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
     "updated_at",
 )
 REQUIRED_RUNTIME_PROFILE_SYNC_JOB_COLUMNS = (
@@ -55,12 +55,12 @@ def assert_portal_schema_ready(engine: Engine) -> None:
             "Run 'alembic upgrade head' before starting Portal."
         )
 
-    existing_columns = {column["name"] for column in inspector.get_columns("automation_rule_events")}
-    missing_columns = [column for column in REQUIRED_AUTOMATION_RULE_EVENT_COLUMNS if column not in existing_columns]
+    existing_columns = {column["name"] for column in inspector.get_columns("delegation_rule_events")}
+    missing_columns = [column for column in REQUIRED_DELEGATION_RULE_EVENT_COLUMNS if column not in existing_columns]
     if missing_columns:
         missing_columns_joined = ", ".join(missing_columns)
         raise RuntimeError(
-            "Database schema is incompatible with this Portal build. Missing columns on 'automation_rule_events': "
+            "Database schema is incompatible with this Portal build. Missing columns on 'delegation_rule_events': "
             f"{missing_columns_joined}. Run `alembic upgrade head` before starting Portal."
         )
 

@@ -9,6 +9,7 @@ import threading
 import httpx
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.log_context import (
     bind_log_context,
@@ -21,7 +22,6 @@ from app.log_context import (
 from app.redaction import safe_preview, sanitize_exception_message
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
-from app.services.provider_config_resolver import ProviderConfigResolverError, resolve_github_for_agent
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
 
@@ -58,6 +58,14 @@ class TaskDispatcherService:
     def __init__(self) -> None:
         self.proxy_service = ProxyService()
         self.runtime_execution_context_service = RuntimeExecutionContextService()
+
+    @staticmethod
+    def _coerce_min_int(value, *, default: int, minimum: int) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = default
+        return max(minimum, normalized)
 
     @staticmethod
     def _parse_input_payload(input_payload_json: str | None) -> tuple[dict | None, str | None]:
@@ -161,6 +169,40 @@ class TaskDispatcherService:
         task.finished_at = datetime.utcnow()
         return task_repo.save(task)
 
+    async def _process_delegation_reply_after_done(self, db: Session, task) -> None:
+        try:
+            if (getattr(task, "source", None) or "").strip().lower() != "delegation":
+                return
+            if (getattr(task, "task_type", None) or "").strip() != "agent_async_task":
+                return
+            if (getattr(task, "status", None) or "").strip().lower() != "done":
+                return
+            input_payload, payload_error = self._parse_input_payload(getattr(task, "input_payload_json", None))
+            if payload_error or not isinstance(input_payload, dict):
+                return
+            delegation_payload = input_payload.get("delegation")
+            delegation_rule_id = input_payload.get("delegation_rule_id")
+            if isinstance(delegation_payload, dict):
+                delegation_rule_id = delegation_rule_id or delegation_payload.get("delegation_rule_id")
+            rule_id = str(delegation_rule_id or "").strip()
+            if not rule_id:
+                return
+
+            from app.services.delegation_rule_service import DelegationRuleService
+
+            rule_service = DelegationRuleService(db)
+            rule = rule_service.repo.get(rule_id)
+            if not rule:
+                logger.warning("Completed delegation task %s references missing delegation rule %s", task.id, rule_id)
+                return
+            await rule_service._process_pending_replies(rule)
+        except Exception:
+            logger.warning(
+                "Failed to process immediate delegation reply for task %s",
+                getattr(task, "id", "-"),
+                exc_info=True,
+            )
+
     def _normalize_runtime_submit_response(
         self,
         response: httpx.Response,
@@ -216,8 +258,35 @@ class TaskDispatcherService:
         interval_seconds: int = 1,
     ) -> NormalizedRuntimeOutcome:
         deadline = time.monotonic() + timeout_seconds
-        while time.monotonic() < deadline:
-            response = await self._get_runtime_task_status(runtime_status_url, metadata)
+        last_poll_error_class: str | None = None
+        last_poll_error_message: str | None = None
+        while True:
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                break
+
+            try:
+                response = await self._get_runtime_task_status(runtime_status_url, metadata)
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                last_poll_error_class = exc.__class__.__name__
+                last_poll_error_message = sanitize_exception_message(exc)
+                remaining_after_error = max(0.0, deadline - time.monotonic())
+                logger.warning(
+                    "Runtime status poll transient failure trace_id=%s portal_dispatch_id=%s runtime_status_url=%s exception_class=%s message=%s remaining_poll_seconds=%s",
+                    trace_context.get("trace_id"),
+                    trace_context.get("portal_dispatch_id"),
+                    runtime_status_url,
+                    last_poll_error_class,
+                    last_poll_error_message,
+                    round(remaining_after_error, 2),
+                )
+                sleep_seconds = min(max(0, interval_seconds), remaining_after_error)
+                if sleep_seconds > 0:
+                    await asyncio.sleep(sleep_seconds)
+                continue
+
+            last_poll_error_class = None
+            last_poll_error_message = None
             preview = safe_preview(response.text or "", limit=800)
             phase, _payload, outcome = self._normalize_runtime_status_response(
                 response,
@@ -227,16 +296,26 @@ class TaskDispatcherService:
             )
             if phase == "terminal" and outcome is not None:
                 return outcome
-            await asyncio.sleep(interval_seconds)
+            remaining_after_poll = max(0.0, deadline - time.monotonic())
+            sleep_seconds = min(max(0, interval_seconds), remaining_after_poll)
+            if sleep_seconds > 0:
+                await asyncio.sleep(sleep_seconds)
+
+        timeout_message = "Runtime status polling timed out"
+        if last_poll_error_class and last_poll_error_message is not None:
+            timeout_message = (
+                "Runtime status polling timed out after transient status poll failure: "
+                f"{last_poll_error_class}: {last_poll_error_message}"
+            )
 
         return NormalizedRuntimeOutcome(
             terminal_status="failed",
             result_payload_json=self._build_failure_payload(
                 "runtime_poll_timeout",
-                "Runtime status polling timed out",
+                timeout_message,
                 trace_context=trace_context,
             ),
-            message="Runtime polling timed out",
+            message=timeout_message,
             runtime_status_code=None,
         )
 
@@ -498,24 +577,6 @@ class TaskDispatcherService:
                     )
                     return AgentTaskDispatchResult(False, task.id, None, task.status, payload_error, task.result_payload_json)
 
-                if task.task_type == "github_review_task":
-                    try:
-                        resolve_github_for_agent(db, agent.id)
-                    except (ProviderConfigResolverError, ValueError) as exc:
-                        error_message = str(exc)
-                        failure_payload = self._build_failure_payload(
-                            "github_runtime_profile_error",
-                            error_message,
-                            trace_context=trace_context,
-                        )
-                        task = self._mark_task_failed(
-                            task=task,
-                            task_repo=task_repo,
-                            result_payload_json=failure_payload,
-                            error_message=error_message,
-                        )
-                        return AgentTaskDispatchResult(False, task.id, None, task.status, error_message, task.result_payload_json)
-
                 metadata = {
                     "portal_task_id": task.id,
                     "portal_task_source": task.source,
@@ -534,12 +595,21 @@ class TaskDispatcherService:
                 source_kind = input_payload.get("source_kind")
                 if source_kind:
                     metadata["source_kind"] = source_kind
-                automation_rule = input_payload.get("automation_rule")
-                automation_rule_id = input_payload.get("automation_rule_id") or input_payload.get("rule_id")
-                if automation_rule:
-                    metadata["portal_automation_rule"] = automation_rule
-                if automation_rule_id:
-                    metadata["portal_automation_rule_id"] = str(automation_rule_id)
+                delegation_rule = input_payload.get("delegation_rule")
+                delegation_rule_id = input_payload.get("delegation_rule_id")
+                delegation_payload = input_payload.get("delegation")
+                if isinstance(delegation_payload, dict):
+                    delegation_rule_id = delegation_rule_id or delegation_payload.get("delegation_rule_id")
+                    delegation_source = delegation_payload.get("source")
+                    delegation_provider = delegation_payload.get("provider")
+                    if delegation_source:
+                        metadata["portal_delegation_source"] = str(delegation_source)
+                    if delegation_provider:
+                        metadata["portal_delegation_provider"] = str(delegation_provider)
+                if delegation_rule:
+                    metadata["portal_delegation_rule"] = delegation_rule
+                if delegation_rule_id:
+                    metadata["portal_delegation_rule_id"] = str(delegation_rule_id)
                 if task.trigger:
                     metadata["portal_task_trigger"] = task.trigger
                 head_sha = input_payload.get("head_sha")
@@ -671,10 +741,25 @@ class TaskDispatcherService:
                             fresh_task.started_at = datetime.utcnow()
                         task_repo.save(fresh_task)
                         status_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}"
+                        poll_kwargs = {
+                            "runtime_status_url": status_url,
+                            "metadata": metadata,
+                            "trace_context": trace_context,
+                        }
+                        if task.task_type == "agent_async_task":
+                            settings = get_settings()
+                            poll_kwargs["timeout_seconds"] = self._coerce_min_int(
+                                getattr(settings, "agent_task_runtime_poll_timeout_seconds", 3600),
+                                default=3600,
+                                minimum=60,
+                            )
+                            poll_kwargs["interval_seconds"] = self._coerce_min_int(
+                                getattr(settings, "agent_task_runtime_poll_interval_seconds", 1),
+                                default=1,
+                                minimum=1,
+                            )
                         outcome = await self._poll_runtime_task_until_terminal(
-                            runtime_status_url=status_url,
-                            metadata=metadata,
-                            trace_context=trace_context,
+                            **poll_kwargs,
                         )
                     else:
                         outcome = submit_outcome
@@ -728,6 +813,8 @@ class TaskDispatcherService:
                         fresh_task.summary = "Task was cancelled."
                     fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
+                    if fresh_task.status == "done":
+                        await self._process_delegation_reply_after_done(db, fresh_task)
                     logger.info(
                         "Dispatch normalization outcome task_id=%s runtime_status_code=%s task_status=%s message=%s",
                         fresh_task.id,

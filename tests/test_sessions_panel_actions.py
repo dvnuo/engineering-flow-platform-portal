@@ -80,6 +80,7 @@ def test_sessions_panel_excludes_task_prefixed_runtime_sessions(monkeypatch):
         runtime_sessions=[
             {"session_id": "s-human", "name": "Human Session", "last_message": "normal chat"},
             {"session_id": "agent-task:task-1", "name": "Task Execution", "last_message": "task-only chat"},
+            {"session_id": "delegation:rule-1:event-1", "name": "Legacy Delegation Task", "last_message": "legacy task chat"},
         ],
     )
 
@@ -91,6 +92,9 @@ def test_sessions_panel_excludes_task_prefixed_runtime_sessions(monkeypatch):
     assert "Task Execution" not in response.text
     assert "task-only chat" not in response.text
     assert "agent-task:task-1" not in response.text
+    assert "Legacy Delegation Task" not in response.text
+    assert "legacy task chat" not in response.text
+    assert "delegation:rule-1:event-1" not in response.text
 
 
 def test_sessions_panel_excludes_metadata_only_task_sessions(monkeypatch):
@@ -103,15 +107,22 @@ def test_sessions_panel_excludes_metadata_only_task_sessions(monkeypatch):
         snapshot_version=1,
         metadata_json='{"context_summary_preview":"Task metadata preview"}',
     )
+    legacy_delegation_record = SimpleNamespace(
+        session_id="delegation:rule-1:event-1",
+        current_task_id=None,
+        latest_event_state="running",
+        snapshot_version=2,
+        metadata_json='{"context_summary_preview":"Legacy delegation metadata preview"}',
+    )
     normal_metadata_record = SimpleNamespace(
         session_id="s-human",
         current_task_id=None,
         latest_event_state="running",
-        snapshot_version=2,
+        snapshot_version=3,
         metadata_json='{"context_summary_preview":"Normal metadata preview"}',
     )
     metadata_repo = SimpleNamespace(
-        list_by_agent=lambda *_args, **_kwargs: [task_metadata_record, normal_metadata_record],
+        list_by_agent=lambda *_args, **_kwargs: [task_metadata_record, legacy_delegation_record, normal_metadata_record],
         list_by_agent_and_session_ids=lambda **_kwargs: [],
     )
     client = _setup_client(
@@ -127,7 +138,9 @@ def test_sessions_panel_excludes_metadata_only_task_sessions(monkeypatch):
     assert response.status_code == 200
     assert "Normal metadata preview" in response.text
     assert "Task metadata preview" not in response.text
+    assert "Legacy delegation metadata preview" not in response.text
     assert "s-task" not in response.text
+    assert "delegation:rule-1:event-1" not in response.text
 
 
 @pytest.mark.parametrize("task_marker", ["portal_task_id", "portal_task_session_id"])

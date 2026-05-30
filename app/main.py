@@ -8,7 +8,7 @@ from app.api.proxy import router as proxy_router
 from app.api.runtime_profiles import router as runtime_profiles_router
 from app.api.agent_tasks import router as agent_tasks_router
 from app.api.internal_session_metadata import router as internal_session_metadata_router
-from app.api.automation_rules import router as automation_rules_router
+from app.api.delegation_rules import router as delegation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
 from app.api.internal_agents import router as internal_agents_router
@@ -28,7 +28,7 @@ from app.services.schema_guard import (
     assert_runtime_profile_schema_compatibility,
 )
 from app.web import router as web_router
-from app.services.automation_worker import worker_singleton
+from app.services.delegation_worker import worker_singleton
 from app.services.runtime_profile_sync_worker import runtime_profile_sync_worker_singleton
 
 settings = get_settings()
@@ -78,14 +78,14 @@ def on_startup() -> None:
     finally:
         db.close()
 
-    if settings.automation_rules_worker_enabled:
+    if settings.delegation_rules_worker_enabled:
         worker_singleton.start()
     if settings.runtime_profile_sync_worker_enabled:
         runtime_profile_sync_worker_singleton.start()
 
 
 @app.on_event("shutdown")
-def shutdown_automation_worker() -> None:
+def shutdown_delegation_worker() -> None:
     worker_singleton.stop()
     runtime_profile_sync_worker_singleton.stop()
 
@@ -111,6 +111,6 @@ app.include_router(proxy_router)
 app.include_router(copilot_router)
 app.include_router(requirement_bundles_router)
 app.include_router(agent_tasks_router)
-app.include_router(automation_rules_router)
+app.include_router(delegation_rules_router)
 app.include_router(runtime_capability_catalog_router)
 app.include_router(internal_session_metadata_router)

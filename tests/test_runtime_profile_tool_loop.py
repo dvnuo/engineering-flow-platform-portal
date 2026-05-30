@@ -191,7 +191,7 @@ def runtime_db():
     db.close()
 
 
-def test_runtime_metadata_includes_github_authorization_without_token(runtime_db):
+def test_runtime_metadata_does_not_infer_github_authorization_from_credentials(runtime_db):
     db, user = runtime_db
     profile = RuntimeProfile(
         owner_user_id=user.id,
@@ -216,17 +216,14 @@ def test_runtime_metadata_includes_github_authorization_without_token(runtime_db
     agent = SimpleNamespace(id="agent-1", runtime_profile_id=profile.id, runtime_type="native")
     metadata = service.build_runtime_metadata(db, agent)
 
-    assert metadata["authorization_source"] == "runtime_profile"
-    assert metadata["allowed_external_systems"] == ["github"]
-    assert metadata["allowed_actions"] == ["review_pull_request"]
-    assert metadata["allowed_adapter_actions"] == ["adapter:github:review_pull_request"]
-    assert metadata["allowed_capability_ids"] == ["adapter:github:review_pull_request"]
-    assert metadata["allowed_capability_types"] == ["adapter_action"]
-    assert metadata["resolved_action_mappings"] == {"review_pull_request": "adapter:github:review_pull_request"}
-    assert metadata["unresolved_tools"] == []
-    assert metadata["unresolved_skills"] == []
-    assert metadata["unresolved_channels"] == []
-    assert metadata["unresolved_actions"] == []
-    assert metadata["skill_details"] == []
+    assert metadata["runtime_profile_id"] == profile.id
+    assert metadata["runtime_profile"]["runtime_profile_id"] == profile.id
+    assert "authorization_source" not in metadata
+    assert "allowed_external_systems" not in metadata
+    assert "allowed_actions" not in metadata
+    assert "allowed_adapter_actions" not in metadata
+    assert "allowed_capability_ids" not in metadata
+    assert "allowed_capability_types" not in metadata
+    assert "resolved_action_mappings" not in metadata
     assert "github" not in metadata["runtime_profile"]["config"]
     assert "ghp_SECRET" not in json.dumps(metadata)

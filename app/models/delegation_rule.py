@@ -8,12 +8,12 @@ from app.db import Base
 from typing import Optional
 
 
-class AutomationRule(Base):
-    __tablename__ = "automation_rules"
+class DelegationRule(Base):
+    __tablename__ = "delegation_rules"
     __table_args__ = (
-        Index("ix_automation_rules_enabled_next_run_at", "enabled", "next_run_at"),
-        Index("ix_automation_rules_source_trigger_enabled", "source_type", "trigger_type", "enabled"),
-        Index("ix_automation_rules_target_agent_enabled", "target_agent_id", "enabled"),
+        Index("ix_delegation_rules_enabled_next_run_at", "enabled", "next_run_at"),
+        Index("ix_delegation_rules_source_trigger_enabled", "source_type", "trigger_type", "enabled"),
+        Index("ix_delegation_rules_target_agent_enabled", "target_agent_id", "enabled"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -37,11 +37,11 @@ class AutomationRule(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class AutomationRuleRun(Base):
-    __tablename__ = "automation_rule_runs"
+class DelegationRuleRun(Base):
+    __tablename__ = "delegation_rule_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    rule_id: Mapped[str] = mapped_column(ForeignKey("automation_rules.id"), nullable=False, index=True)
+    rule_id: Mapped[str] = mapped_column(ForeignKey("delegation_rules.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -52,14 +52,14 @@ class AutomationRuleRun(Base):
     metrics_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
 
 
-class AutomationRuleEvent(Base):
-    __tablename__ = "automation_rule_events"
+class DelegationRuleEvent(Base):
+    __tablename__ = "delegation_rule_events"
     __table_args__ = (
-        UniqueConstraint("rule_id", "dedupe_key", name="uq_automation_rule_events_rule_dedupe"),
+        UniqueConstraint("rule_id", "dedupe_key", name="uq_delegation_rule_events_rule_dedupe"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    rule_id: Mapped[str] = mapped_column(ForeignKey("automation_rules.id"), nullable=False, index=True)
+    rule_id: Mapped[str] = mapped_column(ForeignKey("delegation_rules.id"), nullable=False, index=True)
     dedupe_key: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     source_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")

@@ -11,7 +11,8 @@ def clean_env(monkeypatch):
     env_prefixes = (
         'SECRET_', 'DATABASE_', 'DEBUG', 'AGENTS_', 'K8S_', 
         'GITHUB_', 'JIRA_', 'CONFLUENCE_', 'BOOTSTRAP_',
-        'DEFAULT_', 'PORTAL_', 'RUNTIME_', 'ALLOW_INSECURE_', 'AUTOMATION_', 'ASSETS_'
+        'DEFAULT_', 'PORTAL_', 'RUNTIME_', 'ALLOW_INSECURE_', 'DELEGATION_', 'ASSETS_',
+        'AGENT_TASK_', 'OPENCODE_'
     )
     for key in list(os.environ.keys()):
         if any(key.startswith(p) for p in env_prefixes):
@@ -72,3 +73,23 @@ def test_settings_default_skill_asset_env_overrides(monkeypatch):
     settings = Settings()
     assert settings.default_skill_repo_subdir == "skills"
     assert settings.default_skill_asset_version == "sha-abc123"
+
+
+def test_settings_agent_task_timeout_defaults():
+    settings = Settings()
+    assert settings.agent_task_runtime_poll_timeout_seconds == 3600
+    assert settings.agent_task_runtime_poll_interval_seconds == 1
+    assert settings.opencode_task_completion_timeout_seconds == 3600
+    assert settings.opencode_chat_submit_timeout_seconds == 900
+
+
+def test_settings_agent_task_timeout_env_overrides(monkeypatch):
+    monkeypatch.setenv("AGENT_TASK_RUNTIME_POLL_TIMEOUT_SECONDS", "3700")
+    monkeypatch.setenv("AGENT_TASK_RUNTIME_POLL_INTERVAL_SECONDS", "3")
+    monkeypatch.setenv("OPENCODE_TASK_COMPLETION_TIMEOUT_SECONDS", "3800")
+    monkeypatch.setenv("OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS", "920")
+    settings = Settings()
+    assert settings.agent_task_runtime_poll_timeout_seconds == 3700
+    assert settings.agent_task_runtime_poll_interval_seconds == 3
+    assert settings.opencode_task_completion_timeout_seconds == 3800
+    assert settings.opencode_chat_submit_timeout_seconds == 920

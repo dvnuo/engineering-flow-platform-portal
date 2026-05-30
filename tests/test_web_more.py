@@ -13,6 +13,14 @@ def _repo_root() -> Path:
 def _chat_ui_js_source() -> str:
     chat_ui_path = _repo_root() / "app" / "static" / "js" / "chat_ui.js"
     return chat_ui_path.read_text(encoding="utf-8")
+
+
+def _app_template_source() -> str:
+    return (_repo_root() / "app" / "templates" / "app.html").read_text(encoding="utf-8")
+
+
+def _app_css_source() -> str:
+    return (_repo_root() / "app" / "static" / "css" / "app.css").read_text(encoding="utf-8")
 from fastapi.testclient import TestClient
 import pytest
 from _js_extract_helpers import _extract_js_function, _extract_js_helper_block
@@ -142,6 +150,91 @@ def test_chat_ui_layout_persistence_source_markers_present():
     assert "clearToolPanelPreference: true" in js
     assert "await refreshAll({ preserveLayout: true, skipRouteApply: true });" in js
     assert "await restorePinnedToolPanelFromPreferencesOnce();" in js
+
+
+def test_create_delegation_form_uses_trigger_task_reply_fields_only():
+    js = _chat_ui_js_source()
+    create_fn = _extract_js_function(js, "openCreateDelegationRuleModal")
+    submit_fn = _extract_js_function(js, "submitCreateDelegationRule")
+
+    for expected in [
+        "Agent",
+        "Skill",
+        "Source",
+        "Interval seconds",
+        "Name",
+        "Enabled",
+    ]:
+        assert expected in create_fn
+
+    for expected in [
+        "github_pr_review",
+        "github_pr_mention",
+        "jira_assignee",
+        "jira_mention",
+    ]:
+        assert expected in js
+
+    assert '"target_agent_id"' in submit_fn
+    assert '"skill_name"' in submit_fn
+    assert '"source"' in submit_fn
+    assert '"interval_seconds"' in submit_fn
+    assert "task_content" not in submit_fn
+
+    old_fields = [
+        "owner",
+        "repo",
+        "review_target",
+        "review_target_type",
+        "review_event",
+        "writeback_mode",
+        "reply_mode",
+        "surfaces",
+        "account_notifications",
+        "max_pages_per_surface",
+        "max_repos_per_run",
+        "max_notification_pages_per_run",
+        "commit_comment_initial_tail_pages",
+        "discussion_comments_tail_count",
+        "discussion_replies_tail_count",
+    ]
+    for field in old_fields:
+        assert field not in create_fn
+
+
+def test_delegation_list_and_detail_use_task_style_layout():
+    js = _chat_ui_js_source()
+    render_fn = _extract_js_function(js, "renderDelegationRuleNavList")
+    detail_fn = _extract_js_function(js, "openDelegationRulePanel")
+
+    assert "portal-task-row portal-delegation-row" in render_fn
+    assert "portal-task-row-head" in render_fn
+    assert "portal-task-row-meta" in render_fn
+
+    assert "portal-task-detail-hero portal-delegation-hero" in detail_fn
+    assert "portal-task-metrics portal-delegation-metrics" in detail_fn
+    assert "portal-delegation-flow" in detail_fn
+    assert "portal-delegation-timeline-list" in detail_fn
+    assert "portal-table" not in detail_fn
+
+
+def test_delegations_ui_uses_clean_names_and_endpoint():
+    js = _chat_ui_js_source()
+    css = _app_css_source()
+    template = _app_template_source()
+
+    assert "Delegations" in template
+    assert "Create Delegation" in template
+    assert "/api/delegation-rules" in js
+    assert "portal-delegation-" in js
+    assert "portal-delegation-" in css
+
+    assert "/api/automation-rules" not in js
+    assert "portal-automation-" not in js
+    assert "portal-automation-" not in css
+    assert "Automation" not in template
+    assert "Automation" not in js
+    assert "#/automations" not in js
 
 
 def test_chat_ui_layout_persistence_calls_present_in_tool_panel_actions():

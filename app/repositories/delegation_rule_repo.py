@@ -7,15 +7,15 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.automation_rule import AutomationRule, AutomationRuleEvent, AutomationRuleRun
+from app.models.delegation_rule import DelegationRule, DelegationRuleEvent, DelegationRuleRun
 
 
-class AutomationRuleRepository:
+class DelegationRuleRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
     @staticmethod
-    def is_deleted_rule(rule: AutomationRule | None) -> bool:
+    def is_deleted_rule(rule: DelegationRule | None) -> bool:
         if not rule:
             return False
         try:
@@ -24,30 +24,30 @@ class AutomationRuleRepository:
             state = {}
         return bool(state.get("deleted"))
 
-    def create(self, create_data: dict, current_user_id: int | None = None) -> AutomationRule:
+    def create(self, create_data: dict, current_user_id: int | None = None) -> DelegationRule:
         payload = dict(create_data)
         if current_user_id is not None:
             payload.setdefault("created_by_user_id", current_user_id)
             payload.setdefault("owner_user_id", current_user_id)
-        rule = AutomationRule(**payload)
+        rule = DelegationRule(**payload)
         self.db.add(rule)
         self.db.commit()
         self.db.refresh(rule)
         return rule
 
-    def get(self, rule_id: str) -> AutomationRule | None:
-        return self.db.get(AutomationRule, rule_id)
+    def get(self, rule_id: str) -> DelegationRule | None:
+        return self.db.get(DelegationRule, rule_id)
 
-    def list(self, limit: int = 100, offset: int = 0, enabled: bool | None = None) -> list[AutomationRule]:
+    def list(self, limit: int = 100, offset: int = 0, enabled: bool | None = None) -> list[DelegationRule]:
         if limit <= 0:
             return []
-        collected: list[AutomationRule] = []
+        collected: list[DelegationRule] = []
         batch_offset = max(0, offset)
         batch_size = max(50, min(200, limit))
         while len(collected) < limit:
-            stmt = select(AutomationRule).order_by(AutomationRule.created_at.desc()).offset(batch_offset).limit(batch_size)
+            stmt = select(DelegationRule).order_by(DelegationRule.created_at.desc()).offset(batch_offset).limit(batch_size)
             if enabled is not None:
-                stmt = stmt.where(AutomationRule.enabled.is_(enabled))
+                stmt = stmt.where(DelegationRule.enabled.is_(enabled))
             rows = list(self.db.scalars(stmt).all())
             if not rows:
                 break
@@ -60,22 +60,22 @@ class AutomationRuleRepository:
             batch_offset += len(rows)
         return collected
 
-    def list_enabled_for_trigger(self, *, source_type: str, trigger_type: str) -> list[AutomationRule]:
+    def list_enabled_for_trigger(self, *, source_type: str, trigger_type: str) -> list[DelegationRule]:
         stmt = (
-            select(AutomationRule)
+            select(DelegationRule)
             .where(
                 and_(
-                    AutomationRule.enabled.is_(True),
-                    AutomationRule.source_type == source_type,
-                    AutomationRule.trigger_type == trigger_type,
+                    DelegationRule.enabled.is_(True),
+                    DelegationRule.source_type == source_type,
+                    DelegationRule.trigger_type == trigger_type,
                 )
             )
-            .order_by(AutomationRule.created_at.desc())
+            .order_by(DelegationRule.created_at.desc())
         )
         rows = list(self.db.scalars(stmt).all())
         return [row for row in rows if not self.is_deleted_rule(row)]
 
-    def update(self, rule: AutomationRule, update_data: dict) -> AutomationRule:
+    def update(self, rule: DelegationRule, update_data: dict) -> DelegationRule:
         for key, value in update_data.items():
             setattr(rule, key, value)
         self.db.add(rule)
@@ -83,28 +83,28 @@ class AutomationRuleRepository:
         self.db.refresh(rule)
         return rule
 
-    def delete(self, rule: AutomationRule) -> None:
+    def delete(self, rule: DelegationRule) -> None:
         self.db.delete(rule)
         self.db.commit()
 
-    def list_due_rules(self, now: datetime, limit: int) -> list[AutomationRule]:
+    def list_due_rules(self, now: datetime, limit: int) -> list[DelegationRule]:
         if limit <= 0:
             return []
-        collected: list[AutomationRule] = []
+        collected: list[DelegationRule] = []
         batch_offset = 0
         batch_size = max(50, min(200, limit))
         while len(collected) < limit:
             stmt = (
-                select(AutomationRule)
+                select(DelegationRule)
                 .where(
                     and_(
-                        AutomationRule.enabled.is_(True),
-                        AutomationRule.next_run_at.is_not(None),
-                        AutomationRule.next_run_at <= now,
-                        or_(AutomationRule.locked_until.is_(None), AutomationRule.locked_until < now),
+                        DelegationRule.enabled.is_(True),
+                        DelegationRule.next_run_at.is_not(None),
+                        DelegationRule.next_run_at <= now,
+                        or_(DelegationRule.locked_until.is_(None), DelegationRule.locked_until < now),
                     )
                 )
-                .order_by(AutomationRule.next_run_at.asc())
+                .order_by(DelegationRule.next_run_at.asc())
                 .offset(batch_offset)
                 .limit(batch_size)
             )
@@ -120,15 +120,15 @@ class AutomationRuleRepository:
             batch_offset += len(rows)
         return collected
 
-    def acquire_due_rule_lock(self, rule_id: str, now: datetime, lease_seconds: int) -> AutomationRule | None:
+    def acquire_due_rule_lock(self, rule_id: str, now: datetime, lease_seconds: int) -> DelegationRule | None:
         stmt = (
-            update(AutomationRule)
+            update(DelegationRule)
             .where(
                 and_(
-                    AutomationRule.id == rule_id,
-                    AutomationRule.enabled.is_(True),
-                    AutomationRule.next_run_at <= now,
-                    or_(AutomationRule.locked_until.is_(None), AutomationRule.locked_until < now),
+                    DelegationRule.id == rule_id,
+                    DelegationRule.enabled.is_(True),
+                    DelegationRule.next_run_at <= now,
+                    or_(DelegationRule.locked_until.is_(None), DelegationRule.locked_until < now),
                 )
             )
             .values(
@@ -146,7 +146,7 @@ class AutomationRuleRepository:
             return None
         return rule
 
-    def release_lock_and_schedule_next(self, rule: AutomationRule, *, now: datetime, next_run_at: datetime | None) -> AutomationRule:
+    def release_lock_and_schedule_next(self, rule: DelegationRule, *, now: datetime, next_run_at: datetime | None) -> DelegationRule:
         rule.last_run_at = now
         rule.next_run_at = next_run_at
         rule.locked_until = None
@@ -155,8 +155,8 @@ class AutomationRuleRepository:
         self.db.refresh(rule)
         return rule
 
-    def create_run(self, *, rule_id: str, status: str = "running", started_at: datetime | None = None) -> AutomationRuleRun:
-        run = AutomationRuleRun(rule_id=rule_id, status=status, started_at=started_at or datetime.utcnow())
+    def create_run(self, *, rule_id: str, status: str = "running", started_at: datetime | None = None) -> DelegationRuleRun:
+        run = DelegationRuleRun(rule_id=rule_id, status=status, started_at=started_at or datetime.utcnow())
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
@@ -164,7 +164,7 @@ class AutomationRuleRepository:
 
     def finish_run(
         self,
-        run: AutomationRuleRun,
+        run: DelegationRuleRun,
         *,
         status: str,
         found_count: int,
@@ -172,7 +172,7 @@ class AutomationRuleRepository:
         skipped_count: int,
         error_message: str | None = None,
         metrics: dict | None = None,
-    ) -> AutomationRuleRun:
+    ) -> DelegationRuleRun:
         run.status = status
         run.found_count = found_count
         run.created_task_count = created_task_count
@@ -193,8 +193,8 @@ class AutomationRuleRepository:
         source_payload_json: str,
         normalized_payload_json: str,
         status: str = "discovered",
-    ) -> tuple[AutomationRuleEvent, bool]:
-        event = AutomationRuleEvent(
+    ) -> tuple[DelegationRuleEvent, bool]:
+        event = DelegationRuleEvent(
             rule_id=rule_id,
             dedupe_key=dedupe_key,
             status=status,
@@ -209,8 +209,8 @@ class AutomationRuleRepository:
         except IntegrityError:
             self.db.rollback()
             existing = self.db.scalars(
-                select(AutomationRuleEvent).where(
-                    and_(AutomationRuleEvent.rule_id == rule_id, AutomationRuleEvent.dedupe_key == dedupe_key)
+                select(DelegationRuleEvent).where(
+                    and_(DelegationRuleEvent.rule_id == rule_id, DelegationRuleEvent.dedupe_key == dedupe_key)
                 )
             ).first()
             if existing is None:
@@ -225,7 +225,7 @@ class AutomationRuleRepository:
         source_payload_json: str,
         normalized_payload_json: str,
         status: str = "discovered",
-    ) -> tuple[AutomationRuleEvent, bool]:
+    ) -> tuple[DelegationRuleEvent, bool]:
         return self.create_event_or_get_existing(
             rule_id=rule_id,
             dedupe_key=dedupe_key,
@@ -234,13 +234,13 @@ class AutomationRuleRepository:
             status=status,
         )
 
-    def get_event(self, event_id: str) -> AutomationRuleEvent | None:
-        return self.db.get(AutomationRuleEvent, event_id)
+    def get_event(self, event_id: str) -> DelegationRuleEvent | None:
+        return self.db.get(DelegationRuleEvent, event_id)
 
-    def get_event_by_dedupe(self, *, rule_id: str, dedupe_key: str) -> AutomationRuleEvent | None:
+    def get_event_by_dedupe(self, *, rule_id: str, dedupe_key: str) -> DelegationRuleEvent | None:
         return self.db.scalars(
-            select(AutomationRuleEvent).where(
-                and_(AutomationRuleEvent.rule_id == rule_id, AutomationRuleEvent.dedupe_key == dedupe_key)
+            select(DelegationRuleEvent).where(
+                and_(DelegationRuleEvent.rule_id == rule_id, DelegationRuleEvent.dedupe_key == dedupe_key)
             )
         ).first()
 
@@ -252,8 +252,8 @@ class AutomationRuleRepository:
         source_payload_json: str,
         normalized_payload_json: str,
         status: str = "discovered",
-    ) -> AutomationRuleEvent:
-        event = AutomationRuleEvent(
+    ) -> DelegationRuleEvent:
+        event = DelegationRuleEvent(
             rule_id=rule_id,
             dedupe_key=dedupe_key,
             status=status,
@@ -267,17 +267,25 @@ class AutomationRuleRepository:
 
     def update_event_status(
         self,
-        event: AutomationRuleEvent,
+        event: DelegationRuleEvent,
         *,
         status: str,
         task_id: str | None = None,
         error_message: str | None = None,
-    ) -> AutomationRuleEvent:
+    ) -> DelegationRuleEvent:
         now = datetime.utcnow()
         event.status = status
         event.task_id = task_id
         event.error_message = error_message
         event.updated_at = now
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        return event
+
+    def update_event_normalized_payload(self, event: DelegationRuleEvent, normalized_payload: dict) -> DelegationRuleEvent:
+        event.normalized_payload_json = json.dumps(normalized_payload or {})
+        event.updated_at = datetime.utcnow()
         self.db.add(event)
         self.db.commit()
         self.db.refresh(event)
@@ -293,18 +301,18 @@ class AutomationRuleRepository:
         claim_now = now or datetime.utcnow()
         stale_before = claim_now - timedelta(seconds=max(1, stale_after_seconds))
         stmt = (
-            update(AutomationRuleEvent)
+            update(DelegationRuleEvent)
             .where(
                 and_(
-                    AutomationRuleEvent.id == event_id,
-                    AutomationRuleEvent.task_id.is_(None),
+                    DelegationRuleEvent.id == event_id,
+                    DelegationRuleEvent.task_id.is_(None),
                     or_(
-                        AutomationRuleEvent.status.in_(("discovered", "failed")),
+                        DelegationRuleEvent.status.in_(("discovered", "failed")),
                         and_(
-                            AutomationRuleEvent.status == "creating_task",
+                            DelegationRuleEvent.status == "creating_task",
                             or_(
-                                AutomationRuleEvent.updated_at.is_(None),
-                                AutomationRuleEvent.updated_at < stale_before,
+                                DelegationRuleEvent.updated_at.is_(None),
+                                DelegationRuleEvent.updated_at < stale_before,
                             ),
                         ),
                     ),
@@ -319,20 +327,37 @@ class AutomationRuleRepository:
         self.db.commit()
         return True
 
-    def list_runs(self, rule_id: str, limit: int) -> list[AutomationRuleRun]:
+    def list_runs(self, rule_id: str, limit: int) -> list[DelegationRuleRun]:
         stmt = (
-            select(AutomationRuleRun)
-            .where(AutomationRuleRun.rule_id == rule_id)
-            .order_by(AutomationRuleRun.started_at.desc())
+            select(DelegationRuleRun)
+            .where(DelegationRuleRun.rule_id == rule_id)
+            .order_by(DelegationRuleRun.started_at.desc())
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
 
-    def list_events(self, rule_id: str, limit: int) -> list[AutomationRuleEvent]:
+    def list_events(self, rule_id: str, limit: int) -> list[DelegationRuleEvent]:
         stmt = (
-            select(AutomationRuleEvent)
-            .where(AutomationRuleEvent.rule_id == rule_id)
-            .order_by(AutomationRuleEvent.created_at.desc())
+            select(DelegationRuleEvent)
+            .where(DelegationRuleEvent.rule_id == rule_id)
+            .order_by(DelegationRuleEvent.created_at.desc())
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def list_events_pending_reply(self, rule_id: str, limit: int) -> list[DelegationRuleEvent]:
+        if limit <= 0:
+            return []
+        stmt = (
+            select(DelegationRuleEvent)
+            .where(
+                and_(
+                    DelegationRuleEvent.rule_id == rule_id,
+                    DelegationRuleEvent.task_id.is_not(None),
+                    DelegationRuleEvent.status.in_(("task_created", "task_done")),
+                )
+            )
+            .order_by(DelegationRuleEvent.updated_at.asc(), DelegationRuleEvent.created_at.asc())
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())

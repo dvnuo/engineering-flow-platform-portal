@@ -90,6 +90,14 @@ class Settings(BaseSettings):
         default=120,
         validation_alias="OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS",
     )
+    opencode_task_completion_timeout_seconds: int = Field(
+        default=3600,
+        validation_alias="OPENCODE_TASK_COMPLETION_TIMEOUT_SECONDS",
+    )
+    opencode_chat_submit_timeout_seconds: int = Field(
+        default=900,
+        validation_alias="OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS",
+    )
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"
@@ -107,9 +115,11 @@ class Settings(BaseSettings):
         default=60,
         validation_alias="ASSETS_BUNDLE_LIST_CACHE_TTL_SECONDS",
     )
-    automation_rules_worker_enabled: bool = Field(default=True, validation_alias="AUTOMATION_RULES_WORKER_ENABLED")
-    automation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="AUTOMATION_RULES_WORKER_INTERVAL_SECONDS")
-    automation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="AUTOMATION_RULE_LOCK_LEASE_SECONDS")
+    delegation_rules_worker_enabled: bool = Field(default=True, validation_alias="DELEGATION_RULES_WORKER_ENABLED")
+    delegation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="DELEGATION_RULES_WORKER_INTERVAL_SECONDS")
+    delegation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="DELEGATION_RULE_LOCK_LEASE_SECONDS")
+    agent_task_runtime_poll_timeout_seconds: int = Field(default=3600, validation_alias="AGENT_TASK_RUNTIME_POLL_TIMEOUT_SECONDS")
+    agent_task_runtime_poll_interval_seconds: int = Field(default=1, validation_alias="AGENT_TASK_RUNTIME_POLL_INTERVAL_SECONDS")
     runtime_profile_sync_worker_enabled: bool = Field(default=True, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_ENABLED")
     runtime_profile_sync_worker_interval_seconds: int = Field(default=5, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_INTERVAL_SECONDS")
     runtime_profile_sync_worker_batch_size: int = Field(default=20, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_BATCH_SIZE")

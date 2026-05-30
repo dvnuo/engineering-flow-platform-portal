@@ -45,8 +45,9 @@ def test_portal_hash_route_sections_are_declared():
         "bundles",
         "tasks",
         "runtime-profiles",
-        "automations",
+        "delegations",
     }
+    assert "automations" not in _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS")
 
 
 def test_refresh_all_prefers_assistant_hash_route_over_local_storage():
@@ -87,7 +88,7 @@ def test_user_actions_commit_hash_routes():
     open_bundle = _extract_js_function(js, "openRequirementBundleInMain")
     open_task = _extract_js_function(js, "openTaskDetailInMain")
     open_runtime_profile = _extract_js_function(js, "openRuntimeProfileInMain")
-    open_automation = _extract_js_function(js, "openAutomationRulePanel")
+    open_delegation = _extract_js_function(js, "openDelegationRulePanel")
 
     assert 'commitPortalRoute({ section: "assistants", agentId })' in select_agent
     assert "commitPortalRoute(" in set_active_section
@@ -95,7 +96,7 @@ def test_user_actions_commit_hash_routes():
     assert 'commitPortalRoute({ section: "bundles", bundleRef })' in open_bundle
     assert 'commitPortalRoute({ section: "tasks", taskId })' in open_task
     assert 'commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: profileId })' in open_runtime_profile
-    assert 'commitPortalRoute({ section: "automations", automationRuleId: ruleId })' in open_automation
+    assert 'commitPortalRoute({ section: "delegations", delegationRuleId: ruleId })' in open_delegation
 
 
 def test_rail_clicks_use_section_only_navigation():
@@ -106,12 +107,12 @@ def test_rail_clicks_use_section_only_navigation():
     assert 'dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"))' in bind_events
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => openPortalSection("tasks"))' in bind_events
     assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"))' in bind_events
-    assert 'dom.automationsMenuBtn?.addEventListener("click", () => openPortalSection("automations"))' in bind_events
+    assert 'dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"))' in bind_events
 
     assert 'dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"))' not in bind_events
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"))' not in bind_events
     assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"))' not in bind_events
-    assert 'dom.automationsMenuBtn?.addEventListener("click", () => setActiveNavSection("automations"))' not in bind_events
+    assert 'dom.delegationsMenuBtn?.addEventListener("click", () => setActiveNavSection("delegations"))' not in bind_events
 
 
 def test_return_from_task_detail_routes_back_to_tasks_section():
@@ -173,3 +174,5 @@ def test_hash_routing_does_not_add_forbidden_runtime_paths():
 
     assert ":4096" not in js
     assert '"/api/tasks"' not in js
+    assert "#/automations" not in js
+    assert "/api/automation-rules" not in js

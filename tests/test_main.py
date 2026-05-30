@@ -93,7 +93,7 @@ def test_main_startup_starts_worker_after_runtime_profile_defaults(monkeypatch):
     monkeypatch.setattr(app_main, "assert_portal_schema_ready", lambda _engine: call_order.append("schema_guard"))
     monkeypatch.setattr(app_main, "assert_phase5_schema_compatibility", lambda _engine: None)
     monkeypatch.setattr(app_main, "assert_runtime_profile_schema_compatibility", lambda _engine: None)
-    monkeypatch.setattr(app_main.settings, "automation_rules_worker_enabled", True)
+    monkeypatch.setattr(app_main.settings, "delegation_rules_worker_enabled", True)
     monkeypatch.setattr(app_main.worker_singleton, "start", lambda: call_order.append("worker_start"))
     monkeypatch.setattr(
         app_main,
@@ -128,7 +128,7 @@ def test_main_startup_does_not_start_worker_when_default_setup_raises(monkeypatc
     monkeypatch.setattr(app_main, "assert_portal_schema_ready", lambda _engine: None)
     monkeypatch.setattr(app_main, "assert_phase5_schema_compatibility", lambda _engine: None)
     monkeypatch.setattr(app_main, "assert_runtime_profile_schema_compatibility", lambda _engine: None)
-    monkeypatch.setattr(app_main.settings, "automation_rules_worker_enabled", True)
+    monkeypatch.setattr(app_main.settings, "delegation_rules_worker_enabled", True)
     monkeypatch.setattr(app_main.worker_singleton, "start", lambda: call_order.append("worker_start"))
     monkeypatch.setattr(
         app_main,

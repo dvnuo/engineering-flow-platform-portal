@@ -112,7 +112,7 @@ class AgentTaskRepository:
             self.db.add(task)
         self.db.commit()
 
-    def list_active_tasks_for_automation_item(
+    def list_active_tasks_for_delegation_item(
         self,
         *,
         assignee_agent_id: str,
