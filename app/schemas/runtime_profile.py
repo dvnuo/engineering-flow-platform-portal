@@ -185,7 +185,7 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             continue
         sanitized_item: dict = {}
         name = str(item.get("name") or "").strip()
-        url = str(item.get("url") or "").strip().rstrip("/")
+        url = str(item.get("url") or item.get("base_url") or "").strip().rstrip("/")
         username = str(item.get("username") or item.get("email") or "").strip()
         password = str(item.get("password") or "").strip()
         token = str(item.get("token") or item.get("api_token") or "").strip()
@@ -399,7 +399,9 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
         llm.pop("oauth_by_runtime", None)
     github = redacted.get("github")
     if isinstance(github, dict):
-        github["api_token_present"] = bool(str(github.pop("api_token", "")).strip())
+        token_values = [str(github.pop(key, "")).strip() for key in ("api_token", "token", "access_token")]
+        token_present = any(token_values)
+        github["api_token_present"] = token_present
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
@@ -416,7 +418,9 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
                 continue
             inst_copy = inst.copy()
             inst_copy["password_present"] = bool(str(inst_copy.pop("password", "")).strip())
-            inst_copy["token_present"] = bool(str(inst_copy.pop("token", "")).strip())
+            token_values = [str(inst_copy.pop(key, "")).strip() for key in ("token", "api_token", "access_token")]
+            token_present = any(token_values)
+            inst_copy["token_present"] = token_present
             redacted_instances.append(inst_copy)
         cfg["instances"] = redacted_instances
     return redacted

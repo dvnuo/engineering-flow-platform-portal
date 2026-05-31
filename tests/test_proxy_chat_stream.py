@@ -87,15 +87,33 @@ def test_chat_payload_enrichment_applies_metadata_and_model_override():
         'request_id': 'req_123',
         'metadata': {
             'provider': 'browser-forged',
-            'runtime_profile': {'config': {'enabled' + '_tools': ['browser-forged']}},
+            'runtime_profile': {
+                'config': {
+                    'enabled' + '_tools': ['browser-forged'],
+                    'github': {'api_token': 'browser-token'},
+                    'jira': {'instances': [{'token': 'browser-jira-token'}]},
+                }
+            },
         },
         'portal_user_id': 'browser-forged',
     }
-    metadata = {'provider': 'openai'}
+    metadata = {
+        'provider': 'openai',
+        'runtime_profile': {
+            'config': {
+                'github': {'enabled': True, 'api_token': 'portal-token'},
+                'jira': {'enabled': True, 'instances': [{'name': 'Jira', 'token': 'portal-jira-token'}]},
+            }
+        },
+    }
     class _User: pass
     enriched = proxy._enrich_chat_payload_with_runtime_metadata(payload, metadata, _User(), runtime_type='native')
     assert enriched['metadata']['provider'] == 'openai'
     assert enriched['metadata']['provider'] != 'browser-forged'
+    assert enriched['metadata']['runtime_profile']['config']['github']['api_token'] == 'portal-token'
+    assert enriched['metadata']['runtime_profile']['config']['jira']['instances'][0]['token'] == 'portal-jira-token'
+    assert 'browser-token' not in json.dumps(enriched)
+    assert 'browser-jira-token' not in json.dumps(enriched)
     assert 'model' in enriched['metadata']
     assert enriched['request_id'] == 'req_123'
     assert 'portal_user_id' not in enriched

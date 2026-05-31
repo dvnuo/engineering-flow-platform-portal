@@ -73,7 +73,13 @@ Runtime responsibility:
 ## 10) Runtime profile/config contract
 - Runtime profiles are Portal-owned only for concise integration context: `llm`, `proxy`, `jira`, `confluence`, `github`, `git`, and `debug`.
 - Portal stores and forwards LLM provider/model/Copilot API key fields that it owns.
-- Portal stores and forwards proxy and external integration sections that it owns.
+- Portal stores and forwards proxy and external integration sections that it owns. For the Python EFP runtime this includes enough config for runtime-side file generation:
+  - `jira.enabled` and `jira.instances[]` with `name`, `url` (accepted from `url` or `base_url`), `username` (accepted from `username` or `email`), `password`, `token` (accepted from `token` or `api_token`), `project` (accepted from `project` or `project_key`), `api_version`, and per-instance `enabled`.
+  - `confluence.enabled` and `confluence.instances[]` with `name`, `url` (accepted from `url` or `base_url`), `username` (accepted from `username` or `email`), `password`, `token` (accepted from `token` or `api_token`), `space` (accepted from `space` or `space_key`), and per-instance `enabled`.
+  - `github.enabled`, `github.api_token` (accepted from `api_token`, `token`, or `access_token`), and `github.base_url`.
+  - `git.user.name` and `git.user.email`.
+- The Python runtime consumes the applied profile config and writes its own external tool files: `ATLASSIAN_CONFIG` / `~/.config/atlassian/config.json` for the `engineering-flow-platform-tools` `jira` and `confluence` CLIs, GitHub CLI host config for `gh`, and git user config for `git`.
+- Portal must not write those runtime files itself and must not execute `jira`, `confluence`, `gh`, or `git` commands.
 - Portal drops low-level runtime internals for tools, skills, loop control, context shaping, compaction, prompt assembly, structured output, and runtime mode.
 - Runtime profile apply payloads and trusted chat metadata carry the sanitized profile context under `config` / `runtime_profile.config`.
 - Browser-provided chat `metadata` is untrusted. Portal replaces it with server-owned runtime profile/config/authorization metadata.

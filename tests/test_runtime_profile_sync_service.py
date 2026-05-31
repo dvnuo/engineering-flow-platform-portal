@@ -489,6 +489,105 @@ def test_safe_body_preview_redacts_github_oauth_tokens():
     assert "ghu_SECRET" not in preview
     assert "[REDACTED]" in preview
 
+
+def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_secrets():
+    db, rp, running, _stopped = _build_db()
+    try:
+        running.runtime_type = "native"
+        rp.config_json = json.dumps(
+            {
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {
+                            "name": "Jira",
+                            "base_url": "https://jira.example.com/",
+                            "email": "jira@example.com",
+                            "password": "jira-password",
+                            "api_token": "jira-token",
+                            "project_key": "ENG",
+                            "api_version": "3",
+                            "enabled": True,
+                            "rest_path": "/rest/api/3",
+                        }
+                    ],
+                },
+                "confluence": {
+                    "enabled": True,
+                    "instances": [
+                        {
+                            "name": "Confluence",
+                            "base_url": "https://confluence.example.com/wiki/",
+                            "email": "conf@example.com",
+                            "api_token": "conf-token",
+                            "space_key": "DOCS",
+                            "enabled": True,
+                            "rest_path": "/rest/api",
+                        }
+                    ],
+                },
+                "github": {
+                    "enabled": True,
+                    "access_token": "github-token",
+                    "base_url": "https://github.example.com/api/v3/",
+                    "hosts": {"github.example.com": {"oauth_token": "browser-forged"}},
+                },
+                "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com", "signingkey": "drop"}},
+                "tool_loop": {"max_iterations": 12},
+                "context_budget": {"max_prompt_tokens": 32000},
+                "runtime_mode": "plan",
+            }
+        )
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(rp)
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        cfg = payload["config"]
+
+        assert payload["runtime_type"] == "native"
+        assert payload["agent_id"] == running.id
+        assert cfg == {
+            "jira": {
+                "enabled": True,
+                "instances": [
+                    {
+                        "name": "Jira",
+                        "url": "https://jira.example.com",
+                        "username": "jira@example.com",
+                        "password": "jira-password",
+                        "token": "jira-token",
+                        "enabled": True,
+                        "project": "ENG",
+                        "api_version": "3",
+                    }
+                ],
+            },
+            "confluence": {
+                "enabled": True,
+                "instances": [
+                    {
+                        "name": "Confluence",
+                        "url": "https://confluence.example.com/wiki",
+                        "username": "conf@example.com",
+                        "token": "conf-token",
+                        "enabled": True,
+                        "space": "DOCS",
+                    }
+                ],
+            },
+            "github": {
+                "enabled": True,
+                "api_token": "github-token",
+                "base_url": "https://github.example.com/api/v3",
+            },
+            "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
+        }
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_for_agent_adds_runtime_type_agent_id_and_external_sections():
     db, rp, running, _stopped = _build_db()
     try:

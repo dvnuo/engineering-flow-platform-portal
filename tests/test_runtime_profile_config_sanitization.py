@@ -107,6 +107,23 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     assert "token" not in red["confluence"]["instances"][0] and red["confluence"]["instances"][0]["token_present"] is True
 
 
+def test_public_redaction_removes_token_aliases():
+    cfg = {
+        "github": {"api_token": "gh-api", "token": "gh-token", "access_token": "gh-access"},
+        "jira": {"instances": [{"api_token": "jira-api", "token": "jira-token", "access_token": "jira-access"}]},
+        "confluence": {"instances": [{"api_token": "conf-api", "token": "conf-token", "access_token": "conf-access"}]},
+    }
+
+    red = redact_runtime_profile_config_for_public_response(cfg)
+    dumped = json.dumps(red)
+
+    for secret in ("gh-api", "gh-token", "gh-access", "jira-api", "jira-token", "jira-access", "conf-api", "conf-token", "conf-access"):
+        assert secret not in dumped
+    assert red["github"]["api_token_present"] is True
+    assert red["jira"]["instances"][0]["token_present"] is True
+    assert red["confluence"]["instances"][0]["token_present"] is True
+
+
 def test_public_redaction_keeps_proxy_no_proxy_and_hides_password():
     cfg = {
         "proxy": {
@@ -125,14 +142,105 @@ def test_public_redaction_keeps_proxy_no_proxy_and_hides_password():
 def test_alias_fields_are_normalized_to_canonical_shape():
     s = sanitize_runtime_profile_config_dict(
         {
-            "jira": {"instances": [{"name": "J", "url": "https://a/", "email": "u@x", "api_token": "jt", "project_key": "ENG", "enabled": "1"}]},
-            "confluence": {"instances": [{"name": "C", "url": "https://a/wiki/", "email": "c@x", "api_token": "ct", "space_key": "DOCS", "enabled": True}]},
-            "github": {"token": "gh", "api_base_url": "https://api.github.com/"},
+            "jira": {"instances": [{"name": "J", "base_url": "https://a/", "email": "u@x", "api_token": "jt", "project_key": "ENG", "enabled": "1"}]},
+            "confluence": {"instances": [{"name": "C", "base_url": "https://a/wiki/", "email": "c@x", "api_token": "ct", "space_key": "DOCS", "enabled": True}]},
+            "github": {"access_token": "gh", "api_base_url": "https://api.github.com/"},
         }
     )
     assert s["jira"]["instances"][0] == {"name": "J", "url": "https://a", "username": "u@x", "token": "jt", "project": "ENG", "enabled": True}
     assert s["confluence"]["instances"][0] == {"name": "C", "url": "https://a/wiki", "username": "c@x", "token": "ct", "space": "DOCS", "enabled": True}
     assert s["github"] == {"api_token": "gh", "base_url": "https://api.github.com"}
+
+
+def test_external_integration_contract_keeps_cli_mapping_inputs_and_drops_runtime_internal_fields():
+    raw = {
+        "jira": {
+            "enabled": True,
+            "instances": [
+                {
+                    "name": "main",
+                    "base_url": "https://jira.example.com/",
+                    "email": "jira@example.com",
+                    "password": "jira-password",
+                    "api_token": "jira-token",
+                    "project_key": "ENG",
+                    "api_version": "3",
+                    "enabled": True,
+                    "rest_path": "/rest/api/3",
+                }
+            ],
+        },
+        "confluence": {
+            "enabled": True,
+            "instances": [
+                {
+                    "name": "docs",
+                    "base_url": "https://confluence.example.com/wiki/",
+                    "email": "conf@example.com",
+                    "api_token": "conf-token",
+                    "space_key": "DOCS",
+                    "enabled": "on",
+                    "rest_path": "/rest/api",
+                }
+            ],
+        },
+        "github": {
+            "enabled": True,
+            "token": "github-token",
+            "base_url": "https://github.example.com/api/v3/",
+            "hosts": {"github.example.com": {"oauth_token": "browser-forged"}},
+        },
+        "git": {
+            "user": {
+                "name": "EFP Bot",
+                "email": "efp-bot@example.com",
+                "signingkey": "drop",
+            },
+        },
+        "tool_loop": {"max_iterations": 12},
+        "context_budget": {"max_prompt_tokens": 32000},
+        "runtime_mode": "plan",
+    }
+
+    s = sanitize_runtime_profile_config_dict(raw)
+
+    assert s == {
+        "jira": {
+            "enabled": True,
+            "instances": [
+                {
+                    "name": "main",
+                    "url": "https://jira.example.com",
+                    "username": "jira@example.com",
+                    "password": "jira-password",
+                    "token": "jira-token",
+                    "enabled": True,
+                    "project": "ENG",
+                    "api_version": "3",
+                }
+            ],
+        },
+        "confluence": {
+            "enabled": True,
+            "instances": [
+                {
+                    "name": "docs",
+                    "url": "https://confluence.example.com/wiki",
+                    "username": "conf@example.com",
+                    "token": "conf-token",
+                    "enabled": True,
+                    "space": "DOCS",
+                }
+            ],
+        },
+        "github": {
+            "enabled": True,
+            "api_token": "github-token",
+            "base_url": "https://github.example.com/api/v3",
+        },
+        "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
+    }
+
 
 def test_external_enabled_string_false_values_remain_disabled():
     raw = {

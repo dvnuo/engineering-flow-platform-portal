@@ -512,6 +512,84 @@ def test_settings_merge_new_confluence_instance_same_current_identity_does_not_i
     assert row.get("token", "") == ""
 
 
+def test_settings_merge_external_cli_config_sections_are_persisted():
+    merged, error = _settings_merge_payload(
+        {},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "Jira",
+            "jira_instances_0_url": "https://jira.example.com/",
+            "jira_instances_0_username": "jira@example.com",
+            "jira_instances_0_password": "jira-password",
+            "jira_instances_0_token": "jira-token",
+            "jira_instances_0_project": "ENG",
+            "jira_instances_0_api_version": "3",
+            "jira_instances_0_enabled": "1",
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_name": "Confluence",
+            "confluence_instances_0_url": "https://confluence.example.com/wiki/",
+            "confluence_instances_0_username": "conf@example.com",
+            "confluence_instances_0_password": "conf-password",
+            "confluence_instances_0_token": "conf-token",
+            "confluence_instances_0_space": "DOCS",
+            "confluence_instances_0_enabled": "1",
+            "__touch_github": "1",
+            "github_enabled": "on",
+            "github_api_token": "github-token",
+            "github_base_url": "https://github.example.com/api/v3/",
+            "__touch_git": "1",
+            "git_user_name": "EFP Bot",
+            "git_user_email": "efp-bot@example.com",
+            "tool_loop": '{"max_iterations":12}',
+            "context_budget": '{"max_prompt_tokens":32000}',
+            "runtime_mode": "plan",
+        },
+    )
+
+    assert error is None
+    assert merged == {
+        "jira": {
+            "enabled": True,
+            "instances": [
+                {
+                    "enabled": True,
+                    "name": "Jira",
+                    "url": "https://jira.example.com",
+                    "username": "jira@example.com",
+                    "password": "jira-password",
+                    "token": "jira-token",
+                    "project": "ENG",
+                    "api_version": "3",
+                }
+            ],
+        },
+        "confluence": {
+            "enabled": True,
+            "instances": [
+                {
+                    "enabled": True,
+                    "name": "Confluence",
+                    "url": "https://confluence.example.com/wiki",
+                    "username": "conf@example.com",
+                    "password": "conf-password",
+                    "token": "conf-token",
+                    "space": "DOCS",
+                }
+            ],
+        },
+        "github": {
+            "enabled": True,
+            "api_token": "github-token",
+            "base_url": "https://github.example.com/api/v3",
+        },
+        "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
+    }
+
+
 def test_settings_merge_ignores_posted_runtime_internal_fields():
     old_fields = {
         "enabled" + "_tools": "bash, read\nbash",

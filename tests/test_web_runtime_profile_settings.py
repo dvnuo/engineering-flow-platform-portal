@@ -389,6 +389,92 @@ def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypa
         cleanup()
 
 
+def test_settings_save_persists_external_cli_config_sections(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {})
+        payload = {
+            "__touch_llm": "0",
+            "__touch_proxy": "0",
+            "__touch_jira": "1",
+            "__touch_confluence": "1",
+            "__touch_github": "1",
+            "__touch_git": "1",
+            "__touch_debug": "0",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "Jira",
+            "jira_instances_0_url": "https://jira.example.com/",
+            "jira_instances_0_username": "jira@example.com",
+            "jira_instances_0_password": "jira-password",
+            "jira_instances_0_token": "jira-token",
+            "jira_instances_0_project": "ENG",
+            "jira_instances_0_api_version": "3",
+            "jira_instances_0_enabled": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_name": "Confluence",
+            "confluence_instances_0_url": "https://confluence.example.com/wiki/",
+            "confluence_instances_0_username": "conf@example.com",
+            "confluence_instances_0_password": "conf-password",
+            "confluence_instances_0_token": "conf-token",
+            "confluence_instances_0_space": "DOCS",
+            "confluence_instances_0_enabled": "1",
+            "github_enabled": "on",
+            "github_api_token": "github-token",
+            "github_base_url": "https://github.example.com/api/v3/",
+            "git_user_name": "EFP Bot",
+            "git_user_email": "efp-bot@example.com",
+            "tool_loop": '{"max_iterations":12}',
+            "context_budget": '{"max_prompt_tokens":32000}',
+            "runtime_mode": "plan",
+        }
+        resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg == {
+            "jira": {
+                "enabled": True,
+                "instances": [
+                    {
+                        "name": "Jira",
+                        "url": "https://jira.example.com",
+                        "username": "jira@example.com",
+                        "password": "jira-password",
+                        "token": "jira-token",
+                        "enabled": True,
+                        "project": "ENG",
+                        "api_version": "3",
+                    }
+                ],
+            },
+            "confluence": {
+                "enabled": True,
+                "instances": [
+                    {
+                        "name": "Confluence",
+                        "url": "https://confluence.example.com/wiki",
+                        "username": "conf@example.com",
+                        "password": "conf-password",
+                        "token": "conf-token",
+                        "enabled": True,
+                        "space": "DOCS",
+                    }
+                ],
+            },
+            "github": {
+                "enabled": True,
+                "api_token": "github-token",
+                "base_url": "https://github.example.com/api/v3",
+            },
+            "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
+        }
+    finally:
+        cleanup()
+
+
 def test_settings_save_touched_github_blank_api_token_clears_token(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
