@@ -59,8 +59,9 @@ K8s clone uses HTTPS + `GIT_ASKPASS` + token-only auth. The askpass username res
 Provisioning notes:
 - Portal provisions one Python EFP runtime image; there is no runtime selector or alternate-runtime K8s path.
 - Agent workspace data mounts at `/workspace` by default, and the container `workingDir` follows the effective workspace path.
-- Runtime source overlay is optional and default-off; when enabled, Portal clones the configured runtime repo to `/app/src` plus `/app/.git`.
+- Portal does not support runtime source overlay; runtime pods run the configured image and do not mount `/app/src` or `/app/.git` from a cloned runtime repo.
 - Skill repo content is provisioned to `/app/skills`; Portal does not provision a separate tools repo.
+- Runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, and permissions.
 
 `PORTAL_INTERNAL_BASE_URL` should point to Portal internal DNS (example: `http://efp-portal-service.default.svc.cluster.local`).
 

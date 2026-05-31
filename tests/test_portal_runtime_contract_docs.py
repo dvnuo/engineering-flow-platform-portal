@@ -8,7 +8,8 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "/a/{agent_id}/api/*" in text
     assert "/app/skills" in text
     assert "/app/tools" not in text
-    assert "ENABLE_RUNTIME_SOURCE_OVERLAY" in text
+    assert "runtime source overlay" in text
+    assert "ENABLE_RUNTIME_SOURCE_OVERLAY" not in text
     assert "X-Trace-Id" in text
     assert "runtime_type" in text
     assert "/home/opencode" not in text

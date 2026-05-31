@@ -993,7 +993,7 @@ def test_thinking_process_view_marks_replay_and_redacts_safe_detail_payload():
         {
             "runtime_events": [
                 {
-                    "event_type": "opencode.raw",
+                    "event_type": "runtime.raw",
                     "metadata": {"replayed": True},
                     "detail_payload": {
                         "summary": "raw event",

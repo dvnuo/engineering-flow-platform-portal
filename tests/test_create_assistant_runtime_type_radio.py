@@ -43,7 +43,7 @@ def test_config_and_schema_use_single_native_runtime_default():
     config = Path("app/config.py").read_text(encoding="utf-8")
     contract = Path("app/contracts/runtime_type.py").read_text(encoding="utf-8")
     schema = Path("app/schemas/agent.py").read_text(encoding="utf-8")
-    assert 'default_runtime_type: str = Field(default="native"' in config
+    assert "DEFAULT_RUNTIME_TYPE" not in config
     assert 'DEFAULT_RUNTIME_TYPE = "native"' in contract
     assert 'runtime_type: str = "native"' in schema
 

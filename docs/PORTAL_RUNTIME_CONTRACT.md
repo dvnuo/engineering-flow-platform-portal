@@ -17,6 +17,7 @@
 - Invalid non-empty `runtime_type` values must be rejected or ignored depending on the request boundary; Portal must not switch an existing agent to another runtime.
 - Legacy rows/fixtures with missing, blank, or obsolete runtime markers may normalize to `native` in API responses.
 - `/api/agents/defaults` must not return a runtime selection matrix.
+- Portal does not expose Runtime v2 settings or any runtime version selector.
 
 ## 4) Assets contract
 - Skills directory: `/app/skills`.
@@ -25,11 +26,10 @@
 - Nested layouts are selected with `DEFAULT_SKILL_REPO_SUBDIR`, for example `DEFAULT_SKILL_REPO_SUBDIR=skills` copies `repo/skills/.` directly into `/app/skills`.
 - `DEFAULT_SKILL_ASSET_VERSION` is a rollout marker only. Changing it updates Deployment template annotations so pods restart and the skills initContainer reclones same-branch content.
 - Workspace default: `/workspace`.
-- Native source overlay is **default false**.
-  - Only when `ENABLE_RUNTIME_SOURCE_OVERLAY=true` and `DEFAULT_AGENT_RUNTIME_REPO_URL` is valid should runtime source be cloned to `/app/src` (plus `/app/.git`).
+- Portal does not support a runtime source overlay. It runs the configured runtime image and does not clone runtime source into `/app/src` or `/app/.git`.
 
 ## 5) State contract
-- Portal K8s provisioning owns mount/env wiring; runtime owns actual recovery behavior.
+- Portal K8s provisioning owns image, workspace, skill asset, and env wiring; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and recovery behavior.
 
 ## 6) Trace / observability contract
 - Portal request middleware creates/binds `X-Trace-Id`.

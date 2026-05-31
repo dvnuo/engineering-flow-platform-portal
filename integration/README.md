@@ -9,7 +9,7 @@ It covers:
 - ProxyService outbound trace/identity header allowlist and sanitization
 - alembic runtime_type server_default cleanup and legacy DB upgrade
 - config/docs default consistency
-- k8s source overlay contract
+- k8s single-runtime image, workspace, and skill provisioning contract
 
 Live runtime contract validation is owned by runtime repo or multi-repo integration workspaces.
 

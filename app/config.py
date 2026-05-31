@@ -38,19 +38,7 @@ class Settings(BaseSettings):
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"
     default_agent_image_tag: str = "latest"
-    default_runtime_type: str = Field(default="native", validation_alias="DEFAULT_RUNTIME_TYPE")
     default_agent_git_image: str = "alpine/git:latest"
-    default_agent_repo_url: str = "https://github.com/dvnuo/engineering-flow-platform"
-    default_agent_branch: str = "master"
-    default_agent_runtime_repo_url: str = Field(
-        default="",
-        validation_alias="DEFAULT_AGENT_RUNTIME_REPO_URL",
-    )
-    enable_runtime_source_overlay: bool = Field(default=False, validation_alias="ENABLE_RUNTIME_SOURCE_OVERLAY")
-    default_agent_runtime_branch: str = Field(
-        default="",
-        validation_alias="DEFAULT_AGENT_RUNTIME_BRANCH",
-    )
     default_skill_repo_url: str = Field(
         default="https://github.com/dvnuo/engineering-flow-platform-skills",
         validation_alias="DEFAULT_SKILL_REPO_URL",

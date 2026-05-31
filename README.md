@@ -70,10 +70,6 @@ Access `http://localhost:8000/login`
 | `K8S_PVC_ACCESS_MODES` | PVC access modes | `["ReadWriteOnce"]` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
-| `DEFAULT_RUNTIME_TYPE` | Internal runtime marker for legacy rows. Portal provisions the single Python EFP runtime and does not expose runtime selection. | `native` |
-| `ENABLE_RUNTIME_SOURCE_OVERLAY` | Enable native runtime source overlay clone/mount (`/app/src`, `/app/.git`) | `false` |
-| `DEFAULT_AGENT_RUNTIME_REPO_URL` | Runtime source repository URL used when source overlay is enabled | (empty) |
-| `DEFAULT_AGENT_RUNTIME_BRANCH` | Runtime source branch used when source overlay is enabled | `master` |
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
 | `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
 
@@ -81,13 +77,14 @@ For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth
 
 Kubernetes runtime provisioning behavior:
 - Portal provisions the Python EFP runtime image from `DEFAULT_AGENT_IMAGE_REPO` / `DEFAULT_AGENT_IMAGE_TAG`.
+- Portal provisions a single Python EFP runtime. It has no runtime selector, no alternate Python runtime versions, no runtime source overlay, and no Runtime v2 settings surface.
 - New agents mount `/workspace` by default.
 - Portal mounts `/app/skills` when a skill repo/default exists.
-- Portal mounts `/app/src` and `/app/.git` only when source overlay is enabled.
 - Portal does not parse slash commands and does not clone user-requested business repos at pod startup.
 - Runtime owns on-demand checkout flows such as `/create-pull-request in git repo <url> from branch <head> to <base>`.
 - Skills repo is cloned by Portal initContainers into `/app/skills`.
 - Portal does not parse skills and does not copy only `SKILL.md`; it provisions the full selected skill package tree.
+- Runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, and permission behavior.
 - Root-layout skill repos should contain entries such as `<skill-name>/SKILL.md`, `<skill-name>/scripts/...`, `<skill-name>/templates/...`, `<skill-name>/reference/...`, or `<skill-name>/examples/...`.
 - Nested skill repo layouts can be enabled with `DEFAULT_SKILL_REPO_SUBDIR=skills`, which copies `repo/skills/.` directly into `/app/skills` instead of nesting it as `/app/skills/skills`.
 - `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.

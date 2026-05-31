@@ -128,6 +128,7 @@ class RuntimeCapabilityCatalogProvider:
             metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else None
             metadata_dict = metadata or {}
             permission_state = item.get("permission_state") or metadata_dict.get("permission_state")
+            # Transitional parser for older capability snapshots; callers use runtime_compatibility.
             runtime_compatibility = (
                 item.get("runtime_compatibility")
                 or item.get("compatibility")

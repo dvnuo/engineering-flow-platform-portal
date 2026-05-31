@@ -83,14 +83,6 @@ class K8sService:
             logger.exception("Failed to update agent runtime")
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))
 
-    def _runtime_repo_url(self) -> str | None:
-        if not bool(getattr(self.settings, "enable_runtime_source_overlay", False)):
-            return None
-        return normalize_git_repo_url(self.settings.default_agent_runtime_repo_url)
-
-    def _runtime_branch(self) -> str:
-        return (self.settings.default_agent_runtime_branch or self.settings.default_agent_branch or "master").strip() or "master"
-
     def _skill_repo_url(self, agent) -> str | None:
         return normalize_git_repo_url(getattr(agent, "skill_repo_url", None)) or normalize_git_repo_url(self.settings.default_skill_repo_url)
 
@@ -170,26 +162,10 @@ class K8sService:
         volume_mounts = []
         git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
         prefix = self.settings.agents_volume_sub_path_prefix
-        runtime_repo_url = self._runtime_repo_url()
-        runtime_branch = self._runtime_branch()
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
         skill_repo_subdir = self._skill_repo_subdir(agent)
 
-        if runtime_repo_url:
-            runtime_sub_path = f"{prefix}/{agent.id}/runtime-code"
-            init_containers.append(
-                client.V1Container(
-                    name="runtime-git-clone",
-                    image=git_image,
-                    command=["sh", "-c"],
-                    args=[self._git_clone_shell_command("/runtime-code")],
-                    env=self._build_git_clone_env(runtime_repo_url, runtime_branch),
-                    volume_mounts=[client.V1VolumeMount(name="agent-data", mount_path="/runtime-code", sub_path=runtime_sub_path)],
-                )
-            )
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/.git", sub_path=f"{runtime_sub_path}/.git"))
-            volume_mounts.append(client.V1VolumeMount(name="agent-data", mount_path="/app/src", sub_path=f"{runtime_sub_path}/src"))
         if skill_repo_url:
             skills_sub_path = f"{prefix}/{agent.id}/skills-code"
             init_containers.append(
@@ -560,27 +536,20 @@ class K8sService:
 
     def _agent_common_labels(self, agent) -> dict[str, str]:
         runtime_type = self._runtime_type(agent)
-        runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         return {
             "app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id), "managed-by": "portal",
             "runtime-type": self._sanitize_label_value(runtime_type),
-            "runtime-git-repo": runtime_meta["repo_slug"], "runtime-git-repo-hash": runtime_meta["repo_hash"], "runtime-git-branch": runtime_meta["branch"],
             "skill-git-repo": skill_meta["repo_slug"], "skill-git-repo-hash": skill_meta["repo_hash"], "skill-git-branch": skill_meta["branch"],
         }
 
     def _agent_metadata_annotations(self, agent) -> dict[str, str]:
         runtime_type = self._runtime_type(agent)
-        runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         skill_subdir = self._skill_repo_subdir(agent)
         skill_asset_version = self._skill_asset_version(agent)
         annotations = {}
         annotations["efp/runtime-type"] = runtime_type
-        if runtime_meta["raw_repo_url"]:
-            annotations["efp/runtime-git-repo-url"] = runtime_meta["raw_repo_url"]
-        if runtime_meta["raw_branch"]:
-            annotations["efp/runtime-git-branch"] = runtime_meta["raw_branch"]
         if skill_meta["raw_repo_url"]:
             annotations["efp/skill-git-repo-url"] = skill_meta["raw_repo_url"]
             annotations["efp/git-repo-url"] = skill_meta["raw_repo_url"]
@@ -595,14 +564,11 @@ class K8sService:
 
     def _agent_patch_annotations(self, agent) -> dict[str, Optional[str]]:
         runtime_type = self._runtime_type(agent)
-        runtime_meta = self._repo_metadata(self._runtime_repo_url(), self._runtime_branch())
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         skill_subdir = self._skill_repo_subdir(agent)
         skill_asset_version = self._skill_asset_version(agent)
         return {
             "efp/runtime-type": runtime_type,
-            "efp/runtime-git-repo-url": runtime_meta["raw_repo_url"] or None,
-            "efp/runtime-git-branch": runtime_meta["raw_branch"] or None,
             "efp/skill-git-repo-url": skill_meta["raw_repo_url"] or None,
             "efp/skill-git-branch": skill_meta["raw_branch"] or None,
             "efp/skill-git-subdir": skill_subdir or None,
@@ -757,21 +723,6 @@ class K8sService:
         if not requests:
             return None
         return client.V1ResourceRequirements(requests=requests)
-
-    def _git_clone_shell_command(self, target_dir: str) -> str:
-        return (
-            f"mkdir -p \"{target_dir}\" && "
-            "rm -rf /tmp/git-clone-work && mkdir -p /tmp/git-clone-work && cd /tmp/git-clone-work && "
-            "REPO_URL=\"${GIT_REPO_URL}\" && "
-            "if [ -n \"${GIT_TOKEN}\" ]; then "
-            "ASKPASS_SCRIPT=/tmp/git-askpass.sh && "
-            "printf '%s\n' '#!/bin/sh' 'case \"$1\" in' '  *Username*|*username*) echo \"x-access-token\" ;;' '  *) echo \"${GIT_TOKEN}\" ;;' 'esac' > \"${ASKPASS_SCRIPT}\" && "
-            "chmod 700 \"${ASKPASS_SCRIPT}\" && export GIT_ASKPASS=\"${ASKPASS_SCRIPT}\" && export GIT_TERMINAL_PROMPT=0; "
-            "fi && "
-            "git clone --depth 1 --branch \"${GIT_BRANCH}\" \"${REPO_URL}\" . && "
-            f"find \"{target_dir}\" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} + && cp -a /tmp/git-clone-work/. \"{target_dir}/\" && "
-            "rm -f /tmp/git-askpass.sh"
-        )
 
     def _skill_git_clone_shell_command(self, target_dir: str) -> str:
         return "\n".join(

@@ -1125,7 +1125,7 @@ function parseSkillSlashInput(text) {
 
 function toSkillSuggestion(item) {
   const skill = (item && typeof item === "object") ? item : null;
-  const name = typeof item === "string" ? item : (skill?.name || skill?.opencode_name || skill?.efp_name || "");
+  const name = typeof item === "string" ? item : (skill?.name || skill?.runtime_name || skill?.opencode_name || skill?.efp_name || "");
   const normalizedName = String(name || "").trim().toLowerCase().replaceAll("_", "-");
   const command = normalizeSkillCommand(normalizedName);
   const blockedReason = skill?.blocked_reason || "";
@@ -1135,7 +1135,9 @@ function toSkillSuggestion(item) {
   const descBase = typeof item === "string" ? "Skill" : (skill?.description || "Skill");
   const desc = [descBase, status, blockedReason || compatibilityWarnings].filter(Boolean).join(" · ");
   const missingTools = Array.isArray(skill?.missing_tools) ? skill.missing_tools.join(", ") : "";
-  const missingOpencodeTools = Array.isArray(skill?.missing_opencode_tools) ? skill.missing_opencode_tools.join(", ") : "";
+  const missingRuntimeTools = Array.isArray(skill?.missing_runtime_tools)
+    ? skill.missing_runtime_tools.join(", ")
+    : (Array.isArray(skill?.missing_opencode_tools) ? skill.missing_opencode_tools.join(", ") : "");
   const titleText = [blockedReason, compatibilityWarnings].filter(Boolean).join(" · ");
   return {
     label: command,
@@ -1144,13 +1146,13 @@ function toSkillSuggestion(item) {
     title: titleText,
     callable: isCallable,
     blocked_reason: blockedReason,
-    opencode_compatibility: skill?.opencode_compatibility || "",
+    runtime_compatibility: skill?.runtime_compatibility || skill?.opencode_compatibility || "",
     runtime_equivalence: skill?.runtime_equivalence ?? "",
     programmatic: skill?.programmatic,
     permission_state: skill?.permission_state || "",
     missing_tools: missingTools,
-    missing_opencode_tools: missingOpencodeTools,
-    opencode_name: skill?.opencode_name || "",
+    missing_runtime_tools: missingRuntimeTools,
+    runtime_name: skill?.runtime_name || skill?.opencode_name || "",
     efp_name: skill?.efp_name || "",
     name: skill?.name || normalizedName,
   };
@@ -1169,6 +1171,7 @@ function findCachedSkillForSlash(invocation, agentId = state.selectedAgentId) {
   return getCachedSkillsForAgent(agentId).find((skill) => {
     const names = [
       skill?.name,
+      skill?.runtime_name,
       skill?.opencode_name,
       skill?.efp_name,
     ].filter(Boolean).map((x) => String(x).trim().toLowerCase().replaceAll("_", "-"));
@@ -1349,7 +1352,7 @@ function getCanonicalMessagesFromSessionPayload(payload = {}) {
         parts,
         message_id: messageId,
         role,
-        source_of_truth: "opencode",
+        source_of_truth: "runtime",
       };
     })
     .filter((message) => message.message_id || message.role || message.parts.length);
@@ -1389,9 +1392,9 @@ function canonicalMessageToLegacyDisplayMessage(message = {}, index = 0) {
     display_content: content,
     request_id: String(info.requestID || info.request_id || ""),
     metadata: {
-      source_of_truth: "opencode",
-      opencode_message_id: id,
-      opencode_role: role,
+      source_of_truth: "runtime",
+      runtime_message_id: id,
+      runtime_role: role,
       canonical_parts: message.parts || [],
     },
   };
@@ -1478,7 +1481,7 @@ function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
     message_id: item.message_id || "",
     part_id: item.part_id || "",
     session_id: sessionId || "",
-    source_of_truth: "opencode",
+    source_of_truth: "runtime",
   };
   const baseEvent = (type, data = baseData, summary = "") => ({
     type,
@@ -1490,30 +1493,30 @@ function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
     event_id: `canonical:${item.message_id || ""}:${item.part_id || ""}:${type}`,
     summary: summary || data.message || data.text || data.tool || type,
     ts: Date.now() / 1000,
-    source_of_truth: "opencode",
+    source_of_truth: "runtime",
   });
 
   if (item.kind === "reasoning") {
-    return baseEvent("opencode.reasoning", {
+    return baseEvent("runtime.reasoning", {
       ...baseData,
       message: item.text || "Reasoning update",
       status: item.status || "running",
     }, item.text || "Reasoning update");
   }
   if (item.kind === "tool") {
-    return baseEvent("opencode.tool", {
+    return baseEvent("runtime.tool", {
       ...baseData,
       message: item.tool ? `${item.tool} ${item.status || "running"}` : "Tool update",
     }, item.tool || "Tool update");
   }
   if (item.kind === "step_start") {
-    return baseEvent("opencode.step.started", {
+    return baseEvent("runtime.step.started", {
       ...baseData,
       message: "Step started",
     }, "Step started");
   }
   if (item.kind === "step_finish") {
-    return baseEvent("opencode.step.finished", {
+    return baseEvent("runtime.step.finished", {
       ...baseData,
       message: item.reason || "Step finished",
     }, item.reason || "Step finished");
@@ -1549,7 +1552,7 @@ function applyCanonicalMessagesToChatState(agentId, sessionId, chatState, canoni
     sessionId: sessionId || existing.sessionId || "",
     events: mergeThinkingEvents(existing.events || [], canonicalEvents),
     canonicalThinkingItems: canonicalMessagesToThinkingItems(canonicalMessages),
-    contextSource: "opencode_canonical",
+    contextSource: "runtime_canonical",
     completed: target ? false : (existing.completed ?? true),
     status: target ? (existing.status || "connected") : (existing.status || "snapshot"),
     lastEventAt: Date.now(),
@@ -1619,7 +1622,7 @@ function groupSessionMessagesForDisplay(messages = []) {
 }
 
 function getAssistantGroupMessageIds(group) {
-  return (group?.messages || []).map((m) => m?.id || m?.message_id || m?.metadata?.opencode_message_id || "").filter(Boolean);
+  return (group?.messages || []).map((m) => m?.id || m?.message_id || m?.metadata?.runtime_message_id || m?.metadata?.opencode_message_id || "").filter(Boolean);
 }
 
 function getAssistantGroupMarkdown(group) {
@@ -1743,6 +1746,7 @@ function removeLatestOptimisticUserRow(options = {}) {
   const persisted =
     latest.dataset.persisted === "1"
     || latest.dataset.messageId
+    || latest.dataset.runtimeMessageId
     || latest.dataset.opencodeMessageId;
   if (persisted) return false;
   const row = latest.closest?.(".message-row");
@@ -1760,6 +1764,7 @@ function removeOptimisticUserRowForRequest(requestCtx = {}) {
   const exactPersisted =
     exact?.dataset.persisted === "1"
     || exact?.dataset.messageId
+    || exact?.dataset.runtimeMessageId
     || exact?.dataset.opencodeMessageId;
   if (exact && !exactPersisted) {
     const row = exact.closest?.(".message-row");
@@ -1774,6 +1779,7 @@ function removeOptimisticUserRowForRequest(requestCtx = {}) {
   const persisted =
     last.dataset.persisted === "1"
     || last.dataset.messageId
+    || last.dataset.runtimeMessageId
     || last.dataset.opencodeMessageId;
 
   if (persisted) return false;
@@ -1806,6 +1812,17 @@ function disconnectEventSocket({ clearReconnect = true } = {}) {
 
 function normalizeRuntimeEventTypeAlias(type) {
   const normalized = String(type || "").trim();
+  const aliases = {
+    // Transitional parser only for older runtime builds; UI uses runtime.* names.
+    "opencode.reasoning": "runtime.reasoning",
+    "opencode.tool": "runtime.tool",
+    "opencode.step.started": "runtime.step.started",
+    "opencode.step.finished": "runtime.step.finished",
+    "opencode.raw": "runtime.raw",
+    "opencode.status.validated": "runtime.status.validated",
+  };
+  if (aliases[normalized]) return aliases[normalized];
+  if (normalized.startsWith("opencode.")) return "runtime.raw";
   return normalized;
 }
 
@@ -1822,7 +1839,7 @@ function isTrackableThinkingEvent(type) {
     "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
-    "opencode.reasoning", "opencode.tool", "opencode.step.started", "opencode.step.finished",
+    "runtime.reasoning", "runtime.tool", "runtime.step.started", "runtime.step.finished",
     "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error", "final",
     "edit.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
@@ -1840,8 +1857,8 @@ function isTrackableThinkingEvent(type) {
     "permission.requested", "permission.resolved", "permission_request", "permission_resolved",
     "permission.denied", "permission.allowed",
     "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
-    "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "opencode.raw",
-    "opencode.status.validated",
+    "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "runtime.raw",
+    "runtime.status.validated",
     "assistant.message.started", "assistant.message.updated", "assistant.message.completed",
     "portal.waiting_for_runtime_events", "portal.stream_disconnected",
     "skill.loaded", "task.started", "task.completed", "usage.updated"
@@ -1985,10 +2002,10 @@ function getThinkingEventDisplay(event) {
     llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
     tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
-    "opencode.reasoning": { icon: "brain", title: "OpenCode Reasoning", detail: data.text || data.message || "Reasoning update", kind: data.status === "completed" ? "success" : "running" },
-    "opencode.tool": { icon: data.error ? "x-circle" : "wrench", title: "OpenCode Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
-    "opencode.step.started": { icon: "list-start", title: "OpenCode Step Started", detail: data.message || "Step started" },
-    "opencode.step.finished": { icon: "list-checks", title: "OpenCode Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
+    "runtime.reasoning": { icon: "brain", title: "Runtime Reasoning", detail: data.text || data.message || "Reasoning update", kind: data.status === "completed" ? "success" : "running" },
+    "runtime.tool": { icon: data.error ? "x-circle" : "wrench", title: "Runtime Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
+    "runtime.step.started": { icon: "list-start", title: "Runtime Step Started", detail: data.message || "Step started" },
+    "runtime.step.finished": { icon: "list-checks", title: "Runtime Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
     context_snapshot: {
@@ -2054,8 +2071,8 @@ function getThinkingEventDisplay(event) {
     "event_bridge.connected": { icon: "plug", title: "Event Bridge Connected", detail: data.message || "Runtime event bridge connected" },
     "event_bridge.disconnected": { icon: "unplug", title: "Event Bridge Disconnected", detail: data.message || "Runtime event bridge disconnected" },
     "event_bridge.reconnected": { icon: "plug-zap", title: "Event Bridge Reconnected", detail: data.message || "Runtime event bridge reconnected" },
-    "opencode.raw": { icon: "terminal", title: "OpenCode Event", detail: data.summary || data.message || "OpenCode runtime event" },
-    "opencode.status.validated": { icon: "shield-check", title: "OpenCode Status Validated", detail: data.message || "OpenCode active status validated" },
+    "runtime.raw": { icon: "terminal", title: "Runtime Event", detail: data.summary || data.message || "Runtime event" },
+    "runtime.status.validated": { icon: "shield-check", title: "Runtime Status Validated", detail: data.message || "Runtime active status validated" },
     "assistant.message.started": { icon: "message-square", title: "Assistant Message Started", detail: data.message || "Assistant message started" },
     "assistant.message.updated": { icon: "message-square", title: "Assistant Message Updated", detail: data.message || data.delta || "Assistant message updated" },
     "assistant.message.completed": { icon: "message-square-check", title: "Assistant Message Completed", detail: data.message || "Assistant message completed" },
@@ -2313,7 +2330,7 @@ function nonSuccessHintForPayload(payload = {}) {
   ).toLowerCase();
 
   if (reason.includes("opencode_abort_still_active")) {
-    return "Stop was requested, but OpenCode still reports this session is running. Reset the session or start a new chat.";
+    return "Stop was requested, but the runtime still reports this session is running. Reset the session or start a new chat.";
   }
 
   const status = String(payload.status || payload.completion_state || "").toLowerCase();
@@ -2338,14 +2355,14 @@ function getThinkingSnapshotStatus(snapshot) {
 
 function renderThinkingPanelFromClientState(chatState) {
   if (!dom.toolPanelBody) return;
-  const uiState = computeOpenCodeRuntimeUiState(
+  const uiState = computeRuntimeUiState(
     (typeof getSelectedAgent === "function") ? (getSelectedAgent() || {}) : {},
     chatState || {}
   );
-  const runtimeStateNotes = renderOpenCodeRuntimeStateNotes(uiState);
+  const runtimeStateNotes = renderRuntimeStateNotes(uiState);
   const snapshot = getActiveThinkingSnapshot(chatState);
   if (!snapshot) {
-    dom.toolPanelBody.innerHTML = `<div class="portal-panel-section"><div class="portal-panel-title">Runtime State</div>${runtimeStateNotes}<div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div></div><div class="portal-inline-state">Waiting for runtime events…</div>`;
+    dom.toolPanelBody.innerHTML = `<div class="portal-panel-section"><div class="portal-panel-title">Runtime State</div>${runtimeStateNotes}<div class="portal-panel-note">${safe(runtimeUiStatusText(uiState))}</div></div><div class="portal-inline-state">Waiting for runtime events…</div>`;
     return;
   }
   const events = Array.isArray(snapshot.events) ? snapshot.events : [];
@@ -2429,7 +2446,7 @@ function renderThinkingPanelFromClientState(chatState) {
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
         ${runtimeStateNotes}
-        <div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div>
+        <div class="portal-panel-note">${safe(runtimeUiStatusText(uiState))}</div>
       </div>
       ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>${safe(nonSuccessHint)}</div></div>` : ""}
       ${stillRunning ? '<div class="portal-inline-state">Still running. Live events will continue to appear here.</div>' : ""}
@@ -2566,9 +2583,10 @@ function runtimeEventDedupKey(event) {
   const eventId = runtimeEventUniqueId(event);
   if (eventId) return `id:${eventId}`;
   const eventType = normalizeRuntimeEventTypeAlias(event.type || event.event_type || data.type || data.event_type || "");
+  const rawEventType = String(event.raw_type || data.raw_event_type || data.raw_type || "");
   const createdAt = event.created_at || data.created_at || event.ts || "";
   const summary = event.summary || data.summary || data.message || "";
-  return `${eventType}|${createdAt}|${runtimeEventSummaryHash(summary)}`;
+  return `${eventType}|${rawEventType}|${createdAt}|${runtimeEventSummaryHash(summary)}`;
 }
 
 function mergeThinkingEvents(primaryEvents, secondaryEvents) {
@@ -3078,7 +3096,7 @@ function normalizeRuntimeHealthStatus(value) {
   return normalized || "unknown";
 }
 
-function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
+function computeRuntimeUiState(agent = {}, chatState = {}) {
   const runtimeHealth = agent.runtime_status || agent.status || "unknown";
   const normalizedRuntimeHealth = normalizeRuntimeHealthStatus(runtimeHealth);
   const submitting = Boolean(chatState?.isSubmitting);
@@ -3097,7 +3115,7 @@ function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
   };
 }
 
-function openCodeRuntimeUiStatusText(uiState = {}) {
+function runtimeUiStatusText(uiState = {}) {
   const runtimeHealth = uiState.normalizedRuntimeHealth || normalizeRuntimeHealthStatus(uiState.runtimeHealth);
   const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
   if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
@@ -3106,7 +3124,7 @@ function openCodeRuntimeUiStatusText(uiState = {}) {
   return "Assistant online. Session status unknown.";
 }
 
-function renderOpenCodeRuntimeStateNotes(uiState = {}) {
+function renderRuntimeStateNotes(uiState = {}) {
   return `
     <div class="portal-panel-note">Runtime: ${safe(uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown")}</div>
     <div class="portal-panel-note">Session: ${safe(uiState.sessionStatus || "unknown")}</div>
@@ -3134,8 +3152,8 @@ function setChatStatus(text, isError = false) {
   if (!dom.chatStatus) return;
   const agent = getSelectedAgent();
   const chatState = state.selectedAgentId ? ensureChatState(state.selectedAgentId) : {};
-  const uiState = computeOpenCodeRuntimeUiState(agent || {}, chatState || {});
-  const runtimeSummary = openCodeRuntimeUiStatusText(uiState);
+  const uiState = computeRuntimeUiState(agent || {}, chatState || {});
+  const runtimeSummary = runtimeUiStatusText(uiState);
   const visibleRuntimeSummary = (
     uiState.normalizedRuntimeHealth === "offline"
     || ["busy", "retry"].includes(String(uiState.sessionStatus || "").toLowerCase())
@@ -4450,8 +4468,8 @@ async function submitChatForSelectedAgent() {
       slash_command: matchedSkill ? {
         type: "skill",
         raw_name: slashInvocation.rawName,
-        name: matchedSkill.name || matchedSkill.opencode_name || slashInvocation.name,
-        opencode_name: matchedSkill.opencode_name || matchedSkill.name || slashInvocation.name,
+        name: matchedSkill.name || matchedSkill.runtime_name || matchedSkill.opencode_name || slashInvocation.name,
+        runtime_name: matchedSkill.runtime_name || matchedSkill.opencode_name || matchedSkill.name || slashInvocation.name,
         efp_name: matchedSkill.efp_name || "",
         arguments: slashInvocation.arguments,
         source: "portal-chat-ui",
@@ -7399,7 +7417,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     messages: messagesForRender,
     metadata: {
       ...(data.metadata || {}),
-      source_of_truth: canonicalMessages.length ? "opencode" : data.metadata?.source_of_truth,
+      source_of_truth: canonicalMessages.length ? "runtime" : data.metadata?.source_of_truth,
       canonical_messages: canonicalMessages,
       session_status: statusPayload || data.metadata?.session_status || null,
     },
@@ -9750,6 +9768,7 @@ function getRuntimeMessageId(message = {}) {
     message?.id
     || message?.message_id
     || message?.messageId
+    || message?.metadata?.runtime_message_id
     || message?.metadata?.opencode_message_id
     || ""
   );

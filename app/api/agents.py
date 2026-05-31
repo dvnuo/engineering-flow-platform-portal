@@ -44,10 +44,6 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "image_repo": _single_runtime_image_repo(),
         "image_tag": _single_runtime_image_tag(),
         "git_image": settings.default_agent_git_image,
-        "default_runtime_repo_url": _runtime_repo_url_from_settings(),
-        "default_runtime_branch": _runtime_branch_from_settings(),
-        "runtime_repo_url": _runtime_repo_url_from_settings(),
-        "runtime_branch": _runtime_branch_from_settings(),
         "default_skill_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
         "default_skill_branch": settings.default_skill_branch,
         "default_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
@@ -56,7 +52,6 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,
         "mount_path": SINGLE_RUNTIME_WORKSPACE_PATH,
-        "enable_runtime_source_overlay": settings.enable_runtime_source_overlay,
     }
 
 
@@ -136,10 +131,6 @@ def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -
         raise ValueError(str(exc)) from exc
 
 
-def _default_runtime_type_from_settings() -> str:
-    return SINGLE_RUNTIME_TYPE
-
-
 def _single_runtime_image_repo() -> str:
     return (settings.default_agent_image_repo or "").strip()
 
@@ -180,21 +171,6 @@ def _runtime_image_parts(runtime_type: str) -> tuple[str, str]:
 def _default_agent_image_for_runtime(runtime_type: str) -> str:
     repo, tag = _runtime_image_parts(runtime_type)
     return f"{repo}:{tag}"
-
-
-def _runtime_repo_url_from_settings() -> str | None:
-    if not bool(getattr(settings, "enable_runtime_source_overlay", False)):
-        return None
-    return normalize_git_repo_url(settings.default_agent_runtime_repo_url)
-
-
-def _runtime_branch_from_settings() -> str | None:
-    if not bool(getattr(settings, "enable_runtime_source_overlay", False)):
-        return None
-    repo_url = normalize_git_repo_url(settings.default_agent_runtime_repo_url)
-    if not repo_url:
-        return None
-    return (settings.default_agent_runtime_branch or settings.default_agent_branch or "master").strip() or "master"
 
 
 def _resolve_create_skill_repo_url(payload: AgentCreateRequest) -> str | None:
@@ -280,8 +256,6 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
     effective_runtime_type = _resolve_create_runtime_type(payload)
     effective_image = _resolve_create_image(payload, effective_runtime_type)
     effective_mount_path = _resolve_create_mount_path(payload, effective_runtime_type)
-    effective_runtime_repo_url = _runtime_repo_url_from_settings()
-    effective_runtime_branch = _runtime_branch_from_settings()
     effective_skill_repo_url = _resolve_create_skill_repo_url(payload)
     effective_skill_branch = _resolve_create_skill_branch(payload)
 
@@ -294,8 +268,8 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         status="creating",
         image=effective_image,
         runtime_type=effective_runtime_type,
-        repo_url=effective_runtime_repo_url,
-        branch=effective_runtime_branch,
+        repo_url=None,
+        branch=None,
         skill_repo_url=effective_skill_repo_url,
         skill_branch=effective_skill_branch,
         cpu=payload.cpu,

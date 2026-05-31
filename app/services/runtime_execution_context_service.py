@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
-from app.contracts.opencode_provider import normalize_model_for_runtime, normalize_provider_for_runtime
+from app.contracts.provider_projection import normalize_model_for_runtime, normalize_provider_for_runtime
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,

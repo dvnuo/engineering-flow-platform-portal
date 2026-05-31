@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from app.contracts.opencode_provider import normalize_model_for_runtime, normalize_provider_for_portal, normalize_provider_for_runtime
+from app.contracts.provider_projection import normalize_model_for_runtime, normalize_provider_for_portal, normalize_provider_for_runtime
 
 
 def _is_copilot_provider(provider: str | None) -> bool:

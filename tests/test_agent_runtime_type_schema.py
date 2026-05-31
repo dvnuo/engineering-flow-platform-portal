@@ -35,10 +35,10 @@ def test_internal_runtime_type_normalizer_rejects_invalid_values():
         agents_api._normalize_runtime_type("bad")
 
 
-def test_default_runtime_type_from_settings_rejects_invalid_non_empty_setting(monkeypatch):
+def test_agent_defaults_have_no_configurable_runtime_type_helper():
     import app.api.agents as agents_api
-    monkeypatch.setattr(agents_api.settings, "default_runtime_type", "bad")
-    assert agents_api._default_runtime_type_from_settings() == "native"
+    assert not hasattr(agents_api.settings, "default_runtime_type")
+    assert not hasattr(agents_api, "_default_runtime_type_from_settings")
 
 
 def test_runtime_image_parts_rejects_invalid_runtime_type():

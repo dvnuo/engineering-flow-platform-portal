@@ -1647,6 +1647,7 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
     runtime_detail = _runtime_skill_detail_for_panel(db, agent, name)
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     permission_state = _normalize_permission_state(_skill_field(payload, "permission_state") or metadata.get("permission_state") or runtime_detail.get("permission_state") or "unknown")
+    # Transitional parser for older runtime skill payloads; Portal exposes only runtime_compatibility.
     runtime_compatibility = _normalize_runtime_compatibility(
         _skill_field(payload, "runtime_compatibility", "compatibility", "opencode_compatibility")
         or metadata.get("runtime_compatibility")

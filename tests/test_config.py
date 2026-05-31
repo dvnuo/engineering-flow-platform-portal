@@ -53,6 +53,18 @@ def test_settings_default_skill_asset_env_defaults():
     assert settings.default_skill_asset_version == ""
 
 
+def test_settings_do_not_expose_runtime_selection_or_source_overlay(monkeypatch):
+    monkeypatch.setenv("DEFAULT_RUNTIME_TYPE", "opencode")
+    monkeypatch.setenv("ENABLE_RUNTIME_SOURCE_OVERLAY", "true")
+    monkeypatch.setenv("DEFAULT_AGENT_RUNTIME_REPO_URL", "https://example.com/runtime.git")
+    monkeypatch.setenv("DEFAULT_AGENT_RUNTIME_BRANCH", "main")
+    settings = Settings()
+    assert not hasattr(settings, "default_runtime_type")
+    assert not hasattr(settings, "enable_runtime_source_overlay")
+    assert not hasattr(settings, "default_agent_runtime_repo_url")
+    assert not hasattr(settings, "default_agent_runtime_branch")
+
+
 def test_settings_default_skill_asset_env_overrides(monkeypatch):
     monkeypatch.setenv("DEFAULT_SKILL_REPO_SUBDIR", "skills")
     monkeypatch.setenv("DEFAULT_SKILL_ASSET_VERSION", "sha-abc123")

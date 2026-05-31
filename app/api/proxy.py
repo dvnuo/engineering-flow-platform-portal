@@ -14,7 +14,7 @@ from starlette.background import BackgroundTask
 import websockets
 
 from app.config import get_settings
-from app.contracts.opencode_provider import normalize_model_for_runtime
+from app.contracts.provider_projection import normalize_model_for_runtime
 from app.db import get_db
 from app.db import SessionLocal
 from app.deps import get_current_user

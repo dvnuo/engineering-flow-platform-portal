@@ -171,11 +171,6 @@ def test_create_agent_applies_backend_defaults_when_fields_omitted(monkeypatch):
 
         monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/acme/portal-agent")
         monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "v2.4.1")
-        monkeypatch.setattr(agents_api.settings, "default_agent_repo_url", "git@github.com:Acme/Portal.git")
-        monkeypatch.setattr(agents_api.settings, "enable_runtime_source_overlay", False)
-        monkeypatch.setattr(agents_api.settings, "default_agent_branch", "release/default")
-        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_repo_url", "")
-        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_branch", "")
         monkeypatch.setattr(
             "app.api.agents.k8s_service.create_agent_runtime",
             lambda _agent: SimpleNamespace(status="running", message=None),
@@ -290,16 +285,15 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         response = client.get("/api/agents/defaults")
         assert response.status_code == 200
         body = response.json()
-        assert "default_runtime_repo_url" in body
-        assert "default_runtime_branch" in body
-        assert "runtime_repo_url" in body
-        assert "runtime_branch" in body
-        assert body["runtime_repo_url"] == body["default_runtime_repo_url"]
-        assert body["runtime_branch"] == body["default_runtime_branch"]
+        assert "default_runtime_repo_url" not in body
+        assert "default_runtime_branch" not in body
+        assert "runtime_repo_url" not in body
+        assert "runtime_branch" not in body
         assert "default_skill_repo_url" in body
         assert "default_skill_branch" in body
         assert "default_runtime_type" not in body
         assert "runtime" + "_types" not in body
+        assert "enable_runtime_source_overlay" not in body
         assert body["mount_path"] == "/workspace"
         assert body["default_repo_url"] == body["default_skill_repo_url"]
         assert body["default_branch"] == body["default_skill_branch"]
@@ -310,9 +304,6 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
 def test_defaults_blank_runtime_type_does_not_expose_runtime_choice(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
-        import app.api.agents as agents_api
-
-        monkeypatch.setattr(agents_api.settings, "default_runtime_type", "")
         response = client.get("/api/agents/defaults")
         assert response.status_code == 200
         body = response.json()
@@ -326,17 +317,14 @@ def test_create_agent_uses_config_runtime_and_payload_skill_repo(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         import app.api.agents as agents_api
-        monkeypatch.setattr(agents_api.settings, "enable_runtime_source_overlay", True)
-        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_repo_url", "https://github.com/acme/runtime.git")
-        monkeypatch.setattr(agents_api.settings, "default_agent_runtime_branch", "runtime-branch")
         monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://github.com/acme/default-skills.git")
         monkeypatch.setattr(agents_api.settings, "default_skill_branch", "skills-main")
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         response = client.post("/api/agents", json={"name": "agent", "repo_url": "https://github.com/user/should-be-ignored.git", "branch": "ignored-branch", "skill_repo_url": "git@github.com:Acme/Skills.git", "skill_branch": "feature/skills"})
         assert response.status_code == 200
         body = response.json()
-        assert body["repo_url"] == "https://github.com/acme/runtime.git"
-        assert body["branch"] == "runtime-branch"
+        assert body["repo_url"] is None
+        assert body["branch"] is None
         assert body["skill_repo_url"] == "https://github.com/Acme/Skills.git"
         assert body["skill_branch"] == "feature/skills"
     finally:
@@ -1071,5 +1059,5 @@ def test_create_invalid_runtime_type_returns_422(monkeypatch):
 def test_agents_api_runtime_overlay_no_default_agent_repo_fallback_source_marker():
     from pathlib import Path
     src = Path('app/api/agents.py').read_text(encoding='utf-8')
-    assert 'default_agent_runtime_repo_url' in src
-    assert 'enable_runtime_source_overlay' in src
+    assert 'default_agent_runtime_repo_url' not in src
+    assert 'enable_runtime_source_overlay' not in src

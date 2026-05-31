@@ -18,18 +18,12 @@ class K8sServiceNoopTest(unittest.TestCase):
         self._settings_snapshot = {
             name: getattr(self.service.settings, name)
             for name in (
-                "enable_runtime_source_overlay",
-                "default_agent_runtime_repo_url",
-                "default_agent_runtime_branch",
                 "default_skill_repo_url",
                 "default_skill_branch",
                 "default_skill_repo_subdir",
                 "default_skill_asset_version",
             )
         }
-        self.service.settings.enable_runtime_source_overlay = False
-        self.service.settings.default_agent_runtime_repo_url = ""
-        self.service.settings.default_agent_runtime_branch = ""
         self.service.settings.default_skill_repo_url = ""
         self.service.settings.default_skill_branch = "master"
         self.service.settings.default_skill_repo_subdir = ""
@@ -590,19 +584,12 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("https://example.com", command)
         self.assertNotIn("main", command)
 
-    def test_runtime_source_overlay_still_uses_generic_git_clone_command(self):
-        self.service.settings.enable_runtime_source_overlay = True
-        self.service.settings.default_agent_runtime_repo_url = "https://example.com/runtime.git"
-        self.service.settings.default_agent_runtime_branch = "main"
+    def test_runtime_source_overlay_init_container_and_mounts_are_removed(self):
         agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", mount_path="/root/.efp", skill_repo_url=None, skill_branch="main")
         inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
-        runtime_init = self._find_init_container(inits, "runtime-git-clone")
-        command = runtime_init.args[0]
-        self.assertIn("cp -a /tmp/git-clone-work/.", command)
-        self.assertNotIn("SKILL_REPO_SUBDIR", command)
-        self.assertNotIn("No skill entries found", command)
-        self.assertIn("/app/src", {m.mount_path for m in mounts})
-        self.assertIn("/app/.git", {m.mount_path for m in mounts})
+        self.assertNotIn("runtime-git-clone", {c.name for c in inits})
+        self.assertNotIn("/app/src", {m.mount_path for m in mounts})
+        self.assertNotIn("/app/.git", {m.mount_path for m in mounts})
 
     def test_single_runtime_env_excludes_tools_contract(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
