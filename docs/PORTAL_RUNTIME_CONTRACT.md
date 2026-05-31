@@ -17,7 +17,7 @@
 - Invalid non-empty `runtime_type` values must be rejected or ignored depending on the request boundary; Portal must not switch an existing agent to another runtime.
 - Legacy rows/fixtures with missing, blank, or obsolete runtime markers may normalize to `native` in API responses.
 - `/api/agents/defaults` must not return a runtime selection matrix.
-- Portal does not expose Runtime v2 settings or any runtime version selector.
+- Portal does not expose EFP runtime settings or any runtime version selector.
 
 ## 4) Assets contract
 - Skills directory: `/app/skills`.

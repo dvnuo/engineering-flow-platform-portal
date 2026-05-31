@@ -77,7 +77,7 @@ For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth
 
 Kubernetes runtime provisioning behavior:
 - Portal provisions the Python EFP runtime image from `DEFAULT_AGENT_IMAGE_REPO` / `DEFAULT_AGENT_IMAGE_TAG`.
-- Portal provisions a single Python EFP runtime. It has no runtime selector, no alternate Python runtime versions, no runtime source overlay, and no Runtime v2 settings surface.
+- Portal provisions a single Python EFP runtime. It has no runtime selector, no alternate Python runtime versions, no runtime source overlay, and no EFP runtime settings surface.
 - New agents mount `/workspace` by default.
 - Portal mounts `/app/skills` when a skill repo/default exists.
 - Portal does not parse slash commands and does not clone user-requested business repos at pod startup.

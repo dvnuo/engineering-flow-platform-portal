@@ -281,8 +281,8 @@ def test_runtime_profile_panel_does_not_render_runtime_internal_controls(monkeyp
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
         for marker in [
-            'name="__touch_' + 'runtime_v2"',
-            'data-managed-section="' + 'runtime_v2"',
+            'name="__touch_' + 'runtime"',
+            'data-managed-section="' + 'runtime"',
             'name="disabled' + '_tools"',
             'name="tool' + '_permissions"',
             'name="max_context_tokens"',

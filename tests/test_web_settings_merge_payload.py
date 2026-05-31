@@ -527,7 +527,7 @@ def test_settings_merge_ignores_posted_runtime_internal_fields():
     merged, error = _settings_merge_payload(
         {},
         {
-            "__touch_" + "runtime_v2": "1",
+            "__touch_" + "runtime": "1",
             **old_fields,
         },
     )

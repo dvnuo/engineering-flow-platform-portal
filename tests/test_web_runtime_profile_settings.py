@@ -144,8 +144,8 @@ def test_settings_panel_does_not_render_runtime_internal_controls(monkeypatch):
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         for marker in [
-            'name="__touch_' + 'runtime_v2"',
-            'data-managed-section="' + 'runtime_v2"',
+            'name="__touch_' + 'runtime"',
+            'data-managed-section="' + 'runtime"',
             'name="enabled' + '_tools"',
             'name="tool' + '_permissions"',
             'name="max_iterations"',
@@ -185,7 +185,7 @@ def test_settings_view_payload_excludes_runtime_internal_view_model():
         {},
     )
 
-    assert "runtime_v2" not in payload
+    assert "runtime" not in payload
 
 
 def test_settings_save_ignores_legacy_automation_fields(monkeypatch):
