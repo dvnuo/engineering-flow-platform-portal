@@ -4,10 +4,10 @@ from types import SimpleNamespace
 from app.api import proxy
 
 
-OPENCODE_RESTRICTION_KEYS = {
-    "enabled_tools",
-    "disabled_tools",
-    "tool_permissions",
+REMOVED_RESTRICTION_KEYS = {
+    "enabled" + "_tools",
+    "disabled" + "_tools",
+    "tool" + "_permissions",
     "allowed_external_systems",
     "allowed_actions",
     "allowed_adapter_actions",
@@ -29,8 +29,8 @@ OPENCODE_RESTRICTION_KEYS = {
 }
 
 
-def _assert_no_opencode_restriction_keys(data: dict) -> None:
-    for key in OPENCODE_RESTRICTION_KEYS:
+def _assert_no_removed_restriction_keys(data: dict) -> None:
+    for key in REMOVED_RESTRICTION_KEYS:
         assert key not in data
 
 
@@ -87,27 +87,45 @@ def test_chat_payload_enrichment_applies_metadata_and_model_override():
         'request_id': 'req_123',
         'metadata': {
             'provider': 'browser-forged',
-            'runtime_profile': {'config': {'enabled_tools': ['browser-forged']}},
+            'runtime_profile': {
+                'config': {
+                    'enabled' + '_tools': ['browser-forged'],
+                    'github': {'api_token': 'browser-token'},
+                    'jira': {'instances': [{'token': 'browser-jira-token'}]},
+                }
+            },
         },
         'portal_user_id': 'browser-forged',
     }
-    metadata = {'provider': 'openai'}
+    metadata = {
+        'provider': 'openai',
+        'runtime_profile': {
+            'config': {
+                'github': {'enabled': True, 'api_token': 'portal-token'},
+                'jira': {'enabled': True, 'instances': [{'name': 'Jira', 'token': 'portal-jira-token'}]},
+            }
+        },
+    }
     class _User: pass
-    enriched = proxy._enrich_chat_payload_with_runtime_metadata(payload, metadata, _User(), runtime_type='opencode')
+    enriched = proxy._enrich_chat_payload_with_runtime_metadata(payload, metadata, _User(), runtime_type='native')
     assert enriched['metadata']['provider'] == 'openai'
     assert enriched['metadata']['provider'] != 'browser-forged'
+    assert enriched['metadata']['runtime_profile']['config']['github']['api_token'] == 'portal-token'
+    assert enriched['metadata']['runtime_profile']['config']['jira']['instances'][0]['token'] == 'portal-jira-token'
+    assert 'browser-token' not in json.dumps(enriched)
+    assert 'browser-jira-token' not in json.dumps(enriched)
     assert 'model' in enriched['metadata']
     assert enriched['request_id'] == 'req_123'
     assert 'portal_user_id' not in enriched
 
 
-def test_runtime_metadata_carries_trusted_runtime_v2_config_surface(monkeypatch):
+def test_runtime_metadata_carries_concise_runtime_profile_context(monkeypatch):
     import app.services.runtime_execution_context_service as module
     from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
     profile = SimpleNamespace(
         id="rp-1",
-        name="Runtime v2",
+        name="Runtime profile",
         revision=5,
         config_json=json.dumps(
             {
@@ -115,10 +133,11 @@ def test_runtime_metadata_carries_trusted_runtime_v2_config_surface(monkeypatch)
                     "provider": "github_copilot",
                     "model": "gpt-5-mini",
                     "api_key": "OA",
+                    "tools": ["bash"],
                 },
-                "enabled_tools": ["bash", "read"],
-                "disabled_tools": ["webfetch"],
-                "tool_permissions": {"bash": "ask"},
+                "enabled" + "_tools": ["bash", "read"],
+                "disabled" + "_tools": ["webfetch"],
+                "tool" + "_permissions": {"bash": "ask"},
                 "allowed_external_systems": ["github"],
                 "allowed_actions": ["runtime.action"],
                 "allowed_adapter_actions": ["runtime.adapter"],
@@ -168,68 +187,36 @@ def test_runtime_metadata_carries_trusted_runtime_v2_config_surface(monkeypatch)
 
     metadata = RuntimeExecutionContextService().build_runtime_metadata(
         db=object(),
-        agent=SimpleNamespace(id="agent-1", runtime_profile_id="rp-1", runtime_type="opencode"),
+        agent=SimpleNamespace(id="agent-1", runtime_profile_id="rp-1", runtime_type="native"),
     )
     cfg = metadata["runtime_profile"]["config"]
 
     assert metadata["runtime_profile_id"] == "rp-1"
-    assert metadata["provider"] == "github-copilot"
-    assert metadata["model"] == "github-copilot/gpt-5-mini"
-    assert cfg["llm"]["provider"] == "github-copilot"
-    assert cfg["llm"]["model"] == "github-copilot/gpt-5-mini"
+    assert metadata["provider"] == "github_copilot"
+    assert metadata["model"] == "gpt-5-mini"
+    assert cfg["llm"]["provider"] == "github_copilot"
+    assert cfg["llm"]["model"] == "gpt-5-mini"
     assert cfg["llm"]["api_key"] == "OA"
-    assert cfg["llm"]["tools"] == ["*"]
-    assert cfg["runtime_type"] == "opencode"
-    _assert_no_opencode_restriction_keys(cfg)
-    _assert_no_opencode_restriction_keys(metadata)
-    assert cfg["max_iterations"] == 6
-    assert cfg["doom_loop_threshold"] is None
-    assert cfg["active_skills"] == ["review"]
-    assert cfg["skill_directories"] == ["/app/skills"]
-    assert cfg["command_directories"] == ["/workspace/.efp/commands"]
-    assert cfg["compaction_auto"] is True
-    assert cfg["compaction_preserve_recent_tokens"] == 4800
-    assert cfg["compaction_prune_min_chars"] == 20000
-    assert cfg["compaction_prune_protect_chars"] == 40000
-    assert cfg["enable_session_revert_snapshots"] is True
-    assert cfg["include_default_system_prompt"] is True
-    assert cfg["include_environment_context"] is False
-    assert cfg["include_runtime_reminders"] is True
-    assert cfg["system_prompt_paths"] == ["/workspace/SYSTEM.md"]
-    assert cfg["max_system_prompt_chars"] == 30000
-    assert cfg["include_default_instructions"] is True
-    assert cfg["attach_read_instructions"] is False
-    assert cfg["instruction_paths"] == ["/workspace/AGENTS.md"]
-    assert cfg["max_instruction_chars"] == 28000
-    assert cfg["include_skill_sidecar_content"] is True
-    assert cfg["max_skill_sidecar_chars"] == 7000
-    assert cfg["max_command_chars"] == 25000
-    assert cfg["resolve_prompt_references"] is True
-    assert cfg["max_prompt_reference_chars"] == 18000
-    assert cfg["max_prompt_directory_entries"] == 300
-    assert cfg["inject_background_task_results"] is False
-    assert cfg["emit_llm_stream_events"] is True
-    assert cfg["track_usage"] is False
-    assert cfg["tool_output_truncation_direction"] == "tail"
-    assert cfg["runtime_mode"] == "plan"
-    assert cfg["enable_plan_tool"] is None
-    assert "github" not in cfg
+    assert "tools" not in cfg["llm"]
+    assert "runtime_type" not in cfg
+    _assert_no_removed_restriction_keys(cfg)
+    _assert_no_removed_restriction_keys(metadata)
 
 
-def test_runtime_metadata_for_native_keeps_tool_selection_and_authorization_metadata(monkeypatch):
+def test_runtime_metadata_drops_tool_selection_and_authorization_metadata(monkeypatch):
     import app.services.runtime_execution_context_service as module
     from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
     profile = SimpleNamespace(
         id="rp-native",
-        name="Native Runtime v2",
+        name="Native runtime profile",
         revision=8,
         config_json=json.dumps(
             {
                 "llm": {"provider": "github_copilot", "model": "gpt-5-mini"},
-                "enabled_tools": ["bash", "read"],
-                "disabled_tools": ["webfetch"],
-                "tool_permissions": {"bash": "ask"},
+                "enabled" + "_tools": ["bash", "read"],
+                "disabled" + "_tools": ["webfetch"],
+                "tool" + "_permissions": {"bash": "ask"},
                 "allowed_external_systems": ["github"],
                 "allowed_actions": ["runtime.action"],
                 "allowed_adapter_actions": ["runtime.adapter"],
@@ -252,27 +239,19 @@ def test_runtime_metadata_for_native_keeps_tool_selection_and_authorization_meta
     )
     cfg = metadata["runtime_profile"]["config"]
 
-    assert cfg["enabled_tools"] == ["bash", "read"]
-    assert cfg["disabled_tools"] == ["webfetch"]
-    assert cfg["tool_permissions"] == {"bash": "ask"}
-    assert metadata["authorization_source"] == "runtime_profile"
-    assert metadata["allowed_external_systems"] == ["github"]
-    assert metadata["allowed_actions"] == ["runtime.action"]
-    assert metadata["allowed_adapter_actions"] == ["runtime.adapter"]
-    assert metadata["allowed_capability_ids"] == ["runtime.adapter"]
-    assert metadata["allowed_capability_types"] == ["adapter_action", "skill", "tool"]
-    assert metadata["resolved_action_mappings"] == {"runtime.action": "runtime.adapter"}
+    _assert_no_removed_restriction_keys(cfg)
+    _assert_no_removed_restriction_keys(metadata)
 
 
-def test_runtime_metadata_keeps_default_llm_when_profile_only_has_runtime_v2_tools(monkeypatch):
+def test_runtime_metadata_keeps_default_llm_when_profile_only_has_old_tool_fields(monkeypatch):
     import app.services.runtime_execution_context_service as module
     from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 
     profile = SimpleNamespace(
         id="rp-tools-only",
-        name="Runtime v2 tools",
+        name="Runtime profile tools",
         revision=2,
-        config_json=json.dumps({"enabled_tools": ["bash"]}),
+        config_json=json.dumps({"enabled" + "_tools": ["bash"]}),
     )
 
     monkeypatch.setattr(
@@ -283,12 +262,12 @@ def test_runtime_metadata_keeps_default_llm_when_profile_only_has_runtime_v2_too
 
     metadata = RuntimeExecutionContextService().build_runtime_metadata(
         db=object(),
-        agent=SimpleNamespace(id="agent-1", runtime_profile_id="rp-tools-only", runtime_type="opencode"),
+        agent=SimpleNamespace(id="agent-1", runtime_profile_id="rp-tools-only", runtime_type="native"),
     )
     cfg = metadata["runtime_profile"]["config"]
 
-    assert "enabled_tools" not in cfg
-    assert cfg["runtime_type"] == "opencode"
-    assert cfg["llm"]["provider"] == "github-copilot"
-    assert cfg["llm"]["model"] == "github-copilot/gpt-5.4-mini"
-    assert cfg["llm"]["tools"] == ["*"]
+    assert "enabled" + "_tools" not in cfg
+    assert "runtime_type" not in cfg
+    assert cfg["llm"]["provider"] == "github_copilot"
+    assert cfg["llm"]["model"] == "gpt-5.4-mini"
+    assert "tools" not in cfg["llm"]

@@ -43,8 +43,8 @@ def test_thinking_process_view_maps_required_runtime_events():
         ("event_bridge.connected", {}, "success", "success", "Event Bridge Connected"),
         ("event_bridge.disconnected", {}, "warning", "warning", "Event Bridge Disconnected"),
         ("event_bridge.reconnected", {}, "success", "success", "Event Bridge Reconnected"),
-        ("opencode.raw", {}, "info", "info", "OpenCode Event"),
-        ("opencode.status.validated", {}, "info", "info", "OpenCode Status Validated"),
+        ("runtime.raw", {}, "info", "info", "Runtime Event"),
+        ("runtime.status.validated", {}, "info", "info", "Runtime Status Validated"),
     ]
     view = build_thinking_process_view({
         "runtime_events": [_event(event_type, detail) for event_type, detail, *_ in event_cases],
@@ -80,12 +80,25 @@ def test_thinking_process_view_keeps_legacy_runtime_recovery_events_generic():
         ],
     })
 
-    assert [event["type"] for event in view["events"]] == legacy_types
+    expected_types = [
+        "chat." + "stream_" + "detached",
+        "chat." + "run.started",
+        "portal." + "reconcile.started",
+        "portal." + "active_" + "request.cleared",
+        "runtime.raw",
+        "runtime.raw",
+        "continuation." + "completed",
+        "chat." + "timeout_" + "recovery.exhausted",
+    ]
+    assert [event["type"] for event in view["events"]] == expected_types
     for event in view["events"]:
-        assert event["display_title"] == "Runtime event"
+        assert event["display_title"] in {"Runtime event", "Runtime Event"}
+        assert "OpenCode" not in event["display_title"]
+        assert "opencode" not in event["display_detail"].lower()
         assert event["kind"] == "info"
         assert event["severity"] == "info"
         assert event["safe_detail_payload"]["authorization"] == "[redacted]"
+    assert view["events"][4]["safe_detail_payload"]["raw_event_type"] == "opencode.session.missing"
 
 
 def test_thinking_process_view_keeps_event_types_without_runtime_aliases():
@@ -191,24 +204,56 @@ def test_non_success_hint_contract_without_runtime_run_special_case():
     assert result.returncode == 0, result.stderr
 
 
-def test_thinking_process_view_maps_opencode_canonical_part_events():
+def test_thinking_process_view_maps_runtime_canonical_part_events():
     view = build_thinking_process_view({
         "runtime_events": [
-            _event("opencode.reasoning", {"text": "checked files", "status": "completed"}),
-            _event("opencode.tool", {"tool": "bash", "status": "running"}),
-            _event("opencode.step.started", {"message": "Step started"}),
-            _event("opencode.step.finished", {"reason": "done"}),
+            _event("runtime.reasoning", {"text": "checked files", "status": "completed"}),
+            _event("runtime.tool", {"tool": "bash", "status": "running"}),
+            _event("runtime.step.started", {"message": "Step started"}),
+            _event("runtime.step.finished", {"reason": "done"}),
             _event("permission_request", {"permission_id": "perm-1", "status": "pending"}),
         ],
     })
 
     titles = [event["display_title"] for event in view["events"]]
     assert titles == [
-        "OpenCode Reasoning",
-        "OpenCode Tool",
-        "OpenCode Step Started",
-        "OpenCode Step Finished",
+        "Runtime Reasoning",
+        "Runtime Tool",
+        "Runtime Step Started",
+        "Runtime Step Finished",
         "Permission Requested",
     ]
     assert view["events"][0]["kind"] == "success"
     assert view["events"][1]["kind"] == "running"
+
+
+def test_thinking_process_view_maps_legacy_opencode_events_to_runtime_labels():
+    view = build_thinking_process_view({
+        "runtime_events": [
+            _event("opencode.reasoning", {"text": "checked files", "status": "completed"}),
+            _event("opencode.tool", {"tool": "bash", "status": "running"}),
+            _event("opencode.step.started", {"message": "Step started"}),
+            _event("opencode.step.finished", {"reason": "done"}),
+            _event("opencode.raw", {"summary": "raw"}),
+            _event("opencode.status.validated", {"message": "active"}),
+        ],
+    })
+
+    assert [event["type"] for event in view["events"]] == [
+        "runtime.reasoning",
+        "runtime.tool",
+        "runtime.step.started",
+        "runtime.step.finished",
+        "runtime.raw",
+        "runtime.status.validated",
+    ]
+    assert [event["display_title"] for event in view["events"]] == [
+        "Runtime Reasoning",
+        "Runtime Tool",
+        "Runtime Step Started",
+        "Runtime Step Finished",
+        "Runtime Event",
+        "Runtime Status Validated",
+    ]
+    assert all("OpenCode" not in event["display_title"] for event in view["events"])
+    assert view["events"][0]["safe_detail_payload"]["raw_event_type"] == "opencode.reasoning"

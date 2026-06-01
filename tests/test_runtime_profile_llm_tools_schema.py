@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 from app.schemas.runtime_profile import (
     dump_runtime_profile_config_json,
     parse_runtime_profile_config_json,
@@ -9,35 +7,35 @@ from app.schemas.runtime_profile import (
 )
 
 
-def test_llm_tools_string_wildcard_normalizes_to_list():
+def test_llm_tools_string_wildcard_is_dropped():
     parsed = parse_runtime_profile_config_json('{"llm": {"tools": "*"}}')
-    assert parsed["llm"]["tools"] == ["*"]
+    assert parsed == {}
 
 
-def test_llm_tools_string_pattern_normalizes_to_single_item_list():
+def test_llm_tools_string_pattern_is_dropped():
     parsed = parse_runtime_profile_config_json('{"llm": {"tools": "webfetch"}}')
-    assert parsed["llm"]["tools"] == ["webfetch"]
+    assert parsed == {}
 
 
-def test_llm_tools_list_trim_drop_empty_and_dedupe():
+def test_llm_tools_list_is_dropped():
     parsed = parse_runtime_profile_config_json('{"llm": {"tools": [" bash ", "webfetch", "", "BASH"]}}')
-    assert parsed["llm"]["tools"] == ["bash", "webfetch"]
+    assert parsed == {}
 
 
-def test_llm_tools_none_and_blank_string_normalize_to_empty_list():
+def test_llm_tools_none_and_blank_string_are_dropped():
     parsed_none = parse_runtime_profile_config_json('{"llm": {"tools": null}}')
     parsed_blank = parse_runtime_profile_config_json('{"llm": {"tools": ""}}')
-    assert parsed_none["llm"]["tools"] == []
-    assert parsed_blank["llm"]["tools"] == []
+    assert parsed_none == {}
+    assert parsed_blank == {}
 
 
-def test_llm_tools_non_string_in_list_raises_value_error():
-    with pytest.raises(ValueError, match=r"llm\.tools must be a string or list of strings"):
-        parse_runtime_profile_config_json('{"llm": {"tools": ["webfetch", 123]}}')
+def test_llm_tools_non_string_in_list_is_dropped_without_validation():
+    parsed = parse_runtime_profile_config_json('{"llm": {"tools": ["webfetch", 123]}}')
+    assert parsed == {}
 
 
-def test_validate_and_dump_use_llm_tools_normalization():
+def test_validate_and_dump_drop_llm_tools():
     normalized = validate_runtime_profile_config_json('{"llm": {"tools": "webfetch"}}')
     dumped = dump_runtime_profile_config_json({"llm": {"tools": "*"}})
-    assert json.loads(normalized)["llm"]["tools"] == ["webfetch"]
-    assert json.loads(dumped)["llm"]["tools"] == ["*"]
+    assert json.loads(normalized) == {}
+    assert json.loads(dumped) == {}

@@ -1125,7 +1125,7 @@ function parseSkillSlashInput(text) {
 
 function toSkillSuggestion(item) {
   const skill = (item && typeof item === "object") ? item : null;
-  const name = typeof item === "string" ? item : (skill?.name || skill?.opencode_name || skill?.efp_name || "");
+  const name = typeof item === "string" ? item : (skill?.name || skill?.runtime_name || skill?.opencode_name || skill?.efp_name || "");
   const normalizedName = String(name || "").trim().toLowerCase().replaceAll("_", "-");
   const command = normalizeSkillCommand(normalizedName);
   const blockedReason = skill?.blocked_reason || "";
@@ -1135,7 +1135,9 @@ function toSkillSuggestion(item) {
   const descBase = typeof item === "string" ? "Skill" : (skill?.description || "Skill");
   const desc = [descBase, status, blockedReason || compatibilityWarnings].filter(Boolean).join(" · ");
   const missingTools = Array.isArray(skill?.missing_tools) ? skill.missing_tools.join(", ") : "";
-  const missingOpencodeTools = Array.isArray(skill?.missing_opencode_tools) ? skill.missing_opencode_tools.join(", ") : "";
+  const missingRuntimeTools = Array.isArray(skill?.missing_runtime_tools)
+    ? skill.missing_runtime_tools.join(", ")
+    : (Array.isArray(skill?.missing_opencode_tools) ? skill.missing_opencode_tools.join(", ") : "");
   const titleText = [blockedReason, compatibilityWarnings].filter(Boolean).join(" · ");
   return {
     label: command,
@@ -1144,13 +1146,13 @@ function toSkillSuggestion(item) {
     title: titleText,
     callable: isCallable,
     blocked_reason: blockedReason,
-    opencode_compatibility: skill?.opencode_compatibility || "",
+    runtime_compatibility: skill?.runtime_compatibility || skill?.opencode_compatibility || "",
     runtime_equivalence: skill?.runtime_equivalence ?? "",
     programmatic: skill?.programmatic,
     permission_state: skill?.permission_state || "",
     missing_tools: missingTools,
-    missing_opencode_tools: missingOpencodeTools,
-    opencode_name: skill?.opencode_name || "",
+    missing_runtime_tools: missingRuntimeTools,
+    runtime_name: skill?.runtime_name || skill?.opencode_name || "",
     efp_name: skill?.efp_name || "",
     name: skill?.name || normalizedName,
   };
@@ -1169,6 +1171,7 @@ function findCachedSkillForSlash(invocation, agentId = state.selectedAgentId) {
   return getCachedSkillsForAgent(agentId).find((skill) => {
     const names = [
       skill?.name,
+      skill?.runtime_name,
       skill?.opencode_name,
       skill?.efp_name,
     ].filter(Boolean).map((x) => String(x).trim().toLowerCase().replaceAll("_", "-"));
@@ -1349,7 +1352,7 @@ function getCanonicalMessagesFromSessionPayload(payload = {}) {
         parts,
         message_id: messageId,
         role,
-        source_of_truth: "opencode",
+        source_of_truth: "runtime",
       };
     })
     .filter((message) => message.message_id || message.role || message.parts.length);
@@ -1389,9 +1392,9 @@ function canonicalMessageToLegacyDisplayMessage(message = {}, index = 0) {
     display_content: content,
     request_id: String(info.requestID || info.request_id || ""),
     metadata: {
-      source_of_truth: "opencode",
-      opencode_message_id: id,
-      opencode_role: role,
+      source_of_truth: "runtime",
+      runtime_message_id: id,
+      runtime_role: role,
       canonical_parts: message.parts || [],
     },
   };
@@ -1478,7 +1481,7 @@ function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
     message_id: item.message_id || "",
     part_id: item.part_id || "",
     session_id: sessionId || "",
-    source_of_truth: "opencode",
+    source_of_truth: "runtime",
   };
   const baseEvent = (type, data = baseData, summary = "") => ({
     type,
@@ -1490,30 +1493,30 @@ function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
     event_id: `canonical:${item.message_id || ""}:${item.part_id || ""}:${type}`,
     summary: summary || data.message || data.text || data.tool || type,
     ts: Date.now() / 1000,
-    source_of_truth: "opencode",
+    source_of_truth: "runtime",
   });
 
   if (item.kind === "reasoning") {
-    return baseEvent("opencode.reasoning", {
+    return baseEvent("runtime.reasoning", {
       ...baseData,
       message: item.text || "Reasoning update",
       status: item.status || "running",
     }, item.text || "Reasoning update");
   }
   if (item.kind === "tool") {
-    return baseEvent("opencode.tool", {
+    return baseEvent("runtime.tool", {
       ...baseData,
       message: item.tool ? `${item.tool} ${item.status || "running"}` : "Tool update",
     }, item.tool || "Tool update");
   }
   if (item.kind === "step_start") {
-    return baseEvent("opencode.step.started", {
+    return baseEvent("runtime.step.started", {
       ...baseData,
       message: "Step started",
     }, "Step started");
   }
   if (item.kind === "step_finish") {
-    return baseEvent("opencode.step.finished", {
+    return baseEvent("runtime.step.finished", {
       ...baseData,
       message: item.reason || "Step finished",
     }, item.reason || "Step finished");
@@ -1549,7 +1552,7 @@ function applyCanonicalMessagesToChatState(agentId, sessionId, chatState, canoni
     sessionId: sessionId || existing.sessionId || "",
     events: mergeThinkingEvents(existing.events || [], canonicalEvents),
     canonicalThinkingItems: canonicalMessagesToThinkingItems(canonicalMessages),
-    contextSource: "opencode_canonical",
+    contextSource: "runtime_canonical",
     completed: target ? false : (existing.completed ?? true),
     status: target ? (existing.status || "connected") : (existing.status || "snapshot"),
     lastEventAt: Date.now(),
@@ -1619,7 +1622,7 @@ function groupSessionMessagesForDisplay(messages = []) {
 }
 
 function getAssistantGroupMessageIds(group) {
-  return (group?.messages || []).map((m) => m?.id || m?.message_id || m?.metadata?.opencode_message_id || "").filter(Boolean);
+  return (group?.messages || []).map((m) => m?.id || m?.message_id || m?.metadata?.runtime_message_id || m?.metadata?.opencode_message_id || "").filter(Boolean);
 }
 
 function getAssistantGroupMarkdown(group) {
@@ -1743,6 +1746,7 @@ function removeLatestOptimisticUserRow(options = {}) {
   const persisted =
     latest.dataset.persisted === "1"
     || latest.dataset.messageId
+    || latest.dataset.runtimeMessageId
     || latest.dataset.opencodeMessageId;
   if (persisted) return false;
   const row = latest.closest?.(".message-row");
@@ -1760,6 +1764,7 @@ function removeOptimisticUserRowForRequest(requestCtx = {}) {
   const exactPersisted =
     exact?.dataset.persisted === "1"
     || exact?.dataset.messageId
+    || exact?.dataset.runtimeMessageId
     || exact?.dataset.opencodeMessageId;
   if (exact && !exactPersisted) {
     const row = exact.closest?.(".message-row");
@@ -1774,6 +1779,7 @@ function removeOptimisticUserRowForRequest(requestCtx = {}) {
   const persisted =
     last.dataset.persisted === "1"
     || last.dataset.messageId
+    || last.dataset.runtimeMessageId
     || last.dataset.opencodeMessageId;
 
   if (persisted) return false;
@@ -1806,6 +1812,17 @@ function disconnectEventSocket({ clearReconnect = true } = {}) {
 
 function normalizeRuntimeEventTypeAlias(type) {
   const normalized = String(type || "").trim();
+  const aliases = {
+    // Transitional parser only for older runtime builds; UI uses runtime.* names.
+    "opencode.reasoning": "runtime.reasoning",
+    "opencode.tool": "runtime.tool",
+    "opencode.step.started": "runtime.step.started",
+    "opencode.step.finished": "runtime.step.finished",
+    "opencode.raw": "runtime.raw",
+    "opencode.status.validated": "runtime.status.validated",
+  };
+  if (aliases[normalized]) return aliases[normalized];
+  if (normalized.startsWith("opencode.")) return "runtime.raw";
   return normalized;
 }
 
@@ -1822,7 +1839,7 @@ function isTrackableThinkingEvent(type) {
     "chat.started", "heartbeat", "status",
     "execution.started", "execution.completed", "execution.failed",
     "execution.incomplete", "execution.blocked",
-    "opencode.reasoning", "opencode.tool", "opencode.step.started", "opencode.step.finished",
+    "runtime.reasoning", "runtime.tool", "runtime.step.started", "runtime.step.finished",
     "chat.completed", "chat.incomplete", "chat.blocked", "chat.empty_final", "chat.failed", "chat.error", "final",
     "edit.failed",
     "iteration_start", "llm_thinking", "tool_call", "tool_result",
@@ -1840,8 +1857,8 @@ function isTrackableThinkingEvent(type) {
     "permission.requested", "permission.resolved", "permission_request", "permission_resolved",
     "permission.denied", "permission.allowed",
     "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
-    "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "opencode.raw",
-    "opencode.status.validated",
+    "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "runtime.raw",
+    "runtime.status.validated",
     "assistant.message.started", "assistant.message.updated", "assistant.message.completed",
     "portal.waiting_for_runtime_events", "portal.stream_disconnected",
     "skill.loaded", "task.started", "task.completed", "usage.updated"
@@ -1985,10 +2002,10 @@ function getThinkingEventDisplay(event) {
     llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
     tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
     tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
-    "opencode.reasoning": { icon: "brain", title: "OpenCode Reasoning", detail: data.text || data.message || "Reasoning update", kind: data.status === "completed" ? "success" : "running" },
-    "opencode.tool": { icon: data.error ? "x-circle" : "wrench", title: "OpenCode Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
-    "opencode.step.started": { icon: "list-start", title: "OpenCode Step Started", detail: data.message || "Step started" },
-    "opencode.step.finished": { icon: "list-checks", title: "OpenCode Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
+    "runtime.reasoning": { icon: "brain", title: "Runtime Reasoning", detail: data.text || data.message || "Reasoning update", kind: data.status === "completed" ? "success" : "running" },
+    "runtime.tool": { icon: data.error ? "x-circle" : "wrench", title: "Runtime Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
+    "runtime.step.started": { icon: "list-start", title: "Runtime Step Started", detail: data.message || "Step started" },
+    "runtime.step.finished": { icon: "list-checks", title: "Runtime Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
     context_snapshot: {
@@ -2054,8 +2071,8 @@ function getThinkingEventDisplay(event) {
     "event_bridge.connected": { icon: "plug", title: "Event Bridge Connected", detail: data.message || "Runtime event bridge connected" },
     "event_bridge.disconnected": { icon: "unplug", title: "Event Bridge Disconnected", detail: data.message || "Runtime event bridge disconnected" },
     "event_bridge.reconnected": { icon: "plug-zap", title: "Event Bridge Reconnected", detail: data.message || "Runtime event bridge reconnected" },
-    "opencode.raw": { icon: "terminal", title: "OpenCode Event", detail: data.summary || data.message || "OpenCode runtime event" },
-    "opencode.status.validated": { icon: "shield-check", title: "OpenCode Status Validated", detail: data.message || "OpenCode active status validated" },
+    "runtime.raw": { icon: "terminal", title: "Runtime Event", detail: data.summary || data.message || "Runtime event" },
+    "runtime.status.validated": { icon: "shield-check", title: "Runtime Status Validated", detail: data.message || "Runtime active status validated" },
     "assistant.message.started": { icon: "message-square", title: "Assistant Message Started", detail: data.message || "Assistant message started" },
     "assistant.message.updated": { icon: "message-square", title: "Assistant Message Updated", detail: data.message || data.delta || "Assistant message updated" },
     "assistant.message.completed": { icon: "message-square-check", title: "Assistant Message Completed", detail: data.message || "Assistant message completed" },
@@ -2313,7 +2330,7 @@ function nonSuccessHintForPayload(payload = {}) {
   ).toLowerCase();
 
   if (reason.includes("opencode_abort_still_active")) {
-    return "Stop was requested, but OpenCode still reports this session is running. Reset the session or start a new chat.";
+    return "Stop was requested, but the runtime still reports this session is running. Reset the session or start a new chat.";
   }
 
   const status = String(payload.status || payload.completion_state || "").toLowerCase();
@@ -2338,14 +2355,14 @@ function getThinkingSnapshotStatus(snapshot) {
 
 function renderThinkingPanelFromClientState(chatState) {
   if (!dom.toolPanelBody) return;
-  const uiState = computeOpenCodeRuntimeUiState(
+  const uiState = computeRuntimeUiState(
     (typeof getSelectedAgent === "function") ? (getSelectedAgent() || {}) : {},
     chatState || {}
   );
-  const runtimeStateNotes = renderOpenCodeRuntimeStateNotes(uiState);
+  const runtimeStateNotes = renderRuntimeStateNotes(uiState);
   const snapshot = getActiveThinkingSnapshot(chatState);
   if (!snapshot) {
-    dom.toolPanelBody.innerHTML = `<div class="portal-panel-section"><div class="portal-panel-title">Runtime State</div>${runtimeStateNotes}<div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div></div><div class="portal-inline-state">Waiting for runtime events…</div>`;
+    dom.toolPanelBody.innerHTML = `<div class="portal-panel-section"><div class="portal-panel-title">Runtime State</div>${runtimeStateNotes}<div class="portal-panel-note">${safe(runtimeUiStatusText(uiState))}</div></div><div class="portal-inline-state">Waiting for runtime events…</div>`;
     return;
   }
   const events = Array.isArray(snapshot.events) ? snapshot.events : [];
@@ -2429,7 +2446,7 @@ function renderThinkingPanelFromClientState(chatState) {
         <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
         <div class="portal-panel-note">Events: ${events.length}</div>
         ${runtimeStateNotes}
-        <div class="portal-panel-note">${safe(openCodeRuntimeUiStatusText(uiState))}</div>
+        <div class="portal-panel-note">${safe(runtimeUiStatusText(uiState))}</div>
       </div>
       ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>${safe(nonSuccessHint)}</div></div>` : ""}
       ${stillRunning ? '<div class="portal-inline-state">Still running. Live events will continue to appear here.</div>' : ""}
@@ -2566,9 +2583,10 @@ function runtimeEventDedupKey(event) {
   const eventId = runtimeEventUniqueId(event);
   if (eventId) return `id:${eventId}`;
   const eventType = normalizeRuntimeEventTypeAlias(event.type || event.event_type || data.type || data.event_type || "");
+  const rawEventType = String(event.raw_type || data.raw_event_type || data.raw_type || "");
   const createdAt = event.created_at || data.created_at || event.ts || "";
   const summary = event.summary || data.summary || data.message || "";
-  return `${eventType}|${createdAt}|${runtimeEventSummaryHash(summary)}`;
+  return `${eventType}|${rawEventType}|${createdAt}|${runtimeEventSummaryHash(summary)}`;
 }
 
 function mergeThinkingEvents(primaryEvents, secondaryEvents) {
@@ -3078,7 +3096,7 @@ function normalizeRuntimeHealthStatus(value) {
   return normalized || "unknown";
 }
 
-function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
+function computeRuntimeUiState(agent = {}, chatState = {}) {
   const runtimeHealth = agent.runtime_status || agent.status || "unknown";
   const normalizedRuntimeHealth = normalizeRuntimeHealthStatus(runtimeHealth);
   const submitting = Boolean(chatState?.isSubmitting);
@@ -3097,7 +3115,7 @@ function computeOpenCodeRuntimeUiState(agent = {}, chatState = {}) {
   };
 }
 
-function openCodeRuntimeUiStatusText(uiState = {}) {
+function runtimeUiStatusText(uiState = {}) {
   const runtimeHealth = uiState.normalizedRuntimeHealth || normalizeRuntimeHealthStatus(uiState.runtimeHealth);
   const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
   if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
@@ -3106,7 +3124,7 @@ function openCodeRuntimeUiStatusText(uiState = {}) {
   return "Assistant online. Session status unknown.";
 }
 
-function renderOpenCodeRuntimeStateNotes(uiState = {}) {
+function renderRuntimeStateNotes(uiState = {}) {
   return `
     <div class="portal-panel-note">Runtime: ${safe(uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown")}</div>
     <div class="portal-panel-note">Session: ${safe(uiState.sessionStatus || "unknown")}</div>
@@ -3134,8 +3152,8 @@ function setChatStatus(text, isError = false) {
   if (!dom.chatStatus) return;
   const agent = getSelectedAgent();
   const chatState = state.selectedAgentId ? ensureChatState(state.selectedAgentId) : {};
-  const uiState = computeOpenCodeRuntimeUiState(agent || {}, chatState || {});
-  const runtimeSummary = openCodeRuntimeUiStatusText(uiState);
+  const uiState = computeRuntimeUiState(agent || {}, chatState || {});
+  const runtimeSummary = runtimeUiStatusText(uiState);
   const visibleRuntimeSummary = (
     uiState.normalizedRuntimeHealth === "offline"
     || ["busy", "retry"].includes(String(uiState.sessionStatus || "").toLowerCase())
@@ -3846,12 +3864,10 @@ function renderAgentList() {
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
-      const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
-      const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
           <span class="portal-agent-name">${safe(agent.name)}</span>
-          <span class="portal-agent-row-badges">${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}</span>
+          <span class="portal-agent-row-badges">${runtimeBadge}${unreadBadge}${sharedBadge}</span>
         </div>
         <div class="portal-agent-row-foot">
           <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
@@ -3885,7 +3901,6 @@ function renderAgentMeta(agent) {
   const effectiveSkillRepoUrl = agent.effective_skill_repo_url || agent.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
   const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
-  const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
 
   // Build Skills Repository section if present.
   // Tool repo/branch configuration was intentionally removed from Portal agent flows in #318;
@@ -3918,10 +3933,6 @@ function renderAgentMeta(agent) {
       <div class="portal-detail-section">
         <div class="portal-detail-label">Assistant ID</div>
         <code class="portal-detail-code">${safe(agent.id)}</code>
-      </div>
-      <div class="portal-detail-section">
-        <div class="portal-detail-label">Runtime Type</div>
-        <div class="portal-detail-value">${safe(runtimeType)}</div>
       </div>
       <div class="portal-detail-section">
         <div class="portal-detail-label">Image</div>
@@ -4457,8 +4468,8 @@ async function submitChatForSelectedAgent() {
       slash_command: matchedSkill ? {
         type: "skill",
         raw_name: slashInvocation.rawName,
-        name: matchedSkill.name || matchedSkill.opencode_name || slashInvocation.name,
-        opencode_name: matchedSkill.opencode_name || matchedSkill.name || slashInvocation.name,
+        name: matchedSkill.name || matchedSkill.runtime_name || matchedSkill.opencode_name || slashInvocation.name,
+        runtime_name: matchedSkill.runtime_name || matchedSkill.opencode_name || matchedSkill.name || slashInvocation.name,
         efp_name: matchedSkill.efp_name || "",
         arguments: slashInvocation.arguments,
         source: "portal-chat-ui",
@@ -7406,7 +7417,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     messages: messagesForRender,
     metadata: {
       ...(data.metadata || {}),
-      source_of_truth: canonicalMessages.length ? "opencode" : data.metadata?.source_of_truth,
+      source_of_truth: canonicalMessages.length ? "runtime" : data.metadata?.source_of_truth,
       canonical_messages: canonicalMessages,
       session_status: statusPayload || data.metadata?.session_status || null,
     },
@@ -8233,40 +8244,6 @@ function addInstanceRow(root, group) {
   if (window.initPasswordToggles) window.initPasswordToggles(root);
 }
 
-function normalizeLlmToolPatternInputs(root) {
-  const container = root?.querySelector("[data-llm-tools-container]");
-  const countInput = root?.querySelector("[data-llm-tools-count]");
-  if (!container || !countInput) return;
-  const items = Array.from(container.querySelectorAll("[data-llm-tools-item]"));
-  items.forEach((item, idx) => {
-    const input = item.querySelector("input");
-    if (!input) return;
-    input.name = `llm_tools_${idx}_pattern`;
-  });
-  countInput.value = String(items.length);
-}
-
-function addLlmToolPatternRow(root, value = "") {
-  const container = root?.querySelector("[data-llm-tools-container]");
-  if (!container) return;
-  const div = document.createElement("div");
-  div.className = "flex items-center gap-2";
-  div.dataset.llmToolsItem = "";
-  div.innerHTML = `
-    <input type="text" value="${safe(value)}" placeholder="e.g. bash or webfetch" class="portal-form-input" />
-    <button type="button" class="portal-btn is-secondary" data-action="remove-llm-tool-pattern">Remove</button>
-  `;
-  container.append(div);
-  normalizeLlmToolPatternInputs(root);
-}
-
-function toggleLlmToolsEditor(root) {
-  const mode = root?.querySelector('input[name="llm_tools_mode"]:checked')?.value || "inherit";
-  const editor = root?.querySelector("[data-llm-tools-editor]");
-  if (!editor) return;
-  editor.classList.toggle("hidden", mode !== "custom");
-}
-
 function markManagedSectionTouched(root, section) {
   if (!root || !section) return;
   const flag = root.querySelector(`[data-touch-flag="${section}"]`);
@@ -8592,8 +8569,6 @@ function initializeManagedSettingsRoot(root) {
   if (!root) return;
   normalizeInstanceInputs(root, "jira");
   normalizeInstanceInputs(root, "confluence");
-  toggleLlmToolsEditor(root);
-  normalizeLlmToolPatternInputs(root);
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -8619,7 +8594,6 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
-    if (event.target?.name === "llm_tools_mode") toggleLlmToolsEditor(root);
     const section = sectionNameForElement(event.target);
     if (section) markManagedSectionTouched(root, section);
   });
@@ -8628,21 +8602,6 @@ function initializeManagedSettingsRoot(root) {
     if (section) markManagedSectionTouched(root, section);
   });
   root.addEventListener("click", async (event) => {
-    const addToolBtn = event.target.closest('[data-action="add-llm-tool-pattern"]');
-    if (addToolBtn) {
-      event.preventDefault();
-      addLlmToolPatternRow(root);
-      markManagedSectionTouched(root, "llm");
-      return;
-    }
-    const removeToolBtn = event.target.closest('[data-action="remove-llm-tool-pattern"]');
-    if (removeToolBtn) {
-      event.preventDefault();
-      removeToolBtn.closest("[data-llm-tools-item]")?.remove();
-      normalizeLlmToolPatternInputs(root);
-      markManagedSectionTouched(root, "llm");
-      return;
-    }
     const addBtn = event.target.closest('[data-action="add-instance"]');
     if (addBtn) {
       event.preventDefault();
@@ -9019,118 +8978,6 @@ async function loadAgentDefaults(force = false) {
   return defaults;
 }
 
-function getRuntimeTypes(defaults) {
-  const runtimeTypes = Array.isArray(defaults?.runtime_types) ? defaults.runtime_types : [];
-  if (runtimeTypes.length) return runtimeTypes;
-  return [{ value: "native", label: "EFP Native Runtime", image_repo: defaults?.image_repo || "", image_tag: defaults?.image_tag || "latest", default_mount_path: defaults?.mount_path || "/root/.efp" }];
-}
-
-function normalizeRuntimeTypeValue(value, defaults) {
-  const raw = String(value || "").trim().toLowerCase();
-  const runtimeTypes = getRuntimeTypes(defaults);
-  if (runtimeTypes.some((item) => item.value === raw)) return raw;
-  return String(defaults?.default_runtime_type || "native").trim().toLowerCase() || "native";
-}
-
-function findRuntimeTypeConfig(defaults, runtimeType) {
-  const normalized = normalizeRuntimeTypeValue(runtimeType, defaults);
-  return getRuntimeTypes(defaults).find((item) => item.value === normalized) || getRuntimeTypes(defaults)[0] || null;
-}
-
-function runtimeImagePreview(config) {
-  const repo = String(config?.image_repo || "").trim();
-  const tag = String(config?.image_tag || "latest").trim() || "latest";
-  return repo ? `${repo}:${tag}` : "";
-}
-
-function isRuntimeTypeAvailable(defaults, value) {
-  const target = String(value || "").trim().toLowerCase();
-  return getRuntimeTypes(defaults).some((item) => String(item?.value || "").trim().toLowerCase() === target);
-}
-
-function getCreateRuntimeTypes(defaults) {
-  const runtimeTypes = getRuntimeTypes(defaults);
-  const opencodeTypes = runtimeTypes.filter((item) => String(item?.value || "").trim().toLowerCase() === "opencode");
-  const otherTypes = runtimeTypes.filter((item) => String(item?.value || "").trim().toLowerCase() !== "opencode");
-  return [...opencodeTypes, ...otherTypes];
-}
-
-function getCreateDefaultRuntimeType(defaults) {
-  if (isRuntimeTypeAvailable(defaults, "opencode")) {
-    return "opencode";
-  }
-  const normalized = normalizeRuntimeTypeValue(defaults?.default_runtime_type || "opencode", defaults);
-  if (isRuntimeTypeAvailable(defaults, normalized)) {
-    return normalized;
-  }
-  const firstRuntimeType = getCreateRuntimeTypes(defaults)[0]?.value;
-  return normalizeRuntimeTypeValue(firstRuntimeType || normalized, defaults);
-}
-
-function runtimeTypeDescription(item) {
-  const value = String(item?.value || "").trim().toLowerCase();
-  if (value === "opencode") return "Recommended default for new assistants.";
-  if (value === "native") return "Use the native EFP Python runtime.";
-  return "Use this runtime for the assistant.";
-}
-
-function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
-  if (!selectEl) return;
-  const runtimeTypes = getRuntimeTypes(defaults);
-  const selected = normalizeRuntimeTypeValue(selectedValue || defaults?.default_runtime_type || "native", defaults);
-  selectEl.innerHTML = runtimeTypes.map((item) => {
-    const value = String(item.value || "").trim();
-    const label = item.label || value;
-    const selectedAttr = value === selected ? " selected" : "";
-    return `<option value="${escapeHtmlAttr(value)}"${selectedAttr}>${safe(label)}</option>`;
-  }).join("");
-  selectEl.value = selected;
-}
-
-function populateRuntimeTypeRadioGroup(groupEl, defaults, selectedValue = "") {
-  if (!groupEl) return;
-  const runtimeTypes = getCreateRuntimeTypes(defaults);
-  const selected = normalizeRuntimeTypeValue(selectedValue || getCreateDefaultRuntimeType(defaults), defaults);
-  groupEl.innerHTML = runtimeTypes.map((item) => {
-    const value = String(item.value || "").trim();
-    const label = item.label || value;
-    const checkedAttr = value === selected ? " checked" : "";
-    const image = runtimeImagePreview(item);
-    const mountPath = item.default_mount_path || "";
-    const meta = image
-      ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}`
-      : runtimeTypeDescription(item);
-
-    return `
-      <label class="runtime-type-radio-option">
-        <input
-          class="runtime-type-radio-input"
-          type="radio"
-          name="runtime_type"
-          value="${escapeHtmlAttr(value)}"${checkedAttr}
-        />
-        <span class="runtime-type-radio-card">
-          <span class="runtime-type-radio-control" aria-hidden="true"></span>
-          <span class="runtime-type-radio-copy">
-            <span class="runtime-type-radio-title">${safe(label)}</span>
-            <span class="runtime-type-radio-description">${safe(meta)}</span>
-          </span>
-        </span>
-      </label>
-    `;
-  }).join("");
-}
-
-function updateCreateRuntimeTypeHint(form, defaults) {
-  const runtimeTypeControl = form?.elements?.["runtime_type"];
-  const hintEl = document.getElementById("create-runtime-type-hint");
-  const runtimeTypeValue = runtimeTypeControl?.value || getCreateDefaultRuntimeType(defaults);
-  const config = findRuntimeTypeConfig(defaults, runtimeTypeValue);
-  const image = runtimeImagePreview(config);
-  const mountPath = config?.default_mount_path || defaults?.mount_path || "";
-  if (hintEl) hintEl.textContent = image ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}` : "";
-}
-
 function applyCreateAgentDefaults(form, defaults) {
   if (!form?.elements) return;
   const repoInput = form.elements["skill_repo_url"];
@@ -9151,9 +8998,6 @@ function applyCreateAgentDefaults(form, defaults) {
     const defaultRuntimeProfileId = defaults?.default_runtime_profile_id || "";
     if (defaultRuntimeProfileId) runtimeProfileSelect.value = defaultRuntimeProfileId;
   }
-  const runtimeTypeGroup = document.getElementById("create-runtime-type-select");
-  populateRuntimeTypeRadioGroup(runtimeTypeGroup, defaults, getCreateDefaultRuntimeType(defaults));
-  updateCreateRuntimeTypeHint(form, defaults);
 }
 
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
@@ -9765,9 +9609,6 @@ async function openEditDialog(agent) {
   if (form && form.elements) {
     if (form.elements["id"]) form.elements["id"].value = agent.id ?? "";
     if (form.elements["name"]) form.elements["name"].value = agent.name || "";
-    if (form.elements["runtime_type"]) {
-      populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
-    }
     if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
       form.elements["skill_branch"].value = agent.skill_branch || "";
@@ -9927,6 +9768,7 @@ function getRuntimeMessageId(message = {}) {
     message?.id
     || message?.message_id
     || message?.messageId
+    || message?.metadata?.runtime_message_id
     || message?.metadata?.opencode_message_id
     || ""
   );
@@ -10366,13 +10208,11 @@ function bindEvents() {
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
-    const runtimeType = (formData.get("runtime_type") || "").toString().trim().toLowerCase();
 
     // Always include skill_repo_url and skill_branch; empty values mean "use configured default".
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
-    if (runtimeType) updates.runtime_type = runtimeType;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -10967,10 +10807,6 @@ function bindEvents() {
     dom.createBundleModal?.classList.add("hidden");
     dom.createBundleModal?.setAttribute("aria-hidden", "true");
   });
-  document.getElementById("create-runtime-type-select")?.addEventListener("change", () => {
-    updateCreateRuntimeTypeHint(document.getElementById("create-form"), state.agentDefaults || {});
-  });
-
   dom.addAgentBtn?.addEventListener("click", async () => {
     const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
     const createForm = document.getElementById("create-form");
@@ -11005,7 +10841,6 @@ function bindEvents() {
     const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
     const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
-    const runtimeType = normalizeRuntimeTypeValue(formData.get("runtime_type"), state.agentDefaults || {});
 
     const msgEl = document.getElementById("create-msg");
 
@@ -11015,18 +10850,16 @@ function bindEvents() {
       if (!defaults.disk_size_gi) {
         throw new Error("Invalid defaults configuration");
       }
-      const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
 
       // Use form values if provided, or null to skip repo
       const data = {
         name: name,
-        runtime_type: runtimeType,
         skill_repo_url: repoUrl || null,
         skill_branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,
-        mount_path: runtimeConfig?.default_mount_path || defaults.mount_path,
+        mount_path: defaults.mount_path,
         runtime_profile_id: runtimeProfileId || null,
       };
 
@@ -11468,30 +11301,11 @@ function initFilePanelPreview() {
 
 // ===== System Prompt Configuration =====
 function getAgentRuntimeType(agent) {
-  var normalized = String((agent && agent.runtime_type) || 'native').trim().toLowerCase();
-  if (!normalized) return 'native';
-  return normalized === 'opencode' ? 'opencode' : 'native';
-}
-
-function isOpenCodeAgent(agent) {
-  return getAgentRuntimeType(agent) === 'opencode';
+  return 'native';
 }
 
 function getSystemPromptUiModel(agent, config) {
   var runtimeType = getAgentRuntimeType(agent);
-  if (runtimeType === 'opencode') {
-    return {
-      runtimeType: runtimeType,
-      title: 'OpenCode Rules',
-      description: 'OpenCode uses the project-root AGENTS.md as its editable instruction file. SOUL, USER, MEMORY and DAILY NOTES are native EFP prompt sections and are not supported for this runtime.',
-      sections: ['agents'],
-      labels: { agents: (config && config.agents && config.agents.label) || 'AGENTS.md' },
-      editable: { agents: true },
-      canToggle: { agents: false },
-      forcedEnabled: { agents: true }
-    };
-  }
-
   return {
     runtimeType: runtimeType,
     title: 'System Prompt',
@@ -11605,20 +11419,6 @@ function loadSystemPromptConfig(agentId) {
 }
 
 function updateSystemPromptEnabled(agentId, section, enabled) {
-  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  if (isOpenCodeAgent(currentAgent)) {
-    if (section !== 'agents') {
-      showToast('OpenCode runtime only supports AGENTS.md');
-      loadSystemPromptConfig(agentId);
-      return;
-    }
-    if (enabled === false) {
-      showToast('AGENTS.md cannot be disabled for OpenCode runtime');
-      loadSystemPromptConfig(agentId);
-      return;
-    }
-    return;
-  }
   var payload = {};
   payload[section] = { enabled: enabled };
   api('/a/' + agentId + '/api/agent/system-prompt/config', { method: 'PUT', body: JSON.stringify(payload) }).catch(function(e) {
@@ -11629,11 +11429,6 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
 }
 
 function editSystemPromptSection(agentId, section) {
-  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  if (isOpenCodeAgent(currentAgent) && section !== 'agents') {
-    showToast('OpenCode runtime only supports AGENTS.md');
-    return;
-  }
   api('/a/' + agentId + '/api/agent/system-prompt/' + section).then(function(data) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled);
   }).catch(function(e) {
@@ -11644,9 +11439,8 @@ function editSystemPromptSection(agentId, section) {
 
 function showSystemPromptEditor(agentId, section, content, enabled) {
   var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  var runtimeIsOpenCode = isOpenCodeAgent(currentAgent);
   var label = resolveSystemPromptLabel(currentAgent, section, {});
-  var title = runtimeIsOpenCode && section === 'agents' ? 'AGENTS.md Configuration' : (label + ' Configuration');
+  var title = label + ' Configuration';
 
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) {
@@ -11678,17 +11472,10 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
   document.getElementById('sp-editor-title').textContent = title;
   var enabledCheckbox = document.getElementById('sp-editor-enabled');
   var enabledNote = document.getElementById('sp-editor-enabled-note');
-  if (runtimeIsOpenCode) {
-    enabledCheckbox.checked = true;
-    enabledCheckbox.disabled = true;
-    enabledNote.textContent = 'AGENTS.md is always active for OpenCode.';
-    enabledNote.classList.remove('hidden');
-  } else {
-    enabledCheckbox.checked = enabled;
-    enabledCheckbox.disabled = false;
-    enabledNote.textContent = '';
-    enabledNote.classList.add('hidden');
-  }
+  enabledCheckbox.checked = enabled;
+  enabledCheckbox.disabled = false;
+  enabledNote.textContent = '';
+  enabledNote.classList.add('hidden');
   document.getElementById('sp-editor-content').value = content;
   modal.dataset.section = section;
   modal.dataset.agentId = agentId;
@@ -11720,16 +11507,8 @@ function closeSystemPromptEditor() {
 }
 
 function saveSystemPromptSection(agentId, section) {
-  var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  var runtimeIsOpenCode = isOpenCodeAgent(currentAgent);
-  if (runtimeIsOpenCode && section !== 'agents') {
-    showToast('OpenCode runtime only supports AGENTS.md');
-    return;
-  }
-
   var enabled = document.getElementById('sp-editor-enabled').checked;
   var content = document.getElementById('sp-editor-content').value;
-  if (runtimeIsOpenCode) enabled = true;
 
   api('/a/' + agentId + '/api/agent/system-prompt/' + section, {
     method: 'PUT',

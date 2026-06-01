@@ -128,7 +128,7 @@ class RuntimeProfileTestService:
         provider = str(llm_cfg.get("provider") or "").strip()
         model = str(llm_cfg.get("model") or "").strip()
         api_key = str(llm_cfg.get("api_key") or "").strip()
-        runtime_key = "opencode" if str(runtime_type or "").strip().lower() == "opencode" else "native"
+        _ = runtime_type
 
         if provider not in {"openai", "anthropic", "github_copilot"}:
             return False, f"Unsupported LLM provider: {provider or 'empty'}"
@@ -166,11 +166,6 @@ class RuntimeProfileTestService:
                 "max_tokens": 1,
             }
             return await self._provider_request(provider, model, f"{api_base}/messages", headers, payload)
-
-        if runtime_key == "opencode":
-            if not api_key:
-                return False, "LLM API key is required."
-            return True, "GitHub Copilot API key is present; runtime apply will validate through OpenCode."
 
         if not api_key:
             return False, "LLM API key is required."

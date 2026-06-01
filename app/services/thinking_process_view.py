@@ -13,7 +13,16 @@ SECRET_FIELD_NAMES = {
     "refresh_token",
 }
 
-EVENT_TYPE_ALIASES: dict[str, str] = {}
+# Transitional parser only: older runtime builds emitted opencode.* telemetry.
+# Normalize it before display so Portal UI and stored view data use runtime.* names.
+EVENT_TYPE_ALIASES: dict[str, str] = {
+    "opencode.reasoning": "runtime.reasoning",
+    "opencode.tool": "runtime.tool",
+    "opencode.step.started": "runtime.step.started",
+    "opencode.step.finished": "runtime.step.finished",
+    "opencode.raw": "runtime.raw",
+    "opencode.status.validated": "runtime.status.validated",
+}
 
 
 def _as_dict(value: Any) -> dict:
@@ -101,7 +110,11 @@ def _first_text(*values: Any) -> str:
 
 def _normalize_event_type(event_type: Any) -> str:
     normalized = str(event_type or "event").strip()
-    return EVENT_TYPE_ALIASES.get(normalized, normalized)
+    if normalized in EVENT_TYPE_ALIASES:
+        return EVENT_TYPE_ALIASES[normalized]
+    if normalized.startswith("opencode."):
+        return "runtime.raw"
+    return normalized
 
 
 def _tool_name(data: dict) -> str:
@@ -197,10 +210,10 @@ def _build_thinking_event_display(event_type: str, data: dict) -> dict:
         "tool.started": _display(icon="wrench", title="Tool Started", detail=data.get("message") or (f"{tool} started" if tool else "Tool started"), kind="running"),
         "tool.completed": _display(icon="check-circle-2", title="Tool Completed", detail=data.get("message") or (f"{tool} completed" if tool else "Tool completed"), kind="success"),
         "tool.failed": _display(icon="x-circle", title="Tool Failed", detail=data.get("error") or data.get("message") or (f"{tool} failed" if tool else "Tool failed"), kind="error"),
-        "opencode.reasoning": _display(icon="brain", title="OpenCode Reasoning", detail=data.get("text") or data.get("message") or "Reasoning update", kind="success" if data.get("status") == "completed" else "running"),
-        "opencode.tool": _display(icon="x-circle" if data.get("error") else "wrench", title="OpenCode Tool", detail=(f"{tool} {data.get('status') or 'running'}" if tool else (data.get("message") or "Tool update")), kind="error" if data.get("error") else ("success" if data.get("status") == "completed" else "running")),
-        "opencode.step.started": _display(icon="list-start", title="OpenCode Step Started", detail=data.get("message") or "Step started", kind="running"),
-        "opencode.step.finished": _display(icon="list-checks", title="OpenCode Step Finished", detail=data.get("reason") or data.get("message") or "Step finished", kind="success"),
+        "runtime.reasoning": _display(icon="brain", title="Runtime Reasoning", detail=data.get("text") or data.get("message") or "Reasoning update", kind="success" if data.get("status") == "completed" else "running"),
+        "runtime.tool": _display(icon="x-circle" if data.get("error") else "wrench", title="Runtime Tool", detail=(f"{tool} {data.get('status') or 'running'}" if tool else (data.get("message") or "Tool update")), kind="error" if data.get("error") else ("success" if data.get("status") == "completed" else "running")),
+        "runtime.step.started": _display(icon="list-start", title="Runtime Step Started", detail=data.get("message") or "Step started", kind="running"),
+        "runtime.step.finished": _display(icon="list-checks", title="Runtime Step Finished", detail=data.get("reason") or data.get("message") or "Step finished", kind="success"),
         "permission_request": _display(icon="shield", title="Permission Requested", detail=data.get("message") or data.get("reason") or "Permission requested", kind="running", severity="warning"),
         "permission.requested": _display(icon="shield", title="Permission Requested", detail=data.get("message") or data.get("reason") or "Permission requested", kind="running", severity="warning"),
         "permission_resolved": _display(icon="shield-check", title="Permission Resolved", detail=data.get("message") or "Permission resolved", kind="success"),
@@ -217,8 +230,8 @@ def _build_thinking_event_display(event_type: str, data: dict) -> dict:
         "event_bridge.connected": _display(icon="plug", title="Event Bridge Connected", detail=data.get("message") or "Runtime event bridge connected", kind="success"),
         "event_bridge.disconnected": _display(icon="unplug", title="Event Bridge Disconnected", detail=data.get("message") or "Runtime event bridge disconnected", kind="warning"),
         "event_bridge.reconnected": _display(icon="plug", title="Event Bridge Reconnected", detail=data.get("message") or "Runtime event bridge reconnected", kind="success"),
-        "opencode.raw": _display(icon="terminal", title="OpenCode Event", detail=data.get("summary") or data.get("message") or "OpenCode runtime event", kind="info"),
-        "opencode.status.validated": _display(icon="shield-check", title="OpenCode Status Validated", detail=data.get("message") or "OpenCode active status validated", kind="info"),
+        "runtime.raw": _display(icon="terminal", title="Runtime Event", detail=data.get("summary") or data.get("message") or "Runtime event", kind="info"),
+        "runtime.status.validated": _display(icon="shield-check", title="Runtime Status Validated", detail=data.get("message") or "Runtime active status validated", kind="info"),
         "skill_matched": _display(icon="zap", title="Skill Matched", detail=_normalize_skill_label(data.get("skill")) or "Skill matched"),
         "complete": _display(icon="flag", title="Complete", detail="Execution complete", kind="success"),
         "context_snapshot": _display(icon="gauge", title="Context Snapshot", detail=_format_context_event_detail(data, "Context updated")),
@@ -588,7 +601,7 @@ def _merge_events(chatlog: dict, metadata_events: list, llm_debug: dict) -> list
             }
             normalized.update(display)
             key = (
-                f"{normalized['type']}|{request_id}|{session_id}|"
+                f"{normalized['type']}|{raw_event_type}|{request_id}|{session_id}|"
                 f"{event.get('event_id') or event.get('id') or data.get('event_id') or data.get('id') or normalized['ts']}|"
                 f"{normalized.get('summary')}"
             )

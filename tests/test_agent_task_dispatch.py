@@ -481,7 +481,7 @@ def test_agent_async_task_dispatch_does_not_infer_github_authorization_from_cred
     assert metadata["runtime_profile_id"] == agent.runtime_profile_id
     assert metadata["runtime_profile"]["runtime_profile_id"] == agent.runtime_profile_id
     assert metadata["runtime_profile"]["source"] == "portal.runtime_profile"
-    assert "github" not in metadata["runtime_profile"]["config"]
+    assert metadata["runtime_profile"]["config"]["github"]["api_token"] == "secret"
     assert metadata["portal_task_mode"] == "agent_async_task"
     assert metadata["portal_skill_name"] == "review-pull-request"
     assert metadata["portal_root_task_id"] == "task-async-github-auth"
@@ -493,14 +493,13 @@ def test_agent_async_task_dispatch_does_not_infer_github_authorization_from_cred
     assert metadata["portal_delegation_source"] == "github"
     assert metadata["portal_delegation_provider"] == "github"
     _assert_no_runtime_profile_authorization_metadata(metadata)
-    assert "secret" not in json.dumps(metadata)
 
 
-def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_session, monkeypatch):
+def test_agent_async_task_dispatch_uses_single_runtime_profile_model(db_session, monkeypatch):
     db, agent = db_session
     runtime_profile = RuntimeProfile(
         owner_user_id=agent.owner_user_id,
-        name="OpenCode Copilot",
+        name="Copilot",
         config_json=json.dumps(
             {
                 "llm": {
@@ -516,14 +515,14 @@ def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_se
     db.commit()
     db.refresh(runtime_profile)
 
-    agent.runtime_type = "opencode"
+    agent.runtime_type = "native"
     agent.runtime_profile_id = runtime_profile.id
     db.add(agent)
     db.commit()
     db.refresh(agent)
 
     task = AgentTask(
-        id="task-opencode-runtime-profile",
+        id="task-single-runtime-profile",
         assignee_agent_id=agent.id,
         owner_user_id=agent.owner_user_id,
         source="portal",
@@ -531,15 +530,15 @@ def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_se
         task_family="agent_task",
         title="Review branch",
         skill_name="review",
-        root_task_id="task-opencode-runtime-profile",
-        task_session_id="agent-task:task-opencode-runtime-profile",
+        root_task_id="task-single-runtime-profile",
+        task_session_id="agent-task:task-single-runtime-profile",
         input_payload_json=json.dumps(
             {
                 "schema": "agent_async_task.v1",
                 "user_task": "Review the branch.",
                 "skill_name": "review",
-                "task_session_id": "agent-task:task-opencode-runtime-profile",
-                "root_task_id": "task-opencode-runtime-profile",
+                "task_session_id": "agent-task:task-single-runtime-profile",
+                "root_task_id": "task-single-runtime-profile",
                 "parent_task_id": None,
             }
         ),
@@ -574,11 +573,11 @@ def test_agent_async_task_dispatch_flattens_opencode_runtime_profile_model(db_se
     assert result.task_status == "done"
     assert captured["url"].endswith("/api/tasks/execute")
     metadata = captured["body"]["metadata"]
-    assert metadata["provider"] == "github-copilot"
-    assert metadata["model"] == "github-copilot/gpt-5.4-mini"
-    assert metadata["runtime_profile"]["provider"] == "github-copilot"
-    assert metadata["runtime_profile"]["model"] == "github-copilot/gpt-5.4-mini"
-    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "github-copilot/gpt-5.4-mini"
+    assert metadata["provider"] == "github_copilot"
+    assert metadata["model"] == "gpt-5.4-mini"
+    assert metadata["runtime_profile"]["provider"] == "github_copilot"
+    assert metadata["runtime_profile"]["model"] == "gpt-5.4-mini"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.4-mini"
 
 
 def test_dispatcher_derives_summary_from_review_summary():

@@ -38,26 +38,7 @@ class Settings(BaseSettings):
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"
     default_agent_image_tag: str = "latest"
-    default_runtime_type: str = Field(default="opencode", validation_alias="DEFAULT_RUNTIME_TYPE")
-    default_native_runtime_image_repo: str = Field(default="", validation_alias="DEFAULT_NATIVE_RUNTIME_IMAGE_REPO")
-    default_native_runtime_image_tag: str = Field(default="", validation_alias="DEFAULT_NATIVE_RUNTIME_IMAGE_TAG")
-    default_opencode_runtime_image_repo: str = Field(
-        default="ghcr.io/dvnuo/efp-opencode-runtime",
-        validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO",
-    )
-    default_opencode_runtime_image_tag: str = Field(default="1.14.39", validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG")
     default_agent_git_image: str = "alpine/git:latest"
-    default_agent_repo_url: str = "https://github.com/dvnuo/engineering-flow-platform"
-    default_agent_branch: str = "master"
-    default_agent_runtime_repo_url: str = Field(
-        default="",
-        validation_alias="DEFAULT_AGENT_RUNTIME_REPO_URL",
-    )
-    enable_runtime_source_overlay: bool = Field(default=False, validation_alias="ENABLE_RUNTIME_SOURCE_OVERLAY")
-    default_agent_runtime_branch: str = Field(
-        default="",
-        validation_alias="DEFAULT_AGENT_RUNTIME_BRANCH",
-    )
     default_skill_repo_url: str = Field(
         default="https://github.com/dvnuo/engineering-flow-platform-skills",
         validation_alias="DEFAULT_SKILL_REPO_URL",
@@ -74,34 +55,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias="DEFAULT_SKILL_ASSET_VERSION",
     )
-    default_opencode_permission_mode: str = Field(
-        default="workspace_full_access",
-        validation_alias="DEFAULT_OPENCODE_PERMISSION_MODE",
-    )
-    default_opencode_allow_bash_all: bool = Field(
-        default=True,
-        validation_alias="DEFAULT_OPENCODE_ALLOW_BASH_ALL",
-    )
-    opencode_workspace_repos_dir: str = Field(
-        default="/workspace/repos",
-        validation_alias="OPENCODE_WORKSPACE_REPOS_DIR",
-    )
-    opencode_git_checkout_timeout_seconds: int = Field(
-        default=120,
-        validation_alias="OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS",
-    )
-    opencode_task_completion_timeout_seconds: int = Field(
-        default=3600,
-        validation_alias="OPENCODE_TASK_COMPLETION_TIMEOUT_SECONDS",
-    )
-    opencode_chat_submit_timeout_seconds: int = Field(
-        default=900,
-        validation_alias="OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS",
-    )
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"
-    default_agent_mount_path: str = "/root/.efp"
+    default_agent_mount_path: str = "/workspace"
 
     assets_github_token: str = Field(default="", validation_alias="ASSETS_GITHUB_TOKEN")
     assets_github_api_base_url: str = Field(default="https://api.github.com", validation_alias="ASSETS_GITHUB_API_BASE_URL")
@@ -126,7 +83,7 @@ class Settings(BaseSettings):
     runtime_profile_sync_job_lock_lease_seconds: int = Field(default=60, validation_alias="RUNTIME_PROFILE_SYNC_JOB_LOCK_LEASE_SECONDS")
     runtime_profile_sync_push_timeout_seconds: int = Field(default=10, validation_alias="RUNTIME_PROFILE_SYNC_PUSH_TIMEOUT_SECONDS")
     runtime_profile_sync_job_max_attempts: int = Field(default=40, validation_alias="RUNTIME_PROFILE_SYNC_JOB_MAX_ATTEMPTS")
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
 @lru_cache

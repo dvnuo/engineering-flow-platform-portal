@@ -14,7 +14,7 @@ from starlette.background import BackgroundTask
 import websockets
 
 from app.config import get_settings
-from app.contracts.opencode_provider import normalize_model_for_runtime
+from app.contracts.provider_projection import normalize_model_for_runtime
 from app.db import get_db
 from app.db import SessionLocal
 from app.deps import get_current_user
@@ -290,7 +290,7 @@ async def proxy_agent(
             )
             runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
             parsed_payload = _enrich_chat_payload_with_runtime_metadata(
-                parsed_payload, runtime_metadata, user, runtime_type=getattr(agent, "runtime_type", "")
+                parsed_payload, runtime_metadata, user, runtime_type="native"
             )
             request_body = json.dumps(parsed_payload).encode("utf-8")
 

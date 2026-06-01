@@ -10,15 +10,9 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.redaction import redact_text, sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
-from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.proxy_service import ProxyService
-from app.services.runtime_profile_authorization import (
-    apply_runtime_profile_authorization,
-    raw_runtime_profile_config,
-)
-from app.services.runtime_profile_runtime_v2_projection import (
-    build_trusted_runtime_v2_config,
-    project_config_for_runtime_type,
+from app.services.runtime_profile_context_projection import (
+    build_runtime_profile_context_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,9 +42,10 @@ class RuntimeProfileSyncService:
     @staticmethod
     def build_apply_payload_from_profile(runtime_profile) -> dict:
         parsed_config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        parsed_config = build_trusted_runtime_v2_config(parsed_config)
+        parsed_config = build_runtime_profile_context_config(parsed_config)
         return {
             "runtime_profile_id": runtime_profile.id,
+            "name": getattr(runtime_profile, "name", "") or "",
             "revision": runtime_profile.revision,
             "config": parsed_config,
         }
@@ -65,19 +60,13 @@ class RuntimeProfileSyncService:
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:
         _ = db
         payload = self.build_apply_payload_from_profile(runtime_profile)
-        runtime_type = getattr(agent, "runtime_type", "") or "native"
+        runtime_type = "native"
         payload["runtime_type"] = runtime_type
         payload["agent_id"] = getattr(agent, "id", None)
-        payload["config"]["runtime_type"] = runtime_type
-        payload["config"] = build_trusted_runtime_v2_config(
+        payload["config"] = build_runtime_profile_context_config(
             payload.get("config"),
             runtime_type=runtime_type,
         )
-        raw_config = raw_runtime_profile_config(runtime_profile)
-        apply_runtime_profile_authorization(payload["config"], raw_config)
-        payload["config"] = canonicalize_portal_runtime_profile_config(payload.get("config"))
-        payload["config"]["runtime_type"] = runtime_type
-        payload["config"] = project_config_for_runtime_type(payload.get("config"), runtime_type)
         return payload
 
     async def push_payload_to_agent_with_retry(self, agent, payload: dict, timeout_seconds: int = 180, interval_seconds: float = 3.0) -> RuntimeProfilePushResult:

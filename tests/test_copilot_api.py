@@ -80,7 +80,7 @@ def test_copilot_auth_start_accepts_runtime_type_without_separate_client(monkeyp
     app.dependency_overrides[mod.get_current_user] = lambda: U()
     try:
         client = TestClient(app)
-        response = client.post("/api/copilot/auth/start", json={"runtime_type": "opencode"})
+        response = client.post("/api/copilot/auth/start", json={"runtime_type": "native"})
         assert response.status_code == 200
         assert calls[0]["json"]["client_id"] == svc_module.COPILOT_OAUTH_CLIENT_ID
     finally:

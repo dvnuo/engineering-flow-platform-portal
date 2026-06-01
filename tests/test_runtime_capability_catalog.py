@@ -3,7 +3,7 @@ from app.services.runtime_capability_catalog import (
     build_runtime_capability_catalog_provider,
 )
 
-RUNTIME_V2_CORE_TOOL_IDS = (
+RUNTIME_CORE_TOOL_IDS = (
     "apply_patch",
     "bash",
     "edit",
@@ -51,10 +51,10 @@ def test_runtime_snapshot_remains_source_of_truth_over_seed_fallback():
     assert provider.resolve_action_to_capability_id("create_pull_request") == "adapter:github:create_pull_request_runtime"
 
 
-def test_runtime_v2_core_tool_snapshot_entries_are_accepted_and_resolved():
+def test_runtime_core_tool_snapshot_entries_are_accepted_and_resolved():
     provider = build_runtime_capability_catalog_provider(
         runtime_catalog_snapshot_payload={
-            "catalog_version": "runtime-v2",
+            "catalog_version": "runtime-single",
             "supports_snapshot_contract": True,
             "capabilities": [
                 {
@@ -62,11 +62,11 @@ def test_runtime_v2_core_tool_snapshot_entries_are_accepted_and_resolved():
                     "capability_type": "tool",
                     "logical_name": tool_id,
                 }
-                for tool_id in RUNTIME_V2_CORE_TOOL_IDS
+                for tool_id in RUNTIME_CORE_TOOL_IDS
             ],
         }
     )
 
     assert provider.has_full_catalog() is True
-    for tool_id in RUNTIME_V2_CORE_TOOL_IDS:
+    for tool_id in RUNTIME_CORE_TOOL_IDS:
         assert provider.resolve_tool_name_to_capability_id(tool_id) == tool_id

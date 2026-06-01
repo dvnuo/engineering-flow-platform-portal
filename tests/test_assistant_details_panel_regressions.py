@@ -29,12 +29,11 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     render_agent_meta = _extract_js_function(js, "renderAgentMeta")
 
-    runtime_type_idx = render_agent_meta.index('const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";')
     repo_def_idx = render_agent_meta.index("let repoSection")
     render_idx = render_agent_meta.index("dom.agentMeta.innerHTML")
     repo_use_idx = render_agent_meta.index("${repoSection}")
 
-    assert runtime_type_idx < repo_def_idx < render_idx < repo_use_idx
+    assert repo_def_idx < render_idx < repo_use_idx
     assert 'let repoSection = ""' in render_agent_meta or "let repoSection = ''" in render_agent_meta
     assert "if (effectiveSkillRepoUrl)" in render_agent_meta
     assert "Skills Repository" in render_agent_meta

@@ -70,32 +70,7 @@ class RuntimeProfileService:
             "llm": {
                 "provider": "github_copilot",
                 "model": "gpt-5.4-mini",
-                "tools": ["*"],
-                "tool_loop": {
-                    "one_tool_per_turn": True,
-                    "parallel_tool_calls": False,
-                    "max_repeated_tool_signature": 2,
-                },
-                "response_flow": {
-                    "plan_policy": "explicit_or_complex",
-                    "staging_policy": "explicit_or_complex",
-                    "default_skill_execution_style": "direct",
-                    "ask_user_policy": "blocked_only",
-                    "active_skill_conflict_policy": "auto_switch_direct",
-                    "complexity_prompt_budget_ratio": 0.85,
-                    "complexity_min_request_tokens": 24000,
-                },
                 "max_tokens": 64000,
-                "max_retries": 3,
-                "retry_delay": 1,
-                "system-prompt": {
-                    "soul": {"enabled": True},
-                    "user": {"enabled": True},
-                    "agents": {"enabled": True},
-                    "tools": {"enabled": True},
-                    "memory": {"enabled": True},
-                    "daily_notes": {"enabled": True},
-                },
             },
             "proxy": {"enabled": False},
             "jira": {

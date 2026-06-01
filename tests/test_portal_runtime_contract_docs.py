@@ -8,16 +8,14 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "/a/{agent_id}/api/*" in text
     assert "/app/skills" in text
     assert "/app/tools" not in text
-    assert "ENABLE_RUNTIME_SOURCE_OVERLAY" in text
+    assert "runtime source overlay" in text
+    assert "ENABLE_RUNTIME_SOURCE_OVERLAY" not in text
     assert "X-Trace-Id" in text
     assert "runtime_type" in text
-    assert "/root/.local/share/opencode" in text
-    assert "/root/.local/share/efp-compat" in text
     assert "/home/opencode" not in text
-    assert "EFP_OPENCODE_PERMISSION_MODE" in text
-    assert "EFP_OPENCODE_ALLOW_BASH_ALL" in text
-    assert "OpenCode on-demand repository checkout contract" in text
-    assert "/workspace/repos/<owner>/<repo>" in text
+    assert "On-demand repository checkout contract" in text
+    assert "The only internal runtime marker is `native`" in text
+    assert "`/api/agents/defaults` must not return a runtime selection matrix." in text
     assert "`GIT_TOKEN` remains initContainer-only" in text
 
     assert "runtime/tools index" not in text
@@ -46,20 +44,11 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
         "write",
     ]:
         assert tool_id in text
-    assert "enabled_tools" in text
-    assert "disabled_tools" in text
-    assert "tool_permissions" in text
-    assert "max_iterations" in text
-    assert "compaction_preserve_recent_tokens" in text
-    assert "include_default_system_prompt" in text
-    assert "exposes advanced Runtime v2 controls for the preserved field surface" in text
-    assert "Dedicated UI controls for every Runtime v2 field are not part of this pass" not in text
-    assert "compaction_preserve_recent_" "turns" not in text
-    assert "RuntimeConfig" in text
+    assert "tools, skills, loop control, context shaping, compaction" in text
+    assert "runtime mode" in text
+    assert "advanced runtime controls" not in text
     assert "runtime_profile.config" in text
-    assert 'llm.tools=["*"]' in text
-    assert "runtime_type=opencode" in text
-    assert "filters permission-restricting fields" in text
+    assert "LLM provider/model/Copilot API key fields" in text
     assert "Removed legacy aliases" in text
     assert "runtime-owned compatibility decisions" in text
     assert "summary, revert, and unrevert" in text
@@ -76,21 +65,16 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "EFP_TOOLS_DIR" not in readme
     assert "OPENCODE_TOOLS_DIR" not in readme
     assert "native runtime clones runtime repo + skill repo via initContainers" not in readme
-    assert "DEFAULT_OPENCODE_PERMISSION_MODE" in readme
-    assert "DEFAULT_OPENCODE_ALLOW_BASH_ALL" in readme
-    assert "workspace_full_access" in readme
-    assert "EFP_WORKSPACE_REPOS_DIR=/workspace/repos" in readme
-    assert "EFP_GIT_CHECKOUT_TIMEOUT_SECONDS=120" in readme
+    assert "single Python EFP runtime" in readme
+    assert "New agents mount `/workspace` by default." in readme
 
     phase5 = Path("docs/PHASE5_PRODUCTIZATION.md").read_text(encoding="utf-8")
-    assert "Runtime v2 capability snapshots" in phase5
+    assert "Runtime capability snapshots" in phase5
     assert "apply_patch" in phase5
     assert "todowrite" in phase5
     assert "Runtime profile apply/config contract" in phase5
-    assert "enabled_tools" in phase5
     assert "runtime_profile.config" in phase5
-    assert "Portal now exposes advanced Runtime v2 controls for the preserved field surface" in phase5
-    assert "runtime_type=opencode" in phase5
-    assert "filters permission-restricting transport fields" in phase5
+    assert "Portal-owned profile context" in phase5
+    assert "Python EFP runtime" in phase5
     assert "transport-focused" not in phase5
     assert "summary, revert, and unrevert" in phase5

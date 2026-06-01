@@ -13,7 +13,7 @@ from app.services.auth_service import hash_password
 from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider
 
 
-RUNTIME_V2_CORE_TOOL_IDS = (
+RUNTIME_CORE_TOOL_IDS = (
     "apply_patch",
     "bash",
     "edit",
@@ -181,7 +181,7 @@ def test_latest_api_can_filter_by_agent_id(monkeypatch):
         cleanup()
 
 
-def test_sync_api_accepts_runtime_v2_core_tool_snapshot(monkeypatch):
+def test_sync_api_accepts_runtime_core_tool_snapshot(monkeypatch):
     client, agent, _other_agent, _admin_user, owner_user, _other_user, set_user, cleanup = _build_client(monkeypatch)
 
     class _FakeResponse:
@@ -190,7 +190,7 @@ def test_sync_api_accepts_runtime_v2_core_tool_snapshot(monkeypatch):
         @staticmethod
         def json():
             return {
-                "catalog_version": "runtime-v2",
+                "catalog_version": "runtime-single",
                 "supports_snapshot_contract": True,
                 "capabilities": [
                     {
@@ -198,7 +198,7 @@ def test_sync_api_accepts_runtime_v2_core_tool_snapshot(monkeypatch):
                         "capability_type": "tool",
                         "logical_name": tool_id,
                     }
-                    for tool_id in RUNTIME_V2_CORE_TOOL_IDS
+                    for tool_id in RUNTIME_CORE_TOOL_IDS
                 ],
             }
 
@@ -208,13 +208,13 @@ def test_sync_api_accepts_runtime_v2_core_tool_snapshot(monkeypatch):
         sync_resp = client.post("/api/runtime-capability-catalog/sync", json={"agent_id": agent.id})
         assert sync_resp.status_code == 200
         payload = sync_resp.json()
-        assert payload["catalog_version"] == "runtime-v2"
+        assert payload["catalog_version"] == "runtime-single"
         snapshot_payload = json.loads(payload["payload_json"])
 
         provider = build_runtime_capability_catalog_provider(
             runtime_catalog_snapshot_payload=snapshot_payload
         )
-        for tool_id in RUNTIME_V2_CORE_TOOL_IDS:
+        for tool_id in RUNTIME_CORE_TOOL_IDS:
             assert provider.resolve_tool_name_to_capability_id(tool_id) == tool_id
     finally:
         cleanup()

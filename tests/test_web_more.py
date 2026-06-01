@@ -1809,7 +1809,7 @@ def test_skills_panel_badges_and_command_guard_source_markers_present():
     html = Path('app/templates/partials/skills_panel.html').read_text(encoding='utf-8')
     assert 'portal-status-badge' in html
     assert 'data-skill-command="/{{ normalized_skill_name }}"' in html
-    assert 'Prompt-only in this runtime; Runtime v2 handles skill execution.' in html
+    assert 'Prompt-only in this runtime.' in html
     py = Path('app/web.py').read_text(encoding='utf-8')
     assert 'def _normalize_permission_state(value) -> str:' in py
     assert 'def _normalize_runtime_compatibility(value) -> str:' in py
@@ -1876,7 +1876,7 @@ def test_skills_panel_template_behavior_for_disabled_and_enabled_skills():
     assert "data-skill-command=\"/permission_denied\"" not in html
     assert "data-skill-command=\"/prompt_only_skill\"" in html
     assert "data-skill-command=\"/full_skill\"" in html
-    assert "Prompt-only in this runtime; Runtime v2 handles skill execution." in html
+    assert "Prompt-only in this runtime." in html
     assert "No opencode support" in html
     assert "portal-status-badge" in html
 
@@ -2016,7 +2016,7 @@ def test_annotate_skill_for_panel_reads_metadata_compatibility_and_tool_mappings
         assert prompt_only["disabled"] is False
         html_prompt_only = templates.get_template("partials/skills_panel.html").render({"skills": [prompt_only]})
         assert 'data-skill-command="/metadata-prompt-only"' in html_prompt_only
-        assert "Prompt-only in this runtime; Runtime v2 handles skill execution." in html_prompt_only
+        assert "Prompt-only in this runtime." in html_prompt_only
     finally:
         db.close()
 

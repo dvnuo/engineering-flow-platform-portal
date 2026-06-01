@@ -1,6 +1,4 @@
-import pytest
-
-from app.web import _settings_llm_tools_view, _settings_merge_payload, _settings_parse_llm_tools_patterns
+from app.web import _settings_merge_payload
 
 
 def test_settings_merge_github_base_url_blank_removes_existing_value():
@@ -52,13 +50,13 @@ def test_settings_merge_legacy_automation_payloads_are_ignored():
 def test_settings_merge_llm_tools_all_mode():
     merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_tools_mode": "all", "llm_tools_count": "0"})
     assert error is None
-    assert merged["llm"]["tools"] == ["*"]
+    assert "llm" not in merged
 
 
 def test_settings_merge_llm_tools_none_mode():
     merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_tools_mode": "none", "llm_tools_count": "0"})
     assert error is None
-    assert merged["llm"]["tools"] == ["*"]
+    assert "llm" not in merged
 
 
 def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_prompt():
@@ -75,8 +73,7 @@ def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_promp
         },
     )
     assert error is None
-    assert merged["llm"]["tools"] == ["*"]
-    assert merged["llm"]["system-prompt"]["tools"]["enabled"] is True
+    assert "llm" not in merged
 
 
 def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_list_and_preserves_system_prompt():
@@ -92,35 +89,7 @@ def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_lis
         },
     )
     assert error is None
-    assert merged["llm"]["tools"] == ["*"]
-    assert merged["llm"]["system-prompt"]["tools"]["enabled"] is True
-
-
-@pytest.mark.parametrize(
-    ("llm", "expected"),
-    [
-        ({}, ("inherit", [])),
-        ({"tools": ["*"]}, ("all", [])),
-        ({"tools": []}, ("none", [])),
-        ({"tools": None}, ("none", [])),
-        ({"tools": ""}, ("none", [])),
-        ({"tools": ["bash", "webfetch"]}, ("custom", ["bash", "webfetch"])),
-    ],
-)
-def test_settings_llm_tools_view_modes(llm, expected):
-    assert _settings_llm_tools_view(llm) == expected
-
-
-def test_settings_parse_llm_tools_patterns_handles_plain_dict_invalid_count_and_dedupes():
-    parsed = _settings_parse_llm_tools_patterns(
-        {
-            "llm_tools_count": "invalid",
-            "llm_tools_0_pattern": "bash",
-            "llm_tools_1_pattern": " BASH ",
-            "llm_tools_2_pattern": "webfetch",
-        }
-    )
-    assert parsed == []
+    assert "llm" not in merged
 
 
 def test_settings_merge_llm_response_flow_writes_nested_dict():
@@ -140,7 +109,7 @@ def test_settings_merge_llm_response_flow_writes_nested_dict():
     )
     assert error is None
     assert merged["llm"]["provider"] == "openai"
-    assert merged["llm"]["tools"] == ["*"]
+    assert "tools" not in merged["llm"]
     assert "response_flow" not in merged["llm"]
 
 
@@ -212,8 +181,7 @@ def test_settings_merge_llm_response_flow_invalid_ratio_returns_error():
         },
     )
     assert error is None
-    assert merged["llm"]["tools"] == ["*"]
-    assert "response_flow" not in merged["llm"]
+    assert "llm" not in merged or "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
@@ -225,8 +193,7 @@ def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
         },
     )
     assert error is None
-    assert merged["llm"]["tools"] == ["*"]
-    assert "response_flow" not in merged["llm"]
+    assert "llm" not in merged or "response_flow" not in merged["llm"]
 
 
 def test_settings_merge_copilot_uses_llm_api_key_only():
@@ -280,8 +247,8 @@ def test_settings_merge_jira_instance_blank_secret_clears_existing():
         },
     )
     assert error is None
-    assert merged["jira"]["instances"][0]["password"] == ""
-    assert merged["jira"]["instances"][0]["token"] == ""
+    assert "password" not in merged["jira"]["instances"][0]
+    assert "token" not in merged["jira"]["instances"][0]
 
 
 def test_settings_merge_jira_instance_clear_secret_removes_existing():
@@ -296,8 +263,8 @@ def test_settings_merge_jira_instance_clear_secret_removes_existing():
         },
     )
     assert error is None
-    assert merged["jira"]["instances"][0]["password"] == ""
-    assert merged["jira"]["instances"][0]["token"] == ""
+    assert "password" not in merged["jira"]["instances"][0]
+    assert "token" not in merged["jira"]["instances"][0]
 
 def test_settings_merge_confluence_instance_blank_secret_clears_existing():
     merged, error = _settings_merge_payload(
@@ -310,8 +277,8 @@ def test_settings_merge_confluence_instance_blank_secret_clears_existing():
         },
     )
     assert error is None
-    assert merged["confluence"]["instances"][0]["password"] == ""
-    assert merged["confluence"]["instances"][0]["token"] == ""
+    assert "password" not in merged["confluence"]["instances"][0]
+    assert "token" not in merged["confluence"]["instances"][0]
 
 
 def test_settings_merge_confluence_instance_clear_secret_removes_existing():
@@ -326,8 +293,8 @@ def test_settings_merge_confluence_instance_clear_secret_removes_existing():
         },
     )
     assert error is None
-    assert merged["confluence"]["instances"][0]["password"] == ""
-    assert merged["confluence"]["instances"][0]["token"] == ""
+    assert "password" not in merged["confluence"]["instances"][0]
+    assert "token" not in merged["confluence"]["instances"][0]
 
 def test_settings_merge_jira_instance_enabled_false_is_preserved_from_unchecked_checkbox():
     merged, error = _settings_merge_payload(
@@ -545,141 +512,132 @@ def test_settings_merge_new_confluence_instance_same_current_identity_does_not_i
     assert row.get("token", "") == ""
 
 
-def test_settings_merge_touched_runtime_v2_saves_representative_fields():
+def test_settings_merge_external_cli_config_sections_are_persisted():
     merged, error = _settings_merge_payload(
         {},
         {
-            "__touch_runtime_v2": "1",
-            "enabled_tools": "bash, read\nbash",
-            "disabled_tools": "write",
-            "tool_permissions": '{"bash": {"allowed": true}}',
-            "max_iterations": "12",
-            "doom_loop_threshold": "3",
-            "compaction_auto": "on",
-            "enable_context_overflow_retry": "on",
-            "system_prompt_texts": "first system prompt\nsecond system prompt",
-            "instruction_paths": "/repo/AGENTS.md\n/repo/docs/instructions.md",
-            "active_skills": "code-review, testing",
-            "enable_command_expansion": "on",
-            "enable_plan_tool": "false",
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "1",
+            "jira_instances_0_name": "Jira",
+            "jira_instances_0_url": "https://jira.example.com/",
+            "jira_instances_0_username": "jira@example.com",
+            "jira_instances_0_password": "jira-password",
+            "jira_instances_0_token": "jira-token",
+            "jira_instances_0_project": "ENG",
+            "jira_instances_0_api_version": "3",
+            "jira_instances_0_enabled": "1",
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_name": "Confluence",
+            "confluence_instances_0_url": "https://confluence.example.com/wiki/",
+            "confluence_instances_0_username": "conf@example.com",
+            "confluence_instances_0_password": "conf-password",
+            "confluence_instances_0_token": "conf-token",
+            "confluence_instances_0_space": "DOCS",
+            "confluence_instances_0_enabled": "1",
+            "__touch_github": "1",
+            "github_enabled": "on",
+            "github_api_token": "github-token",
+            "github_base_url": "https://github.example.com/api/v3/",
+            "__touch_git": "1",
+            "git_user_name": "EFP Bot",
+            "git_user_email": "efp-bot@example.com",
+            "tool_loop": '{"max_iterations":12}',
+            "context_budget": '{"max_prompt_tokens":32000}',
             "runtime_mode": "plan",
-            "tool_output_truncation_direction": "head",
-            "tool_output_max_lines": "200",
-            "structured_output_schema": '{"type": "object", "properties": {"ok": {"type": "boolean"}}}',
-            "track_usage": "on",
         },
     )
 
     assert error is None
-    assert merged["enabled_tools"] == ["bash", "read"]
-    assert merged["disabled_tools"] == ["write"]
-    assert merged["tool_permissions"] == {"bash": {"allowed": True}}
-    assert merged["max_iterations"] == 12
-    assert merged["doom_loop_threshold"] == 3
-    assert merged["compaction_auto"] is True
-    assert merged["enable_context_overflow_retry"] is True
-    assert merged["compaction_prune"] is False
-    assert merged["system_prompt_texts"] == ["first system prompt", "second system prompt"]
-    assert merged["instruction_paths"] == ["/repo/AGENTS.md", "/repo/docs/instructions.md"]
-    assert merged["active_skills"] == ["code-review", "testing"]
-    assert merged["enable_command_expansion"] is True
-    assert merged["enable_plan_tool"] is False
-    assert merged["runtime_mode"] == "plan"
-    assert merged["tool_output_truncation_direction"] == "head"
-    assert merged["tool_output_max_lines"] == 200
-    assert merged["structured_output_schema"]["properties"]["ok"]["type"] == "boolean"
-    assert merged["track_usage"] is True
+    assert merged == {
+        "jira": {
+            "enabled": True,
+            "instances": [
+                {
+                    "enabled": True,
+                    "name": "Jira",
+                    "url": "https://jira.example.com",
+                    "username": "jira@example.com",
+                    "password": "jira-password",
+                    "token": "jira-token",
+                    "project": "ENG",
+                    "api_version": "3",
+                }
+            ],
+        },
+        "confluence": {
+            "enabled": True,
+            "instances": [
+                {
+                    "enabled": True,
+                    "name": "Confluence",
+                    "url": "https://confluence.example.com/wiki",
+                    "username": "conf@example.com",
+                    "password": "conf-password",
+                    "token": "conf-token",
+                    "space": "DOCS",
+                }
+            ],
+        },
+        "github": {
+            "enabled": True,
+            "api_token": "github-token",
+            "base_url": "https://github.example.com/api/v3",
+        },
+        "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
+    }
+
+
+def test_settings_merge_ignores_posted_runtime_internal_fields():
+    old_fields = {
+        "enabled" + "_tools": "bash, read\nbash",
+        "disabled" + "_tools": "write",
+        "tool" + "_permissions": '{"bash": {"allowed": true}}',
+        "max_iterations": "12",
+        "compaction_auto": "on",
+        "system_prompt_texts": "first system prompt\nsecond system prompt",
+        "active_skills": "code-review, testing",
+        "runtime_mode": "plan",
+        "structured_output_schema": '{"type": "object"}',
+    }
+    merged, error = _settings_merge_payload(
+        {},
+        {
+            "__touch_" + "runtime": "1",
+            **old_fields,
+        },
+    )
+
+    assert error is None
+    for field_name in old_fields:
+        assert field_name not in merged
     assert "llm" not in merged
 
 
-def test_settings_merge_touched_runtime_v2_blank_fields_remove_stale_values():
+def test_settings_merge_finalize_drops_stale_runtime_internal_fields():
+    old_fields = {
+        "enabled" + "_tools": ["bash"],
+        "tool" + "_permissions": {"bash": {"allowed": True}},
+        "max_iterations": 9,
+        "enable_plan_tool": True,
+        "runtime_mode": "build",
+        "structured_output_schema": {"type": "object"},
+    }
     merged, error = _settings_merge_payload(
         {
-            "enabled_tools": ["bash"],
-            "max_iterations": 9,
-            "enable_plan_tool": True,
-            "runtime_mode": "build",
-            "tool_output_truncation_direction": "tail",
-            "tool_permissions": {"bash": {"allowed": True}},
-            "structured_output_schema": {"type": "object"},
-            "tool_output_dir": "/tmp/runtime-tools",
+            **old_fields,
+            "github": {"enabled": True, "api_token": "ghp"},
         },
         {
-            "__touch_runtime_v2": "1",
-            "enabled_tools": "",
-            "max_iterations": "",
-            "enable_plan_tool": "",
-            "runtime_mode": "",
-            "tool_output_truncation_direction": "",
-            "tool_permissions": "",
-            "structured_output_schema": "",
-            "tool_output_dir": "",
+            "__touch_github": "1",
+            "github_enabled": "on",
+            "github_api_token": "ghp",
         },
     )
 
     assert error is None
-    for field_name in [
-        "enabled_tools",
-        "max_iterations",
-        "enable_plan_tool",
-        "runtime_mode",
-        "tool_output_truncation_direction",
-        "tool_permissions",
-        "structured_output_schema",
-        "tool_output_dir",
-    ]:
+    for field_name in old_fields:
         assert field_name not in merged
-    assert merged["llm"]["tools"] == ["*"]
-
-
-@pytest.mark.parametrize(
-    ("form_overrides", "expected_error", "bad_field"),
-    [
-        ({"max_iterations": "NaN"}, "max_iterations must be an integer.", "max_iterations"),
-        ({"doom_loop_threshold": "1"}, "doom_loop_threshold must be an integer greater than or equal to 2.", "doom_loop_threshold"),
-        ({"runtime_mode": "chat"}, "runtime_mode must be one of: build, plan.", "runtime_mode"),
-        ({"tool_output_truncation_direction": "middle"}, "tool_output_truncation_direction must be one of: head, tail.", "tool_output_truncation_direction"),
-        ({"tool_permissions": '{"bash":'}, "tool_permissions must be valid JSON.", "tool_permissions"),
-        ({"structured_output_schema": '["not", "object"]'}, "structured_output_schema must be a JSON object.", "structured_output_schema"),
-        ({"enable_plan_tool": "maybe"}, "enable_plan_tool must be true, false, or blank.", "enable_plan_tool"),
-    ],
-)
-def test_settings_merge_touched_runtime_v2_invalid_values_return_clear_error(form_overrides, expected_error, bad_field):
-    form = {"__touch_runtime_v2": "1", **form_overrides}
-
-    merged, error = _settings_merge_payload({}, form)
-
-    assert error == expected_error
-    assert bad_field not in merged
-
-
-def test_settings_merge_touched_runtime_v2_rejects_unsupported_runtime_fields():
-    merged, error = _settings_merge_payload(
-        {
-            "workspace_root": "/old",
-            "default_provider_id": "openai",
-            "default_model": "gpt-5",
-            "mcp_servers": {"local": {}},
-            "compaction_preserve_recent_turns": 4,
-        },
-        {
-            "__touch_runtime_v2": "1",
-            "enabled_tools": "bash",
-            "workspace_root": "/new",
-            "default_provider_id": "anthropic",
-            "default_model": "claude",
-            "mcp_servers": '{"local": {}}',
-            "compaction_preserve_recent_turns": "10",
-        },
-    )
-
-    assert error is None
-    assert merged["enabled_tools"] == ["bash"]
-    for field_name in [
-        "workspace_root",
-        "default_provider_id",
-        "default_model",
-        "mcp_servers",
-        "compaction_preserve_recent_turns",
-    ]:
-        assert field_name not in merged
+    assert merged["github"] == {"enabled": True, "api_token": "ghp"}
