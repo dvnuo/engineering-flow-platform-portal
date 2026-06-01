@@ -12,7 +12,6 @@ from app.repositories.agent_repo import AgentRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.agent import (
     ALLOWED_AGENT_TYPES,
-    ALLOWED_RUNTIME_TYPES,
     AgentChatModelProfileResponse,
     AgentCreateRequest,
     AgentDeleteResponse,
@@ -33,16 +32,16 @@ from app.utils.state_machine import can_transition, is_valid_status
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
-SINGLE_RUNTIME_TYPE = "native"
-SINGLE_RUNTIME_WORKSPACE_PATH = "/workspace"
+DEFAULT_NATIVE_RUNTIME_TYPE = "native"
+DEFAULT_RUNTIME_WORKSPACE_PATH = "/workspace"
 
 
 @router.get("/defaults")
 def get_agent_defaults(user=Depends(get_current_user)):
     """Get default configuration for agent creation."""
     return {
-        "image_repo": _single_runtime_image_repo(),
-        "image_tag": _single_runtime_image_tag(),
+        "image_repo": _native_runtime_image_repo(),
+        "image_tag": _native_runtime_image_tag(),
         "git_image": settings.default_agent_git_image,
         "default_skill_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
         "default_skill_branch": settings.default_skill_branch,
@@ -51,7 +50,24 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "disk_size_gi": settings.default_agent_disk_size_gi,
         "cpu": settings.default_agent_cpu,
         "memory": settings.default_agent_memory,
-        "mount_path": SINGLE_RUNTIME_WORKSPACE_PATH,
+        "mount_path": DEFAULT_RUNTIME_WORKSPACE_PATH,
+        "default_runtime_type": _default_runtime_type_for_defaults(),
+        "runtime_types": [
+            {
+                "value": "native",
+                "label": "EFP Native Runtime",
+                "image_repo": _native_runtime_image_repo(),
+                "image_tag": _native_runtime_image_tag(),
+                "default_mount_path": DEFAULT_RUNTIME_WORKSPACE_PATH,
+            },
+            {
+                "value": "opencode",
+                "label": "OpenCode Runtime",
+                "image_repo": _opencode_runtime_image_repo(),
+                "image_tag": _opencode_runtime_image_tag(),
+                "default_mount_path": DEFAULT_RUNTIME_WORKSPACE_PATH,
+            },
+        ],
     }
 
 
@@ -119,7 +135,7 @@ def _validate_agent_type_or_422(agent_type: str | None) -> None:
 
 
 def _default_agent_image() -> str:
-    return _default_agent_image_for_runtime(SINGLE_RUNTIME_TYPE)
+    return _default_agent_image_for_runtime(DEFAULT_NATIVE_RUNTIME_TYPE)
 
 
 def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -> str:
@@ -131,12 +147,34 @@ def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -
         raise ValueError(str(exc)) from exc
 
 
-def _single_runtime_image_repo() -> str:
+def _default_runtime_type_from_settings() -> str:
+    raw = (settings.default_runtime_type or "").strip()
+    if not raw:
+        return DEFAULT_NATIVE_RUNTIME_TYPE
+    return _normalize_runtime_type(raw)
+
+
+def _default_runtime_type_for_defaults() -> str:
+    try:
+        return _default_runtime_type_from_settings()
+    except ValueError:
+        return DEFAULT_NATIVE_RUNTIME_TYPE
+
+
+def _native_runtime_image_repo() -> str:
     return (settings.default_agent_image_repo or "").strip()
 
 
-def _single_runtime_image_tag() -> str:
+def _native_runtime_image_tag() -> str:
     return (settings.default_agent_image_tag or "latest").strip() or "latest"
+
+
+def _opencode_runtime_image_repo() -> str:
+    return (settings.default_opencode_runtime_image_repo or "ghcr.io/dvnuo/efp-opencode-runtime").strip()
+
+
+def _opencode_runtime_image_tag() -> str:
+    return (settings.default_opencode_runtime_image_tag or "1.14.39").strip() or "1.14.39"
 
 
 async def _sync_runtime_profile_to_running_agent_or_record_warning(db: Session, agent) -> None:
@@ -164,8 +202,10 @@ async def _sync_runtime_profile_to_running_agent_or_record_warning(db: Session, 
 
 
 def _runtime_image_parts(runtime_type: str) -> tuple[str, str]:
-    _normalize_runtime_type(runtime_type)
-    return _single_runtime_image_repo(), _single_runtime_image_tag()
+    runtime_type = _normalize_runtime_type(runtime_type)
+    if runtime_type == "opencode":
+        return _opencode_runtime_image_repo(), _opencode_runtime_image_tag()
+    return _native_runtime_image_repo(), _native_runtime_image_tag()
 
 
 def _default_agent_image_for_runtime(runtime_type: str) -> str:
@@ -185,18 +225,19 @@ def _resolve_create_skill_branch(payload: AgentCreateRequest) -> str:
 
 
 def _resolve_create_runtime_type(payload: AgentCreateRequest) -> str:
-    _ = payload
-    return SINGLE_RUNTIME_TYPE
+    if "runtime_type" not in payload.model_fields_set:
+        return _default_runtime_type_from_settings()
+    return _normalize_runtime_type(payload.runtime_type)
 
 
 def _resolve_create_image(payload: AgentCreateRequest, runtime_type: str) -> str:
-    _ = payload
-    return _default_agent_image_for_runtime(runtime_type)
+    image = (payload.image or "").strip()
+    return image or _default_agent_image_for_runtime(runtime_type)
 
 
 def _default_mount_path_for_runtime(runtime_type: str) -> str:
     _normalize_runtime_type(runtime_type)
-    return SINGLE_RUNTIME_WORKSPACE_PATH
+    return DEFAULT_RUNTIME_WORKSPACE_PATH
 
 
 def _resolve_create_mount_path(payload: AgentCreateRequest, runtime_type: str) -> str:
@@ -212,24 +253,38 @@ def _normalize_runtime_type_update_change(agent, changes: dict) -> bool:
         return False
     if changes["runtime_type"] is None:
         raise ValueError("runtime_type cannot be null")
+    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None), allow_default=True)
     new_runtime_type = _normalize_runtime_type(changes["runtime_type"])
-    if new_runtime_type != SINGLE_RUNTIME_TYPE:
-        raise ValueError("runtime_type is fixed to native")
-    changes.pop("runtime_type", None)
-    return False
+    if new_runtime_type == old_runtime_type:
+        changes.pop("runtime_type", None)
+        return False
+    changes["runtime_type"] = new_runtime_type
+    return True
 
 
 def _maybe_add_mount_path_switch_for_runtime_change(agent, changes: dict) -> None:
-    _ = agent, changes
-    return
+    if "runtime_type" not in changes:
+        return
+    old_runtime_type = _normalize_runtime_type(getattr(agent, "runtime_type", None), allow_default=True)
+    new_runtime_type = _normalize_runtime_type(changes.get("runtime_type"))
+    if old_runtime_type == new_runtime_type:
+        return
+    current_mount = (getattr(agent, "mount_path", None) or "").strip()
+    old_default_mounts = {_default_mount_path_for_runtime(old_runtime_type), ""}
+    if old_runtime_type == "native":
+        old_default_mounts.add("/root/.efp")
+    if current_mount in old_default_mounts:
+        changes["mount_path"] = _default_mount_path_for_runtime(new_runtime_type)
 
 
 
 def _validate_runtime_type_or_422(runtime_type: str | None) -> None:
     if runtime_type is None:
         return
-    if runtime_type not in ALLOWED_RUNTIME_TYPES:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type is fixed to native")
+    try:
+        _normalize_runtime_type(runtime_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/mine", response_model=list[AgentResponse])
@@ -253,7 +308,13 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
     if runtime_profile_id is None:
         runtime_profile_id = RuntimeProfileService(db).ensure_user_has_default_profile(user).id
 
-    effective_runtime_type = _resolve_create_runtime_type(payload)
+    try:
+        effective_runtime_type = _resolve_create_runtime_type(payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Invalid DEFAULT_RUNTIME_TYPE: {exc}",
+        ) from exc
     effective_image = _resolve_create_image(payload, effective_runtime_type)
     effective_mount_path = _resolve_create_mount_path(payload, effective_runtime_type)
     effective_skill_repo_url = _resolve_create_skill_repo_url(payload)

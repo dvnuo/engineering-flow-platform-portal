@@ -18,6 +18,48 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
     "debug",
 )
 
+OPENCODE_RUNTIME_RESTRICTION_FIELDS = frozenset(
+    {
+        "enabled_tools",
+        "disabled_tools",
+        "tool_permissions",
+        "allowed_external_systems",
+        "allowed_actions",
+        "allowed_adapter_actions",
+        "allowed_capability_ids",
+        "allowed_capability_types",
+        "resolved_action_mappings",
+        "unresolved_tools",
+        "unresolved_skills",
+        "unresolved_channels",
+        "unresolved_actions",
+        "skill_details",
+        "allowed_skills",
+        "denied_skills",
+        "denied_actions",
+        "denied_capability_types",
+        "skill_set",
+        "policy_context",
+        "derived_runtime_rules",
+    }
+)
+
+
+def is_opencode_runtime_type(runtime_type: str | None) -> bool:
+    return str(runtime_type or "").strip().lower() == "opencode"
+
+
+def strip_opencode_runtime_restrictions(
+    config: dict[str, Any] | None,
+    runtime_type: str | None,
+) -> dict[str, Any]:
+    projected = deepcopy(config) if isinstance(config, dict) else {}
+    if not is_opencode_runtime_type(runtime_type):
+        return projected
+    for key in OPENCODE_RUNTIME_RESTRICTION_FIELDS:
+        projected.pop(key, None)
+    return projected
+
 
 def _strip_runtime_owned_llm_fields(config: dict[str, Any]) -> dict[str, Any]:
     projected = deepcopy(config)
@@ -78,4 +120,5 @@ def build_runtime_profile_context_config(
         else:
             canonical.pop("llm", None)
 
-    return _strip_runtime_owned_llm_fields(canonical)
+    canonical = _strip_runtime_owned_llm_fields(canonical)
+    return strip_opencode_runtime_restrictions(canonical, runtime_type)

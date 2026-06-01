@@ -438,6 +438,52 @@ def test_build_apply_payload_for_agent_sends_copilot_api_key_for_single_runtime(
         db.close()
 
 
+def test_build_apply_payload_for_agent_projects_copilot_for_opencode_runtime():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","api_key":"gho_A"}}'
+        running.runtime_type = "opencode"
+        db.add_all([rp, running]); db.commit(); db.refresh(running)
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        assert payload["runtime_type"] == "opencode"
+        assert payload["config"]["llm"]["provider"] == "github-copilot"
+        assert payload["config"]["llm"]["model"] == "github-copilot/gpt-5-mini"
+        assert payload["config"]["llm"]["api_key"] == "gho_A"
+        assert "oauth" not in payload["config"]["llm"]
+        assert "oauth_by_runtime" not in payload["config"]["llm"]
+    finally:
+        db.close()
+
+
+def test_build_apply_payload_for_agent_strips_opencode_runtime_restrictions():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = json.dumps(
+            {
+                "llm": {"provider": "openai", "model": "gpt-5-mini"},
+                "enabled" + "_tools": ["bash"],
+                "disabled" + "_tools": ["webfetch"],
+                "tool" + "_permissions": {"bash": "ask"},
+                "allowed_capability_ids": ["tool:runtime-only"],
+                "allowed_external_systems": ["github"],
+                "allowed_actions": ["runtime.action"],
+            }
+        )
+        running.runtime_type = "opencode"
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(rp)
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+
+        assert payload["runtime_type"] == "opencode"
+        assert "tools" not in payload["config"]["llm"]
+        _assert_no_removed_restriction_keys(payload["config"])
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_for_agent_filters_tool_selection_and_authorization_limits():
     db, rp, running, _stopped = _build_db()
     try:

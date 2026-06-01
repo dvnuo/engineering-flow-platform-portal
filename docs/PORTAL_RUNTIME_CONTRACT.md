@@ -11,13 +11,15 @@
 - For chat UX, Portal should prefer `POST /a/{agent_id}/api/chat/stream` (SSE) over waiting for long blocking JSON responses.
 
 ## 3) Runtime selection
-- Portal provisions one runtime: the Python `dvnuo/engineering-flow-platform` runtime image.
-- The only internal runtime marker is `native`. It is not a user-facing choice.
-- New agents always use the default Python EFP image and `/workspace` as the workspace mount path.
-- Invalid non-empty `runtime_type` values must be rejected or ignored depending on the request boundary; Portal must not switch an existing agent to another runtime.
-- Legacy rows/fixtures with missing, blank, or obsolete runtime markers may normalize to `native` in API responses.
-- `/api/agents/defaults` must not return a runtime selection matrix.
-- Portal does not expose EFP runtime settings or any runtime version selector.
+- Portal supports two runtime markers: `native` and `opencode`.
+- `native` provisions the Python `dvnuo/engineering-flow-platform` runtime image configured by Portal. `opencode` provisions the OpenCode-compatible runtime image configured by Portal.
+- Missing, blank, or legacy stored runtime markers normalize to `native` where Portal serializes existing agent state. Invalid non-empty request values are rejected at request boundaries.
+- `/api/agents/defaults` returns `default_runtime_type` and a `runtime_types` matrix with each supported runtime marker, label, configured default image, and default mount path.
+- Creating an agent without an explicit `runtime_type` uses `DEFAULT_RUNTIME_TYPE` when it is valid. If `DEFAULT_RUNTIME_TYPE` is blank, Portal falls back to `native`; if it is invalid, `/api/agents/defaults` displays `native` as the fallback and create reports a clear server configuration error.
+- Switching an existing agent between `native` and `opencode` is allowed. When `runtime_type` changes and the request does not explicitly set `image`, Portal updates the agent image to that runtime's configured default image.
+- Both runtimes default to `/workspace` as the workspace mount path.
+- The OpenCode runtime receives OpenCode-specific state, env, and mount wiring for its adapter, but Portal does not provide a source overlay.
+- Portal does not expose multiple Python EFP versions, runtime source overlay, or advanced runtime/source settings controls.
 
 ## 4) Assets contract
 - Skills directory: `/app/skills`.
@@ -27,6 +29,7 @@
 - `DEFAULT_SKILL_ASSET_VERSION` is a rollout marker only. Changing it updates Deployment template annotations so pods restart and the skills initContainer reclones same-branch content.
 - Workspace default: `/workspace`.
 - Portal does not support a runtime source overlay. It runs the configured runtime image and does not clone runtime source into `/app/src` or `/app/.git`.
+- Portal does not configure external tools repositories, branches, or mounts. Runtime built-in tools are runtime-owned.
 
 ## 5) State contract
 - Portal K8s provisioning owns image, workspace, skill asset, and env wiring; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and recovery behavior.

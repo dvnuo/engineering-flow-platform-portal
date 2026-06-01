@@ -13,38 +13,43 @@ def _edit_form_block() -> str:
     return html.split('<form id="edit-form"', 1)[1].split("</form>", 1)[0]
 
 
-def test_create_assistant_has_no_runtime_type_control():
+def test_create_assistant_has_runtime_type_control():
     block = _create_form_block()
-    assert 'name="runtime_type"' not in block
-    assert "create-runtime-type-select" not in block
-    assert "runtime-type-radio" not in block
-    assert "Runtime Type" not in block
+    assert 'name="runtime_type"' in block
+    assert "create-runtime-type-select" in block
+    assert "runtime-type-radio" in block
+    assert "Runtime Type" in block
+    assert 'value="native"' in block
+    assert 'value="opencode"' in block
 
 
-def test_edit_assistant_has_no_runtime_type_control():
+def test_edit_assistant_has_runtime_type_control():
     block = _edit_form_block()
-    assert 'name="runtime_type"' not in block
-    assert "edit-runtime-type-select" not in block
-    assert "Runtime Type" not in block
-    assert "Changing runtime type" not in block
+    assert 'name="runtime_type"' in block
+    assert "edit-runtime-type-select" in block
+    assert "Runtime Type" in block
+    assert "Changing runtime type" in block
+    assert 'value="native"' in block
+    assert 'value="opencode"' in block
 
 
-def test_create_runtime_type_js_helpers_removed():
+def test_create_runtime_type_js_helpers_present():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
-    assert "function populateRuntimeTypeRadioGroup(" not in js
-    assert "function getCreateDefaultRuntimeType(" not in js
-    assert "function getCreateRuntimeTypes(" not in js
-    assert "function isRuntimeTypeAvailable(" not in js
-    assert 'formData.get("runtime_type")' not in js
-    assert "runtime_type: runtimeType" not in js
+    assert "function populateRuntimeTypeRadioGroup(" in js
+    assert "function getCreateDefaultRuntimeType(" in js
+    assert "function getCreateRuntimeTypes(" in js
+    assert 'formData.get("runtime_type")' in js
+    assert "runtime_type: runtimeType" in js
+    assert "updates.runtime_type = runtimeType" in js
 
 
 def test_config_and_schema_use_single_native_runtime_default():
     config = Path("app/config.py").read_text(encoding="utf-8")
     contract = Path("app/contracts/runtime_type.py").read_text(encoding="utf-8")
     schema = Path("app/schemas/agent.py").read_text(encoding="utf-8")
-    assert "DEFAULT_RUNTIME_TYPE" not in config
+    assert "DEFAULT_RUNTIME_TYPE" in config
     assert 'DEFAULT_RUNTIME_TYPE = "native"' in contract
+    assert 'ALLOWED_RUNTIME_TYPES = ("native", "opencode")' in contract
     assert 'runtime_type: str = "native"' in schema
 
 

@@ -27,12 +27,12 @@ def test_project_llm_for_runtime_uses_single_api_key():
     assert "oauth" not in native
     assert "oauth_by_runtime" not in native
 
-    legacy_marker = project_llm_for_runtime(llm, "opencode")
-    assert legacy_marker["provider"] == "github_copilot"
-    assert legacy_marker["model"] == "gpt-5.4-mini"
-    assert legacy_marker["api_key"] == "TOKEN"
-    assert "oauth" not in legacy_marker
-    assert "oauth_by_runtime" not in legacy_marker
+    opencode = project_llm_for_runtime(llm, "opencode")
+    assert opencode["provider"] == "github-copilot"
+    assert opencode["model"] == "github-copilot/gpt-5.4-mini"
+    assert opencode["api_key"] == "TOKEN"
+    assert "oauth" not in opencode
+    assert "oauth_by_runtime" not in opencode
 
 
 def test_settings_merge_copilot_uses_llm_api_key_only():

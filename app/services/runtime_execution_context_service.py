@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
+from app.contracts.runtime_type import normalize_runtime_type_or_default
 from app.contracts.provider_projection import normalize_model_for_runtime, normalize_provider_for_runtime
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
@@ -37,7 +38,7 @@ class RuntimeExecutionContextService:
             return runtime_profile_id, None, {}
 
         authorization_metadata = {}
-        runtime_type = "native"
+        runtime_type = normalize_runtime_type_or_default(getattr(agent, "runtime_type", None))
         runtime_cfg = build_runtime_profile_context_config(
             parsed_config,
             runtime_type=runtime_type,
@@ -76,7 +77,7 @@ class RuntimeExecutionContextService:
 
     def build_runtime_metadata(self, db: Session, agent: Agent | None, base_metadata: dict | None = None) -> dict:
         metadata = dict(base_metadata or {})
-        runtime_type = "native"
+        runtime_type = normalize_runtime_type_or_default(getattr(agent, "runtime_type", None))
         context = self.build_for_agent(db, agent)
 
         metadata["runtime_profile_id"] = context.get("runtime_profile_id")

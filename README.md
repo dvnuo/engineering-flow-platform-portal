@@ -70,15 +70,20 @@ Access `http://localhost:8000/login`
 | `K8S_PVC_ACCESS_MODES` | PVC access modes | `["ReadWriteOnce"]` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
+| `DEFAULT_RUNTIME_TYPE` | Default runtime marker for new agents when `runtime_type` is omitted; supported values are `native` and `opencode` | `native` |
+| `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | Default OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
+| `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | Default OpenCode runtime image tag | `1.14.39` |
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
 | `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
 
 For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite).
 
 Kubernetes runtime provisioning behavior:
-- Portal provisions the Python EFP runtime image from `DEFAULT_AGENT_IMAGE_REPO` / `DEFAULT_AGENT_IMAGE_TAG`.
-- Portal provisions a single Python EFP runtime. It has no runtime selector, no alternate Python runtime versions, no runtime source overlay, and no EFP runtime settings surface.
-- New agents mount `/workspace` by default.
+- Portal provisions either the Python EFP native runtime or the OpenCode runtime based on `runtime_type`.
+- The native runtime image comes from `DEFAULT_AGENT_IMAGE_REPO` / `DEFAULT_AGENT_IMAGE_TAG`; the OpenCode runtime image comes from `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` / `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG`.
+- `/api/agents/defaults` exposes `default_runtime_type` and the supported `runtime_types` matrix for agent creation/editing.
+- New agents mount `/workspace` by default for both runtimes.
+- Portal has no alternate Python EFP runtime versions, no runtime source overlay, and no runtime/source settings surface.
 - Portal mounts `/app/skills` when a skill repo/default exists.
 - Portal does not parse slash commands and does not clone user-requested business repos at pod startup.
 - Runtime owns on-demand checkout flows such as `/create-pull-request in git repo <url> from branch <head> to <base>`.
@@ -92,7 +97,7 @@ Kubernetes runtime provisioning behavior:
 - `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
 - Runtime profiles are the Portal-owned control-plane source for Jira, Confluence, GitHub, and git user config. Portal stores and forwards those sections; the Python runtime writes `ATLASSIAN_CONFIG` / Atlassian CLI config, `gh` hosts config, and git user config inside the runtime container.
-- Runtime tool availability is runtime-owned (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.
+- Portal remains the control plane; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and runtime tool availability (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.
 
 Local default is `K8S_ENABLED=false`. Kubernetes manifests set `K8S_ENABLED=true` explicitly. For production Kubernetes, configure storage class/access mode via env or manifests.
 

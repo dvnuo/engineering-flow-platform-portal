@@ -98,13 +98,13 @@ def test_t13_skill_repo_changes_trigger_runtime_rollout_without_tool_repo(monkey
         db_session.close()
 
 
-def test_t13_defaults_do_not_expose_runtime_choice_matrix(monkeypatch):
+def test_t13_defaults_expose_dual_runtime_choice_matrix(monkeypatch):
     monkeypatch.setattr(agents_api.settings, "default_agent_image_repo", "ghcr.io/example/efp-runtime")
     monkeypatch.setattr(agents_api.settings, "default_agent_image_tag", "test-runtime")
 
     defaults = agents_api.get_agent_defaults(_fake_user())
-    assert "default_runtime_type" not in defaults
-    assert "runtime" + "_types" not in defaults
+    assert defaults["default_runtime_type"] == "native"
+    assert [item["value"] for item in defaults["runtime_types"]] == ["native", "opencode"]
     assert defaults["image_repo"] == "ghcr.io/example/efp-runtime"
     assert defaults["image_tag"] == "test-runtime"
     assert defaults["mount_path"] == "/workspace"
