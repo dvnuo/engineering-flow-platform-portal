@@ -112,6 +112,32 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
         cleanup()
 
 
+def test_settings_panel_renders_llm_request_timeout_ms(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(db, agent, {"llm": {"provider": "openai", "timeout_ms": 300000}})
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_timeout_ms"' in resp.text
+        assert 'Request timeout (ms)' in resp.text
+        assert 'value="300000"' in resp.text
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_panel_renders_legacy_llm_timeout_as_request_timeout_ms(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai", "timeout": 60000}})
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert 'name="llm_timeout_ms"' in resp.text
+        assert 'Request timeout (ms)' in resp.text
+        assert 'value="60000"' in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
@@ -316,6 +342,28 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
         assert "proxy" not in cfg
         assert "jira" not in cfg
         assert "confluence" not in cfg
+    finally:
+        cleanup()
+
+
+def test_settings_save_persists_llm_request_timeout_ms(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"llm": {"provider": "openai", "timeout": 60000}})
+        payload = {
+            "__touch_llm": "1",
+            "llm_provider": "openai",
+            "llm_model": "gpt-5",
+            "llm_timeout_ms": "300000",
+        }
+        resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["provider"] == "openai"
+        assert cfg["llm"]["model"] == "gpt-5"
+        assert cfg["llm"]["timeout_ms"] == 300000
+        assert "timeout" not in cfg["llm"]
     finally:
         cleanup()
 

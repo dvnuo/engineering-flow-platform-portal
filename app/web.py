@@ -716,12 +716,18 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
     raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
     raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
+    raw_llm_timeout_ms = raw_llm.get("timeout_ms")
+    if raw_llm_timeout_ms is None:
+        raw_llm_timeout_ms = raw_llm.get("timeout")
+    if raw_llm_timeout_ms is None:
+        raw_llm_timeout_ms = ""
 
     return {
         "config": effective_config,
         "raw_config": raw_config,
         "llm": llm,
         "raw_llm": raw_llm,
+        "raw_llm_timeout_ms": raw_llm_timeout_ms,
         "effective_llm": llm,
         "llm_temperature_allowed": runtime_profile_model_supports_temperature(raw_llm.get("model")),
         "jira": jira,
@@ -1007,6 +1013,20 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             llm.pop("api_key", None)
         llm.pop("oauth", None)
         llm.pop("oauth_by_runtime", None)
+
+        if "llm_timeout_ms" in form:
+            raw_timeout_value = form.get("llm_timeout_ms")
+            timeout_text = "" if raw_timeout_value is None else str(raw_timeout_value).strip()
+            llm.pop("timeout_ms", None)
+            llm.pop("timeout", None)
+            if timeout_text:
+                try:
+                    timeout_ms = int(timeout_text)
+                except (TypeError, ValueError):
+                    return config_payload, "Request timeout must be a positive integer in milliseconds."
+                if timeout_ms <= 0:
+                    return config_payload, "Request timeout must be a positive integer in milliseconds."
+                llm["timeout_ms"] = timeout_ms
 
         max_tokens_text = (form.get("llm_max_tokens") or "").strip()
         if "llm_max_tokens" in form:
