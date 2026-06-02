@@ -579,7 +579,6 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
                     "password": "conf-password",
                     "token": "conf-token",
                     "space": "DOCS",
-                    "api_version": "2",
                 }
             ],
         },

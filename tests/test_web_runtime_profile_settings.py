@@ -337,7 +337,7 @@ def test_jira_api_version_present_in_rendered_and_dynamic_instance_ui():
     assert "Auto API Version" in js
 
 
-def test_confluence_instance_ui_blocks_include_api_version():
+def test_confluence_instance_ui_blocks_omit_api_version():
     from pathlib import Path
 
     runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
@@ -352,11 +352,13 @@ def test_confluence_instance_ui_blocks_include_api_version():
     settings_conf_end = settings_tpl.index('data-action="add-instance" data-group="confluence"')
     settings_conf_block = settings_tpl[settings_conf_start:settings_conf_end]
 
-    assert 'data-field="api_version"' in runtime_conf_block
-    assert 'data-field="api_version"' in settings_conf_block
-    assert "REST API v1" in runtime_conf_block
-    assert "REST API v2" in settings_conf_block
-    assert 'data-field="api_version"' in js
+    assert 'data-field="api_version"' not in runtime_conf_block
+    assert 'data-field="api_version"' not in settings_conf_block
+    assert "REST API v1" not in runtime_conf_block
+    assert "REST API v1" not in settings_conf_block
+    confluence_branch = js[js.index('const projectHtml = group === "jira"'):js.index("const usernamePasswordHtml")]
+    assert "REST API v1" not in confluence_branch
+    assert 'group === "confluence"' not in confluence_branch
 
 
 def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypatch):

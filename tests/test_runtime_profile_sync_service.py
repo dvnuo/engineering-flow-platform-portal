@@ -631,7 +631,6 @@ def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_s
                         "token": "conf-token",
                         "enabled": True,
                         "space": "DOCS",
-                        "api_version": "2",
                     }
                 ],
             },

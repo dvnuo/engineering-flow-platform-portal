@@ -33,7 +33,7 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
     s = sanitize_runtime_profile_config_dict(raw)
     assert s["jira"]["instances"] == [{"name": "J1", "url": "https://a.atlassian.net", "username": "u", "password": "p", "token": "t", "project": "PRJ"}]
     assert s["confluence"]["instances"][0]["url"] == "https://a.atlassian.net/wiki"
-    assert s["confluence"]["instances"][0]["api_version"] == "2"
+    assert "api_version" not in s["confluence"]["instances"][0]
     assert s["github"] == {"enabled": True, "api_token": "ghp_1", "base_url": "https://api.github.com"}
     assert s["proxy"]["password"] == "secret"
     assert s["git"] == {"user": {"name": "Bot", "email": "bot@example.com"}}
@@ -240,7 +240,6 @@ def test_external_integration_contract_keeps_cli_mapping_inputs_and_drops_runtim
                     "token": "conf-token",
                     "enabled": True,
                     "space": "DOCS",
-                    "api_version": "2",
                 }
             ],
         },
@@ -369,7 +368,7 @@ def test_non_copilot_provider_does_not_migrate_stale_oauth_token():
     assert "oauth_by_runtime" not in sanitized["llm"]
 
 
-def test_runtime_profile_sanitizer_preserves_jira_and_confluence_api_version():
+def test_runtime_profile_sanitizer_preserves_only_jira_api_version():
     cfg = sanitize_runtime_profile_config_dict(
         {
             "jira": {
@@ -385,7 +384,7 @@ def test_runtime_profile_sanitizer_preserves_jira_and_confluence_api_version():
         }
     )
     assert cfg["jira"]["instances"][0]["api_version"] == "2"
-    assert cfg["confluence"]["instances"][0]["api_version"] == "2"
+    assert "api_version" not in cfg["confluence"]["instances"][0]
 
 
 def test_runtime_profile_sanitizer_drops_invalid_jira_api_version():

@@ -212,9 +212,6 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             space = str(item.get("space") or item.get("space_key") or "").strip()
             if space:
                 sanitized_item["space"] = space
-            api_version = str(item.get("api_version") or "").strip()
-            if api_version:
-                sanitized_item["api_version"] = api_version
         if not sanitized_item.get("name") and not sanitized_item.get("url"):
             continue
         sanitized_instances.append(sanitized_item)
