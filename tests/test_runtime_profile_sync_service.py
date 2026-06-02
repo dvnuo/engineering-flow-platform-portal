@@ -464,6 +464,44 @@ def test_build_apply_payload_for_agent_projects_copilot_for_opencode_runtime():
         db.close()
 
 
+def test_build_apply_payload_for_agent_preserves_llm_timeout_ms_for_native_runtime():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","timeout_ms":300000}}'
+        running.runtime_type = "native"
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+
+        assert payload["runtime_type"] == "native"
+        assert payload["config"]["llm"]["provider"] == "github_copilot"
+        assert payload["config"]["llm"]["model"] == "gpt-5-mini"
+        assert payload["config"]["llm"]["timeout_ms"] == 300000
+    finally:
+        db.close()
+
+
+def test_build_apply_payload_for_agent_preserves_llm_timeout_ms_for_opencode_runtime():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","timeout_ms":300000}}'
+        running.runtime_type = "opencode"
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+
+        assert payload["runtime_type"] == "opencode"
+        assert payload["config"]["llm"]["provider"] == "github-copilot"
+        assert payload["config"]["llm"]["model"] == "github-copilot/gpt-5-mini"
+        assert payload["config"]["llm"]["timeout_ms"] == 300000
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_for_agent_strips_opencode_runtime_restrictions():
     db, rp, running, _stopped = _build_db()
     try:
