@@ -1045,9 +1045,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             confluence["instances"] = _settings_parse_instances(
                 form,
                 "confluence",
-                ["enabled", "name", "url", "username", "password", "token", "space"],
+                ["enabled", "name", "url", "username", "password", "token", "space", "api_version"],
                 existing_instances=existing_confluence_instances,
-                preserve_blank_fields={"password", "token"},
+                preserve_blank_fields={"password", "token", "api_version"},
                 clearable_fields={"password", "token"},
             )
         confluence.pop("automation", None)

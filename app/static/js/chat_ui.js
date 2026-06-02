@@ -8221,6 +8221,8 @@ function addInstanceRow(root, group) {
     : `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`;
   const apiVersionHtml = group === "jira"
     ? `<div class="portal-panel-grid cols-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>Auto API Version</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
+    : group === "confluence"
+    ? `<div class="portal-panel-grid cols-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>Auto API Version</option><option value="1">REST API v1</option><option value="2">REST API v2</option></select><div></div></div>`
     : "";
 
   const usernamePasswordHtml = `<input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" />`;

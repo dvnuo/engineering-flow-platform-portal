@@ -337,11 +337,12 @@ def test_jira_api_version_present_in_rendered_and_dynamic_instance_ui():
     assert "Auto API Version" in js
 
 
-def test_confluence_instance_ui_blocks_do_not_include_api_version():
+def test_confluence_instance_ui_blocks_include_api_version():
     from pathlib import Path
 
     runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
     settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
     runtime_conf_start = runtime_tpl.index('data-instance-container="confluence"')
     runtime_conf_end = runtime_tpl.index('data-action="add-instance" data-group="confluence"')
@@ -351,8 +352,11 @@ def test_confluence_instance_ui_blocks_do_not_include_api_version():
     settings_conf_end = settings_tpl.index('data-action="add-instance" data-group="confluence"')
     settings_conf_block = settings_tpl[settings_conf_start:settings_conf_end]
 
-    assert "api_version" not in runtime_conf_block
-    assert "api_version" not in settings_conf_block
+    assert 'data-field="api_version"' in runtime_conf_block
+    assert 'data-field="api_version"' in settings_conf_block
+    assert "REST API v1" in runtime_conf_block
+    assert "REST API v2" in settings_conf_block
+    assert 'data-field="api_version"' in js
 
 
 def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypatch):

@@ -18,6 +18,18 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
     "debug",
 )
 
+RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
+    "Use bash for runtime profile CLI tools: jira/confluence for Atlassian, "
+    "gh for GitHub issues, PRs, and api calls, and git for clone, fetch, push, and status. "
+    "For every jira and confluence command add --json. For complex jira/confluence calls, "
+    "inspect commands, schema, or help llm first, for example `jira commands --json`, "
+    "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence commands. "
+    "Run write operations with --dry-run before executing them. Use --yes only for destructive "
+    "operations after the user explicitly confirms. Runtime profile credentials are applied in "
+    "the runtime container through the CLIs; if a CLI returns auth_failed, report a runtime profile "
+    "configuration problem instead of guessing or inventing tokens."
+)
+
 OPENCODE_RUNTIME_RESTRICTION_FIELDS = frozenset(
     {
         "enabled_tools",
@@ -47,6 +59,13 @@ OPENCODE_RUNTIME_RESTRICTION_FIELDS = frozenset(
 
 def is_opencode_runtime_type(runtime_type: str | None) -> bool:
     return str(runtime_type or "").strip().lower() == "opencode"
+
+
+def runtime_profile_managed_sections(runtime_type: str | None = "native") -> list[str]:
+    sections = list(PORTAL_RUNTIME_PROFILE_SECTIONS)
+    if not is_opencode_runtime_type(runtime_type):
+        sections.append("instruction_texts")
+    return sections
 
 
 def strip_opencode_runtime_restrictions(
@@ -86,6 +105,63 @@ def _with_default_llm_fields(llm: dict[str, Any], default_llm: dict[str, Any] | 
     return projected
 
 
+def _has_enabled_instance_section(config: dict[str, Any], section: str) -> bool:
+    section_config = config.get(section)
+    if not isinstance(section_config, dict) or section_config.get("enabled") is not True:
+        return False
+    instances = section_config.get("instances")
+    if not isinstance(instances, list):
+        return False
+    for item in instances:
+        if not isinstance(item, dict) or item.get("enabled") is False:
+            continue
+        if str(item.get("name") or item.get("url") or "").strip():
+            return True
+    return False
+
+
+def _has_enabled_github_config(config: dict[str, Any]) -> bool:
+    github = config.get("github")
+    if not isinstance(github, dict) or github.get("enabled") is not True:
+        return False
+    return bool(str(github.get("api_token") or github.get("base_url") or "").strip())
+
+
+def _has_git_config(config: dict[str, Any]) -> bool:
+    git = config.get("git")
+    if not isinstance(git, dict):
+        return False
+    user = git.get("user")
+    if not isinstance(user, dict):
+        return False
+    return bool(str(user.get("name") or user.get("email") or "").strip())
+
+
+def _has_enabled_external_cli_config(config: dict[str, Any]) -> bool:
+    return (
+        _has_enabled_instance_section(config, "jira")
+        or _has_enabled_instance_section(config, "confluence")
+        or _has_enabled_github_config(config)
+        or _has_git_config(config)
+    )
+
+
+def _with_native_cli_tool_instructions(
+    config: dict[str, Any],
+    runtime_type: str | None,
+) -> dict[str, Any]:
+    if is_opencode_runtime_type(runtime_type) or not _has_enabled_external_cli_config(config):
+        return config
+    projected = deepcopy(config)
+    instruction_texts = projected.get("instruction_texts")
+    if not isinstance(instruction_texts, list):
+        instruction_texts = []
+    if RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS not in instruction_texts:
+        instruction_texts.append(RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS)
+    projected["instruction_texts"] = instruction_texts
+    return projected
+
+
 def build_runtime_profile_context_config(
     config: dict[str, Any] | None,
     *,
@@ -121,4 +197,5 @@ def build_runtime_profile_context_config(
             canonical.pop("llm", None)
 
     canonical = _strip_runtime_owned_llm_fields(canonical)
-    return strip_opencode_runtime_restrictions(canonical, runtime_type)
+    canonical = strip_opencode_runtime_restrictions(canonical, runtime_type)
+    return _with_native_cli_tool_instructions(canonical, runtime_type)

@@ -10,6 +10,7 @@ from app.schemas.runtime_profile import (
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_context_projection import (
     build_runtime_profile_context_config,
+    runtime_profile_managed_sections,
 )
 
 
@@ -51,7 +52,7 @@ class RuntimeExecutionContextService:
                 "runtime_profile_id": runtime_profile_id,
                 "name": getattr(profile, "name", "") or "",
                 "revision": getattr(profile, "revision", None),
-                "managed_sections": ["llm", "proxy", "jira", "confluence", "github", "git", "debug"],
+                "managed_sections": runtime_profile_managed_sections(runtime_type),
                 "config": runtime_cfg,
                 "source": "portal.runtime_profile",
             },
