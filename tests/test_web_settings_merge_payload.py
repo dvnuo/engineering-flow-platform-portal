@@ -536,6 +536,7 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "confluence_instances_0_password": "conf-password",
             "confluence_instances_0_token": "conf-token",
             "confluence_instances_0_space": "DOCS",
+            "confluence_instances_0_api_version": "2",
             "confluence_instances_0_enabled": "1",
             "__touch_github": "1",
             "github_enabled": "on",
@@ -598,6 +599,7 @@ def test_settings_merge_ignores_posted_runtime_internal_fields():
         "max_iterations": "12",
         "compaction_auto": "on",
         "system_prompt_texts": "first system prompt\nsecond system prompt",
+        "instruction_texts": "user supplied instructions",
         "active_skills": "code-review, testing",
         "runtime_mode": "plan",
         "structured_output_schema": '{"type": "object"}',
@@ -624,6 +626,7 @@ def test_settings_merge_finalize_drops_stale_runtime_internal_fields():
         "enable_plan_tool": True,
         "runtime_mode": "build",
         "structured_output_schema": {"type": "object"},
+        "instruction_texts": ["user supplied instructions"],
     }
     merged, error = _settings_merge_payload(
         {

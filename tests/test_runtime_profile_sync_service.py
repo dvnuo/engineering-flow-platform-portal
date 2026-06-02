@@ -42,6 +42,14 @@ def _assert_no_removed_restriction_keys(config: dict) -> None:
         assert key not in config
 
 
+def _assert_cli_instruction_texts(instruction_texts):
+    assert isinstance(instruction_texts, list)
+    assert len(instruction_texts) == 1
+    text = instruction_texts[0]
+    for expected in ["bash", "jira", "confluence", "gh", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
+        assert expected in text
+
+
 def _build_db():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -269,6 +277,7 @@ def test_build_apply_payload_from_profile_drops_old_runtime_internal_config_surf
             "active_skills": ["review"],
             "compaction_auto": True,
             "system_prompt_texts": ["system"],
+            "instruction_texts": ["instruction"],
             "runtime_mode": "plan",
             "structured_output_schema": {"type": "object"},
         }
@@ -438,6 +447,52 @@ def test_build_apply_payload_for_agent_sends_copilot_api_key_for_single_runtime(
         db.close()
 
 
+def test_build_apply_payload_for_agent_projects_copilot_for_opencode_runtime():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","api_key":"gho_A"}}'
+        running.runtime_type = "opencode"
+        db.add_all([rp, running]); db.commit(); db.refresh(running)
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        assert payload["runtime_type"] == "opencode"
+        assert payload["config"]["llm"]["provider"] == "github-copilot"
+        assert payload["config"]["llm"]["model"] == "github-copilot/gpt-5-mini"
+        assert payload["config"]["llm"]["api_key"] == "gho_A"
+        assert "oauth" not in payload["config"]["llm"]
+        assert "oauth_by_runtime" not in payload["config"]["llm"]
+    finally:
+        db.close()
+
+
+def test_build_apply_payload_for_agent_strips_opencode_runtime_restrictions():
+    db, rp, running, _stopped = _build_db()
+    try:
+        rp.config_json = json.dumps(
+            {
+                "llm": {"provider": "openai", "model": "gpt-5-mini"},
+                "enabled" + "_tools": ["bash"],
+                "disabled" + "_tools": ["webfetch"],
+                "tool" + "_permissions": {"bash": "ask"},
+                "allowed_capability_ids": ["tool:runtime-only"],
+                "allowed_external_systems": ["github"],
+                "allowed_actions": ["runtime.action"],
+            }
+        )
+        running.runtime_type = "opencode"
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(rp)
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+
+        assert payload["runtime_type"] == "opencode"
+        assert "tools" not in payload["config"]["llm"]
+        _assert_no_removed_restriction_keys(payload["config"])
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_for_agent_filters_tool_selection_and_authorization_limits():
     db, rp, running, _stopped = _build_db()
     try:
@@ -521,6 +576,7 @@ def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_s
                             "email": "conf@example.com",
                             "api_token": "conf-token",
                             "space_key": "DOCS",
+                            "api_version": "2",
                             "enabled": True,
                             "rest_path": "/rest/api",
                         }
@@ -548,6 +604,7 @@ def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_s
 
         assert payload["runtime_type"] == "native"
         assert payload["agent_id"] == running.id
+        _assert_cli_instruction_texts(cfg.pop("instruction_texts"))
         assert cfg == {
             "jira": {
                 "enabled": True,
@@ -602,6 +659,7 @@ def test_build_apply_payload_for_agent_adds_runtime_type_agent_id_and_external_s
         for key in ["jira", "confluence", "github", "proxy", "git", "debug"]:
             assert key in payload["config"]
         assert payload["config"]["llm"]["api_key"] == "OA"
+        _assert_cli_instruction_texts(payload["config"]["instruction_texts"])
         assert "oauth" not in payload["config"]["llm"]
     finally:
         db.close()

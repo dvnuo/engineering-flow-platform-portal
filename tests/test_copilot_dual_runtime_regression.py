@@ -1,4 +1,5 @@
 from app.schemas.runtime_profile import PORTAL_MANAGED_FIELD_TREE, sanitize_runtime_profile_config_dict
+from app.services.runtime_profile_context_projection import build_runtime_profile_context_config
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 from app.web import _settings_merge_payload
 
@@ -27,12 +28,12 @@ def test_project_llm_for_runtime_uses_single_api_key():
     assert "oauth" not in native
     assert "oauth_by_runtime" not in native
 
-    legacy_marker = project_llm_for_runtime(llm, "opencode")
-    assert legacy_marker["provider"] == "github_copilot"
-    assert legacy_marker["model"] == "gpt-5.4-mini"
-    assert legacy_marker["api_key"] == "TOKEN"
-    assert "oauth" not in legacy_marker
-    assert "oauth_by_runtime" not in legacy_marker
+    opencode = project_llm_for_runtime(llm, "opencode")
+    assert opencode["provider"] == "github-copilot"
+    assert opencode["model"] == "github-copilot/gpt-5.4-mini"
+    assert opencode["api_key"] == "TOKEN"
+    assert "oauth" not in opencode
+    assert "oauth_by_runtime" not in opencode
 
 
 def test_settings_merge_copilot_uses_llm_api_key_only():
@@ -71,3 +72,27 @@ def test_runtime_profile_field_tree_no_oauth_by_runtime_managed_key():
     llm_tree = PORTAL_MANAGED_FIELD_TREE.get("llm", {})
     assert "oauth_by_runtime" not in llm_tree
     assert "oauth" not in llm_tree
+
+
+def test_opencode_projection_omits_native_efp_instruction_texts():
+    projected = build_runtime_profile_context_config(
+        {
+            "jira": {
+                "enabled": True,
+                "instances": [{"name": "Jira", "url": "https://jira.example", "enabled": True}],
+            },
+            "confluence": {
+                "enabled": True,
+                "instances": [{"name": "Docs", "url": "https://conf.example/wiki", "enabled": True}],
+            },
+            "github": {"enabled": True, "api_token": "ghp"},
+            "git": {"user": {"name": "Bot", "email": "bot@example.com"}},
+        },
+        runtime_type="opencode",
+    )
+
+    assert "instruction_texts" not in projected
+    assert projected["jira"]["enabled"] is True
+    assert projected["confluence"]["enabled"] is True
+    assert projected["github"]["api_token"] == "ghp"
+    assert projected["git"]["user"]["email"] == "bot@example.com"

@@ -1,4 +1,4 @@
-ALLOWED_RUNTIME_TYPES = ("native",)
+ALLOWED_RUNTIME_TYPES = ("native", "opencode")
 DEFAULT_RUNTIME_TYPE = "native"
 
 
@@ -13,7 +13,7 @@ def normalize_runtime_type(value: str | None, *, allow_default: bool = False) ->
             return DEFAULT_RUNTIME_TYPE
         raise InvalidRuntimeType("runtime_type is required")
     if normalized not in ALLOWED_RUNTIME_TYPES:
-        raise InvalidRuntimeType("runtime_type is fixed to native")
+        raise InvalidRuntimeType("runtime_type must be one of: native, opencode")
     return normalized
 
 

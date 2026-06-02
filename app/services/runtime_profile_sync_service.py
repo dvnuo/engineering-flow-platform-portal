@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
+from app.contracts.runtime_type import normalize_runtime_type_or_default
 from app.redaction import redact_text, sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.proxy_service import ProxyService
@@ -60,7 +61,7 @@ class RuntimeProfileSyncService:
     def build_apply_payload_for_agent(self, db: Session, agent, runtime_profile) -> dict:
         _ = db
         payload = self.build_apply_payload_from_profile(runtime_profile)
-        runtime_type = "native"
+        runtime_type = normalize_runtime_type_or_default(getattr(agent, "runtime_type", None))
         payload["runtime_type"] = runtime_type
         payload["agent_id"] = getattr(agent, "id", None)
         payload["config"] = build_runtime_profile_context_config(

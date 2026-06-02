@@ -22,12 +22,24 @@ class K8sServiceNoopTest(unittest.TestCase):
                 "default_skill_branch",
                 "default_skill_repo_subdir",
                 "default_skill_asset_version",
+                "default_opencode_permission_mode",
+                "default_opencode_allow_bash_all",
+                "opencode_workspace_repos_dir",
+                "opencode_git_checkout_timeout_seconds",
+                "opencode_task_completion_timeout_seconds",
+                "opencode_chat_submit_timeout_seconds",
             )
         }
         self.service.settings.default_skill_repo_url = ""
         self.service.settings.default_skill_branch = "master"
         self.service.settings.default_skill_repo_subdir = ""
         self.service.settings.default_skill_asset_version = ""
+        self.service.settings.default_opencode_permission_mode = "workspace_full_access"
+        self.service.settings.default_opencode_allow_bash_all = True
+        self.service.settings.opencode_workspace_repos_dir = "/workspace/repos"
+        self.service.settings.opencode_git_checkout_timeout_seconds = 120
+        self.service.settings.opencode_task_completion_timeout_seconds = 3600
+        self.service.settings.opencode_chat_submit_timeout_seconds = 900
 
     def tearDown(self):
         for name, value in self._settings_snapshot.items():
@@ -611,6 +623,53 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("EFP_CHAT_SUBMIT_TIMEOUT_SECONDS", env_map)
         self.assertNotIn("EFP_CHAT_COMPLETION_TIMEOUT_SECONDS", env_map)
 
+    def test_opencode_runtime_type_normalizes_agent_value(self):
+        agent = SimpleNamespace(id="a1", runtime_type=" opencode ")
+        self.assertEqual(self.service._runtime_type(agent), "opencode")
+
+    def test_opencode_env_restores_adapter_contract(self):
+        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace", name="Agent One")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {e.name: getattr(e, 'value', None) for e in env}
+
+        self.assertEqual(env_map["PORTAL_RUNTIME_TYPE"], "opencode")
+        self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "opencode")
+        self.assertEqual(env_map["EFP_WORKSPACE_DIR"], "/workspace")
+        self.assertEqual(env_map["EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT"], "true")
+        self.assertEqual(env_map["HOME"], "/root")
+        self.assertEqual(env_map["OPENCODE_DATA_DIR"], "/root/.local/share/opencode")
+        self.assertEqual(env_map["EFP_ADAPTER_STATE_DIR"], "/root/.local/share/efp-compat")
+        self.assertEqual(env_map["OPENCODE_WORKSPACE"], "/workspace")
+        self.assertEqual(env_map["EFP_WORKSPACE_REPOS_DIR"], "/workspace/repos")
+        self.assertEqual(env_map["EFP_GIT_CHECKOUT_TIMEOUT_SECONDS"], "120")
+        self.assertEqual(env_map["EFP_TASK_COMPLETION_TIMEOUT_SECONDS"], "3600")
+        self.assertEqual(env_map["EFP_CHAT_SUBMIT_TIMEOUT_SECONDS"], "900")
+        self.assertEqual(env_map["EFP_CHAT_COMPLETION_TIMEOUT_SECONDS"], "900")
+        self.assertEqual(env_map["OPENCODE_CONFIG"], "/workspace/.opencode/opencode.json")
+        self.assertEqual(env_map["EFP_OPENCODE_URL"], "http://127.0.0.1:4096")
+        self.assertEqual(env_map["EFP_OPENCODE_PERMISSION_MODE"], "workspace_full_access")
+        self.assertEqual(env_map["EFP_OPENCODE_ALLOW_BASH_ALL"], "true")
+
+    def test_opencode_mounts_workspace_state_adapter_and_skills_assets(self):
+        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="opencode", mount_path="/workspace", skill_repo_url="https://example.com/skills.git", skill_branch="main")
+        inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
+        init_names = {c.name for c in inits}
+        mount_map = {m.mount_path: m.sub_path for m in mounts}
+
+        self.assertIn("opencode-persistent-dirs-init", init_names)
+        self.assertIn("skills-git-clone", init_names)
+        self.assertEqual(mount_map["/workspace"], "efp-agents/a1/data")
+        self.assertEqual(mount_map["/root/.local/share/opencode"], "efp-agents/a1/opencode-state")
+        self.assertEqual(mount_map["/root/.local/share/efp-compat"], "efp-agents/a1/adapter-state")
+        self.assertEqual(mount_map["/app/skills"], "efp-agents/a1/skills-code")
+
+        state_init = self._find_init_container(inits, "opencode-persistent-dirs-init")
+        command = state_init.args[0]
+        self.assertIn('mkdir -p "$AGENT_STATE_ROOT/data/.opencode"', command)
+        self.assertIn('"$AGENT_STATE_ROOT/opencode-state"', command)
+        self.assertIn('"$AGENT_STATE_ROOT/adapter-state"', command)
+        self.assertIn("chown -R 0:0", command)
+
     def test_labels_annotations_exclude_tool_git_metadata(self):
         agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", skill_repo_url="https://example.com/skills.git", skill_branch="main")
         labels = self.service._agent_common_labels(agent)
@@ -619,6 +678,16 @@ class K8sServiceNoopTest(unittest.TestCase):
             self.assertNotIn("tool-git", k)
         for k in anns.keys():
             self.assertNotIn("tool-git", k)
+
+    def test_labels_annotations_include_runtime_type_without_runtime_git_metadata(self):
+        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="opencode", skill_repo_url="https://example.com/skills.git", skill_branch="main")
+        labels = self.service._agent_common_labels(agent)
+        anns = self.service._agent_metadata_annotations(agent)
+
+        self.assertEqual(labels["runtime-type"], "opencode")
+        self.assertEqual(anns["efp/runtime-type"], "opencode")
+        self.assertFalse(any(k.startswith("runtime-git") for k in labels.keys()))
+        self.assertFalse(any(k.startswith("efp/runtime-git") for k in anns.keys()))
 
 if __name__ == '__main__':
     unittest.main()

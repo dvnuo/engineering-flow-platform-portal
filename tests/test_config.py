@@ -53,16 +53,46 @@ def test_settings_default_skill_asset_env_defaults():
     assert settings.default_skill_asset_version == ""
 
 
-def test_settings_do_not_expose_runtime_selection_or_source_overlay(monkeypatch):
+def test_settings_exposes_runtime_selection_without_source_overlay(monkeypatch):
     monkeypatch.setenv("DEFAULT_RUNTIME_TYPE", "opencode")
     monkeypatch.setenv("ENABLE_RUNTIME_SOURCE_OVERLAY", "true")
     monkeypatch.setenv("DEFAULT_AGENT_RUNTIME_REPO_URL", "https://example.com/runtime.git")
     monkeypatch.setenv("DEFAULT_AGENT_RUNTIME_BRANCH", "main")
     settings = Settings()
-    assert not hasattr(settings, "default_runtime_type")
+    assert settings.default_runtime_type == "opencode"
+    assert settings.default_opencode_runtime_image_repo == "ghcr.io/dvnuo/efp-opencode-runtime"
+    assert settings.default_opencode_runtime_image_tag == "1.14.39"
+    assert settings.default_opencode_permission_mode == "workspace_full_access"
+    assert settings.default_opencode_allow_bash_all is True
+    assert settings.opencode_workspace_repos_dir == "/workspace/repos"
+    assert settings.opencode_git_checkout_timeout_seconds == 120
+    assert settings.opencode_task_completion_timeout_seconds == 3600
+    assert settings.opencode_chat_submit_timeout_seconds == 900
     assert not hasattr(settings, "enable_runtime_source_overlay")
     assert not hasattr(settings, "default_agent_runtime_repo_url")
     assert not hasattr(settings, "default_agent_runtime_branch")
+
+
+def test_settings_opencode_runtime_env_overrides(monkeypatch):
+    monkeypatch.setenv("DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO", "ghcr.io/acme/opencode")
+    monkeypatch.setenv("DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG", "2.0.0")
+    monkeypatch.setenv("DEFAULT_OPENCODE_PERMISSION_MODE", "ask")
+    monkeypatch.setenv("DEFAULT_OPENCODE_ALLOW_BASH_ALL", "false")
+    monkeypatch.setenv("OPENCODE_WORKSPACE_REPOS_DIR", "/workspace/custom-repos")
+    monkeypatch.setenv("OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS", "240")
+    monkeypatch.setenv("OPENCODE_TASK_COMPLETION_TIMEOUT_SECONDS", "7200")
+    monkeypatch.setenv("OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS", "1200")
+
+    settings = Settings()
+
+    assert settings.default_opencode_runtime_image_repo == "ghcr.io/acme/opencode"
+    assert settings.default_opencode_runtime_image_tag == "2.0.0"
+    assert settings.default_opencode_permission_mode == "ask"
+    assert settings.default_opencode_allow_bash_all is False
+    assert settings.opencode_workspace_repos_dir == "/workspace/custom-repos"
+    assert settings.opencode_git_checkout_timeout_seconds == 240
+    assert settings.opencode_task_completion_timeout_seconds == 7200
+    assert settings.opencode_chat_submit_timeout_seconds == 1200
 
 
 def test_settings_default_skill_asset_env_overrides(monkeypatch):

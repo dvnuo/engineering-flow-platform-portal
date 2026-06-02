@@ -10,6 +10,7 @@ from app.schemas.agent_runtime_context import (
     RuntimeTargetInfoResponse,
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.runtime_profile_context_projection import runtime_profile_managed_sections
 from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 
 router = APIRouter(tags=["internal-agents"])
@@ -35,7 +36,7 @@ def get_agent_runtime_context(agent_id: str, db: Session = Depends(get_db)):
                 runtime_profile_id=runtime_profile.id,
                 name=runtime_profile.name,
                 revision=runtime_profile.revision,
-                managed_sections=["llm", "proxy", "jira", "confluence", "github", "git", "debug"],
+                managed_sections=runtime_profile_managed_sections(getattr(agent, "runtime_type", None)),
                 config=config,
                 source="portal.runtime_profile",
             )

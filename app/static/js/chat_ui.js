@@ -8978,6 +8978,104 @@ async function loadAgentDefaults(force = false) {
   return defaults;
 }
 
+function getRuntimeTypes(defaults) {
+  const runtimeTypes = Array.isArray(defaults?.runtime_types) ? defaults.runtime_types : [];
+  if (runtimeTypes.length) return runtimeTypes;
+  return [{ value: "native", label: "EFP Native Runtime", image_repo: defaults?.image_repo || "", image_tag: defaults?.image_tag || "latest", default_mount_path: defaults?.mount_path || "/workspace" }];
+}
+
+function normalizeRuntimeTypeValue(value, defaults) {
+  const raw = String(value || "").trim().toLowerCase();
+  const runtimeTypes = getRuntimeTypes(defaults);
+  if (runtimeTypes.some((item) => String(item?.value || "").trim().toLowerCase() === raw)) return raw;
+  const fallback = String(defaults?.default_runtime_type || "native").trim().toLowerCase() || "native";
+  if (runtimeTypes.some((item) => String(item?.value || "").trim().toLowerCase() === fallback)) return fallback;
+  return String(runtimeTypes[0]?.value || "native").trim().toLowerCase() || "native";
+}
+
+function findRuntimeTypeConfig(defaults, runtimeType) {
+  const normalized = normalizeRuntimeTypeValue(runtimeType, defaults);
+  return getRuntimeTypes(defaults).find((item) => String(item?.value || "").trim().toLowerCase() === normalized) || getRuntimeTypes(defaults)[0] || null;
+}
+
+function runtimeImagePreview(config) {
+  const repo = String(config?.image_repo || "").trim();
+  const tag = String(config?.image_tag || "latest").trim() || "latest";
+  return repo ? `${repo}:${tag}` : "";
+}
+
+function getCreateRuntimeTypes(defaults) {
+  return getRuntimeTypes(defaults);
+}
+
+function getCreateDefaultRuntimeType(defaults) {
+  return normalizeRuntimeTypeValue(defaults?.default_runtime_type || "native", defaults);
+}
+
+function runtimeTypeDescription(item) {
+  const value = String(item?.value || "").trim().toLowerCase();
+  if (value === "opencode") return "Use the opencode runtime adapter.";
+  if (value === "native") return "Use the native EFP Python runtime.";
+  return "Use this runtime for the assistant.";
+}
+
+function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
+  if (!selectEl) return;
+  const runtimeTypes = getRuntimeTypes(defaults);
+  const selected = normalizeRuntimeTypeValue(selectedValue || defaults?.default_runtime_type || "native", defaults);
+  selectEl.innerHTML = runtimeTypes.map((item) => {
+    const value = String(item.value || "").trim();
+    const label = item.label || value;
+    const selectedAttr = value === selected ? " selected" : "";
+    return `<option value="${escapeHtmlAttr(value)}"${selectedAttr}>${safe(label)}</option>`;
+  }).join("");
+  selectEl.value = selected;
+}
+
+function populateRuntimeTypeRadioGroup(groupEl, defaults, selectedValue = "") {
+  if (!groupEl) return;
+  const runtimeTypes = getCreateRuntimeTypes(defaults);
+  const selected = normalizeRuntimeTypeValue(selectedValue || getCreateDefaultRuntimeType(defaults), defaults);
+  groupEl.innerHTML = runtimeTypes.map((item) => {
+    const value = String(item.value || "").trim();
+    const label = item.label || value;
+    const checkedAttr = value === selected ? " checked" : "";
+    const image = runtimeImagePreview(item);
+    const mountPath = item.default_mount_path || "";
+    const meta = image
+      ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}`
+      : runtimeTypeDescription(item);
+
+    return `
+      <label class="runtime-type-radio-option">
+        <input
+          class="runtime-type-radio-input"
+          type="radio"
+          name="runtime_type"
+          value="${escapeHtmlAttr(value)}"${checkedAttr}
+        />
+        <span class="runtime-type-radio-card">
+          <span class="runtime-type-radio-control" aria-hidden="true"></span>
+          <span class="runtime-type-radio-copy">
+            <span class="runtime-type-radio-title">${safe(label)}</span>
+            <span class="runtime-type-radio-description">${safe(meta)}</span>
+          </span>
+        </span>
+      </label>
+    `;
+  }).join("");
+}
+
+function updateCreateRuntimeTypeHint(form, defaults) {
+  const runtimeTypeControl = form?.elements?.["runtime_type"];
+  const hintEl = document.getElementById("create-runtime-type-hint");
+  const runtimeTypeValue = runtimeTypeControl?.value || getCreateDefaultRuntimeType(defaults);
+  const config = findRuntimeTypeConfig(defaults, runtimeTypeValue);
+  const image = runtimeImagePreview(config);
+  const mountPath = config?.default_mount_path || defaults?.mount_path || "";
+  if (hintEl) hintEl.textContent = image ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}` : "";
+}
+
 function applyCreateAgentDefaults(form, defaults) {
   if (!form?.elements) return;
   const repoInput = form.elements["skill_repo_url"];
@@ -8998,6 +9096,9 @@ function applyCreateAgentDefaults(form, defaults) {
     const defaultRuntimeProfileId = defaults?.default_runtime_profile_id || "";
     if (defaultRuntimeProfileId) runtimeProfileSelect.value = defaultRuntimeProfileId;
   }
+  const runtimeTypeGroup = document.getElementById("create-runtime-type-select");
+  populateRuntimeTypeRadioGroup(runtimeTypeGroup, defaults, getCreateDefaultRuntimeType(defaults));
+  updateCreateRuntimeTypeHint(form, defaults);
 }
 
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
@@ -9609,6 +9710,9 @@ async function openEditDialog(agent) {
   if (form && form.elements) {
     if (form.elements["id"]) form.elements["id"].value = agent.id ?? "";
     if (form.elements["name"]) form.elements["name"].value = agent.name || "";
+    if (form.elements["runtime_type"]) {
+      populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
+    }
     if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
       form.elements["skill_branch"].value = agent.skill_branch || "";
@@ -10208,11 +10312,13 @@ function bindEvents() {
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
+    const runtimeType = (formData.get("runtime_type") || "").toString().trim().toLowerCase();
 
     // Always include skill_repo_url and skill_branch; empty values mean "use configured default".
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
+    if (runtimeType) updates.runtime_type = runtimeType;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -10832,6 +10938,12 @@ function bindEvents() {
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
   });
 
+  document.getElementById("create-form")?.addEventListener("change", (event) => {
+    if (event.target?.name === "runtime_type") {
+      updateCreateRuntimeTypeHint(event.currentTarget, state.agentDefaults || {});
+    }
+  });
+
   document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -10841,6 +10953,7 @@ function bindEvents() {
     const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
     const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
+    const runtimeType = normalizeRuntimeTypeValue(formData.get("runtime_type"), state.agentDefaults || {});
 
     const msgEl = document.getElementById("create-msg");
 
@@ -10850,16 +10963,18 @@ function bindEvents() {
       if (!defaults.disk_size_gi) {
         throw new Error("Invalid defaults configuration");
       }
+      const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
 
       // Use form values if provided, or null to skip repo
       const data = {
         name: name,
+        runtime_type: runtimeType,
         skill_repo_url: repoUrl || null,
         skill_branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,
         cpu: defaults.cpu,
         memory: defaults.memory,
-        mount_path: defaults.mount_path,
+        mount_path: runtimeConfig?.default_mount_path || defaults.mount_path,
         runtime_profile_id: runtimeProfileId || null,
       };
 

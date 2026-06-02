@@ -13,10 +13,18 @@ from app.services.runtime_profile_context_projection import (
 )
 
 
+def _assert_cli_instruction_texts(instruction_texts):
+    assert isinstance(instruction_texts, list)
+    assert len(instruction_texts) == 1
+    text = instruction_texts[0]
+    for expected in ["bash", "jira", "confluence", "gh", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
+        assert expected in text
+
+
 def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config():
     raw = {
         "jira": {"enabled": True, "instances": [{"name": "  J1 ", "url": " https://a.atlassian.net/ ", "username": " u ", "password": " p ", "token": " t ", "project": " PRJ ", "x": "bad"}, {"name": "", "url": "", "password": "drop"}]},
-        "confluence": {"enabled": 1, "instances": [{"name": " C1 ", "url": " https://a.atlassian.net/wiki/ ", "username": " u ", "password": " p2 ", "token": " t2 ", "space": " DOCS ", "bad": "x"}]},
+        "confluence": {"enabled": 1, "instances": [{"name": " C1 ", "url": " https://a.atlassian.net/wiki/ ", "username": " u ", "password": " p2 ", "token": " t2 ", "space": " DOCS ", "api_version": " 2 ", "bad": "x"}]},
         "github": {"enabled": True, "api_token": " ghp_1 ", "base_url": " https://api.github.com/ ", "x": "bad"},
         "proxy": {"enabled": True, "url": " http://proxy ", "username": " me ", "password": " secret "},
         "git": {"user": {"name": " Bot ", "email": " bot@example.com ", "x": "bad"}},
@@ -25,6 +33,7 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
     s = sanitize_runtime_profile_config_dict(raw)
     assert s["jira"]["instances"] == [{"name": "J1", "url": "https://a.atlassian.net", "username": "u", "password": "p", "token": "t", "project": "PRJ"}]
     assert s["confluence"]["instances"][0]["url"] == "https://a.atlassian.net/wiki"
+    assert "api_version" not in s["confluence"]["instances"][0]
     assert s["github"] == {"enabled": True, "api_token": "ghp_1", "base_url": "https://api.github.com"}
     assert s["proxy"]["password"] == "secret"
     assert s["git"] == {"user": {"name": "Bot", "email": "bot@example.com"}}
@@ -179,6 +188,7 @@ def test_external_integration_contract_keeps_cli_mapping_inputs_and_drops_runtim
                     "email": "conf@example.com",
                     "api_token": "conf-token",
                     "space_key": "DOCS",
+                    "api_version": "2",
                     "enabled": "on",
                     "rest_path": "/rest/api",
                 }
@@ -358,7 +368,7 @@ def test_non_copilot_provider_does_not_migrate_stale_oauth_token():
     assert "oauth_by_runtime" not in sanitized["llm"]
 
 
-def test_runtime_profile_sanitizer_preserves_jira_api_version_only_for_jira():
+def test_runtime_profile_sanitizer_preserves_only_jira_api_version():
     cfg = sanitize_runtime_profile_config_dict(
         {
             "jira": {
@@ -392,12 +402,18 @@ def test_old_low_level_runtime_fields_are_dropped_from_profile_config():
         "max_iterations": 6,
         "compaction_auto": True,
         "system_prompt_texts": ["system text"],
+        "instruction_texts": ["user supplied instruction"],
         "active_skills": ["review"],
         "runtime_mode": "plan",
         "structured_output_schema": {"type": "object"},
     }
     raw = {
-        "llm": {"provider": "github_copilot", "model": "gpt-5-mini"},
+        "llm": {
+            "provider": "github_copilot",
+            "model": "gpt-5-mini",
+            "system_prompt_texts": ["nested system"],
+            "instruction_texts": ["nested instruction"],
+        },
         **old_fields,
     }
 
@@ -412,6 +428,8 @@ def test_old_low_level_runtime_fields_are_dropped_from_profile_config():
         assert key not in validated
         assert key not in canonical
     assert parsed["llm"] == {"provider": "github_copilot", "model": "gpt-5-mini"}
+    assert "system_prompt_texts" not in json.dumps(parsed)
+    assert "instruction_texts" not in json.dumps(parsed)
 
 
 def test_runtime_profile_context_projection_drops_tool_restriction_fields():
@@ -434,4 +452,47 @@ def test_runtime_profile_context_projection_drops_tool_restriction_fields():
     assert "tools" not in projected["llm"]
     assert projected["llm"]["provider"] == "github_copilot"
     assert projected["llm"]["model"] == "gpt-5-mini"
+    assert projected["github"]["api_token"] == "ghp"
+    _assert_cli_instruction_texts(projected["instruction_texts"])
+
+
+def test_native_runtime_profile_context_config_adds_external_cli_instruction_texts():
+    projected = build_runtime_profile_context_config(
+        {
+            "jira": {
+                "enabled": True,
+                "instances": [{"name": "Jira", "url": "https://jira.example", "enabled": True}],
+            },
+            "confluence": {
+                "enabled": True,
+                "instances": [{"name": "Docs", "url": "https://conf.example/wiki", "enabled": True}],
+            },
+            "github": {"enabled": True, "api_token": "ghp"},
+            "git": {"user": {"name": "Bot", "email": "bot@example.com"}},
+        },
+        runtime_type="native",
+    )
+
+    _assert_cli_instruction_texts(projected["instruction_texts"])
+    assert projected["jira"]["instances"][0]["url"] == "https://jira.example"
+    assert projected["confluence"]["instances"][0]["url"] == "https://conf.example/wiki"
+    assert projected["github"]["api_token"] == "ghp"
+    assert projected["git"]["user"]["email"] == "bot@example.com"
+
+
+def test_opencode_runtime_profile_context_config_omits_efp_instruction_texts():
+    projected = build_runtime_profile_context_config(
+        {
+            "jira": {
+                "enabled": True,
+                "instances": [{"name": "Jira", "url": "https://jira.example", "enabled": True}],
+            },
+            "github": {"enabled": True, "api_token": "ghp"},
+            "instruction_texts": ["user supplied instruction"],
+        },
+        runtime_type="opencode",
+    )
+
+    assert "instruction_texts" not in projected
+    assert projected["jira"]["enabled"] is True
     assert projected["github"]["api_token"] == "ghp"
