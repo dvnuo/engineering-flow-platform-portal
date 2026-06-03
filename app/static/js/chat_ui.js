@@ -2712,7 +2712,89 @@ function createAgentTimelineState({ requestId = "", sessionId = "" } = {}) {
     startedAt: Date.now(),
     updatedAt: Date.now(),
     completedAt: null,
+    visibleItemCount: 0,
+    revealTimer: null,
+    revealIntervalMs: 280,
+    lastRevealAt: 0,
   };
+}
+
+function isAgentTimelinePacedItem(item) {
+  if (!item) return false;
+  const kind = String(item.kind || "event").toLowerCase();
+  return kind !== "step" && kind !== "text";
+}
+
+function getAgentTimelineRenderableItems(timeline) {
+  if (!timeline) return [];
+  return (timeline.items || [])
+    .filter((item) => item && String(item.kind || "").toLowerCase() !== "step")
+    .slice(-24);
+}
+
+function getAgentTimelineVisibleItems(timeline) {
+  const items = getAgentTimelineRenderableItems(timeline);
+  if (!items.length) return [];
+  const pacedTotal = items.filter(isAgentTimelinePacedItem).length;
+  const pacedLimit = Math.max(0, Math.min(Number(timeline?.visibleItemCount || 0), pacedTotal));
+  let pacedSeen = 0;
+  return items.filter((item) => {
+    if (!isAgentTimelinePacedItem(item)) return true;
+    pacedSeen += 1;
+    return pacedSeen <= pacedLimit;
+  });
+}
+
+function advanceAgentTimelineReveal(timeline, count = 1) {
+  if (!timeline) return 0;
+  const items = getAgentTimelineRenderableItems(timeline);
+  const pacedTotal = items.filter(isAgentTimelinePacedItem).length;
+  const current = Math.max(0, Math.min(Number(timeline.visibleItemCount || 0), pacedTotal));
+  const increment = count === Infinity
+    ? pacedTotal
+    : Math.max(0, Number.isFinite(Number(count)) ? Math.floor(Number(count)) : 0);
+  timeline.visibleItemCount = Math.min(pacedTotal, current + increment);
+  if (increment > 0) timeline.lastRevealAt = Date.now();
+  return timeline.visibleItemCount;
+}
+
+function clearAgentTimelineRevealTimer(timeline) {
+  if (!timeline?.revealTimer) return;
+  clearTimeout(timeline.revealTimer);
+  timeline.revealTimer = null;
+}
+
+function dropInflightAgentTimelineState(chatState) {
+  if (!chatState?.inflightAgentTimeline) return;
+  clearAgentTimelineRevealTimer(chatState.inflightAgentTimeline);
+  chatState.inflightAgentTimeline = null;
+}
+
+function scheduleAgentTimelineReveal(agentId, chatState, requestCtx = {}) {
+  const timeline = chatState?.inflightAgentTimeline;
+  if (!timeline || timeline.completed) {
+    clearAgentTimelineRevealTimer(timeline);
+    return;
+  }
+  const pacedTotal = getAgentTimelineRenderableItems(timeline).filter(isAgentTimelinePacedItem).length;
+  if (Number(timeline.visibleItemCount || 0) >= pacedTotal) {
+    clearAgentTimelineRevealTimer(timeline);
+    return;
+  }
+  if (timeline.revealTimer) return;
+  const timelineRequestId = String(timeline.requestId || "");
+  const intervalMs = Math.max(220, Math.min(350, Number(timeline.revealIntervalMs || 280) || 280));
+  timeline.revealTimer = setTimeout(() => {
+    timeline.revealTimer = null;
+    const activeTimeline = chatState?.inflightAgentTimeline;
+    if (!activeTimeline || activeTimeline !== timeline) return;
+    if (timelineRequestId && String(activeTimeline.requestId || "") !== timelineRequestId) return;
+    advanceAgentTimelineReveal(activeTimeline, 1);
+    if (typeof renderAgentTimelineForCurrentRequest === "function") {
+      renderAgentTimelineForCurrentRequest(agentId, chatState, { requestCtx });
+    }
+    scheduleAgentTimelineReveal(agentId, chatState, requestCtx);
+  }, intervalMs);
 }
 
 function ensureAgentTimelineState(chatState, event = {}) {
@@ -2735,6 +2817,7 @@ function ensureAgentTimelineState(chatState, event = {}) {
     !chatState.inflightAgentTimeline
     || (requestId && chatState.inflightAgentTimeline.requestId && chatState.inflightAgentTimeline.requestId !== requestId && chatState.inflightAgentTimeline.completed)
   ) {
+    clearAgentTimelineRevealTimer(chatState.inflightAgentTimeline);
     chatState.inflightAgentTimeline = createAgentTimelineState({ requestId, sessionId });
   }
   const timeline = chatState.inflightAgentTimeline;
@@ -3191,6 +3274,8 @@ function reduceAgentTimelineEvent(chatState, event) {
   }
 
   if (timeline.items.length > 80) timeline.items = timeline.items.slice(-80);
+  const pacedTotal = getAgentTimelineRenderableItems(timeline).filter(isAgentTimelinePacedItem).length;
+  if (Number(timeline.visibleItemCount || 0) > pacedTotal) timeline.visibleItemCount = pacedTotal;
   return { changed, timeline };
 }
 
@@ -3219,9 +3304,7 @@ function renderAgentTimelineItemDetail(item) {
 
 function renderAgentTimelineRowsHtml(timeline) {
   if (!timeline) return "";
-  const visibleItems = (timeline.items || [])
-    .filter((item) => item && item.kind !== "step")
-    .slice(-24);
+  const visibleItems = getAgentTimelineVisibleItems(timeline);
   if (!visibleItems.length) return "";
   return visibleItems.map((item) => {
     const status = String(item.status || "running").toLowerCase();
@@ -3308,6 +3391,8 @@ function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {
   timeline.completed = true;
   timeline.status = String(finalPayload?.completion_state || "").toLowerCase() === "failed" ? "failed" : "completed";
   timeline.completedAt = Date.now();
+  clearAgentTimelineRevealTimer(timeline);
+  advanceAgentTimelineReveal(timeline, Infinity);
   chatState.lastAgentTimelineSnapshot = {
     ...timeline,
     eventsById: { ...(timeline.eventsById || {}) },
@@ -3316,7 +3401,8 @@ function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {
     textById: { ...(timeline.textById || {}) },
     items: (timeline.items || []).map((item) => ({ ...item })),
   };
-  chatState.inflightAgentTimeline = null;
+  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+  else chatState.inflightAgentTimeline = null;
 }
 
 function syncAgentTimelineAssistantTextFromStream(chatState, requestCtx = {}, text = "") {
@@ -3632,6 +3718,10 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     ? reduceAgentTimelineEvent(chatState, entry)
     : { changed: false };
   if (timelineResult.changed) {
+    const activeTimeline = chatState.inflightAgentTimeline;
+    if (activeTimeline && Number(activeTimeline.visibleItemCount || 0) < 1) {
+      advanceAgentTimelineReveal(activeTimeline, 1);
+    }
     if (
       chatState.currentRequest
       && ["session.next.text.delta", "session.next.text.ended", "assistant_delta"].includes(type)
@@ -3643,6 +3733,9 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       renderAgentTimelineForCurrentRequest(currentAgentId, chatState, {
         requestCtx: chatState.currentRequest || {},
       });
+    }
+    if (typeof scheduleAgentTimelineReveal === "function") {
+      scheduleAgentTimelineReveal(currentAgentId, chatState, chatState.currentRequest || {});
     }
   }
 
@@ -5259,6 +5352,8 @@ async function submitChatForSelectedAgent() {
       startedAt: Date.now(),
     };
     if (typeof createAgentTimelineState === "function") {
+      if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+      else chatState.inflightAgentTimeline = null;
       chatState.inflightAgentTimeline = createAgentTimelineState({
         requestId: clientRequestId,
         sessionId: sessionIdAtSend || "",
@@ -6256,7 +6351,8 @@ async function abortActiveChatRequestForSelectedAgent() {
   req.streamFailed = true;
   chatState.currentRequest = null;
   chatState.inflightThinking = null;
-  chatState.inflightAgentTimeline = null;
+  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+  else chatState.inflightAgentTimeline = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentId, false);
   setChatStatus("Stopped current response.");
@@ -6752,7 +6848,8 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
     chatState.currentRequest = null;
     chatState.inflightThinking = null;
-    chatState.inflightAgentTimeline = null;
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
     chatState.pendingThinkingEvents = null;
     chatState.needsReload = true;
     setChatSubmittingForAgent(agentIdAtSend, false);
@@ -6984,7 +7081,8 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   else {
     chatState.lastThinkingSnapshot = chatState.lastThinkingSnapshot || (chatState.inflightThinking ? { ...chatState.inflightThinking } : null);
     chatState.inflightThinking = null;
-    chatState.inflightAgentTimeline = null;
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
     chatState.pendingThinkingEvents = null;
   }
   chatState.currentRequest = null;
@@ -8294,7 +8392,8 @@ async function deleteSessionForAgent(agentId, sessionId) {
         const chatState = getChatState();
         if (chatState) {
           chatState.inflightThinking = null;
-          chatState.inflightAgentTimeline = null;
+          if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+          else chatState.inflightAgentTimeline = null;
         }
         removeTemporaryAssistantRows({ forceAll: true });
         clearMessageListToWelcome();
@@ -9488,7 +9587,8 @@ async function clearChat() {
     const chatState = getChatState();
     if (chatState) {
       chatState.inflightThinking = null;
-      chatState.inflightAgentTimeline = null;
+      if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+      else chatState.inflightAgentTimeline = null;
     }
     removeTemporaryAssistantRows({ forceAll: true });
     clearMessageListToWelcome();
@@ -9508,7 +9608,8 @@ async function startNewChatForSelectedAgent() {
   const chatState = getChatState();
   if (chatState) {
     chatState.inflightThinking = null;
-    chatState.inflightAgentTimeline = null;
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
     chatState.currentRequest = null;
   }
   removeTemporaryAssistantRows({ forceAll: true });
@@ -9674,7 +9775,8 @@ function resetLocalChatSubmissionForAgent(agentId) {
   }
   chatState.currentRequest = null;
   chatState.inflightThinking = null;
-  chatState.inflightAgentTimeline = null;
+  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+  else chatState.inflightAgentTimeline = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentId, false, { suppressSync: true });
 }
@@ -11282,6 +11384,8 @@ function bindEvents() {
         startedAt: Date.now(),
       };
       if (typeof createAgentTimelineState === "function") {
+        if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+        else chatState.inflightAgentTimeline = null;
         chatState.inflightAgentTimeline = createAgentTimelineState({
           requestId,
           sessionId: finalSessionId,

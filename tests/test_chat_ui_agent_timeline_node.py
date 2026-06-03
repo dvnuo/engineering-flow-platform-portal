@@ -35,6 +35,11 @@ def _timeline_bundle(js: str) -> str:
         "runtimeEventUniqueId",
         "runtimeEventDedupKey",
         "createAgentTimelineState",
+        "isAgentTimelinePacedItem",
+        "getAgentTimelineRenderableItems",
+        "getAgentTimelineVisibleItems",
+        "advanceAgentTimelineReveal",
+        "clearAgentTimelineRevealTimer",
         "ensureAgentTimelineState",
         "getAgentTimelineEventData",
         "getAgentTimelineField",
@@ -168,3 +173,58 @@ console.log(JSON.stringify({{
     assert data["hasPermission"] is True
     assert data["toolStatus"] == "completed"
     assert data["toolOutput"] == "result"
+
+
+def test_agent_timeline_paces_visible_rows_without_dropping_events():
+    js = _src()
+    script = f"""
+const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
+{_timeline_bundle(js)}
+
+const chatState = {{
+  sessionId: "sess-paced",
+  currentRequest: {{ requestId: "req-paced", clientRequestId: "req-paced", sessionIdAtSend: "sess-paced" }},
+}};
+const events = [
+  normalizeRuntimeEvent({{ id: "evt-tool-1", type: "session.next.tool.called", properties: {{ callID: "call-1", tool: "bash", input: {{ command: "pwd" }} }}, session_id: "sess-paced", request_id: "req-paced" }}),
+  normalizeRuntimeEvent({{ id: "evt-tool-2", type: "session.next.tool.called", properties: {{ callID: "call-2", tool: "read", input: {{ file: "README.md" }} }}, session_id: "sess-paced", request_id: "req-paced" }}),
+  normalizeRuntimeEvent({{ id: "evt-perm-1", type: "permission.requested", properties: {{ permission_id: "perm-1", tool: "bash", message: "Allow bash?" }}, session_id: "sess-paced", request_id: "req-paced" }}),
+  normalizeRuntimeEvent({{ id: "evt-compact-1", type: "session.next.compaction.started", properties: {{ partID: "compact-1", summary: "compressing context" }}, session_id: "sess-paced", request_id: "req-paced" }}),
+];
+events.forEach((event) => reduceAgentTimelineEvent(chatState, event));
+const timeline = chatState.inflightAgentTimeline;
+const totalRows = getAgentTimelineRenderableItems(timeline).length;
+const initialVisibleRows = getAgentTimelineVisibleItems(timeline).length;
+advanceAgentTimelineReveal(timeline);
+const afterFirstVisibleRows = getAgentTimelineVisibleItems(timeline).length;
+advanceAgentTimelineReveal(timeline);
+const afterSecondVisibleRows = getAgentTimelineVisibleItems(timeline).length;
+const visibleBeforeDuplicate = timeline.visibleItemCount;
+const duplicateResult = reduceAgentTimelineEvent(chatState, events[1]);
+console.log(JSON.stringify({{
+  itemCount: timeline.items.length,
+  kinds: timeline.items.map((item) => item.kind),
+  totalRows,
+  initialVisibleRows,
+  afterFirstVisibleRows,
+  afterSecondVisibleRows,
+  duplicateChanged: duplicateResult.changed,
+  visibleBeforeDuplicate,
+  visibleAfterDuplicate: timeline.visibleItemCount,
+  itemCountAfterDuplicate: timeline.items.length,
+  eventCount: Object.keys(timeline.eventsById).length,
+  assistantText: timeline.assistantText,
+}}));
+"""
+    data = _run_node(script)
+    assert data["itemCount"] == 4
+    assert data["itemCountAfterDuplicate"] == 4
+    assert {"tool", "permission", "compaction"}.issubset(set(data["kinds"]))
+    assert data["totalRows"] == 4
+    assert data["initialVisibleRows"] < data["totalRows"]
+    assert data["afterFirstVisibleRows"] == data["initialVisibleRows"] + 1
+    assert data["afterSecondVisibleRows"] == data["afterFirstVisibleRows"] + 1
+    assert data["duplicateChanged"] is False
+    assert data["visibleAfterDuplicate"] == data["visibleBeforeDuplicate"]
+    assert data["eventCount"] == 4
+    assert data["assistantText"] == ""
