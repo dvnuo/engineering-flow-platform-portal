@@ -3864,10 +3864,12 @@ function renderAgentList() {
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
+      const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
+      const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
           <span class="portal-agent-name">${safe(agent.name)}</span>
-          <span class="portal-agent-row-badges">${runtimeBadge}${unreadBadge}${sharedBadge}</span>
+          <span class="portal-agent-row-badges">${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}</span>
         </div>
         <div class="portal-agent-row-foot">
           <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
@@ -3901,6 +3903,7 @@ function renderAgentMeta(agent) {
   const effectiveSkillRepoUrl = agent.effective_skill_repo_url || agent.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
   const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
+  const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
 
   // Build Skills Repository section if present.
   // Tool repo/branch configuration was intentionally removed from Portal agent flows in #318;
@@ -3933,6 +3936,10 @@ function renderAgentMeta(agent) {
       <div class="portal-detail-section">
         <div class="portal-detail-label">Assistant ID</div>
         <code class="portal-detail-code">${safe(agent.id)}</code>
+      </div>
+      <div class="portal-detail-section">
+        <div class="portal-detail-label">Runtime Type</div>
+        <div class="portal-detail-value">${safe(runtimeType)}</div>
       </div>
       <div class="portal-detail-section">
         <div class="portal-detail-label">Image</div>
