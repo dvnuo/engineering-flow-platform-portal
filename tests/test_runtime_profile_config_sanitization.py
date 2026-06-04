@@ -161,6 +161,43 @@ def test_alias_fields_are_normalized_to_canonical_shape():
     assert s["github"] == {"api_token": "gh", "base_url": "https://api.github.com"}
 
 
+def test_external_instances_require_endpoint_and_normalize_url_aliases():
+    s = sanitize_runtime_profile_config_dict(
+        {
+            "jira": {
+                "instances": [
+                    {"name": "name-only", "token": "drop"},
+                    {"name": "empty-uri", "uri": "   ", "token": "drop"},
+                    ["bad"],
+                    {"name": "Uri", "uri": " https://jira.example.com/ ", "access_token": "jt"},
+                    {"name": "BaseUrl", "baseUrl": " https://jira-base-url.example.com/ "},
+                    {"name": "BaseURL", "base_url": " https://jira-base-url-2.example.com/ "},
+                ]
+            },
+            "confluence": {
+                "instances": [
+                    {"name": "name-only", "password": "drop"},
+                    {"name": "empty-uri", "uri": ""},
+                    {"name": "Uri", "uri": " https://conf.example.com/wiki/ "},
+                    {"name": "BaseUrl", "baseUrl": " https://conf-base-url.example.com/wiki/ "},
+                    {"name": "BaseURL", "base_url": " https://conf-base-url-2.example.com/wiki/ "},
+                ]
+            },
+        }
+    )
+
+    assert s["jira"]["instances"] == [
+        {"name": "Uri", "url": "https://jira.example.com", "token": "jt"},
+        {"name": "BaseUrl", "url": "https://jira-base-url.example.com"},
+        {"name": "BaseURL", "url": "https://jira-base-url-2.example.com"},
+    ]
+    assert s["confluence"]["instances"] == [
+        {"name": "Uri", "url": "https://conf.example.com/wiki"},
+        {"name": "BaseUrl", "url": "https://conf-base-url.example.com/wiki"},
+        {"name": "BaseURL", "url": "https://conf-base-url-2.example.com/wiki"},
+    ]
+
+
 def test_external_integration_contract_keeps_cli_mapping_inputs_and_drops_runtime_internal_fields():
     raw = {
         "jira": {
