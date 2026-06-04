@@ -634,6 +634,8 @@ function createDefaultChatState() {
     isSubmitting: false,
     pendingFiles: [],
     inflightThinking: null,
+    inflightAgentTimeline: null,
+    lastAgentTimelineSnapshot: null,
     lastThinkingSnapshot: null,
     pendingThinkingEvents: null,
     draftText: "",
@@ -1651,7 +1653,7 @@ function buildPendingAssistantArticle(clientRequestId = "", pendingText = "Think
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = getSelectedAssistantDisplayName();
   const clientRequestAttr = clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(clientRequestId)}"` : "";
-  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"${clientRequestAttr}><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"${clientRequestAttr}><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div><div class="agent-timeline" data-agent-timeline="1"><div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>Working</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div></div></article></div>`;
 }
 
 function buildAssistantMessageArticle(content, displayBlocks = [], authorName = "Assistant", messageId = "", options = {}) {
@@ -1812,6 +1814,7 @@ function disconnectEventSocket({ clearReconnect = true } = {}) {
 
 function normalizeRuntimeEventTypeAlias(type) {
   const normalized = String(type || "").trim();
+  if (normalized.startsWith("session.next.")) return normalized;
   const aliases = {
     // Transitional parser only for older runtime builds; UI uses runtime.* names.
     "opencode.reasoning": "runtime.reasoning",
@@ -1834,6 +1837,16 @@ function isTrackableThinkingEvent(type) {
     return String(value || "").trim();
   };
   const normalizedType = localNormalizeRuntimeEventTypeAlias(type);
+  if (
+    normalizedType === "session.next.prompted"
+    || normalizedType.startsWith("session.next.step.")
+    || normalizedType.startsWith("session.next.text.")
+    || normalizedType.startsWith("session.next.reasoning.")
+    || normalizedType.startsWith("session.next.tool.")
+    || normalizedType.startsWith("session.next.compaction.")
+  ) {
+    return true;
+  }
   return [
     "stream.started",
     "chat.started", "heartbeat", "status",
@@ -1851,11 +1864,12 @@ function isTrackableThinkingEvent(type) {
     // Active skill contract events
     "skill_runtime_applied", "skill_contract_active",
     "skill_tool_denied", "skill_contract_cleared",
-    "message.started", "message.delta", "message.completed", "message.failed",
+    "message.started", "message.delta", "assistant_delta", "message.completed", "message.failed",
     "tool.started", "tool.completed", "tool.failed",
     "tool.error",
     "permission.requested", "permission.resolved", "permission_request", "permission_resolved",
     "permission.denied", "permission.allowed",
+    "question.requested",
     "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
     "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "runtime.raw",
     "runtime.status.validated",
@@ -1880,6 +1894,12 @@ function normalizeRuntimeEvent(payload) {
   const wrapperTypes = new Set(["runtime_event", "event", "progress"]);
   const outerType = String(candidate?.event_type || candidate?.type || "").toLowerCase();
   const baseData = (candidate?.data && typeof candidate.data === "object") ? candidate.data : {};
+  const candidateProperties = (candidate?.properties && typeof candidate.properties === "object")
+    ? candidate.properties
+    : {};
+  const baseProperties = (baseData?.properties && typeof baseData.properties === "object")
+    ? baseData.properties
+    : {};
   const embeddedType = String(baseData.event_type || baseData.type || baseData.event || "").toLowerCase();
   const rawTypeValue = (wrapperTypes.has(outerType) && embeddedType)
     ? embeddedType
@@ -1894,15 +1914,39 @@ function normalizeRuntimeEvent(payload) {
     : {};
 
   const mergedData = {
+    ...candidateProperties,
+    ...baseProperties,
     ...baseData,
     ...detailPayload,
   };
+  if (
+    !mergedData.properties
+    && (Object.keys(candidateProperties).length || Object.keys(baseProperties).length)
+  ) {
+    mergedData.properties = {
+      ...candidateProperties,
+      ...baseProperties,
+    };
+  }
 
   if (candidate?.summary && !mergedData.message) mergedData.message = candidate.summary;
   if (candidate?.state && !mergedData.state) mergedData.state = candidate.state;
-  if (candidate?.request_id && !mergedData.request_id) mergedData.request_id = candidate.request_id;
-  if (candidate?.session_id && !mergedData.session_id) mergedData.session_id = candidate.session_id;
-  if (candidate?.agent_id && !mergedData.agent_id) mergedData.agent_id = candidate.agent_id;
+  const pickField = (...keys) => {
+    for (const source of [candidate, baseData, candidateProperties, baseProperties, mergedData]) {
+      if (!source || typeof source !== "object") continue;
+      for (const key of keys) {
+        const value = source[key];
+        if (value !== undefined && value !== null && String(value).trim()) return value;
+      }
+    }
+    return "";
+  };
+  const requestId = pickField("request_id", "requestId", "requestID", "client_request_id", "clientRequestId");
+  const sessionId = pickField("session_id", "sessionId", "sessionID");
+  const agentId = pickField("agent_id", "agentId", "agentID");
+  if (requestId && !mergedData.request_id) mergedData.request_id = requestId;
+  if (sessionId && !mergedData.session_id) mergedData.session_id = sessionId;
+  if (agentId && !mergedData.agent_id) mergedData.agent_id = agentId;
   if (outerType && !mergedData.outer_event_type) mergedData.outer_event_type = outerType;
   if (rawTypeValue && rawTypeValue !== rawType && !mergedData.raw_event_type) mergedData.raw_event_type = rawTypeValue;
   const metadata = (candidate?.metadata && typeof candidate.metadata === "object")
@@ -1919,9 +1963,9 @@ function normalizeRuntimeEvent(payload) {
 
   const stateValue = String(candidate?.state || mergedData.state || "").toLowerCase();
   const failedByState = ["failed", "failure", "error"].includes(stateValue);
-  const failedByType = rawType === "execution.failed";
+  const failedByType = rawType === "execution.failed" || rawType === "session.next.step.failed";
   const failedByResult = rawType === "tool_result" && mergedData.success === false;
-  const completionByType = rawType === "complete" || rawType === "execution.completed";
+  const completionByType = rawType === "complete" || rawType === "execution.completed" || rawType === "session.next.step.ended";
   const completionByState = isCompletionRuntimeState(stateValue);
 
   let lifecycleType = "";
@@ -1937,9 +1981,9 @@ function normalizeRuntimeEvent(payload) {
   } else if (completionByType || completionByState) {
     lifecycleType = "execution.completed";
     if (rawType === "complete") normalizedType = "execution.completed";
-  } else if (rawType === "execution.started" || stateValue === "started") {
+  } else if (rawType === "execution.started" || rawType === "session.next.step.started" || stateValue === "started") {
     lifecycleType = "execution.started";
-    normalizedType = "execution.started";
+    if (rawType === "execution.started") normalizedType = "execution.started";
   }
 
   return {
@@ -1948,12 +1992,12 @@ function normalizeRuntimeEvent(payload) {
     lifecycle_type: lifecycleType,
     data: mergedData,
     outer_event_type: outerType,
-    session_id: candidate?.session_id || mergedData.session_id || "",
-    request_id: candidate?.request_id || mergedData.request_id || "",
-    agent_id: candidate?.agent_id || mergedData.agent_id || "",
+    session_id: sessionId || mergedData.session_id || "",
+    request_id: requestId || mergedData.request_id || "",
+    agent_id: agentId || mergedData.agent_id || "",
     ts,
     state: candidate?.state || mergedData.state || "",
-    event_id: candidate?.runtime_event_id || candidate?.event_id || candidate?.id || mergedData.runtime_event_id || mergedData.event_id || mergedData.id || "",
+    event_id: pickField("runtime_event_id", "runtimeEventId", "event_id", "eventId", "id"),
     runtime_event_id: candidate?.runtime_event_id || mergedData.runtime_event_id || "",
     created_at: candidate?.created_at || mergedData.created_at || "",
     summary: candidate?.summary || mergedData.summary || mergedData.message || "",
@@ -2006,6 +2050,26 @@ function getThinkingEventDisplay(event) {
     "runtime.tool": { icon: data.error ? "x-circle" : "wrench", title: "Runtime Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
     "runtime.step.started": { icon: "list-start", title: "Runtime Step Started", detail: data.message || "Step started" },
     "runtime.step.finished": { icon: "list-checks", title: "Runtime Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
+    "session.next.prompted": { icon: "send", title: "Prompt Sent", detail: data.message || "Prompt sent to runtime" },
+    "session.next.step.started": { icon: "list-start", title: "Agent Step Started", detail: data.message || data.model || "Step started" },
+    "session.next.step.ended": { icon: "flag", title: "Agent Step Completed", detail: data.reason || data.message || "Step completed", kind: "success" },
+    "session.next.step.failed": { icon: "x-circle", title: "Agent Step Failed", detail: data.error || data.message || "Step failed", kind: "error" },
+    "session.next.text.started": { icon: "message-square", title: "Text Started", detail: data.message || "Assistant text started" },
+    "session.next.text.delta": { icon: "message-square", title: "Text Streaming", detail: data.delta || data.message || "Assistant text streaming" },
+    "session.next.text.ended": { icon: "message-square-check", title: "Text Completed", detail: data.message || "Assistant text completed", kind: "success" },
+    "session.next.reasoning.started": { icon: "brain", title: "Reasoning Started", detail: data.summary || data.message || "Reasoning started" },
+    "session.next.reasoning.delta": { icon: "brain", title: "Reasoning Update", detail: data.summary || data.delta || data.message || "Reasoning update" },
+    "session.next.reasoning.ended": { icon: "check-circle-2", title: "Reasoning Completed", detail: data.summary || data.message || "Reasoning completed", kind: "success" },
+    "session.next.tool.input.started": { icon: "wrench", title: "Tool Input Started", detail: data.tool || data.message || "Preparing tool input" },
+    "session.next.tool.input.delta": { icon: "wrench", title: "Tool Input Update", detail: data.tool || data.message || "Preparing tool input" },
+    "session.next.tool.input.ended": { icon: "wrench", title: "Tool Input Ready", detail: data.tool || data.message || "Tool input ready" },
+    "session.next.tool.called": { icon: "wrench", title: "Tool Called", detail: data.tool || data.name || data.message || "Tool called", args: data.input },
+    "session.next.tool.progress": { icon: "activity", title: "Tool Progress", detail: data.progress || data.message || "Tool progress" },
+    "session.next.tool.success": { icon: "check-circle-2", title: "Tool Succeeded", detail: data.tool || data.message || "Tool completed", kind: "success", output: data.output || data.result },
+    "session.next.tool.failed": { icon: "x-circle", title: "Tool Failed", detail: data.error || data.message || "Tool failed", kind: "error" },
+    "session.next.compaction.started": { icon: "scissors", title: "Compaction Started", detail: data.summary || data.message || "Context compaction started" },
+    "session.next.compaction.delta": { icon: "scissors", title: "Compaction Update", detail: data.summary || data.delta || data.message || "Context compaction update" },
+    "session.next.compaction.ended": { icon: "archive", title: "Compaction Completed", detail: data.summary || data.message || "Context compaction completed", kind: "success" },
     skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
     complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
     context_snapshot: {
@@ -2585,8 +2649,12 @@ function runtimeEventDedupKey(event) {
   const eventType = normalizeRuntimeEventTypeAlias(event.type || event.event_type || data.type || data.event_type || "");
   const rawEventType = String(event.raw_type || data.raw_event_type || data.raw_type || "");
   const createdAt = event.created_at || data.created_at || event.ts || "";
-  const summary = event.summary || data.summary || data.message || "";
-  return `${eventType}|${rawEventType}|${createdAt}|${runtimeEventSummaryHash(summary)}`;
+  const callId = data.callID || data.callId || data.call_id || data.tool_call_id || data.toolCallId || "";
+  const partId = data.partID || data.partId || data.part_id || data.message_id || data.messageId || "";
+  const deltaIndex = data.delta_index || data.deltaIndex || data.index || data.sequence || data.seq || "";
+  const summary = event.summary || data.summary || data.message || data.delta || data.text || data.input || data.output || data.result || "";
+  const payloadHash = runtimeEventSummaryHash(typeof summary === "string" ? summary : JSON.stringify(summary));
+  return `${eventType}|${rawEventType}|${createdAt}|${callId}|${partId}|${deltaIndex}|${payloadHash}`;
 }
 
 function mergeThinkingEvents(primaryEvents, secondaryEvents) {
@@ -2625,6 +2693,742 @@ function normalizeThinkingEvents(events) {
 
 function normalizePayloadThinkingEvents(events) {
   return normalizeThinkingEvents(events);
+}
+
+function createAgentTimelineState({ requestId = "", sessionId = "" } = {}) {
+  return {
+    requestId: String(requestId || ""),
+    sessionId: String(sessionId || ""),
+    assistantText: "",
+    eventsById: {},
+    items: [],
+    toolsByCallId: {},
+    reasoningById: {},
+    textById: {},
+    completed: false,
+    status: "running",
+    model: "",
+    agent: "",
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    completedAt: null,
+    visibleItemCount: 0,
+    revealTimer: null,
+    revealIntervalMs: 280,
+    lastRevealAt: 0,
+  };
+}
+
+function isAgentTimelinePacedItem(item) {
+  if (!item) return false;
+  const kind = String(item.kind || "event").toLowerCase();
+  return kind !== "step" && kind !== "text";
+}
+
+function getAgentTimelineRenderableItems(timeline) {
+  if (!timeline) return [];
+  return (timeline.items || [])
+    .filter((item) => item && String(item.kind || "").toLowerCase() !== "step")
+    .slice(-24);
+}
+
+function getAgentTimelineVisibleItems(timeline) {
+  const items = getAgentTimelineRenderableItems(timeline);
+  if (!items.length) return [];
+  const pacedTotal = items.filter(isAgentTimelinePacedItem).length;
+  const pacedLimit = Math.max(0, Math.min(Number(timeline?.visibleItemCount || 0), pacedTotal));
+  let pacedSeen = 0;
+  return items.filter((item) => {
+    if (!isAgentTimelinePacedItem(item)) return true;
+    pacedSeen += 1;
+    return pacedSeen <= pacedLimit;
+  });
+}
+
+function advanceAgentTimelineReveal(timeline, count = 1) {
+  if (!timeline) return 0;
+  const items = getAgentTimelineRenderableItems(timeline);
+  const pacedTotal = items.filter(isAgentTimelinePacedItem).length;
+  const current = Math.max(0, Math.min(Number(timeline.visibleItemCount || 0), pacedTotal));
+  const increment = count === Infinity
+    ? pacedTotal
+    : Math.max(0, Number.isFinite(Number(count)) ? Math.floor(Number(count)) : 0);
+  timeline.visibleItemCount = Math.min(pacedTotal, current + increment);
+  if (increment > 0) timeline.lastRevealAt = Date.now();
+  return timeline.visibleItemCount;
+}
+
+function clearAgentTimelineRevealTimer(timeline) {
+  if (!timeline?.revealTimer) return;
+  clearTimeout(timeline.revealTimer);
+  timeline.revealTimer = null;
+}
+
+function dropInflightAgentTimelineState(chatState) {
+  if (!chatState?.inflightAgentTimeline) return;
+  clearAgentTimelineRevealTimer(chatState.inflightAgentTimeline);
+  chatState.inflightAgentTimeline = null;
+}
+
+function scheduleAgentTimelineReveal(agentId, chatState, requestCtx = {}) {
+  const timeline = chatState?.inflightAgentTimeline;
+  if (!timeline || timeline.completed) {
+    clearAgentTimelineRevealTimer(timeline);
+    return;
+  }
+  const pacedTotal = getAgentTimelineRenderableItems(timeline).filter(isAgentTimelinePacedItem).length;
+  if (Number(timeline.visibleItemCount || 0) >= pacedTotal) {
+    clearAgentTimelineRevealTimer(timeline);
+    return;
+  }
+  if (timeline.revealTimer) return;
+  const timelineRequestId = String(timeline.requestId || "");
+  const intervalMs = Math.max(220, Math.min(350, Number(timeline.revealIntervalMs || 280) || 280));
+  timeline.revealTimer = setTimeout(() => {
+    timeline.revealTimer = null;
+    const activeTimeline = chatState?.inflightAgentTimeline;
+    if (!activeTimeline || activeTimeline !== timeline) return;
+    if (timelineRequestId && String(activeTimeline.requestId || "") !== timelineRequestId) return;
+    advanceAgentTimelineReveal(activeTimeline, 1);
+    if (typeof renderAgentTimelineForCurrentRequest === "function") {
+      renderAgentTimelineForCurrentRequest(agentId, chatState, { requestCtx });
+    }
+    scheduleAgentTimelineReveal(agentId, chatState, requestCtx);
+  }, intervalMs);
+}
+
+function ensureAgentTimelineState(chatState, event = {}) {
+  if (!chatState) return null;
+  const requestId = String(
+    event?.request_id
+    || event?.data?.request_id
+    || chatState.currentRequest?.requestId
+    || chatState.currentRequest?.clientRequestId
+    || ""
+  );
+  const sessionId = String(
+    event?.session_id
+    || event?.data?.session_id
+    || chatState.currentRequest?.sessionIdAtSend
+    || chatState.sessionId
+    || ""
+  );
+  if (
+    !chatState.inflightAgentTimeline
+    || (requestId && chatState.inflightAgentTimeline.requestId && chatState.inflightAgentTimeline.requestId !== requestId && chatState.inflightAgentTimeline.completed)
+  ) {
+    clearAgentTimelineRevealTimer(chatState.inflightAgentTimeline);
+    chatState.inflightAgentTimeline = createAgentTimelineState({ requestId, sessionId });
+  }
+  const timeline = chatState.inflightAgentTimeline;
+  if (requestId && !timeline.requestId) timeline.requestId = requestId;
+  if (sessionId && !timeline.sessionId) timeline.sessionId = sessionId;
+  return timeline;
+}
+
+function getAgentTimelineEventData(event = {}) {
+  const data = event?.data && typeof event.data === "object" ? event.data : {};
+  const properties = data?.properties && typeof data.properties === "object" ? data.properties : {};
+  return { ...properties, ...data };
+}
+
+function getAgentTimelineField(event, keys = []) {
+  const data = getAgentTimelineEventData(event);
+  for (const source of [data, event]) {
+    if (!source || typeof source !== "object") continue;
+    for (const key of keys) {
+      const value = source[key];
+      if (value !== undefined && value !== null && String(value).trim()) return value;
+    }
+  }
+  return "";
+}
+
+function normalizeAgentTimelineJsonText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncateAgentTimelineText(value, max = 360) {
+  const text = normalizeAgentTimelineJsonText(value).replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+}
+
+function getAgentTimelineCallId(event) {
+  return String(getAgentTimelineField(event, [
+    "callID", "callId", "call_id", "tool_call_id", "toolCallId",
+  ]) || "");
+}
+
+function getAgentTimelinePartId(event) {
+  return String(getAgentTimelineField(event, [
+    "partID", "partId", "part_id", "message_id", "messageId",
+  ]) || "");
+}
+
+function getAgentTimelineEventKey(event, timeline = null) {
+  const id = runtimeEventUniqueId(event);
+  if (id) return `id:${id}`;
+  const data = getAgentTimelineEventData(event);
+  const type = normalizeRuntimeEventTypeAlias(event?.type || event?.event_type || data.type || data.event_type || "");
+  const createdAt = event?.created_at || data.created_at || "";
+  const callId = getAgentTimelineCallId(event);
+  const partId = getAgentTimelinePartId(event);
+  const deltaIndex = String(data.delta_index ?? data.deltaIndex ?? data.index ?? data.sequence ?? data.seq ?? "");
+  const summary = event?.summary || data.summary || data.message || data.delta || data.text || data.input || data.output || data.result || "";
+  const payloadHash = runtimeEventSummaryHash(normalizeAgentTimelineJsonText(summary));
+  const stableKey = `${type}|${createdAt}|${callId}|${partId}|${deltaIndex}|${payloadHash}`;
+  if (deltaIndex || payloadHash !== "0") return stableKey;
+  const fallbackIndex = timeline ? String((timeline.items || []).length) : "";
+  return `${stableKey}|${fallbackIndex}`;
+}
+
+function findAgentTimelineItem(timeline, itemId) {
+  if (!timeline || !itemId) return null;
+  return (timeline.items || []).find((item) => item.id === itemId) || null;
+}
+
+function upsertAgentTimelineItem(timeline, itemId, defaults = {}, updates = {}) {
+  if (!timeline || !itemId) return null;
+  let item = findAgentTimelineItem(timeline, itemId);
+  if (!item) {
+    item = {
+      id: itemId,
+      kind: defaults.kind || "event",
+      status: defaults.status || "running",
+      title: defaults.title || "Runtime event",
+      summary: "",
+      detail: "",
+      createdAt: defaults.createdAt || new Date().toISOString(),
+      updatedAt: Date.now(),
+      order: timeline.items.length,
+      icon: defaults.icon || "circle",
+      weak: Boolean(defaults.weak),
+    };
+    timeline.items.push(item);
+  }
+  Object.assign(item, updates);
+  item.updatedAt = Date.now();
+  return item;
+}
+
+function appendAgentTimelineText(timeline, value, { replace = false } = {}) {
+  if (!timeline) return;
+  const text = String(value || "");
+  if (replace) {
+    timeline.assistantText = text;
+  } else if (text) {
+    timeline.assistantText = `${timeline.assistantText || ""}${text}`;
+  }
+}
+
+function agentTimelineToolName(event) {
+  const value = getAgentTimelineField(event, [
+    "tool", "tool_name", "toolName", "name", "command",
+  ]);
+  return String(value || "Tool");
+}
+
+function agentTimelineInputText(event) {
+  const data = getAgentTimelineEventData(event);
+  return normalizeAgentTimelineJsonText(
+    data.input
+    ?? data.args
+    ?? data.arguments
+    ?? data.parameters
+    ?? data.command
+    ?? data.delta
+    ?? ""
+  );
+}
+
+function agentTimelineOutputText(event) {
+  const data = getAgentTimelineEventData(event);
+  return normalizeAgentTimelineJsonText(
+    data.output
+    ?? data.result
+    ?? data.response
+    ?? data.content
+    ?? data.error
+    ?? data.message
+    ?? ""
+  );
+}
+
+function agentTimelineReasoningText(event) {
+  const data = getAgentTimelineEventData(event);
+  if (data.hidden === true || data.is_hidden === true) return "";
+  return normalizeAgentTimelineJsonText(
+    data.summary
+    ?? data.delta
+    ?? data.message
+    ?? (event?.type === "llm_thinking" ? data.thinking : "")
+    ?? ""
+  );
+}
+
+function reduceAgentTimelineStepEvent(timeline, event, type) {
+  const data = getAgentTimelineEventData(event);
+  const stepId = `step:${timeline.requestId || getAgentTimelinePartId(event) || "current"}`;
+  if (type === "session.next.step.started" || type === "execution.started" || type === "chat.started" || type === "session.next.prompted") {
+    timeline.completed = false;
+    timeline.status = "running";
+    timeline.model = String(data.model || data.model_id || data.modelID || timeline.model || "");
+    timeline.agent = String(data.agent || data.agent_name || data.agentName || timeline.agent || "");
+    upsertAgentTimelineItem(timeline, stepId, {
+      kind: "step",
+      status: "running",
+      title: "Agent step",
+      icon: "play-circle",
+      createdAt: event.created_at,
+    }, {
+      kind: "step",
+      status: "running",
+      title: data.title || "Agent step started",
+      summary: truncateAgentTimelineText(data.message || data.prompt || data.status || "Working"),
+      model: timeline.model,
+      agent: timeline.agent,
+      icon: "play-circle",
+    });
+    return true;
+  }
+  if (type === "session.next.step.failed" || type === "execution.failed" || type === "chat.failed") {
+    timeline.completed = true;
+    timeline.status = "failed";
+    timeline.completedAt = Date.now();
+    upsertAgentTimelineItem(timeline, stepId, {
+      kind: "step",
+      status: "failed",
+      title: "Agent step failed",
+      icon: "x-circle",
+      createdAt: event.created_at,
+    }, {
+      status: "failed",
+      title: "Agent step failed",
+      summary: truncateAgentTimelineText(data.error || data.detail || data.message || "Step failed"),
+      icon: "x-circle",
+    });
+    return true;
+  }
+  timeline.completed = true;
+  timeline.status = "completed";
+  timeline.completedAt = Date.now();
+  upsertAgentTimelineItem(timeline, stepId, {
+    kind: "step",
+    status: "completed",
+    title: "Agent step completed",
+    icon: "flag",
+    createdAt: event.created_at,
+  }, {
+    status: "completed",
+    title: "Agent step completed",
+    summary: truncateAgentTimelineText(data.reason || data.message || data.completion_state || "Completed"),
+    icon: "flag",
+  });
+  return true;
+}
+
+function reduceAgentTimelineTextEvent(timeline, event, type) {
+  const data = getAgentTimelineEventData(event);
+  const partId = getAgentTimelinePartId(event) || "current";
+  const textItemId = `text:${partId}`;
+  const item = upsertAgentTimelineItem(timeline, textItemId, {
+    kind: "text",
+    status: "running",
+    title: "Writing response",
+    icon: "message-square",
+    createdAt: event.created_at,
+  }, {
+    kind: "text",
+    status: type.endsWith(".ended") || type === "message.completed" ? "completed" : "running",
+    title: "Writing response",
+    icon: type.endsWith(".ended") || type === "message.completed" ? "message-square-check" : "message-square",
+  });
+  timeline.textById[partId] = textItemId;
+  if (type === "session.next.text.delta" || type === "message.delta" || type === "assistant_delta") {
+    const delta = data.delta ?? data.response_delta ?? data.text_delta ?? data.content_delta ?? data.content ?? data.text ?? data.message ?? "";
+    appendAgentTimelineText(timeline, delta);
+    item.summary = truncateAgentTimelineText(timeline.assistantText || "Streaming response");
+    return true;
+  }
+  if (type === "session.next.text.ended" || type === "message.completed") {
+    const finalText = data.text ?? data.content ?? data.response ?? data.message ?? data.assistantText ?? "";
+    if (finalText) appendAgentTimelineText(timeline, finalText, { replace: true });
+    item.status = "completed";
+    item.summary = truncateAgentTimelineText(timeline.assistantText || "Response text completed");
+    return true;
+  }
+  item.summary = truncateAgentTimelineText(data.message || "Response text started");
+  return true;
+}
+
+function reduceAgentTimelineReasoningEvent(timeline, event, type) {
+  const data = getAgentTimelineEventData(event);
+  const partId = getAgentTimelinePartId(event) || getAgentTimelineEventKey(event, timeline);
+  const itemId = `reasoning:${partId}`;
+  const status = type.endsWith(".ended") ? "completed" : "running";
+  const item = upsertAgentTimelineItem(timeline, itemId, {
+    kind: "reasoning",
+    status,
+    title: "Reasoning summary",
+    icon: "brain",
+    weak: true,
+    createdAt: event.created_at,
+  }, {
+    kind: "reasoning",
+    status,
+    title: data.title || "Reasoning summary",
+    icon: status === "completed" ? "check-circle-2" : "brain",
+    weak: true,
+  });
+  timeline.reasoningById[partId] = itemId;
+  const reasoningText = agentTimelineReasoningText(event);
+  if (reasoningText) {
+    item.detail = type.endsWith(".delta")
+      ? truncateAgentTimelineText(`${item.detail ? `${item.detail} ` : ""}${reasoningText}`, 520)
+      : truncateAgentTimelineText(reasoningText, 520);
+  }
+  item.summary = item.detail || truncateAgentTimelineText(data.status || "Reasoning update");
+  return true;
+}
+
+function reduceAgentTimelineToolEvent(timeline, event, type) {
+  const data = getAgentTimelineEventData(event);
+  const toolName = agentTimelineToolName(event);
+  const callId = getAgentTimelineCallId(event) || getAgentTimelinePartId(event) || toolName || getAgentTimelineEventKey(event, timeline);
+  const itemId = timeline.toolsByCallId[callId] || `tool:${callId}`;
+  timeline.toolsByCallId[callId] = itemId;
+  const status = (
+    type === "session.next.tool.success" || type === "tool.completed" || (type === "tool_result" && data.success !== false)
+    || (type === "runtime.tool" && String(data.status || "").toLowerCase() === "completed")
+  )
+    ? "completed"
+    : (type === "session.next.tool.failed" || type === "tool.failed" || type === "tool.error" || (type === "tool_result" && data.success === false) || (type === "runtime.tool" && (data.error || String(data.status || "").toLowerCase() === "failed")))
+      ? "failed"
+      : "running";
+  const item = upsertAgentTimelineItem(timeline, itemId, {
+    kind: "tool",
+    status,
+    title: toolName,
+    icon: "wrench",
+    createdAt: event.created_at,
+  }, {
+    kind: "tool",
+    status,
+    title: toolName,
+    icon: status === "completed" ? "check-circle-2" : (status === "failed" ? "x-circle" : "wrench"),
+  });
+  if (type === "session.next.tool.input.started") {
+    item.summary = truncateAgentTimelineText(data.message || "Preparing tool input");
+    item.input = truncateAgentTimelineText(agentTimelineInputText(event) || item.input || "", 520);
+  } else if (type === "session.next.tool.input.delta") {
+    const delta = agentTimelineInputText(event);
+    item.input = truncateAgentTimelineText(`${item.input || ""}${delta}`, 520);
+    item.summary = item.input || "Preparing tool input";
+  } else if (type === "session.next.tool.input.ended") {
+    const inputText = agentTimelineInputText(event);
+    if (inputText) item.input = truncateAgentTimelineText(inputText, 520);
+    item.summary = item.input || "Tool input ready";
+  } else if (type === "session.next.tool.called" || type === "tool.started" || type === "tool_call") {
+    const inputText = agentTimelineInputText(event);
+    if (inputText) item.input = truncateAgentTimelineText(inputText, 520);
+    item.summary = truncateAgentTimelineText(data.message || item.input || `Running ${toolName}`);
+  } else if (type === "session.next.tool.progress") {
+    const progress = normalizeAgentTimelineJsonText(data.progress ?? data.message ?? data.delta ?? data.status ?? "");
+    item.progress = truncateAgentTimelineText(`${item.progress ? `${item.progress} ` : ""}${progress}`, 520);
+    item.summary = item.progress || `Running ${toolName}`;
+  } else if (status === "completed") {
+    const outputText = agentTimelineOutputText(event);
+    if (outputText) item.output = truncateAgentTimelineText(outputText, 520);
+    item.summary = truncateAgentTimelineText(data.message || item.output || `${toolName} completed`);
+  } else if (status === "failed") {
+    const errorText = agentTimelineOutputText(event);
+    if (errorText) item.error = truncateAgentTimelineText(errorText, 520);
+    item.summary = truncateAgentTimelineText(data.error || data.detail || data.message || item.error || `${toolName} failed`);
+  }
+  return true;
+}
+
+function reduceAgentTimelineCompactionEvent(timeline, event, type) {
+  const data = getAgentTimelineEventData(event);
+  const partId = getAgentTimelinePartId(event) || "current";
+  const itemId = `compaction:${partId}`;
+  const status = type.endsWith(".ended") || type === "context_compaction_applied" ? "completed" : "running";
+  const item = upsertAgentTimelineItem(timeline, itemId, {
+    kind: "compaction",
+    status,
+    title: "Context compaction",
+    icon: "archive",
+    createdAt: event.created_at,
+  }, {
+    kind: "compaction",
+    status,
+    title: data.title || "Context compaction",
+    icon: status === "completed" ? "archive" : "scissors",
+  });
+  const delta = normalizeAgentTimelineJsonText(data.summary ?? data.delta ?? data.message ?? data.stage ?? "");
+  if (delta) item.summary = truncateAgentTimelineText(type.endsWith(".delta") ? `${item.summary ? `${item.summary} ` : ""}${delta}` : delta, 520);
+  else item.summary = status === "completed" ? "Compaction completed" : "Compacting context";
+  return true;
+}
+
+function reduceAgentTimelinePermissionEvent(timeline, event, type) {
+  const data = getAgentTimelineEventData(event);
+  const permissionId = String(getAgentTimelineField(event, [
+    "permission_id", "permissionId", "id", "callID", "callId", "tool_call_id",
+  ]) || getAgentTimelineEventKey(event, timeline));
+  const itemId = `permission:${permissionId}`;
+  const resolved = type === "permission.resolved" || type === "permission_resolved" || type === "permission.allowed" || type === "permission.denied";
+  const denied = type === "permission.denied" || String(data.status || data.decision || data.result || "").toLowerCase() === "denied";
+  upsertAgentTimelineItem(timeline, itemId, {
+    kind: "permission",
+    status: resolved ? (denied ? "failed" : "completed") : "pending",
+    title: "Permission requested",
+    icon: "shield",
+    createdAt: event.created_at,
+  }, {
+    kind: "permission",
+    status: resolved ? (denied ? "failed" : "completed") : "pending",
+    title: resolved ? "Permission resolved" : "Permission requested",
+    summary: truncateAgentTimelineText(data.message || data.reason || data.prompt || data.tool || "Permission required"),
+    icon: resolved ? (denied ? "shield-alert" : "shield-check") : "shield",
+  });
+  return true;
+}
+
+function reduceAgentTimelineGenericEvent(timeline, event, type) {
+  const data = getAgentTimelineEventData(event);
+  const itemId = `${type}:${getAgentTimelineEventKey(event, timeline)}`;
+  let kind = "event";
+  let title = type.replaceAll("_", " ");
+  let icon = "activity";
+  let status = "running";
+  if (type.startsWith("provider.") || type === "model.retry") {
+    kind = "provider";
+    title = type === "provider.retry" || type === "model.retry" ? "Provider retry" : "Provider status";
+    icon = type.includes("retry") ? "refresh-cw" : "activity";
+  } else if (type === "usage.updated") {
+    kind = "usage";
+    title = "Usage updated";
+    icon = "gauge";
+    status = "completed";
+  } else if (type === "question.requested") {
+    kind = "permission";
+    title = "Question requested";
+    icon = "circle-help";
+    status = "pending";
+  }
+  upsertAgentTimelineItem(timeline, itemId, {
+    kind,
+    status,
+    title,
+    icon,
+    createdAt: event.created_at,
+  }, {
+    kind,
+    status,
+    title,
+    summary: truncateAgentTimelineText(data.message || data.summary || data.status || data.reason || ""),
+    icon,
+  });
+  return true;
+}
+
+function reduceAgentTimelineEvent(chatState, event) {
+  if (!chatState || !event || typeof event !== "object") return { changed: false, reason: "invalid" };
+  const type = normalizeRuntimeEventTypeAlias(event.type || event.event_type || event?.data?.type || "");
+  if (!type) return { changed: false, reason: "missing_type" };
+  const timeline = ensureAgentTimelineState(chatState, event);
+  if (!timeline) return { changed: false, reason: "missing_timeline" };
+  const eventKey = getAgentTimelineEventKey(event, timeline);
+  if (eventKey && timeline.eventsById[eventKey]) return { changed: false, duplicate: true, timeline };
+  if (eventKey) timeline.eventsById[eventKey] = true;
+  timeline.updatedAt = Date.now();
+  let changed = false;
+
+  if (
+    type === "session.next.prompted"
+    || type.startsWith("session.next.step.")
+    || ["execution.started", "execution.completed", "execution.failed", "chat.started", "chat.completed", "chat.failed", "complete"].includes(type)
+  ) {
+    const stepType = type === "complete" ? "execution.completed" : type;
+    changed = reduceAgentTimelineStepEvent(timeline, event, stepType);
+  } else if (type.startsWith("session.next.text.") || ["message.delta", "assistant_delta", "message.completed"].includes(type)) {
+    changed = reduceAgentTimelineTextEvent(timeline, event, type);
+  } else if (type.startsWith("session.next.reasoning.") || type === "llm_thinking" || type === "runtime.reasoning") {
+    changed = reduceAgentTimelineReasoningEvent(timeline, event, type);
+  } else if (type.startsWith("session.next.tool.") || ["tool.started", "tool.completed", "tool.failed", "tool.error", "tool_call", "tool_result", "runtime.tool"].includes(type)) {
+    changed = reduceAgentTimelineToolEvent(timeline, event, type);
+  } else if (type.startsWith("session.next.compaction.") || ["context_compaction_planned", "context_compaction_applied", "skill_compaction"].includes(type)) {
+    changed = reduceAgentTimelineCompactionEvent(timeline, event, type);
+  } else if (["permission.requested", "permission.resolved", "permission_request", "permission_resolved", "permission.denied", "permission.allowed"].includes(type)) {
+    changed = reduceAgentTimelinePermissionEvent(timeline, event, type);
+  } else if (type.startsWith("provider.") || type === "model.retry" || type === "usage.updated" || type === "question.requested") {
+    changed = reduceAgentTimelineGenericEvent(timeline, event, type);
+  }
+
+  if (timeline.items.length > 80) timeline.items = timeline.items.slice(-80);
+  const pacedTotal = getAgentTimelineRenderableItems(timeline).filter(isAgentTimelinePacedItem).length;
+  if (Number(timeline.visibleItemCount || 0) > pacedTotal) timeline.visibleItemCount = pacedTotal;
+  return { changed, timeline };
+}
+
+function agentTimelineMatchesRequest(timeline, requestCtx = {}) {
+  if (!timeline) return false;
+  const timelineId = String(timeline.requestId || "");
+  const ids = [
+    requestCtx.clientRequestId,
+    requestCtx.requestId,
+  ].map((value) => String(value || "")).filter(Boolean);
+  if (!timelineId || !ids.length) return true;
+  return ids.includes(timelineId);
+}
+
+function renderAgentTimelineItemDetail(item) {
+  const details = [
+    item.input ? ["Input", item.input] : null,
+    item.progress ? ["Progress", item.progress] : null,
+    item.output ? ["Output", item.output] : null,
+    item.error ? ["Error", item.error] : null,
+    item.detail && item.detail !== item.summary ? ["Detail", item.detail] : null,
+  ].filter(Boolean);
+  if (!details.length) return "";
+  return details.map(([label, value]) => `<div class="agent-timeline-detail"><span>${safe(label)}</span><code>${safe(truncateAgentTimelineText(value, 260))}</code></div>`).join("");
+}
+
+function renderAgentTimelineRowsHtml(timeline) {
+  if (!timeline) return "";
+  const visibleItems = getAgentTimelineVisibleItems(timeline);
+  if (!visibleItems.length) return "";
+  return visibleItems.map((item) => {
+    const status = String(item.status || "running").toLowerCase();
+    const kind = String(item.kind || "event").toLowerCase();
+    const icon = item.icon || (kind === "tool" ? "wrench" : "activity");
+    const title = item.title || "Runtime event";
+    const summary = item.summary || item.detail || "";
+    const detail = renderAgentTimelineItemDetail(item);
+    return `<div class="agent-timeline-row is-${safe(kind)} is-${safe(status)}${item.weak ? " is-weak" : ""}"><span class="agent-timeline-icon"><i data-lucide="${safe(icon)}"></i></span><div class="agent-timeline-row-main"><div class="agent-timeline-row-head"><span class="agent-timeline-title">${safe(title)}</span><span class="agent-timeline-chip is-${safe(status)}">${safe(status)}</span></div>${summary ? `<div class="agent-timeline-summary">${safe(truncateAgentTimelineText(summary, 280))}</div>` : ""}${detail}</div></div>`;
+  }).join("");
+}
+
+function findPendingAssistantArticleForTimeline(requestCtx = {}, timeline = null) {
+  if (!dom.messageList) return null;
+  const ids = [
+    requestCtx.clientRequestId,
+    requestCtx.requestId,
+    timeline?.requestId,
+  ].map((value) => String(value || "")).filter(Boolean);
+  for (const id of ids) {
+    const escaped = CSS.escape(id);
+    const article = dom.messageList.querySelector(
+      `article[data-pending-assistant="1"][data-client-request-id="${escaped}"], article[data-pending-assistant="1"][data-request-id="${escaped}"]`
+    );
+    if (article) return article;
+  }
+  return dom.messageList.querySelector('article[data-pending-assistant="1"]');
+}
+
+function renderAgentTimelineForCurrentRequest(agentId, chatState, options = {}) {
+  if (state.selectedAgentId !== agentId || !dom.messageList || !chatState?.inflightAgentTimeline) return;
+  const timeline = chatState.inflightAgentTimeline;
+  const requestCtx = options.requestCtx || chatState.currentRequest || {};
+  if (!agentTimelineMatchesRequest(timeline, requestCtx)) return;
+  const article = findPendingAssistantArticleForTimeline(requestCtx, timeline);
+  if (!article) return;
+  if (timeline.assistantText && options.updateAssistantText !== false) {
+    updatePendingAssistantStreamContent(agentId, timeline.assistantText, {
+      streaming: !timeline.completed,
+      requestCtx,
+    });
+  } else if ((timeline.items || []).length) {
+    article.querySelector(".assistant-waiting-indicator")?.remove();
+  }
+  const timelineEl = article.querySelector("[data-agent-timeline='1']") || (() => {
+    const created = document.createElement("div");
+    created.className = "agent-timeline";
+    created.dataset.agentTimeline = "1";
+    created.innerHTML = `<div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>Working</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div>`;
+    article.appendChild(created);
+    return created;
+  })();
+  const statusText = timeline.status === "failed" ? "Failed" : (timeline.completed ? "Completed" : "Working");
+  const statusNode = timelineEl.querySelector("[data-agent-timeline-status-text]");
+  if (statusNode) statusNode.textContent = statusText;
+  timelineEl.classList.toggle("is-completed", Boolean(timeline.completed));
+  timelineEl.classList.toggle("is-failed", timeline.status === "failed");
+  const spinner = timelineEl.querySelector(".portal-running-spinner");
+  if (spinner) spinner.style.display = timeline.completed ? "none" : "";
+  const meta = [timeline.agent, timeline.model].map((value) => String(value || "").trim()).filter(Boolean).join(" / ");
+  const metaNode = timelineEl.querySelector("[data-agent-timeline-meta]");
+  if (metaNode) metaNode.textContent = meta;
+  const listNode = timelineEl.querySelector("[data-agent-timeline-items]");
+  if (listNode) {
+    const rows = renderAgentTimelineRowsHtml(timeline);
+    listNode.innerHTML = rows || `<div class="agent-timeline-empty">Waiting for runtime events...</div>`;
+  }
+  renderIcons();
+  scrollToBottom();
+}
+
+function clearAssistantTimelineFromArticle(article) {
+  if (!article) return;
+  article.querySelector("[data-agent-timeline='1']")?.remove();
+  article.querySelector(".assistant-waiting-indicator")?.remove();
+}
+
+function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {}) {
+  if (!chatState?.inflightAgentTimeline) return;
+  const timeline = chatState.inflightAgentTimeline;
+  if (!agentTimelineMatchesRequest(timeline, requestCtx)) return;
+  const finalText = String(finalPayload?.response || "");
+  if (finalText) timeline.assistantText = finalText;
+  timeline.completed = true;
+  timeline.status = String(finalPayload?.completion_state || "").toLowerCase() === "failed" ? "failed" : "completed";
+  timeline.completedAt = Date.now();
+  clearAgentTimelineRevealTimer(timeline);
+  advanceAgentTimelineReveal(timeline, Infinity);
+  chatState.lastAgentTimelineSnapshot = {
+    ...timeline,
+    eventsById: { ...(timeline.eventsById || {}) },
+    toolsByCallId: { ...(timeline.toolsByCallId || {}) },
+    reasoningById: { ...(timeline.reasoningById || {}) },
+    textById: { ...(timeline.textById || {}) },
+    items: (timeline.items || []).map((item) => ({ ...item })),
+  };
+  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+  else chatState.inflightAgentTimeline = null;
+}
+
+function syncAgentTimelineAssistantTextFromStream(chatState, requestCtx = {}, text = "") {
+  if (!chatState) return null;
+  const timeline = ensureAgentTimelineState(chatState, {
+    request_id: requestCtx.requestId || requestCtx.clientRequestId || "",
+    session_id: requestCtx.sessionIdAtSend || chatState.sessionId || "",
+    data: {},
+  });
+  if (!timeline) return null;
+  timeline.assistantText = String(text || "");
+  timeline.updatedAt = Date.now();
+  const item = upsertAgentTimelineItem(timeline, "text:current", {
+    kind: "text",
+    status: "running",
+    title: "Writing response",
+    icon: "message-square",
+  }, {
+    kind: "text",
+    status: "running",
+    title: "Writing response",
+    summary: truncateAgentTimelineText(timeline.assistantText || "Streaming response"),
+    icon: "message-square",
+  });
+  timeline.textById.current = item?.id || "text:current";
+  return timeline;
 }
 
 // Render thinking events from chat response (non-WebSocket)
@@ -2753,6 +3557,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     chatState.currentRequest?.requestId,
     chatState.inflightThinking?.requestId,
     chatState.inflightThinking?.id,
+    chatState.inflightAgentTimeline?.requestId,
   ].map((value) => String(value || "")).filter(Boolean));
   const localRequestId = chatState.currentRequest?.requestId
     || chatState.currentRequest?.clientRequestId
@@ -2765,7 +3570,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     entry.request_id && socketRequestId && entry.request_id === socketRequestId
   );
   const canAdoptRequestId = Boolean(
-    (type === "chat.started" || type === "assistant.message.started")
+    (type === "chat.started" || type === "assistant.message.started" || type === "session.next.prompted" || type === "session.next.step.started" || type === "session.next.text.started")
     && entry.request_id
     && chatState.currentRequest
     && !eventMatchesCurrentRequest
@@ -2909,6 +3714,31 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     });
   }
 
+  const timelineResult = (typeof reduceAgentTimelineEvent === "function")
+    ? reduceAgentTimelineEvent(chatState, entry)
+    : { changed: false };
+  if (timelineResult.changed) {
+    const activeTimeline = chatState.inflightAgentTimeline;
+    if (activeTimeline && Number(activeTimeline.visibleItemCount || 0) < 1) {
+      advanceAgentTimelineReveal(activeTimeline, 1);
+    }
+    if (
+      chatState.currentRequest
+      && ["session.next.text.delta", "session.next.text.ended", "assistant_delta"].includes(type)
+      && chatState.inflightAgentTimeline?.assistantText
+    ) {
+      chatState.currentRequest.streamedText = chatState.inflightAgentTimeline.assistantText;
+    }
+    if (typeof renderAgentTimelineForCurrentRequest === "function") {
+      renderAgentTimelineForCurrentRequest(currentAgentId, chatState, {
+        requestCtx: chatState.currentRequest || {},
+      });
+    }
+    if (typeof scheduleAgentTimelineReveal === "function") {
+      scheduleAgentTimelineReveal(currentAgentId, chatState, chatState.currentRequest || {});
+    }
+  }
+
   updateThinkingContextFromEvent(chatState.inflightThinking, entry);
   if (entry.request_id && canAdoptRequestId && state.eventWsRequestId !== entry.request_id) {
     ensureEventSocketForAgent(currentAgentId, entry.session_id || currentSessionId, entry.request_id);
@@ -2954,6 +3784,8 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const isTerminalRuntimeEvent = (
     type === "execution.completed"
     || type === "execution.failed"
+    || type === "session.next.step.ended"
+    || type === "session.next.step.failed"
     || type === "skill_complete"
     || isCompletion
     || lifecycleType === "execution.completed"
@@ -2977,9 +3809,13 @@ function hasLiveEventSocketWork(agentId, requestId = "") {
     return [
       chatState.currentRequest.clientRequestId,
       chatState.currentRequest.requestId,
+      chatState.inflightAgentTimeline?.requestId,
     ].map((value) => String(value || "")).includes(String(requestId));
   }
-  return Boolean(chatState.inflightThinking && chatState.inflightThinking.completed === false);
+  return Boolean(
+    (chatState.inflightThinking && chatState.inflightThinking.completed === false)
+    || (chatState.inflightAgentTimeline && chatState.inflightAgentTimeline.completed === false)
+  );
 }
 
 function updateEventSocketStatus(agentId, status) {
@@ -4515,6 +5351,14 @@ async function submitChatForSelectedAgent() {
       contextBudget: null,
       startedAt: Date.now(),
     };
+    if (typeof createAgentTimelineState === "function") {
+      if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+      else chatState.inflightAgentTimeline = null;
+      chatState.inflightAgentTimeline = createAgentTimelineState({
+        requestId: clientRequestId,
+        sessionId: sessionIdAtSend || "",
+      });
+    }
     ensureEventSocketForAgent(agentIdAtSend, sessionIdAtSend, clientRequestId);
     if (isThinkingPanelActiveForAgent(agentIdAtSend)) {
       renderThinkingPanelFromClientState(chatState);
@@ -5190,6 +6034,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
     article.classList.add("is-complete");
     article.querySelector(".assistant-stream-cursor")?.remove();
     article.querySelector(".assistant-waiting-indicator")?.remove();
+    clearAssistantTimelineFromArticle(article);
     row?.classList.remove("is-streaming", "is-pending");
     row?.removeAttribute("data-temporary-assistant");
   } else if (options.partial === true) {
@@ -5279,6 +6124,7 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   article.classList.remove('is-pending', 'is-streaming');
   row?.classList.remove('is-streaming');
   article.classList.add('is-complete');
+  clearAssistantTimelineFromArticle(article);
   const md = article.querySelector('.message-markdown') || article.appendChild(document.createElement('div'));
   md.className = 'message-markdown md-render max-w-none text-sm';
   md.dataset.md = String(payload?.response || '');
@@ -5336,6 +6182,7 @@ function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) 
   article.dataset.pendingAssistant = "0";
   article.classList.remove("is-pending", "is-streaming");
   article.classList.add("is-incomplete");
+  clearAssistantTimelineFromArticle(article);
   const markdownEl = article.querySelector(".message-markdown") || article.appendChild(document.createElement("div"));
   markdownEl.className = "message-markdown max-w-none text-sm";
   markdownEl.innerHTML = "";
@@ -5418,6 +6265,9 @@ function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
     sessionId,
     completedAt: Date.now(),
   };
+  if (typeof finalizeAgentTimelineState === "function") {
+    finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
+  }
   chatState.inflightThinking = null;
   chatState.pendingThinkingEvents = null;
   if (chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
@@ -5501,6 +6351,8 @@ async function abortActiveChatRequestForSelectedAgent() {
   req.streamFailed = true;
   chatState.currentRequest = null;
   chatState.inflightThinking = null;
+  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+  else chatState.inflightAgentTimeline = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentId, false);
   setChatStatus("Stopped current response.");
@@ -5649,6 +6501,16 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       };
 
       if (previewText) {
+        const chatState = ensureChatState(agentIdAtSend);
+        if (typeof syncAgentTimelineAssistantTextFromStream === "function") {
+          syncAgentTimelineAssistantTextFromStream(chatState, requestCtx, previewText);
+        }
+        if (typeof renderAgentTimelineForCurrentRequest === "function") {
+          renderAgentTimelineForCurrentRequest(agentIdAtSend, chatState, {
+            requestCtx,
+            updateAssistantText: false,
+          });
+        }
         updatePendingAssistantStreamContent(agentIdAtSend, previewText, {
           streaming: true,
           requestCtx,
@@ -5663,6 +6525,16 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     }
 
     requestCtx.streamedText = (requestCtx.streamedText || "") + (deltaText || "");
+    const chatState = ensureChatState(agentIdAtSend);
+    if (typeof syncAgentTimelineAssistantTextFromStream === "function") {
+      syncAgentTimelineAssistantTextFromStream(chatState, requestCtx, requestCtx.streamedText);
+    }
+    if (typeof renderAgentTimelineForCurrentRequest === "function") {
+      renderAgentTimelineForCurrentRequest(agentIdAtSend, chatState, {
+        requestCtx,
+        updateAssistantText: false,
+      });
+    }
     if (typeof queueAssistantTypewriter === "function") queueAssistantTypewriter(agentIdAtSend, requestCtx, requestCtx.streamedText);
     else updatePendingAssistantStreamContent(agentIdAtSend, requestCtx.streamedText);
     return 'delta';
@@ -5976,6 +6848,8 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
     chatState.currentRequest = null;
     chatState.inflightThinking = null;
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
     chatState.pendingThinkingEvents = null;
     chatState.needsReload = true;
     setChatSubmittingForAgent(agentIdAtSend, false);
@@ -6069,6 +6943,9 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     completedAt: Date.now(),
   };
   chatState.lastThinkingSnapshot = finalThinkingSnapshot;
+  if (typeof finalizeAgentTimelineState === "function") {
+    finalizeAgentTimelineState(chatState, requestCtx, payload);
+  }
   const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
   chatState.currentRequest = null;
   chatState.inflightThinking = null;
@@ -6204,6 +7081,8 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   else {
     chatState.lastThinkingSnapshot = chatState.lastThinkingSnapshot || (chatState.inflightThinking ? { ...chatState.inflightThinking } : null);
     chatState.inflightThinking = null;
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
     chatState.pendingThinkingEvents = null;
   }
   chatState.currentRequest = null;
@@ -7511,7 +8390,11 @@ async function deleteSessionForAgent(agentId, sessionId) {
       setLastSessionId(agentId, "");
       if (agentId === state.selectedAgentId) {
         const chatState = getChatState();
-        if (chatState) chatState.inflightThinking = null;
+        if (chatState) {
+          chatState.inflightThinking = null;
+          if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+          else chatState.inflightAgentTimeline = null;
+        }
         removeTemporaryAssistantRows({ forceAll: true });
         clearMessageListToWelcome();
         resetChatInputHeight();
@@ -8702,7 +9585,11 @@ async function clearChat() {
 
     updateSelectedAgentSession("");
     const chatState = getChatState();
-    if (chatState) chatState.inflightThinking = null;
+    if (chatState) {
+      chatState.inflightThinking = null;
+      if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+      else chatState.inflightAgentTimeline = null;
+    }
     removeTemporaryAssistantRows({ forceAll: true });
     clearMessageListToWelcome();
     resetChatInputHeight();
@@ -8721,6 +9608,8 @@ async function startNewChatForSelectedAgent() {
   const chatState = getChatState();
   if (chatState) {
     chatState.inflightThinking = null;
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
     chatState.currentRequest = null;
   }
   removeTemporaryAssistantRows({ forceAll: true });
@@ -8886,6 +9775,8 @@ function resetLocalChatSubmissionForAgent(agentId) {
   }
   chatState.currentRequest = null;
   chatState.inflightThinking = null;
+  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+  else chatState.inflightAgentTimeline = null;
   chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentId, false, { suppressSync: true });
 }
@@ -10015,6 +10906,9 @@ function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { 
     };
     chatState.inflightThinking = null;
   }
+  if (typeof finalizeAgentTimelineState === "function") {
+    finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
+  }
   chatState.pendingThinkingEvents = null;
   if (chatState.currentRequest?.clientRequestId === requestId) chatState.currentRequest = null;
   setChatSubmittingForAgent(agentId, false);
@@ -10489,6 +11383,14 @@ function bindEvents() {
         contextBudget: null,
         startedAt: Date.now(),
       };
+      if (typeof createAgentTimelineState === "function") {
+        if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+        else chatState.inflightAgentTimeline = null;
+        chatState.inflightAgentTimeline = createAgentTimelineState({
+          requestId,
+          sessionId: finalSessionId,
+        });
+      }
       ensureEventSocketForAgent(agentId, finalSessionId, requestId);
       setChatSubmittingForAgent(agentId, true);
       setChatStatus("Regenerating response...");

@@ -723,6 +723,35 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .assistant-loading-dots i { width: 6px; height: 6px; border-radius: 999px; background: var(--portal-text-muted); animation: portal-dot-pulse 1.2s ease-in-out infinite; }
 .assistant-loading-dots i:nth-child(2) { animation-delay: .15s; }
 .assistant-loading-dots i:nth-child(3) { animation-delay: .3s; }
+.agent-timeline { margin-top: 10px; border-top: 1px solid var(--portal-border); padding-top: 8px; display: grid; gap: 6px; min-width: 0; }
+.message-markdown:empty + .agent-timeline { margin-top: 0; }
+.agent-timeline-head { min-height: 22px; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--portal-text-secondary); font-size: 12px; }
+.agent-timeline-status { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; }
+.agent-timeline-status .portal-running-spinner { width: 12px; height: 12px; border-width: 2px; flex: 0 0 auto; }
+.agent-timeline-meta { min-width: 0; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text-muted); text-align: right; }
+.agent-timeline-list { display: grid; gap: 0; min-width: 0; }
+.agent-timeline-empty { color: var(--portal-text-muted); font-size: 12px; padding: 4px 0; }
+.agent-timeline-row { display: grid; grid-template-columns: 18px minmax(0,1fr); gap: 8px; align-items: start; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--portal-border), transparent 35%); min-width: 0; }
+.agent-timeline-row:first-child { border-top: 0; }
+.agent-timeline-row.is-weak { opacity: .78; }
+.agent-timeline-icon { color: var(--portal-text-muted); display: inline-flex; align-items: center; justify-content: center; padding-top: 2px; }
+.agent-timeline-icon svg { width: 15px; height: 15px; }
+.agent-timeline-row-main { display: grid; gap: 3px; min-width: 0; }
+.agent-timeline-row-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-timeline-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text); font-size: 13px; font-weight: 650; }
+.agent-timeline-summary { color: var(--portal-text-secondary); font-size: 12px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-timeline-detail { display: grid; grid-template-columns: 62px minmax(0,1fr); gap: 8px; color: var(--portal-text-muted); font-size: 11px; line-height: 1.35; min-width: 0; }
+.agent-timeline-detail code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: var(--portal-text-secondary); background: transparent; border: 0; padding: 0; }
+.agent-timeline-chip { flex: 0 0 auto; border-radius: 999px; border: 1px solid var(--portal-border); color: var(--portal-text-muted); background: var(--portal-surface-soft); padding: 2px 6px; font-size: 10px; line-height: 1; text-transform: capitalize; }
+.agent-timeline-chip.is-running,
+.agent-timeline-chip.is-pending { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); color: var(--portal-accent); }
+.agent-timeline-chip.is-completed { border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%); color: var(--portal-success); }
+.agent-timeline-chip.is-failed { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%); color: var(--portal-danger); }
+.agent-timeline-row.is-tool .agent-timeline-icon { color: var(--portal-accent); }
+.agent-timeline-row.is-compaction .agent-timeline-icon,
+.agent-timeline-row.is-usage .agent-timeline-icon { color: var(--portal-warning); }
+.agent-timeline-row.is-permission .agent-timeline-icon { color: var(--portal-warning); }
+.agent-timeline-row.is-failed .agent-timeline-icon { color: var(--portal-danger); }
 
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .message-attachment-thumb { max-width: 128px; max-height: 128px; border-radius: 10px; border: 1px solid var(--portal-border); cursor: pointer; }
