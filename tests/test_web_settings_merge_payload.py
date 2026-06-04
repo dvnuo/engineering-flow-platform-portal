@@ -403,6 +403,36 @@ def test_settings_merge_confluence_instance_enabled_false_from_unchecked_checkbo
     assert merged["confluence"]["instances"][0]["enabled"] is False
     assert merged["confluence"]["instances"][0]["token"] == "tok"
 
+
+def test_settings_merge_external_instance_name_without_url_is_filtered():
+    merged, error = _settings_merge_payload(
+        {},
+        {
+            "__touch_jira": "1",
+            "jira_enabled": "on",
+            "jira_instance_count": "2",
+            "jira_instances_0_name": "Name Only",
+            "jira_instances_0_url": "",
+            "jira_instances_0_token": "drop",
+            "jira_instances_1_name": "Jira",
+            "jira_instances_1_url": "https://jira.example.com/",
+            "jira_instances_1_token": "keep",
+            "__touch_confluence": "1",
+            "confluence_enabled": "on",
+            "confluence_instance_count": "1",
+            "confluence_instances_0_name": "Docs",
+            "confluence_instances_0_url": "",
+            "confluence_instances_0_token": "drop",
+        },
+    )
+
+    assert error is None
+    assert merged["jira"]["instances"] == [
+        {"enabled": False, "name": "Jira", "url": "https://jira.example.com", "token": "keep"}
+    ]
+    assert merged["confluence"]["instances"] == []
+
+
 def test_settings_merge_jira_instance_preserves_secret_by_original_identity_not_index():
     merged, error = _settings_merge_payload(
         {

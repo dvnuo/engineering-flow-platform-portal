@@ -115,7 +115,12 @@ def _has_enabled_instance_section(config: dict[str, Any], section: str) -> bool:
     for item in instances:
         if not isinstance(item, dict) or item.get("enabled") is False:
             continue
-        if str(item.get("name") or item.get("url") or "").strip():
+        endpoint = ""
+        for key in ("url", "base_url", "baseUrl", "uri"):
+            endpoint = str(item.get(key) or "").strip()
+            if endpoint:
+                break
+        if endpoint:
             return True
     return False
 

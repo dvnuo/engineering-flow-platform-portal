@@ -175,6 +175,13 @@ def sanitize_runtime_profile_llm_oauth(value) -> dict:
 
 
 
+def _first_nonblank_string(item: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        cleaned = str(item.get(key) or "").strip()
+        if cleaned:
+            return cleaned
+    return ""
+
 
 def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dict]:
     if not isinstance(value, list):
@@ -185,14 +192,15 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             continue
         sanitized_item: dict = {}
         name = str(item.get("name") or "").strip()
-        url = str(item.get("url") or item.get("base_url") or "").strip().rstrip("/")
+        url = _first_nonblank_string(item, ("url", "base_url", "baseUrl", "uri")).rstrip("/")
         username = str(item.get("username") or item.get("email") or "").strip()
         password = str(item.get("password") or "").strip()
-        token = str(item.get("token") or item.get("api_token") or "").strip()
+        token = _first_nonblank_string(item, ("token", "api_token", "access_token"))
+        if not url:
+            continue
         if name:
             sanitized_item["name"] = name
-        if url:
-            sanitized_item["url"] = url
+        sanitized_item["url"] = url
         if username:
             sanitized_item["username"] = username
         if password:
@@ -212,8 +220,6 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             space = str(item.get("space") or item.get("space_key") or "").strip()
             if space:
                 sanitized_item["space"] = space
-        if not sanitized_item.get("name") and not sanitized_item.get("url"):
-            continue
         sanitized_instances.append(sanitized_item)
     return sanitized_instances
 

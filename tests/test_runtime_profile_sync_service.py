@@ -683,6 +683,85 @@ def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_s
         db.close()
 
 
+def test_build_apply_payload_for_agent_filters_name_only_instances_without_cli_instructions():
+    db, rp, running, _stopped = _build_db()
+    try:
+        running.runtime_type = "native"
+        rp.config_json = json.dumps(
+            {
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {"name": "Jira"},
+                        {"name": "Empty URI", "uri": "   "},
+                        "bad",
+                    ],
+                },
+                "confluence": {
+                    "enabled": True,
+                    "instances": [
+                        {"name": "Confluence"},
+                        {"name": "Empty URL", "url": ""},
+                    ],
+                },
+            }
+        )
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(rp)
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        cfg = payload["config"]
+
+        assert "instruction_texts" not in cfg
+        assert cfg["jira"]["instances"] == []
+        assert cfg["confluence"]["instances"] == []
+    finally:
+        db.close()
+
+
+def test_build_apply_payload_for_agent_keeps_endpoint_aliases_and_adds_cli_instructions():
+    db, rp, running, _stopped = _build_db()
+    try:
+        running.runtime_type = "native"
+        rp.config_json = json.dumps(
+            {
+                "jira": {
+                    "enabled": True,
+                    "instances": [
+                        {"name": "name-only"},
+                        {"name": "Jira", "uri": "https://jira-alias.example.com/", "api_token": "jt"},
+                    ],
+                },
+                "confluence": {
+                    "enabled": True,
+                    "instances": [
+                        {"name": "name-only"},
+                        {"name": "Confluence", "baseUrl": "https://conf-alias.example.com/wiki/"},
+                    ],
+                },
+            }
+        )
+        db.add_all([rp, running])
+        db.commit()
+        db.refresh(rp)
+        db.refresh(running)
+
+        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        cfg = payload["config"]
+
+        _assert_cli_instruction_texts(cfg.pop("instruction_texts"))
+        assert cfg["jira"]["instances"] == [
+            {"name": "Jira", "url": "https://jira-alias.example.com", "token": "jt"}
+        ]
+        assert cfg["confluence"]["instances"] == [
+            {"name": "Confluence", "url": "https://conf-alias.example.com/wiki"}
+        ]
+    finally:
+        db.close()
+
+
 def test_build_apply_payload_for_agent_adds_runtime_type_agent_id_and_external_sections():
     db, rp, running, _stopped = _build_db()
     try:
@@ -696,6 +775,8 @@ def test_build_apply_payload_for_agent_adds_runtime_type_agent_id_and_external_s
         assert "runtime_type" not in payload["config"]
         for key in ["jira", "confluence", "github", "proxy", "git", "debug"]:
             assert key in payload["config"]
+        assert payload["config"]["jira"]["instances"] == []
+        assert payload["config"]["confluence"]["instances"] == []
         assert payload["config"]["llm"]["api_key"] == "OA"
         _assert_cli_instruction_texts(payload["config"]["instruction_texts"])
         assert "oauth" not in payload["config"]["llm"]
