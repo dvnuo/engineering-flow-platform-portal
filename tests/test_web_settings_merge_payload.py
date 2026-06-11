@@ -209,6 +209,23 @@ def test_settings_merge_blank_github_token_clears_existing():
     assert "api_token" not in merged["github"]
 
 
+def test_settings_merge_blank_aws_secrets_clear_existing():
+    merged, error = _settings_merge_payload(
+        {"aws": {"enabled": True, "access_key_id": "old-ak", "secret_access_key": "old-sk", "session_token": "old-st"}},
+        {
+            "__touch_aws": "1",
+            "aws_enabled": "on",
+            "aws_access_key_id": "",
+            "aws_secret_access_key": "",
+            "aws_session_token": "",
+        },
+    )
+    assert error is None
+    assert "access_key_id" not in merged["aws"]
+    assert "secret_access_key" not in merged["aws"]
+    assert "session_token" not in merged["aws"]
+
+
 def test_settings_merge_blank_proxy_password_clears_existing():
     merged, error = _settings_merge_payload({"proxy": {"password": "old"}}, {"__touch_proxy": "1", "proxy_enabled": "on", "proxy_password": ""})
     assert error is None
@@ -602,6 +619,15 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "github_enabled": "on",
             "github_api_token": "github-token",
             "github_base_url": "https://github.example.com/api/v3/",
+            "__touch_aws": "1",
+            "aws_enabled": "on",
+            "aws_profile": "prod",
+            "aws_region": "us-east-1",
+            "aws_output": "json",
+            "aws_account_id": "123456789012",
+            "aws_access_key_id": "AKIA_TEST",
+            "aws_secret_access_key": "aws-secret",
+            "aws_session_token": "aws-session",
             "__touch_git": "1",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
@@ -646,6 +672,16 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "enabled": True,
             "api_token": "github-token",
             "base_url": "https://github.example.com/api/v3",
+        },
+        "aws": {
+            "enabled": True,
+            "profile": "prod",
+            "region": "us-east-1",
+            "output": "json",
+            "account_id": "123456789012",
+            "access_key_id": "AKIA_TEST",
+            "secret_access_key": "aws-secret",
+            "session_token": "aws-session",
         },
         "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
     }

@@ -33,6 +33,7 @@
     <input type="hidden" name="__touch_jira" value="0" data-touch-flag="jira" />
     <input type="hidden" name="__touch_confluence" value="0" data-touch-flag="confluence" />
     <input type="hidden" name="__touch_github" value="0" data-touch-flag="github" />
+    <input type="hidden" name="__touch_aws" value="0" data-touch-flag="aws" />
     <input type="hidden" name="__touch_git" value="0" data-touch-flag="git" />
     <input type="hidden" name="__touch_debug" value="0" data-touch-flag="debug" />
     {% if status_message %}
@@ -180,6 +181,35 @@
         <label class="portal-form-label"><span class="portal-form-label">API Token</span><input type="password" name="github_api_token" value="{{ raw_github.get('api_token', '') }}" placeholder="GitHub token" class="portal-form-input" /></label>
       </div>
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="github">Test GitHub</button><div class="portal-inline-state" data-test-result="github"></div></div>
+    </section>
+
+    <section class="portal-panel-section" data-managed-section="aws">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+          <div class="portal-settings-section-title">
+            <span class="portal-section-accent" aria-hidden="true"></span>
+            <h6>AWS</h6>
+          </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable AWS">
+              <input type="checkbox" name="aws_enabled" {% if aws.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Profile</span><input type="text" name="aws_profile" value="{{ raw_aws.get('profile', '') }}" placeholder="default" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Region</span><input type="text" name="aws_region" value="{{ raw_aws.get('region', '') }}" placeholder="us-east-1" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Account ID</span><input type="text" name="aws_account_id" value="{{ raw_aws.get('account_id', '') }}" placeholder="123456789012" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Output</span><input type="text" name="aws_output" value="{{ raw_aws.get('output', '') }}" placeholder="json" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Access Key ID</span><input type="password" name="aws_access_key_id" value="{{ raw_aws.get('access_key_id', '') }}" placeholder="AWS access key ID" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Secret Access Key</span><input type="password" name="aws_secret_access_key" value="{{ raw_aws.get('secret_access_key', '') }}" placeholder="AWS secret access key" class="portal-form-input" /></label>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Session Token</span><input type="password" name="aws_session_token" value="{{ raw_aws.get('session_token', '') }}" placeholder="Optional STS session token" class="portal-form-input" /></label>
     </section>
 
     <section class="portal-panel-section" data-managed-section="git">

@@ -9,6 +9,7 @@ TARGET_SECTIONS = [
     ("jira", "jira_enabled", "Jira", "jira.get('enabled')"),
     ("confluence", "confluence_enabled", "Confluence", "confluence.get('enabled')"),
     ("github", "github_enabled", "GitHub", "github.get('enabled')"),
+    ("aws", "aws_enabled", "AWS", "aws.get('enabled')"),
     ("debug", "debug_enabled", "Debug", "debug.get('enabled')"),
 ]
 
