@@ -197,6 +197,19 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-secondary-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .portal-secondary-list-body { overflow: auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .portal-list-load-state { flex: 0 0 auto; padding: 8px 10px; color: var(--portal-text-muted); font-size: 12px; text-align: center; }
+.portal-list-tools { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+.portal-list-tool-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.portal-search-field { min-height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--portal-border); border-radius: var(--portal-radius-md); background: var(--portal-surface); color: var(--portal-text-muted); }
+.portal-search-field:focus-within { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); box-shadow: 0 0 0 3px var(--portal-accent-soft); }
+.portal-search-field input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--portal-text); font: inherit; font-size: 13px; }
+.portal-search-field input::placeholder { color: var(--portal-text-muted); }
+.portal-filter-select { min-width: 110px; flex: 1 1 110px; height: 34px; border: 1px solid var(--portal-border); border-radius: var(--portal-radius-md); background: var(--portal-surface); color: var(--portal-text); padding: 0 28px 0 10px; font-size: 12px; outline: 0; }
+.portal-filter-select:focus { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); box-shadow: 0 0 0 3px var(--portal-accent-soft); }
+.portal-filter-segments { display: flex; flex-wrap: wrap; gap: 6px; }
+.portal-filter-chip { min-height: 28px; border: 1px solid var(--portal-border); border-radius: 999px; background: var(--portal-surface); color: var(--portal-text-secondary); padding: 0 10px; font-size: 12px; font-weight: 650; cursor: pointer; transition: border-color var(--portal-transition), background var(--portal-transition), color var(--portal-transition); }
+.portal-filter-chip:hover { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%); color: var(--portal-text); }
+.portal-filter-chip.is-active { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 35%); background: var(--portal-accent-soft); color: var(--portal-accent-strong); }
+.portal-filter-summary { min-height: 18px; color: var(--portal-text-muted); font-size: 11px; line-height: 1.35; }
 .portal-agent-list { overflow: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .portal-agent-section { display: flex; flex-direction: column; gap: 8px; }
 .portal-agent-row { width: 100%; min-height: 68px; padding: 12px 14px; border-radius: var(--portal-radius-md); border: 1px solid var(--portal-border); background: var(--portal-surface-muted); color: var(--portal-text); display: flex; flex-direction: column; justify-content: center; gap: 8px; transition: background var(--portal-transition), border-color var(--portal-transition), transform var(--portal-transition); }
@@ -1706,6 +1719,30 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 92%);
 }
 
+.portal-repair-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.portal-repair-callout > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.portal-repair-callout strong {
+  color: var(--portal-text);
+  font-size: 13px;
+}
+
+.portal-repair-callout span {
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+}
+
 .portal-auth-copy {
   margin: 0;
   color: var(--portal-text-muted);
@@ -2856,7 +2893,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   .portal-task-detail-hero,
   .portal-task-toolbar,
   .portal-task-card-main,
-  .portal-task-card-actions {
+  .portal-task-card-actions,
+  .portal-repair-callout {
     align-items: stretch;
     flex-direction: column;
   }

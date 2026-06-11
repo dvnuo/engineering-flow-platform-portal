@@ -69,6 +69,28 @@
           <div id="bundle-nav-list" class="portal-secondary-list-body"></div>
         </section>
         <section id="tasks-nav-section" class="portal-secondary-section hidden">
+          <div class="portal-list-tools" aria-label="Task filters">
+            <div class="portal-search-field">
+              <i data-lucide="search" class="w-4 h-4"></i>
+              <input id="task-search-input" type="search" placeholder="Search tasks" autocomplete="off" />
+            </div>
+            <div class="portal-list-tool-row">
+              <select id="task-owner-filter" class="portal-filter-select" aria-label="Task owner">
+                <option value="all">All owners</option>
+                <option value="mine">Mine only</option>
+              </select>
+              <button id="task-filter-clear" class="toolbar-icon-btn" type="button" title="Clear task filters">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <div id="task-status-filter" class="portal-filter-segments" aria-label="Task status">
+              <button type="button" class="portal-filter-chip is-active" data-task-status-filter="all">All</button>
+              <button type="button" class="portal-filter-chip" data-task-status-filter="active">Active</button>
+              <button type="button" class="portal-filter-chip" data-task-status-filter="attention">Attention</button>
+              <button type="button" class="portal-filter-chip" data-task-status-filter="done">Done</button>
+            </div>
+            <div id="task-filter-summary" class="portal-filter-summary"></div>
+          </div>
           <div id="task-nav-list" class="portal-secondary-list-body"></div>
         </section>
         <section id="runtime-profiles-nav-section" class="portal-secondary-section hidden">
@@ -80,6 +102,35 @@
             <button id="add-delegation-btn" class="toolbar-icon-btn" type="button" title="Create Delegation">
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
+          </div>
+          <div class="portal-list-tools" aria-label="Delegation filters">
+            <div class="portal-search-field">
+              <i data-lucide="search" class="w-4 h-4"></i>
+              <input id="delegation-search-input" type="search" placeholder="Search delegations" autocomplete="off" />
+            </div>
+            <div class="portal-list-tool-row">
+              <select id="delegation-owner-filter" class="portal-filter-select" aria-label="Delegation owner">
+                <option value="all">All owners</option>
+                <option value="mine">Mine only</option>
+              </select>
+              <select id="delegation-source-filter" class="portal-filter-select" aria-label="Delegation source">
+                <option value="all">All sources</option>
+                <option value="github_pr_review">GitHub PR Review</option>
+                <option value="github_pr_mention">GitHub PR Mention</option>
+                <option value="jira_assignee">Jira Assignee</option>
+                <option value="jira_mention">Jira Mention</option>
+              </select>
+              <button id="delegation-filter-clear" class="toolbar-icon-btn" type="button" title="Clear delegation filters">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <div id="delegation-status-filter" class="portal-filter-segments" aria-label="Delegation status">
+              <button type="button" class="portal-filter-chip is-active" data-delegation-status-filter="all">All</button>
+              <button type="button" class="portal-filter-chip" data-delegation-status-filter="enabled">Enabled</button>
+              <button type="button" class="portal-filter-chip" data-delegation-status-filter="paused">Paused</button>
+              <button type="button" class="portal-filter-chip" data-delegation-status-filter="missing">Needs agent</button>
+            </div>
+            <div id="delegation-filter-summary" class="portal-filter-summary"></div>
           </div>
           <div id="delegation-rule-nav-list" class="portal-secondary-list-body"></div>
         </section>

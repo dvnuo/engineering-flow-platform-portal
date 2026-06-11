@@ -51,12 +51,50 @@ class AgentTaskRepository:
         )
         return list(self.db.scalars(stmt).all())
 
-    def list_visible_to_user(self, *, user_id: int, limit: int | None = None, offset: int = 0) -> list[AgentTask]:
-        _ = user_id
+    def list_visible_to_user(
+        self,
+        *,
+        user_id: int,
+        limit: int | None = None,
+        offset: int = 0,
+        status: str | None = None,
+        owner: str | None = None,
+        query: str | None = None,
+    ) -> list[AgentTask]:
+        filters = []
+        normalized_status = (status or "").strip().lower()
+        if normalized_status == "active":
+            filters.append(AgentTask.status.in_(["queued", "running", "pending_restart"]))
+        elif normalized_status == "attention":
+            filters.append(AgentTask.status.in_(["failed", "blocked", "cancel_failed"]))
+        elif normalized_status and normalized_status != "all":
+            filters.append(AgentTask.status == normalized_status)
+
+        if (owner or "").strip().lower() == "mine":
+            filters.append(AgentTask.owner_user_id == user_id)
+
+        normalized_query = (query or "").strip()
+        if normalized_query:
+            like_query = f"%{normalized_query}%"
+            filters.append(
+                or_(
+                    AgentTask.id.ilike(like_query),
+                    AgentTask.title.ilike(like_query),
+                    AgentTask.summary.ilike(like_query),
+                    AgentTask.error_message.ilike(like_query),
+                    AgentTask.task_type.ilike(like_query),
+                    AgentTask.skill_name.ilike(like_query),
+                    AgentTask.source.ilike(like_query),
+                    AgentTask.input_payload_json.ilike(like_query),
+                )
+            )
+
         stmt = (
             select(AgentTask)
             .order_by(AgentTask.updated_at.desc(), AgentTask.created_at.desc())
         )
+        if filters:
+            stmt = stmt.where(and_(*filters))
         if offset > 0:
             stmt = stmt.offset(offset)
         if limit is not None:

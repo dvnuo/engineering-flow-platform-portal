@@ -59,8 +59,19 @@ const dom = {
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
   bundleNavList: document.getElementById("bundle-nav-list"),
+  taskSearchInput: document.getElementById("task-search-input"),
+  taskOwnerFilter: document.getElementById("task-owner-filter"),
+  taskStatusFilter: document.getElementById("task-status-filter"),
+  taskFilterClear: document.getElementById("task-filter-clear"),
+  taskFilterSummary: document.getElementById("task-filter-summary"),
   taskNavList: document.getElementById("task-nav-list"),
   runtimeProfileNavList: document.getElementById("runtime-profile-nav-list"),
+  delegationSearchInput: document.getElementById("delegation-search-input"),
+  delegationOwnerFilter: document.getElementById("delegation-owner-filter"),
+  delegationSourceFilter: document.getElementById("delegation-source-filter"),
+  delegationStatusFilter: document.getElementById("delegation-status-filter"),
+  delegationFilterClear: document.getElementById("delegation-filter-clear"),
+  delegationFilterSummary: document.getElementById("delegation-filter-summary"),
   delegationRuleNavList: document.getElementById("delegation-rule-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
@@ -297,12 +308,14 @@ const state = {
   taskListOffset: 0,
   taskListHasMore: true,
   taskListLoading: false,
+  taskFilters: { query: "", status: "all", owner: "all" },
   selectedTaskId: null,
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
   runtimeProfiles: [],
   selectedRuntimeProfileId: null,
   delegations: [],
+  delegationFilters: { query: "", status: "all", owner: "all", source: "all" },
   selectedDelegationRuleId: null,
   agentDefaults: null,
 };
@@ -7939,7 +7952,7 @@ async function setActiveNavSection(section, {
     const first = state.delegations[0];
     if (preferSectionLanding) {
       state.selectedDelegationRuleId = null;
-      renderDelegationRuleNavList(state.delegations);
+      renderDelegationRuleNavList();
       if (first) {
         renderWorkspaceDetailPlaceholder("Select a delegation from the left sidebar.", "delegations-placeholder");
         syncMainHeader();
@@ -8053,15 +8066,47 @@ function taskOwnerLabel(task) {
   return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : `User ${ownerId}`;
 }
 
+function hasActiveTaskFilters() {
+  const filters = state.taskFilters || {};
+  return Boolean(String(filters.query || "").trim() || filters.status !== "all" || filters.owner !== "all");
+}
+
+function taskStatusFilterLabel(value) {
+  const normalized = String(value || "all").trim().toLowerCase();
+  if (normalized === "active") return "active";
+  if (normalized === "attention") return "needs attention";
+  if (normalized === "done") return "done";
+  return "all";
+}
+
+function syncTaskFilterControls() {
+  const filters = state.taskFilters || { query: "", status: "all", owner: "all" };
+  if (dom.taskSearchInput && dom.taskSearchInput.value !== filters.query) dom.taskSearchInput.value = filters.query;
+  if (dom.taskOwnerFilter && dom.taskOwnerFilter.value !== filters.owner) dom.taskOwnerFilter.value = filters.owner;
+  dom.taskStatusFilter?.querySelectorAll("[data-task-status-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.taskStatusFilter === filters.status);
+  });
+  if (dom.taskFilterSummary) {
+    const parts = [];
+    if (filters.status !== "all") parts.push(taskStatusFilterLabel(filters.status));
+    if (filters.owner === "mine") parts.push("owned by you");
+    if (filters.query) parts.push(`"${filters.query}"`);
+    const filterLabel = parts.length ? `Filtered by ${parts.join(", ")}` : "All visible tasks";
+    const countLabel = state.taskListHasMore ? `${state.myTasks.length}+ loaded` : `${state.myTasks.length} shown`;
+    dom.taskFilterSummary.textContent = `${filterLabel} - ${countLabel}`;
+  }
+}
+
 function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
   if (!dom.taskNavList) return;
   const previousScrollTop = preserveScroll ? dom.taskNavList.scrollTop : 0;
+  syncTaskFilterControls();
   if (errorMessage) {
     dom.taskNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
     return;
   }
   if (!state.myTasks.length) {
-    dom.taskNavList.innerHTML = '<div class="portal-bundle-list-state">No visible tasks yet.</div>';
+    dom.taskNavList.innerHTML = `<div class="portal-bundle-list-state">${hasActiveTaskFilters() ? "No tasks match these filters." : "No visible tasks yet."}</div>`;
     return;
   }
 
@@ -8079,6 +8124,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
     const status = String(task.status || "unknown").trim();
     const statusTone = taskStatusTone(status);
     const ownerLabel = taskOwnerLabel(task);
+    const agentLabel = String(task.assignee_agent_name || task.assignee_agent_id || "").trim();
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
@@ -8090,6 +8136,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
       ${displayPreview ? `<div class="portal-task-row-preview">${safe(displayPreview)}</div>` : ""}
       <div class="portal-task-row-meta">
         ${skillName ? `<span>/${safe(skillName)}</span>` : ""}
+        ${agentLabel ? `<span>${safe(agentLabel)}</span>` : ""}
         <span>${safe(task.task_type || "task")}</span>
         <span>Owner ${safe(ownerLabel)}</span>
         ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
@@ -8143,6 +8190,10 @@ async function refreshMyTasks({ reset = true } = {}) {
       limit: String(state.taskPageSize),
       offset: String(state.taskListOffset),
     });
+    const filters = state.taskFilters || {};
+    if (filters.status && filters.status !== "all") params.set("status", filters.status);
+    if (filters.owner && filters.owner !== "all") params.set("owner", filters.owner);
+    if (filters.query) params.set("q", filters.query);
     const tasks = await api(`/api/my/tasks?${params.toString()}`);
     const page = Array.isArray(tasks) ? tasks : [];
     if (reset) {
@@ -8164,6 +8215,13 @@ async function refreshMyTasks({ reset = true } = {}) {
     state.taskListLoading = false;
     if (!loadError) renderTaskNavList("", { preserveScroll: !reset });
   }
+}
+
+function queueTaskFilterRefresh() {
+  clearTimeout(queueTaskFilterRefresh.timerId);
+  queueTaskFilterRefresh.timerId = setTimeout(() => {
+    refreshMyTasks({ reset: true });
+  }, 220);
 }
 
 async function loadMoreTasksIfNeeded() {
@@ -10138,15 +10196,69 @@ async function loadDelegationRules() {
   } catch (_err) {
     state.delegations = [];
   }
-  renderDelegationRuleNavList(state.delegations);
+  renderDelegationRuleNavList();
   return state.delegations;
 }
 
-function renderDelegationRuleNavList(rules) {
+function hasActiveDelegationFilters() {
+  const filters = state.delegationFilters || {};
+  return Boolean(String(filters.query || "").trim() || filters.status !== "all" || filters.owner !== "all" || filters.source !== "all");
+}
+
+function delegationRuleMatchesFilters(rule) {
+  const filters = state.delegationFilters || {};
+  const source = String(rule?.source || rule?.trigger_type || "").trim();
+  const statusFilter = String(filters.status || "all").trim();
+  if (statusFilter === "enabled" && !rule?.enabled) return false;
+  if (statusFilter === "paused" && rule?.enabled) return false;
+  if (statusFilter === "missing" && !rule?.target_agent_missing) return false;
+  if (filters.owner === "mine" && Number(rule?.owner_user_id) !== state.currentUserId) return false;
+  if (filters.source !== "all" && source !== filters.source) return false;
+
+  const query = String(filters.query || "").trim().toLowerCase();
+  if (!query) return true;
+  const haystack = [
+    rule?.name,
+    source,
+    delegationSourceLabel(source),
+    rule?.skill_name,
+    rule?.target_agent_id,
+    rule?.target_agent_name,
+    delegationOwnerLabel(rule),
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
+}
+
+function visibleDelegationRules() {
+  return (Array.isArray(state.delegations) ? state.delegations : []).filter(delegationRuleMatchesFilters);
+}
+
+function syncDelegationFilterControls(visibleCount = null) {
+  const filters = state.delegationFilters || { query: "", status: "all", owner: "all", source: "all" };
+  if (dom.delegationSearchInput && dom.delegationSearchInput.value !== filters.query) dom.delegationSearchInput.value = filters.query;
+  if (dom.delegationOwnerFilter && dom.delegationOwnerFilter.value !== filters.owner) dom.delegationOwnerFilter.value = filters.owner;
+  if (dom.delegationSourceFilter && dom.delegationSourceFilter.value !== filters.source) dom.delegationSourceFilter.value = filters.source;
+  dom.delegationStatusFilter?.querySelectorAll("[data-delegation-status-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.delegationStatusFilter === filters.status);
+  });
+  if (dom.delegationFilterSummary) {
+    const total = Array.isArray(state.delegations) ? state.delegations.length : 0;
+    const shown = visibleCount === null ? visibleDelegationRules().length : visibleCount;
+    const parts = [];
+    if (filters.status !== "all") parts.push(filters.status === "missing" ? "needs agent" : filters.status);
+    if (filters.owner === "mine") parts.push("owned by you");
+    if (filters.source !== "all") parts.push(delegationSourceLabel(filters.source));
+    if (filters.query) parts.push(`"${filters.query}"`);
+    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} delegations`;
+  }
+}
+
+function renderDelegationRuleNavList(rules = null) {
   if (!dom.delegationRuleNavList) return;
-  const items = Array.isArray(rules) ? rules : [];
+  const items = Array.isArray(rules) ? rules : visibleDelegationRules();
+  syncDelegationFilterControls(items.length);
   if (!items.length) {
-    dom.delegationRuleNavList.innerHTML = '<div class="portal-bundle-list-state">No delegations found.</div>';
+    dom.delegationRuleNavList.innerHTML = `<div class="portal-bundle-list-state">${hasActiveDelegationFilters() ? "No delegations match these filters." : "No delegations found."}</div>`;
     return;
   }
   dom.delegationRuleNavList.innerHTML = "";
@@ -10161,6 +10273,7 @@ function renderDelegationRuleNavList(rules) {
     const timeLabel = rule.enabled ? `Next ${delegationDisplayTime(rule.next_run_at)}` : `Last ${delegationDisplayTime(rule.last_run_at)}`;
     const flowPreview = `${sourceLabel} -> ${skillLabel} -> ${delegationReplyTargetLabel(source)}`;
     const ownerLabel = delegationOwnerLabel(rule);
+    const agentLabel = delegationTargetAgentLabel(rule);
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row portal-delegation-row${state.selectedDelegationRuleId === rule.id ? " is-active" : ""}`;
@@ -10172,6 +10285,7 @@ function renderDelegationRuleNavList(rules) {
       <div class="portal-task-row-preview">${safe(flowPreview)}</div>
       <div class="portal-task-row-meta">
         <span>${safe(skillLabel)}</span>
+        <span>${safe(agentLabel)}</span>
         <span>Owner ${safe(ownerLabel)}</span>
         <span>Every ${safe(intervalLabel)}</span>
         <span>${safe(timeLabel)}</span>
@@ -10224,10 +10338,12 @@ function delegationRuleSkillLabel(rule) {
 }
 
 function delegationRuleStatusLabel(rule) {
+  if (rule?.target_agent_missing) return "Needs agent";
   return rule?.enabled ? "Enabled" : "Paused";
 }
 
 function delegationRuleStatusTone(rule) {
+  if (rule?.target_agent_missing) return "warning";
   return rule?.enabled ? "success" : "neutral";
 }
 
@@ -10375,7 +10491,7 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
   if (!ruleId) return;
   try {
     state.selectedDelegationRuleId = ruleId;
-    renderDelegationRuleNavList(state.delegations);
+    renderDelegationRuleNavList();
     const detail = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`);
     const runs = await loadDelegationRuleRuns(ruleId);
     const events = await loadDelegationRuleEvents(ruleId);
@@ -10396,6 +10512,15 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
             <button class="portal-btn is-secondary" type="button" data-toggle-delegation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? "Pause" : "Enable"}</button>
             <button class="portal-btn is-danger" type="button" data-delete-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>Delete</button>
     ` : '<span class="portal-panel-note">Only the owner can manage this delegation.</span>';
+    const missingAgentCallout = detail.target_agent_missing ? `
+        <div class="portal-callout is-warning portal-repair-callout">
+          <div>
+            <strong>Target agent was deleted.</strong>
+            <span>${canManage ? "Choose a replacement agent to resume scheduled runs." : `Ask ${safe(ownerLabel)} to choose a replacement agent.`}</span>
+          </div>
+          ${canManage ? `<button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="wrench" class="w-4 h-4"></i>Change agent</button>` : ""}
+        </div>
+    ` : "";
     dom.workspaceDetailContent.innerHTML = `
       <div class="portal-panel-stack portal-delegation-detail">
         <div class="portal-task-detail-hero portal-delegation-hero">
@@ -10410,6 +10535,8 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
             ${managementActions}
           </div>
         </div>
+
+        ${missingAgentCallout}
 
         <section class="portal-task-metrics portal-delegation-metrics">
           <div><span>Source</span><strong>${safe(sourceLabel)}</strong></div>
@@ -11701,7 +11828,49 @@ function bindEvents() {
   dom.taskNavList?.addEventListener("scroll", () => {
     if (state.activeNavSection === "tasks") loadMoreTasksIfNeeded();
   });
+  dom.taskSearchInput?.addEventListener("input", () => {
+    state.taskFilters.query = String(dom.taskSearchInput.value || "").trim();
+    queueTaskFilterRefresh();
+  });
+  dom.taskOwnerFilter?.addEventListener("change", () => {
+    state.taskFilters.owner = dom.taskOwnerFilter.value || "all";
+    refreshMyTasks({ reset: true });
+  });
+  dom.taskStatusFilter?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-task-status-filter]");
+    if (!button) return;
+    state.taskFilters.status = button.dataset.taskStatusFilter || "all";
+    refreshMyTasks({ reset: true });
+  });
+  dom.taskFilterClear?.addEventListener("click", () => {
+    state.taskFilters = { query: "", status: "all", owner: "all" };
+    syncTaskFilterControls();
+    refreshMyTasks({ reset: true });
+  });
   dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"));
+  dom.delegationSearchInput?.addEventListener("input", () => {
+    state.delegationFilters.query = String(dom.delegationSearchInput.value || "").trim();
+    renderDelegationRuleNavList();
+  });
+  dom.delegationOwnerFilter?.addEventListener("change", () => {
+    state.delegationFilters.owner = dom.delegationOwnerFilter.value || "all";
+    renderDelegationRuleNavList();
+  });
+  dom.delegationSourceFilter?.addEventListener("change", () => {
+    state.delegationFilters.source = dom.delegationSourceFilter.value || "all";
+    renderDelegationRuleNavList();
+  });
+  dom.delegationStatusFilter?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-delegation-status-filter]");
+    if (!button) return;
+    state.delegationFilters.status = button.dataset.delegationStatusFilter || "all";
+    renderDelegationRuleNavList();
+  });
+  dom.delegationFilterClear?.addEventListener("click", () => {
+    state.delegationFilters = { query: "", status: "all", owner: "all", source: "all" };
+    syncDelegationFilterControls();
+    renderDelegationRuleNavList();
+  });
   dom.addDelegationBtn?.addEventListener("click", async () => {
     try {
       if (!state.mineAgents || !state.mineAgents.length) {

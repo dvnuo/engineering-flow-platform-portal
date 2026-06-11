@@ -152,23 +152,29 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
             owner_user_id=owner_user.id,
             created_by_user_id=None,
             source="portal",
+            title="Owned review task",
             task_type="owned",
             status="queued",
+            summary="Review the owner branch",
         )
         created_task = AgentTask(
             assignee_agent_id=other_agent.id,
             owner_user_id=other_user.id,
             created_by_user_id=owner_user.id,
             source="portal",
+            title="Created task",
             task_type="created",
-            status="queued",
+            status="running",
+            summary="Shared work created by owner",
         )
         hidden_task = AgentTask(
             assignee_agent_id=other_agent.id,
             owner_user_id=other_user.id,
             source="portal",
+            title="Blocked deployment",
             task_type="hidden",
-            status="queued",
+            status="blocked",
+            summary="Needs attention from the other owner",
         )
         db.add_all([owned_task, created_task, hidden_task])
         db.commit()
@@ -188,6 +194,22 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
         paged = client.get("/api/my/tasks?limit=2&offset=0")
         assert paged.status_code == 200
         assert len(paged.json()) == 2
+
+        active = client.get("/api/my/tasks?status=active")
+        assert active.status_code == 200
+        assert {item["task_type"] for item in active.json()} == {"owned", "created"}
+
+        attention = client.get("/api/my/tasks?status=attention")
+        assert attention.status_code == 200
+        assert [item["task_type"] for item in attention.json()] == ["hidden"]
+
+        mine = client.get("/api/my/tasks?owner=mine")
+        assert mine.status_code == 200
+        assert [item["task_type"] for item in mine.json()] == ["owned"]
+
+        searched = client.get("/api/my/tasks?q=deployment")
+        assert searched.status_code == 200
+        assert [item["task_type"] for item in searched.json()] == ["hidden"]
     finally:
         cleanup()
 

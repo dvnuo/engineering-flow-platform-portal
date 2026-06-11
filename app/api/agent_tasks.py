@@ -362,8 +362,18 @@ def list_my_tasks(
     db: Session = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(default=None, alias="status", max_length=32),
+    owner: str | None = Query(default=None, max_length=32),
+    q: str | None = Query(default=None, max_length=120),
 ):
-    tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, limit=limit, offset=offset)
+    tasks = AgentTaskRepository(db).list_visible_to_user(
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+        status=status_filter,
+        owner=owner,
+        query=q,
+    )
     return [_task_response(db, task, user) for task in tasks]
 
 
