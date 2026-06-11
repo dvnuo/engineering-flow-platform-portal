@@ -17,8 +17,10 @@ def test_load_system_prompt_config_runtime_aware_sections():
     assert 'ui.sections' in fn
 
     model_fn = _extract_js_function(source, 'getSystemPromptUiModel')
-    assert "['soul', 'user', 'agents', 'memory', 'daily_notes']" in model_fn
-    assert "sections: ['agents']" not in model_fn
+    assert 'Array.isArray(config.sections)' in model_fn
+    assert "sections = ['agents']" in model_fn
+    assert "['soul', 'user', 'agents', 'memory', 'daily_notes']" not in model_fn
+    assert 'sectionConfig.can_disable !== false' in model_fn
 
 
 def test_editor_and_save_do_not_force_runtime_specific_prompt_rules():
@@ -27,8 +29,9 @@ def test_editor_and_save_do_not_force_runtime_specific_prompt_rules():
     save_fn = _extract_js_function(source, 'saveSystemPromptSection')
 
     assert "var title = label + ' Configuration';" in editor_fn
-    assert 'enabledCheckbox.checked = enabled;' in editor_fn
-    assert 'enabledCheckbox.disabled = false;' in editor_fn
+    assert 'enabledCheckbox.checked = canDisable ? enabled !== false : true;' in editor_fn
+    assert 'enabledCheckbox.disabled = !canDisable;' in editor_fn
     assert 'AGENTS.md is always active' not in editor_fn
 
     assert "runtimeIsOpenCode" not in save_fn
+    assert 'enabledCheckbox.disabled ? true : enabledCheckbox.checked' in save_fn

@@ -12325,20 +12325,54 @@ function initFilePanelPreview() {
 
 // ===== System Prompt Configuration =====
 function getAgentRuntimeType(agent) {
-  return 'native';
+  if (!agent) return 'native';
+  var value = agent.runtime_type || agent.runtimeType || agent.runtime;
+  if (typeof value !== 'string') return 'native';
+  value = value.trim();
+  return value || 'native';
 }
 
 function getSystemPromptUiModel(agent, config) {
-  var runtimeType = getAgentRuntimeType(agent);
+  config = config || {};
+  var runtimeType = String(config.runtime_type || getAgentRuntimeType(agent) || 'native');
+  var configUi = config.ui && typeof config.ui === 'object' ? config.ui : {};
+  var rawSections = Array.isArray(config.sections) ? config.sections : (Array.isArray(configUi.sections) ? configUi.sections : []);
+  var sections = [];
+  var seenSections = {};
+  for (var i = 0; i < rawSections.length; i++) {
+    var sectionName = String(rawSections[i] || '').trim();
+    if (!sectionName || seenSections[sectionName]) continue;
+    sections.push(sectionName);
+    seenSections[sectionName] = true;
+  }
+  if (!sections.length) sections = ['agents'];
+
+  var labels = {};
+  var editable = {};
+  var canToggle = {};
+  var forcedEnabled = {};
+  var uiLabels = configUi.labels && typeof configUi.labels === 'object' ? configUi.labels : {};
+  for (var j = 0; j < sections.length; j++) {
+    var name = sections[j];
+    var sectionConfig = config[name] && typeof config[name] === 'object' ? config[name] : {};
+    var configuredLabel = typeof sectionConfig.label === 'string' && sectionConfig.label.trim()
+      ? sectionConfig.label.trim()
+      : (typeof uiLabels[name] === 'string' && uiLabels[name].trim() ? uiLabels[name].trim() : '');
+    labels[name] = configuredLabel || (name === 'agents' ? 'AGENTS' : String(name).toUpperCase().replace(/_/g, ' '));
+    editable[name] = sectionConfig.editable !== false;
+    canToggle[name] = sectionConfig.can_disable !== false;
+    if (sectionConfig.can_disable === false) forcedEnabled[name] = true;
+  }
+
   return {
     runtimeType: runtimeType,
-    title: 'System Prompt',
-    description: '',
-    sections: ['soul', 'user', 'agents', 'memory', 'daily_notes'],
-    labels: { soul: 'SOUL', user: 'USER', agents: 'AGENTS', memory: 'MEMORY', daily_notes: 'DAILY NOTES' },
-    editable: { soul: true, user: true, agents: true, memory: true, daily_notes: false },
-    canToggle: { soul: true, user: true, agents: true, memory: true, daily_notes: true },
-    forcedEnabled: {}
+    title: typeof configUi.title === 'string' && configUi.title.trim() ? configUi.title.trim() : 'System Prompt',
+    description: typeof configUi.description === 'string' ? configUi.description : '',
+    sections: sections,
+    labels: labels,
+    editable: editable,
+    canToggle: canToggle,
+    forcedEnabled: forcedEnabled
   };
 }
 
@@ -12404,16 +12438,17 @@ function loadSystemPromptConfig(agentId) {
       var isToggleable = ui.canToggle[name] !== false;
       var disabledAttr = canWrite && isToggleable ? '' : ' disabled';
       var label = ui.labels[name] || name;
+      var safeName = escapeHtmlAttr(name);
       var toggleHtml = isToggleable
-        ? '<label class="toggle-switch"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span class="toggle-slider"></span></label>'
-        : '<label class="toggle-switch"><input type="checkbox" id="sp-' + name + '-enabled" data-section="' + name + '" checked class="portal-system-prompt-check" disabled><span class="toggle-slider"></span></label><span class="portal-muted">Always enabled</span>';
+        ? '<label class="toggle-switch"><input type="checkbox" id="sp-' + safeName + '-enabled" data-section="' + safeName + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span class="toggle-slider"></span></label>'
+        : '<label class="toggle-switch"><input type="checkbox" id="sp-' + safeName + '-enabled" data-section="' + safeName + '" checked class="portal-system-prompt-check" disabled><span class="toggle-slider"></span></label><span class="portal-muted">Always enabled</span>';
       var editAllowed = ui.editable[name] === true;
       var editDisabledAttr = canWrite ? '' : ' disabled';
-      var editButton = editAllowed ? '<button data-section="' + name + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + label + '"' + editDisabledAttr + '>Edit</button>' : '';
+      var editButton = editAllowed ? '<button data-section="' + safeName + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + escapeHtmlAttr(label) + '"' + editDisabledAttr + '>Edit</button>' : '';
 
       var item = document.createElement('div');
       item.className = 'portal-system-prompt-item';
-      item.innerHTML = '<div class="portal-checkbox-row">' + toggleHtml + '<span>' + label + '</span></div>' + editButton;
+      item.innerHTML = '<div class="portal-checkbox-row">' + toggleHtml + '<span>' + escapeHtml(label) + '</span></div>' + editButton;
       items.appendChild(item);
     }
 
@@ -12454,17 +12489,21 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
 
 function editSystemPromptSection(agentId, section) {
   api('/a/' + agentId + '/api/agent/system-prompt/' + section).then(function(data) {
-    showSystemPromptEditor(agentId, section, data.content || '', data.enabled);
+    showSystemPromptEditor(agentId, section, data.content || '', data.enabled, data || {});
   }).catch(function(e) {
     console.error('Failed to load:', e);
     showToast('Failed to load: ' + e.message);
   });
 }
 
-function showSystemPromptEditor(agentId, section, content, enabled) {
+function showSystemPromptEditor(agentId, section, content, enabled, sectionConfig) {
   var currentAgent = state.mineAgents?.find(a => a.id === agentId);
-  var label = resolveSystemPromptLabel(currentAgent, section, {});
+  sectionConfig = sectionConfig || {};
+  var label = typeof sectionConfig.label === 'string' && sectionConfig.label.trim()
+    ? sectionConfig.label.trim()
+    : resolveSystemPromptLabel(currentAgent, section, {});
   var title = label + ' Configuration';
+  var canDisable = sectionConfig.can_disable !== false;
 
   var modal = document.getElementById('system-prompt-editor-modal');
   if (!modal) {
@@ -12496,10 +12535,14 @@ function showSystemPromptEditor(agentId, section, content, enabled) {
   document.getElementById('sp-editor-title').textContent = title;
   var enabledCheckbox = document.getElementById('sp-editor-enabled');
   var enabledNote = document.getElementById('sp-editor-enabled-note');
-  enabledCheckbox.checked = enabled;
-  enabledCheckbox.disabled = false;
+  enabledCheckbox.checked = canDisable ? enabled !== false : true;
+  enabledCheckbox.disabled = !canDisable;
   enabledNote.textContent = '';
   enabledNote.classList.add('hidden');
+  if (!canDisable) {
+    enabledNote.textContent = 'Always enabled';
+    enabledNote.classList.remove('hidden');
+  }
   document.getElementById('sp-editor-content').value = content;
   modal.dataset.section = section;
   modal.dataset.agentId = agentId;
@@ -12531,7 +12574,8 @@ function closeSystemPromptEditor() {
 }
 
 function saveSystemPromptSection(agentId, section) {
-  var enabled = document.getElementById('sp-editor-enabled').checked;
+  var enabledCheckbox = document.getElementById('sp-editor-enabled');
+  var enabled = enabledCheckbox.disabled ? true : enabledCheckbox.checked;
   var content = document.getElementById('sp-editor-content').value;
 
   api('/a/' + agentId + '/api/agent/system-prompt/' + section, {
