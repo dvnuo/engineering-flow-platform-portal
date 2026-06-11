@@ -206,15 +206,18 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-filter-select { min-width: 110px; flex: 1 1 110px; height: 34px; border: 1px solid var(--portal-border); border-radius: var(--portal-radius-md); background: var(--portal-surface); color: var(--portal-text); padding: 0 28px 0 10px; font-size: 12px; outline: 0; }
 .portal-filter-select:focus { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); box-shadow: 0 0 0 3px var(--portal-accent-soft); }
 .portal-filter-segments { display: flex; flex-wrap: wrap; gap: 6px; }
-.portal-filter-chip { min-height: 28px; border: 1px solid var(--portal-border); border-radius: 999px; background: var(--portal-surface); color: var(--portal-text-secondary); padding: 0 10px; font-size: 12px; font-weight: 650; cursor: pointer; transition: border-color var(--portal-transition), background var(--portal-transition), color var(--portal-transition); }
+.portal-filter-chip { min-height: 28px; border: 1px solid var(--portal-border); border-radius: 999px; background: var(--portal-surface); color: var(--portal-text-secondary); padding: 0 10px; font-size: 12px; font-weight: 650; cursor: pointer; transition: border-color var(--portal-transition), background var(--portal-transition), color var(--portal-transition), transform var(--portal-transition); }
 .portal-filter-chip:hover { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%); color: var(--portal-text); }
-.portal-filter-chip.is-active { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 35%); background: var(--portal-accent-soft); color: var(--portal-accent-strong); }
+.portal-filter-chip.is-active { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 35%); background: var(--portal-accent-soft); color: var(--portal-accent-strong); transform: translateY(-1px); }
 .portal-filter-summary { min-height: 18px; color: var(--portal-text-muted); font-size: 11px; line-height: 1.35; }
 .portal-agent-list { overflow: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .portal-agent-section { display: flex; flex-direction: column; gap: 8px; }
-.portal-agent-row { width: 100%; min-height: 68px; padding: 12px 14px; border-radius: var(--portal-radius-md); border: 1px solid var(--portal-border); background: var(--portal-surface-muted); color: var(--portal-text); display: flex; flex-direction: column; justify-content: center; gap: 8px; transition: background var(--portal-transition), border-color var(--portal-transition), transform var(--portal-transition); }
+.portal-agent-row { width: 100%; min-height: 76px; padding: 12px 14px; border-radius: var(--portal-radius-md); border: 1px solid var(--portal-border); background: var(--portal-surface-muted); color: var(--portal-text); display: flex; flex-direction: column; justify-content: center; gap: 8px; transition: background var(--portal-transition), border-color var(--portal-transition), transform var(--portal-transition), box-shadow var(--portal-transition); animation: portal-list-item-in 180ms ease-out both; }
 .portal-agent-row:hover { transform: translateY(-1px); }
 .portal-agent-row.is-active { background: var(--portal-accent-soft); border-color: rgba(91,140,255,.4); }
+.portal-agent-row.is-error { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--portal-danger), transparent 20%); }
+.portal-agent-row.is-warning { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--portal-warning), transparent 20%); }
+.portal-agent-row.is-success.is-active { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--portal-success), transparent 20%); }
 html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,255,.18); border-color: rgba(126,162,255,.4); }
 .portal-agent-row-head, .portal-agent-row-foot { display: flex; align-items: center; justify-content: space-between; }
 .portal-agent-name { font-weight: 600; }
@@ -231,7 +234,13 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-agent-chat-badge.is-running { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); color: var(--portal-accent); }
 .portal-agent-chat-badge.is-completed { border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%); color: var(--portal-success); }
 .portal-agent-chat-badge.is-error { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%); color: var(--portal-danger); }
+.portal-agent-health-line { color: var(--portal-text-muted); font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .portal-empty-note { color: var(--portal-text-muted); font-size: 13px; }
+
+@keyframes portal-list-item-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 .portal-main {
   grid-area: main;
@@ -925,6 +934,64 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .portal-detail-stack {
   display: grid;
   gap: 14px;
+}
+
+.portal-agent-health-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-md);
+  padding: 12px;
+  background: var(--portal-surface-soft);
+  animation: portal-health-card-in 200ms ease-out both;
+}
+
+.portal-agent-health-card.is-success {
+  background: color-mix(in srgb, var(--portal-success), var(--portal-surface) 94%);
+  border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 65%);
+}
+
+.portal-agent-health-card.is-warning {
+  background: color-mix(in srgb, var(--portal-warning), var(--portal-surface) 92%);
+  border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 55%);
+}
+
+.portal-agent-health-card.is-error {
+  background: color-mix(in srgb, var(--portal-danger), var(--portal-surface) 92%);
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 55%);
+}
+
+.portal-agent-health-main {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.portal-agent-health-main > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.portal-agent-health-main strong {
+  color: var(--portal-text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.portal-agent-health-main span:not(.portal-status-badge) {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+@keyframes portal-health-card-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .portal-detail-section {
@@ -2847,7 +2914,9 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   #tool-panel,
   .assistant-loading-dots i,
   .portal-agent-row,
+  .portal-agent-health-card,
   .toolbar-icon-btn,
+  .portal-filter-chip,
   .toolbar-secondary-btn,
   .toolbar-primary-btn,
   .portal-tool-panel,
@@ -2894,6 +2963,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   .portal-task-toolbar,
   .portal-task-card-main,
   .portal-task-card-actions,
+  .portal-agent-health-card,
   .portal-repair-callout {
     align-items: stretch;
     flex-direction: column;

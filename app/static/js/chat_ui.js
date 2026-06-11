@@ -58,6 +58,11 @@ const dom = {
   tasksNavSection: document.getElementById("tasks-nav-section"),
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
+  agentSearchInput: document.getElementById("agent-search-input"),
+  agentScopeFilter: document.getElementById("agent-scope-filter"),
+  agentStatusFilter: document.getElementById("agent-status-filter"),
+  agentFilterClear: document.getElementById("agent-filter-clear"),
+  agentFilterSummary: document.getElementById("agent-filter-summary"),
   bundleNavList: document.getElementById("bundle-nav-list"),
   taskSearchInput: document.getElementById("task-search-input"),
   taskOwnerFilter: document.getElementById("task-owner-filter"),
@@ -277,6 +282,7 @@ const state = {
   activeUtilityPanel: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
+  agentFilters: { query: "", scope: "all", status: "all" },
   selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
@@ -4681,19 +4687,149 @@ function updateOwnerOnlyButtons(agentId) {
   });
 }
 
+function agentScope(agent) {
+  if (agent?.visibility === "public") return "public";
+  return Number(agent?.owner_user_id) === state.currentUserId ? "mine" : "shared";
+}
+
+function agentRuntimeStatus(agent) {
+  return String(state.agentStatus.get(agent?.id)?.status || agent?.status || "stopped").trim().toLowerCase() || "stopped";
+}
+
+function compactText(value, maxLength = 160) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function agentHealth(agent) {
+  const status = agentRuntimeStatus(agent);
+  const lastError = String(agent?.last_error || state.agentStatus.get(agent?.id)?.last_error || "").trim();
+  const writable = canWriteAgent(agent);
+  if (lastError || ["failed", "error"].includes(status)) {
+    return {
+      key: "attention",
+      tone: "error",
+      label: "Needs attention",
+      detail: lastError ? compactText(lastError, 120) : "The runtime reported an error.",
+      action: writable ? (status === "running" ? "Restart" : "Start") : "",
+    };
+  }
+  if (!agent?.runtime_profile_id) {
+    return {
+      key: "attention",
+      tone: "warning",
+      label: "Needs setup",
+      detail: "Runtime profile is missing.",
+      action: writable ? "Edit setup" : "",
+    };
+  }
+  if (["creating", "starting", "restarting"].includes(status)) {
+    return {
+      key: "starting",
+      tone: "warning",
+      label: "Starting",
+      detail: "Runtime is preparing. Chat will be available soon.",
+      action: "",
+    };
+  }
+  if (status === "running") {
+    return {
+      key: "ready",
+      tone: "success",
+      label: "Ready",
+      detail: "Ready to chat.",
+      action: "",
+    };
+  }
+  return {
+    key: "stopped",
+    tone: "neutral",
+    label: "Stopped",
+    detail: writable ? "Start this assistant when you need it." : "This assistant is not running.",
+    action: writable ? "Start" : "",
+  };
+}
+
+function agentScopeLabel(agent) {
+  const scope = agentScope(agent);
+  if (scope === "mine") return "Mine";
+  if (scope === "public") return "Public";
+  return `Shared by User ${agent?.owner_user_id ?? "-"}`;
+}
+
+function agentMatchesFilters(agent) {
+  const filters = state.agentFilters || {};
+  const scope = agentScope(agent);
+  if (filters.scope && filters.scope !== "all" && filters.scope !== scope) return false;
+  const health = agentHealth(agent);
+  if (filters.status === "ready" && health.key !== "ready") return false;
+  if (filters.status === "attention" && health.key !== "attention") return false;
+  if (filters.status === "stopped" && health.key !== "stopped") return false;
+
+  const query = String(filters.query || "").trim().toLowerCase();
+  if (!query) return true;
+  const haystack = [
+    agent?.name,
+    agent?.description,
+    agent?.status,
+    agent?.runtime_type,
+    agent?.visibility,
+    agent?.last_error,
+    agentScopeLabel(agent),
+    health.label,
+    health.detail,
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
+}
+
+function visibleAgents() {
+  return (state.mineAgents || []).filter(agentMatchesFilters);
+}
+
+function hasActiveAgentFilters() {
+  const filters = state.agentFilters || {};
+  return Boolean(String(filters.query || "").trim() || filters.scope !== "all" || filters.status !== "all");
+}
+
+function syncAgentFilterControls(visibleCount = null) {
+  const filters = state.agentFilters || { query: "", scope: "all", status: "all" };
+  if (dom.agentSearchInput && dom.agentSearchInput.value !== filters.query) dom.agentSearchInput.value = filters.query;
+  if (dom.agentScopeFilter && dom.agentScopeFilter.value !== filters.scope) dom.agentScopeFilter.value = filters.scope;
+  dom.agentStatusFilter?.querySelectorAll("[data-agent-status-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.agentStatusFilter === filters.status);
+  });
+  if (dom.agentFilterSummary) {
+    const total = (state.mineAgents || []).length;
+    const shown = visibleCount === null ? visibleAgents().length : visibleCount;
+    const parts = [];
+    if (filters.scope !== "all") parts.push(filters.scope);
+    if (filters.status !== "all") parts.push(filters.status === "attention" ? "needs attention" : filters.status);
+    if (filters.query) parts.push(`"${filters.query}"`);
+    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} assistants`;
+  }
+}
+
 // ===== selected agent state sync =====
 function renderAgentList() {
   if (!dom.mineList) return;
 
   dom.mineList.innerHTML = "";
+  syncAgentFilterControls();
   if (!state.mineAgents.length) {
     dom.mineList.innerHTML = '<div class="portal-empty-note">No assistants</div>';
     return;
   }
+  const filteredAgents = visibleAgents();
+  syncAgentFilterControls(filteredAgents.length);
+  if (!filteredAgents.length) {
+    dom.mineList.innerHTML = `<div class="portal-empty-note">${hasActiveAgentFilters() ? "No assistants match these filters." : "No assistants"}</div>`;
+    return;
+  }
 
-  const mine = state.mineAgents.filter((agent) => Number(agent.owner_user_id) === state.currentUserId && agent.visibility !== "public");
-  const shared = state.mineAgents.filter((agent) => Number(agent.owner_user_id) !== state.currentUserId && agent.visibility !== "public");
-  const publicAgents = state.mineAgents.filter((agent) => agent.visibility === "public");
+  const mine = filteredAgents.filter((agent) => agentScope(agent) === "mine");
+  const shared = filteredAgents.filter((agent) => agentScope(agent) === "shared");
+  const publicAgents = filteredAgents.filter((agent) => agentScope(agent) === "public");
 
   const renderSection = (title, agents, { showTitle = true } = {}) => {
     if (!agents.length) return;
@@ -4707,13 +4843,14 @@ function renderAgentList() {
     }
 
     agents.forEach((agent) => {
-      const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+      const status = agentRuntimeStatus(agent);
+      const health = agentHealth(agent);
       const chatState = ensureChatState(agent.id);
       const isActive = state.selectedAgentId === agent.id;
       const row = document.createElement("button");
       row.type = "button";
-      row.className = `portal-agent-row${isActive ? " is-active" : ""}`;
-      const sharedBadge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="portal-agent-shared">shared</span>';
+      row.className = `portal-agent-row is-${safe(health.tone)}${isActive ? " is-active" : ""}`;
+      const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent))}</span>`;
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
@@ -4728,6 +4865,7 @@ function renderAgentList() {
           <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
           <span class="portal-agent-status-text">${safe(status)}</span>
         </div>
+        <div class="portal-agent-health-line">${safe(health.detail)}</div>
       `;
       row.addEventListener("click", () => selectAgentById(agent.id));
       section.append(row);
@@ -4739,6 +4877,50 @@ function renderAgentList() {
   renderSection("My Space", mine, { showTitle: false });
   renderSection("Shared", shared);
   renderSection("Public", publicAgents);
+  renderIcons();
+}
+
+function agentHealthActionLabel(health) {
+  return String(health?.action || "").trim();
+}
+
+function agentHealthCardHtml(agent) {
+  const health = agentHealth(agent);
+  const scopeLabel = agentScopeLabel(agent);
+  const actionLabel = agentHealthActionLabel(health);
+  const actionButton = actionLabel ? `
+    <button class="portal-btn is-secondary" type="button" data-agent-health-action="${escapeHtmlAttr(actionLabel)}">
+      <i data-lucide="${actionLabel === "Edit setup" ? "settings" : (actionLabel === "Restart" ? "rotate-cw" : "play")}" class="w-4 h-4"></i>${safe(actionLabel)}
+    </button>
+  ` : "";
+  return `
+    <section class="portal-agent-health-card is-${safe(health.tone)}">
+      <div class="portal-agent-health-main">
+        <span class="portal-status-badge is-${safe(health.tone)}">${safe(health.label)}</span>
+        <div>
+          <strong>${safe(health.detail)}</strong>
+          <span>${safe(scopeLabel)} · ${safe(agentRuntimeStatus(agent))}</span>
+        </div>
+      </div>
+      ${actionButton}
+    </section>
+  `;
+}
+
+async function handleAgentHealthAction(agent, actionLabel) {
+  const label = String(actionLabel || "").trim();
+  if (!agent || !label) return;
+  if (label === "Edit setup") {
+    openEditDialog(agent);
+    return;
+  }
+  if (label === "Restart") {
+    await action(`/api/agents/${agent.id}/restart`);
+    return;
+  }
+  if (label === "Start") {
+    await action(`/api/agents/${agent.id}/start`);
+  }
 }
 
 function renderAgentMeta(agent) {
@@ -4786,6 +4968,7 @@ function renderAgentMeta(agent) {
 
   dom.agentMeta.innerHTML = `
     <div class="portal-detail-stack">
+      ${agentHealthCardHtml(agent)}
       <div class="portal-detail-section">
         <div class="portal-detail-label">Assistant ID</div>
         <code class="portal-detail-code">${safe(agent.id)}</code>
@@ -4823,6 +5006,14 @@ function renderAgentMeta(agent) {
       <div id="agent-usage" class="portal-detail-subtle">Loading usage...</div>
     </div>
   `;
+
+  dom.agentMeta.querySelector("[data-agent-health-action]")?.addEventListener("click", async (event) => {
+    try {
+      await handleAgentHealthAction(agent, event.currentTarget.dataset.agentHealthAction);
+    } catch (error) {
+      showToast(`Action failed: ${error.message}`);
+    }
+  });
 
   // Fetch usage data
   fetchUsageForAgent(agent.id);
@@ -10421,9 +10612,7 @@ function delegationEventReplyLabel(event) {
 }
 
 function delegationTruncate(value, maxLength = 160) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+  return compactText(value, maxLength);
 }
 
 function delegationRunTimelineItems(runs) {
@@ -11824,6 +12013,25 @@ function bindEvents() {
   });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
+  dom.agentSearchInput?.addEventListener("input", () => {
+    state.agentFilters.query = String(dom.agentSearchInput.value || "").trim();
+    renderAgentList();
+  });
+  dom.agentScopeFilter?.addEventListener("change", () => {
+    state.agentFilters.scope = dom.agentScopeFilter.value || "all";
+    renderAgentList();
+  });
+  dom.agentStatusFilter?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-agent-status-filter]");
+    if (!button) return;
+    state.agentFilters.status = button.dataset.agentStatusFilter || "all";
+    renderAgentList();
+  });
+  dom.agentFilterClear?.addEventListener("click", () => {
+    state.agentFilters = { query: "", scope: "all", status: "all" };
+    syncAgentFilterControls();
+    renderAgentList();
+  });
   dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"));
   dom.taskNavList?.addEventListener("scroll", () => {
     if (state.activeNavSection === "tasks") loadMoreTasksIfNeeded();
