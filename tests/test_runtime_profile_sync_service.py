@@ -46,7 +46,7 @@ def _assert_cli_instruction_texts(instruction_texts):
     assert isinstance(instruction_texts, list)
     assert len(instruction_texts) == 1
     text = instruction_texts[0]
-    for expected in ["bash", "jira", "confluence", "gh", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
+    for expected in ["bash", "jira", "confluence", "gh", "aws", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
         assert expected in text
 
 
@@ -626,6 +626,16 @@ def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_s
                     "base_url": "https://github.example.com/api/v3/",
                     "hosts": {"github.example.com": {"oauth_token": "browser-forged"}},
                 },
+                "aws": {
+                    "enabled": True,
+                    "profile": "prod",
+                    "region": "us-east-1",
+                    "output": "json",
+                    "account_id": "123456789012",
+                    "access_key_id": "AKIA_TEST",
+                    "secret_access_key": "aws-secret",
+                    "session_token": "aws-session",
+                },
                 "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com", "signingkey": "drop"}},
                 "tool_loop": {"max_iterations": 12},
                 "context_budget": {"max_prompt_tokens": 32000},
@@ -676,6 +686,16 @@ def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_s
                 "enabled": True,
                 "api_token": "github-token",
                 "base_url": "https://github.example.com/api/v3",
+            },
+            "aws": {
+                "enabled": True,
+                "profile": "prod",
+                "region": "us-east-1",
+                "output": "json",
+                "account_id": "123456789012",
+                "access_key_id": "AKIA_TEST",
+                "secret_access_key": "aws-secret",
+                "session_token": "aws-session",
             },
             "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
         }
@@ -766,14 +786,14 @@ def test_build_apply_payload_for_agent_adds_runtime_type_agent_id_and_external_s
     db, rp, running, _stopped = _build_db()
     try:
         running.runtime_type = "native"
-        rp.config_json = '{"llm":{"provider":"github_copilot","api_key":"OA"},"jira":{"enabled":true,"instances":[{"name":"j"}]},"confluence":{"enabled":true,"instances":[{"name":"c"}]},"github":{"enabled":true,"api_token":"gh"},"proxy":{"enabled":true,"password":"pw"},"git":{"user":{"name":"bot"}},"debug":{"enabled":true,"log_level":"INFO"}}'
+        rp.config_json = '{"llm":{"provider":"github_copilot","api_key":"OA"},"jira":{"enabled":true,"instances":[{"name":"j"}]},"confluence":{"enabled":true,"instances":[{"name":"c"}]},"github":{"enabled":true,"api_token":"gh"},"aws":{"enabled":true,"region":"us-east-1"},"proxy":{"enabled":true,"password":"pw"},"git":{"user":{"name":"bot"}},"debug":{"enabled":true,"log_level":"INFO"}}'
         db.add_all([running, rp])
         db.commit(); db.refresh(running); db.refresh(rp)
         payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
         assert payload["runtime_type"] == "native"
         assert payload["agent_id"] == running.id
         assert "runtime_type" not in payload["config"]
-        for key in ["jira", "confluence", "github", "proxy", "git", "debug"]:
+        for key in ["jira", "confluence", "github", "aws", "proxy", "git", "debug"]:
             assert key in payload["config"]
         assert payload["config"]["jira"]["instances"] == []
         assert payload["config"]["confluence"]["instances"] == []

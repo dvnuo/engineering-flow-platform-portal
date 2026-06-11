@@ -17,7 +17,7 @@ def _assert_cli_instruction_texts(instruction_texts):
     assert isinstance(instruction_texts, list)
     assert len(instruction_texts) == 1
     text = instruction_texts[0]
-    for expected in ["bash", "jira", "confluence", "gh", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
+    for expected in ["bash", "jira", "confluence", "gh", "aws", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
         assert expected in text
 
 
@@ -26,6 +26,17 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
         "jira": {"enabled": True, "instances": [{"name": "  J1 ", "url": " https://a.atlassian.net/ ", "username": " u ", "password": " p ", "token": " t ", "project": " PRJ ", "x": "bad"}, {"name": "", "url": "", "password": "drop"}]},
         "confluence": {"enabled": 1, "instances": [{"name": " C1 ", "url": " https://a.atlassian.net/wiki/ ", "username": " u ", "password": " p2 ", "token": " t2 ", "space": " DOCS ", "api_version": " 2 ", "bad": "x"}]},
         "github": {"enabled": True, "api_token": " ghp_1 ", "base_url": " https://api.github.com/ ", "x": "bad"},
+        "aws": {
+            "enabled": True,
+            "profile_name": " prod ",
+            "default_region": " us-east-1 ",
+            "output": " json ",
+            "account_id": " 123456789012 ",
+            "aws_access_key_id": " AKIA_TEST ",
+            "aws_secret_access_key": " aws-secret ",
+            "aws_session_token": " aws-session ",
+            "x": "bad",
+        },
         "proxy": {"enabled": True, "url": " http://proxy ", "username": " me ", "password": " secret "},
         "git": {"user": {"name": " Bot ", "email": " bot@example.com ", "x": "bad"}},
         "debug": {"enabled": True, "log_level": "info", "x": "bad"},
@@ -35,6 +46,16 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
     assert s["confluence"]["instances"][0]["url"] == "https://a.atlassian.net/wiki"
     assert "api_version" not in s["confluence"]["instances"][0]
     assert s["github"] == {"enabled": True, "api_token": "ghp_1", "base_url": "https://api.github.com"}
+    assert s["aws"] == {
+        "enabled": True,
+        "profile": "prod",
+        "region": "us-east-1",
+        "output": "json",
+        "account_id": "123456789012",
+        "access_key_id": "AKIA_TEST",
+        "secret_access_key": "aws-secret",
+        "session_token": "aws-session",
+    }
     assert s["proxy"]["password"] == "secret"
     assert s["git"] == {"user": {"name": "Bot", "email": "bot@example.com"}}
     assert s["debug"]["log_level"] == "INFO"
@@ -102,6 +123,7 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
             "oauth_by_runtime": {"opencode": {"type": "oauth", "access": "oa", "refresh": "or", "expires": 2}},
         },
         "github": {"api_token": "ghp_1"},
+        "aws": {"access_key_id": "AKIA_TEST", "secret_access_key": "aws-secret", "session_token": "aws-session"},
         "proxy": {"password": "pw"},
         "jira": {"instances": [{"name": "x", "password": "p", "token": "t"}]},
         "confluence": {"instances": [{"name": "x", "password": "p2", "token": "t2"}]},
@@ -111,6 +133,9 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     assert "oauth" not in red["llm"]
     assert "oauth_by_runtime" not in red["llm"]
     assert "api_token" not in red["github"] and red["github"]["api_token_present"] is True
+    assert "access_key_id" not in red["aws"] and red["aws"]["access_key_id_present"] is True
+    assert "secret_access_key" not in red["aws"] and red["aws"]["secret_access_key_present"] is True
+    assert "session_token" not in red["aws"] and red["aws"]["session_token_present"] is True
     assert "password" not in red["proxy"] and red["proxy"]["password_present"] is True
     assert "password" not in red["jira"]["instances"][0] and red["jira"]["instances"][0]["password_present"] is True
     assert "token" not in red["confluence"]["instances"][0] and red["confluence"]["instances"][0]["token_present"] is True
@@ -119,6 +144,14 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
 def test_public_redaction_removes_token_aliases():
     cfg = {
         "github": {"api_token": "gh-api", "token": "gh-token", "access_token": "gh-access"},
+        "aws": {
+            "access_key_id": "AKIA_TEST",
+            "aws_access_key_id": "AKIA_ALIAS",
+            "secret_access_key": "aws-secret",
+            "aws_secret_access_key": "aws-secret-alias",
+            "session_token": "aws-session",
+            "aws_session_token": "aws-session-alias",
+        },
         "jira": {"instances": [{"api_token": "jira-api", "token": "jira-token", "access_token": "jira-access"}]},
         "confluence": {"instances": [{"api_token": "conf-api", "token": "conf-token", "access_token": "conf-access"}]},
     }
@@ -126,9 +159,12 @@ def test_public_redaction_removes_token_aliases():
     red = redact_runtime_profile_config_for_public_response(cfg)
     dumped = json.dumps(red)
 
-    for secret in ("gh-api", "gh-token", "gh-access", "jira-api", "jira-token", "jira-access", "conf-api", "conf-token", "conf-access"):
+    for secret in ("gh-api", "gh-token", "gh-access", "AKIA_TEST", "AKIA_ALIAS", "aws-secret", "aws-secret-alias", "aws-session", "aws-session-alias", "jira-api", "jira-token", "jira-access", "conf-api", "conf-token", "conf-access"):
         assert secret not in dumped
     assert red["github"]["api_token_present"] is True
+    assert red["aws"]["access_key_id_present"] is True
+    assert red["aws"]["secret_access_key_present"] is True
+    assert red["aws"]["session_token_present"] is True
     assert red["jira"]["instances"][0]["token_present"] is True
     assert red["confluence"]["instances"][0]["token_present"] is True
 
@@ -154,11 +190,13 @@ def test_alias_fields_are_normalized_to_canonical_shape():
             "jira": {"instances": [{"name": "J", "base_url": "https://a/", "email": "u@x", "api_token": "jt", "project_key": "ENG", "enabled": "1"}]},
             "confluence": {"instances": [{"name": "C", "base_url": "https://a/wiki/", "email": "c@x", "api_token": "ct", "space_key": "DOCS", "enabled": True}]},
             "github": {"access_token": "gh", "api_base_url": "https://api.github.com/"},
+            "aws": {"profile_name": "dev", "default_region": "us-west-2", "aws_access_key_id": "AK", "aws_secret_access_key": "SK", "aws_session_token": "ST"},
         }
     )
     assert s["jira"]["instances"][0] == {"name": "J", "url": "https://a", "username": "u@x", "token": "jt", "project": "ENG", "enabled": True}
     assert s["confluence"]["instances"][0] == {"name": "C", "url": "https://a/wiki", "username": "c@x", "token": "ct", "space": "DOCS", "enabled": True}
     assert s["github"] == {"api_token": "gh", "base_url": "https://api.github.com"}
+    assert s["aws"] == {"profile": "dev", "region": "us-west-2", "access_key_id": "AK", "secret_access_key": "SK", "session_token": "ST"}
 
 
 def test_external_instances_require_endpoint_and_normalize_url_aliases():
@@ -237,6 +275,17 @@ def test_external_integration_contract_keeps_cli_mapping_inputs_and_drops_runtim
             "base_url": "https://github.example.com/api/v3/",
             "hosts": {"github.example.com": {"oauth_token": "browser-forged"}},
         },
+        "aws": {
+            "enabled": True,
+            "profile": "prod",
+            "region": "us-east-1",
+            "output": "json",
+            "account_id": "123456789012",
+            "access_key_id": "AKIA_TEST",
+            "secret_access_key": "aws-secret",
+            "session_token": "aws-session",
+            "policy": {"drop": True},
+        },
         "git": {
             "user": {
                 "name": "EFP Bot",
@@ -285,6 +334,16 @@ def test_external_integration_contract_keeps_cli_mapping_inputs_and_drops_runtim
             "api_token": "github-token",
             "base_url": "https://github.example.com/api/v3",
         },
+        "aws": {
+            "enabled": True,
+            "profile": "prod",
+            "region": "us-east-1",
+            "output": "json",
+            "account_id": "123456789012",
+            "access_key_id": "AKIA_TEST",
+            "secret_access_key": "aws-secret",
+            "session_token": "aws-session",
+        },
         "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
     }
 
@@ -305,6 +364,7 @@ def test_external_enabled_string_false_values_remain_disabled():
             ],
         },
         "github": {"enabled": "false", "api_token": "gh"},
+        "aws": {"enabled": "false", "access_key_id": "AK", "secret_access_key": "SK"},
         "proxy": {"enabled": "0", "url": "http://proxy", "password": "pw"},
         "debug": {"enabled": "off", "log_level": "debug"},
     }
@@ -315,6 +375,7 @@ def test_external_enabled_string_false_values_remain_disabled():
     assert s["confluence"]["enabled"] is False
     assert s["confluence"]["instances"][0]["enabled"] is False
     assert s["github"]["enabled"] is False
+    assert s["aws"]["enabled"] is False
     assert s["proxy"]["enabled"] is False
     assert s["debug"]["enabled"] is False
 
@@ -323,12 +384,14 @@ def test_external_enabled_true_strings_are_respected():
     raw = {
         "jira": {"enabled": "true", "instances": [{"name": "J", "url": "https://jira", "enabled": "1"}]},
         "github": {"enabled": "on", "api_token": "gh"},
+        "aws": {"enabled": "yes", "access_key_id": "AK", "secret_access_key": "SK"},
         "proxy": {"enabled": "yes", "url": "http://proxy"},
     }
     s = sanitize_runtime_profile_config_dict(raw)
     assert s["jira"]["enabled"] is True
     assert s["jira"]["instances"][0]["enabled"] is True
     assert s["github"]["enabled"] is True
+    assert s["aws"]["enabled"] is True
     assert s["proxy"]["enabled"] is True
 
 
@@ -337,6 +400,7 @@ def test_external_enabled_json_booleans_are_preserved():
         "jira": {"enabled": False, "instances": [{"name": "J", "url": "https://jira", "enabled": False}]},
         "confluence": {"enabled": True, "instances": [{"name": "C", "url": "https://conf", "enabled": True}]},
         "github": {"enabled": False, "api_token": "gh"},
+        "aws": {"enabled": True, "access_key_id": "AK", "secret_access_key": "SK"},
         "proxy": {"enabled": True, "url": "http://proxy"},
         "debug": {"enabled": False},
     }
@@ -346,6 +410,7 @@ def test_external_enabled_json_booleans_are_preserved():
     assert s["confluence"]["enabled"] is True
     assert s["confluence"]["instances"][0]["enabled"] is True
     assert s["github"]["enabled"] is False
+    assert s["aws"]["enabled"] is True
     assert s["proxy"]["enabled"] is True
     assert s["debug"]["enabled"] is False
 
@@ -354,17 +419,21 @@ def test_public_redaction_never_exposes_raw_secret_literals():
     cfg = {
         "llm": {"api_key": "sk-secret"},
         "github": {"api_token": "gh-secret"},
+        "aws": {"access_key_id": "AKIA_SECRET", "secret_access_key": "aws-secret", "session_token": "aws-session"},
         "proxy": {"password": "proxy-secret"},
         "jira": {"instances": [{"password": "jira-pass", "token": "jira-token"}]},
         "confluence": {"instances": [{"password": "conf-pass", "token": "conf-token"}]},
     }
     red = redact_runtime_profile_config_for_public_response(cfg)
     dumped = str(red)
-    for secret in ["sk-secret", "gh-secret", "proxy-secret", "jira-pass", "jira-token", "conf-pass", "conf-token"]:
+    for secret in ["sk-secret", "gh-secret", "AKIA_SECRET", "aws-secret", "aws-session", "proxy-secret", "jira-pass", "jira-token", "conf-pass", "conf-token"]:
         assert secret not in dumped
 
     assert red["llm"]["api_key_present"] is True
     assert red["github"]["api_token_present"] is True
+    assert red["aws"]["access_key_id_present"] is True
+    assert red["aws"]["secret_access_key_present"] is True
+    assert red["aws"]["session_token_present"] is True
     assert red["proxy"]["password_present"] is True
     assert red["jira"]["instances"][0]["password_present"] is True
     assert red["jira"]["instances"][0]["token_present"] is True
@@ -477,6 +546,7 @@ def test_runtime_profile_context_projection_drops_tool_restriction_fields():
             "tool" + "_permissions": {"bash": "ask"},
             "llm": {"provider": "github_copilot", "model": "gpt-5-mini", "tools": ["bash"]},
             "github": {"enabled": True, "api_token": "ghp"},
+            "aws": {"enabled": True, "access_key_id": "AK", "secret_access_key": "SK", "region": "us-east-1"},
         },
         runtime_type="native",
         include_portal_sections=False,
@@ -490,6 +560,7 @@ def test_runtime_profile_context_projection_drops_tool_restriction_fields():
     assert projected["llm"]["provider"] == "github_copilot"
     assert projected["llm"]["model"] == "gpt-5-mini"
     assert projected["github"]["api_token"] == "ghp"
+    assert projected["aws"]["access_key_id"] == "AK"
     _assert_cli_instruction_texts(projected["instruction_texts"])
 
 
@@ -505,6 +576,7 @@ def test_native_runtime_profile_context_config_adds_external_cli_instruction_tex
                 "instances": [{"name": "Docs", "url": "https://conf.example/wiki", "enabled": True}],
             },
             "github": {"enabled": True, "api_token": "ghp"},
+            "aws": {"enabled": True, "profile": "prod", "region": "us-east-1"},
             "git": {"user": {"name": "Bot", "email": "bot@example.com"}},
         },
         runtime_type="native",
@@ -514,6 +586,7 @@ def test_native_runtime_profile_context_config_adds_external_cli_instruction_tex
     assert projected["jira"]["instances"][0]["url"] == "https://jira.example"
     assert projected["confluence"]["instances"][0]["url"] == "https://conf.example/wiki"
     assert projected["github"]["api_token"] == "ghp"
+    assert projected["aws"]["profile"] == "prod"
     assert projected["git"]["user"]["email"] == "bot@example.com"
 
 
@@ -525,6 +598,7 @@ def test_opencode_runtime_profile_context_config_omits_efp_instruction_texts():
                 "instances": [{"name": "Jira", "url": "https://jira.example", "enabled": True}],
             },
             "github": {"enabled": True, "api_token": "ghp"},
+            "aws": {"enabled": True, "profile": "prod"},
             "instruction_texts": ["user supplied instruction"],
         },
         runtime_type="opencode",
@@ -533,3 +607,4 @@ def test_opencode_runtime_profile_context_config_omits_efp_instruction_texts():
     assert "instruction_texts" not in projected
     assert projected["jira"]["enabled"] is True
     assert projected["github"]["api_token"] == "ghp"
+    assert projected["aws"]["profile"] == "prod"

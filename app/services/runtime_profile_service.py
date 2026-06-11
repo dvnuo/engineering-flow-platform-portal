@@ -84,6 +84,9 @@ class RuntimeProfileService:
             "github": {
                 "enabled": False,
             },
+            "aws": {
+                "enabled": False,
+            },
             "git": {"user": {}},
             "debug": {"enabled": False, "log_level": "INFO"},
         }

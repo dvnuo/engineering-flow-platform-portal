@@ -714,6 +714,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
     confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
     raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
+    raw_aws = raw_config.get("aws") if isinstance(raw_config.get("aws"), dict) else {}
     raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
     raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
     raw_llm_timeout_ms = raw_llm.get("timeout_ms")
@@ -736,6 +737,8 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "confluence_instances": confluence_instances,
         "github": effective_config.get("github") if isinstance(effective_config.get("github"), dict) else {},
         "raw_github": raw_github,
+        "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
+        "raw_aws": raw_aws,
         "git": effective_config.get("git") if isinstance(effective_config.get("git"), dict) else {},
         "raw_git": raw_git,
         "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
@@ -1096,6 +1099,27 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 github_cfg.pop("base_url", None)
         github_cfg.pop("automation", None)
         config_payload["github"] = github_cfg
+
+    if is_section_touched("aws"):
+        aws_cfg = (config_payload.get("aws") if isinstance(config_payload.get("aws"), dict) else {}).copy()
+        aws_cfg["enabled"] = as_bool(form.get("aws_enabled"))
+        for field, form_field in (
+            ("profile", "aws_profile"),
+            ("region", "aws_region"),
+            ("output", "aws_output"),
+            ("account_id", "aws_account_id"),
+            ("access_key_id", "aws_access_key_id"),
+            ("secret_access_key", "aws_secret_access_key"),
+            ("session_token", "aws_session_token"),
+        ):
+            if form_field not in form:
+                continue
+            value = (form.get(form_field) or "").strip()
+            if value:
+                aws_cfg[field] = value
+            else:
+                aws_cfg.pop(field, None)
+        config_payload["aws"] = aws_cfg
 
     if is_section_touched("git"):
         git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()

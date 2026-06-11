@@ -12,6 +12,7 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "jira",
     "confluence",
     "github",
+    "aws",
     "git",
     "debug",
 }
@@ -55,6 +56,21 @@ PORTAL_MANAGED_FIELD_TREE = {
         "access_token": True,
         "base_url": True,
         "api_base_url": True,
+    },
+    "aws": {
+        "enabled": True,
+        "profile": True,
+        "profile_name": True,
+        "region": True,
+        "default_region": True,
+        "output": True,
+        "account_id": True,
+        "access_key_id": True,
+        "aws_access_key_id": True,
+        "secret_access_key": True,
+        "aws_secret_access_key": True,
+        "session_token": True,
+        "aws_session_token": True,
     },
     "git": {
         "user": {
@@ -261,6 +277,36 @@ def sanitize_runtime_profile_github(value) -> dict:
     return out
 
 
+def sanitize_runtime_profile_aws(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    profile = _first_nonblank_string(value, ("profile", "profile_name"))
+    if profile:
+        out["profile"] = profile
+    region = _first_nonblank_string(value, ("region", "default_region"))
+    if region:
+        out["region"] = region
+    output = str(value.get("output") or "").strip()
+    if output:
+        out["output"] = output
+    account_id = str(value.get("account_id") or "").strip()
+    if account_id:
+        out["account_id"] = account_id
+    access_key_id = _first_nonblank_string(value, ("access_key_id", "aws_access_key_id"))
+    if access_key_id:
+        out["access_key_id"] = access_key_id
+    secret_access_key = _first_nonblank_string(value, ("secret_access_key", "aws_secret_access_key"))
+    if secret_access_key:
+        out["secret_access_key"] = secret_access_key
+    session_token = _first_nonblank_string(value, ("session_token", "aws_session_token"))
+    if session_token:
+        out["session_token"] = session_token
+    return out
+
+
 def sanitize_runtime_profile_proxy(value) -> dict:
     if not isinstance(value, dict):
         return {}
@@ -361,6 +407,8 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         sanitized["confluence"] = sanitize_runtime_profile_confluence(sanitized.get("confluence"))
     if "github" in sanitized:
         sanitized["github"] = sanitize_runtime_profile_github(sanitized.get("github"))
+    if "aws" in sanitized:
+        sanitized["aws"] = sanitize_runtime_profile_aws(sanitized.get("aws"))
     if "proxy" in sanitized:
         sanitized["proxy"] = sanitize_runtime_profile_proxy(sanitized.get("proxy"))
     if "git" in sanitized:
@@ -408,6 +456,14 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
         token_values = [str(github.pop(key, "")).strip() for key in ("api_token", "token", "access_token")]
         token_present = any(token_values)
         github["api_token_present"] = token_present
+    aws = redacted.get("aws")
+    if isinstance(aws, dict):
+        access_key_values = [str(aws.pop(key, "")).strip() for key in ("access_key_id", "aws_access_key_id")]
+        secret_key_values = [str(aws.pop(key, "")).strip() for key in ("secret_access_key", "aws_secret_access_key")]
+        session_token_values = [str(aws.pop(key, "")).strip() for key in ("session_token", "aws_session_token")]
+        aws["access_key_id_present"] = any(access_key_values)
+        aws["secret_access_key_present"] = any(secret_key_values)
+        aws["session_token_present"] = any(session_token_values)
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())

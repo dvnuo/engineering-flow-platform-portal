@@ -453,6 +453,7 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "__touch_jira": "1",
             "__touch_confluence": "1",
             "__touch_github": "1",
+            "__touch_aws": "1",
             "__touch_git": "1",
             "__touch_debug": "0",
             "jira_enabled": "on",
@@ -477,6 +478,14 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "github_enabled": "on",
             "github_api_token": "github-token",
             "github_base_url": "https://github.example.com/api/v3/",
+            "aws_enabled": "on",
+            "aws_profile": "prod",
+            "aws_region": "us-east-1",
+            "aws_output": "json",
+            "aws_account_id": "123456789012",
+            "aws_access_key_id": "AKIA_TEST",
+            "aws_secret_access_key": "aws-secret",
+            "aws_session_token": "aws-session",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
             "tool_loop": '{"max_iterations":12}',
@@ -522,6 +531,16 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
                 "enabled": True,
                 "api_token": "github-token",
                 "base_url": "https://github.example.com/api/v3",
+            },
+            "aws": {
+                "enabled": True,
+                "profile": "prod",
+                "region": "us-east-1",
+                "output": "json",
+                "account_id": "123456789012",
+                "access_key_id": "AKIA_TEST",
+                "secret_access_key": "aws-secret",
+                "session_token": "aws-session",
             },
             "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
         }
@@ -683,9 +702,9 @@ def _copilot_root_block(text: str) -> str:
 
 def test_templates_and_js_include_single_copilot_auth_button_and_api_key_flow():
     from pathlib import Path
-    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text()
-    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text()
-    js = Path("app/static/js/chat_ui.js").read_text()
+    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert 'name="llm_api_key"' in runtime_tpl
     assert 'name="llm_api_key"' in settings_tpl
     assert 'llm_oauth_native' not in runtime_tpl
