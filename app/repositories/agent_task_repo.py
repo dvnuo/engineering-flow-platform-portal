@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.agent_task import AgentTask
@@ -21,8 +21,19 @@ class AgentTaskRepository:
     def get_by_id(self, task_id: str) -> Optional[AgentTask]:
         return self.db.get(AgentTask, task_id)
 
-    def list_all(self) -> list[AgentTask]:
-        return list(self.db.scalars(select(AgentTask).order_by(AgentTask.created_at.desc())).all())
+    def list_all(self, *, limit: int | None = None, offset: int = 0) -> list[AgentTask]:
+        stmt = select(AgentTask).order_by(AgentTask.created_at.desc())
+        if offset > 0:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            if limit <= 0:
+                return []
+            stmt = stmt.limit(limit)
+        return list(self.db.scalars(stmt).all())
+
+    def count_by_status(self) -> dict[str, int]:
+        rows = self.db.execute(select(AgentTask.status, func.count()).group_by(AgentTask.status)).all()
+        return {str(status or "unknown"): int(count or 0) for status, count in rows}
 
     def list_by_agent(self, agent_id: str) -> list[AgentTask]:
         stmt = (
@@ -40,13 +51,18 @@ class AgentTaskRepository:
         )
         return list(self.db.scalars(stmt).all())
 
-    def list_visible_to_user(self, *, user_id: int) -> list[AgentTask]:
-        filters = [AgentTask.owner_user_id == user_id, AgentTask.created_by_user_id == user_id]
+    def list_visible_to_user(self, *, user_id: int, limit: int | None = None, offset: int = 0) -> list[AgentTask]:
+        _ = user_id
         stmt = (
             select(AgentTask)
-            .where(or_(*filters))
             .order_by(AgentTask.updated_at.desc(), AgentTask.created_at.desc())
         )
+        if offset > 0:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            if limit <= 0:
+                return []
+            stmt = stmt.limit(limit)
         return list(self.db.scalars(stmt).all())
 
     def find_recent_duplicate(

@@ -38,9 +38,10 @@ class DelegationRuleUpdate(BaseModel):
     enabled: Optional[bool] = None
     target_agent_id: Optional[str] = None
     skill_name: Optional[str] = None
+    source: Optional[str] = None
     interval_seconds: Optional[int] = None
 
-    @field_validator("name", "target_agent_id", "skill_name")
+    @field_validator("name", "target_agent_id", "skill_name", "source")
     @classmethod
     def _optional_non_empty(cls, value: str | None) -> str | None:
         if value is None:
@@ -95,6 +96,10 @@ class DelegationRuleRead(BaseModel):
     locked_until: Optional[datetime] = None
     owner_user_id: Optional[int] = None
     created_by_user_id: Optional[int] = None
+    owner_display_name: Optional[str] = None
+    can_manage: bool = False
+    target_agent_name: Optional[str] = None
+    target_agent_missing: bool = False
     created_at: datetime
     updated_at: datetime
 

@@ -28,6 +28,7 @@
   <section class="portal-task-metrics">
     <div><span>Status</span><strong>{{ task_view_model.status_label }}</strong></div>
     <div><span>Agent</span><strong>{{ task_view_model.assignee_agent_label }}</strong></div>
+    <div><span>Owner</span><strong>{{ task_view_model.owner_display_name }}</strong></div>
     <div><span>Skill</span><strong>/{{ task_view_model.skill_name }}</strong></div>
     <div><span>Duration</span><strong>{{ task_view_model.duration_label }}</strong></div>
   </section>
@@ -182,8 +183,8 @@
   {% endif %}
 
   {% if content_target == "#workspace-detail-content" %}
-  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to My Tasks</button>
+  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to Tasks</button>
   {% else %}
-  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to My Tasks</button>
+  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to Tasks</button>
   {% endif %}
 </div>

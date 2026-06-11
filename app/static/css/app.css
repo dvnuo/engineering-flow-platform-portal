@@ -196,6 +196,7 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-secondary-list { overflow: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .portal-secondary-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .portal-secondary-list-body { overflow: auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.portal-list-load-state { flex: 0 0 auto; padding: 8px 10px; color: var(--portal-text-muted); font-size: 12px; text-align: center; }
 .portal-agent-list { overflow: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .portal-agent-section { display: flex; flex-direction: column; gap: 8px; }
 .portal-agent-row { width: 100%; min-height: 68px; padding: 12px 14px; border-radius: var(--portal-radius-md); border: 1px solid var(--portal-border); background: var(--portal-surface-muted); color: var(--portal-text); display: flex; flex-direction: column; justify-content: center; gap: 8px; transition: background var(--portal-transition), border-color var(--portal-transition), transform var(--portal-transition); }
@@ -1966,6 +1967,15 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 8px;
   font-size: 13px;
   color: var(--portal-text-secondary);
+}
+
+.portal-toggle-field {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--portal-text-secondary);
+  font-size: 13px;
 }
 
 .toggle-switch {

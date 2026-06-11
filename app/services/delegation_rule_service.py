@@ -140,16 +140,25 @@ class DelegationRuleService:
     def update_rule(self, rule, payload: DelegationRuleUpdate, current_user_id: int) -> object:
         _ = current_user_id
         data = payload.model_dump(exclude_unset=True)
-        source = self._validate_source(rule.trigger_type)
+        source = self._validate_source(data.get("source") or rule.trigger_type)
         provider = self._provider_for_source(source)
         target_agent_id = str(data.get("target_agent_id") or rule.target_agent_id).strip()
-        self._validate_agent_provider_config(agent_id=target_agent_id, provider=provider)
+        should_validate_target = (
+            "target_agent_id" in data
+            or "source" in data
+            or ("enabled" in data and bool(data["enabled"]))
+        )
+        if should_validate_target:
+            self._validate_agent_provider_config(agent_id=target_agent_id, provider=provider)
 
         task_config = self._parse_json(rule.task_config_json)
         schedule = self._parse_json(rule.schedule_json)
         update_data: dict = {}
         if "name" in data:
             update_data["name"] = data["name"].strip()
+        if "source" in data:
+            update_data["source_type"] = provider
+            update_data["trigger_type"] = source
         if "enabled" in data:
             update_data["enabled"] = bool(data["enabled"])
         if "target_agent_id" in data:
