@@ -148,6 +148,47 @@ def test_api_create_accepts_all_sources():
         cleanup()
 
 
+def test_api_create_returns_runtime_source_and_condition_summaries():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        payload = _payload(agents.both.id, "github_pr_review")
+        payload["source_conditions"] = {
+            "repository": "https://github.com/acme/portal",
+            "base_branch": "main",
+            "labels_include": "backend, review",
+            "include_drafts": False,
+        }
+        resp = client.post("/api/delegation-rules", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["source_conditions"]["repository"] == "acme/portal"
+        assert body["source_conditions"]["labels_include"] == ["backend", "review"]
+        assert body["source_conditions"]["include_drafts"] is False
+        assert body["source_account_summary"].startswith("GitHub via both")
+        assert "repo acme/portal" in body["source_condition_summary"]
+        assert "no drafts" in body["source_condition_summary"]
+        assert body["source_config_status"] == "ok"
+    finally:
+        cleanup()
+
+
+def test_api_source_preview_exposes_jira_runtime_profile_instances():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        resp = client.get(
+            "/api/delegation-rules/source-preview",
+            params={"target_agent_id": agents.both.id, "source": "jira_assignee"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["provider"] == "jira"
+        assert body["status"] == "ok"
+        assert body["account_summary"].startswith("Jira jira")
+        assert body["options"]["jira_instances"][0]["value"] == "jira"
+    finally:
+        cleanup()
+
+
 def test_api_rejects_unknown_source_with_400():
     client, _db, agents, cleanup = _build_client_with_overrides()
     try:

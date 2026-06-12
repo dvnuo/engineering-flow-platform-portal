@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DelegationRuleCreate(BaseModel):
@@ -12,6 +12,8 @@ class DelegationRuleCreate(BaseModel):
     skill_name: str
     source: str
     interval_seconds: int = 60
+    source_scope: dict[str, Any] = Field(default_factory=dict)
+    source_conditions: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name", "target_agent_id", "skill_name", "source")
     @classmethod
@@ -40,6 +42,8 @@ class DelegationRuleUpdate(BaseModel):
     skill_name: Optional[str] = None
     source: Optional[str] = None
     interval_seconds: Optional[int] = None
+    source_scope: Optional[dict[str, Any]] = None
+    source_conditions: Optional[dict[str, Any]] = None
 
     @field_validator("name", "target_agent_id", "skill_name", "source")
     @classmethod
@@ -100,6 +104,15 @@ class DelegationRuleRead(BaseModel):
     can_manage: bool = False
     target_agent_name: Optional[str] = None
     target_agent_missing: bool = False
+    source_scope: dict[str, Any] = Field(default_factory=dict)
+    source_conditions: dict[str, Any] = Field(default_factory=dict)
+    source_account_summary: Optional[str] = None
+    source_condition_summary: Optional[str] = None
+    source_config_status: str = "ok"
+    source_config_warning: Optional[str] = None
+    source_runtime_profile_id: Optional[str] = None
+    source_runtime_profile_name: Optional[str] = None
+    source_options: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -132,9 +145,13 @@ class DelegationRuleRead(BaseModel):
             }
         task_config = _parse_json_object(data.get("task_config_json"))
         schedule = _parse_json_object(data.get("schedule_json"))
+        source_scope = _parse_json_object(data.get("scope_json"))
+        source_conditions = _parse_json_object(data.get("trigger_config_json"))
         data.setdefault("source", data.get("trigger_type"))
         data.setdefault("skill_name", task_config.get("skill_name") or "")
         data.setdefault("interval_seconds", int(schedule.get("interval_seconds") or 60))
+        data.setdefault("source_scope", source_scope)
+        data.setdefault("source_conditions", source_conditions)
         return data
 
     class Config:

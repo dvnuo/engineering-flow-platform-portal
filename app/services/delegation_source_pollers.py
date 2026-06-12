@@ -13,6 +13,11 @@ from app.services.provider_config_resolver import (
     resolve_github_for_agent,
     resolve_jira_for_agent,
 )
+from app.services.delegation_source_config import (
+    normalize_delegation_source_conditions,
+    normalize_delegation_source_scope,
+    parse_json_object,
+)
 
 
 DELEGATION_REPLY_MARKER_PREFIX = "<!-- efp:delegation-reply "
@@ -55,6 +60,27 @@ class DelegationSourcePoller:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+
+    @staticmethod
+    def _rule_source_scope(rule) -> dict[str, Any]:
+        return normalize_delegation_source_scope(
+            getattr(rule, "trigger_type", None),
+            parse_json_object(getattr(rule, "scope_json", "{}")),
+        )
+
+    @staticmethod
+    def _rule_source_conditions(rule) -> dict[str, Any]:
+        return normalize_delegation_source_conditions(
+            getattr(rule, "trigger_type", None),
+            parse_json_object(getattr(rule, "trigger_config_json", "{}")),
+        )
+
+    @staticmethod
+    def _resolve_jira_provider_config(db: Session, rule, source_scope: dict[str, Any]) -> JiraProviderConfig:
+        try:
+            return resolve_jira_for_agent(db, rule.target_agent_id, source_scope=source_scope)
+        except TypeError:
+            return resolve_jira_for_agent(db, rule.target_agent_id)
 
     async def _github_identity(self, client: httpx.AsyncClient, provider_config: GithubProviderConfig) -> str:
         response = await client.get(
@@ -138,6 +164,24 @@ class DelegationSourcePoller:
                 payload[key] = value
         if "draft" in pull_payload:
             payload["draft"] = bool(pull_payload.get("draft"))
+        base_branch = str(base.get("ref") or "").strip()
+        if base_branch:
+            payload["base_branch"] = cls._bounded_text(base_branch, limit=255)
+        head_branch = str(head.get("ref") or "").strip()
+        if head_branch:
+            payload["head_branch"] = cls._bounded_text(head_branch, limit=255)
+        labels = issue.get("labels") if isinstance(issue.get("labels"), list) else pull_payload.get("labels")
+        if isinstance(labels, list):
+            label_names = []
+            for label in labels:
+                if isinstance(label, dict):
+                    label_name = str(label.get("name") or "").strip()
+                else:
+                    label_name = str(label or "").strip()
+                if label_name:
+                    label_names.append(label_name)
+            if label_names:
+                payload["labels"] = label_names
         return payload
 
     @classmethod
@@ -220,11 +264,17 @@ class DelegationSourcePoller:
 
     async def _poll_github_pr_review(self, db: Session, rule) -> SourcePollResult:
         provider_config = resolve_github_for_agent(db, rule.target_agent_id)
+        conditions = self._rule_source_conditions(rule)
         base_url = provider_config.base_url.rstrip("/")
         headers = self._github_headers(provider_config)
         async with httpx.AsyncClient(timeout=30.0) as client:
             login = await self._github_identity(client, provider_config)
-            query = f"is:pr is:open review-requested:{login}"
+            query_terms = [f"is:pr is:open review-requested:{login}"]
+            if conditions.get("repository"):
+                query_terms.append(f"repo:{conditions['repository']}")
+            if conditions.get("base_branch"):
+                query_terms.append(f"base:{conditions['base_branch']}")
+            query = " ".join(query_terms)
             search_response = await client.get(
                 f"{base_url}/search/issues",
                 headers=headers,
@@ -313,11 +363,17 @@ class DelegationSourcePoller:
 
     async def _poll_github_pr_mention(self, db: Session, rule) -> SourcePollResult:
         provider_config = resolve_github_for_agent(db, rule.target_agent_id)
+        conditions = self._rule_source_conditions(rule)
         base_url = provider_config.base_url.rstrip("/")
         headers = self._github_headers(provider_config)
         async with httpx.AsyncClient(timeout=30.0) as client:
             login = await self._github_identity(client, provider_config)
-            query = f"is:pr is:open mentions:{login}"
+            query_terms = [f"is:pr is:open mentions:{login}"]
+            if conditions.get("repository"):
+                query_terms.append(f"repo:{conditions['repository']}")
+            if conditions.get("base_branch"):
+                query_terms.append(f"base:{conditions['base_branch']}")
+            query = " ".join(query_terms)
             search_response = await client.get(
                 f"{base_url}/search/issues",
                 headers=headers,
@@ -484,6 +540,35 @@ class DelegationSourcePoller:
             payload["summary"] = cls._bounded_text(summary, limit=1000)
         if status_payload:
             payload["status"] = status_payload
+        project = fields.get("project") if isinstance(fields.get("project"), dict) else {}
+        project_payload: dict[str, Any] = {}
+        for project_key in ("id", "key", "name"):
+            value = str(project.get(project_key) or "").strip()
+            if value:
+                project_payload[project_key] = value
+        if project_payload:
+            payload["project"] = project_payload
+        issue_type = fields.get("issuetype") if isinstance(fields.get("issuetype"), dict) else {}
+        issue_type_payload: dict[str, Any] = {}
+        for type_key in ("id", "name"):
+            value = str(issue_type.get(type_key) or "").strip()
+            if value:
+                issue_type_payload[type_key] = value
+        if issue_type_payload:
+            payload["issue_type"] = issue_type_payload
+        priority = fields.get("priority") if isinstance(fields.get("priority"), dict) else {}
+        priority_payload: dict[str, Any] = {}
+        for priority_key in ("id", "name"):
+            value = str(priority.get(priority_key) or "").strip()
+            if value:
+                priority_payload[priority_key] = value
+        if priority_payload:
+            payload["priority"] = priority_payload
+        labels = fields.get("labels")
+        if isinstance(labels, list):
+            label_names = [str(label or "").strip() for label in labels if str(label or "").strip()]
+            if label_names:
+                payload["labels"] = label_names
         updated = str(fields.get("updated") or "").strip()
         if updated:
             payload["updated"] = updated
@@ -510,22 +595,53 @@ class DelegationSourcePoller:
                 payload[key] = value
         return payload
 
+    @classmethod
+    def _jira_condition_jql_terms(cls, conditions: dict[str, Any]) -> list[str]:
+        terms: list[str] = []
+        project_key = str(conditions.get("project_key") or "").strip()
+        if project_key:
+            terms.append(f'project = "{cls._jira_jql_text_literal(project_key)}"')
+        issue_type = str(conditions.get("issue_type") or "").strip()
+        if issue_type:
+            terms.append(f'issuetype = "{cls._jira_jql_text_literal(issue_type)}"')
+        status_include = conditions.get("status_include") if isinstance(conditions.get("status_include"), list) else []
+        if status_include:
+            values = ", ".join(f'"{cls._jira_jql_text_literal(str(item))}"' for item in status_include if str(item).strip())
+            if values:
+                terms.append(f"status in ({values})")
+        status_exclude = conditions.get("status_exclude") if isinstance(conditions.get("status_exclude"), list) else []
+        if status_exclude:
+            values = ", ".join(f'"{cls._jira_jql_text_literal(str(item))}"' for item in status_exclude if str(item).strip())
+            if values:
+                terms.append(f"status not in ({values})")
+        priority = str(conditions.get("priority") or "").strip()
+        if priority:
+            terms.append(f'priority = "{cls._jira_jql_text_literal(priority)}"')
+        return terms
+
     async def _jira_search(self, client: httpx.AsyncClient, provider_config: JiraProviderConfig, jql: str) -> list[dict]:
+        fields = "summary,status,reporter,assignee,updated,comment,project,issuetype,priority,labels"
         response = await client.get(
             f"{provider_config.base_url}/rest/api/{provider_config.api_version}/search",
             headers=provider_config.headers,
-            params={"jql": jql, "maxResults": 50, "fields": "summary,status,reporter,assignee,updated,comment"},
+            params={"jql": jql, "maxResults": 50, "fields": fields},
         )
         response.raise_for_status()
         issues = response.json().get("issues") or []
         return issues if isinstance(issues, list) else []
 
     async def _poll_jira_assignee(self, db: Session, rule) -> SourcePollResult:
-        provider_config = resolve_jira_for_agent(db, rule.target_agent_id)
+        source_scope = self._rule_source_scope(rule)
+        conditions = self._rule_source_conditions(rule)
+        provider_config = self._resolve_jira_provider_config(db, rule, source_scope)
         async with httpx.AsyncClient(timeout=30.0) as client:
             identity = await self._jira_identity(client, provider_config)
             represented = str(identity.get("displayName") or identity.get("emailAddress") or identity.get("accountId") or "").strip()
-            issues = await self._jira_search(client, provider_config, "assignee = currentUser() ORDER BY updated DESC")
+            jql_terms = self._jira_condition_jql_terms(conditions)
+            where = "assignee = currentUser()"
+            if jql_terms:
+                where = f"{where} AND {' AND '.join(jql_terms)}"
+            issues = await self._jira_search(client, provider_config, f"{where} ORDER BY updated DESC")
             items: list[dict[str, Any]] = []
             for issue in issues:
                 key = str(issue.get("key") or "").strip()
@@ -574,7 +690,9 @@ class DelegationSourcePoller:
         return str(value or "").strip().replace("\\", "\\\\").replace('"', '\\"')
 
     async def _poll_jira_mention(self, db: Session, rule) -> SourcePollResult:
-        provider_config = resolve_jira_for_agent(db, rule.target_agent_id)
+        source_scope = self._rule_source_scope(rule)
+        conditions = self._rule_source_conditions(rule)
+        provider_config = self._resolve_jira_provider_config(db, rule, source_scope)
         async with httpx.AsyncClient(timeout=30.0) as client:
             identity = await self._jira_identity(client, provider_config)
             tokens = self._jira_mention_tokens(identity)
@@ -583,7 +701,11 @@ class DelegationSourcePoller:
                 raise ValueError("Jira /myself response did not include a usable identity")
             jql_literals = [self._jira_jql_text_literal(token) for token in tokens[:2]]
             jql_terms = " OR ".join(f'text ~ "{literal}"' for literal in jql_literals if literal)
-            issues = await self._jira_search(client, provider_config, f"({jql_terms}) ORDER BY updated DESC")
+            condition_terms = self._jira_condition_jql_terms(conditions)
+            where = f"({jql_terms})"
+            if condition_terms:
+                where = f"{where} AND {' AND '.join(condition_terms)}"
+            issues = await self._jira_search(client, provider_config, f"{where} ORDER BY updated DESC")
             items: list[dict[str, Any]] = []
             for issue in issues:
                 key = str(issue.get("key") or "").strip()

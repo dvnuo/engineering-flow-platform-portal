@@ -10415,6 +10415,8 @@ function delegationRuleMatchesFilters(rule) {
     rule?.skill_name,
     rule?.target_agent_id,
     rule?.target_agent_name,
+    rule?.source_account_summary,
+    rule?.source_condition_summary,
     delegationOwnerLabel(rule),
   ].join(" ").toLowerCase();
   return haystack.includes(query);
@@ -10462,7 +10464,9 @@ function renderDelegationRuleNavList(rules = null) {
     const statusLabel = delegationRuleStatusLabel(rule);
     const statusTone = delegationRuleStatusTone(rule);
     const timeLabel = rule.enabled ? `Next ${delegationDisplayTime(rule.next_run_at)}` : `Last ${delegationDisplayTime(rule.last_run_at)}`;
-    const flowPreview = `${sourceLabel} -> ${skillLabel} -> ${delegationReplyTargetLabel(source)}`;
+    const accountSummary = String(rule.source_account_summary || "").trim();
+    const conditionSummary = String(rule.source_condition_summary || "").trim();
+    const flowPreview = conditionSummary ? `${sourceLabel} · ${conditionSummary}` : `${sourceLabel} -> ${skillLabel} -> ${delegationReplyTargetLabel(source)}`;
     const ownerLabel = delegationOwnerLabel(rule);
     const agentLabel = delegationTargetAgentLabel(rule);
     const row = document.createElement("button");
@@ -10477,6 +10481,7 @@ function renderDelegationRuleNavList(rules = null) {
       <div class="portal-task-row-meta">
         <span>${safe(skillLabel)}</span>
         <span>${safe(agentLabel)}</span>
+        ${accountSummary ? `<span>${safe(accountSummary)}</span>` : ""}
         <span>Owner ${safe(ownerLabel)}</span>
         <span>Every ${safe(intervalLabel)}</span>
         <span>${safe(timeLabel)}</span>
@@ -10573,6 +10578,234 @@ function delegationTargetAgentLabel(rule, targetAgent = null) {
   const fallbackAgent = targetAgent || (rule?.target_agent_name ? { name: rule.target_agent_name } : null);
   const label = delegationAgentLabel(fallbackAgent, rule?.target_agent_id);
   return rule?.target_agent_missing ? `${label} (deleted)` : label;
+}
+
+function delegationProviderKey(source) {
+  const normalized = String(source || "").trim();
+  if (normalized.startsWith("github_")) return "github";
+  if (normalized.startsWith("jira_")) return "jira";
+  return "";
+}
+
+function delegationCsv(value) {
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value || "");
+}
+
+function delegationSplitCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, arr) => arr.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+}
+
+function delegationJsonAttr(value) {
+  return escapeHtmlAttr(JSON.stringify(value || {}));
+}
+
+function collectDelegationSourceScope(formEl) {
+  const source = String(formEl?.querySelector('[name="source"]')?.value || "").trim();
+  const provider = delegationProviderKey(source);
+  const scope = {};
+  if (provider === "jira") {
+    const jiraInstance = String(formEl.querySelector('[name="source_scope_jira_instance"]')?.value || "").trim();
+    if (jiraInstance) scope.jira_instance = jiraInstance;
+  }
+  return scope;
+}
+
+function collectDelegationSourceConditions(formEl) {
+  const source = String(formEl?.querySelector('[name="source"]')?.value || "").trim();
+  const provider = delegationProviderKey(source);
+  const conditions = {};
+  if (provider === "github") {
+    const repository = String(formEl.querySelector('[name="condition_repository"]')?.value || "").trim();
+    const baseBranch = String(formEl.querySelector('[name="condition_base_branch"]')?.value || "").trim();
+    const labelsInclude = delegationSplitCsv(formEl.querySelector('[name="condition_labels_include"]')?.value);
+    const labelsExclude = delegationSplitCsv(formEl.querySelector('[name="condition_labels_exclude"]')?.value);
+    const authorsInclude = delegationSplitCsv(formEl.querySelector('[name="condition_authors_include"]')?.value);
+    const authorsExclude = delegationSplitCsv(formEl.querySelector('[name="condition_authors_exclude"]')?.value);
+    if (repository) conditions.repository = repository;
+    if (baseBranch) conditions.base_branch = baseBranch;
+    if (labelsInclude.length) conditions.labels_include = labelsInclude;
+    if (labelsExclude.length) conditions.labels_exclude = labelsExclude;
+    if (authorsInclude.length) conditions.authors_include = authorsInclude;
+    if (authorsExclude.length) conditions.authors_exclude = authorsExclude;
+    const includeDrafts = formEl.querySelector('[name="condition_include_drafts"]');
+    if (includeDrafts && !includeDrafts.checked) conditions.include_drafts = false;
+  } else if (provider === "jira") {
+    const projectKey = String(formEl.querySelector('[name="condition_project_key"]')?.value || "").trim();
+    const issueType = String(formEl.querySelector('[name="condition_issue_type"]')?.value || "").trim();
+    const statusInclude = delegationSplitCsv(formEl.querySelector('[name="condition_status_include"]')?.value);
+    const statusExclude = delegationSplitCsv(formEl.querySelector('[name="condition_status_exclude"]')?.value);
+    const priority = String(formEl.querySelector('[name="condition_priority"]')?.value || "").trim();
+    const labelsInclude = delegationSplitCsv(formEl.querySelector('[name="condition_labels_include"]')?.value);
+    const labelsExclude = delegationSplitCsv(formEl.querySelector('[name="condition_labels_exclude"]')?.value);
+    if (projectKey) conditions.project_key = projectKey.toUpperCase();
+    if (issueType) conditions.issue_type = issueType;
+    if (statusInclude.length) conditions.status_include = statusInclude;
+    if (statusExclude.length) conditions.status_exclude = statusExclude;
+    if (priority) conditions.priority = priority;
+    if (labelsInclude.length) conditions.labels_include = labelsInclude;
+    if (labelsExclude.length) conditions.labels_exclude = labelsExclude;
+  }
+  return conditions;
+}
+
+function delegationConditionSummaryLabel(source, scope = {}, conditions = {}) {
+  const provider = delegationProviderKey(source);
+  const parts = [];
+  if (provider === "github") {
+    if (conditions.repository) parts.push(`repo ${conditions.repository}`);
+    if (conditions.base_branch) parts.push(`base ${conditions.base_branch}`);
+    if (Array.isArray(conditions.labels_include) && conditions.labels_include.length) parts.push(`labels +${conditions.labels_include.join(", ")}`);
+    if (Array.isArray(conditions.labels_exclude) && conditions.labels_exclude.length) parts.push(`labels -${conditions.labels_exclude.join(", ")}`);
+    if (Array.isArray(conditions.authors_include) && conditions.authors_include.length) parts.push(`authors ${conditions.authors_include.join(", ")}`);
+    if (Array.isArray(conditions.authors_exclude) && conditions.authors_exclude.length) parts.push(`exclude authors ${conditions.authors_exclude.join(", ")}`);
+    if (conditions.include_drafts === false) parts.push("no drafts");
+  } else if (provider === "jira") {
+    if (scope.jira_instance) parts.push(`instance ${scope.jira_instance}`);
+    if (conditions.project_key) parts.push(`project ${conditions.project_key}`);
+    if (conditions.issue_type) parts.push(`type ${conditions.issue_type}`);
+    if (Array.isArray(conditions.status_include) && conditions.status_include.length) parts.push(`status ${conditions.status_include.join(", ")}`);
+    if (Array.isArray(conditions.status_exclude) && conditions.status_exclude.length) parts.push(`exclude status ${conditions.status_exclude.join(", ")}`);
+    if (conditions.priority) parts.push(`priority ${conditions.priority}`);
+    if (Array.isArray(conditions.labels_include) && conditions.labels_include.length) parts.push(`labels +${conditions.labels_include.join(", ")}`);
+    if (Array.isArray(conditions.labels_exclude) && conditions.labels_exclude.length) parts.push(`labels -${conditions.labels_exclude.join(", ")}`);
+  }
+  return parts.length ? parts.join(" · ") : "All runtime profile source items";
+}
+
+function delegationJiraInstanceSelectHtml(scope = {}, preview = null) {
+  const selected = String(scope.jira_instance || "").trim();
+  const options = Array.isArray(preview?.options?.jira_instances) ? preview.options.jira_instances : [];
+  if (!options.length) {
+    const value = selected || "";
+    const label = selected || "Default Jira instance";
+    return `<select class="portal-form-select" name="source_scope_jira_instance"><option value="${escapeHtmlAttr(value)}" selected>${safe(label)}</option></select>`;
+  }
+  const selectedMatched = selected && options.some((option) => String(option.value || "") === selected);
+  const optionHtml = options.map((option, index) => {
+    const value = String(option.value || "").trim();
+    const isSelected = selected ? value === selected : index === 0;
+    return `<option value="${escapeHtmlAttr(value)}" ${isSelected ? "selected" : ""}>${safe(option.label || value)}</option>`;
+  }).join("");
+  const staleOption = selected && !selectedMatched ? `<option value="${escapeHtmlAttr(selected)}" selected>${safe(selected)} (missing)</option>` : "";
+  return `<select class="portal-form-select" name="source_scope_jira_instance">${staleOption}${optionHtml}</select>`;
+}
+
+function delegationSourceConditionFieldsHtml(source, scope = {}, conditions = {}, preview = null) {
+  const provider = delegationProviderKey(source);
+  if (provider === "github") {
+    const includeDraftsChecked = conditions.include_drafts === false ? "" : "checked";
+    return `
+      <div class="portal-panel-grid cols-2">
+        <label class="portal-form-label"><span class="portal-form-label">Repository</span><input class="portal-form-input" name="condition_repository" value="${escapeHtmlAttr(conditions.repository || "")}" placeholder="owner/repo" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Base branch</span><input class="portal-form-input" name="condition_base_branch" value="${escapeHtmlAttr(conditions.base_branch || "")}" placeholder="main" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Include labels</span><input class="portal-form-input" name="condition_labels_include" value="${escapeHtmlAttr(delegationCsv(conditions.labels_include))}" placeholder="bug, backend" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Exclude labels</span><input class="portal-form-input" name="condition_labels_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.labels_exclude))}" placeholder="wip" /></label>
+      </div>
+      <details class="portal-collapsible portal-delegation-advanced">
+        <summary class="portal-collapsible-summary"><span>More conditions</span><i data-lucide="chevron-down" class="w-4 h-4"></i></summary>
+        <div class="portal-panel-grid cols-2 portal-delegation-advanced-body">
+          <label class="portal-form-label"><span class="portal-form-label">PR authors</span><input class="portal-form-input" name="condition_authors_include" value="${escapeHtmlAttr(delegationCsv(conditions.authors_include))}" placeholder="octocat" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Exclude authors</span><input class="portal-form-input" name="condition_authors_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.authors_exclude))}" placeholder="bot-user" /></label>
+          <label class="portal-toggle-field portal-delegation-toggle-field"><span>Include draft PRs</span><span class="toggle-switch" aria-label="Include draft PRs"><input type="checkbox" name="condition_include_drafts" ${includeDraftsChecked} /><span class="toggle-slider"></span></span></label>
+        </div>
+      </details>
+    `;
+  }
+  if (provider === "jira") {
+    return `
+      <div class="portal-panel-grid cols-2">
+        <label class="portal-form-label"><span class="portal-form-label">Jira instance</span>${delegationJiraInstanceSelectHtml(scope, preview)}</label>
+        <label class="portal-form-label"><span class="portal-form-label">Project key</span><input class="portal-form-input" name="condition_project_key" value="${escapeHtmlAttr(conditions.project_key || "")}" placeholder="EFP" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Issue type</span><input class="portal-form-input" name="condition_issue_type" value="${escapeHtmlAttr(conditions.issue_type || "")}" placeholder="Bug" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Include statuses</span><input class="portal-form-input" name="condition_status_include" value="${escapeHtmlAttr(delegationCsv(conditions.status_include))}" placeholder="To Do, In Progress" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Exclude statuses</span><input class="portal-form-input" name="condition_status_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.status_exclude))}" placeholder="Done" /></label>
+      </div>
+      <details class="portal-collapsible portal-delegation-advanced">
+        <summary class="portal-collapsible-summary"><span>More conditions</span><i data-lucide="chevron-down" class="w-4 h-4"></i></summary>
+        <div class="portal-panel-grid cols-2 portal-delegation-advanced-body">
+          <label class="portal-form-label"><span class="portal-form-label">Priority</span><input class="portal-form-input" name="condition_priority" value="${escapeHtmlAttr(conditions.priority || "")}" placeholder="High" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Include labels</span><input class="portal-form-input" name="condition_labels_include" value="${escapeHtmlAttr(delegationCsv(conditions.labels_include))}" placeholder="support" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Exclude labels</span><input class="portal-form-input" name="condition_labels_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.labels_exclude))}" placeholder="blocked" /></label>
+        </div>
+      </details>
+    `;
+  }
+  return `<div class="portal-inline-state is-visible">Select a source first.</div>`;
+}
+
+function renderDelegationSourceControls(formEl, scope = {}, conditions = {}, preview = null, { loading = false } = {}) {
+  const container = formEl?.querySelector("[data-delegation-source-controls]");
+  if (!container) return;
+  const source = String(formEl.querySelector('[name="source"]')?.value || "").trim();
+  const providerLabel = delegationProviderLabel(source);
+  const accountSummary = preview?.account_summary || `${providerLabel} from selected agent runtime profile`;
+  const conditionSummary = delegationConditionSummaryLabel(source, scope, conditions);
+  const status = String(preview?.status || (loading ? "loading" : "ok")).trim();
+  const statusTone = status === "missing" ? "warning" : (loading ? "info" : "success");
+  const statusLabel = status === "missing" ? "Needs source" : (loading ? "Checking" : "Ready");
+  const warning = String(preview?.warning || "").trim();
+  container.innerHTML = `
+    <section class="portal-delegation-source-config">
+      <div class="portal-delegation-source-account">
+        <div>
+          <span>Runtime source</span>
+          <strong>${safe(accountSummary)}</strong>
+          <small>${safe(conditionSummary)}</small>
+        </div>
+        <span class="portal-status-badge is-${safe(statusTone)}">${safe(statusLabel)}</span>
+      </div>
+      ${warning ? `<div class="portal-callout is-warning">${safe(warning)}</div>` : ""}
+      <div class="portal-delegation-condition-builder">
+        <div class="portal-task-section-heading">
+          <span>Source Conditions</span>
+          <span>${safe(providerLabel)}</span>
+        </div>
+        ${delegationSourceConditionFieldsHtml(source, scope, conditions, preview)}
+      </div>
+    </section>
+  `;
+  renderIcons();
+}
+
+async function refreshDelegationSourcePreview(formEl, { resetScope = false, resetConditions = false } = {}) {
+  if (!formEl) return;
+  const source = String(formEl.querySelector('[name="source"]')?.value || "").trim();
+  const agentId = String(formEl.querySelector('[name="target_agent_id"]')?.value || "").trim();
+  const scope = resetScope ? {} : collectDelegationSourceScope(formEl);
+  const conditions = resetConditions ? {} : collectDelegationSourceConditions(formEl);
+  renderDelegationSourceControls(formEl, scope, conditions, null, { loading: true });
+  if (!source || !agentId) return;
+  try {
+    const params = new URLSearchParams({ target_agent_id: agentId, source });
+    if (scope.jira_instance) params.set("jira_instance", scope.jira_instance);
+    const preview = await api(`/api/delegation-rules/source-preview?${params.toString()}`);
+    const nextScope = resetScope && preview?.options?.jira_instances?.[0]?.value
+      ? { jira_instance: preview.options.jira_instances[0].value }
+      : scope;
+    renderDelegationSourceControls(formEl, nextScope, conditions, preview);
+  } catch (error) {
+    renderDelegationSourceControls(
+      formEl,
+      scope,
+      conditions,
+      {
+        account_summary: `${delegationProviderLabel(source)} from selected agent runtime profile`,
+        status: "missing",
+        warning: error.message,
+        options: {},
+      },
+    );
+  }
+}
+
+async function setupDelegationSourceForm(formEl, sourceScope = {}, sourceConditions = {}) {
+  renderDelegationSourceControls(formEl, sourceScope || {}, sourceConditions || {});
+  await refreshDelegationSourcePreview(formEl);
 }
 
 function delegationRunStatusTone(status) {
@@ -10695,6 +10928,11 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
     const agentLabel = delegationTargetAgentLabel(detail, targetAgent);
     const ownerLabel = delegationOwnerLabel(detail);
     const canManage = delegationCanManage(detail);
+    const accountSummary = String(detail.source_account_summary || `${providerLabel} from selected agent runtime profile`).trim();
+    const conditionSummary = String(detail.source_condition_summary || "All runtime profile source items").trim();
+    const sourceWarning = String(detail.source_config_warning || "").trim();
+    const sourceConfigTone = detail.source_config_status === "missing" ? "warning" : "success";
+    const sourceConfigLabel = detail.source_config_status === "missing" ? "Needs source" : "Ready";
     const managementActions = canManage ? `
             <button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="pencil" class="w-4 h-4"></i>Edit</button>
             <button class="portal-btn is-secondary" type="button" data-run-delegation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>Run once</button>
@@ -10733,6 +10971,24 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
           <div><span>Interval</span><strong>Every ${safe(intervalLabel)}</strong></div>
           <div><span>Last Run</span><strong>${safe(delegationDisplayTime(detail.last_run_at))}</strong></div>
           <div><span>Next Run</span><strong>${safe(delegationDisplayTime(detail.next_run_at))}</strong></div>
+        </section>
+
+        <section class="portal-delegation-source-summary">
+          <article class="portal-delegation-source-summary-item">
+            <div>
+              <span>Runtime Source</span>
+              <strong>${safe(accountSummary)}</strong>
+              ${sourceWarning ? `<small>${safe(sourceWarning)}</small>` : ""}
+            </div>
+            <span class="portal-status-badge is-${safe(sourceConfigTone)}">${safe(sourceConfigLabel)}</span>
+          </article>
+          <article class="portal-delegation-source-summary-item">
+            <div>
+              <span>Conditions</span>
+              <strong>${safe(conditionSummary)}</strong>
+              <small>${safe(sourceLabel)}</small>
+            </div>
+          </article>
         </section>
 
         <section class="portal-delegation-flow" aria-label="Delegation flow">
@@ -10802,6 +11058,7 @@ async function openCreateDelegationRuleModal() {
           <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" required /></label>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
           <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+          <div data-delegation-source-controls></div>
           <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
           <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
           <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
@@ -10811,7 +11068,10 @@ async function openCreateDelegationRuleModal() {
     </div>
   `;
   const form = document.getElementById("create-delegation-inline-form");
-  if (form) await populateCreateTaskSkillSelect(form);
+  if (form) {
+    await setupDelegationSourceForm(form);
+    await populateCreateTaskSkillSelect(form);
+  }
 }
 
 async function openEditDelegationRuleModal(ruleId) {
@@ -10838,6 +11098,8 @@ async function openEditDelegationRuleModal(ruleId) {
   const skillName = String(detail.skill_name || "").trim().replace(/^\/+/, "");
   const skillOptionLabel = skillName ? `/${safe(skillName)}` : "Select an agent first";
   const intervalSeconds = Number(detail.interval_seconds || 60);
+  const sourceScope = detail.source_scope || {};
+  const sourceConditions = detail.source_conditions || {};
   dom.workspaceDetailContent.innerHTML = `
     <div class="portal-panel-stack">
       <h3>Edit Delegation</h3>
@@ -10848,6 +11110,8 @@ async function openEditDelegationRuleModal(ruleId) {
         data-original-name="${escapeHtmlAttr(detail.name || "")}"
         data-original-target-agent-id="${escapeHtmlAttr(currentAgentId)}"
         data-original-source="${escapeHtmlAttr(sourceValue)}"
+        data-original-source-scope="${delegationJsonAttr(sourceScope)}"
+        data-original-source-conditions="${delegationJsonAttr(sourceConditions)}"
         data-original-skill-name="${escapeHtmlAttr(skillName)}"
         data-original-interval-seconds="${escapeHtmlAttr(String(intervalSeconds))}"
         data-original-enabled="${detail.enabled ? "true" : "false"}"
@@ -10857,6 +11121,7 @@ async function openEditDelegationRuleModal(ruleId) {
           <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
           <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+          <div data-delegation-source-controls></div>
           <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
           <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
           <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
@@ -10869,7 +11134,10 @@ async function openEditDelegationRuleModal(ruleId) {
     </div>
   `;
   const form = document.getElementById("edit-delegation-inline-form");
-  if (form) await populateCreateTaskSkillSelect(form);
+  if (form) {
+    await setupDelegationSourceForm(form, sourceScope, sourceConditions);
+    await populateCreateTaskSkillSelect(form);
+  }
   renderIcons();
 }
 
@@ -10880,6 +11148,8 @@ async function submitCreateDelegationRule(formEl) {
     target_agent_id: String(fd.get("target_agent_id") || "").trim(),
     skill_name: String(fd.get("skill_name") || "").trim(),
     source: String(fd.get("source") || "").trim(),
+    source_scope: collectDelegationSourceScope(formEl),
+    source_conditions: collectDelegationSourceConditions(formEl),
     interval_seconds: Number(fd.get("interval_seconds") || 60),
     enabled: fd.get("enabled") !== null,
   };
@@ -10896,13 +11166,24 @@ async function submitEditDelegationRule(formEl) {
   const name = String(fd.get("name") || "").trim();
   const targetAgentId = String(fd.get("target_agent_id") || "").trim();
   const source = String(fd.get("source") || "").trim();
+  const sourceScope = collectDelegationSourceScope(formEl);
+  const sourceConditions = collectDelegationSourceConditions(formEl);
+  const originalSourceScope = _safeJson(formEl.dataset.originalSourceScope || "{}") || {};
+  const originalSourceConditions = _safeJson(formEl.dataset.originalSourceConditions || "{}") || {};
   const originalSkillName = String(formEl.dataset.originalSkillName || "");
   const skillName = fd.has("skill_name") ? String(fd.get("skill_name") || "").trim() : originalSkillName;
   const intervalSeconds = Number(fd.get("interval_seconds") || 60);
   const enabled = fd.get("enabled") !== null;
   if (name !== String(formEl.dataset.originalName || "")) payload.name = name;
   if (targetAgentId !== String(formEl.dataset.originalTargetAgentId || "")) payload.target_agent_id = targetAgentId;
-  if (source !== String(formEl.dataset.originalSource || "")) payload.source = source;
+  if (source !== String(formEl.dataset.originalSource || "")) {
+    payload.source = source;
+    payload.source_scope = sourceScope;
+    payload.source_conditions = sourceConditions;
+  } else {
+    if (JSON.stringify(sourceScope) !== JSON.stringify(originalSourceScope)) payload.source_scope = sourceScope;
+    if (JSON.stringify(sourceConditions) !== JSON.stringify(originalSourceConditions)) payload.source_conditions = sourceConditions;
+  }
   if (fd.has("skill_name") && skillName !== originalSkillName) payload.skill_name = skillName;
   if (intervalSeconds !== Number(formEl.dataset.originalIntervalSeconds || 60)) payload.interval_seconds = intervalSeconds;
   if (enabled !== (formEl.dataset.originalEnabled === "true")) payload.enabled = enabled;
@@ -12202,6 +12483,17 @@ function bindEvents() {
     if (event.target.matches('[name="assignee_agent_id"], [name="target_agent_id"]')) {
       if (formEl.id === "edit-delegation-inline-form") formEl.dataset.selectedSkillName = "";
       await populateCreateTaskSkillSelect(formEl);
+      if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form")) {
+        await refreshDelegationSourcePreview(formEl, { resetScope: true });
+      }
+      return;
+    }
+    if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="source"]')) {
+      await refreshDelegationSourcePreview(formEl, { resetScope: true, resetConditions: true });
+      return;
+    }
+    if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="source_scope_jira_instance"]')) {
+      await refreshDelegationSourcePreview(formEl);
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {

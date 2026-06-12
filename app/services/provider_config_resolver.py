@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.services.delegation_source_config import normalize_delegation_source_scope, select_jira_instance
 
 
 @dataclass
@@ -94,7 +95,7 @@ def _auth_headers_for_instance(instance: dict) -> dict:
     return {}
 
 
-def resolve_jira_for_agent(db: Session, agent_id: str) -> JiraProviderConfig:
+def resolve_jira_for_agent(db: Session, agent_id: str, source_scope: dict | None = None) -> JiraProviderConfig:
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent or not agent.runtime_profile_id:
         raise ProviderConfigResolverError("Selected agent does not have a runtime profile")
@@ -112,7 +113,13 @@ def resolve_jira_for_agent(db: Session, agent_id: str) -> JiraProviderConfig:
     if not isinstance(jira, dict) or not jira.get("enabled"):
         raise ProviderConfigResolverError("Jira is not enabled for selected agent")
 
-    instance = _first_enabled_auth_instance(jira.get("instances") or [])
+    normalized_scope = normalize_delegation_source_scope("jira_assignee", source_scope or {})
+    instance_selector = normalized_scope.get("jira_instance")
+    instance = select_jira_instance(jira.get("instances") or [], instance_selector)
+    if instance_selector and not instance:
+        raise ProviderConfigResolverError("Selected Jira instance was not found in the agent runtime profile")
+    if not instance:
+        instance = _first_enabled_auth_instance(jira.get("instances") or [])
     if not instance:
         raise ProviderConfigResolverError("No usable Jira instance found for selected agent")
 
