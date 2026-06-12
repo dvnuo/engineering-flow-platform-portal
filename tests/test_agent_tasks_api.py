@@ -144,7 +144,7 @@ def test_owner_can_create_task_for_owned_agent():
         cleanup()
 
 
-def test_get_my_tasks_filters_to_owner_and_creator():
+def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
     client, db, owned_agent, other_agent, _admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
     try:
         owned_task = AgentTask(
@@ -152,23 +152,29 @@ def test_get_my_tasks_filters_to_owner_and_creator():
             owner_user_id=owner_user.id,
             created_by_user_id=None,
             source="portal",
+            title="Owned review task",
             task_type="owned",
             status="queued",
+            summary="Review the owner branch",
         )
         created_task = AgentTask(
             assignee_agent_id=other_agent.id,
             owner_user_id=other_user.id,
             created_by_user_id=owner_user.id,
             source="portal",
+            title="Created task",
             task_type="created",
-            status="queued",
+            status="running",
+            summary="Shared work created by owner",
         )
         hidden_task = AgentTask(
             assignee_agent_id=other_agent.id,
             owner_user_id=other_user.id,
             source="portal",
+            title="Blocked deployment",
             task_type="hidden",
-            status="queued",
+            status="blocked",
+            summary="Needs attention from the other owner",
         )
         db.add_all([owned_task, created_task, hidden_task])
         db.commit()
@@ -176,8 +182,34 @@ def test_get_my_tasks_filters_to_owner_and_creator():
         set_user(owner_user)
         response = client.get("/api/my/tasks")
         assert response.status_code == 200
-        task_types = {item["task_type"] for item in response.json()}
-        assert task_types == {"owned", "created"}
+        by_type = {item["task_type"]: item for item in response.json()}
+        assert set(by_type) == {"owned", "created", "hidden"}
+        assert by_type["owned"]["owner_display_name"] == owner_user.username
+        assert by_type["owned"]["can_manage"] is True
+        assert by_type["created"]["owner_display_name"] == other_user.username
+        assert by_type["created"]["can_manage"] is False
+        assert by_type["hidden"]["owner_display_name"] == other_user.username
+        assert by_type["hidden"]["can_manage"] is False
+
+        paged = client.get("/api/my/tasks?limit=2&offset=0")
+        assert paged.status_code == 200
+        assert len(paged.json()) == 2
+
+        active = client.get("/api/my/tasks?status=active")
+        assert active.status_code == 200
+        assert {item["task_type"] for item in active.json()} == {"owned", "created"}
+
+        attention = client.get("/api/my/tasks?status=attention")
+        assert attention.status_code == 200
+        assert [item["task_type"] for item in attention.json()] == ["hidden"]
+
+        mine = client.get("/api/my/tasks?owner=mine")
+        assert mine.status_code == 200
+        assert [item["task_type"] for item in mine.json()] == ["owned"]
+
+        searched = client.get("/api/my/tasks?q=deployment")
+        assert searched.status_code == 200
+        assert [item["task_type"] for item in searched.json()] == ["hidden"]
     finally:
         cleanup()
 
@@ -208,14 +240,15 @@ def test_get_agent_task_detail_visibility_rules():
         allowed = client.get(f"/api/agent-tasks/{visible_task.id}")
         assert allowed.status_code == 200
 
-        denied = client.get(f"/api/agent-tasks/{hidden_task.id}")
-        assert denied.status_code == 404
+        visible_to_all = client.get(f"/api/agent-tasks/{hidden_task.id}")
+        assert visible_to_all.status_code == 200
+        assert visible_to_all.json()["can_manage"] is False
     finally:
         cleanup()
 
 
-def test_admin_can_create_task_for_any_agent():
-    client, _db, _owned_agent, other_agent, admin_user, _owner_user, _other_user, set_user, cleanup = _build_client_with_overrides()
+def test_admin_can_create_task_for_any_agent_but_not_manage_without_ownership():
+    client, _db, _owned_agent, other_agent, admin_user, _owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
     try:
         set_user(admin_user)
         response = client.post(
@@ -228,5 +261,12 @@ def test_admin_can_create_task_for_any_agent():
             },
         )
         assert response.status_code == 200
+        body = response.json()
+        assert body["owner_user_id"] == other_user.id
+        assert body["can_manage"] is False
+
+        cancel_resp = client.post(f"/api/agent-tasks/{body['id']}/cancel")
+        assert cancel_resp.status_code == 403
+        assert cancel_resp.json()["detail"] == "Not allowed to cancel task"
     finally:
         cleanup()

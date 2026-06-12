@@ -497,6 +497,20 @@ def _agent_label_for_task(db, task) -> str:
     return f"{agent_name} ({agent_id})" if agent_name else agent_id
 
 
+def _user_label_for_id(db, user_id) -> str:
+    if user_id in {None, ""}:
+        return "-"
+    if not db:
+        return f"User {user_id}"
+    try:
+        owner = UserRepository(db).get_by_id(int(user_id))
+    except Exception:
+        owner = None
+    if not owner:
+        return f"User {user_id}"
+    return (getattr(owner, "nickname", None) or getattr(owner, "username", None) or f"User {user_id}").strip()
+
+
 def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
     return _build_agent_async_task_detail_view_model_for_user(task, db=db, user=None)
 
@@ -504,13 +518,8 @@ def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
 def _can_manage_task_for_user(db, task, user) -> bool:
     if user is None:
         return True
-    if getattr(user, "role", None) == "admin":
-        return True
     user_id = getattr(user, "id", None)
-    if getattr(task, "owner_user_id", None) == user_id or getattr(task, "created_by_user_id", None) == user_id:
-        return True
-    agent = AgentRepository(db).get_by_id(getattr(task, "assignee_agent_id", None))
-    return bool(agent and _can_write(agent, user))
+    return getattr(task, "owner_user_id", None) == user_id
 
 
 def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None) -> dict:
@@ -577,6 +586,8 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
         "assignee_agent_id": getattr(task, "assignee_agent_id", None) or "-",
         "assignee_agent_label": _agent_label_for_task(db, task),
+        "owner_user_id": getattr(task, "owner_user_id", None) or "-",
+        "owner_display_name": _user_label_for_id(db, getattr(task, "owner_user_id", None)),
         "skill_name": skill_name or "-",
         "task_session_id": getattr(task, "task_session_id", None) or input_obj.get("task_session_id") or "-",
         "root_task_id": root_task_id or "-",
@@ -611,7 +622,7 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         ("Version Key", getattr(task, "version_key", None) or "-"),
         ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
         ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
-        ("Owner User ID", getattr(task, "owner_user_id", None) or "-"),
+        ("Owner", _user_label_for_id(db, getattr(task, "owner_user_id", None))),
         ("Created By User ID", getattr(task, "created_by_user_id", None) or "-"),
         ("Updated At", getattr(task, "updated_at", None) or "-"),
     ]
@@ -633,6 +644,7 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         "duration_label": _format_duration_label(getattr(task, "started_at", None), getattr(task, "finished_at", None)),
         "assignee_agent_id": getattr(task, "assignee_agent_id", None) or "-",
         "owner_user_id": getattr(task, "owner_user_id", None) or "-",
+        "owner_display_name": _user_label_for_id(db, getattr(task, "owner_user_id", None)),
         "created_by_user_id": getattr(task, "created_by_user_id", None) or "-",
         "runtime_request_id": getattr(task, "runtime_request_id", None) or "-",
         "task_type": getattr(task, "task_type", None) or "-",
@@ -1258,6 +1270,13 @@ def _content_target_from_request(request: Request, default: str = "#tool-panel-b
     hx_target = (request.headers.get("HX-Target") or "").strip()
     if hx_target:
         return hx_target if hx_target.startswith("#") else f"#{hx_target}"
+    query_target = (
+        request.query_params.get("content_target")
+        or request.query_params.get("target")
+        or ""
+    ).strip()
+    if query_target:
+        return query_target if query_target.startswith("#") else f"#{query_target}"
     return default
 
 def _is_htmx_request(request: Request) -> bool:
@@ -1305,14 +1324,53 @@ def my_tasks_panel(request: Request):
 
     db = SessionLocal()
     try:
-        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id)
+        repo = AgentTaskRepository(db)
+        task_page_size = 50
+        task_offset = 0
+        tasks = repo.list_visible_to_user(user_id=user.id, limit=task_page_size, offset=task_offset)
         summary = {"queued": 0, "running": 0, "done": 0, "blocked": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
-        for task in tasks:
-            if task.status in summary:
-                summary[task.status] += 1
+        summary.update({status: count for status, count in repo.count_by_status().items() if status in summary})
+        task_owner_labels = {task.id: _user_label_for_id(db, getattr(task, "owner_user_id", None)) for task in tasks}
         return templates.TemplateResponse(
             "partials/my_tasks_panel.html",
-            {"request": request, "tasks": tasks, "summary": summary, "content_target": _content_target_from_request(request)},
+            {
+                "request": request,
+                "tasks": tasks,
+                "summary": summary,
+                "task_owner_labels": task_owner_labels,
+                "content_target": _content_target_from_request(request),
+                "task_page_size": task_page_size,
+                "task_offset": task_offset,
+                "next_offset": task_offset + len(tasks),
+                "has_more_tasks": len(tasks) >= task_page_size,
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/tasks/list")
+def my_tasks_list(request: Request, limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0)):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, limit=limit, offset=offset)
+        task_owner_labels = {task.id: _user_label_for_id(db, getattr(task, "owner_user_id", None)) for task in tasks}
+        return templates.TemplateResponse(
+            "partials/task_cards.html",
+            {
+                "request": request,
+                "tasks": tasks,
+                "task_owner_labels": task_owner_labels,
+                "content_target": _content_target_from_request(request),
+                "task_page_size": limit,
+                "task_offset": offset,
+                "next_offset": offset + len(tasks),
+                "has_more_tasks": len(tasks) >= limit,
+            },
         )
     finally:
         db.close()
@@ -1349,10 +1407,6 @@ def task_detail_panel(request: Request, task_id: str):
         task = AgentTaskRepository(db).get_by_id(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
-        if user.role != "admin":
-            is_visible = task.owner_user_id == user.id or task.created_by_user_id == user.id
-            if not is_visible:
-                raise HTTPException(status_code=404, detail="Task not found")
         return templates.TemplateResponse(
             "partials/task_detail_panel.html",
             {

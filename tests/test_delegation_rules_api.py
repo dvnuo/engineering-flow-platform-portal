@@ -251,3 +251,83 @@ def test_delegation_rules_api_crud_update_and_soft_delete(monkeypatch):
         assert state["deleted"] is True
     finally:
         cleanup()
+
+
+def test_delegation_rule_detail_survives_deleted_target_agent():
+    client, db, agents, cleanup = _build_client_with_overrides()
+    try:
+        create_resp = client.post("/api/delegation-rules", json=_payload(agents.both.id, "github_pr_review"))
+        assert create_resp.status_code == 200
+        created = create_resp.json()
+
+        db.delete(agents.both)
+        db.commit()
+
+        detail_resp = client.get(f"/api/delegation-rules/{created['id']}")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert detail["target_agent_id"] == agents.both.id
+        assert detail["target_agent_missing"] is True
+        assert detail["can_manage"] is True
+    finally:
+        cleanup()
+
+
+def test_non_owner_can_view_delegation_but_not_manage():
+    client, db, agents, cleanup = _build_client_with_overrides()
+    try:
+        create_resp = client.post("/api/delegation-rules", json=_payload(agents.both.id, "github_pr_review"))
+        assert create_resp.status_code == 200
+        created = create_resp.json()
+
+        other = User(username="viewer", password_hash="pw", role="viewer", is_active=True)
+        db.add(other)
+        db.commit()
+        db.refresh(other)
+
+        from app.main import app
+        import app.api.delegation_rules as api_module
+
+        app.dependency_overrides[api_module.get_current_user] = lambda: SimpleNamespace(
+            id=other.id,
+            role=other.role,
+            username=other.username,
+            nickname=other.username,
+        )
+
+        list_resp = client.get("/api/delegation-rules")
+        assert list_resp.status_code == 200
+        listed = {item["id"]: item for item in list_resp.json()}
+        assert created["id"] in listed
+        assert listed[created["id"]]["can_manage"] is False
+        assert listed[created["id"]]["owner_display_name"] == "owner"
+
+        detail_resp = client.get(f"/api/delegation-rules/{created['id']}")
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["can_manage"] is False
+
+        patch_resp = client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Nope"})
+        assert patch_resp.status_code == 403
+
+        delete_resp = client.delete(f"/api/delegation-rules/{created['id']}")
+        assert delete_resp.status_code == 403
+
+        admin_non_owner = User(username="admin-viewer", password_hash="pw", role="admin", is_active=True)
+        db.add(admin_non_owner)
+        db.commit()
+        db.refresh(admin_non_owner)
+        app.dependency_overrides[api_module.get_current_user] = lambda: SimpleNamespace(
+            id=admin_non_owner.id,
+            role=admin_non_owner.role,
+            username=admin_non_owner.username,
+            nickname=admin_non_owner.username,
+        )
+
+        admin_detail_resp = client.get(f"/api/delegation-rules/{created['id']}")
+        assert admin_detail_resp.status_code == 200
+        assert admin_detail_resp.json()["can_manage"] is False
+
+        admin_patch_resp = client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Still Nope"})
+        assert admin_patch_resp.status_code == 403
+    finally:
+        cleanup()

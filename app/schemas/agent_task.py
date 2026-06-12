@@ -53,6 +53,9 @@ class AgentTaskResponse(BaseModel):
     status: str
     owner_user_id: Optional[int] = None
     created_by_user_id: Optional[int] = None
+    owner_display_name: Optional[str] = None
+    can_manage: bool = False
+    assignee_agent_name: Optional[str] = None
     runtime_request_id: Optional[str] = None
     summary: Optional[str] = None
     error_message: Optional[str] = None

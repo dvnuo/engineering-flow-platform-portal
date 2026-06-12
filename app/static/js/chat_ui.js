@@ -58,9 +58,25 @@ const dom = {
   tasksNavSection: document.getElementById("tasks-nav-section"),
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
+  agentSearchInput: document.getElementById("agent-search-input"),
+  agentScopeFilter: document.getElementById("agent-scope-filter"),
+  agentStatusFilter: document.getElementById("agent-status-filter"),
+  agentFilterClear: document.getElementById("agent-filter-clear"),
+  agentFilterSummary: document.getElementById("agent-filter-summary"),
   bundleNavList: document.getElementById("bundle-nav-list"),
+  taskSearchInput: document.getElementById("task-search-input"),
+  taskOwnerFilter: document.getElementById("task-owner-filter"),
+  taskStatusFilter: document.getElementById("task-status-filter"),
+  taskFilterClear: document.getElementById("task-filter-clear"),
+  taskFilterSummary: document.getElementById("task-filter-summary"),
   taskNavList: document.getElementById("task-nav-list"),
   runtimeProfileNavList: document.getElementById("runtime-profile-nav-list"),
+  delegationSearchInput: document.getElementById("delegation-search-input"),
+  delegationOwnerFilter: document.getElementById("delegation-owner-filter"),
+  delegationSourceFilter: document.getElementById("delegation-source-filter"),
+  delegationStatusFilter: document.getElementById("delegation-status-filter"),
+  delegationFilterClear: document.getElementById("delegation-filter-clear"),
+  delegationFilterSummary: document.getElementById("delegation-filter-summary"),
   delegationRuleNavList: document.getElementById("delegation-rule-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
@@ -266,6 +282,7 @@ const state = {
   activeUtilityPanel: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
+  agentFilters: { query: "", scope: "all", status: "all" },
   selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
   // Runtime remains source-of-truth for full session history/messages.
@@ -293,12 +310,18 @@ const state = {
   toolPanelPinned: !!initialUiLayoutPrefs.toolPanelPinned,
   pendingToolPanelRestoreKey: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   myTasks: [],
+  taskPageSize: 50,
+  taskListOffset: 0,
+  taskListHasMore: true,
+  taskListLoading: false,
+  taskFilters: { query: "", status: "all", owner: "all" },
   selectedTaskId: null,
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
   runtimeProfiles: [],
   selectedRuntimeProfileId: null,
   delegations: [],
+  delegationFilters: { query: "", status: "all", owner: "all", source: "all" },
   selectedDelegationRuleId: null,
   agentDefaults: null,
 };
@@ -4664,19 +4687,149 @@ function updateOwnerOnlyButtons(agentId) {
   });
 }
 
+function agentScope(agent) {
+  if (agent?.visibility === "public") return "public";
+  return Number(agent?.owner_user_id) === state.currentUserId ? "mine" : "shared";
+}
+
+function agentRuntimeStatus(agent) {
+  return String(state.agentStatus.get(agent?.id)?.status || agent?.status || "stopped").trim().toLowerCase() || "stopped";
+}
+
+function compactText(value, maxLength = 160) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function agentHealth(agent) {
+  const status = agentRuntimeStatus(agent);
+  const lastError = String(agent?.last_error || state.agentStatus.get(agent?.id)?.last_error || "").trim();
+  const writable = canWriteAgent(agent);
+  if (lastError || ["failed", "error"].includes(status)) {
+    return {
+      key: "attention",
+      tone: "error",
+      label: "Needs attention",
+      detail: lastError ? compactText(lastError, 120) : "The runtime reported an error.",
+      action: writable ? (status === "running" ? "Restart" : "Start") : "",
+    };
+  }
+  if (!agent?.runtime_profile_id) {
+    return {
+      key: "attention",
+      tone: "warning",
+      label: "Needs setup",
+      detail: "Runtime profile is missing.",
+      action: writable ? "Edit setup" : "",
+    };
+  }
+  if (["creating", "starting", "restarting"].includes(status)) {
+    return {
+      key: "starting",
+      tone: "warning",
+      label: "Starting",
+      detail: "Runtime is preparing. Chat will be available soon.",
+      action: "",
+    };
+  }
+  if (status === "running") {
+    return {
+      key: "ready",
+      tone: "success",
+      label: "Ready",
+      detail: "Ready to chat.",
+      action: "",
+    };
+  }
+  return {
+    key: "stopped",
+    tone: "neutral",
+    label: "Stopped",
+    detail: writable ? "Start this assistant when you need it." : "This assistant is not running.",
+    action: writable ? "Start" : "",
+  };
+}
+
+function agentScopeLabel(agent) {
+  const scope = agentScope(agent);
+  if (scope === "mine") return "Mine";
+  if (scope === "public") return "Public";
+  return `Shared by User ${agent?.owner_user_id ?? "-"}`;
+}
+
+function agentMatchesFilters(agent) {
+  const filters = state.agentFilters || {};
+  const scope = agentScope(agent);
+  if (filters.scope && filters.scope !== "all" && filters.scope !== scope) return false;
+  const health = agentHealth(agent);
+  if (filters.status === "ready" && health.key !== "ready") return false;
+  if (filters.status === "attention" && health.key !== "attention") return false;
+  if (filters.status === "stopped" && health.key !== "stopped") return false;
+
+  const query = String(filters.query || "").trim().toLowerCase();
+  if (!query) return true;
+  const haystack = [
+    agent?.name,
+    agent?.description,
+    agent?.status,
+    agent?.runtime_type,
+    agent?.visibility,
+    agent?.last_error,
+    agentScopeLabel(agent),
+    health.label,
+    health.detail,
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
+}
+
+function visibleAgents() {
+  return (state.mineAgents || []).filter(agentMatchesFilters);
+}
+
+function hasActiveAgentFilters() {
+  const filters = state.agentFilters || {};
+  return Boolean(String(filters.query || "").trim() || filters.scope !== "all" || filters.status !== "all");
+}
+
+function syncAgentFilterControls(visibleCount = null) {
+  const filters = state.agentFilters || { query: "", scope: "all", status: "all" };
+  if (dom.agentSearchInput && dom.agentSearchInput.value !== filters.query) dom.agentSearchInput.value = filters.query;
+  if (dom.agentScopeFilter && dom.agentScopeFilter.value !== filters.scope) dom.agentScopeFilter.value = filters.scope;
+  dom.agentStatusFilter?.querySelectorAll("[data-agent-status-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.agentStatusFilter === filters.status);
+  });
+  if (dom.agentFilterSummary) {
+    const total = (state.mineAgents || []).length;
+    const shown = visibleCount === null ? visibleAgents().length : visibleCount;
+    const parts = [];
+    if (filters.scope !== "all") parts.push(filters.scope);
+    if (filters.status !== "all") parts.push(filters.status === "attention" ? "needs attention" : filters.status);
+    if (filters.query) parts.push(`"${filters.query}"`);
+    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} assistants`;
+  }
+}
+
 // ===== selected agent state sync =====
 function renderAgentList() {
   if (!dom.mineList) return;
 
   dom.mineList.innerHTML = "";
+  syncAgentFilterControls();
   if (!state.mineAgents.length) {
     dom.mineList.innerHTML = '<div class="portal-empty-note">No assistants</div>';
     return;
   }
+  const filteredAgents = visibleAgents();
+  syncAgentFilterControls(filteredAgents.length);
+  if (!filteredAgents.length) {
+    dom.mineList.innerHTML = `<div class="portal-empty-note">${hasActiveAgentFilters() ? "No assistants match these filters." : "No assistants"}</div>`;
+    return;
+  }
 
-  const mine = state.mineAgents.filter((agent) => Number(agent.owner_user_id) === state.currentUserId && agent.visibility !== "public");
-  const shared = state.mineAgents.filter((agent) => Number(agent.owner_user_id) !== state.currentUserId && agent.visibility !== "public");
-  const publicAgents = state.mineAgents.filter((agent) => agent.visibility === "public");
+  const mine = filteredAgents.filter((agent) => agentScope(agent) === "mine");
+  const shared = filteredAgents.filter((agent) => agentScope(agent) === "shared");
+  const publicAgents = filteredAgents.filter((agent) => agentScope(agent) === "public");
 
   const renderSection = (title, agents, { showTitle = true } = {}) => {
     if (!agents.length) return;
@@ -4690,13 +4843,14 @@ function renderAgentList() {
     }
 
     agents.forEach((agent) => {
-      const status = (state.agentStatus.get(agent.id)?.status || agent.status || "stopped").toLowerCase();
+      const status = agentRuntimeStatus(agent);
+      const health = agentHealth(agent);
       const chatState = ensureChatState(agent.id);
       const isActive = state.selectedAgentId === agent.id;
       const row = document.createElement("button");
       row.type = "button";
-      row.className = `portal-agent-row${isActive ? " is-active" : ""}`;
-      const sharedBadge = Number(agent.owner_user_id) === state.currentUserId ? "" : '<span class="portal-agent-shared">shared</span>';
+      row.className = `portal-agent-row is-${safe(health.tone)}${isActive ? " is-active" : ""}`;
+      const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent))}</span>`;
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
@@ -4711,6 +4865,7 @@ function renderAgentList() {
           <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
           <span class="portal-agent-status-text">${safe(status)}</span>
         </div>
+        <div class="portal-agent-health-line">${safe(health.detail)}</div>
       `;
       row.addEventListener("click", () => selectAgentById(agent.id));
       section.append(row);
@@ -4722,6 +4877,50 @@ function renderAgentList() {
   renderSection("My Space", mine, { showTitle: false });
   renderSection("Shared", shared);
   renderSection("Public", publicAgents);
+  renderIcons();
+}
+
+function agentHealthActionLabel(health) {
+  return String(health?.action || "").trim();
+}
+
+function agentHealthCardHtml(agent) {
+  const health = agentHealth(agent);
+  const scopeLabel = agentScopeLabel(agent);
+  const actionLabel = agentHealthActionLabel(health);
+  const actionButton = actionLabel ? `
+    <button class="portal-btn is-secondary" type="button" data-agent-health-action="${escapeHtmlAttr(actionLabel)}">
+      <i data-lucide="${actionLabel === "Edit setup" ? "settings" : (actionLabel === "Restart" ? "rotate-cw" : "play")}" class="w-4 h-4"></i>${safe(actionLabel)}
+    </button>
+  ` : "";
+  return `
+    <section class="portal-agent-health-card is-${safe(health.tone)}">
+      <div class="portal-agent-health-main">
+        <span class="portal-status-badge is-${safe(health.tone)}">${safe(health.label)}</span>
+        <div>
+          <strong>${safe(health.detail)}</strong>
+          <span>${safe(scopeLabel)} · ${safe(agentRuntimeStatus(agent))}</span>
+        </div>
+      </div>
+      ${actionButton}
+    </section>
+  `;
+}
+
+async function handleAgentHealthAction(agent, actionLabel) {
+  const label = String(actionLabel || "").trim();
+  if (!agent || !label) return;
+  if (label === "Edit setup") {
+    openEditDialog(agent);
+    return;
+  }
+  if (label === "Restart") {
+    await action(`/api/agents/${agent.id}/restart`);
+    return;
+  }
+  if (label === "Start") {
+    await action(`/api/agents/${agent.id}/start`);
+  }
 }
 
 function renderAgentMeta(agent) {
@@ -4769,6 +4968,7 @@ function renderAgentMeta(agent) {
 
   dom.agentMeta.innerHTML = `
     <div class="portal-detail-stack">
+      ${agentHealthCardHtml(agent)}
       <div class="portal-detail-section">
         <div class="portal-detail-label">Assistant ID</div>
         <code class="portal-detail-code">${safe(agent.id)}</code>
@@ -4806,6 +5006,14 @@ function renderAgentMeta(agent) {
       <div id="agent-usage" class="portal-detail-subtle">Loading usage...</div>
     </div>
   `;
+
+  dom.agentMeta.querySelector("[data-agent-health-action]")?.addEventListener("click", async (event) => {
+    try {
+      await handleAgentHealthAction(agent, event.currentTarget.dataset.agentHealthAction);
+    } catch (error) {
+      showToast(`Action failed: ${error.message}`);
+    }
+  });
 
   // Fetch usage data
   fetchUsageForAgent(agent.id);
@@ -7607,7 +7815,7 @@ function syncMainHeader() {
       dom.embedTitle.textContent = "Bundles";
       setChatStatus("Browse and open bundle detail in the main stage");
     } else if (state.activeNavSection === "tasks") {
-      dom.embedTitle.textContent = "My Tasks";
+      dom.embedTitle.textContent = "Tasks";
       setChatStatus("Browse tasks and open task detail in the main stage");
     } else if (state.activeNavSection === "delegations") {
       dom.embedTitle.textContent = "Delegations";
@@ -7935,7 +8143,7 @@ async function setActiveNavSection(section, {
     const first = state.delegations[0];
     if (preferSectionLanding) {
       state.selectedDelegationRuleId = null;
-      renderDelegationRuleNavList(state.delegations);
+      renderDelegationRuleNavList();
       if (first) {
         renderWorkspaceDetailPlaceholder("Select a delegation from the left sidebar.", "delegations-placeholder");
         syncMainHeader();
@@ -8042,14 +8250,54 @@ async function openRequirementBundleInMain(bundleRef = null, { updateRoute = tru
   }
 }
 
-function renderTaskNavList(errorMessage = "") {
+function taskOwnerLabel(task) {
+  const ownerName = String(task?.owner_display_name || "").trim();
+  if (ownerName) return ownerName;
+  const ownerId = task?.owner_user_id ?? "";
+  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : `User ${ownerId}`;
+}
+
+function hasActiveTaskFilters() {
+  const filters = state.taskFilters || {};
+  return Boolean(String(filters.query || "").trim() || filters.status !== "all" || filters.owner !== "all");
+}
+
+function taskStatusFilterLabel(value) {
+  const normalized = String(value || "all").trim().toLowerCase();
+  if (normalized === "active") return "active";
+  if (normalized === "attention") return "needs attention";
+  if (normalized === "done") return "done";
+  return "all";
+}
+
+function syncTaskFilterControls() {
+  const filters = state.taskFilters || { query: "", status: "all", owner: "all" };
+  if (dom.taskSearchInput && dom.taskSearchInput.value !== filters.query) dom.taskSearchInput.value = filters.query;
+  if (dom.taskOwnerFilter && dom.taskOwnerFilter.value !== filters.owner) dom.taskOwnerFilter.value = filters.owner;
+  dom.taskStatusFilter?.querySelectorAll("[data-task-status-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.taskStatusFilter === filters.status);
+  });
+  if (dom.taskFilterSummary) {
+    const parts = [];
+    if (filters.status !== "all") parts.push(taskStatusFilterLabel(filters.status));
+    if (filters.owner === "mine") parts.push("owned by you");
+    if (filters.query) parts.push(`"${filters.query}"`);
+    const filterLabel = parts.length ? `Filtered by ${parts.join(", ")}` : "All visible tasks";
+    const countLabel = state.taskListHasMore ? `${state.myTasks.length}+ loaded` : `${state.myTasks.length} shown`;
+    dom.taskFilterSummary.textContent = `${filterLabel} - ${countLabel}`;
+  }
+}
+
+function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
   if (!dom.taskNavList) return;
+  const previousScrollTop = preserveScroll ? dom.taskNavList.scrollTop : 0;
+  syncTaskFilterControls();
   if (errorMessage) {
     dom.taskNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
     return;
   }
   if (!state.myTasks.length) {
-    dom.taskNavList.innerHTML = '<div class="portal-bundle-list-state">No visible tasks yet.</div>';
+    dom.taskNavList.innerHTML = `<div class="portal-bundle-list-state">${hasActiveTaskFilters() ? "No tasks match these filters." : "No visible tasks yet."}</div>`;
     return;
   }
 
@@ -8066,6 +8314,8 @@ function renderTaskNavList(errorMessage = "") {
     const timeLabel = formatTaskNavTime(task.updated_at || task.created_at);
     const status = String(task.status || "unknown").trim();
     const statusTone = taskStatusTone(status);
+    const ownerLabel = taskOwnerLabel(task);
+    const agentLabel = String(task.assignee_agent_name || task.assignee_agent_id || "").trim();
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
@@ -8077,7 +8327,9 @@ function renderTaskNavList(errorMessage = "") {
       ${displayPreview ? `<div class="portal-task-row-preview">${safe(displayPreview)}</div>` : ""}
       <div class="portal-task-row-meta">
         ${skillName ? `<span>/${safe(skillName)}</span>` : ""}
+        ${agentLabel ? `<span>${safe(agentLabel)}</span>` : ""}
         <span>${safe(task.task_type || "task")}</span>
+        <span>Owner ${safe(ownerLabel)}</span>
         ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
       </div>
     `;
@@ -8086,6 +8338,13 @@ function renderTaskNavList(errorMessage = "") {
     });
     dom.taskNavList.append(row);
   });
+  if (state.taskListLoading || state.taskListHasMore) {
+    const sentinel = document.createElement("div");
+    sentinel.className = "portal-list-load-state";
+    sentinel.textContent = state.taskListLoading ? "Loading more tasks..." : "Scroll for more";
+    dom.taskNavList.append(sentinel);
+  }
+  if (preserveScroll) dom.taskNavList.scrollTop = previousScrollTop;
 }
 
 function taskStatusTone(status) {
@@ -8103,19 +8362,64 @@ function formatTaskNavTime(value) {
   return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-async function refreshMyTasks() {
-  if (!dom.taskNavList) return;
-  dom.taskNavList.innerHTML = '<div class="portal-bundle-list-state">Loading tasks…</div>';
+async function refreshMyTasks({ reset = true } = {}) {
+  if (!dom.taskNavList || state.taskListLoading) return;
+  if (reset) {
+    dom.taskNavList.innerHTML = '<div class="portal-bundle-list-state">Loading tasks...</div>';
+  }
+  state.taskListLoading = true;
+  if (reset) {
+    state.taskListOffset = 0;
+    state.taskListHasMore = true;
+    state.myTasks = [];
+  } else {
+    renderTaskNavList("", { preserveScroll: true });
+  }
+  let loadError = false;
   try {
-    const tasks = await api("/api/my/tasks");
-    state.myTasks = Array.isArray(tasks) ? tasks : [];
+    const params = new URLSearchParams({
+      limit: String(state.taskPageSize),
+      offset: String(state.taskListOffset),
+    });
+    const filters = state.taskFilters || {};
+    if (filters.status && filters.status !== "all") params.set("status", filters.status);
+    if (filters.owner && filters.owner !== "all") params.set("owner", filters.owner);
+    if (filters.query) params.set("q", filters.query);
+    const tasks = await api(`/api/my/tasks?${params.toString()}`);
+    const page = Array.isArray(tasks) ? tasks : [];
+    if (reset) {
+      state.myTasks = page;
+    } else {
+      const seen = new Set(state.myTasks.map((task) => task.id));
+      state.myTasks = state.myTasks.concat(page.filter((task) => task?.id && !seen.has(task.id)));
+    }
+    state.taskListOffset += page.length;
+    state.taskListHasMore = page.length >= state.taskPageSize;
     if (state.selectedTaskId && !state.myTasks.some((task) => task.id === state.selectedTaskId)) {
       state.selectedTaskId = null;
     }
-    renderTaskNavList();
+    renderTaskNavList("", { preserveScroll: !reset });
   } catch (error) {
+    loadError = true;
     renderTaskNavList(`Failed to load tasks: ${error.message}`);
+  } finally {
+    state.taskListLoading = false;
+    if (!loadError) renderTaskNavList("", { preserveScroll: !reset });
   }
+}
+
+function queueTaskFilterRefresh() {
+  clearTimeout(queueTaskFilterRefresh.timerId);
+  queueTaskFilterRefresh.timerId = setTimeout(() => {
+    refreshMyTasks({ reset: true });
+  }, 220);
+}
+
+async function loadMoreTasksIfNeeded() {
+  if (!dom.taskNavList || state.taskListLoading || !state.taskListHasMore) return;
+  const remaining = dom.taskNavList.scrollHeight - dom.taskNavList.scrollTop - dom.taskNavList.clientHeight;
+  if (remaining > 160) return;
+  await refreshMyTasks({ reset: false });
 }
 
 async function openTaskDetailInMain(taskId, { updateRoute = true } = {}) {
@@ -10083,15 +10387,69 @@ async function loadDelegationRules() {
   } catch (_err) {
     state.delegations = [];
   }
-  renderDelegationRuleNavList(state.delegations);
+  renderDelegationRuleNavList();
   return state.delegations;
 }
 
-function renderDelegationRuleNavList(rules) {
+function hasActiveDelegationFilters() {
+  const filters = state.delegationFilters || {};
+  return Boolean(String(filters.query || "").trim() || filters.status !== "all" || filters.owner !== "all" || filters.source !== "all");
+}
+
+function delegationRuleMatchesFilters(rule) {
+  const filters = state.delegationFilters || {};
+  const source = String(rule?.source || rule?.trigger_type || "").trim();
+  const statusFilter = String(filters.status || "all").trim();
+  if (statusFilter === "enabled" && !rule?.enabled) return false;
+  if (statusFilter === "paused" && rule?.enabled) return false;
+  if (statusFilter === "missing" && !rule?.target_agent_missing) return false;
+  if (filters.owner === "mine" && Number(rule?.owner_user_id) !== state.currentUserId) return false;
+  if (filters.source !== "all" && source !== filters.source) return false;
+
+  const query = String(filters.query || "").trim().toLowerCase();
+  if (!query) return true;
+  const haystack = [
+    rule?.name,
+    source,
+    delegationSourceLabel(source),
+    rule?.skill_name,
+    rule?.target_agent_id,
+    rule?.target_agent_name,
+    delegationOwnerLabel(rule),
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
+}
+
+function visibleDelegationRules() {
+  return (Array.isArray(state.delegations) ? state.delegations : []).filter(delegationRuleMatchesFilters);
+}
+
+function syncDelegationFilterControls(visibleCount = null) {
+  const filters = state.delegationFilters || { query: "", status: "all", owner: "all", source: "all" };
+  if (dom.delegationSearchInput && dom.delegationSearchInput.value !== filters.query) dom.delegationSearchInput.value = filters.query;
+  if (dom.delegationOwnerFilter && dom.delegationOwnerFilter.value !== filters.owner) dom.delegationOwnerFilter.value = filters.owner;
+  if (dom.delegationSourceFilter && dom.delegationSourceFilter.value !== filters.source) dom.delegationSourceFilter.value = filters.source;
+  dom.delegationStatusFilter?.querySelectorAll("[data-delegation-status-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.delegationStatusFilter === filters.status);
+  });
+  if (dom.delegationFilterSummary) {
+    const total = Array.isArray(state.delegations) ? state.delegations.length : 0;
+    const shown = visibleCount === null ? visibleDelegationRules().length : visibleCount;
+    const parts = [];
+    if (filters.status !== "all") parts.push(filters.status === "missing" ? "needs agent" : filters.status);
+    if (filters.owner === "mine") parts.push("owned by you");
+    if (filters.source !== "all") parts.push(delegationSourceLabel(filters.source));
+    if (filters.query) parts.push(`"${filters.query}"`);
+    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} delegations`;
+  }
+}
+
+function renderDelegationRuleNavList(rules = null) {
   if (!dom.delegationRuleNavList) return;
-  const items = Array.isArray(rules) ? rules : [];
+  const items = Array.isArray(rules) ? rules : visibleDelegationRules();
+  syncDelegationFilterControls(items.length);
   if (!items.length) {
-    dom.delegationRuleNavList.innerHTML = '<div class="portal-bundle-list-state">No delegations found.</div>';
+    dom.delegationRuleNavList.innerHTML = `<div class="portal-bundle-list-state">${hasActiveDelegationFilters() ? "No delegations match these filters." : "No delegations found."}</div>`;
     return;
   }
   dom.delegationRuleNavList.innerHTML = "";
@@ -10105,6 +10463,8 @@ function renderDelegationRuleNavList(rules) {
     const statusTone = delegationRuleStatusTone(rule);
     const timeLabel = rule.enabled ? `Next ${delegationDisplayTime(rule.next_run_at)}` : `Last ${delegationDisplayTime(rule.last_run_at)}`;
     const flowPreview = `${sourceLabel} -> ${skillLabel} -> ${delegationReplyTargetLabel(source)}`;
+    const ownerLabel = delegationOwnerLabel(rule);
+    const agentLabel = delegationTargetAgentLabel(rule);
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row portal-delegation-row${state.selectedDelegationRuleId === rule.id ? " is-active" : ""}`;
@@ -10116,6 +10476,8 @@ function renderDelegationRuleNavList(rules) {
       <div class="portal-task-row-preview">${safe(flowPreview)}</div>
       <div class="portal-task-row-meta">
         <span>${safe(skillLabel)}</span>
+        <span>${safe(agentLabel)}</span>
+        <span>Owner ${safe(ownerLabel)}</span>
         <span>Every ${safe(intervalLabel)}</span>
         <span>${safe(timeLabel)}</span>
       </div>
@@ -10167,10 +10529,12 @@ function delegationRuleSkillLabel(rule) {
 }
 
 function delegationRuleStatusLabel(rule) {
+  if (rule?.target_agent_missing) return "Needs agent";
   return rule?.enabled ? "Enabled" : "Paused";
 }
 
 function delegationRuleStatusTone(rule) {
+  if (rule?.target_agent_missing) return "warning";
   return rule?.enabled ? "success" : "neutral";
 }
 
@@ -10191,6 +10555,24 @@ function delegationAgentLabel(agent, agentId) {
   const id = String(agentId || "").trim();
   if (name && id) return `${name} (${id})`;
   return name || id || "-";
+}
+
+function delegationOwnerLabel(rule) {
+  const ownerName = String(rule?.owner_display_name || "").trim();
+  if (ownerName) return ownerName;
+  const ownerId = rule?.owner_user_id ?? "";
+  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : `User ${ownerId}`;
+}
+
+function delegationCanManage(rule) {
+  if (rule?.can_manage === true) return true;
+  return Number(rule?.owner_user_id) === state.currentUserId;
+}
+
+function delegationTargetAgentLabel(rule, targetAgent = null) {
+  const fallbackAgent = targetAgent || (rule?.target_agent_name ? { name: rule.target_agent_name } : null);
+  const label = delegationAgentLabel(fallbackAgent, rule?.target_agent_id);
+  return rule?.target_agent_missing ? `${label} (deleted)` : label;
 }
 
 function delegationRunStatusTone(status) {
@@ -10230,9 +10612,7 @@ function delegationEventReplyLabel(event) {
 }
 
 function delegationTruncate(value, maxLength = 160) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+  return compactText(value, maxLength);
 }
 
 function delegationRunTimelineItems(runs) {
@@ -10300,7 +10680,7 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
   if (!ruleId) return;
   try {
     state.selectedDelegationRuleId = ruleId;
-    renderDelegationRuleNavList(state.delegations);
+    renderDelegationRuleNavList();
     const detail = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`);
     const runs = await loadDelegationRuleRuns(ruleId);
     const events = await loadDelegationRuleEvents(ruleId);
@@ -10312,7 +10692,24 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
     const skillLabel = delegationRuleSkillLabel(detail);
     const statusLabel = delegationRuleStatusLabel(detail);
     const statusTone = delegationRuleStatusTone(detail);
-    const agentLabel = delegationAgentLabel(targetAgent, detail.target_agent_id);
+    const agentLabel = delegationTargetAgentLabel(detail, targetAgent);
+    const ownerLabel = delegationOwnerLabel(detail);
+    const canManage = delegationCanManage(detail);
+    const managementActions = canManage ? `
+            <button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="pencil" class="w-4 h-4"></i>Edit</button>
+            <button class="portal-btn is-secondary" type="button" data-run-delegation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>Run once</button>
+            <button class="portal-btn is-secondary" type="button" data-toggle-delegation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? "Pause" : "Enable"}</button>
+            <button class="portal-btn is-danger" type="button" data-delete-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>Delete</button>
+    ` : '<span class="portal-panel-note">Only the owner can manage this delegation.</span>';
+    const missingAgentCallout = detail.target_agent_missing ? `
+        <div class="portal-callout is-warning portal-repair-callout">
+          <div>
+            <strong>Target agent was deleted.</strong>
+            <span>${canManage ? "Choose a replacement agent to resume scheduled runs." : `Ask ${safe(ownerLabel)} to choose a replacement agent.`}</span>
+          </div>
+          ${canManage ? `<button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="wrench" class="w-4 h-4"></i>Change agent</button>` : ""}
+        </div>
+    ` : "";
     dom.workspaceDetailContent.innerHTML = `
       <div class="portal-panel-stack portal-delegation-detail">
         <div class="portal-task-detail-hero portal-delegation-hero">
@@ -10324,14 +10721,15 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
             </div>
           </div>
           <div class="portal-task-actions">
-            <button class="portal-btn is-secondary" type="button" data-run-delegation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>Run once</button>
-            <button class="portal-btn is-secondary" type="button" data-toggle-delegation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? "Pause" : "Enable"}</button>
-            <button class="portal-btn is-danger" type="button" data-delete-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>Delete</button>
+            ${managementActions}
           </div>
         </div>
 
+        ${missingAgentCallout}
+
         <section class="portal-task-metrics portal-delegation-metrics">
           <div><span>Source</span><strong>${safe(sourceLabel)}</strong></div>
+          <div><span>Owner</span><strong>${safe(ownerLabel)}</strong></div>
           <div><span>Interval</span><strong>Every ${safe(intervalLabel)}</strong></div>
           <div><span>Last Run</span><strong>${safe(delegationDisplayTime(detail.last_run_at))}</strong></div>
           <div><span>Next Run</span><strong>${safe(delegationDisplayTime(detail.next_run_at))}</strong></div>
@@ -10401,12 +10799,12 @@ async function openCreateDelegationRuleModal() {
       <h3>Create Delegation</h3>
       <form id="create-delegation-inline-form" class="portal-panel-stack">
         <section class="portal-panel-section">
+          <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" required /></label>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
           <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
           <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="GitHub PR Review" required /></label>
-          <label class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span>Enabled</span></label>
+          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
         </section>
         <button class="portal-btn is-primary" type="submit">Create Delegation</button>
       </form>
@@ -10414,6 +10812,65 @@ async function openCreateDelegationRuleModal() {
   `;
   const form = document.getElementById("create-delegation-inline-form");
   if (form) await populateCreateTaskSkillSelect(form);
+}
+
+async function openEditDelegationRuleModal(ruleId) {
+  const detail = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`);
+  if (!delegationCanManage(detail)) {
+    showToast("Only the owner can edit this delegation.");
+    return;
+  }
+  if (!state.mineAgents || !state.mineAgents.length) {
+    await loadMineAgents();
+  }
+  const currentAgentId = String(detail.target_agent_id || "").trim();
+  const currentAgentInList = (state.mineAgents || []).some((agent) => agent.id === currentAgentId);
+  const currentAgentOption = !currentAgentId || currentAgentInList ? "" : (
+    `<option value="${escapeHtmlAttr(currentAgentId)}" selected>${safe(delegationTargetAgentLabel(detail))}</option>`
+  );
+  const agentOptions = currentAgentOption + (state.mineAgents || [])
+    .map((agent) => `<option value="${escapeHtmlAttr(agent.id)}" ${agent.id === currentAgentId ? "selected" : ""}>${safe(agent.name || agent.id)}</option>`)
+    .join("");
+  const sourceValue = String(detail.source || detail.trigger_type || "").trim();
+  const sourceOptions = DELEGATION_SOURCE_OPTIONS
+    .map(([value, label]) => `<option value="${escapeHtmlAttr(value)}" ${value === sourceValue ? "selected" : ""}>${safe(label)}</option>`)
+    .join("");
+  const skillName = String(detail.skill_name || "").trim().replace(/^\/+/, "");
+  const skillOptionLabel = skillName ? `/${safe(skillName)}` : "Select an agent first";
+  const intervalSeconds = Number(detail.interval_seconds || 60);
+  dom.workspaceDetailContent.innerHTML = `
+    <div class="portal-panel-stack">
+      <h3>Edit Delegation</h3>
+      <form
+        id="edit-delegation-inline-form"
+        class="portal-panel-stack"
+        data-rule-id="${escapeHtmlAttr(detail.id)}"
+        data-original-name="${escapeHtmlAttr(detail.name || "")}"
+        data-original-target-agent-id="${escapeHtmlAttr(currentAgentId)}"
+        data-original-source="${escapeHtmlAttr(sourceValue)}"
+        data-original-skill-name="${escapeHtmlAttr(skillName)}"
+        data-original-interval-seconds="${escapeHtmlAttr(String(intervalSeconds))}"
+        data-original-enabled="${detail.enabled ? "true" : "false"}"
+        data-selected-skill-name="${escapeHtmlAttr(skillName)}"
+      >
+        <section class="portal-panel-section">
+          <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
+          <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
+          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
+        </section>
+        <div class="portal-task-form-actions">
+          <button class="portal-btn is-secondary" type="button" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="arrow-left" class="w-4 h-4"></i>Cancel</button>
+          <button class="portal-btn is-primary" type="submit"><i data-lucide="save" class="w-4 h-4"></i>Save</button>
+        </div>
+      </form>
+    </div>
+  `;
+  const form = document.getElementById("edit-delegation-inline-form");
+  if (form) await populateCreateTaskSkillSelect(form);
+  renderIcons();
 }
 
 async function submitCreateDelegationRule(formEl) {
@@ -10429,6 +10886,37 @@ async function submitCreateDelegationRule(formEl) {
   const created = await api("/api/delegation-rules", { method: "POST", body: JSON.stringify(payload) });
   await loadDelegationRules();
   await openDelegationRulePanel(created.id);
+}
+
+async function submitEditDelegationRule(formEl) {
+  const ruleId = String(formEl?.dataset?.ruleId || "").trim();
+  if (!ruleId) throw new Error("Missing delegation id");
+  const fd = new FormData(formEl);
+  const payload = {};
+  const name = String(fd.get("name") || "").trim();
+  const targetAgentId = String(fd.get("target_agent_id") || "").trim();
+  const source = String(fd.get("source") || "").trim();
+  const originalSkillName = String(formEl.dataset.originalSkillName || "");
+  const skillName = fd.has("skill_name") ? String(fd.get("skill_name") || "").trim() : originalSkillName;
+  const intervalSeconds = Number(fd.get("interval_seconds") || 60);
+  const enabled = fd.get("enabled") !== null;
+  if (name !== String(formEl.dataset.originalName || "")) payload.name = name;
+  if (targetAgentId !== String(formEl.dataset.originalTargetAgentId || "")) payload.target_agent_id = targetAgentId;
+  if (source !== String(formEl.dataset.originalSource || "")) payload.source = source;
+  if (fd.has("skill_name") && skillName !== originalSkillName) payload.skill_name = skillName;
+  if (intervalSeconds !== Number(formEl.dataset.originalIntervalSeconds || 60)) payload.interval_seconds = intervalSeconds;
+  if (enabled !== (formEl.dataset.originalEnabled === "true")) payload.enabled = enabled;
+  if (!Object.keys(payload).length) {
+    showToast("No changes to save");
+    await openDelegationRulePanel(ruleId);
+    return;
+  }
+  const updated = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  await loadDelegationRules();
+  await openDelegationRulePanel(updated.id);
 }
 
 async function runDelegationRuleOnce(ruleId) {
@@ -10447,6 +10935,7 @@ async function toggleDelegationRuleEnabled(ruleId, enabled) {
 }
 
 async function deleteDelegationRule(ruleId) {
+  if (!window.confirm("Delete this delegation? This cannot be undone.")) return;
   await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
   await loadDelegationRules();
   if (state.delegations.length) {
@@ -10518,6 +11007,7 @@ async function populateCreateTaskSkillSelect(formEl) {
   const agentSelect = formEl.querySelector('[name="assignee_agent_id"], [name="target_agent_id"]');
   const skillSelect = formEl.querySelector('[name="skill_name"]');
   const agentId = String(agentSelect?.value || "").trim();
+  const selectedSkillName = String(formEl.dataset.selectedSkillName || "").trim().replace(/^\/+/, "");
   if (!skillSelect) return;
   if (!agentId) {
     setTaskSkillSelectOption(skillSelect, "Select an agent first");
@@ -10540,14 +11030,23 @@ async function populateCreateTaskSkillSelect(formEl) {
       });
       return;
     }
+    let matchedSelectedSkill = false;
     callableSkills.forEach((skill, index) => {
       const option = document.createElement("option");
       option.value = String(skill.command || "").replace(/^\/+/, "");
       option.textContent = skill.command || `/${option.value}`;
       option.title = skill.desc || "";
-      option.selected = index === 0;
+      option.selected = selectedSkillName ? option.value === selectedSkillName : index === 0;
+      matchedSelectedSkill = matchedSelectedSkill || option.selected;
       skillSelect.append(option);
     });
+    if (selectedSkillName && !matchedSelectedSkill) {
+      const option = document.createElement("option");
+      option.value = selectedSkillName;
+      option.textContent = `/${selectedSkillName}`;
+      option.selected = true;
+      skillSelect.prepend(option);
+    }
     skills.filter((skill) => skill.callable === false).forEach((skill) => {
       const option = document.createElement("option");
       option.value = "";
@@ -11514,8 +12013,72 @@ function bindEvents() {
   });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
+  dom.agentSearchInput?.addEventListener("input", () => {
+    state.agentFilters.query = String(dom.agentSearchInput.value || "").trim();
+    renderAgentList();
+  });
+  dom.agentScopeFilter?.addEventListener("change", () => {
+    state.agentFilters.scope = dom.agentScopeFilter.value || "all";
+    renderAgentList();
+  });
+  dom.agentStatusFilter?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-agent-status-filter]");
+    if (!button) return;
+    state.agentFilters.status = button.dataset.agentStatusFilter || "all";
+    renderAgentList();
+  });
+  dom.agentFilterClear?.addEventListener("click", () => {
+    state.agentFilters = { query: "", scope: "all", status: "all" };
+    syncAgentFilterControls();
+    renderAgentList();
+  });
   dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"));
+  dom.taskNavList?.addEventListener("scroll", () => {
+    if (state.activeNavSection === "tasks") loadMoreTasksIfNeeded();
+  });
+  dom.taskSearchInput?.addEventListener("input", () => {
+    state.taskFilters.query = String(dom.taskSearchInput.value || "").trim();
+    queueTaskFilterRefresh();
+  });
+  dom.taskOwnerFilter?.addEventListener("change", () => {
+    state.taskFilters.owner = dom.taskOwnerFilter.value || "all";
+    refreshMyTasks({ reset: true });
+  });
+  dom.taskStatusFilter?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-task-status-filter]");
+    if (!button) return;
+    state.taskFilters.status = button.dataset.taskStatusFilter || "all";
+    refreshMyTasks({ reset: true });
+  });
+  dom.taskFilterClear?.addEventListener("click", () => {
+    state.taskFilters = { query: "", status: "all", owner: "all" };
+    syncTaskFilterControls();
+    refreshMyTasks({ reset: true });
+  });
   dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"));
+  dom.delegationSearchInput?.addEventListener("input", () => {
+    state.delegationFilters.query = String(dom.delegationSearchInput.value || "").trim();
+    renderDelegationRuleNavList();
+  });
+  dom.delegationOwnerFilter?.addEventListener("change", () => {
+    state.delegationFilters.owner = dom.delegationOwnerFilter.value || "all";
+    renderDelegationRuleNavList();
+  });
+  dom.delegationSourceFilter?.addEventListener("change", () => {
+    state.delegationFilters.source = dom.delegationSourceFilter.value || "all";
+    renderDelegationRuleNavList();
+  });
+  dom.delegationStatusFilter?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-delegation-status-filter]");
+    if (!button) return;
+    state.delegationFilters.status = button.dataset.delegationStatusFilter || "all";
+    renderDelegationRuleNavList();
+  });
+  dom.delegationFilterClear?.addEventListener("click", () => {
+    state.delegationFilters = { query: "", status: "all", owner: "all", source: "all" };
+    syncDelegationFilterControls();
+    renderDelegationRuleNavList();
+  });
   dom.addDelegationBtn?.addEventListener("click", async () => {
     try {
       if (!state.mineAgents || !state.mineAgents.length) {
@@ -11603,6 +12166,16 @@ function bindEvents() {
       }
       return;
     }
+    const editDelegationForm = event.target.closest("#edit-delegation-inline-form");
+    if (editDelegationForm) {
+      event.preventDefault();
+      try {
+        await submitEditDelegationRule(editDelegationForm);
+      } catch (error) {
+        showToast(`Update delegation failed: ${error.message}`);
+      }
+      return;
+    }
     const taskForm = event.target.closest("#create-agent-async-task-form");
     if (taskForm) {
       event.preventDefault();
@@ -11624,13 +12197,30 @@ function bindEvents() {
     }
   });
   dom.workspaceDetailContent?.addEventListener("change", async (event) => {
-    const formEl = event.target.closest("#create-agent-async-task-form, #create-delegation-inline-form");
+    const formEl = event.target.closest("#create-agent-async-task-form, #create-delegation-inline-form, #edit-delegation-inline-form");
     if (!formEl) return;
     if (event.target.matches('[name="assignee_agent_id"], [name="target_agent_id"]')) {
+      if (formEl.id === "edit-delegation-inline-form") formEl.dataset.selectedSkillName = "";
       await populateCreateTaskSkillSelect(formEl);
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const openDelegationBtn = event.target.closest("[data-open-delegation-rule]");
+    if (openDelegationBtn) {
+      event.preventDefault();
+      await openDelegationRulePanel(openDelegationBtn.dataset.openDelegationRule || "");
+      return;
+    }
+    const editDelegationBtn = event.target.closest("[data-edit-delegation-rule]");
+    if (editDelegationBtn) {
+      event.preventDefault();
+      try {
+        await openEditDelegationRuleModal(editDelegationBtn.dataset.editDelegationRule || "");
+      } catch (error) {
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Edit failed: ${safe(error.message)}</div>`;
+      }
+      return;
+    }
     const runBtn = event.target.closest("[data-run-delegation-once]");
     if (runBtn) {
       event.preventDefault();

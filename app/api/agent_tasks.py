@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 import json
 import logging
@@ -8,6 +8,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.repositories.user_repo import UserRepository
 from app.schemas.agent_task import (
     AgentTaskCreateRequest,
     AgentTaskResponse,
@@ -34,9 +35,8 @@ def _can_write(agent, user) -> bool:
 
 
 def _is_task_visible_to_user(task, user) -> bool:
-    if user.role == "admin":
-        return True
-    return task.owner_user_id == user.id or task.created_by_user_id == user.id
+    _ = task, user
+    return True
 
 
 def _require_writable_assignee(db: Session, assignee_agent_id: str, user):
@@ -62,12 +62,29 @@ def _require_visible_task(db: Session, task_id: str, user):
 
 
 def _can_manage_task(db: Session, task, user) -> bool:
-    if user.role == "admin":
-        return True
-    if task.owner_user_id == user.id or task.created_by_user_id == user.id:
-        return True
-    assignee_agent = AgentRepository(db).get_by_id(task.assignee_agent_id)
-    return bool(assignee_agent and _can_write(assignee_agent, user))
+    _ = db
+    return task.owner_user_id == user.id
+
+
+def _user_display_name(db: Session, user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    owner = UserRepository(db).get_by_id(user_id)
+    if not owner:
+        return f"User {user_id}"
+    return (owner.nickname or owner.username or f"User {user_id}").strip()
+
+
+def _task_response(db: Session, task, user) -> AgentTaskResponse:
+    assignee_agent = AgentRepository(db).get_by_id(getattr(task, "assignee_agent_id", None))
+    assignee_name = (getattr(assignee_agent, "name", None) or "").strip() if assignee_agent else None
+    return AgentTaskResponse.model_validate(task).model_copy(
+        update={
+            "owner_display_name": _user_display_name(db, getattr(task, "owner_user_id", None)),
+            "can_manage": _can_manage_task(db, task, user),
+            "assignee_agent_name": assignee_name or None,
+        }
+    )
 
 
 def _normalize_skill_name(value: str | None) -> str:
@@ -196,7 +213,7 @@ def create_agent_async_task(payload: CreateAgentAsyncTaskRequest, user=Depends(g
         status="queued",
     )
     task_dispatcher_service.dispatch_task_in_background(task.id)
-    return AgentTaskResponse.model_validate(task)
+    return _task_response(db, task, user)
 
 
 @router.post("/api/agent-tasks/{task_id}/followups", response_model=AgentTaskResponse)
@@ -242,7 +259,7 @@ def create_agent_task_followup(
     target_task.root_task_id = root_task_id
     target_task = AgentTaskRepository(db).save(target_task)
     task_dispatcher_service.dispatch_task_in_background(target_task.id)
-    return AgentTaskResponse.model_validate(target_task)
+    return _task_response(db, target_task, user)
 
 
 @router.post("/api/agent-tasks/{task_id}/rerun", response_model=AgentTaskResponse)
@@ -289,7 +306,7 @@ def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session =
     target_task.root_task_id = root_task_id
     target_task = AgentTaskRepository(db).save(target_task)
     task_dispatcher_service.dispatch_task_in_background(target_task.id)
-    return AgentTaskResponse.model_validate(target_task)
+    return _task_response(db, target_task, user)
 
 
 @router.post("/api/agent-tasks/{task_id}/cancel", response_model=AgentTaskResponse)
@@ -300,12 +317,12 @@ async def cancel_agent_task(task_id: str, user=Depends(get_current_user), db: Se
 
     normalized_status = (task.status or "").strip().lower()
     if normalized_status in TERMINAL_TASK_STATUSES:
-        return AgentTaskResponse.model_validate(task)
+        return _task_response(db, task, user)
     if normalized_status == "queued":
         task.status = "cancelled"
         task.summary = "Task was cancelled before it started."
         task = AgentTaskRepository(db).save(task)
-        return AgentTaskResponse.model_validate(task)
+        return _task_response(db, task, user)
     if normalized_status != "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is not cancellable")
 
@@ -315,7 +332,7 @@ async def cancel_agent_task(task_id: str, user=Depends(get_current_user), db: Se
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-    return AgentTaskResponse.model_validate(task)
+    return _task_response(db, task, user)
 @router.post("/api/agent-tasks", response_model=AgentTaskResponse)
 def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     assignee_agent = AgentRepository(db).get_by_id(payload.assignee_agent_id)
@@ -328,7 +345,7 @@ def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_
     create_payload["owner_user_id"] = assignee_agent.owner_user_id
     create_payload["created_by_user_id"] = user.id
     task = AgentTaskRepository(db).create(**create_payload)
-    return AgentTaskResponse.model_validate(task)
+    return _task_response(db, task, user)
 
 
 @router.get("/api/agent-tasks", response_model=list[AgentTaskResponse])
@@ -336,13 +353,28 @@ def list_agent_tasks(user=Depends(get_current_user), db: Session = Depends(get_d
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admin can list all tasks")
     tasks = AgentTaskRepository(db).list_all()
-    return [AgentTaskResponse.model_validate(task) for task in tasks]
+    return [_task_response(db, task, user) for task in tasks]
 
 
 @router.get("/api/my/tasks", response_model=list[AgentTaskResponse])
-def list_my_tasks(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id)
-    return [AgentTaskResponse.model_validate(task) for task in tasks]
+def list_my_tasks(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(default=None, alias="status", max_length=32),
+    owner: str | None = Query(default=None, max_length=32),
+    q: str | None = Query(default=None, max_length=120),
+):
+    tasks = AgentTaskRepository(db).list_visible_to_user(
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+        status=status_filter,
+        owner=owner,
+        query=q,
+    )
+    return [_task_response(db, task, user) for task in tasks]
 
 
 @router.get("/api/agent-tasks/{task_id}", response_model=AgentTaskResponse)
@@ -355,7 +387,7 @@ def get_agent_task(task_id: str, user=Depends(get_current_user), db: Session = D
         if not _is_task_visible_to_user(task, user):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    return AgentTaskResponse.model_validate(task)
+    return _task_response(db, task, user)
 
 
 @router.get("/api/agents/{agent_id}/tasks", response_model=list[AgentTaskResponse])
@@ -367,7 +399,7 @@ def list_agent_tasks_by_agent(agent_id: str, user=Depends(get_current_user), db:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     tasks = AgentTaskRepository(db).list_by_agent(agent_id)
-    return [AgentTaskResponse.model_validate(task) for task in tasks]
+    return [_task_response(db, task, user) for task in tasks]
 
 
 @router.post("/api/agent-tasks/{task_id}/dispatch", status_code=status.HTTP_202_ACCEPTED)

@@ -22,6 +22,24 @@ class _FakeTaskRepo:
         return self._chain
 
 
+class _FakeTaskListRepo:
+    def __init__(self, _db, tasks):
+        self._tasks = tasks
+
+    def list_visible_to_user(self, *, user_id, limit=None, offset=0):
+        _ = user_id
+        window = self._tasks[offset:]
+        if limit is not None:
+            window = window[:limit]
+        return window
+
+    def count_by_status(self):
+        counts = {}
+        for task in self._tasks:
+            counts[task.status] = counts.get(task.status, 0) + 1
+        return counts
+
+
 def _setup_task_client(monkeypatch, task, chain=None, can_manage_task=True):
     from app.main import app
     import app.web as web_module
@@ -184,3 +202,42 @@ def test_active_agent_async_task_detail_renders_cancel_and_auto_refresh(monkeypa
     assert 'data-cancel-task="async-task-1"' in html
     assert 'data-rerun-task="async-task-1"' not in html
     assert 'id="continue-agent-task-form"' not in html
+
+
+def test_tasks_panel_uses_incremental_task_cards(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+
+    user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
+    now = datetime.utcnow()
+    tasks = [
+        SimpleNamespace(
+            id=f"task-{index:02d}",
+            title=f"Task {index:02d}",
+            status="done",
+            task_type="agent_async_task",
+            source="portal",
+            skill_name="review",
+            summary="",
+            error_message="",
+            owner_user_id=11,
+            created_at=now,
+        )
+        for index in range(55)
+    ]
+
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: user)
+    monkeypatch.setattr(web_module, "AgentTaskRepository", lambda db: _FakeTaskListRepo(db, tasks))
+    client = TestClient(app)
+
+    html = client.get("/app/tasks/panel?content_target=%23workspace-detail-content").text
+    assert html.count('<article class="portal-task-card">') == 50
+    assert "Task 00" in html
+    assert "Task 54" not in html
+    assert 'hx-get="/app/tasks/list?offset=50&limit=50&content_target=%23workspace-detail-content"' in html
+
+    next_html = client.get("/app/tasks/list?offset=50&limit=50&content_target=%23workspace-detail-content").text
+    assert next_html.count('<article class="portal-task-card">') == 5
+    assert "Task 54" in next_html
+    assert "/app/tasks/list?offset=100" not in next_html

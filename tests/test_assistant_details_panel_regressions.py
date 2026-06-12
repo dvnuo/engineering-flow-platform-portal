@@ -46,3 +46,35 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
     assert "fetchSkillGitInfo(agent.id)" in render_agent_meta
 
     assert "Tools Repository" not in render_agent_meta
+
+
+def test_agent_health_card_is_wired_into_agent_meta():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    render_agent_meta = _extract_js_function(js, "renderAgentMeta")
+    agent_health = _extract_js_function(js, "agentHealth")
+    health_action = _extract_js_function(js, "handleAgentHealthAction")
+
+    assert "agentHealthCardHtml(agent)" in render_agent_meta
+    assert "data-agent-health-action" in render_agent_meta
+    assert "Runtime profile is missing." in agent_health
+    assert "Ready to chat." in agent_health
+    assert "openEditDialog(agent)" in health_action
+    assert 'action(`/api/agents/${agent.id}/restart`)' in health_action
+    assert 'action(`/api/agents/${agent.id}/start`)' in health_action
+
+
+def test_agent_list_filters_are_present_and_wired():
+    template = Path("app/templates/app.html").read_text(encoding="utf-8")
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    render_agent_list = _extract_js_function(js, "renderAgentList")
+    bind_events = _extract_js_function(js, "bindEvents")
+
+    assert 'id="agent-search-input"' in template
+    assert 'id="agent-scope-filter"' in template
+    assert 'data-agent-status-filter="ready"' in template
+    assert 'data-agent-status-filter="attention"' in template
+    assert "visibleAgents()" in render_agent_list
+    assert "agentHealth(agent)" in render_agent_list
+    assert "portal-agent-health-line" in render_agent_list
+    assert "dom.agentSearchInput?.addEventListener" in bind_events
+    assert "[data-agent-status-filter]" in bind_events
