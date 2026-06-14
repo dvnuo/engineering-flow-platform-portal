@@ -28,6 +28,12 @@ from app.services.proxy_service import (
     build_portal_agent_headers,
     build_runtime_trace_headers,
 )
+from app.services.agent_execution_registry import (
+    ChatStreamExecutionObserver,
+    finish_chat_response_best_effort,
+    mark_execution_failed_best_effort,
+    record_chat_started_best_effort,
+)
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
@@ -271,6 +277,7 @@ async def proxy_agent(
             **build_portal_agent_headers(user, agent),
         }
 
+        chat_execution_id = None
         if is_direct_chat_execution and request_body:
             if not _content_type_is_json(content_type):
                 raise HTTPException(
@@ -292,6 +299,14 @@ async def proxy_agent(
             parsed_payload = _enrich_chat_payload_with_runtime_metadata(
                 parsed_payload, runtime_metadata, user, runtime_type=getattr(agent, "runtime_type", None)
             )
+            chat_execution = record_chat_started_best_effort(
+                db,
+                agent=agent,
+                user=user,
+                payload=parsed_payload,
+                execution_path=f"/{subpath.strip('/')}" if subpath else "/",
+            )
+            chat_execution_id = getattr(chat_execution, "id", None)
             request_body = json.dumps(parsed_payload).encode("utf-8")
 
         if _is_streaming_runtime_path(request.method, subpath):
@@ -313,11 +328,18 @@ async def proxy_agent(
             )
             try:
                 upstream_response = await stream_cm.__aenter__()
-            except Exception:
+            except Exception as exc:
                 await client.aclose()
+                mark_execution_failed_best_effort(
+                    db,
+                    execution_id=chat_execution_id,
+                    error_code="chat_stream_upstream_open_failed",
+                    error_message=sanitize_exception_message(exc),
+                )
                 raise
 
             closed = False
+            stream_observer = ChatStreamExecutionObserver(chat_execution_id)
 
             async def _close_stream_resources() -> None:
                 nonlocal closed
@@ -330,10 +352,16 @@ async def proxy_agent(
                     await client.aclose()
 
             async def _iter_upstream_response():
+                stream_error = None
                 try:
                     async for chunk in upstream_response.aiter_raw():
+                        stream_observer.feed(chunk)
                         yield chunk
+                except Exception as exc:
+                    stream_error = sanitize_exception_message(exc)
+                    raise
                 finally:
+                    stream_observer.finish(status_code=upstream_response.status_code, stream_error=stream_error)
                     await _close_stream_resources()
 
             stream_headers = _select_streaming_response_headers(upstream_response.headers)
@@ -373,9 +401,22 @@ async def proxy_agent(
             headers=forward_headers,
             extra_headers=extra_headers,
         )
+        if is_direct_chat_execution:
+            finish_chat_response_best_effort(
+                db,
+                execution_id=chat_execution_id,
+                status_code=status_code,
+                content=content,
+            )
     except HTTPException:
         raise
     except Exception as exc:
+        mark_execution_failed_best_effort(
+            db,
+            execution_id=locals().get("chat_execution_id"),
+            error_code="chat_proxy_exception",
+            error_message=sanitize_exception_message(exc),
+        )
         logger.exception("Proxy error agent_id=%s method=%s subpath=%s", agent_id, request.method, subpath)
         safe_error = sanitize_exception_message(exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Proxy upstream failure: {safe_error}") from exc

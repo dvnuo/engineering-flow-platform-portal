@@ -19,6 +19,7 @@ REQUIRED_PORTAL_TABLES = (
     "runtime_profile_sync_jobs",
     "runtime_capability_catalog_snapshots",
     "agent_tasks",
+    "agent_executions",
     "delegation_rules",
     "delegation_rule_runs",
     "delegation_rule_events",

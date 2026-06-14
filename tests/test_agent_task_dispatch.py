@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentTask, RuntimeProfile, User
+from app.models import Agent, AgentExecution, AgentTask, RuntimeProfile, User
 from app.log_context import bind_log_context, get_log_context, reset_log_context
 from app.services.auth_service import hash_password
 from app.services.task_dispatcher import TaskDispatcherService
@@ -148,6 +148,15 @@ def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
     assert task.started_at is not None
     assert task.finished_at is not None
     assert task.summary == "done"
+
+    execution = db.query(AgentExecution).filter(AgentExecution.task_id == task.id).one()
+    assert execution.kind == "async_task"
+    assert execution.status == "succeeded"
+    assert execution.request_id == "req-1"
+    assert execution.runtime_status_code == 200
+    assert execution.started_at is not None
+    assert execution.finished_at is not None
+    assert execution.result_summary == "done"
 
 
 def test_dispatch_task_done_delegation_triggers_immediate_reply_processing(db_session, monkeypatch):

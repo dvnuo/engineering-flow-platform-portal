@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentTask, User
+from app.models import Agent, AgentExecution, AgentTask, User
 from app.services.auth_service import hash_password
 
 
@@ -101,6 +101,14 @@ def test_create_agent_async_task_normalizes_skill_and_schedules_dispatch(monkeyp
         assert payload["task_session_id"] == task.task_session_id
         assert payload["autonomous"] is True
         assert "background long-running task" in payload["autonomous_instruction"]
+
+        execution = db.query(AgentExecution).filter(AgentExecution.task_id == body["id"]).one()
+        assert execution.kind == "async_task"
+        assert execution.status == "queued"
+        assert execution.agent_id == agent.id
+        assert execution.session_id == body["task_session_id"]
+        assert execution.runtime_task_id == body["id"]
+        assert execution.would_conflict_same_session is False
     finally:
         cleanup()
 

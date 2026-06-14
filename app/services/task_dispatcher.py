@@ -22,6 +22,10 @@ from app.log_context import (
 from app.redaction import safe_preview, sanitize_exception_message
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
+from app.services.agent_execution_registry import (
+    mark_task_execution_status_best_effort,
+    upsert_task_execution_queued_best_effort,
+)
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
 
@@ -167,7 +171,15 @@ class TaskDispatcherService:
         task.error_message = error_message
         task.summary = None
         task.finished_at = datetime.utcnow()
-        return task_repo.save(task)
+        saved = task_repo.save(task)
+        mark_task_execution_status_best_effort(
+            task_repo.db,
+            task=saved,
+            status=saved.status,
+            error_code="task_failed",
+            error_message=error_message,
+        )
+        return saved
 
     async def _process_delegation_reply_after_done(self, db: Session, task) -> None:
         try:
@@ -562,6 +574,7 @@ class TaskDispatcherService:
                     )
                     return AgentTaskDispatchResult(False, task.id, None, task.status, "Assignee agent not found", task.result_payload_json)
 
+                upsert_task_execution_queued_best_effort(db, task=task, agent=agent)
                 input_payload, payload_error = self._parse_input_payload(task.input_payload_json)
                 if payload_error:
                     failure_payload = self._build_failure_payload(
@@ -740,6 +753,12 @@ class TaskDispatcherService:
                         if fresh_task.started_at is None:
                             fresh_task.started_at = datetime.utcnow()
                         task_repo.save(fresh_task)
+                        mark_task_execution_status_best_effort(
+                            db,
+                            task=fresh_task,
+                            status=fresh_task.status,
+                            runtime_status_code=response.status_code,
+                        )
                         status_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}"
                         poll_kwargs = {
                             "runtime_status_url": status_url,
@@ -768,6 +787,12 @@ class TaskDispatcherService:
                         if fresh_task.started_at is None:
                             fresh_task.started_at = datetime.utcnow()
                         task_repo.save(fresh_task)
+                        mark_task_execution_status_best_effort(
+                            db,
+                            task=fresh_task,
+                            status=fresh_task.status,
+                            runtime_status_code=response.status_code,
+                        )
 
                     if not outcome:
                         outcome = NormalizedRuntimeOutcome(
@@ -813,6 +838,15 @@ class TaskDispatcherService:
                         fresh_task.summary = "Task was cancelled."
                     fresh_task.finished_at = datetime.utcnow()
                     task_repo.save(fresh_task)
+                    mark_task_execution_status_best_effort(
+                        db,
+                        task=fresh_task,
+                        status=fresh_task.status,
+                        runtime_status_code=outcome.runtime_status_code,
+                        error_code=(parsed_outcome_payload or {}).get("error_code") if isinstance(parsed_outcome_payload, dict) else None,
+                        error_message=fresh_task.error_message,
+                        result_summary=fresh_task.summary,
+                    )
                     if fresh_task.status == "done":
                         await self._process_delegation_reply_after_done(db, fresh_task)
                     logger.info(
@@ -901,7 +935,15 @@ class TaskDispatcherService:
             task.status = "cancelled"
             task.summary = "Task was cancelled before it started."
             task.finished_at = datetime.utcnow()
-            return task_repo.save(task)
+            saved = task_repo.save(task)
+            mark_task_execution_status_best_effort(
+                db,
+                task=saved,
+                status=saved.status,
+                error_code="task_cancelled_before_start",
+                result_summary=saved.summary,
+            )
+            return saved
         if normalized_status != "running":
             raise RuntimeError("Task is not cancellable")
 
@@ -942,7 +984,15 @@ class TaskDispatcherService:
         fresh_task.status = "cancelled"
         fresh_task.summary = "Task cancellation was requested."
         fresh_task.finished_at = datetime.utcnow()
-        return task_repo.save(fresh_task)
+        saved = task_repo.save(fresh_task)
+        mark_task_execution_status_best_effort(
+            db,
+            task=saved,
+            status=saved.status,
+            error_code="task_cancelled",
+            result_summary=saved.summary,
+        )
+        return saved
 
     def dispatch_task_in_background(self, task_id: str) -> None:
         parent_context = snapshot_log_context()
