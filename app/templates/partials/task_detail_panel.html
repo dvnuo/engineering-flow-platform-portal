@@ -33,6 +33,20 @@
     <div><span>Duration</span><strong>{{ task_view_model.duration_label }}</strong></div>
   </section>
 
+  {% if task_view_model.execution_context_items %}
+  <section class="portal-task-content-panel">
+    <div class="portal-task-section-heading"><span>Runtime Execution</span></div>
+    <div class="portal-kv-grid">
+      {% for label, value in task_view_model.execution_context_items %}
+      <div class="portal-kv-item"><span class="portal-usage-k">{{ label }}</span><span class="portal-usage-v">{{ value }}</span></div>
+      {% endfor %}
+    </div>
+    {% if task_view_model.execution_warning %}
+    <div class="portal-callout is-warning">{{ task_view_model.execution_warning }}</div>
+    {% endif %}
+  </section>
+  {% endif %}
+
   {% if task_view_model.is_active %}
   <div class="portal-callout is-warning">This task is {{ task_view_model.status_label }}. The detail view refreshes automatically.</div>
   {% elif task_view_model.error_text %}

@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.db import SessionLocal
+from app.repositories.agent_execution_repo import AgentExecutionRepository
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
@@ -511,6 +512,34 @@ def _user_label_for_id(db, user_id) -> str:
     return (getattr(owner, "nickname", None) or getattr(owner, "username", None) or f"User {user_id}").strip()
 
 
+def _execution_context_for_task(db, task) -> tuple[list[tuple[str, object]], str]:
+    if not db:
+        return [], ""
+    try:
+        execution = AgentExecutionRepository(db).get_latest_by_task_id(getattr(task, "id", ""))
+    except Exception:
+        execution = None
+    if not execution:
+        return [], ""
+
+    items: list[tuple[str, object]] = [
+        ("Execution Status", getattr(execution, "status", None) or "-"),
+        ("Runtime Type", getattr(execution, "runtime_type", None) or "-"),
+        ("Runtime Task ID", getattr(execution, "runtime_task_id", None) or "-"),
+        ("Request ID", getattr(execution, "request_id", None) or getattr(task, "runtime_request_id", None) or "-"),
+        ("Last Heartbeat", getattr(execution, "heartbeat_at", None) or "-"),
+        ("Last Event", getattr(execution, "last_event_at", None) or "-"),
+        ("Runtime Code", getattr(execution, "runtime_status_code", None) or "-"),
+    ]
+    if getattr(execution, "error_code", None):
+        items.append(("Execution Error", getattr(execution, "error_code", None)))
+    if getattr(execution, "would_conflict_same_session", False):
+        warning = "Another active execution was detected for the same agent session."
+    else:
+        warning = ""
+    return items, warning
+
+
 def _build_agent_async_task_detail_view_model(task, db=None) -> dict:
     return _build_agent_async_task_detail_view_model_for_user(task, db=db, user=None)
 
@@ -552,6 +581,7 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
     status_label = getattr(task, "status", None) or "unknown"
     chain_has_active = any((getattr(item, "status", "") or "").strip().lower() in {"queued", "running"} for item in chain)
     can_manage_task = _can_manage_task_for_user(db, task, user) if db else user is None
+    execution_context_items, execution_warning = _execution_context_for_task(db, task)
 
     timeline = []
     for item in chain:
@@ -598,6 +628,8 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         "final_response": final_response,
         "blockers": blockers,
         "next_recommendation": next_recommendation,
+        "execution_context_items": execution_context_items,
+        "execution_warning": execution_warning,
         "timeline": timeline,
         "created_at": getattr(task, "created_at", None) or "-",
         "started_at": getattr(task, "started_at", None) or "-",

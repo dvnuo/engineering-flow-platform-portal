@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models.agent_task import AgentTask
@@ -152,6 +152,37 @@ class AgentTaskRepository:
             .order_by(AgentTask.created_at.desc())
         )
         return self.db.scalars(stmt).first()
+
+    def claim_queued_for_dispatch(self, task_id: str, *, now: datetime | None = None) -> Optional[AgentTask]:
+        now = now or datetime.utcnow()
+        stmt = (
+            update(AgentTask)
+            .where(and_(AgentTask.id == task_id, AgentTask.status == "queued"))
+            .values(status="running", started_at=now, updated_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        result = self.db.execute(stmt)
+        self.db.commit()
+        if result.rowcount != 1:
+            return None
+        return self.get_by_id(task_id)
+
+    def list_active_agent_async_tasks(self, *, limit: int | None = None) -> list[AgentTask]:
+        stmt = (
+            select(AgentTask)
+            .where(
+                and_(
+                    AgentTask.task_type == "agent_async_task",
+                    AgentTask.status.in_(["queued", "running"]),
+                )
+            )
+            .order_by(AgentTask.updated_at.asc(), AgentTask.created_at.asc(), AgentTask.id.asc())
+        )
+        if limit is not None:
+            if limit <= 0:
+                return []
+            stmt = stmt.limit(limit)
+        return list(self.db.scalars(stmt).all())
 
     def save(self, task: AgentTask) -> AgentTask:
         self.db.add(task)

@@ -204,6 +204,39 @@ def test_active_agent_async_task_detail_renders_cancel_and_auto_refresh(monkeypa
     assert 'id="continue-agent-task-form"' not in html
 
 
+def test_agent_async_task_detail_renders_runtime_execution_context(monkeypatch):
+    import app.web as web_module
+
+    task = _agent_async_task("running")
+
+    class FakeExecutionRepo:
+        def __init__(self, _db):
+            return None
+
+        def get_latest_by_task_id(self, task_id):
+            assert task_id == "async-task-1"
+            return SimpleNamespace(
+                status="running",
+                runtime_type="opencode",
+                runtime_task_id="async-task-1",
+                request_id="req-runtime",
+                heartbeat_at="2026-06-14 12:00:00",
+                last_event_at="2026-06-14 12:00:01",
+                runtime_status_code=200,
+                error_code=None,
+                would_conflict_same_session=False,
+            )
+
+    monkeypatch.setattr(web_module, "AgentExecutionRepository", FakeExecutionRepo)
+    client = _setup_task_client(monkeypatch, task)
+    html = client.get("/app/tasks/async-task-1/panel").text
+
+    assert "Runtime Execution" in html
+    assert "Execution Status" in html
+    assert "opencode" in html
+    assert "req-runtime" in html
+
+
 def test_tasks_panel_uses_incremental_task_cards(monkeypatch):
     from app.main import app
     import app.web as web_module
