@@ -16,6 +16,11 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.delegation_rule_repo import DelegationRuleRepository
 from app.schemas.delegation_rule import DelegationRuleCreate, DelegationRuleUpdate
 from app.services.delegation_reply_service import DelegationReplyService, delegation_reply_marker
+from app.services.delegation_source_config import (
+    delegation_source_item_matches,
+    normalize_delegation_source_conditions,
+    normalize_delegation_source_scope,
+)
 from app.services.delegation_source_pollers import SOURCE_PROVIDER, SUPPORTED_DELEGATION_SOURCES, DelegationSourcePoller
 from app.services.provider_config_resolver import (
     ProviderConfigResolverError,
@@ -94,7 +99,7 @@ class DelegationRuleService:
             return title[:93].rstrip() + "..."
         return title
 
-    def _validate_agent_provider_config(self, *, agent_id: str, provider: str) -> None:
+    def _validate_agent_provider_config(self, *, agent_id: str, provider: str, source_scope: dict | None = None) -> None:
         agent = AgentRepository(self.db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent not found")
@@ -102,7 +107,7 @@ class DelegationRuleService:
             if provider == "github":
                 resolve_github_for_agent(self.db, agent.id)
             elif provider == "jira":
-                resolve_jira_for_agent(self.db, agent.id)
+                resolve_jira_for_agent(self.db, agent.id, source_scope=source_scope)
             else:
                 raise ProviderConfigResolverError(f"Unsupported provider: {provider}")
         except ProviderConfigResolverError as exc:
@@ -113,7 +118,9 @@ class DelegationRuleService:
     def create_rule(self, payload: DelegationRuleCreate, current_user_id: int) -> object:
         source = self._validate_source(payload.source)
         provider = self._provider_for_source(source)
-        self._validate_agent_provider_config(agent_id=payload.target_agent_id, provider=provider)
+        source_scope = normalize_delegation_source_scope(source, payload.source_scope)
+        source_conditions = normalize_delegation_source_conditions(source, payload.source_conditions)
+        self._validate_agent_provider_config(agent_id=payload.target_agent_id, provider=provider, source_scope=source_scope)
         skill_name = str(payload.skill_name or "").strip()
         if not skill_name:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="skill_name is required")
@@ -126,8 +133,8 @@ class DelegationRuleService:
             "trigger_type": source,
             "target_agent_id": payload.target_agent_id.strip(),
             "task_type": AGENT_ASYNC_TASK_TYPE,
-            "scope_json": "{}",
-            "trigger_config_json": "{}",
+            "scope_json": self._json(source_scope),
+            "trigger_config_json": self._json(source_conditions),
             "task_config_json": self._json({"skill_name": skill_name}),
             "schedule_json": self._json({"interval_seconds": interval_seconds}),
             "state_json": "{}",
@@ -142,14 +149,28 @@ class DelegationRuleService:
         data = payload.model_dump(exclude_unset=True)
         source = self._validate_source(data.get("source") or rule.trigger_type)
         provider = self._provider_for_source(source)
+        source_changed = "source" in data and source != rule.trigger_type
+        if "source_scope" in data:
+            source_scope = normalize_delegation_source_scope(source, data.get("source_scope") or {})
+        elif source_changed:
+            source_scope = {}
+        else:
+            source_scope = normalize_delegation_source_scope(source, self._parse_json(rule.scope_json))
+        if "source_conditions" in data:
+            source_conditions = normalize_delegation_source_conditions(source, data.get("source_conditions") or {})
+        elif source_changed:
+            source_conditions = {}
+        else:
+            source_conditions = normalize_delegation_source_conditions(source, self._parse_json(rule.trigger_config_json))
         target_agent_id = str(data.get("target_agent_id") or rule.target_agent_id).strip()
         should_validate_target = (
             "target_agent_id" in data
             or "source" in data
+            or "source_scope" in data
             or ("enabled" in data and bool(data["enabled"]))
         )
         if should_validate_target:
-            self._validate_agent_provider_config(agent_id=target_agent_id, provider=provider)
+            self._validate_agent_provider_config(agent_id=target_agent_id, provider=provider, source_scope=source_scope)
 
         task_config = self._parse_json(rule.task_config_json)
         schedule = self._parse_json(rule.schedule_json)
@@ -159,6 +180,10 @@ class DelegationRuleService:
         if "source" in data:
             update_data["source_type"] = provider
             update_data["trigger_type"] = source
+        if "source_scope" in data or source_changed:
+            update_data["scope_json"] = self._json(source_scope)
+        if "source_conditions" in data or source_changed:
+            update_data["trigger_config_json"] = self._json(source_conditions)
         if "enabled" in data:
             update_data["enabled"] = bool(data["enabled"])
         if "target_agent_id" in data:
@@ -596,7 +621,22 @@ class DelegationRuleService:
             poll_result = await self.source_poller.poll(self.db, rule)
             items = poll_result.items if hasattr(poll_result, "items") else list(poll_result or [])
             found_count = len(items)
+            source_scope = normalize_delegation_source_scope(source, self._parse_json(rule.scope_json))
+            source_conditions = normalize_delegation_source_conditions(source, self._parse_json(rule.trigger_config_json))
+            condition_skipped_count = 0
             for item in items:
+                matched, skip_reason = delegation_source_item_matches(source, item, source_scope, source_conditions)
+                if not matched:
+                    condition_skipped_count += 1
+                    skipped_count += 1
+                    logger.info(
+                        "Skipping delegation source item by condition rule_id=%s source=%s reason=%s dedupe_key=%s",
+                        rule.id,
+                        source,
+                        skip_reason,
+                        str((item or {}).get("dedupe_key") or ""),
+                    )
+                    continue
                 try:
                     task, skipped = await self._create_task_for_source_item(rule=rule, item=item)
                     if skipped:
@@ -633,6 +673,7 @@ class DelegationRuleService:
                     "triggered_by": triggered_by,
                     "created_task_ids": created_task_ids,
                     "error_count": item_error_count,
+                    "condition_skipped_count": condition_skipped_count,
                     "reply_sent_count": reply_sent_count,
                     "reply_failed_count": reply_failed_count,
                 },

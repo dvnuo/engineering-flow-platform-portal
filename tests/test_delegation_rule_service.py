@@ -85,7 +85,15 @@ def test_jira_mention_jql_literal_preserves_spaces_and_escapes_quotes():
     assert DelegationSourcePoller._jira_jql_text_literal('Alice "Bot"') == 'Alice \\"Bot\\"'
 
 
-def _create_rule(db: Session, user, agent, source: str = "github_pr_review", skill_name: str = "selected-skill"):
+def _create_rule(
+    db: Session,
+    user,
+    agent,
+    source: str = "github_pr_review",
+    skill_name: str = "selected-skill",
+    source_scope: dict | None = None,
+    source_conditions: dict | None = None,
+):
     svc = DelegationRuleService(db)
     rule = svc.create_rule(
         DelegationRuleCreate(
@@ -94,6 +102,8 @@ def _create_rule(db: Session, user, agent, source: str = "github_pr_review", ski
             skill_name=skill_name,
             source=source,
             interval_seconds=60,
+            source_scope=source_scope or {},
+            source_conditions=source_conditions or {},
         ),
         current_user_id=user.id,
     )
@@ -198,7 +208,10 @@ def _source_item(source: str) -> dict:
                     "title": "Improve portal",
                     "head_sha": "sha1",
                     "base_sha": "base1",
+                    "base_branch": "main",
                     "author": "alice",
+                    "labels": ["backend", "review"],
+                    "draft": False,
                 }
             },
             "reply_target": {"provider": "github", "kind": "pr_comment", "owner": "acme", "repo": "portal", "pull_number": 1},
@@ -277,7 +290,11 @@ def _source_item(source: str) -> dict:
                     "key": "ENG-1",
                     "url": "https://jira.local/browse/ENG-1",
                     "summary": "Fix flow",
+                    "project": {"key": "ENG", "name": "Engineering"},
+                    "issue_type": {"name": "Bug"},
                     "status": {"name": "In Progress"},
+                    "priority": {"name": "High"},
+                    "labels": ["support"],
                     "reporter": {"accountId": "reporter-1", "displayName": "Reporter User"},
                     "assignee": {"accountId": "bot-1", "displayName": "Bot User"},
                 }
@@ -375,6 +392,31 @@ def test_run_once_creates_agent_async_task_for_each_source(source, expected_frag
     assert event.status == "task_created"
     assert event.task_id == task.id
     assert json.loads(event.source_payload_json) == source_item["source_payload"]
+
+
+def test_run_once_skips_source_items_that_do_not_match_conditions():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-filtered")
+    svc, rule = _create_rule(
+        db,
+        user,
+        agent,
+        source="github_pr_review",
+        source_conditions={"repository": "acme/other", "labels_include": ["backend"]},
+    )
+    dispatched = []
+    svc.dispatcher.dispatch_task_in_background = lambda task_id: dispatched.append(task_id)
+
+    result = _run_once_with_items(svc, rule.id, [_source_item("github_pr_review")])
+
+    assert result.found_count == 1
+    assert result.created_task_count == 0
+    assert result.skipped_count == 1
+    assert dispatched == []
+    assert db.query(AgentTask).count() == 0
+    run = DelegationRuleRepository(db).list_runs(rule.id, limit=1)[0]
+    metrics = json.loads(run.metrics_json)
+    assert metrics["condition_skipped_count"] == 1
 
 
 def test_github_pr_review_task_creation_records_portal_start_reaction():

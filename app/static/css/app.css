@@ -242,6 +242,11 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes portal-panel-enter {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .portal-main {
   grid-area: main;
   min-width: 0;
@@ -2559,6 +2564,86 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   color: var(--portal-text-secondary);
 }
 
+.portal-delegation-source-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.portal-delegation-source-summary-item,
+.portal-delegation-source-account {
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  border-radius: var(--portal-radius-sm);
+  padding: 12px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  animation: portal-panel-enter 160ms ease-out;
+}
+
+.portal-delegation-source-summary-item > div,
+.portal-delegation-source-account > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.portal-delegation-source-summary-item span:not(.portal-status-badge),
+.portal-delegation-source-account span:not(.portal-status-badge) {
+  color: var(--portal-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.portal-delegation-source-summary-item strong,
+.portal-delegation-source-account strong {
+  color: var(--portal-text);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.portal-delegation-source-summary-item small,
+.portal-delegation-source-account small {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.portal-delegation-source-config {
+  display: grid;
+  gap: 10px;
+}
+
+.portal-delegation-condition-builder {
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  border-radius: var(--portal-radius-sm);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  animation: portal-panel-enter 160ms ease-out;
+}
+
+.portal-delegation-advanced {
+  background: var(--portal-surface-soft);
+}
+
+.portal-delegation-advanced-body {
+  margin-top: 12px;
+}
+
+.portal-delegation-toggle-field {
+  min-height: 40px;
+  align-self: end;
+}
+
 .portal-delegation-flow {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2955,6 +3040,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 
   .portal-delegation-flow,
+  .portal-delegation-source-summary,
   .portal-delegation-timeline-item {
     grid-template-columns: 1fr;
   }
@@ -2964,6 +3050,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   .portal-task-card-main,
   .portal-task-card-actions,
   .portal-agent-health-card,
+  .portal-delegation-source-summary-item,
+  .portal-delegation-source-account,
   .portal-repair-callout {
     align-items: stretch;
     flex-direction: column;

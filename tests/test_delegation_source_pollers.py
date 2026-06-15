@@ -55,7 +55,8 @@ def _pull_payload(*, requested_reviewers: list[dict], requested_teams: list[dict
         "html_url": "https://github.com/acme/portal/pull/1",
         "title": "Improve portal flow",
         "head": {"sha": "abc123"},
-        "base": {"sha": "def456"},
+        "base": {"sha": "def456", "ref": "main"},
+        "labels": [{"name": "backend"}],
         "user": {"login": "alice"},
         "requested_reviewers": requested_reviewers,
         "requested_teams": requested_teams,
@@ -137,6 +138,37 @@ def test_github_pr_review_direct_requested_reviewer_matches_case_insensitively(m
 
     assert len(result.items) == 1
     assert result.items[0]["represented_identity"] == "octocat"
+
+
+def test_github_pr_review_query_includes_common_conditions(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.resolve_github_for_agent",
+        lambda _db, _agent_id: GithubProviderConfig(
+            base_url="https://api.github.com",
+            api_token="gh-secret",
+            runtime_profile_id="runtime-profile-1",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.delegation_source_pollers.httpx.AsyncClient",
+        lambda **kwargs: _FakeGithubAsyncClient(
+            _pull_payload(requested_reviewers=[{"login": "octocat"}], requested_teams=[]),
+            expected_query="is:pr is:open review-requested:octocat repo:acme/portal base:main",
+            **kwargs,
+        ),
+    )
+    rule = SimpleNamespace(
+        target_agent_id="agent-1",
+        trigger_type="github_pr_review",
+        scope_json="{}",
+        trigger_config_json='{"repository":"acme/portal","base_branch":"main"}',
+    )
+
+    result = asyncio.run(DelegationSourcePoller()._poll_github_pr_review(object(), rule))
+
+    assert len(result.items) == 1
+    assert result.items[0]["source_payload"]["pull_request"]["base_branch"] == "main"
+    assert result.items[0]["source_payload"]["pull_request"]["labels"] == ["backend"]
 
 
 def test_github_pr_mention_reaction_target_preserves_comment_kind():
@@ -347,7 +379,7 @@ class _FakeJiraAsyncClient:
             return _FakeResponse({"displayName": "Bot User", "accountId": "bot-1"})
         if url == "https://jira.local/rest/api/2/search":
             assert params["jql"] == "assignee = currentUser() ORDER BY updated DESC"
-            assert params["fields"] == "summary,status,reporter,assignee,updated,comment"
+            assert params["fields"] == "summary,status,reporter,assignee,updated,comment,project,issuetype,priority,labels"
             return _FakeResponse(
                 {
                     "issues": [
