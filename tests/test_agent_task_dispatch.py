@@ -2,6 +2,7 @@ import pytest
 import json
 
 import asyncio
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 import httpx
@@ -10,8 +11,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentTask, RuntimeProfile, User
+from app.models import Agent, AgentExecution, AgentTask, RuntimeProfile, User
 from app.log_context import bind_log_context, get_log_context, reset_log_context
+from app.repositories.agent_task_repo import AgentTaskRepository
 from app.services.auth_service import hash_password
 from app.services.task_dispatcher import TaskDispatcherService
 import app.services.task_dispatcher as task_dispatcher_module
@@ -71,6 +73,20 @@ def _create_task(db: Session, agent_id: str) -> AgentTask:
     db.commit()
     db.refresh(task)
     return task
+
+
+def test_claim_queued_for_dispatch_only_claims_once(db_session):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    repo = AgentTaskRepository(db)
+
+    claimed = repo.claim_queued_for_dispatch(task.id, now=datetime.utcnow())
+    second_claim = repo.claim_queued_for_dispatch(task.id, now=datetime.utcnow())
+
+    assert claimed is not None
+    assert claimed.status == "running"
+    assert claimed.started_at is not None
+    assert second_claim is None
 
 
 def _attach_github_runtime_profile(db: Session, agent: Agent) -> RuntimeProfile:
@@ -148,6 +164,15 @@ def test_dispatch_task_async_submit_then_success(db_session, monkeypatch):
     assert task.started_at is not None
     assert task.finished_at is not None
     assert task.summary == "done"
+
+    execution = db.query(AgentExecution).filter(AgentExecution.task_id == task.id).one()
+    assert execution.kind == "async_task"
+    assert execution.status == "succeeded"
+    assert execution.request_id == "req-1"
+    assert execution.runtime_status_code == 200
+    assert execution.started_at is not None
+    assert execution.finished_at is not None
+    assert execution.result_summary == "done"
 
 
 def test_dispatch_task_done_delegation_triggers_immediate_reply_processing(db_session, monkeypatch):
@@ -639,7 +664,7 @@ def test_poll_runtime_task_retries_transient_status_timeout_then_success(monkeyp
     assert polls["count"] == 3
 
 
-def test_poll_runtime_task_transient_status_failures_until_timeout(monkeypatch):
+def test_poll_runtime_task_transient_status_failures_handoff_running(monkeypatch):
     service = TaskDispatcherService()
     polls = {"count": 0}
 
@@ -660,12 +685,12 @@ def test_poll_runtime_task_transient_status_failures_until_timeout(monkeypatch):
     )
 
     payload = json.loads(outcome.result_payload_json)
-    assert outcome.terminal_status == "failed"
-    assert payload["error_code"] == "runtime_poll_timeout"
+    assert outcome.terminal_status == "running"
+    assert payload["state_code"] == "runtime_poll_handoff"
     assert polls["count"] >= 1
 
 
-def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
+def test_dispatch_task_poll_timeout_keeps_task_running_for_reconciler(db_session, monkeypatch):
     db, agent = db_session
     task = _create_task(db, agent.id)
     service = TaskDispatcherService()
@@ -708,12 +733,121 @@ def test_dispatch_task_poll_timeout_marks_failed(db_session, monkeypatch):
     monkeypatch.setattr(service, "_poll_runtime_task_until_terminal", fast_timeout_poll)
 
     result = asyncio.run(service.dispatch_task(task.id, db))
-    assert result.task_status == "failed"
+    assert result.task_status == "running"
     db.refresh(task)
+    assert task.status == "running"
+    assert task.finished_at is None
     payload = json.loads(task.result_payload_json or "{}")
-    assert payload["error_code"] == "runtime_poll_timeout"
+    assert payload["state_code"] == "runtime_poll_handoff"
     assert payload["trace_id"]
     assert payload["portal_dispatch_id"]
+
+
+def test_reconcile_running_task_applies_terminal_runtime_status(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow()
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class StatusResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "done by reconciler"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "done by reconciler"}}
+
+    async def fake_get(_url, _meta):
+        return StatusResp()
+
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.reconcile_running_task(task.id, db))
+
+    assert result.task_status == "done"
+    db.refresh(task)
+    assert task.status == "done"
+    assert task.summary == "done by reconciler"
+    assert task.finished_at is not None
+
+
+def test_reconcile_running_task_keeps_recent_runtime_404_running(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow()
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    monkeypatch.setattr(
+        task_dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_task_runtime_missing_stale_after_seconds=300),
+    )
+
+    class MissingResp:
+        status_code = 404
+        text = '{"detail": "not found"}'
+
+        @staticmethod
+        def json():
+            return {"detail": "not found"}
+
+    async def fake_get(_url, _meta):
+        return MissingResp()
+
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.reconcile_running_task(task.id, db))
+
+    assert result.task_status == "running"
+    db.refresh(task)
+    assert task.status == "running"
+    assert task.finished_at is None
+
+
+def test_reconcile_running_task_marks_old_runtime_404_stale(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow() - timedelta(seconds=600)
+    task.updated_at = task.started_at
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    monkeypatch.setattr(
+        task_dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_task_runtime_missing_stale_after_seconds=300),
+    )
+
+    class MissingResp:
+        status_code = 404
+        text = '{"detail": "not found"}'
+
+        @staticmethod
+        def json():
+            return {"detail": "not found"}
+
+    async def fake_get(_url, _meta):
+        return MissingResp()
+
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.reconcile_running_task(task.id, db))
+
+    assert result.task_status == "stale"
+    db.refresh(task)
+    assert task.status == "stale"
+    assert task.finished_at is not None
+    payload = json.loads(task.result_payload_json or "{}")
+    assert payload["error_code"] == "runtime_task_missing"
 
 
 def test_dispatch_task_continues_polling_on_http_200_running(db_session, monkeypatch):

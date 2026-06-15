@@ -16,6 +16,10 @@ from app.schemas.agent_task import (
     CreateAgentTaskFollowupRequest,
 )
 from app.services.task_dispatcher import TaskDispatcherService
+from app.services.agent_execution_registry import (
+    mark_task_execution_status_best_effort,
+    upsert_task_execution_queued_best_effort,
+)
 
 router = APIRouter(tags=["agent-tasks"])
 task_dispatcher_service = TaskDispatcherService()
@@ -212,6 +216,7 @@ def create_agent_async_task(payload: CreateAgentAsyncTaskRequest, user=Depends(g
         input_payload_json=json.dumps(task_input),
         status="queued",
     )
+    upsert_task_execution_queued_best_effort(db, task=task, agent=assignee_agent, user=user)
     task_dispatcher_service.dispatch_task_in_background(task.id)
     return _task_response(db, task, user)
 
@@ -258,6 +263,8 @@ def create_agent_task_followup(
     target_task.skill_name = skill_name
     target_task.root_task_id = root_task_id
     target_task = AgentTaskRepository(db).save(target_task)
+    assignee_agent = AgentRepository(db).get_by_id(target_task.assignee_agent_id)
+    upsert_task_execution_queued_best_effort(db, task=target_task, agent=assignee_agent, user=user)
     task_dispatcher_service.dispatch_task_in_background(target_task.id)
     return _task_response(db, target_task, user)
 
@@ -305,6 +312,8 @@ def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session =
     target_task.skill_name = skill_name
     target_task.root_task_id = root_task_id
     target_task = AgentTaskRepository(db).save(target_task)
+    assignee_agent = AgentRepository(db).get_by_id(target_task.assignee_agent_id)
+    upsert_task_execution_queued_best_effort(db, task=target_task, agent=assignee_agent, user=user)
     task_dispatcher_service.dispatch_task_in_background(target_task.id)
     return _task_response(db, target_task, user)
 
@@ -322,6 +331,13 @@ async def cancel_agent_task(task_id: str, user=Depends(get_current_user), db: Se
         task.status = "cancelled"
         task.summary = "Task was cancelled before it started."
         task = AgentTaskRepository(db).save(task)
+        mark_task_execution_status_best_effort(
+            db,
+            task=task,
+            status=task.status,
+            error_code="task_cancelled_before_start",
+            result_summary=task.summary,
+        )
         return _task_response(db, task, user)
     if normalized_status != "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is not cancellable")
@@ -417,6 +433,7 @@ async def dispatch_agent_task(task_id: str, user=Depends(get_current_user), db: 
     if task.status != "queued":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is not dispatchable")
 
+    upsert_task_execution_queued_best_effort(db, task=task, agent=assignee_agent, user=user)
     logger.info(
         "Manual task dispatch scheduled task_id=%s task_type=%s assignee_agent_id=%s",
         task.id,
