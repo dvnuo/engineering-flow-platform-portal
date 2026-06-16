@@ -59,47 +59,9 @@ PORTAL_MANAGED_FIELD_TREE = {
     },
     "aws": {
         "enabled": True,
-        "profile": True,
-        "profile_name": True,
-        "region": True,
-        "default_region": True,
-        "output": True,
-        "account_no": True,
-        "account_id": True,
-        "aws_account_no": True,
         "username": True,
-        "adfs_username": True,
-        "account": True,
-        "account_name": True,
         "password": True,
-        "adfs_password": True,
-        "assume_command": True,
-        "adfs_command": True,
-        "assume_args": True,
-        "adfs_args": True,
-        "role": True,
-        "role_name": True,
         "domain": True,
-        "config": True,
-        "config_path": True,
-        "adfs_config": True,
-        "idp_proxy": True,
-        "idpProxy": True,
-        "session_duration_minutes": True,
-        "sessionDurationMinutes": True,
-        "log": True,
-        "log_level": True,
-        "jenkins": True,
-        "no_warning": True,
-        "display_token": True,
-        "nossl": True,
-        "adfs3_uat": True,
-        "access_key_id": True,
-        "aws_access_key_id": True,
-        "secret_access_key": True,
-        "aws_secret_access_key": True,
-        "session_token": True,
-        "aws_session_token": True,
     },
     "git": {
         "user": {
@@ -312,48 +274,10 @@ def sanitize_runtime_profile_aws(value) -> dict:
     out: dict = {}
     if "enabled" in value:
         out["enabled"] = _runtime_profile_bool(value.get("enabled"))
-    profile = _first_nonblank_string(value, ("profile", "profile_name"))
-    if profile:
-        out["profile"] = profile
-    region = _first_nonblank_string(value, ("region", "default_region"))
-    if region:
-        out["region"] = region
-    output = str(value.get("output") or "").strip()
-    if output:
-        out["output"] = output
-    username = _first_nonblank_string(value, ("username", "adfs_username", "account", "account_name"))
-    if username:
-        out["username"] = username
-    password = _first_nonblank_string(value, ("password", "adfs_password"))
-    if password:
-        out["password"] = password
-    account_no = _first_nonblank_string(value, ("account_no", "account_id", "aws_account_no"))
-    if account_no:
-        out["account_no"] = account_no
-    for out_key, aliases in (
-        ("role", ("role", "role_name")),
-        ("domain", ("domain",)),
-        ("config", ("config", "config_path", "adfs_config")),
-        ("idp_proxy", ("idp_proxy", "idpProxy")),
-        ("session_duration_minutes", ("session_duration_minutes", "sessionDurationMinutes")),
-        ("log", ("log", "log_level")),
-    ):
-        text = _first_nonblank_string(value, aliases)
-        if text:
-            out[out_key] = text
-    for key in ("jenkins", "no_warning", "display_token", "nossl", "adfs3_uat"):
-        if key in value:
-            out[key] = _runtime_profile_bool(value.get(key))
-    assume_command = _first_nonblank_string(value, ("assume_command", "adfs_command"))
-    if assume_command:
-        out["assume_command"] = assume_command
-    assume_args = value.get("assume_args") if "assume_args" in value else value.get("adfs_args")
-    if isinstance(assume_args, list):
-        cleaned_args = [str(item).strip() for item in assume_args if str(item).strip()]
-        if cleaned_args:
-            out["assume_args"] = cleaned_args
-    elif isinstance(assume_args, str) and assume_args.strip():
-        out["assume_args"] = assume_args.strip()
+    for key in ("domain", "username", "password"):
+        cleaned = str(value.get(key) or "").strip()
+        if cleaned:
+            out[key] = cleaned
     return out
 
 
@@ -508,14 +432,7 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
         github["api_token_present"] = token_present
     aws = redacted.get("aws")
     if isinstance(aws, dict):
-        access_key_values = [str(aws.pop(key, "")).strip() for key in ("access_key_id", "aws_access_key_id")]
-        secret_key_values = [str(aws.pop(key, "")).strip() for key in ("secret_access_key", "aws_secret_access_key")]
-        session_token_values = [str(aws.pop(key, "")).strip() for key in ("session_token", "aws_session_token")]
-        aws["access_key_id_present"] = any(access_key_values)
-        aws["secret_access_key_present"] = any(secret_key_values)
-        aws["session_token_present"] = any(session_token_values)
-        password_values = [str(aws.pop(key, "")).strip() for key in ("password", "adfs_password")]
-        aws["password_present"] = any(password_values)
+        aws["password_present"] = bool(str(aws.pop("password", "")).strip())
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
