@@ -31,6 +31,8 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
             "domain": " HBEU ",
             "username": " adfs-user ",
             "password": " adfs-password ",
+            "account": " 123456 ",
+            "role": " ADFS-ReadOnly ",
             "x": "bad",
         },
         "proxy": {"enabled": True, "url": " http://proxy ", "username": " me ", "password": " secret "},
@@ -60,6 +62,8 @@ def test_aws_config_keeps_only_portal_fields():
             "domain": " HBEU ",
             "username": " adfs-user ",
             "password": " adfs-password ",
+            "account": " 123456 ",
+            "role": " ADFS-ReadOnly ",
             "unknown": "drop",
         }
     }
@@ -282,6 +286,8 @@ def test_external_integration_contract_keeps_cli_mapping_inputs_and_drops_runtim
             "domain": "HBEU",
             "username": "adfs-user",
             "password": "adfs-password",
+            "account": "123456",
+            "role": "ADFS-ReadOnly",
             "policy": {"drop": True},
         },
         "git": {
