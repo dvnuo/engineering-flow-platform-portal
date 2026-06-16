@@ -1350,7 +1350,7 @@ def my_tasks_panel(request: Request):
     db = SessionLocal()
     try:
         repo = AgentTaskRepository(db)
-        task_page_size = 50
+        task_page_size = 10
         task_offset = 0
         tasks = repo.list_visible_to_user(user_id=user.id, limit=task_page_size, offset=task_offset)
         summary = {"queued": 0, "running": 0, "done": 0, "blocked": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
@@ -1375,7 +1375,7 @@ def my_tasks_panel(request: Request):
 
 
 @router.get("/app/tasks/list")
-def my_tasks_list(request: Request, limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0)):
+def my_tasks_list(request: Request, limit: int = Query(default=10, ge=1, le=100), offset: int = Query(default=0, ge=0)):
     user = _current_user_from_cookie(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)

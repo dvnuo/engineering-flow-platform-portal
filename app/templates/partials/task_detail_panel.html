@@ -144,14 +144,20 @@
   {% endif %}
 
   <div class="portal-task-raw-grid">
-    <details class="portal-collapsible">
-      <summary class="portal-collapsible-summary"><strong>Raw Input</strong></summary>
-      <pre class="portal-panel-pre">{{ task_view_model.input_payload_pretty }}</pre>
+    <details class="portal-raw-disclosure">
+      <summary class="portal-raw-summary">
+        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Raw Input</strong></span>
+        <span class="portal-raw-toggle" aria-hidden="true"></span>
+      </summary>
+      <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.input_payload_pretty }}</pre>
     </details>
 
-    <details class="portal-collapsible" {% if task_view_model.error_text %}open{% endif %}>
-      <summary class="portal-collapsible-summary"><strong>Raw Result</strong></summary>
-      <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
+    <details class="portal-raw-disclosure" {% if task_view_model.error_text %}open{% endif %}>
+      <summary class="portal-raw-summary">
+        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Raw Result</strong></span>
+        <span class="portal-raw-toggle" aria-hidden="true"></span>
+      </summary>
+      <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.result_payload_pretty }}</pre>
     </details>
   </div>
   {% else %}
@@ -184,14 +190,20 @@
   </section>
 
   <div class="portal-task-raw-grid">
-    <details class="portal-collapsible">
-      <summary class="portal-collapsible-summary"><strong>Input Payload</strong></summary>
-      <pre class="portal-panel-pre">{{ task_view_model.input_payload_pretty }}</pre>
+    <details class="portal-raw-disclosure">
+      <summary class="portal-raw-summary">
+        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Input Payload</strong></span>
+        <span class="portal-raw-toggle" aria-hidden="true"></span>
+      </summary>
+      <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.input_payload_pretty }}</pre>
     </details>
 
-    <details class="portal-collapsible" {% if task_view_model.error_text %}open{% endif %}>
-      <summary class="portal-collapsible-summary"><strong>Result Payload</strong></summary>
-      <pre class="portal-panel-pre">{{ task_view_model.result_payload_pretty }}</pre>
+    <details class="portal-raw-disclosure" {% if task_view_model.error_text %}open{% endif %}>
+      <summary class="portal-raw-summary">
+        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Result Payload</strong></span>
+        <span class="portal-raw-toggle" aria-hidden="true"></span>
+      </summary>
+      <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.result_payload_pretty }}</pre>
     </details>
   </div>
   {% endif %}

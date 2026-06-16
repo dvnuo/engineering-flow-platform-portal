@@ -376,7 +376,7 @@ def list_agent_tasks(user=Depends(get_current_user), db: Session = Depends(get_d
 def list_my_tasks(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status_filter: str | None = Query(default=None, alias="status", max_length=32),
     owner: str | None = Query(default=None, max_length=32),
