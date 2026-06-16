@@ -57,6 +57,53 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
     assert s["debug"]["log_level"] == "INFO"
 
 
+def test_aws_adfs_assume_options_are_sanitized_for_runtime_config():
+    raw = {
+        "aws": {
+            "enabled": True,
+            "profile": " prod ",
+            "region": " us-east-1 ",
+            "username": " adfs-user ",
+            "password": " adfs-password ",
+            "account_id": " 123456789012 ",
+            "role_name": " Engineer ",
+            "domain": " HBEU ",
+            "config_path": " /workspace/adfs-assume.conf ",
+            "idpProxy": " http://idp-proxy:8080 ",
+            "sessionDurationMinutes": " 720 ",
+            "log_level": " INFO ",
+            "jenkins": "on",
+            "no_warning": "true",
+            "display_token": "false",
+            "nossl": "no",
+            "adfs3_uat": "0",
+            "unknown": "drop",
+        }
+    }
+
+    s = sanitize_runtime_profile_config_dict(raw)
+
+    assert s["aws"] == {
+        "enabled": True,
+        "profile": "prod",
+        "region": "us-east-1",
+        "username": "adfs-user",
+        "password": "adfs-password",
+        "account_no": "123456789012",
+        "role": "Engineer",
+        "domain": "HBEU",
+        "config": "/workspace/adfs-assume.conf",
+        "idp_proxy": "http://idp-proxy:8080",
+        "session_duration_minutes": "720",
+        "log": "INFO",
+        "jenkins": True,
+        "no_warning": True,
+        "display_token": False,
+        "nossl": False,
+        "adfs3_uat": False,
+    }
+
+
 def test_proxy_no_proxy_is_sanitized_and_persisted_in_config_json():
     raw = {
         "proxy": {

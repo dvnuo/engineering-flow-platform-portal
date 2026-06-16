@@ -64,7 +64,9 @@ PORTAL_MANAGED_FIELD_TREE = {
         "region": True,
         "default_region": True,
         "output": True,
+        "account_no": True,
         "account_id": True,
+        "aws_account_no": True,
         "username": True,
         "adfs_username": True,
         "account": True,
@@ -75,6 +77,23 @@ PORTAL_MANAGED_FIELD_TREE = {
         "adfs_command": True,
         "assume_args": True,
         "adfs_args": True,
+        "role": True,
+        "role_name": True,
+        "domain": True,
+        "config": True,
+        "config_path": True,
+        "adfs_config": True,
+        "idp_proxy": True,
+        "idpProxy": True,
+        "session_duration_minutes": True,
+        "sessionDurationMinutes": True,
+        "log": True,
+        "log_level": True,
+        "jenkins": True,
+        "no_warning": True,
+        "display_token": True,
+        "nossl": True,
+        "adfs3_uat": True,
         "access_key_id": True,
         "aws_access_key_id": True,
         "secret_access_key": True,
@@ -308,6 +327,23 @@ def sanitize_runtime_profile_aws(value) -> dict:
     password = _first_nonblank_string(value, ("password", "adfs_password"))
     if password:
         out["password"] = password
+    account_no = _first_nonblank_string(value, ("account_no", "account_id", "aws_account_no"))
+    if account_no:
+        out["account_no"] = account_no
+    for out_key, aliases in (
+        ("role", ("role", "role_name")),
+        ("domain", ("domain",)),
+        ("config", ("config", "config_path", "adfs_config")),
+        ("idp_proxy", ("idp_proxy", "idpProxy")),
+        ("session_duration_minutes", ("session_duration_minutes", "sessionDurationMinutes")),
+        ("log", ("log", "log_level")),
+    ):
+        text = _first_nonblank_string(value, aliases)
+        if text:
+            out[out_key] = text
+    for key in ("jenkins", "no_warning", "display_token", "nossl", "adfs3_uat"):
+        if key in value:
+            out[key] = _runtime_profile_bool(value.get(key))
     assume_command = _first_nonblank_string(value, ("assume_command", "adfs_command"))
     if assume_command:
         out["assume_command"] = assume_command
