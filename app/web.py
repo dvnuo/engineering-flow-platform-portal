@@ -1148,13 +1148,8 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         aws_cfg = (config_payload.get("aws") if isinstance(config_payload.get("aws"), dict) else {}).copy()
         aws_cfg["enabled"] = as_bool(form.get("aws_enabled"))
         for field, form_field in (
-            ("profile", "aws_profile"),
-            ("region", "aws_region"),
-            ("output", "aws_output"),
-            ("account_id", "aws_account_id"),
-            ("access_key_id", "aws_access_key_id"),
-            ("secret_access_key", "aws_secret_access_key"),
-            ("session_token", "aws_session_token"),
+            ("username", "aws_username"),
+            ("password", "aws_password"),
         ):
             if form_field not in form:
                 continue
@@ -1163,6 +1158,16 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 aws_cfg[field] = value
             else:
                 aws_cfg.pop(field, None)
+        for deprecated_field in (
+            "account_id",
+            "access_key_id",
+            "aws_access_key_id",
+            "secret_access_key",
+            "aws_secret_access_key",
+            "session_token",
+            "aws_session_token",
+        ):
+            aws_cfg.pop(deprecated_field, None)
         config_payload["aws"] = aws_cfg
 
     if is_section_touched("git"):
