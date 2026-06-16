@@ -198,18 +198,9 @@
           <span>Enabled</span>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Profile</span><input type="text" name="aws_profile" value="{{ raw_aws.get('profile', '') }}" placeholder="default" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Region</span><input type="text" name="aws_region" value="{{ raw_aws.get('region', '') }}" placeholder="us-east-1" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">ADFS Account</span><input type="text" name="aws_username" value="{{ raw_aws.get('username', '') }}" placeholder="user@example.com" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">ADFS Password</span><input type="password" name="aws_password" value="{{ raw_aws.get('password', '') }}" placeholder="Password" class="portal-form-input" /></label>
       </div>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Account ID</span><input type="text" name="aws_account_id" value="{{ raw_aws.get('account_id', '') }}" placeholder="123456789012" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Output</span><input type="text" name="aws_output" value="{{ raw_aws.get('output', '') }}" placeholder="json" class="portal-form-input" /></label>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Access Key ID</span><input type="password" name="aws_access_key_id" value="{{ raw_aws.get('access_key_id', '') }}" placeholder="AWS access key ID" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Secret Access Key</span><input type="password" name="aws_secret_access_key" value="{{ raw_aws.get('secret_access_key', '') }}" placeholder="AWS secret access key" class="portal-form-input" /></label>
-      </div>
-      <label class="portal-form-label"><span class="portal-form-label">Session Token</span><input type="password" name="aws_session_token" value="{{ raw_aws.get('session_token', '') }}" placeholder="Optional STS session token" class="portal-form-input" /></label>
     </section>
 
     <section class="portal-panel-section" data-managed-section="git">

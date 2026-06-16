@@ -209,18 +209,28 @@ def test_settings_merge_blank_github_token_clears_existing():
     assert "api_token" not in merged["github"]
 
 
-def test_settings_merge_blank_aws_secrets_clear_existing():
+def test_settings_merge_aws_adfs_form_clears_deprecated_static_secrets():
     merged, error = _settings_merge_payload(
-        {"aws": {"enabled": True, "access_key_id": "old-ak", "secret_access_key": "old-sk", "session_token": "old-st"}},
+        {
+            "aws": {
+                "enabled": True,
+                "username": "old-user",
+                "password": "old-password",
+                "access_key_id": "old-ak",
+                "secret_access_key": "old-sk",
+                "session_token": "old-st",
+            }
+        },
         {
             "__touch_aws": "1",
             "aws_enabled": "on",
-            "aws_access_key_id": "",
-            "aws_secret_access_key": "",
-            "aws_session_token": "",
+            "aws_username": "adfs-user",
+            "aws_password": "",
         },
     )
     assert error is None
+    assert merged["aws"]["username"] == "adfs-user"
+    assert "password" not in merged["aws"]
     assert "access_key_id" not in merged["aws"]
     assert "secret_access_key" not in merged["aws"]
     assert "session_token" not in merged["aws"]
@@ -621,13 +631,8 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "github_base_url": "https://github.example.com/api/v3/",
             "__touch_aws": "1",
             "aws_enabled": "on",
-            "aws_profile": "prod",
-            "aws_region": "us-east-1",
-            "aws_output": "json",
-            "aws_account_id": "123456789012",
-            "aws_access_key_id": "AKIA_TEST",
-            "aws_secret_access_key": "aws-secret",
-            "aws_session_token": "aws-session",
+            "aws_username": "adfs-user",
+            "aws_password": "adfs-password",
             "__touch_git": "1",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
@@ -675,13 +680,8 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
         },
         "aws": {
             "enabled": True,
-            "profile": "prod",
-            "region": "us-east-1",
-            "output": "json",
-            "account_id": "123456789012",
-            "access_key_id": "AKIA_TEST",
-            "secret_access_key": "aws-secret",
-            "session_token": "aws-session",
+            "username": "adfs-user",
+            "password": "adfs-password",
         },
         "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
     }

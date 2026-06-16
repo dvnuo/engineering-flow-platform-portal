@@ -65,6 +65,16 @@ PORTAL_MANAGED_FIELD_TREE = {
         "default_region": True,
         "output": True,
         "account_id": True,
+        "username": True,
+        "adfs_username": True,
+        "account": True,
+        "account_name": True,
+        "password": True,
+        "adfs_password": True,
+        "assume_command": True,
+        "adfs_command": True,
+        "assume_args": True,
+        "adfs_args": True,
         "access_key_id": True,
         "aws_access_key_id": True,
         "secret_access_key": True,
@@ -292,18 +302,22 @@ def sanitize_runtime_profile_aws(value) -> dict:
     output = str(value.get("output") or "").strip()
     if output:
         out["output"] = output
-    account_id = str(value.get("account_id") or "").strip()
-    if account_id:
-        out["account_id"] = account_id
-    access_key_id = _first_nonblank_string(value, ("access_key_id", "aws_access_key_id"))
-    if access_key_id:
-        out["access_key_id"] = access_key_id
-    secret_access_key = _first_nonblank_string(value, ("secret_access_key", "aws_secret_access_key"))
-    if secret_access_key:
-        out["secret_access_key"] = secret_access_key
-    session_token = _first_nonblank_string(value, ("session_token", "aws_session_token"))
-    if session_token:
-        out["session_token"] = session_token
+    username = _first_nonblank_string(value, ("username", "adfs_username", "account", "account_name"))
+    if username:
+        out["username"] = username
+    password = _first_nonblank_string(value, ("password", "adfs_password"))
+    if password:
+        out["password"] = password
+    assume_command = _first_nonblank_string(value, ("assume_command", "adfs_command"))
+    if assume_command:
+        out["assume_command"] = assume_command
+    assume_args = value.get("assume_args") if "assume_args" in value else value.get("adfs_args")
+    if isinstance(assume_args, list):
+        cleaned_args = [str(item).strip() for item in assume_args if str(item).strip()]
+        if cleaned_args:
+            out["assume_args"] = cleaned_args
+    elif isinstance(assume_args, str) and assume_args.strip():
+        out["assume_args"] = assume_args.strip()
     return out
 
 
@@ -464,6 +478,8 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
         aws["access_key_id_present"] = any(access_key_values)
         aws["secret_access_key_present"] = any(secret_key_values)
         aws["session_token_present"] = any(session_token_values)
+        password_values = [str(aws.pop(key, "")).strip() for key in ("password", "adfs_password")]
+        aws["password_present"] = any(password_values)
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())

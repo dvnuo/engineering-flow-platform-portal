@@ -10,9 +10,11 @@ def test_templates_hide_visible_clear_controls_and_render_secret_values_for_auth
         assert "value=\"{{ proxy.get('password', '') }}\"" in text
         assert "value=\"{{ raw_llm.get('api_key', '') }}\"" in text
         assert "value=\"{{ raw_github.get('api_token', '') }}\"" in text
-        assert "value=\"{{ raw_aws.get('access_key_id', '') }}\"" in text
-        assert "value=\"{{ raw_aws.get('secret_access_key', '') }}\"" in text
-        assert "value=\"{{ raw_aws.get('session_token', '') }}\"" in text
+        assert "value=\"{{ raw_aws.get('username', '') }}\"" in text
+        assert "value=\"{{ raw_aws.get('password', '') }}\"" in text
+        assert "raw_aws.get('access_key_id'" not in text
+        assert "raw_aws.get('secret_access_key'" not in text
+        assert "raw_aws.get('session_token'" not in text
         assert "value=\"{{ inst.get('password','') }}\"" in text or "value=\"{{ inst.get('password', '') }}\"" in text
         assert "value=\"{{ inst.get('token','') }}\"" in text or "value=\"{{ inst.get('token', '') }}\"" in text
         assert "Clear saved proxy password" not in text
