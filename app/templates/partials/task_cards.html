@@ -1,28 +1,16 @@
 {% for task in tasks %}
 {% set task_title = task.title or task.summary or task.task_type or task.id %}
-{% set status_tone = 'success' if task.status == 'done' else ('warning' if task.status in ['queued', 'running', 'pending_restart'] else ('error' if task.status in ['failed', 'blocked', 'cancel_failed'] else 'info')) %}
 <article class="portal-task-card">
   <div class="portal-task-card-main">
-    <span class="portal-status-badge is-{{ status_tone }}">{{ task.status }}</span>
     <div class="portal-task-card-copy">
       <h3>{{ task_title }}</h3>
       <div class="portal-task-meta-line">
-        {% if task.skill_name %}<span>/{{ task.skill_name }}</span>{% endif %}
-        <span>{{ task.task_type }}</span>
         <span>Owner {{ task_owner_labels.get(task.id, task.owner_user_id or "-") }}</span>
         <span>{{ task.created_at }}</span>
       </div>
     </div>
   </div>
-  {% if task.error_message %}
-  <div class="portal-task-preview is-error">{{ task.error_message[:180] }}</div>
-  {% elif task.summary and task.summary != task_title %}
-  <div class="portal-task-preview">{{ task.summary[:180] }}</div>
-  {% elif task.task_type != "agent_async_task" %}
-  <div class="portal-task-preview">Read-only task type - {{ task.source }}</div>
-  {% endif %}
   <div class="portal-task-card-actions">
-    <span class="portal-task-id">#{{ task.id[:8] }}</span>
     {% if content_target == "#workspace-detail-content" %}
     <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ task.id }}"><i data-lucide="panel-right" class="w-4 h-4"></i>Open</button>
     {% else %}

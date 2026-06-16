@@ -1754,6 +1754,67 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   display: none;
 }
 
+.portal-raw-disclosure {
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface-muted);
+  overflow: hidden;
+}
+
+.portal-raw-disclosure[open] {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
+  background: var(--portal-surface);
+}
+
+.portal-raw-summary {
+  min-height: 44px;
+  padding: 0 12px;
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--portal-text);
+}
+
+.portal-raw-summary > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.portal-raw-summary:hover {
+  background: var(--portal-surface-soft);
+}
+
+.portal-raw-summary::-webkit-details-marker {
+  display: none;
+}
+
+.portal-raw-toggle {
+  flex: 0 0 auto;
+  color: var(--portal-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.portal-raw-toggle::after {
+  content: "Expand";
+}
+
+.portal-raw-disclosure[open] .portal-raw-toggle::after {
+  content: "Collapse";
+}
+
+.portal-raw-pre {
+  margin: 0 12px 12px;
+  max-height: 420px;
+}
+
 .portal-callout {
   border: 1px solid var(--portal-border);
   border-radius: 12px;
@@ -2242,11 +2303,14 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-task-row {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   text-align: left;
   border: 1px solid var(--portal-border);
   border-radius: var(--portal-radius-md);
   padding: 10px 12px;
   background: var(--portal-surface-muted);
+  overflow: hidden;
   transition: border-color var(--portal-transition), background var(--portal-transition), transform var(--portal-transition);
 }
 
@@ -2265,9 +2329,11 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
 .portal-task-row-title {
+  flex: 1 1 auto;
   min-width: 0;
   color: var(--portal-text);
   font-size: 13px;

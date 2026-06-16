@@ -218,6 +218,40 @@ def test_delegation_list_and_detail_use_task_style_layout():
     assert "portal-table" not in detail_fn
 
 
+def test_tasks_and_delegations_sidebar_filters_are_compact():
+    js = _chat_ui_js_source()
+    template = _app_template_source()
+    css = _app_css_source()
+    render_tasks = _extract_js_function(js, "renderTaskNavList")
+    render_delegations = _extract_js_function(js, "renderDelegationRuleNavList")
+    refresh_tasks = _extract_js_function(js, "refreshMyTasks")
+
+    assert "taskPageSize: 10" in js
+    assert 'id="task-search-input"' not in template
+    assert 'id="task-filter-clear"' not in template
+    assert 'id="delegation-search-input"' not in template
+    assert 'id="delegation-filter-clear"' not in template
+    assert 'data-delegation-status-filter="missing"' not in template
+    assert 'data-task-status-filter="active"' not in template
+    assert 'data-task-status-filter="attention"' not in template
+    for status in ["queued", "running", "blocked", "done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"]:
+        assert f'data-task-status-filter="{status}"' in template
+
+    assert 'params.set("q"' not in refresh_tasks
+    assert "portal-status-badge" not in render_tasks
+    assert "portal-task-row-preview" not in render_tasks
+    assert "skillName" not in render_tasks
+    assert "safe(task.task_type" not in render_tasks
+    assert "portal-status-badge" not in render_delegations
+    assert "portal-task-row-preview" not in render_delegations
+    assert "delegationRuleSkillLabel" not in render_delegations
+    assert "intervalLabel" not in render_delegations
+    assert ".portal-raw-disclosure" in css
+    assert "portal-raw-toggle::after" in css
+    assert 'content: "Expand"' in css
+    assert 'content: "Collapse"' in css
+
+
 def test_delegations_ui_uses_clean_names_and_endpoint():
     js = _chat_ui_js_source()
     css = _app_css_source()
