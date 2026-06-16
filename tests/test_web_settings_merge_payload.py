@@ -59,9 +59,9 @@ def test_settings_merge_llm_tools_none_mode():
     assert "llm" not in merged
 
 
-def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_prompt():
+def test_settings_merge_llm_tools_custom_mode_dedupes_without_writing_llm_config():
     merged, error = _settings_merge_payload(
-        {"llm": {"system-prompt": {"tools": {"enabled": True}}}},
+        {"llm": {"unexpected": {"enabled": True}}},
         {
             "__touch_llm": "1",
             "llm_tools_mode": "custom",
@@ -76,9 +76,9 @@ def test_settings_merge_llm_tools_custom_mode_dedupes_and_preserves_system_promp
     assert "llm" not in merged
 
 
-def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_saves_empty_list_and_preserves_system_prompt():
+def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_skips_llm_config():
     merged, error = _settings_merge_payload(
-        {"llm": {"system-prompt": {"tools": {"enabled": True}}}},
+        {"llm": {"unexpected": {"enabled": True}}},
         {
             "__touch_llm": "1",
             "llm_tools_mode": "custom",

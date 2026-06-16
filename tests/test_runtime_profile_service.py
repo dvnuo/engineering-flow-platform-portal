@@ -243,7 +243,7 @@ def test_normalize_persisted_config_json_prunes_unmanaged_nested_fields_but_keep
             "llm": {
                 "provider": "openai",
                 "api_base": "https://example.invalid",
-                "system-prompt": {"tools": {"enabled": True}},
+                "unexpected": {"enabled": True},
             },
             "ssh": {"enabled": True},
         }

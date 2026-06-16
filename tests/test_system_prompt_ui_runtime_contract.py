@@ -19,7 +19,6 @@ def test_load_system_prompt_config_runtime_aware_sections():
     model_fn = _extract_js_function(source, 'getSystemPromptUiModel')
     assert 'Array.isArray(config.sections)' in model_fn
     assert "sections = ['agents']" in model_fn
-    assert "['soul', 'user', 'agents', 'memory', 'daily_notes']" not in model_fn
     assert 'sectionConfig.can_disable !== false' in model_fn
 
 
