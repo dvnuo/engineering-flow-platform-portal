@@ -131,6 +131,7 @@ if (dom.chatInput) {
 }
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
+const INFLIGHT_CHAT_RUN_STORAGE_PREFIX = "portal-inflight-chat-run";
 const REQUIREMENT_BUNDLES_CACHE_KEY = "portal-requirement-bundles-cache-v1";
 const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";
 const ALLOWED_UTILITY_PANEL_KEYS = new Set([
@@ -267,6 +268,48 @@ function setLastSessionId(agentId, sessionId) {
   } else {
     localStorage.removeItem(getLastSessionKey(agentId));
   }
+}
+
+function getInflightChatRunKey(agentId) {
+  return `${INFLIGHT_CHAT_RUN_STORAGE_PREFIX}-${agentId || "unknown"}`;
+}
+
+function persistInflightChatRun(agentId, run = {}) {
+  if (!agentId || !run?.session_id || !run?.request_id) return;
+  const payload = {
+    agent_id: agentId,
+    session_id: String(run.session_id || ""),
+    request_id: String(run.request_id || ""),
+    message_preview: String(run.message_preview || "").slice(0, 240),
+    started_at: run.started_at || new Date().toISOString(),
+  };
+  try {
+    localStorage.setItem(getInflightChatRunKey(agentId), JSON.stringify(payload));
+  } catch {}
+}
+
+function getPersistedInflightChatRun(agentId) {
+  if (!agentId) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(getInflightChatRunKey(agentId)) || "null");
+    if (!parsed || typeof parsed !== "object") return null;
+    if (String(parsed.agent_id || "") !== String(agentId)) return null;
+    if (!parsed.session_id || !parsed.request_id) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearPersistedInflightChatRun(agentId, requestId = "") {
+  if (!agentId) return;
+  if (requestId) {
+    const existing = getPersistedInflightChatRun(agentId);
+    if (existing && String(existing.request_id || "") !== String(requestId)) return;
+  }
+  try {
+    localStorage.removeItem(getInflightChatRunKey(agentId));
+  } catch {}
 }
 
 // ===== app state =====
@@ -5622,6 +5665,12 @@ async function submitChatForSelectedAgent() {
   setChatStatus("Sending...");
   chatState.currentRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
+  persistInflightChatRun(agentIdAtSend, {
+    session_id: sessionIdAtSend,
+    request_id: clientRequestId,
+    message_preview: requestMessage,
+    started_at: new Date(requestCtx.startedAt).toISOString(),
+  });
   localStartWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx);
 
   try {
@@ -6491,6 +6540,8 @@ function terminalStatusFromCompletionState(completionState) {
 function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
+  stopRecoveredRunPolling(requestCtx);
+  clearPersistedInflightChatRun(agentId, requestCtx?.clientRequestId || requestCtx?.requestId || finalPayload?.request_id || "");
   const requestId = finalPayload?.request_id || requestCtx?.requestId || requestCtx?.clientRequestId || "";
   const sessionId = finalPayload?.session_id || requestCtx?.sessionIdAtSend || chatState.sessionId || "";
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "");
@@ -6552,6 +6603,8 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
 function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = false } = {}) {
   const chatState = ensureChatState(agentIdAtSend);
   clearWaitingForRuntimeEventsTimer(requestCtx);
+  stopRecoveredRunPolling(requestCtx);
+  clearPersistedInflightChatRun(agentIdAtSend, requestCtx?.clientRequestId || requestCtx?.requestId || "");
   if (requestCtx?.streamIncomplete || requestCtx?.streamFailed) {
     finalizeTerminalThinkingState(agentIdAtSend, requestCtx, requestCtx?.terminalPayload || requestCtx?.streamFinalPayload || {});
   }
@@ -6595,6 +6648,14 @@ async function abortActiveChatRequestForSelectedAgent() {
   if (req.abortController && typeof req.abortController.abort === "function") {
     req.abortController.abort();
   }
+  const requestId = req.clientRequestId || req.requestId || "";
+  const sessionId = req.sessionIdAtSend || chatState.sessionId || "";
+  if (requestId) {
+    const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+    void agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/cancel${query}`, { method: "POST" }).catch(() => {});
+  }
+  stopRecoveredRunPolling(req);
+  clearPersistedInflightChatRun(agentId, requestId);
   req.aborted = true;
   req.streamFailed = true;
   chatState.currentRequest = null;
@@ -6995,7 +7056,11 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
         if (r === "error" || r === "final_non_success" || r === "final_incomplete") sawError = true;
       }
     }
-  } catch (e) { if (sawEvent) throw e; return 'unsupported'; }
+  } catch (e) {
+    if (sawEvent && requestCtx?.recovered) return 'unsupported';
+    if (sawEvent) throw e;
+    return 'unsupported';
+  }
   if (
     requestCtx.streamCompleted ||
     requestCtx.streamIncomplete ||
@@ -7035,6 +7100,9 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
       requestCtx.streamFinalPayload,
     );
     return "handled";
+  }
+  if (sawEvent && requestCtx?.recovered) {
+    return "unsupported";
   }
   if (sawEvent) {
     await handleChatStreamMissingFinal(agentIdAtSend, requestCtx);
@@ -7091,6 +7159,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
 
   if (!activeMatches && !finalForSameRequest) return;
 
+  stopRecoveredRunPolling(requestCtx);
   if (!localHasRenderableAssistantPayload(payload)) {
     const finalSessionId = payload?.session_id || requestCtx?.sessionIdAtSend || chatState?.sessionId || "";
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
@@ -7143,6 +7212,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     };
   updateAgentSession(agentIdAtSend, payload.session_id || requestCtx.sessionIdAtSend || "");
   const finalSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
+  clearPersistedInflightChatRun(agentIdAtSend, requestCtx.clientRequestId);
   const payloadContextState = payload?.context_state;
   const mergedEventContextState = contextFromEvents(mergedThinkingEvents);
   const eventContextState = contextFromEvents(payloadThinkingEvents);
@@ -7308,6 +7378,8 @@ function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     request_id: requestCtx.clientRequestId,
     session_id: requestCtx.sessionIdAtSend || chatState.sessionId || "",
   };
+  stopRecoveredRunPolling(requestCtx);
+  clearPersistedInflightChatRun(agentIdAtSend, requestCtx.clientRequestId);
   if (chatState.inflightThinking) {
     const failedEvent = {
       type: "execution.failed",
@@ -8568,8 +8640,6 @@ function renderChatHistory(messages, metadata = {}) {
 function deriveSessionRecoveryNotice(metadata = {}) {
   const latestEventType = typeof metadata.latest_event_type === "string" ? metadata.latest_event_type : "";
   const latestEventState = typeof metadata.latest_event_state === "string" ? metadata.latest_event_state : "";
-  // UX-only hint after refresh; this is not live progress recovery/reattach.
-  // Keep wording conservative so users are not told work was resumed.
 
   if (latestEventType === "chat.failed" || latestEventState === "error") {
     return {
@@ -8581,14 +8651,182 @@ function deriveSessionRecoveryNotice(metadata = {}) {
   if (latestEventType === "chat.started" || latestEventState === "running") {
     return {
       level: "warning",
-      message: "The previous request may still be running or was interrupted. Live progress cannot be resumed after refresh yet.",
+      message: "Reconnecting to the previous request...",
     };
   }
 
   return null;
 }
 
-async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId } = {}) {
+function isTerminalChatRunState(stateValue) {
+  return ["completed", "success", "failed", "error", "cancelled", "canceled", "blocked", "incomplete"].includes(String(stateValue || "").trim().toLowerCase());
+}
+
+function inflightChatRunCandidate(agentId, sessionId, metadata = {}) {
+  const persisted = getPersistedInflightChatRun(agentId);
+  if (persisted && String(persisted.session_id || "") === String(sessionId || "")) {
+    return persisted;
+  }
+  const latestState = String(metadata.latest_event_state || "").trim().toLowerCase();
+  const requestId = String(metadata.last_execution_id || metadata.request_id || metadata.latest_request_id || "").trim();
+  if (requestId && latestState === "running") {
+    return {
+      agent_id: agentId,
+      session_id: sessionId,
+      request_id: requestId,
+      message_preview: "",
+      started_at: "",
+    };
+  }
+  return null;
+}
+
+async function fetchChatRunStatusForAgent(agentId, sessionId, requestId) {
+  const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  return agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}${query}`);
+}
+
+function stopRecoveredRunPolling(requestCtx) {
+  if (requestCtx?.recoveryPollTimerId) {
+    clearTimeout(requestCtx.recoveryPollTimerId);
+    requestCtx.recoveryPollTimerId = null;
+  }
+}
+
+async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx, statusPayload = {}) {
+  const chatState = ensureChatState(agentId);
+  stopRecoveredRunPolling(requestCtx);
+  clearPersistedInflightChatRun(agentId, requestId);
+  clearWaitingForRuntimeEventsTimer(requestCtx);
+  if (chatState?.currentRequest?.clientRequestId === requestId || chatState?.currentRequest?.requestId === requestId) {
+    chatState.currentRequest = null;
+  }
+  if (chatState) {
+    chatState.isSubmitting = false;
+    chatState.inflightThinking = null;
+    chatState.pendingThinkingEvents = null;
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
+  }
+  if (state.selectedAgentId === agentId) {
+    setChatSubmittingForAgent(agentId, false);
+    setChatStatus(isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready");
+    await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false });
+  } else if (chatState) {
+    chatState.needsReload = true;
+  }
+}
+
+function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx) {
+  stopRecoveredRunPolling(requestCtx);
+  requestCtx.recoveryPollTimerId = setTimeout(async () => {
+    const chatState = ensureChatState(agentId);
+    if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestId) return;
+    try {
+      const statusPayload = await fetchChatRunStatusForAgent(agentId, sessionId, requestId);
+      if (isTerminalChatRunState(statusPayload?.state) || statusPayload?.terminal === true) {
+        await finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx, statusPayload);
+        return;
+      }
+    } catch {}
+    scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx);
+  }, 2500);
+}
+
+async function reconnectRecoveredChatStreamForAgent(agentId, requestCtx) {
+  if (!agentId || !requestCtx?.clientRequestId || requestCtx.reconnectStreamStarted) return;
+  requestCtx.reconnectStreamStarted = true;
+  try {
+    await trySubmitChatStreamForSelectedAgent(agentId, requestCtx, {
+      message: requestCtx.message || "[reconnect]",
+      session_id: requestCtx.sessionIdAtSend || "",
+      request_id: requestCtx.clientRequestId,
+      reconnect: true,
+    });
+  } catch (error) {
+    requestCtx.reconnectStreamError = String(error?.message || error || "");
+  }
+}
+
+async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {}, { render = agentId === state.selectedAgentId } = {}) {
+  const chatState = ensureChatState(agentId);
+  if (!agentId || !sessionId || !chatState || chatState.currentRequest) return false;
+  const candidate = inflightChatRunCandidate(agentId, sessionId, metadata);
+  if (!candidate?.request_id) return false;
+
+  let statusPayload = null;
+  try {
+    statusPayload = await fetchChatRunStatusForAgent(agentId, sessionId, candidate.request_id);
+  } catch {
+    statusPayload = null;
+  }
+
+  if (!statusPayload || statusPayload.state === "unknown" || statusPayload.error) {
+    clearPersistedInflightChatRun(agentId, candidate.request_id);
+    return false;
+  }
+
+  if (isTerminalChatRunState(statusPayload.state) || statusPayload.terminal === true) {
+    await finishRecoveredChatRun(agentId, sessionId, candidate.request_id, { clientRequestId: candidate.request_id }, statusPayload);
+    return true;
+  }
+
+  const requestCtx = {
+    requestId: candidate.request_id,
+    clientRequestId: candidate.request_id,
+    agentId,
+    sessionIdAtSend: sessionId,
+    message: candidate.message_preview || "",
+    startedAt: candidate.started_at ? Date.parse(candidate.started_at) || Date.now() : Date.now(),
+    streamStartedAt: Date.now(),
+    sawRuntimeEvent: false,
+    sawDelta: false,
+    sawFinal: false,
+    streamCompleted: false,
+    streamFailed: false,
+    streamIncomplete: false,
+    recovered: true,
+    usedStream: true,
+    typewriter: { targetText: "", visibleText: "", timerId: null, finalizing: false, cancelled: false },
+  };
+  chatState.currentRequest = requestCtx;
+  chatState.inflightThinking = {
+    id: candidate.request_id,
+    requestId: candidate.request_id,
+    sessionId,
+    events: [],
+    completed: false,
+    started: false,
+    startedAt: Date.now(),
+  };
+  if (typeof createAgentTimelineState === "function") {
+    if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+    else chatState.inflightAgentTimeline = null;
+    chatState.inflightAgentTimeline = createAgentTimelineState({ requestId: candidate.request_id, sessionId });
+  }
+  setChatSubmittingForAgent(agentId, true);
+  if (render && state.selectedAgentId === agentId && dom.messageList && !findPendingAssistantArticle(candidate.request_id)) {
+    dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(candidate.request_id, "Reconnecting"));
+    renderIcons();
+    scrollToBottom();
+  }
+  if (state.selectedAgentId === agentId) {
+    setChatStatus("Reconnected to running response.");
+  }
+  ensureEventSocketForAgent(agentId, sessionId, candidate.request_id);
+  startWaitingForRuntimeEventsTimer(agentId, requestCtx);
+  scheduleRecoveredChatRunPoll(agentId, sessionId, candidate.request_id, requestCtx);
+  void reconnectRecoveredChatStreamForAgent(agentId, requestCtx);
+  persistInflightChatRun(agentId, {
+    session_id: sessionId,
+    request_id: candidate.request_id,
+    message_preview: candidate.message_preview || "",
+    started_at: candidate.started_at || new Date().toISOString(),
+  });
+  return true;
+}
+
+async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
 
@@ -8660,6 +8898,9 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     addEditButtonsToMessages();
     if (!ensureChatState(agentId)?.currentRequest) setChatStatus(`Loaded session ${normalized}`);
     applyRecoveryNotice();
+  }
+  if (recoverRunning) {
+    await recoverInflightChatRunForAgent(agentId, normalized, normalizedPayload.metadata || {}, { render });
   }
 }
 

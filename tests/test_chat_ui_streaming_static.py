@@ -67,7 +67,6 @@ def test_opencode_long_task_markers_are_removed_from_chat_ui():
         "stream_" + "detached",
         "wait_reconnect" + "_or_stop",
         "/active" + "-run",
-        "/api/chat/" + "runs",
         "portal." + "reconcile",
         "portal." + "stream_" + "detached",
         "portal." + "active_" + "request.cleared",
@@ -80,6 +79,11 @@ def test_opencode_long_task_markers_are_removed_from_chat_ui():
 
     for marker in forbidden:
         assert marker not in src
+
+    assert "/api/chat/" + "runs" in src
+    assert "recoverInflightChatRunForAgent" in src
+    assert "reconnectRecoveredChatStreamForAgent" in src
+    assert "startChatRun" + "ReconcileLoop" not in src
 
 
 def test_opencode_simple_mount_helpers_are_not_reintroduced():
