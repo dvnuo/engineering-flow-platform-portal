@@ -83,3 +83,17 @@ def test_agent_list_keeps_search_and_compact_hover_status():
     assert "portal-agent-row-badges" in render_agent_list
     assert "dom.agentSearchInput?.addEventListener" in bind_events
     assert "[data-agent-status-filter]" not in bind_events
+
+
+def test_agent_switch_updates_existing_rows_without_rerendering_list():
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    render_agent_list = _extract_js_function(js, "renderAgentList")
+    select_agent = _extract_js_function(js, "selectAgentById")
+    sync_selection = _extract_js_function(js, "syncAgentListSelection")
+
+    assert "row.dataset.agentId = agent.id" in render_agent_list
+    assert "syncAgentListSelection(previousAgentId, agentId)" in select_agent
+    assert "renderAgentList();" not in select_agent
+    assert 'querySelectorAll(".portal-agent-row[data-agent-id]")' in sync_selection
+    assert 'classList.toggle("is-active", active)' in sync_selection
+    assert 'row.setAttribute("aria-current", "true")' in sync_selection
