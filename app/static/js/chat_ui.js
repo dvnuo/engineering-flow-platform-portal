@@ -4835,7 +4835,9 @@ function renderAgentList() {
       const isActive = state.selectedAgentId === agent.id;
       const row = document.createElement("button");
       row.type = "button";
+      row.dataset.agentId = agent.id;
       row.className = `portal-agent-row is-${safe(health.tone)}${isActive ? " is-active" : ""}`;
+      if (isActive) row.setAttribute("aria-current", "true");
       row.title = `${agent.name || "Assistant"}\nStatus: ${status}\n${health.detail}`;
       row.setAttribute("aria-label", `${agent.name || "Assistant"}. Status ${status}. ${health.detail}`);
       const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent))}</span>`;
@@ -4864,6 +4866,54 @@ function renderAgentList() {
   renderSection("Shared", shared);
   renderSection("Public", publicAgents);
   renderIcons();
+}
+
+function agentRowForId(agentId) {
+  if (!dom.mineList || !agentId) return null;
+  return dom.mineList.querySelector(`.portal-agent-row[data-agent-id="${cssEscapeForSelector(String(agentId))}"]`);
+}
+
+function syncAgentRowUnreadBadge(agentId) {
+  const row = agentRowForId(agentId);
+  if (!row) return false;
+
+  const chatState = ensureChatState(agentId);
+  const count = Number(chatState?.unreadCount || 0);
+  const existingBadge = row.querySelector(".portal-agent-unread");
+  if (count <= 0) {
+    existingBadge?.remove();
+    return true;
+  }
+
+  if (existingBadge) {
+    existingBadge.textContent = String(count);
+    return true;
+  }
+
+  const badges = row.querySelector(".portal-agent-row-badges");
+  if (!badges) return false;
+  const unreadBadge = document.createElement("span");
+  unreadBadge.className = "portal-agent-unread";
+  unreadBadge.textContent = String(count);
+  badges.append(unreadBadge);
+  return true;
+}
+
+function syncAgentListSelection(previousAgentId = null, selectedAgentId = state.selectedAgentId) {
+  if (!dom.mineList) return false;
+  const rows = dom.mineList.querySelectorAll(".portal-agent-row[data-agent-id]");
+  if (!rows.length) return false;
+
+  rows.forEach((row) => {
+    const active = row.dataset.agentId === selectedAgentId;
+    row.classList.toggle("is-active", active);
+    if (active) row.setAttribute("aria-current", "true");
+    else row.removeAttribute("aria-current");
+  });
+
+  if (previousAgentId) syncAgentRowUnreadBadge(previousAgentId);
+  if (selectedAgentId) syncAgentRowUnreadBadge(selectedAgentId);
+  return true;
 }
 
 function agentHealthActionLabel(health) {
@@ -5183,7 +5233,7 @@ async function selectAgentById(agentId, { updateRoute = true } = {}) {
   clearMessageListToWelcome();
 
   await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
-  renderAgentList();
+  syncAgentListSelection(previousAgentId, agentId);
   await syncSelectedAgentState();
   if (updateRoute && !isApplyingPortalRoute) {
     commitPortalRoute({ section: "assistants", agentId });
