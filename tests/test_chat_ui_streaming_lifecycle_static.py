@@ -20,15 +20,19 @@ def test_missing_final_lifecycle_finishes_native_stream_as_incomplete():
     assert "Reconnecting" not in missing_final
 
 
-def test_reconcile_loop_and_run_lookup_are_removed():
+def test_recovery_uses_run_status_without_old_reconcile_loop():
     src = _src()
     abort_fn = _extract_js_function(src, "abortActiveChatRequestForSelectedAgent")
 
     assert "startChatRun" + "ReconcileLoop" not in src
     assert "reconcileChatRun" + "Once" not in src
-    assert "/api/chat/" + "runs" not in abort_fn
     assert "/active" + "-run" not in abort_fn
     assert "refreshOpenCodeSessionStatusForAgent" not in abort_fn
+    assert "/api/chat/" + "runs" in abort_fn
+    assert "/cancel" in abort_fn
+    assert "recoverInflightChatRunForAgent" in src
+    assert "reconnectRecoveredChatStreamForAgent" in src
+    assert "persistInflightChatRun" in src
 
 
 def test_stop_control_only_follows_local_submit_state():
