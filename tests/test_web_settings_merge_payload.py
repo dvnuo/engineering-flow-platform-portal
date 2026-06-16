@@ -209,31 +209,30 @@ def test_settings_merge_blank_github_token_clears_existing():
     assert "api_token" not in merged["github"]
 
 
-def test_settings_merge_aws_adfs_form_clears_deprecated_static_secrets():
+def test_settings_merge_aws_form_rebuilds_minimal_config():
     merged, error = _settings_merge_payload(
         {
             "aws": {
                 "enabled": True,
+                "domain": "OLD",
                 "username": "old-user",
                 "password": "old-password",
-                "access_key_id": "old-ak",
-                "secret_access_key": "old-sk",
-                "session_token": "old-st",
+                "stale": "drop",
             }
         },
         {
             "__touch_aws": "1",
             "aws_enabled": "on",
-            "aws_username": "adfs-user",
+            "aws_domain": "HBEU",
+            "aws_username": "aws-user",
             "aws_password": "",
         },
     )
     assert error is None
-    assert merged["aws"]["username"] == "adfs-user"
+    assert merged["aws"]["domain"] == "HBEU"
+    assert merged["aws"]["username"] == "aws-user"
     assert "password" not in merged["aws"]
-    assert "access_key_id" not in merged["aws"]
-    assert "secret_access_key" not in merged["aws"]
-    assert "session_token" not in merged["aws"]
+    assert "stale" not in merged["aws"]
 
 
 def test_settings_merge_blank_proxy_password_clears_existing():
@@ -631,8 +630,9 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "github_base_url": "https://github.example.com/api/v3/",
             "__touch_aws": "1",
             "aws_enabled": "on",
-            "aws_username": "adfs-user",
-            "aws_password": "adfs-password",
+            "aws_domain": "HBEU",
+            "aws_username": "aws-user",
+            "aws_password": "aws-password",
             "__touch_git": "1",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
@@ -680,8 +680,9 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
         },
         "aws": {
             "enabled": True,
-            "username": "adfs-user",
-            "password": "adfs-password",
+            "domain": "HBEU",
+            "username": "aws-user",
+            "password": "aws-password",
         },
         "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
     }

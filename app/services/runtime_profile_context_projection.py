@@ -149,15 +149,10 @@ def _has_enabled_aws_config(config: dict[str, Any]) -> bool:
     aws = config.get("aws")
     if not isinstance(aws, dict) or aws.get("enabled") is not True:
         return False
-    username = str(
-        aws.get("username")
-        or aws.get("adfs_username")
-        or aws.get("account")
-        or aws.get("account_name")
-        or ""
-    ).strip()
-    password = str(aws.get("password") or aws.get("adfs_password") or "").strip()
-    return bool(username and password)
+    domain = str(aws.get("domain") or "").strip()
+    username = str(aws.get("username") or "").strip()
+    password = str(aws.get("password") or "").strip()
+    return bool(domain and username and password)
 
 
 def _has_enabled_external_cli_config(config: dict[str, Any]) -> bool:

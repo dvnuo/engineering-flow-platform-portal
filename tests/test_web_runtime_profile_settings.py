@@ -479,8 +479,9 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "github_api_token": "github-token",
             "github_base_url": "https://github.example.com/api/v3/",
             "aws_enabled": "on",
-            "aws_username": "adfs-user",
-            "aws_password": "adfs-password",
+            "aws_domain": "HBEU",
+            "aws_username": "aws-user",
+            "aws_password": "aws-password",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
             "tool_loop": '{"max_iterations":12}',
@@ -529,8 +530,9 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             },
             "aws": {
                 "enabled": True,
-                "username": "adfs-user",
-                "password": "adfs-password",
+                "domain": "HBEU",
+                "username": "aws-user",
+                "password": "aws-password",
             },
             "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
         }
