@@ -68,23 +68,6 @@
               <i data-lucide="search" class="w-4 h-4"></i>
               <input id="agent-search-input" type="search" placeholder="Search assistants" autocomplete="off" />
             </div>
-            <div class="portal-list-tool-row">
-              <select id="agent-scope-filter" class="portal-filter-select" aria-label="Assistant scope">
-                <option value="all">All assistants</option>
-                <option value="mine">Mine</option>
-                <option value="shared">Shared</option>
-                <option value="public">Public</option>
-              </select>
-              <button id="agent-filter-clear" class="toolbar-icon-btn" type="button" title="Clear assistant filters">
-                <i data-lucide="x" class="w-4 h-4"></i>
-              </button>
-            </div>
-            <div id="agent-status-filter" class="portal-filter-segments" aria-label="Assistant status">
-              <button type="button" class="portal-filter-chip is-active" data-agent-status-filter="all">All</button>
-              <button type="button" class="portal-filter-chip" data-agent-status-filter="ready">Ready</button>
-              <button type="button" class="portal-filter-chip" data-agent-status-filter="attention">Attention</button>
-              <button type="button" class="portal-filter-chip" data-agent-status-filter="stopped">Stopped</button>
-            </div>
             <div id="agent-filter-summary" class="portal-filter-summary"></div>
           </div>
           <div id="mine-list" class="portal-agent-list"></div>
@@ -168,7 +151,6 @@
           <div id="chat-status" class="portal-statusline">Ready</div>
         </div>
         <div class="portal-main-toolbar">
-          <span id="selected-status" class="toolbar-status-badge">idle</span>
           <button id="header-new-chat-btn" class="toolbar-primary-btn" type="button">New Chat</button>
           <button id="btn-sessions" class="toolbar-icon-btn" type="button" title="Sessions" aria-label="Sessions">
             <i data-lucide="clock" class="w-5 h-5"></i>

@@ -59,9 +59,6 @@ const dom = {
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
   agentSearchInput: document.getElementById("agent-search-input"),
-  agentScopeFilter: document.getElementById("agent-scope-filter"),
-  agentStatusFilter: document.getElementById("agent-status-filter"),
-  agentFilterClear: document.getElementById("agent-filter-clear"),
   agentFilterSummary: document.getElementById("agent-filter-summary"),
   bundleNavList: document.getElementById("bundle-nav-list"),
   taskSearchInput: document.getElementById("task-search-input"),
@@ -4760,12 +4757,7 @@ function agentScopeLabel(agent) {
 
 function agentMatchesFilters(agent) {
   const filters = state.agentFilters || {};
-  const scope = agentScope(agent);
-  if (filters.scope && filters.scope !== "all" && filters.scope !== scope) return false;
   const health = agentHealth(agent);
-  if (filters.status === "ready" && health.key !== "ready") return false;
-  if (filters.status === "attention" && health.key !== "attention") return false;
-  if (filters.status === "stopped" && health.key !== "stopped") return false;
 
   const query = String(filters.query || "").trim().toLowerCase();
   if (!query) return true;
@@ -4789,22 +4781,16 @@ function visibleAgents() {
 
 function hasActiveAgentFilters() {
   const filters = state.agentFilters || {};
-  return Boolean(String(filters.query || "").trim() || filters.scope !== "all" || filters.status !== "all");
+  return Boolean(String(filters.query || "").trim());
 }
 
 function syncAgentFilterControls(visibleCount = null) {
-  const filters = state.agentFilters || { query: "", scope: "all", status: "all" };
+  const filters = state.agentFilters || { query: "" };
   if (dom.agentSearchInput && dom.agentSearchInput.value !== filters.query) dom.agentSearchInput.value = filters.query;
-  if (dom.agentScopeFilter && dom.agentScopeFilter.value !== filters.scope) dom.agentScopeFilter.value = filters.scope;
-  dom.agentStatusFilter?.querySelectorAll("[data-agent-status-filter]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.agentStatusFilter === filters.status);
-  });
   if (dom.agentFilterSummary) {
     const total = (state.mineAgents || []).length;
     const shown = visibleCount === null ? visibleAgents().length : visibleCount;
     const parts = [];
-    if (filters.scope !== "all") parts.push(filters.scope);
-    if (filters.status !== "all") parts.push(filters.status === "attention" ? "needs attention" : filters.status);
     if (filters.query) parts.push(`"${filters.query}"`);
     dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} assistants`;
   }
@@ -4850,22 +4836,22 @@ function renderAgentList() {
       const row = document.createElement("button");
       row.type = "button";
       row.className = `portal-agent-row is-${safe(health.tone)}${isActive ? " is-active" : ""}`;
+      row.title = `${agent.name || "Assistant"}\nStatus: ${status}\n${health.detail}`;
+      row.setAttribute("aria-label", `${agent.name || "Assistant"}. Status ${status}. ${health.detail}`);
       const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent))}</span>`;
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
       if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
       const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
       const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
+      const rowBadges = `${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}`;
+      const statusLabel = `Status: ${status}`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
+          <span class="portal-agent-status-dot status-${safe(status)}" title="${escapeHtmlAttr(statusLabel)}" aria-hidden="true"></span>
           <span class="portal-agent-name">${safe(agent.name)}</span>
-          <span class="portal-agent-row-badges">${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}</span>
         </div>
-        <div class="portal-agent-row-foot">
-          <span class="portal-agent-status-dot status-${safe(status)}" aria-hidden="true"></span>
-          <span class="portal-agent-status-text">${safe(status)}</span>
-        </div>
-        <div class="portal-agent-health-line">${safe(health.detail)}</div>
+        ${rowBadges ? `<div class="portal-agent-row-badges">${rowBadges}</div>` : ""}
       `;
       row.addEventListener("click", () => selectAgentById(agent.id));
       section.append(row);
@@ -5204,13 +5190,18 @@ async function selectAgentById(agentId, { updateRoute = true } = {}) {
   }
 }
 
+function setSelectedStatusText(status = "idle") {
+  if (!dom.selectedStatus) return;
+  dom.selectedStatus.textContent = status || "idle";
+}
+
 async function syncSelectedAgentState() {
   const agent = getSelectedAgent();
   const sessionsBtn = document.getElementById("btn-sessions");
 
   if (!agent) {
     dom.embedTitle.textContent = "Select an assistant";
-    dom.selectedStatus.textContent = "idle";
+    setSelectedStatusText("idle");
     setChatStatus("Ready");
     setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
@@ -5231,8 +5222,7 @@ async function syncSelectedAgentState() {
   state.selectedAgentName = agent.name || null;
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
-  dom.selectedStatus.textContent = status;
-  dom.selectedStatus.className = `toolbar-status-badge status-${status}`;
+  setSelectedStatusText(status);
   setChatStatus("Ready");
   syncSelectedAgentChatActionControls();
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
@@ -7699,19 +7689,13 @@ function restoreAssistantHeaderState() {
   if (agent) {
     const status = getSelectedAgentStatus();
     dom.embedTitle.textContent = agent.name || "Select an assistant";
-    if (dom.selectedStatus) {
-      dom.selectedStatus.textContent = status;
-      dom.selectedStatus.className = `toolbar-status-badge status-${status}`;
-    }
+    setSelectedStatusText(status);
     setChatStatus("Ready");
     return;
   }
 
   dom.embedTitle.textContent = "Select an assistant";
-  if (dom.selectedStatus) {
-    dom.selectedStatus.textContent = "idle";
-    dom.selectedStatus.className = "toolbar-status-badge";
-  }
+  setSelectedStatusText("idle");
   setChatStatus("Ready");
 }
 
@@ -7802,7 +7786,7 @@ function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [dom.selectedStatus, sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
+  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -9952,10 +9936,7 @@ function applyLocalAgentStatus(agentId, status, lastError = "") {
   }
 
   if (agentId === state.selectedAgentId && normalizedStatus) {
-    if (dom.selectedStatus) {
-      dom.selectedStatus.textContent = normalizedStatus;
-      dom.selectedStatus.className = `toolbar-status-badge status-${normalizedStatus}`;
-    }
+    setSelectedStatusText(normalizedStatus);
     if (agent) renderAgentActions(agent, normalizedStatus);
     syncSelectedAgentChatActionControls();
   }
@@ -12296,21 +12277,6 @@ function bindEvents() {
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
   dom.agentSearchInput?.addEventListener("input", () => {
     state.agentFilters.query = String(dom.agentSearchInput.value || "").trim();
-    renderAgentList();
-  });
-  dom.agentScopeFilter?.addEventListener("change", () => {
-    state.agentFilters.scope = dom.agentScopeFilter.value || "all";
-    renderAgentList();
-  });
-  dom.agentStatusFilter?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-agent-status-filter]");
-    if (!button) return;
-    state.agentFilters.status = button.dataset.agentStatusFilter || "all";
-    renderAgentList();
-  });
-  dom.agentFilterClear?.addEventListener("click", () => {
-    state.agentFilters = { query: "", scope: "all", status: "all" };
-    syncAgentFilterControls();
     renderAgentList();
   });
   dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"));

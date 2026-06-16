@@ -63,18 +63,23 @@ def test_agent_health_card_is_wired_into_agent_meta():
     assert 'action(`/api/agents/${agent.id}/start`)' in health_action
 
 
-def test_agent_list_filters_are_present_and_wired():
+def test_agent_list_keeps_search_and_compact_hover_status():
     template = Path("app/templates/app.html").read_text(encoding="utf-8")
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     render_agent_list = _extract_js_function(js, "renderAgentList")
     bind_events = _extract_js_function(js, "bindEvents")
 
     assert 'id="agent-search-input"' in template
-    assert 'id="agent-scope-filter"' in template
-    assert 'data-agent-status-filter="ready"' in template
-    assert 'data-agent-status-filter="attention"' in template
+    assert 'id="agent-scope-filter"' not in template
+    assert 'id="agent-filter-clear"' not in template
+    assert 'id="agent-status-filter"' not in template
+    assert 'id="selected-status"' not in template
     assert "visibleAgents()" in render_agent_list
     assert "agentHealth(agent)" in render_agent_list
-    assert "portal-agent-health-line" in render_agent_list
+    assert "row.title =" in render_agent_list
+    assert "portal-agent-status-dot" in render_agent_list
+    assert "portal-agent-status-text" not in render_agent_list
+    assert "portal-agent-health-line" not in render_agent_list
+    assert "portal-agent-row-badges" in render_agent_list
     assert "dom.agentSearchInput?.addEventListener" in bind_events
-    assert "[data-agent-status-filter]" in bind_events
+    assert "[data-agent-status-filter]" not in bind_events
