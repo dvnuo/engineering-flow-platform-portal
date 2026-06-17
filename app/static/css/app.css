@@ -2338,6 +2338,22 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   min-width: 0;
 }
 
+.portal-row-status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--portal-text-muted);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--portal-border), transparent 35%);
+}
+
+.portal-row-status-dot.is-success { background: var(--portal-success); }
+.portal-row-status-dot.is-error { background: var(--portal-danger); }
+.portal-row-status-dot.is-warning { background: var(--portal-warning); }
+.portal-row-status-dot.is-info { background: var(--portal-accent); }
+.portal-row-status-dot.is-neutral { background: var(--portal-text-muted); }
+
 .portal-task-row-title {
   flex: 1 1 auto;
   min-width: 0;
