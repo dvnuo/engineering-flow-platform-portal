@@ -49,6 +49,10 @@ def test_settings_k8s_defaults():
 
 def test_settings_default_skill_asset_env_defaults():
     settings = Settings()
+    assert settings.default_agent_settings_repo_url == "https://github.com/dvnuo/engineering-flow-platform-agents"
+    assert settings.default_agent_settings_branch == "master"
+    assert settings.default_agent_settings_repo_subdir == ""
+    assert settings.default_agent_settings_asset_version == ""
     assert settings.default_skill_repo_subdir == ""
     assert settings.default_skill_asset_version == ""
 
@@ -96,9 +100,17 @@ def test_settings_opencode_runtime_env_overrides(monkeypatch):
 
 
 def test_settings_default_skill_asset_env_overrides(monkeypatch):
+    monkeypatch.setenv("DEFAULT_AGENT_SETTINGS_REPO_URL", "https://github.com/acme/agents.git")
+    monkeypatch.setenv("DEFAULT_AGENT_SETTINGS_BRANCH", "agents-main")
+    monkeypatch.setenv("DEFAULT_AGENT_SETTINGS_REPO_SUBDIR", "profiles/default")
+    monkeypatch.setenv("DEFAULT_AGENT_SETTINGS_ASSET_VERSION", "agents-sha")
     monkeypatch.setenv("DEFAULT_SKILL_REPO_SUBDIR", "skills")
     monkeypatch.setenv("DEFAULT_SKILL_ASSET_VERSION", "sha-abc123")
     settings = Settings()
+    assert settings.default_agent_settings_repo_url == "https://github.com/acme/agents.git"
+    assert settings.default_agent_settings_branch == "agents-main"
+    assert settings.default_agent_settings_repo_subdir == "profiles/default"
+    assert settings.default_agent_settings_asset_version == "agents-sha"
     assert settings.default_skill_repo_subdir == "skills"
     assert settings.default_skill_asset_version == "sha-abc123"
 

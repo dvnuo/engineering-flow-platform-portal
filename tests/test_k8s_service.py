@@ -18,6 +18,10 @@ class K8sServiceNoopTest(unittest.TestCase):
         self._settings_snapshot = {
             name: getattr(self.service.settings, name)
             for name in (
+                "default_agent_settings_repo_url",
+                "default_agent_settings_branch",
+                "default_agent_settings_repo_subdir",
+                "default_agent_settings_asset_version",
                 "default_skill_repo_url",
                 "default_skill_branch",
                 "default_skill_repo_subdir",
@@ -30,6 +34,10 @@ class K8sServiceNoopTest(unittest.TestCase):
                 "opencode_chat_submit_timeout_seconds",
             )
         }
+        self.service.settings.default_agent_settings_repo_url = ""
+        self.service.settings.default_agent_settings_branch = "master"
+        self.service.settings.default_agent_settings_repo_subdir = ""
+        self.service.settings.default_agent_settings_asset_version = ""
         self.service.settings.default_skill_repo_url = ""
         self.service.settings.default_skill_branch = "master"
         self.service.settings.default_skill_repo_subdir = ""
@@ -520,6 +528,77 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn('cp -a "${SOURCE_DIR}"/.', command)
         self.assertIn("No skill entries found", command)
         self.assertIn("SKILL.md", command)
+
+    def test_agent_settings_init_container_overwrites_agents_and_instructions(self):
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="native",
+            mount_path="/workspace",
+            agent_settings_repo_url="https://example.com/agents.git",
+            agent_settings_branch="main",
+            agent_settings_subdir="profiles/default",
+            skill_repo_url=None,
+            skill_branch="main",
+        )
+        inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
+        init_names = {c.name for c in inits}
+        mount_map = {m.mount_path: m.sub_path for m in mounts}
+
+        self.assertIn("agent-settings-git-clone", init_names)
+        self.assertEqual(mount_map["/workspace"], "efp-agents/a1/data")
+
+        settings_init = self._find_init_container(inits, "agent-settings-git-clone")
+        env_map = {e.name: getattr(e, "value", None) for e in settings_init.env}
+        init_mount_map = {m.mount_path: m.sub_path for m in settings_init.volume_mounts}
+        command = settings_init.args[0]
+
+        self.assertEqual(env_map["GIT_REPO_URL"], "https://example.com/agents.git")
+        self.assertEqual(env_map["GIT_BRANCH"], "main")
+        self.assertEqual(env_map["AGENT_SETTINGS_REPO_SUBDIR"], "profiles/default")
+        self.assertEqual(init_mount_map["/workspace"], "efp-agents/a1/data")
+        self.assertIn("AGENTS.md", command)
+        self.assertIn("instructions", command)
+        self.assertIn('rm -rf "/workspace/instructions"', command)
+        self.assertIn('cp -a "${SOURCE_DIR}/instructions"/. "/workspace/instructions"/', command)
+        self.assertNotIn("https://example.com/agents.git", command)
+
+    def test_opencode_agent_settings_init_container_uses_workspace_mount(self):
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="opencode",
+            mount_path="/workspace",
+            agent_settings_repo_url="https://example.com/agents.git",
+            agent_settings_branch="main",
+            skill_repo_url=None,
+            skill_branch="main",
+        )
+        inits, mounts = self.service._build_code_and_skill_init_containers_and_mounts(agent)
+        init_names = {c.name for c in inits}
+        mount_map = {m.mount_path: m.sub_path for m in mounts}
+
+        self.assertIn("opencode-persistent-dirs-init", init_names)
+        self.assertIn("agent-settings-git-clone", init_names)
+        self.assertEqual(mount_map["/workspace"], "efp-agents/a1/data")
+
+    def test_agent_settings_repo_subdir_rejects_parent_path(self):
+        self.service.settings.default_agent_settings_repo_subdir = "../profiles"
+        agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native")
+        with self.assertRaises(ValueError):
+            self.service._agent_settings_repo_subdir(agent)
+
+    def test_agent_settings_asset_version_annotation_forces_rollout(self):
+        self.service.settings.default_agent_settings_asset_version = "sha-agent-settings"
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="native",
+            agent_settings_repo_url="https://example.com/agents.git",
+            agent_settings_branch="main",
+        )
+        self.assertEqual(self.service._agent_metadata_annotations(agent)["efp/agent-settings-asset-version"], "sha-agent-settings")
+        self.assertEqual(self.service._agent_patch_annotations(agent)["efp/agent-settings-asset-version"], "sha-agent-settings")
 
     def test_default_skill_repo_subdir_passed_to_skill_clone_env(self):
         self.service.settings.default_skill_repo_subdir = "skills"

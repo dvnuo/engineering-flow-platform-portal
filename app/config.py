@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     )
     default_opencode_runtime_image_tag: str = Field(default="1.14.39", validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG")
     default_agent_git_image: str = "alpine/git:latest"
+    default_agent_settings_repo_url: str = Field(
+        default="https://github.com/dvnuo/engineering-flow-platform-agents",
+        validation_alias="DEFAULT_AGENT_SETTINGS_REPO_URL",
+    )
+    default_agent_settings_branch: str = Field(
+        default="master",
+        validation_alias="DEFAULT_AGENT_SETTINGS_BRANCH",
+    )
+    default_agent_settings_repo_subdir: str = Field(
+        default="",
+        validation_alias="DEFAULT_AGENT_SETTINGS_REPO_SUBDIR",
+    )
+    default_agent_settings_asset_version: str = Field(
+        default="",
+        validation_alias="DEFAULT_AGENT_SETTINGS_ASSET_VERSION",
+    )
     default_skill_repo_url: str = Field(
         default="https://github.com/dvnuo/engineering-flow-platform-skills",
         validation_alias="DEFAULT_SKILL_REPO_URL",

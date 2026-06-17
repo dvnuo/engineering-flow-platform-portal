@@ -27,6 +27,9 @@ def test_agent_model_fields():
     assert "agent_type" in columns
     assert "runtime_profile_id" in columns
     assert "runtime_type" in columns
+    assert "agent_settings_repo_url" in columns
+    assert "agent_settings_branch" in columns
+    assert "agent_settings_subdir" in columns
 
 
 def test_agent_response_schema():
@@ -41,6 +44,12 @@ def test_agent_response_schema():
     assert "agent_type" in fields
     assert "skill_repo_url" in fields
     assert "skill_branch" in fields
+    assert "agent_settings_repo_url" in fields
+    assert "agent_settings_branch" in fields
+    assert "agent_settings_subdir" in fields
+    assert "effective_agent_settings_repo_url" in fields
+    assert "effective_agent_settings_branch" in fields
+    assert "effective_agent_settings_subdir" in fields
     assert "runtime_type" in fields
 
 
@@ -90,6 +99,32 @@ def test_agent_response_normalizes_skill_repo_url():
     )
     response = AgentResponse.model_validate(obj)
     assert response.skill_repo_url == "https://github.com/Acme/Skills.git"
+
+
+def test_agent_response_normalizes_agent_settings_repo_url():
+    obj = SimpleNamespace(
+        id="agent-1",
+        name="Agent One",
+        status="running",
+        visibility="private",
+        image="example/image:latest",
+        repo_url=None,
+        branch=None,
+        agent_settings_repo_url="git@github.com:Acme/Agents.git",
+        agent_settings_branch="feature/persona",
+        agent_settings_subdir="profiles/default",
+        owner_user_id=1,
+        cpu="250m",
+        memory="512Mi",
+        agent_type="workspace",
+        disk_size_gi=20,
+        description=None,
+        last_error=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    response = AgentResponse.model_validate(obj)
+    assert response.agent_settings_repo_url == "https://github.com/Acme/Agents.git"
 
 
 def test_agent_status_values():
@@ -303,6 +338,9 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
     try:
         import app.api.agents as agents_api
 
+        monkeypatch.setattr(agents_api.settings, "default_agent_settings_repo_url", "https://github.com/acme/agents-default.git")
+        monkeypatch.setattr(agents_api.settings, "default_agent_settings_branch", "agents-main")
+        monkeypatch.setattr(agents_api.settings, "default_agent_settings_repo_subdir", "profiles/default")
         monkeypatch.setattr(agents_api.settings, "default_skill_repo_url", "https://github.com/acme/skills-default.git")
         monkeypatch.setattr(agents_api.settings, "default_skill_branch", "skills-main")
         response = client.get("/api/agents/defaults")
@@ -312,6 +350,9 @@ def test_defaults_return_runtime_and_skill_defaults(monkeypatch):
         assert "default_runtime_branch" not in body
         assert "runtime_repo_url" not in body
         assert "runtime_branch" not in body
+        assert body["default_agent_settings_repo_url"] == "https://github.com/acme/agents-default.git"
+        assert body["default_agent_settings_branch"] == "agents-main"
+        assert body["default_agent_settings_repo_subdir"] == "profiles/default"
         assert "default_skill_repo_url" in body
         assert "default_skill_branch" in body
         assert body["default_runtime_type"] == "native"
@@ -361,6 +402,44 @@ def test_create_agent_uses_config_runtime_and_payload_skill_repo(monkeypatch):
         assert body["branch"] is None
         assert body["skill_repo_url"] == "https://github.com/Acme/Skills.git"
         assert body["skill_branch"] == "feature/skills"
+    finally:
+        cleanup()
+
+
+def test_create_agent_uses_config_and_payload_agent_settings_repo(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+
+        monkeypatch.setattr(agents_api.settings, "default_agent_settings_repo_url", "https://github.com/acme/default-agents.git")
+        monkeypatch.setattr(agents_api.settings, "default_agent_settings_branch", "agents-main")
+        monkeypatch.setattr(agents_api.settings, "default_agent_settings_repo_subdir", "")
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+
+        default_response = client.post("/api/agents", json={"name": "default-agent-settings"})
+        assert default_response.status_code == 200
+        default_body = default_response.json()
+        assert default_body["agent_settings_repo_url"] == "https://github.com/acme/default-agents.git"
+        assert default_body["agent_settings_branch"] == "agents-main"
+        assert default_body["agent_settings_subdir"] is None
+
+        response = client.post(
+            "/api/agents",
+            json={
+                "name": "custom-agent-settings",
+                "agent_settings_repo_url": "git@github.com:Acme/Agents.git",
+                "agent_settings_branch": "feature/persona",
+                "agent_settings_subdir": "profiles/default",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["agent_settings_repo_url"] == "https://github.com/Acme/Agents.git"
+        assert body["agent_settings_branch"] == "feature/persona"
+        assert body["agent_settings_subdir"] == "profiles/default"
+        assert body["effective_agent_settings_repo_url"] == "https://github.com/Acme/Agents.git"
+        assert body["effective_agent_settings_branch"] == "feature/persona"
+        assert body["effective_agent_settings_subdir"] == "profiles/default"
     finally:
         cleanup()
 
@@ -860,6 +939,52 @@ def test_patch_same_skill_repo_branch_sets_rollout_marker(monkeypatch):
         assert captured["calls"] == 1
         assert captured["marker"]
         assert captured["marker"].startswith("agent-skill-save-")
+    finally:
+        cleanup()
+
+
+def test_patch_same_agent_settings_repo_branch_sets_rollout_marker(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr(
+            "app.api.agents.k8s_service.create_agent_runtime",
+            lambda _agent: SimpleNamespace(status="running", message=None),
+        )
+
+        captured = {"calls": 0, "marker": None}
+
+        def _update(agent):
+            captured["calls"] += 1
+            captured["marker"] = getattr(agent, "agent_settings_asset_version", None)
+            return SimpleNamespace(status="running", message=None)
+
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _update)
+
+        create_resp = client.post(
+            "/api/agents",
+            json={
+                "name": "settings-agent",
+                "agent_settings_repo_url": "https://github.com/acme/agents.git",
+                "agent_settings_branch": "main",
+                "agent_settings_subdir": "profiles/default",
+            },
+        )
+        assert create_resp.status_code == 200
+        agent_id = create_resp.json()["id"]
+
+        patch_resp = client.patch(
+            f"/api/agents/{agent_id}",
+            json={
+                "agent_settings_repo_url": "https://github.com/acme/agents.git",
+                "agent_settings_branch": "main",
+                "agent_settings_subdir": "profiles/default",
+            },
+        )
+
+        assert patch_resp.status_code == 200
+        assert captured["calls"] == 1
+        assert captured["marker"]
+        assert captured["marker"].startswith("agent-settings-save-")
     finally:
         cleanup()
 

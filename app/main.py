@@ -12,6 +12,7 @@ from app.api.delegation_rules import router as delegation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
 from app.api.internal_agents import router as internal_agents_router
+from app.api.git_repos import router as git_repos_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
 from app.api.requirement_bundles import router as requirement_bundles_router
@@ -109,6 +110,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(agents_router)
 app.include_router(internal_agents_router)
+app.include_router(git_repos_router)
 app.include_router(runtime_profiles_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)

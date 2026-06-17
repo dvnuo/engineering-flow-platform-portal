@@ -288,7 +288,7 @@
 </div>
 
 <div id="create-bundle-modal" class="modal hidden" aria-hidden="true">
-  <div class="modal-card panel">
+  <div class="modal-card panel create-agent-wizard-card">
     <div class="portal-modal-titlebar">
       <h3>Create Bundle</h3>
       <button id="close-create-bundle-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
@@ -349,73 +349,125 @@
 </div>
 
 <div id="create-modal" class="modal hidden" aria-hidden="true">
-  <div class="modal-card panel">
+  <div class="modal-card panel create-agent-wizard-card">
     <div class="portal-modal-titlebar">
       <h3>Create Assistant</h3>
       <button id="close-create-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
 
     <form id="create-form" class="stack">
-      <div>
-        <label>Assistant Name</label>
-        <input name="name" placeholder="MyAgent" value="MyAgent" required />
+      <div class="create-agent-steps" aria-label="Create assistant steps">
+        <span class="create-agent-step is-active" data-create-step-indicator="runtime">Runtime</span>
+        <span class="create-agent-step" data-create-step-indicator="profile">Profile</span>
+        <span class="create-agent-step" data-create-step-indicator="personalization">Personalization</span>
+        <span class="create-agent-step" data-create-step-indicator="skills">Skills</span>
+        <span class="create-agent-step" data-create-step-indicator="review">Review</span>
       </div>
-      <fieldset class="runtime-type-fieldset">
-        <legend>Runtime Type</legend>
-        <div
-          id="create-runtime-type-select"
-          class="runtime-type-radio-group"
-          role="radiogroup"
-          aria-describedby="create-runtime-type-hint"
-        >
-          <label class="runtime-type-radio-option">
-            <input
-              class="runtime-type-radio-input"
-              type="radio"
-              name="runtime_type"
-              value="native"
-              checked
-            />
-            <span class="runtime-type-radio-card">
-              <span class="runtime-type-radio-control" aria-hidden="true"></span>
-              <span class="runtime-type-radio-copy">
-                <span class="runtime-type-radio-title">EFP Native Runtime</span>
-                <span class="runtime-type-radio-description">Use the native EFP Python runtime.</span>
-              </span>
-            </span>
-          </label>
 
-          <label class="runtime-type-radio-option">
-            <input
-              class="runtime-type-radio-input"
-              type="radio"
-              name="runtime_type"
-              value="opencode"
-            />
-            <span class="runtime-type-radio-card">
-              <span class="runtime-type-radio-control" aria-hidden="true"></span>
-              <span class="runtime-type-radio-copy">
-                <span class="runtime-type-radio-title">OpenCode Runtime</span>
-                <span class="runtime-type-radio-description">Use the opencode runtime adapter.</span>
-              </span>
-            </span>
-          </label>
+      <section class="create-agent-step-panel" data-create-step-panel="runtime">
+        <div>
+          <label>Assistant Name</label>
+          <input name="name" placeholder="MyAgent" value="MyAgent" required />
         </div>
-        <p id="create-runtime-type-hint" class="portal-modal-copy"></p>
-      </fieldset>
-      <div>
-        <label>Skill Repository</label>
-        <input name="skill_repo_url" placeholder="https://github.com/org/engineering-flow-platform-skills" />
+        <fieldset class="runtime-type-fieldset">
+          <legend>Runtime Type</legend>
+          <div
+            id="create-runtime-type-select"
+            class="runtime-type-radio-group"
+            role="radiogroup"
+            aria-describedby="create-runtime-type-hint"
+          >
+            <label class="runtime-type-radio-option">
+              <input
+                class="runtime-type-radio-input"
+                type="radio"
+                name="runtime_type"
+                value="native"
+                checked
+              />
+              <span class="runtime-type-radio-card">
+                <span class="runtime-type-radio-control" aria-hidden="true"></span>
+                <span class="runtime-type-radio-copy">
+                  <span class="runtime-type-radio-title">EFP Native Runtime</span>
+                  <span class="runtime-type-radio-description">Use the native EFP Python runtime.</span>
+                </span>
+              </span>
+            </label>
+
+            <label class="runtime-type-radio-option">
+              <input
+                class="runtime-type-radio-input"
+                type="radio"
+                name="runtime_type"
+                value="opencode"
+              />
+              <span class="runtime-type-radio-card">
+                <span class="runtime-type-radio-control" aria-hidden="true"></span>
+                <span class="runtime-type-radio-copy">
+                  <span class="runtime-type-radio-title">OpenCode Runtime</span>
+                  <span class="runtime-type-radio-description">Use the opencode runtime adapter.</span>
+                </span>
+              </span>
+            </label>
+          </div>
+          <p id="create-runtime-type-hint" class="portal-modal-copy"></p>
+        </fieldset>
+      </section>
+
+      <section class="create-agent-step-panel hidden" data-create-step-panel="profile">
+        <div>
+          <label>Runtime Profile</label>
+          <select name="runtime_profile_id" id="create-runtime-profile-select"></select>
+        </div>
+        <p id="create-runtime-profile-empty" class="portal-inline-state is-warning hidden">No runtime profiles available. Create one from Runtime Profiles before creating an assistant.</p>
+        <button id="create-runtime-profile-open" type="button" class="portal-btn is-secondary">Open Runtime Profiles</button>
+      </section>
+
+      <section class="create-agent-step-panel hidden" data-create-step-panel="personalization">
+        <div>
+          <label>Agent Settings Repository</label>
+          <input name="agent_settings_repo_url" placeholder="https://github.com/org/engineering-flow-platform-agents" />
+        </div>
+        <div class="portal-form-row-inline">
+          <div>
+            <label>Agent Settings Branch</label>
+            <input name="agent_settings_branch" list="create-agent-settings-branch-list" placeholder="Configured default branch" />
+            <datalist id="create-agent-settings-branch-list"></datalist>
+          </div>
+          <button type="button" class="portal-btn is-secondary" data-load-branches="agent-settings">Load Branches</button>
+        </div>
+        <div>
+          <label>Agent Settings Subdirectory</label>
+          <input name="agent_settings_subdir" placeholder="Repo root" />
+        </div>
+        <p id="create-agent-settings-msg" class="portal-modal-feedback"></p>
+      </section>
+
+      <section class="create-agent-step-panel hidden" data-create-step-panel="skills">
+        <div>
+          <label>Skill Repository</label>
+          <input name="skill_repo_url" placeholder="https://github.com/org/engineering-flow-platform-skills" />
+        </div>
+        <div class="portal-form-row-inline">
+          <div>
+            <label>Skill Branch</label>
+            <input name="skill_branch" list="create-skill-branch-list" placeholder="Configured default branch" />
+            <datalist id="create-skill-branch-list"></datalist>
+          </div>
+          <button type="button" class="portal-btn is-secondary" data-load-branches="skills">Load Branches</button>
+        </div>
+        <p id="create-skills-msg" class="portal-modal-feedback"></p>
+      </section>
+
+      <section class="create-agent-step-panel hidden" data-create-step-panel="review">
+        <div id="create-agent-review" class="create-agent-review-grid"></div>
+      </section>
+
+      <div class="portal-modal-actions create-agent-wizard-actions">
+        <button type="button" class="portal-btn is-secondary" data-create-back>Back</button>
+        <button type="button" class="portal-btn is-primary" data-create-next>Next</button>
+        <button type="submit" class="portal-btn is-primary" data-create-submit>Create Assistant</button>
       </div>
-      <div>
-        <label>Skill Branch</label>
-        <input name="skill_branch" placeholder="Configured default branch" />
-      </div>
-      <div>
-        <label>Runtime Profile</label>
-        <select name="runtime_profile_id" id="create-runtime-profile-select"></select>
-      </div>
-      <button type="submit">Create Assistant</button>
       <p id="create-msg" class="portal-modal-feedback"></p>
     </form>
   </div>
@@ -441,6 +493,18 @@
           <option value="opencode">OpenCode Runtime</option>
         </select>
         <p class="portal-modal-copy">Changing runtime type may recreate the runtime deployment.</p>
+      </div>
+      <div>
+        <label>Agent Settings Repository</label>
+        <input name="agent_settings_repo_url" placeholder="https://github.com/user/agents (leave empty to use configured default)" />
+      </div>
+      <div>
+        <label>Agent Settings Branch</label>
+        <input name="agent_settings_branch" placeholder="Configured default branch" />
+      </div>
+      <div>
+        <label>Agent Settings Subdirectory</label>
+        <input name="agent_settings_subdir" placeholder="Repo root" />
       </div>
       <div>
         <label>Skill Repository</label>
