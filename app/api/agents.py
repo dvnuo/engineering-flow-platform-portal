@@ -43,6 +43,9 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "image_repo": _native_runtime_image_repo(),
         "image_tag": _native_runtime_image_tag(),
         "git_image": settings.default_agent_git_image,
+        "default_agent_settings_repo_url": normalize_git_repo_url(settings.default_agent_settings_repo_url),
+        "default_agent_settings_branch": settings.default_agent_settings_branch,
+        "default_agent_settings_repo_subdir": settings.default_agent_settings_repo_subdir,
         "default_skill_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
         "default_skill_branch": settings.default_skill_branch,
         "default_repo_url": normalize_git_repo_url(settings.default_skill_repo_url),
@@ -224,6 +227,24 @@ def _resolve_create_skill_branch(payload: AgentCreateRequest) -> str:
     return branch or settings.default_skill_branch or "master"
 
 
+def _resolve_create_agent_settings_repo_url(payload: AgentCreateRequest) -> str | None:
+    if "agent_settings_repo_url" in payload.model_fields_set:
+        return payload.agent_settings_repo_url
+    return normalize_git_repo_url(settings.default_agent_settings_repo_url)
+
+
+def _resolve_create_agent_settings_branch(payload: AgentCreateRequest) -> str:
+    branch = (payload.agent_settings_branch or "").strip()
+    return branch or settings.default_agent_settings_branch or "master"
+
+
+def _resolve_create_agent_settings_subdir(payload: AgentCreateRequest) -> str | None:
+    if "agent_settings_subdir" in payload.model_fields_set:
+        return payload.agent_settings_subdir
+    subdir = (settings.default_agent_settings_repo_subdir or "").strip().strip("/")
+    return subdir or None
+
+
 def _resolve_create_runtime_type(payload: AgentCreateRequest) -> str:
     if "runtime_type" not in payload.model_fields_set:
         return _default_runtime_type_from_settings()
@@ -317,6 +338,9 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         ) from exc
     effective_image = _resolve_create_image(payload, effective_runtime_type)
     effective_mount_path = _resolve_create_mount_path(payload, effective_runtime_type)
+    effective_agent_settings_repo_url = _resolve_create_agent_settings_repo_url(payload)
+    effective_agent_settings_branch = _resolve_create_agent_settings_branch(payload)
+    effective_agent_settings_subdir = _resolve_create_agent_settings_subdir(payload)
     effective_skill_repo_url = _resolve_create_skill_repo_url(payload)
     effective_skill_branch = _resolve_create_skill_branch(payload)
 
@@ -331,6 +355,9 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         runtime_type=effective_runtime_type,
         repo_url=None,
         branch=None,
+        agent_settings_repo_url=effective_agent_settings_repo_url,
+        agent_settings_branch=effective_agent_settings_branch,
+        agent_settings_subdir=effective_agent_settings_subdir,
         skill_repo_url=effective_skill_repo_url,
         skill_branch=effective_skill_branch,
         cpu=payload.cpu,
@@ -363,6 +390,9 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
             "name": agent.name,
             "image": effective_image,
             "status": agent.status,
+            "agent_settings_repo_url": effective_agent_settings_repo_url,
+            "agent_settings_branch": effective_agent_settings_branch,
+            "agent_settings_subdir": effective_agent_settings_subdir,
             "skill_repo_url": effective_skill_repo_url,
             "skill_branch": effective_skill_branch,
             "runtime_type": effective_runtime_type,
@@ -438,9 +468,20 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         # attribute to the efp/skill-asset-version Pod template annotation.
         setattr(agent, "skill_asset_version", f"agent-skill-save-{uuid4()}")
 
+    agent_settings_runtime_fields = {
+        "agent_settings_repo_url",
+        "agent_settings_branch",
+        "agent_settings_subdir",
+    }
+    if any(field in changes for field in agent_settings_runtime_fields):
+        setattr(agent, "agent_settings_asset_version", f"agent-settings-save-{uuid4()}")
+
     k8s_reprovision_fields = {
         "runtime_type",
         "image",
+        "agent_settings_repo_url",
+        "agent_settings_branch",
+        "agent_settings_subdir",
         "skill_repo_url",
         "skill_branch",
         "mount_path",

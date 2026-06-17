@@ -21,6 +21,9 @@ class Agent(Base):
     runtime_type: Mapped[str] = mapped_column(String(32), nullable=False, default="native", index=True)
     repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # deprecated runtime repo snapshot; configured by Portal settings only.
     branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # deprecated runtime branch snapshot; configured by Portal settings only.
+    agent_settings_repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    agent_settings_branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    agent_settings_subdir: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     skill_repo_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     skill_branch: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     cpu: Mapped[Optional[str]] = mapped_column(String(32))

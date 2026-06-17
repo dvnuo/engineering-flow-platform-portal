@@ -4,6 +4,9 @@ from sqlalchemy.engine import Engine
 
 REQUIRED_AGENT_COLUMNS = (
     "runtime_profile_id",
+    "agent_settings_repo_url",
+    "agent_settings_branch",
+    "agent_settings_subdir",
 )
 REQUIRED_RUNTIME_PROFILE_COLUMNS = (
     "owner_user_id",

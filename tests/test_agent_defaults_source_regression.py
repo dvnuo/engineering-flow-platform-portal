@@ -34,8 +34,17 @@ def test_skill_repo_ui_fields_and_payload_regression():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert 'name="repo_url"' not in html
     assert 'name="branch"' not in html
+    assert 'data-create-step-panel="runtime"' in html
+    assert 'data-create-step-panel="profile"' in html
+    assert 'data-create-step-panel="personalization"' in html
+    assert 'data-create-step-panel="skills"' in html
+    assert 'data-create-step-panel="review"' in html
+    assert 'name="agent_settings_repo_url"' in html
+    assert 'name="agent_settings_branch"' in html
+    assert 'name="agent_settings_subdir"' in html
     assert 'name="skill_repo_url"' in html
     assert 'name="skill_branch"' in html
+    assert "Agent Settings Repository" in html
     assert "Skill Repository" in html
     assert "Skill Branch" in html
     assert "Runtime Type" in html
@@ -45,8 +54,14 @@ def test_skill_repo_ui_fields_and_payload_regression():
     js = _chat_ui_js_source()
     assert "updates.repo_url =" not in js
     assert "updates.branch =" not in js
+    assert "updates.agent_settings_repo_url =" in js
+    assert "updates.agent_settings_branch =" in js
+    assert "updates.agent_settings_subdir =" in js
     assert "updates.skill_repo_url =" in js
     assert "updates.skill_branch =" in js
+    assert "agent_settings_repo_url: agentSettingsRepoUrl || null" in js
+    assert "agent_settings_branch: agentSettingsBranch || null" in js
+    assert "agent_settings_subdir: agentSettingsSubdir || null" in js
     assert "skill_repo_url: repoUrl || null" in js
     assert "skill_branch: branch || null" in js
     assert "runtime_types" in js

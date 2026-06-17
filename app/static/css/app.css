@@ -2001,6 +2001,97 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   color: var(--portal-text);
 }
 
+.portal-form-row-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.create-agent-wizard-card {
+  width: min(840px, calc(100vw - 2rem));
+  max-height: min(88vh, 760px);
+  overflow: auto;
+}
+
+.create-agent-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.create-agent-step {
+  min-width: 0;
+  border: 1px solid var(--portal-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--portal-surface-muted);
+  color: var(--portal-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.create-agent-step.is-active {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 38%);
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+}
+
+.create-agent-step.is-complete {
+  color: var(--portal-text-secondary);
+  border-color: var(--portal-border-strong);
+}
+
+.create-agent-step-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.create-agent-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.create-agent-review-item {
+  min-width: 0;
+  border: 1px solid var(--portal-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--portal-surface-muted);
+}
+
+.create-agent-review-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--portal-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.create-agent-review-value {
+  color: var(--portal-text);
+  overflow-wrap: anywhere;
+}
+
+.create-agent-wizard-actions {
+  margin-top: 0;
+}
+
+.create-agent-wizard-actions [data-create-submit] {
+  display: none;
+}
+
+.create-agent-wizard-actions.is-review [data-create-next] {
+  display: none;
+}
+
+.create-agent-wizard-actions.is-review [data-create-submit] {
+  display: inline-flex;
+}
+
 .runtime-type-fieldset {
   border: 0;
   padding: 0;
@@ -2121,6 +2212,12 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 @media (max-width: 640px) {
   .runtime-type-radio-group {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-form-row-inline,
+  .create-agent-steps,
+  .create-agent-review-grid {
     grid-template-columns: 1fr;
   }
 }

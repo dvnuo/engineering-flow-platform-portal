@@ -359,6 +359,8 @@ const state = {
   delegationFilters: { owner: "all", source: "all" },
   selectedDelegationRuleId: null,
   agentDefaults: null,
+  gitRepoBranches: new Map(),
+  createAgentStep: "runtime",
 };
 let thinkingPanelRefreshRaf = null;
 let hasRestoredPinnedToolPanel = false;
@@ -5009,6 +5011,10 @@ function renderAgentMeta(agent) {
   const mem = agent.memory || 'N/A';
   const disk = agent.disk_size_gi;
 
+  const effectiveAgentSettingsRepoUrl = agent.effective_agent_settings_repo_url || agent.agent_settings_repo_url || state.agentDefaults?.default_agent_settings_repo_url || "";
+  const effectiveAgentSettingsBranch = agent.effective_agent_settings_branch || agent.agent_settings_branch || state.agentDefaults?.default_agent_settings_branch || "";
+  const effectiveAgentSettingsSubdir = agent.effective_agent_settings_subdir || agent.agent_settings_subdir || state.agentDefaults?.default_agent_settings_repo_subdir || "";
+  const isDefaultAgentSettingsRepo = !agent.agent_settings_repo_url && !!effectiveAgentSettingsRepoUrl;
   const effectiveSkillRepoUrl = agent.effective_skill_repo_url || agent.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
   const effectiveSkillBranch = agent.effective_skill_branch || agent.skill_branch || state.agentDefaults?.default_skill_branch || "";
   const isDefaultSkillRepo = !agent.skill_repo_url && !!effectiveSkillRepoUrl;
@@ -5018,6 +5024,33 @@ function renderAgentMeta(agent) {
   // Tool repo/branch configuration was intentionally removed from Portal agent flows in #318;
   // do not reintroduce tool repo/branch UI or provisioning here.
   let repoSection = "";
+  let agentSettingsSection = "";
+  if (effectiveAgentSettingsRepoUrl) {
+    const branchLine = effectiveAgentSettingsBranch
+      ? `
+        <div class="portal-detail-subtle">Branch: ${safe(effectiveAgentSettingsBranch)}</div>
+      `
+      : "";
+    const subdirLine = effectiveAgentSettingsSubdir
+      ? `
+        <div class="portal-detail-subtle">Subdirectory: ${safe(effectiveAgentSettingsSubdir)}</div>
+      `
+      : "";
+    const defaultIndicator = isDefaultAgentSettingsRepo
+      ? `
+        <div class="portal-detail-subtle">Using configured default</div>
+      `
+      : "";
+    agentSettingsSection = `
+      <div class="portal-detail-row">
+        <div class="portal-detail-label">Agent Settings Repository</div>
+        <div class="portal-detail-value"><code>${safe(effectiveAgentSettingsRepoUrl)}</code></div>
+        ${branchLine}
+        ${subdirLine}
+        ${defaultIndicator}
+      </div>
+    `;
+  }
   if (effectiveSkillRepoUrl) {
     const branchLine = effectiveSkillBranch
       ? `
@@ -5055,6 +5088,7 @@ function renderAgentMeta(agent) {
         <div class="portal-detail-label">Image</div>
         <code class="portal-detail-code">${safe(agent.image)}</code>
       </div>
+      ${agentSettingsSection}
       ${repoSection}
       <div class="portal-detail-section">
         <div class="portal-detail-label">Created</div>
@@ -10452,6 +10486,179 @@ async function loadAgentDefaults(force = false) {
   return defaults;
 }
 
+const CREATE_AGENT_STEPS = ["runtime", "profile", "personalization", "skills", "review"];
+
+function createAgentStepIndex(step) {
+  const index = CREATE_AGENT_STEPS.indexOf(step);
+  return index >= 0 ? index : 0;
+}
+
+function createAgentFieldValue(form, name) {
+  return (form?.elements?.[name]?.value || "").toString().trim();
+}
+
+function createAgentRuntimeType(form, defaults) {
+  return normalizeRuntimeTypeValue(createAgentFieldValue(form, "runtime_type"), defaults || state.agentDefaults || {});
+}
+
+function createAgentSelectedProfileLabel(form) {
+  const select = form?.elements?.["runtime_profile_id"];
+  if (!select || !select.value) return "";
+  return select.options?.[select.selectedIndex]?.textContent || select.value;
+}
+
+function setCreateAgentRepoFeedback(elementId, kind, message) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.textContent = message || "";
+  setModalFeedback(el, kind || "", el.textContent);
+}
+
+function populateBranchDatalist(datalistId, branches) {
+  const list = document.getElementById(datalistId);
+  if (!list) return;
+  list.innerHTML = (branches || [])
+    .map((branch) => `<option value="${escapeHtmlAttr(branch)}"></option>`)
+    .join("");
+}
+
+async function loadGitRepoBranches(repoUrl) {
+  const normalizedRepoUrl = String(repoUrl || "").trim();
+  if (!normalizedRepoUrl) return [];
+  if (state.gitRepoBranches.has(normalizedRepoUrl)) {
+    return state.gitRepoBranches.get(normalizedRepoUrl);
+  }
+  const data = await api(`/api/git-repos/branches?repo_url=${encodeURIComponent(normalizedRepoUrl)}`);
+  const branches = Array.isArray(data?.branches) ? data.branches : [];
+  state.gitRepoBranches.set(normalizedRepoUrl, branches);
+  return branches;
+}
+
+async function refreshCreateRepoBranches(kind) {
+  const form = document.getElementById("create-form");
+  if (!form?.elements) return;
+  const isAgentSettings = kind === "agent-settings";
+  const repoField = isAgentSettings ? "agent_settings_repo_url" : "skill_repo_url";
+  const branchField = isAgentSettings ? "agent_settings_branch" : "skill_branch";
+  const datalistId = isAgentSettings ? "create-agent-settings-branch-list" : "create-skill-branch-list";
+  const feedbackId = isAgentSettings ? "create-agent-settings-msg" : "create-skills-msg";
+  const repoUrl = createAgentFieldValue(form, repoField);
+  if (!repoUrl) {
+    populateBranchDatalist(datalistId, []);
+    setCreateAgentRepoFeedback(feedbackId, "", "");
+    return;
+  }
+  setCreateAgentRepoFeedback(feedbackId, "", "Loading branches...");
+  try {
+    const branches = await loadGitRepoBranches(repoUrl);
+    populateBranchDatalist(datalistId, branches);
+    const currentBranch = createAgentFieldValue(form, branchField);
+    if (!currentBranch && branches.length) {
+      const preferred = branches.includes("master") ? "master" : (branches.includes("main") ? "main" : branches[0]);
+      form.elements[branchField].value = preferred;
+    }
+    setCreateAgentRepoFeedback(feedbackId, branches.length ? "success" : "", branches.length ? `${branches.length} branches loaded.` : "No branches found.");
+  } catch (error) {
+    populateBranchDatalist(datalistId, []);
+    setCreateAgentRepoFeedback(feedbackId, "error", error.message || "Failed to load branches.");
+  }
+}
+
+function syncCreateRuntimeProfileState(form) {
+  const profiles = state.runtimeProfiles || [];
+  const hasProfiles = profiles.length > 0;
+  const select = form?.elements?.["runtime_profile_id"];
+  if (select) select.disabled = !hasProfiles;
+  const emptyEl = document.getElementById("create-runtime-profile-empty");
+  emptyEl?.classList.toggle("hidden", hasProfiles);
+}
+
+function renderCreateAgentReview(form, defaults) {
+  const reviewEl = document.getElementById("create-agent-review");
+  if (!reviewEl) return;
+  const runtimeType = createAgentRuntimeType(form, defaults);
+  const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
+  const rows = [
+    ["Assistant Name", createAgentFieldValue(form, "name") || "Untitled"],
+    ["Runtime Type", runtimeType],
+    ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
+    ["Runtime Profile", createAgentSelectedProfileLabel(form) || "Not selected"],
+    ["Agent Settings Repository", createAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
+    ["Agent Settings Branch", createAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
+    ["Agent Settings Subdirectory", createAgentFieldValue(form, "agent_settings_subdir") || "Repo root"],
+    ["Skill Repository", createAgentFieldValue(form, "skill_repo_url") || "Configured default"],
+    ["Skill Branch", createAgentFieldValue(form, "skill_branch") || "Configured default"],
+  ];
+  reviewEl.innerHTML = rows.map(([label, value]) => `
+    <div class="create-agent-review-item">
+      <span class="create-agent-review-label">${safe(label)}</span>
+      <div class="create-agent-review-value">${safe(value)}</div>
+    </div>
+  `).join("");
+}
+
+function setCreateAgentStep(form, step) {
+  if (!form) return;
+  const normalizedStep = CREATE_AGENT_STEPS[createAgentStepIndex(step)];
+  const activeIndex = createAgentStepIndex(normalizedStep);
+  state.createAgentStep = normalizedStep;
+  form.dataset.currentStep = normalizedStep;
+  form.querySelectorAll("[data-create-step-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.createStepPanel !== normalizedStep);
+  });
+  form.querySelectorAll("[data-create-step-indicator]").forEach((indicator) => {
+    const index = createAgentStepIndex(indicator.dataset.createStepIndicator);
+    indicator.classList.toggle("is-active", index === activeIndex);
+    indicator.classList.toggle("is-complete", index < activeIndex);
+  });
+  syncCreateRuntimeProfileState(form);
+  const actions = form.querySelector(".create-agent-wizard-actions");
+  actions?.classList.toggle("is-review", normalizedStep === "review");
+  const backButton = form.querySelector("[data-create-back]");
+  if (backButton) backButton.disabled = activeIndex === 0;
+  if (normalizedStep === "review") renderCreateAgentReview(form, state.agentDefaults || {});
+}
+
+function validateCreateAgentStep(form) {
+  const step = form?.dataset?.currentStep || "runtime";
+  const msgEl = document.getElementById("create-msg");
+  if (msgEl) {
+    msgEl.textContent = "";
+    setModalFeedback(msgEl, "", "");
+  }
+  if (step === "runtime") {
+    const nameInput = form?.elements?.["name"];
+    if (nameInput && !nameInput.checkValidity()) {
+      nameInput.reportValidity();
+      return false;
+    }
+  }
+  if (step === "profile") {
+    if (!(state.runtimeProfiles || []).length) {
+      if (msgEl) {
+        msgEl.textContent = "Create a runtime profile first.";
+        setModalFeedback(msgEl, "error", msgEl.textContent);
+      }
+      return false;
+    }
+    if (!createAgentFieldValue(form, "runtime_profile_id")) {
+      if (msgEl) {
+        msgEl.textContent = "Choose a runtime profile.";
+        setModalFeedback(msgEl, "error", msgEl.textContent);
+      }
+      return false;
+    }
+  }
+  return true;
+}
+
+function moveCreateAgentStep(form, direction) {
+  const currentIndex = createAgentStepIndex(form?.dataset?.currentStep || "runtime");
+  if (direction > 0 && !validateCreateAgentStep(form)) return;
+  const nextIndex = Math.max(0, Math.min(CREATE_AGENT_STEPS.length - 1, currentIndex + direction));
+  setCreateAgentStep(form, CREATE_AGENT_STEPS[nextIndex]);
+}
+
 function getRuntimeTypes(defaults) {
   const runtimeTypes = Array.isArray(defaults?.runtime_types) ? defaults.runtime_types : [];
   if (runtimeTypes.length) return runtimeTypes;
@@ -10552,6 +10759,25 @@ function updateCreateRuntimeTypeHint(form, defaults) {
 
 function applyCreateAgentDefaults(form, defaults) {
   if (!form?.elements) return;
+  const settingsRepoInput = form.elements["agent_settings_repo_url"];
+  if (settingsRepoInput) {
+    const repoDefault = defaults?.default_agent_settings_repo_url || "";
+    settingsRepoInput.value = repoDefault;
+    settingsRepoInput.defaultValue = repoDefault;
+  }
+  const settingsBranchInput = form.elements["agent_settings_branch"];
+  if (settingsBranchInput) {
+    const branchDefault = defaults?.default_agent_settings_branch || "";
+    settingsBranchInput.value = branchDefault;
+    settingsBranchInput.defaultValue = branchDefault;
+    settingsBranchInput.placeholder = branchDefault ? `Configured default branch (${branchDefault})` : "Configured default branch";
+  }
+  const settingsSubdirInput = form.elements["agent_settings_subdir"];
+  if (settingsSubdirInput) {
+    const subdirDefault = defaults?.default_agent_settings_repo_subdir || "";
+    settingsSubdirInput.value = subdirDefault;
+    settingsSubdirInput.defaultValue = subdirDefault;
+  }
   const repoInput = form.elements["skill_repo_url"];
   if (repoInput) {
     const repoDefault = defaults?.default_skill_repo_url || "";
@@ -10573,6 +10799,7 @@ function applyCreateAgentDefaults(form, defaults) {
   const runtimeTypeGroup = document.getElementById("create-runtime-type-select");
   populateRuntimeTypeRadioGroup(runtimeTypeGroup, defaults, getCreateDefaultRuntimeType(defaults));
   updateCreateRuntimeTypeHint(form, defaults);
+  setCreateAgentStep(form, "runtime");
 }
 
 function populateRuntimeProfileSelect(selectEl, selectedId = '') {
@@ -10580,8 +10807,10 @@ function populateRuntimeProfileSelect(selectEl, selectedId = '') {
   const profiles = state.runtimeProfiles || [];
   if (!profiles.length) {
     selectEl.innerHTML = '<option value="" disabled selected>No runtime profiles available</option>';
+    selectEl.disabled = true;
     return;
   }
+  selectEl.disabled = false;
   selectEl.innerHTML = profiles.map((profile) => {
     const selected = selectedId && selectedId === profile.id ? ' selected' : '';
     const suffix = profile.is_default ? ' (Default)' : '';
@@ -11797,6 +12026,14 @@ async function openEditDialog(agent) {
     if (form.elements["runtime_type"]) {
       populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
     }
+    if (form.elements["agent_settings_repo_url"]) form.elements["agent_settings_repo_url"].value = agent.agent_settings_repo_url || "";
+    if (form.elements["agent_settings_branch"]) {
+      form.elements["agent_settings_branch"].value = agent.agent_settings_branch || "";
+      form.elements["agent_settings_branch"].placeholder = state.agentDefaults?.default_agent_settings_branch
+        ? `Configured default branch (${state.agentDefaults.default_agent_settings_branch})`
+        : "Configured default branch";
+    }
+    if (form.elements["agent_settings_subdir"]) form.elements["agent_settings_subdir"].value = agent.agent_settings_subdir || "";
     if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
       form.elements["skill_branch"].value = agent.skill_branch || "";
@@ -12396,12 +12633,18 @@ function bindEvents() {
     const id = formData.get("id");
 
     const updates = { name: formData.get("name")?.trim() };
+    const agentSettingsRepoUrl = formData.get("agent_settings_repo_url")?.trim();
+    const agentSettingsBranch = formData.get("agent_settings_branch")?.trim();
+    const agentSettingsSubdir = formData.get("agent_settings_subdir")?.trim();
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
     const runtimeType = (formData.get("runtime_type") || "").toString().trim().toLowerCase();
 
-    // Always include skill_repo_url and skill_branch; empty values mean "use configured default".
+    // Always include agent settings and skill fields; empty values mean "use configured default".
+    if (agentSettingsRepoUrl !== undefined) updates.agent_settings_repo_url = agentSettingsRepoUrl || null;
+    if (agentSettingsBranch !== undefined) updates.agent_settings_branch = agentSettingsBranch || null;
+    if (agentSettingsSubdir !== undefined) updates.agent_settings_subdir = agentSettingsSubdir || null;
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
@@ -13097,8 +13340,16 @@ function bindEvents() {
     }
     const createSelect = document.getElementById("create-runtime-profile-select");
     populateRuntimeProfileSelect(createSelect, "");
+    if (createForm) {
+      syncCreateRuntimeProfileState(createForm);
+      setCreateAgentStep(createForm, "runtime");
+    }
     document.getElementById("create-modal")?.classList.remove("hidden");
     document.getElementById("create-modal")?.setAttribute("aria-hidden", "false");
+    Promise.allSettled([
+      refreshCreateRepoBranches("agent-settings"),
+      refreshCreateRepoBranches("skills"),
+    ]);
   });
 
   document.getElementById("close-create-modal")?.addEventListener("click", () => {
@@ -13111,14 +13362,48 @@ function bindEvents() {
     if (event.target?.name === "runtime_type") {
       updateCreateRuntimeTypeHint(event.currentTarget, state.agentDefaults || {});
     }
+    if (event.currentTarget?.dataset?.currentStep === "review") {
+      renderCreateAgentReview(event.currentTarget, state.agentDefaults || {});
+    }
+  });
+
+  document.getElementById("create-form")?.addEventListener("click", async (event) => {
+    const form = event.currentTarget;
+    const loadBranches = event.target?.closest?.("[data-load-branches]")?.dataset?.loadBranches;
+    if (loadBranches) {
+      await refreshCreateRepoBranches(loadBranches);
+      if (form?.dataset?.currentStep === "review") renderCreateAgentReview(form, state.agentDefaults || {});
+      return;
+    }
+    if (event.target?.closest?.("[data-create-back]")) {
+      moveCreateAgentStep(form, -1);
+      return;
+    }
+    if (event.target?.closest?.("[data-create-next]")) {
+      moveCreateAgentStep(form, 1);
+    }
+  });
+
+  document.getElementById("create-runtime-profile-open")?.addEventListener("click", async () => {
+    document.getElementById("create-modal")?.classList.add("hidden");
+    document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
+    await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
   });
 
   document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
+    if ((form?.dataset?.currentStep || "runtime") !== "review") {
+      moveCreateAgentStep(form, 1);
+      return;
+    }
+    if (!validateCreateAgentStep(form)) return;
     if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: document.getElementById("close-create-modal") })) return;
     const formData = new FormData(form);
     const name = formData.get("name");
+    const agentSettingsRepoUrl = (formData.get("agent_settings_repo_url") || "").toString().trim();
+    const agentSettingsBranch = (formData.get("agent_settings_branch") || "").toString().trim();
+    const agentSettingsSubdir = (formData.get("agent_settings_subdir") || "").toString().trim();
     const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
     const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
@@ -13134,10 +13419,13 @@ function bindEvents() {
       }
       const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
 
-      // Use form values if provided, or null to skip repo
+      // Use form values if provided, or null to let backend apply configured defaults.
       const data = {
         name: name,
         runtime_type: runtimeType,
+        agent_settings_repo_url: agentSettingsRepoUrl || null,
+        agent_settings_branch: agentSettingsBranch || null,
+        agent_settings_subdir: agentSettingsSubdir || null,
         skill_repo_url: repoUrl || null,
         skill_branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,

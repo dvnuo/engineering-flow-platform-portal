@@ -115,6 +115,38 @@ class K8sService:
             or ""
         ).strip()
 
+    def _agent_settings_repo_url(self, agent) -> str | None:
+        return normalize_git_repo_url(getattr(agent, "agent_settings_repo_url", None)) or normalize_git_repo_url(
+            self.settings.default_agent_settings_repo_url
+        )
+
+    def _agent_settings_branch(self, agent) -> str:
+        return (getattr(agent, "agent_settings_branch", None) or self.settings.default_agent_settings_branch or "master").strip() or "master"
+
+    def _agent_settings_repo_subdir(self, agent) -> str:
+        raw = (
+            getattr(agent, "agent_settings_subdir", None)
+            or getattr(self.settings, "default_agent_settings_repo_subdir", "")
+            or ""
+        )
+        return self._normalize_agent_settings_repo_subdir(raw)
+
+    def _normalize_agent_settings_repo_subdir(self, raw: str) -> str:
+        value = str(raw or "").strip().strip("/")
+        if not value:
+            return ""
+        parts = [part for part in value.split("/") if part]
+        if any(part in {".", ".."} for part in parts):
+            raise ValueError(f"Invalid DEFAULT_AGENT_SETTINGS_REPO_SUBDIR: {raw!r}")
+        return "/".join(parts)
+
+    def _agent_settings_asset_version(self, agent) -> str:
+        return str(
+            getattr(agent, "agent_settings_asset_version", None)
+            or getattr(self.settings, "default_agent_settings_asset_version", "")
+            or ""
+        ).strip()
+
     def _runtime_type(self, agent) -> str:
         raw = getattr(agent, "runtime_type", None)
         if raw is None or not str(raw).strip():
@@ -186,9 +218,34 @@ class K8sService:
         volume_mounts = []
         git_image = getattr(agent, "git_image", None) or self.settings.default_agent_git_image or "alpine/git:latest"
         prefix = self.settings.agents_volume_sub_path_prefix
+        agent_settings_repo_url = self._agent_settings_repo_url(agent)
+        agent_settings_branch = self._agent_settings_branch(agent)
+        agent_settings_repo_subdir = self._agent_settings_repo_subdir(agent)
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
         skill_repo_subdir = self._skill_repo_subdir(agent)
+
+        if agent_settings_repo_url:
+            init_containers.append(
+                client.V1Container(
+                    name="agent-settings-git-clone",
+                    image=git_image,
+                    command=["sh", "-c"],
+                    args=[self._agent_settings_git_clone_shell_command(self._effective_mount_path(agent))],
+                    env=self._build_agent_settings_git_clone_env(
+                        agent_settings_repo_url,
+                        agent_settings_branch,
+                        agent_settings_repo_subdir,
+                    ),
+                    volume_mounts=[
+                        client.V1VolumeMount(
+                            name="agent-data",
+                            mount_path=self._effective_mount_path(agent),
+                            sub_path=f"{prefix}/{agent.id}/data",
+                        )
+                    ],
+                )
+            )
 
         if skill_repo_url:
             skills_sub_path = f"{prefix}/{agent.id}/skills-code"
@@ -235,6 +292,30 @@ class K8sService:
             ),
         ]
         init_containers = [self._build_asset_dirs_init_container(agent, include_opencode_state=True)]
+        agent_settings_repo_url = self._agent_settings_repo_url(agent)
+        agent_settings_branch = self._agent_settings_branch(agent)
+        agent_settings_repo_subdir = self._agent_settings_repo_subdir(agent)
+        if agent_settings_repo_url:
+            init_containers.append(
+                client.V1Container(
+                    name="agent-settings-git-clone",
+                    image=git_image,
+                    command=["sh", "-c"],
+                    args=[self._agent_settings_git_clone_shell_command(self._effective_mount_path(agent))],
+                    env=self._build_agent_settings_git_clone_env(
+                        agent_settings_repo_url,
+                        agent_settings_branch,
+                        agent_settings_repo_subdir,
+                    ),
+                    volume_mounts=[
+                        client.V1VolumeMount(
+                            name="agent-data",
+                            mount_path=self._effective_mount_path(agent),
+                            sub_path=f"{prefix}/{agent.id}/data",
+                        )
+                    ],
+                )
+            )
         skill_repo_url = self._skill_repo_url(agent)
         skill_branch = self._skill_branch(agent)
         skill_repo_subdir = self._skill_repo_subdir(agent)
@@ -601,20 +682,35 @@ class K8sService:
 
     def _agent_common_labels(self, agent) -> dict[str, str]:
         runtime_type = self._runtime_type(agent)
+        agent_settings_meta = self._repo_metadata(self._agent_settings_repo_url(agent), self._agent_settings_branch(agent))
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         return {
             "app": "agent", "agent-id": agent.id, "owner-id": str(agent.owner_user_id), "managed-by": "portal",
             "runtime-type": self._sanitize_label_value(runtime_type),
+            "agent-settings-git-repo": agent_settings_meta["repo_slug"],
+            "agent-settings-git-repo-hash": agent_settings_meta["repo_hash"],
+            "agent-settings-git-branch": agent_settings_meta["branch"],
             "skill-git-repo": skill_meta["repo_slug"], "skill-git-repo-hash": skill_meta["repo_hash"], "skill-git-branch": skill_meta["branch"],
         }
 
     def _agent_metadata_annotations(self, agent) -> dict[str, str]:
         runtime_type = self._runtime_type(agent)
+        agent_settings_meta = self._repo_metadata(self._agent_settings_repo_url(agent), self._agent_settings_branch(agent))
+        agent_settings_subdir = self._agent_settings_repo_subdir(agent)
+        agent_settings_asset_version = self._agent_settings_asset_version(agent)
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         skill_subdir = self._skill_repo_subdir(agent)
         skill_asset_version = self._skill_asset_version(agent)
         annotations = {}
         annotations["efp/runtime-type"] = runtime_type
+        if agent_settings_meta["raw_repo_url"]:
+            annotations["efp/agent-settings-git-repo-url"] = agent_settings_meta["raw_repo_url"]
+        if agent_settings_meta["raw_branch"]:
+            annotations["efp/agent-settings-git-branch"] = agent_settings_meta["raw_branch"]
+        if agent_settings_subdir:
+            annotations["efp/agent-settings-git-subdir"] = agent_settings_subdir
+        if agent_settings_asset_version:
+            annotations["efp/agent-settings-asset-version"] = agent_settings_asset_version
         if skill_meta["raw_repo_url"]:
             annotations["efp/skill-git-repo-url"] = skill_meta["raw_repo_url"]
             annotations["efp/git-repo-url"] = skill_meta["raw_repo_url"]
@@ -629,11 +725,18 @@ class K8sService:
 
     def _agent_patch_annotations(self, agent) -> dict[str, Optional[str]]:
         runtime_type = self._runtime_type(agent)
+        agent_settings_meta = self._repo_metadata(self._agent_settings_repo_url(agent), self._agent_settings_branch(agent))
+        agent_settings_subdir = self._agent_settings_repo_subdir(agent)
+        agent_settings_asset_version = self._agent_settings_asset_version(agent)
         skill_meta = self._repo_metadata(self._skill_repo_url(agent), self._skill_branch(agent))
         skill_subdir = self._skill_repo_subdir(agent)
         skill_asset_version = self._skill_asset_version(agent)
         return {
             "efp/runtime-type": runtime_type,
+            "efp/agent-settings-git-repo-url": agent_settings_meta["raw_repo_url"] or None,
+            "efp/agent-settings-git-branch": agent_settings_meta["raw_branch"] or None,
+            "efp/agent-settings-git-subdir": agent_settings_subdir or None,
+            "efp/agent-settings-asset-version": agent_settings_asset_version or None,
             "efp/skill-git-repo-url": skill_meta["raw_repo_url"] or None,
             "efp/skill-git-branch": skill_meta["raw_branch"] or None,
             "efp/skill-git-subdir": skill_subdir or None,
@@ -745,6 +848,13 @@ class K8sService:
 
         env = self._build_git_clone_env(repo_url, branch)
         env.append(client.V1EnvVar(name="SKILL_REPO_SUBDIR", value=subdir))
+        return env
+
+    def _build_agent_settings_git_clone_env(self, repo_url: Optional[str], branch: str, subdir: str):
+        from kubernetes import client
+
+        env = self._build_git_clone_env(repo_url, branch)
+        env.append(client.V1EnvVar(name="AGENT_SETTINGS_REPO_SUBDIR", value=subdir))
         return env
 
     def _build_agent_container_env(self, agent=None):
@@ -884,6 +994,52 @@ class K8sService:
                 f'  find "{target_dir}" -maxdepth 4 -type f -print | sort >&2 || true',
                 "  exit 36",
                 "fi",
+                "rm -f /tmp/git-askpass.sh",
+            ]
+        )
+
+    def _agent_settings_git_clone_shell_command(self, workspace_dir: str) -> str:
+        return "\n".join(
+            [
+                "set -eu",
+                "trap 'rm -f /tmp/git-askpass.sh' EXIT",
+                f'mkdir -p "{workspace_dir}"',
+                "rm -rf /tmp/agent-settings-git-clone-work",
+                "mkdir -p /tmp/agent-settings-git-clone-work",
+                "cd /tmp/agent-settings-git-clone-work",
+                'AGENT_SETTINGS_REPO_SUBDIR="${AGENT_SETTINGS_REPO_SUBDIR:-}"',
+                'if [ -n "${GIT_TOKEN:-}" ]; then',
+                "  ASKPASS_SCRIPT=/tmp/git-askpass.sh",
+                "  printf '%s\\n' '#!/bin/sh' 'case \"$1\" in' '  *Username*|*username*) echo \"x-access-token\" ;;' '  *) echo \"${GIT_TOKEN}\" ;;' 'esac' > \"${ASKPASS_SCRIPT}\"",
+                '  chmod 700 "${ASKPASS_SCRIPT}"',
+                '  export GIT_ASKPASS="${ASKPASS_SCRIPT}"',
+                "  export GIT_TERMINAL_PROMPT=0",
+                "fi",
+                'git clone --depth 1 --branch "${GIT_BRANCH}" "${GIT_REPO_URL}" .',
+                'SOURCE_DIR="/tmp/agent-settings-git-clone-work"',
+                'if [ -n "${AGENT_SETTINGS_REPO_SUBDIR}" ]; then',
+                '  SOURCE_DIR="/tmp/agent-settings-git-clone-work/${AGENT_SETTINGS_REPO_SUBDIR}"',
+                "fi",
+                'if [ ! -d "${SOURCE_DIR}" ]; then',
+                '  echo "Agent settings source directory not found: ${SOURCE_DIR}" >&2',
+                '  echo "Set DEFAULT_AGENT_SETTINGS_REPO_SUBDIR to the directory containing AGENTS.md and instructions/, or leave it empty for repo root." >&2',
+                "  find /tmp/agent-settings-git-clone-work -maxdepth 3 -type d -print >&2 || true",
+                "  exit 45",
+                "fi",
+                'if [ ! -f "${SOURCE_DIR}/AGENTS.md" ]; then',
+                '  echo "Agent settings repo must contain AGENTS.md" >&2',
+                "  find \"${SOURCE_DIR}\" -maxdepth 2 -type f -print | sort >&2 || true",
+                "  exit 46",
+                "fi",
+                'if [ ! -d "${SOURCE_DIR}/instructions" ]; then',
+                '  echo "Agent settings repo must contain instructions/ directory" >&2',
+                "  find \"${SOURCE_DIR}\" -maxdepth 2 -type f -print | sort >&2 || true",
+                "  exit 47",
+                "fi",
+                f'cp -a "${{SOURCE_DIR}}/AGENTS.md" "{workspace_dir}/AGENTS.md"',
+                f'rm -rf "{workspace_dir}/instructions"',
+                f'mkdir -p "{workspace_dir}/instructions"',
+                f'cp -a "${{SOURCE_DIR}}/instructions"/. "{workspace_dir}/instructions"/',
                 "rm -f /tmp/git-askpass.sh",
             ]
         )

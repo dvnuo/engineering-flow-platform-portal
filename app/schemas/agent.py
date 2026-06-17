@@ -16,6 +16,9 @@ class AgentCreateRequest(BaseModel):
     runtime_type: str = "native"
     repo_url: Optional[str] = None  # deprecated, ignored
     branch: Optional[str] = None  # deprecated, ignored
+    agent_settings_repo_url: Optional[str] = None
+    agent_settings_branch: Optional[str] = None
+    agent_settings_subdir: Optional[str] = None
     skill_repo_url: Optional[str] = None
     skill_branch: Optional[str] = None
     disk_size_gi: int = 20
@@ -34,10 +37,19 @@ class AgentCreateRequest(BaseModel):
             raise ValueError("agent_type must be one of: workspace, specialist, task")
         return normalized
 
-    @field_validator("repo_url", "skill_repo_url")
+    @field_validator("repo_url", "agent_settings_repo_url", "skill_repo_url")
     @classmethod
     def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
         return normalize_git_repo_url(value)
+
+    @field_validator("agent_settings_branch", "agent_settings_subdir", "skill_branch")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
     @field_validator("runtime_type")
     @classmethod
     def validate_runtime_type(cls, value: Optional[str]) -> str:
@@ -53,6 +65,9 @@ class AgentUpdateRequest(BaseModel):
     runtime_type: Optional[str] = None
     repo_url: Optional[str] = None  # deprecated, ignored
     branch: Optional[str] = None  # deprecated, ignored
+    agent_settings_repo_url: Optional[str] = None
+    agent_settings_branch: Optional[str] = None
+    agent_settings_subdir: Optional[str] = None
     skill_repo_url: Optional[str] = None
     skill_branch: Optional[str] = None
     disk_size_gi: Optional[int] = None
@@ -72,10 +87,19 @@ class AgentUpdateRequest(BaseModel):
             raise ValueError("agent_type must be one of: workspace, specialist, task")
         return normalized
 
-    @field_validator("repo_url", "skill_repo_url")
+    @field_validator("repo_url", "agent_settings_repo_url", "skill_repo_url")
     @classmethod
     def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
         return normalize_git_repo_url(value)
+
+    @field_validator("agent_settings_branch", "agent_settings_subdir", "skill_branch")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
     @field_validator("runtime_type")
     @classmethod
     def validate_runtime_type(cls, value: Optional[str]) -> Optional[str]:
@@ -113,6 +137,12 @@ class AgentResponse(BaseModel):
     runtime_type: str = "native"
     repo_url: Optional[str] = None
     branch: Optional[str] = None
+    agent_settings_repo_url: Optional[str] = None
+    agent_settings_branch: Optional[str] = None
+    agent_settings_subdir: Optional[str] = None
+    effective_agent_settings_repo_url: Optional[str] = None
+    effective_agent_settings_branch: Optional[str] = None
+    effective_agent_settings_subdir: Optional[str] = None
     skill_repo_url: Optional[str] = None
     skill_branch: Optional[str] = None
     effective_skill_repo_url: Optional[str] = None
@@ -128,7 +158,7 @@ class AgentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("repo_url", "skill_repo_url", mode="before")
+    @field_validator("repo_url", "agent_settings_repo_url", "skill_repo_url", mode="before")
     @classmethod
     def normalize_repo_url(cls, value: Optional[str]) -> Optional[str]:
         return normalize_git_repo_url(value)
