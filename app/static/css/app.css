@@ -2017,14 +2017,22 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .create-agent-steps {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  gap: 22px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .create-agent-step {
   min-width: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1px solid var(--portal-border);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px 10px 8px 8px;
   background: var(--portal-surface-muted);
   color: var(--portal-text-muted);
   font-size: 12px;
@@ -2033,15 +2041,62 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   overflow-wrap: anywhere;
 }
 
+.create-agent-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -17px;
+  width: 9px;
+  height: 9px;
+  border-top: 2px solid var(--portal-border-strong);
+  border-right: 2px solid var(--portal-border-strong);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.create-agent-step-index {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--portal-border-strong);
+  background: var(--portal-surface);
+  color: var(--portal-text-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.create-agent-step-label {
+  min-width: 0;
+}
+
 .create-agent-step.is-active {
   border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 38%);
   background: var(--portal-accent-soft);
   color: var(--portal-accent-strong);
 }
 
+.create-agent-step.is-active .create-agent-step-index {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent);
+  color: #fff;
+}
+
 .create-agent-step.is-complete {
   color: var(--portal-text-secondary);
   border-color: var(--portal-border-strong);
+}
+
+.create-agent-step.is-complete .create-agent-step-index {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+}
+
+.create-agent-step.is-complete:not(:last-child)::after {
+  border-color: var(--portal-accent);
 }
 
 .create-agent-step-panel {
@@ -2219,6 +2274,10 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   .create-agent-steps,
   .create-agent-review-grid {
     grid-template-columns: 1fr;
+  }
+
+  .create-agent-step:not(:last-child)::after {
+    display: none;
   }
 }
 

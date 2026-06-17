@@ -36,17 +36,28 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert 'name="branch"' not in html
     assert 'data-create-step-panel="runtime"' in html
     assert 'data-create-step-panel="profile"' in html
-    assert 'data-create-step-panel="personalization"' in html
+    assert 'data-create-step-panel="instructions"' in html
     assert 'data-create-step-panel="skills"' in html
     assert 'data-create-step-panel="review"' in html
+    assert 'data-create-step-indicator="instructions"' in html
+    assert "create-agent-step-index" in html
+    assert "Personalization" not in html
+    assert "Instructions" in html
     assert 'name="agent_settings_repo_url"' in html
     assert 'name="agent_settings_branch"' in html
-    assert 'name="agent_settings_subdir"' in html
+    assert 'name="agent_settings_subdir"' not in html
     assert 'name="skill_repo_url"' in html
     assert 'name="skill_branch"' in html
-    assert "Agent Settings Repository" in html
+    assert "Instructions Repository" in html
+    assert "Instructions Branch" in html
+    assert "Agent Settings Repository" not in html
+    assert "Agent Settings Subdirectory" not in html
     assert "Skill Repository" in html
     assert "Skill Branch" in html
+    assert 'id="create-agent-settings-branch-select"' in html
+    assert 'id="create-skill-branch-select"' in html
+    assert "create-agent-settings-branch-list" not in html
+    assert "create-skill-branch-list" not in html
     assert "Runtime Type" in html
     assert "Tools Repository" not in html
     assert "Tools Branch" not in html
@@ -56,14 +67,18 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "updates.branch =" not in js
     assert "updates.agent_settings_repo_url =" in js
     assert "updates.agent_settings_branch =" in js
-    assert "updates.agent_settings_subdir =" in js
+    assert "updates.agent_settings_subdir =" not in js
     assert "updates.skill_repo_url =" in js
     assert "updates.skill_branch =" in js
     assert "agent_settings_repo_url: agentSettingsRepoUrl || null" in js
     assert "agent_settings_branch: agentSettingsBranch || null" in js
-    assert "agent_settings_subdir: agentSettingsSubdir || null" in js
+    assert "agent_settings_subdir: agentSettingsSubdir || null" not in js
     assert "skill_repo_url: repoUrl || null" in js
     assert "skill_branch: branch || null" in js
+    assert '"instructions"' in js
+    assert '"personalization"' not in js
+    assert "populateBranchSelect" in js
+    assert "populateBranchDatalist" not in js
     assert "runtime_types" in js
     assert "runtime_type: runtimeType" in js
     assert "updates.runtime_type = runtimeType" in js

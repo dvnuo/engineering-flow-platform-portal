@@ -64,6 +64,9 @@ Access `http://localhost:8000/login`
 | `K8S_KUBECONFIG` | Path to kubeconfig | `/etc/rancher/k3s/k3s.yaml` |
 | `K8S_AGENT_SERVICE_TYPE` | Agent service type (ClusterIP/NodePort) | `ClusterIP` |
 | `K8S_GIT_TOKEN_KEY` | Secret key name for git token in `efp-agents-secret` | `GIT_TOKEN` |
+| `GIT_REPO_AUTH_USERNAME` | Username for Portal git branch lookups via `GIT_ASKPASS` | `x-access-token` |
+| `GIT_REPO_AUTH_PAT` | PAT/token for Portal git branch lookups; `GIT_PAT` and `GIT_TOKEN` are accepted aliases | (empty) |
+| `GIT_REPO_LS_REMOTE_TIMEOUT_SECONDS` | Timeout for Portal git branch lookup requests | `12` |
 | `K8S_NODE_IP` | Node IP for NodePort proxy (auto-detected if not set) | (auto-detect) |
 | `AGENTS_NAMESPACE` | Agents namespace | `efp-agents` |
 | `K8S_STORAGE_CLASS` | Storage class for PVC | `local-path` |
@@ -76,7 +79,7 @@ Access `http://localhost:8000/login`
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
 | `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
 
-For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite).
+For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite). The Kubernetes manifests also expose `efp-portal-secret.GIT_TOKEN` to the Portal main container as `GIT_REPO_AUTH_PAT` so `/api/git-repos/branches` can list private repository branches during agent creation.
 
 Kubernetes runtime provisioning behavior:
 - Portal provisions either the Python EFP native runtime or the OpenCode runtime based on `runtime_type`.
@@ -94,7 +97,7 @@ Kubernetes runtime provisioning behavior:
 - Nested skill repo layouts can be enabled with `DEFAULT_SKILL_REPO_SUBDIR=skills`, which copies `repo/skills/.` directly into `/app/skills` instead of nesting it as `/app/skills/skills`.
 - `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.
 - Portal does not configure external tools repo/branch/mounts; runtime built-in tools are runtime-owned.
-- `GIT_TOKEN` is used only in git-clone initContainers and is not injected into the main runtime container environment.
+- `GIT_TOKEN` is used by git-clone initContainers. Portal's main container receives the Portal secret token as `GIT_REPO_AUTH_PAT` for branch listing only; agent runtime main containers still do not receive the broad clone token.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
 - Runtime profiles are the Portal-owned control-plane source for Jira, Confluence, GitHub, and git user config. Portal stores and forwards those sections; the Python runtime writes `ATLASSIAN_CONFIG` / Atlassian CLI config, `gh` hosts config, and git user config inside the runtime container.
 - Portal remains the control plane; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and runtime tool availability (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.

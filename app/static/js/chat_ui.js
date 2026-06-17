@@ -5043,7 +5043,7 @@ function renderAgentMeta(agent) {
       : "";
     agentSettingsSection = `
       <div class="portal-detail-row">
-        <div class="portal-detail-label">Agent Settings Repository</div>
+        <div class="portal-detail-label">Instructions Repository</div>
         <div class="portal-detail-value"><code>${safe(effectiveAgentSettingsRepoUrl)}</code></div>
         ${branchLine}
         ${subdirLine}
@@ -10486,7 +10486,7 @@ async function loadAgentDefaults(force = false) {
   return defaults;
 }
 
-const CREATE_AGENT_STEPS = ["runtime", "profile", "personalization", "skills", "review"];
+const CREATE_AGENT_STEPS = ["runtime", "profile", "instructions", "skills", "review"];
 
 function createAgentStepIndex(step) {
   const index = CREATE_AGENT_STEPS.indexOf(step);
@@ -10514,12 +10514,25 @@ function setCreateAgentRepoFeedback(elementId, kind, message) {
   setModalFeedback(el, kind || "", el.textContent);
 }
 
-function populateBranchDatalist(datalistId, branches) {
-  const list = document.getElementById(datalistId);
-  if (!list) return;
-  list.innerHTML = (branches || [])
-    .map((branch) => `<option value="${escapeHtmlAttr(branch)}"></option>`)
-    .join("");
+function branchSelectPlaceholder(selectEl, defaultBranch = "") {
+  const base = selectEl?.dataset?.branchPlaceholder || "Configured default branch";
+  const branch = String(defaultBranch || "").trim();
+  return branch ? `${base} (${branch})` : base;
+}
+
+function populateBranchSelect(selectId, branches, selectedValue = "", defaultBranch = "") {
+  const selectEl = document.getElementById(selectId);
+  if (!selectEl) return;
+  const selected = String(selectedValue || "").trim();
+  const uniqueBranches = Array.from(new Set((branches || []).map((branch) => String(branch || "").trim()).filter(Boolean)));
+  const options = [];
+  if (selected && !uniqueBranches.includes(selected)) options.push(selected);
+  options.push(...uniqueBranches);
+  selectEl.innerHTML = [
+    `<option value="">${safe(branchSelectPlaceholder(selectEl, defaultBranch))}</option>`,
+    ...options.map((branch) => `<option value="${escapeHtmlAttr(branch)}">${safe(branch)}</option>`),
+  ].join("");
+  selectEl.value = selected;
 }
 
 async function loadGitRepoBranches(repoUrl) {
@@ -10540,26 +10553,26 @@ async function refreshCreateRepoBranches(kind) {
   const isAgentSettings = kind === "agent-settings";
   const repoField = isAgentSettings ? "agent_settings_repo_url" : "skill_repo_url";
   const branchField = isAgentSettings ? "agent_settings_branch" : "skill_branch";
-  const datalistId = isAgentSettings ? "create-agent-settings-branch-list" : "create-skill-branch-list";
+  const selectId = isAgentSettings ? "create-agent-settings-branch-select" : "create-skill-branch-select";
   const feedbackId = isAgentSettings ? "create-agent-settings-msg" : "create-skills-msg";
+  const defaultBranch = isAgentSettings ? state.agentDefaults?.default_agent_settings_branch : state.agentDefaults?.default_skill_branch;
   const repoUrl = createAgentFieldValue(form, repoField);
   if (!repoUrl) {
-    populateBranchDatalist(datalistId, []);
+    populateBranchSelect(selectId, [], createAgentFieldValue(form, branchField), defaultBranch);
     setCreateAgentRepoFeedback(feedbackId, "", "");
     return;
   }
   setCreateAgentRepoFeedback(feedbackId, "", "Loading branches...");
   try {
     const branches = await loadGitRepoBranches(repoUrl);
-    populateBranchDatalist(datalistId, branches);
-    const currentBranch = createAgentFieldValue(form, branchField);
-    if (!currentBranch && branches.length) {
-      const preferred = branches.includes("master") ? "master" : (branches.includes("main") ? "main" : branches[0]);
-      form.elements[branchField].value = preferred;
+    let selectedBranch = createAgentFieldValue(form, branchField);
+    if (!selectedBranch && branches.length) {
+      selectedBranch = branches.includes("master") ? "master" : (branches.includes("main") ? "main" : branches[0]);
     }
+    populateBranchSelect(selectId, branches, selectedBranch, defaultBranch);
     setCreateAgentRepoFeedback(feedbackId, branches.length ? "success" : "", branches.length ? `${branches.length} branches loaded.` : "No branches found.");
   } catch (error) {
-    populateBranchDatalist(datalistId, []);
+    populateBranchSelect(selectId, [], createAgentFieldValue(form, branchField), defaultBranch);
     setCreateAgentRepoFeedback(feedbackId, "error", error.message || "Failed to load branches.");
   }
 }
@@ -10583,9 +10596,8 @@ function renderCreateAgentReview(form, defaults) {
     ["Runtime Type", runtimeType],
     ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
     ["Runtime Profile", createAgentSelectedProfileLabel(form) || "Not selected"],
-    ["Agent Settings Repository", createAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
-    ["Agent Settings Branch", createAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
-    ["Agent Settings Subdirectory", createAgentFieldValue(form, "agent_settings_subdir") || "Repo root"],
+    ["Instructions Repository", createAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
+    ["Instructions Branch", createAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
     ["Skill Repository", createAgentFieldValue(form, "skill_repo_url") || "Configured default"],
     ["Skill Branch", createAgentFieldValue(form, "skill_branch") || "Configured default"],
   ];
@@ -10610,6 +10622,11 @@ function setCreateAgentStep(form, step) {
     const index = createAgentStepIndex(indicator.dataset.createStepIndicator);
     indicator.classList.toggle("is-active", index === activeIndex);
     indicator.classList.toggle("is-complete", index < activeIndex);
+    if (index === activeIndex) {
+      indicator.setAttribute("aria-current", "step");
+    } else {
+      indicator.removeAttribute("aria-current");
+    }
   });
   syncCreateRuntimeProfileState(form);
   const actions = form.querySelector(".create-agent-wizard-actions");
@@ -10768,15 +10785,8 @@ function applyCreateAgentDefaults(form, defaults) {
   const settingsBranchInput = form.elements["agent_settings_branch"];
   if (settingsBranchInput) {
     const branchDefault = defaults?.default_agent_settings_branch || "";
-    settingsBranchInput.value = branchDefault;
     settingsBranchInput.defaultValue = branchDefault;
-    settingsBranchInput.placeholder = branchDefault ? `Configured default branch (${branchDefault})` : "Configured default branch";
-  }
-  const settingsSubdirInput = form.elements["agent_settings_subdir"];
-  if (settingsSubdirInput) {
-    const subdirDefault = defaults?.default_agent_settings_repo_subdir || "";
-    settingsSubdirInput.value = subdirDefault;
-    settingsSubdirInput.defaultValue = subdirDefault;
+    populateBranchSelect("create-agent-settings-branch-select", [], branchDefault, branchDefault);
   }
   const repoInput = form.elements["skill_repo_url"];
   if (repoInput) {
@@ -10787,9 +10797,8 @@ function applyCreateAgentDefaults(form, defaults) {
   const branchInput = form.elements["skill_branch"];
   if (branchInput) {
     const branchDefault = defaults?.default_skill_branch || "";
-    branchInput.value = branchDefault;
     branchInput.defaultValue = branchDefault;
-    branchInput.placeholder = branchDefault ? `Configured default branch (${branchDefault})` : "Configured default branch";
+    populateBranchSelect("create-skill-branch-select", [], branchDefault, branchDefault);
   }
   const runtimeProfileSelect = form.elements["runtime_profile_id"];
   if (runtimeProfileSelect) {
@@ -12033,7 +12042,6 @@ async function openEditDialog(agent) {
         ? `Configured default branch (${state.agentDefaults.default_agent_settings_branch})`
         : "Configured default branch";
     }
-    if (form.elements["agent_settings_subdir"]) form.elements["agent_settings_subdir"].value = agent.agent_settings_subdir || "";
     if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
       form.elements["skill_branch"].value = agent.skill_branch || "";
@@ -12635,7 +12643,6 @@ function bindEvents() {
     const updates = { name: formData.get("name")?.trim() };
     const agentSettingsRepoUrl = formData.get("agent_settings_repo_url")?.trim();
     const agentSettingsBranch = formData.get("agent_settings_branch")?.trim();
-    const agentSettingsSubdir = formData.get("agent_settings_subdir")?.trim();
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
@@ -12644,7 +12651,6 @@ function bindEvents() {
     // Always include agent settings and skill fields; empty values mean "use configured default".
     if (agentSettingsRepoUrl !== undefined) updates.agent_settings_repo_url = agentSettingsRepoUrl || null;
     if (agentSettingsBranch !== undefined) updates.agent_settings_branch = agentSettingsBranch || null;
-    if (agentSettingsSubdir !== undefined) updates.agent_settings_subdir = agentSettingsSubdir || null;
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
@@ -13403,7 +13409,6 @@ function bindEvents() {
     const name = formData.get("name");
     const agentSettingsRepoUrl = (formData.get("agent_settings_repo_url") || "").toString().trim();
     const agentSettingsBranch = (formData.get("agent_settings_branch") || "").toString().trim();
-    const agentSettingsSubdir = (formData.get("agent_settings_subdir") || "").toString().trim();
     const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
     const branch = (formData.get("skill_branch") || "").toString().trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
@@ -13425,7 +13430,6 @@ function bindEvents() {
         runtime_type: runtimeType,
         agent_settings_repo_url: agentSettingsRepoUrl || null,
         agent_settings_branch: agentSettingsBranch || null,
-        agent_settings_subdir: agentSettingsSubdir || null,
         skill_repo_url: repoUrl || null,
         skill_branch: branch || null,
         disk_size_gi: defaults.disk_size_gi,
