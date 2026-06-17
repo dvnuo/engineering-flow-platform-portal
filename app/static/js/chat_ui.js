@@ -68,7 +68,6 @@ const dom = {
   runtimeProfileNavList: document.getElementById("runtime-profile-nav-list"),
   delegationOwnerFilter: document.getElementById("delegation-owner-filter"),
   delegationSourceFilter: document.getElementById("delegation-source-filter"),
-  delegationStatusFilter: document.getElementById("delegation-status-filter"),
   delegationFilterSummary: document.getElementById("delegation-filter-summary"),
   delegationRuleNavList: document.getElementById("delegation-rule-nav-list"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
@@ -346,7 +345,7 @@ const state = {
   toolPanelPinned: !!initialUiLayoutPrefs.toolPanelPinned,
   pendingToolPanelRestoreKey: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   myTasks: [],
-  taskPageSize: 10,
+  taskPageSize: 20,
   taskListOffset: 0,
   taskListHasMore: true,
   taskListLoading: false,
@@ -357,7 +356,7 @@ const state = {
   runtimeProfiles: [],
   selectedRuntimeProfileId: null,
   delegations: [],
-  delegationFilters: { status: "all", owner: "all", source: "all" },
+  delegationFilters: { owner: "all", source: "all" },
   selectedDelegationRuleId: null,
   agentDefaults: null,
 };
@@ -8373,9 +8372,7 @@ function taskStatusFilterLabel(value) {
 function syncTaskFilterControls() {
   const filters = state.taskFilters || { status: "all", owner: "all" };
   if (dom.taskOwnerFilter && dom.taskOwnerFilter.value !== filters.owner) dom.taskOwnerFilter.value = filters.owner;
-  dom.taskStatusFilter?.querySelectorAll("[data-task-status-filter]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.taskStatusFilter === filters.status);
-  });
+  if (dom.taskStatusFilter && dom.taskStatusFilter.value !== filters.status) dom.taskStatusFilter.value = filters.status;
   if (dom.taskFilterSummary) {
     const parts = [];
     if (filters.status !== "all") parts.push(taskStatusFilterLabel(filters.status));
@@ -10630,15 +10627,12 @@ async function loadDelegationRules() {
 
 function hasActiveDelegationFilters() {
   const filters = state.delegationFilters || {};
-  return Boolean(filters.status !== "all" || filters.owner !== "all" || filters.source !== "all");
+  return Boolean(filters.owner !== "all" || filters.source !== "all");
 }
 
 function delegationRuleMatchesFilters(rule) {
   const filters = state.delegationFilters || {};
   const source = String(rule?.source || rule?.trigger_type || "").trim();
-  const statusFilter = String(filters.status || "all").trim();
-  if (statusFilter === "enabled" && !rule?.enabled) return false;
-  if (statusFilter === "paused" && rule?.enabled) return false;
   if (filters.owner === "mine" && Number(rule?.owner_user_id) !== state.currentUserId) return false;
   if (filters.source !== "all" && source !== filters.source) return false;
   return true;
@@ -10649,17 +10643,13 @@ function visibleDelegationRules() {
 }
 
 function syncDelegationFilterControls(visibleCount = null) {
-  const filters = state.delegationFilters || { status: "all", owner: "all", source: "all" };
+  const filters = state.delegationFilters || { owner: "all", source: "all" };
   if (dom.delegationOwnerFilter && dom.delegationOwnerFilter.value !== filters.owner) dom.delegationOwnerFilter.value = filters.owner;
   if (dom.delegationSourceFilter && dom.delegationSourceFilter.value !== filters.source) dom.delegationSourceFilter.value = filters.source;
-  dom.delegationStatusFilter?.querySelectorAll("[data-delegation-status-filter]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.delegationStatusFilter === filters.status);
-  });
   if (dom.delegationFilterSummary) {
     const total = Array.isArray(state.delegations) ? state.delegations.length : 0;
     const shown = visibleCount === null ? visibleDelegationRules().length : visibleCount;
     const parts = [];
-    if (filters.status !== "all") parts.push(filters.status);
     if (filters.owner === "mine") parts.push("owned by you");
     if (filters.source !== "all") parts.push(delegationSourceLabel(filters.source));
     dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} delegations`;
@@ -12512,10 +12502,8 @@ function bindEvents() {
     state.taskFilters.owner = dom.taskOwnerFilter.value || "all";
     refreshMyTasks({ reset: true });
   });
-  dom.taskStatusFilter?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-task-status-filter]");
-    if (!button) return;
-    state.taskFilters.status = button.dataset.taskStatusFilter || "all";
+  dom.taskStatusFilter?.addEventListener("change", () => {
+    state.taskFilters.status = dom.taskStatusFilter.value || "all";
     refreshMyTasks({ reset: true });
   });
   dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"));
@@ -12525,12 +12513,6 @@ function bindEvents() {
   });
   dom.delegationSourceFilter?.addEventListener("change", () => {
     state.delegationFilters.source = dom.delegationSourceFilter.value || "all";
-    renderDelegationRuleNavList();
-  });
-  dom.delegationStatusFilter?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-delegation-status-filter]");
-    if (!button) return;
-    state.delegationFilters.status = button.dataset.delegationStatusFilter || "all";
     renderDelegationRuleNavList();
   });
   dom.addDelegationBtn?.addEventListener("click", async () => {

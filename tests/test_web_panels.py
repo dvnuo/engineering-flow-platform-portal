@@ -265,13 +265,13 @@ def test_tasks_panel_uses_incremental_task_cards(monkeypatch):
     client = TestClient(app)
 
     html = client.get("/app/tasks/panel?content_target=%23workspace-detail-content").text
-    assert html.count('<article class="portal-task-card">') == 10
+    assert html.count('<article class="portal-task-card">') == 20
     assert "Task 00" in html
-    assert "Task 10" not in html
-    assert 'hx-get="/app/tasks/list?offset=10&limit=10&content_target=%23workspace-detail-content"' in html
+    assert "Task 20" not in html
+    assert 'hx-get="/app/tasks/list?offset=20&limit=20&content_target=%23workspace-detail-content"' in html
 
-    next_html = client.get("/app/tasks/list?offset=10&limit=10&content_target=%23workspace-detail-content").text
-    assert next_html.count('<article class="portal-task-card">') == 10
-    assert "Task 10" in next_html
-    assert "Task 20" not in next_html
-    assert 'hx-get="/app/tasks/list?offset=20&limit=10&content_target=%23workspace-detail-content"' in next_html
+    next_html = client.get("/app/tasks/list?offset=20&limit=20&content_target=%23workspace-detail-content").text
+    assert next_html.count('<article class="portal-task-card">') == 20
+    assert "Task 20" in next_html
+    assert "Task 40" not in next_html
+    assert 'hx-get="/app/tasks/list?offset=40&limit=20&content_target=%23workspace-detail-content"' in next_html

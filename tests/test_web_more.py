@@ -225,19 +225,31 @@ def test_tasks_and_delegations_sidebar_filters_are_compact():
     render_tasks = _extract_js_function(js, "renderTaskNavList")
     render_delegations = _extract_js_function(js, "renderDelegationRuleNavList")
     refresh_tasks = _extract_js_function(js, "refreshMyTasks")
+    sync_task_filters = _extract_js_function(js, "syncTaskFilterControls")
+    sync_delegation_filters = _extract_js_function(js, "syncDelegationFilterControls")
+    delegation_matches = _extract_js_function(js, "delegationRuleMatchesFilters")
+    bind_events = _extract_js_function(js, "bindEvents")
 
-    assert "taskPageSize: 10" in js
+    assert "taskPageSize: 20" in js
     assert 'id="task-search-input"' not in template
     assert 'id="task-filter-clear"' not in template
     assert 'id="delegation-search-input"' not in template
     assert 'id="delegation-filter-clear"' not in template
+    assert 'id="delegation-status-filter"' not in template
     assert 'data-delegation-status-filter="missing"' not in template
     assert 'data-task-status-filter="active"' not in template
     assert 'data-task-status-filter="attention"' not in template
     for status in ["queued", "running", "blocked", "done", "failed", "stale", "cancelled", "pending_restart", "cancel_failed"]:
-        assert f'data-task-status-filter="{status}"' in template
+        assert f'<option value="{status}">' in template
 
     assert 'params.set("q"' not in refresh_tasks
+    assert "querySelectorAll(\"[data-task-status-filter]\")" not in sync_task_filters
+    assert "dom.taskStatusFilter.value" in sync_task_filters
+    assert "dom.taskStatusFilter?.addEventListener(\"change\"" in bind_events
+    assert "dom.taskStatusFilter?.addEventListener(\"click\"" not in bind_events
+    assert "delegationStatusFilter" not in js
+    assert "statusFilter" not in delegation_matches
+    assert "filters.status" not in sync_delegation_filters
     assert "portal-status-badge" not in render_tasks
     assert "portal-task-row-preview" not in render_tasks
     assert "skillName" not in render_tasks
@@ -250,6 +262,14 @@ def test_tasks_and_delegations_sidebar_filters_are_compact():
     assert "portal-raw-toggle::after" in css
     assert 'content: "Expand"' in css
     assert 'content: "Collapse"' in css
+    assert ".portal-task-filter-row .portal-filter-select" in css
+    assert "flex: 0 0 auto;" in css
+    assert "min-height: 58px;" in css
+
+    delegations_section = template[
+        template.index('id="delegations-nav-section"') : template.index('id="delegation-rule-nav-list"')
+    ]
+    assert "portal-settings-section-head" not in delegations_section
 
 
 def test_delegations_ui_uses_clean_names_and_endpoint():

@@ -27,3 +27,17 @@ def test_obsolete_agent_task_context_column_is_dropped_not_recreated():
     drop_revision = Path("alembic/versions/20260524_0023_drop_agent_task_bundle_id.py").read_text(encoding="utf-8")
     assert f'op.add_column("agent_tasks", sa.Column("{obsolete_column}"' not in old_revision
     assert f'drop_column("{obsolete_column}")' in drop_revision
+
+
+def test_agent_task_list_indexes_are_migrated_and_modeled():
+    migration = Path("alembic/versions/20260617_0028_add_agent_task_list_indexes.py").read_text(encoding="utf-8")
+    model = Path("app/models/agent_task.py").read_text(encoding="utf-8")
+
+    for index_name in [
+        "ix_agent_tasks_updated_created_id",
+        "ix_agent_tasks_status_updated_created_id",
+        "ix_agent_tasks_owner_updated_created_id",
+        "ix_agent_tasks_owner_status_updated_created_id",
+    ]:
+        assert index_name in migration
+        assert index_name in model
