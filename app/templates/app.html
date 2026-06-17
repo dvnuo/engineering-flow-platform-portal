@@ -356,13 +356,28 @@
     </div>
 
     <form id="create-form" class="stack">
-      <div class="create-agent-steps" aria-label="Create assistant steps">
-        <span class="create-agent-step is-active" data-create-step-indicator="runtime">Runtime</span>
-        <span class="create-agent-step" data-create-step-indicator="profile">Profile</span>
-        <span class="create-agent-step" data-create-step-indicator="personalization">Personalization</span>
-        <span class="create-agent-step" data-create-step-indicator="skills">Skills</span>
-        <span class="create-agent-step" data-create-step-indicator="review">Review</span>
-      </div>
+      <ol class="create-agent-steps" aria-label="Create assistant steps">
+        <li class="create-agent-step is-active" data-create-step-indicator="runtime">
+          <span class="create-agent-step-index">1</span>
+          <span class="create-agent-step-label">Runtime</span>
+        </li>
+        <li class="create-agent-step" data-create-step-indicator="profile">
+          <span class="create-agent-step-index">2</span>
+          <span class="create-agent-step-label">Profile</span>
+        </li>
+        <li class="create-agent-step" data-create-step-indicator="instructions">
+          <span class="create-agent-step-index">3</span>
+          <span class="create-agent-step-label">Instructions</span>
+        </li>
+        <li class="create-agent-step" data-create-step-indicator="skills">
+          <span class="create-agent-step-index">4</span>
+          <span class="create-agent-step-label">Skills</span>
+        </li>
+        <li class="create-agent-step" data-create-step-indicator="review">
+          <span class="create-agent-step-index">5</span>
+          <span class="create-agent-step-label">Review</span>
+        </li>
+      </ol>
 
       <section class="create-agent-step-panel" data-create-step-panel="runtime">
         <div>
@@ -423,22 +438,19 @@
         <button id="create-runtime-profile-open" type="button" class="portal-btn is-secondary">Open Runtime Profiles</button>
       </section>
 
-      <section class="create-agent-step-panel hidden" data-create-step-panel="personalization">
+      <section class="create-agent-step-panel hidden" data-create-step-panel="instructions">
         <div>
-          <label>Agent Settings Repository</label>
+          <label>Instructions Repository</label>
           <input name="agent_settings_repo_url" placeholder="https://github.com/org/engineering-flow-platform-agents" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Agent Settings Branch</label>
-            <input name="agent_settings_branch" list="create-agent-settings-branch-list" placeholder="Configured default branch" />
-            <datalist id="create-agent-settings-branch-list"></datalist>
+            <label>Instructions Branch</label>
+            <select name="agent_settings_branch" id="create-agent-settings-branch-select" data-branch-placeholder="Configured default branch">
+              <option value="">Configured default branch</option>
+            </select>
           </div>
           <button type="button" class="portal-btn is-secondary" data-load-branches="agent-settings">Load Branches</button>
-        </div>
-        <div>
-          <label>Agent Settings Subdirectory</label>
-          <input name="agent_settings_subdir" placeholder="Repo root" />
         </div>
         <p id="create-agent-settings-msg" class="portal-modal-feedback"></p>
       </section>
@@ -451,8 +463,9 @@
         <div class="portal-form-row-inline">
           <div>
             <label>Skill Branch</label>
-            <input name="skill_branch" list="create-skill-branch-list" placeholder="Configured default branch" />
-            <datalist id="create-skill-branch-list"></datalist>
+            <select name="skill_branch" id="create-skill-branch-select" data-branch-placeholder="Configured default branch">
+              <option value="">Configured default branch</option>
+            </select>
           </div>
           <button type="button" class="portal-btn is-secondary" data-load-branches="skills">Load Branches</button>
         </div>
@@ -495,16 +508,12 @@
         <p class="portal-modal-copy">Changing runtime type may recreate the runtime deployment.</p>
       </div>
       <div>
-        <label>Agent Settings Repository</label>
+        <label>Instructions Repository</label>
         <input name="agent_settings_repo_url" placeholder="https://github.com/user/agents (leave empty to use configured default)" />
       </div>
       <div>
-        <label>Agent Settings Branch</label>
+        <label>Instructions Branch</label>
         <input name="agent_settings_branch" placeholder="Configured default branch" />
-      </div>
-      <div>
-        <label>Agent Settings Subdirectory</label>
-        <input name="agent_settings_subdir" placeholder="Repo root" />
       </div>
       <div>
         <label>Skill Repository</label>

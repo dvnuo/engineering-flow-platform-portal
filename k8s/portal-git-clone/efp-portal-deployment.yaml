@@ -75,6 +75,12 @@ spec:
                   name: efp-portal-secret
                   key: BOOTSTRAP_ADMIN_PASSWORD
                   optional: true
+            - name: GIT_REPO_AUTH_PAT
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: GIT_TOKEN
+                  optional: true
             - name: K8S_KUBECONFIG
               value: ""
               # Use /app/data for SQLite database

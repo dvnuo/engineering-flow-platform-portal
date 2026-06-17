@@ -36,7 +36,9 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
     assert repo_def_idx < render_idx < repo_use_idx
     assert 'let repoSection = ""' in render_agent_meta or "let repoSection = ''" in render_agent_meta
     assert "if (effectiveSkillRepoUrl)" in render_agent_meta
+    assert "Instructions Repository" in render_agent_meta
     assert "Skills Repository" in render_agent_meta
+    assert "Agent Settings Repository" not in render_agent_meta
     assert "agent-skill-git-commit" in render_agent_meta
     assert "Using configured default" in render_agent_meta
     assert "Branch:" in render_agent_meta
