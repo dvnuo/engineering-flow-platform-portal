@@ -12,6 +12,8 @@ class DelegationRuleCreate(BaseModel):
     skill_name: str
     source: str
     interval_seconds: int = 60
+    schedule: dict[str, Any] = Field(default_factory=dict)
+    task_prompt: str = ""
     source_scope: dict[str, Any] = Field(default_factory=dict)
     source_conditions: dict[str, Any] = Field(default_factory=dict)
 
@@ -42,6 +44,8 @@ class DelegationRuleUpdate(BaseModel):
     skill_name: Optional[str] = None
     source: Optional[str] = None
     interval_seconds: Optional[int] = None
+    schedule: Optional[dict[str, Any]] = None
+    task_prompt: Optional[str] = None
     source_scope: Optional[dict[str, Any]] = None
     source_conditions: Optional[dict[str, Any]] = None
 
@@ -90,6 +94,9 @@ class DelegationRuleRead(BaseModel):
     trigger_type: str
     task_type: str
     interval_seconds: int
+    schedule: dict[str, Any] = Field(default_factory=dict)
+    schedule_summary: str = ""
+    task_prompt: str = ""
     scope_json: str
     trigger_config_json: str
     task_config_json: str
@@ -149,7 +156,9 @@ class DelegationRuleRead(BaseModel):
         source_conditions = _parse_json_object(data.get("trigger_config_json"))
         data.setdefault("source", data.get("trigger_type"))
         data.setdefault("skill_name", task_config.get("skill_name") or "")
+        data.setdefault("task_prompt", task_config.get("task_prompt") or "")
         data.setdefault("interval_seconds", int(schedule.get("interval_seconds") or 60))
+        data.setdefault("schedule", schedule)
         data.setdefault("source_scope", source_scope)
         data.setdefault("source_conditions", source_conditions)
         return data
@@ -198,3 +207,17 @@ class DelegationRuleRunOnceResponse(BaseModel):
     skipped_count: int
     run_id: str
     created_task_ids: list[str]
+
+
+class DelegationSchedulePreviewRequest(BaseModel):
+    schedule: dict[str, Any] = Field(default_factory=dict)
+
+
+class DelegationSchedulePreviewResponse(BaseModel):
+    valid: bool
+    schedule: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+    next_run_at: Optional[str] = None
+    next_run_local: Optional[str] = None
+    timezone: str = "UTC"
+    error: Optional[str] = None

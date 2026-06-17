@@ -10734,7 +10734,12 @@ const DELEGATION_SOURCE_OPTIONS = [
   ["github_pr_mention", "GitHub PR Mention"],
   ["jira_assignee", "Jira Assignee"],
   ["jira_mention", "Jira Mention"],
+  ["timer", "Timer"],
 ];
+
+function isDelegationTimerSource(source) {
+  return String(source || "").trim() === "timer";
+}
 
 function delegationSourceLabel(source) {
   const normalized = String(source || "").trim();
@@ -10744,12 +10749,14 @@ function delegationSourceLabel(source) {
 
 function delegationProviderLabel(source) {
   const normalized = String(source || "").trim();
+  if (normalized === "timer") return "Timer";
   if (normalized.startsWith("github_")) return "GitHub";
   if (normalized.startsWith("jira_")) return "Jira";
   return normalized || "-";
 }
 
 function delegationReplyTargetLabel(source) {
+  if (isDelegationTimerSource(source)) return "No automatic reply";
   const provider = delegationProviderLabel(source);
   if (provider === "GitHub") return "PR comment";
   if (provider === "Jira") return "Jira comment";
@@ -10762,6 +10769,7 @@ function delegationInputLabel(source) {
   if (normalized === "github_pr_mention") return "PR URL + comment";
   if (normalized === "jira_assignee") return "Jira URL";
   if (normalized === "jira_mention") return "Jira URL + comment";
+  if (normalized === "timer") return "Cron schedule";
   return "Source payload";
 }
 
@@ -10819,6 +10827,7 @@ function delegationTargetAgentLabel(rule, targetAgent = null) {
 
 function delegationProviderKey(source) {
   const normalized = String(source || "").trim();
+  if (normalized === "timer") return "timer";
   if (normalized.startsWith("github_")) return "github";
   if (normalized.startsWith("jira_")) return "jira";
   return "";
@@ -10892,6 +10901,7 @@ function collectDelegationSourceConditions(formEl) {
 
 function delegationConditionSummaryLabel(source, scope = {}, conditions = {}) {
   const provider = delegationProviderKey(source);
+  if (provider === "timer") return "Scheduled by Portal timer";
   const parts = [];
   if (provider === "github") {
     if (conditions.repository) parts.push(`repo ${conditions.repository}`);
@@ -10934,6 +10944,7 @@ function delegationJiraInstanceSelectHtml(scope = {}, preview = null) {
 
 function delegationSourceConditionFieldsHtml(source, scope = {}, conditions = {}, preview = null) {
   const provider = delegationProviderKey(source);
+  if (provider === "timer") return "";
   if (provider === "github") {
     const includeDraftsChecked = conditions.include_drafts === false ? "" : "checked";
     return `
@@ -10979,24 +10990,15 @@ function renderDelegationSourceControls(formEl, scope = {}, conditions = {}, pre
   const container = formEl?.querySelector("[data-delegation-source-controls]");
   if (!container) return;
   const source = String(formEl.querySelector('[name="source"]')?.value || "").trim();
+  const providerKey = delegationProviderKey(source);
   const providerLabel = delegationProviderLabel(source);
-  const accountSummary = preview?.account_summary || `${providerLabel} from selected agent runtime profile`;
+  const accountSummary = preview?.account_summary || (providerKey === "timer" ? "Portal timer" : `${providerLabel} from selected agent runtime profile`);
   const conditionSummary = delegationConditionSummaryLabel(source, scope, conditions);
   const status = String(preview?.status || (loading ? "loading" : "ok")).trim();
   const statusTone = status === "missing" ? "warning" : (loading ? "info" : "success");
   const statusLabel = status === "missing" ? "Needs source" : (loading ? "Checking" : "Ready");
   const warning = String(preview?.warning || "").trim();
-  container.innerHTML = `
-    <section class="portal-delegation-source-config">
-      <div class="portal-delegation-source-account">
-        <div>
-          <span>Runtime source</span>
-          <strong>${safe(accountSummary)}</strong>
-          <small>${safe(conditionSummary)}</small>
-        </div>
-        <span class="portal-status-badge is-${safe(statusTone)}">${safe(statusLabel)}</span>
-      </div>
-      ${warning ? `<div class="portal-callout is-warning">${safe(warning)}</div>` : ""}
+  const conditionBuilder = providerKey === "timer" ? "" : `
       <div class="portal-delegation-condition-builder">
         <div class="portal-task-section-heading">
           <span>Source Conditions</span>
@@ -11004,6 +11006,19 @@ function renderDelegationSourceControls(formEl, scope = {}, conditions = {}, pre
         </div>
         ${delegationSourceConditionFieldsHtml(source, scope, conditions, preview)}
       </div>
+  `;
+  container.innerHTML = `
+    <section class="portal-delegation-source-config">
+      <div class="portal-delegation-source-account">
+        <div>
+          <span>${providerKey === "timer" ? "Source" : "Runtime source"}</span>
+          <strong>${safe(accountSummary)}</strong>
+          <small>${safe(conditionSummary)}</small>
+        </div>
+        <span class="portal-status-badge is-${safe(statusTone)}">${safe(statusLabel)}</span>
+      </div>
+      ${warning ? `<div class="portal-callout is-warning">${safe(warning)}</div>` : ""}
+      ${conditionBuilder}
     </section>
   `;
   renderIcons();
@@ -11031,7 +11046,7 @@ async function refreshDelegationSourcePreview(formEl, { resetScope = false, rese
       scope,
       conditions,
       {
-        account_summary: `${delegationProviderLabel(source)} from selected agent runtime profile`,
+        account_summary: delegationProviderKey(source) === "timer" ? "Portal timer" : `${delegationProviderLabel(source)} from selected agent runtime profile`,
         status: "missing",
         warning: error.message,
         options: {},
@@ -11040,9 +11055,137 @@ async function refreshDelegationSourcePreview(formEl, { resetScope = false, rese
   }
 }
 
-async function setupDelegationSourceForm(formEl, sourceScope = {}, sourceConditions = {}) {
+function defaultDelegationTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch (error) {
+    return "UTC";
+  }
+}
+
+function collectDelegationTaskPrompt(formEl) {
+  return String(formEl?.querySelector('[name="task_prompt"]')?.value || "").trim();
+}
+
+function collectDelegationSchedule(formEl) {
+  const source = String(formEl?.querySelector('[name="source"]')?.value || "").trim();
+  if (isDelegationTimerSource(source)) {
+    const expression = String(formEl.querySelector('[name="schedule_cron_expression"]')?.value || "").trim();
+    const timezone = String(formEl.querySelector('[name="schedule_timezone"]')?.value || "").trim() || defaultDelegationTimezone();
+    const skipOverlapping = formEl.querySelector('[name="schedule_skip_overlapping"]')?.checked !== false;
+    return {
+      type: "cron",
+      expression,
+      timezone,
+      misfire_policy: "fire_once",
+      catchup: false,
+      overlap_policy: skipOverlapping ? "skip_if_running" : "allow",
+    };
+  }
+  const intervalSeconds = Number(formEl?.querySelector('[name="interval_seconds"]')?.value || 60);
+  return { type: "interval", interval_seconds: Number.isFinite(intervalSeconds) && intervalSeconds > 0 ? intervalSeconds : 60 };
+}
+
+function renderDelegationSchedulePreview(formEl, preview = null, { loading = false, error = "" } = {}) {
+  const container = formEl?.querySelector("[data-delegation-schedule-preview]");
+  if (!container) return;
+  if (loading) {
+    container.className = "portal-inline-state is-visible";
+    container.textContent = "Checking schedule...";
+    return;
+  }
+  if (error || preview?.valid === false) {
+    container.className = "portal-inline-state is-error";
+    container.textContent = error || preview?.error || "Invalid schedule";
+    return;
+  }
+  if (preview?.valid) {
+    const nextRun = preview.next_run_local || preview.next_run_at || "-";
+    container.className = "portal-inline-state is-success";
+    container.textContent = `${preview.summary || "Schedule ready"} · Next ${nextRun}`;
+    return;
+  }
+  container.className = "portal-inline-state is-visible";
+  container.textContent = "";
+}
+
+async function refreshDelegationSchedulePreview(formEl, { debounce = false } = {}) {
+  if (!formEl || !isDelegationTimerSource(formEl.querySelector('[name="source"]')?.value)) return;
+  if (debounce) {
+    window.clearTimeout(formEl._delegationSchedulePreviewTimer);
+    formEl._delegationSchedulePreviewTimer = window.setTimeout(() => {
+      refreshDelegationSchedulePreview(formEl).catch(() => {});
+    }, 250);
+    return;
+  }
+  const schedule = collectDelegationSchedule(formEl);
+  if (!schedule.expression) {
+    renderDelegationSchedulePreview(formEl, null, { error: "Cron expression is required" });
+    return;
+  }
+  const requestId = `${Date.now()}:${Math.random()}`;
+  formEl.dataset.delegationSchedulePreviewRequest = requestId;
+  renderDelegationSchedulePreview(formEl, null, { loading: true });
+  try {
+    const preview = await api("/api/delegation-rules/schedule-preview", {
+      method: "POST",
+      body: JSON.stringify({ schedule }),
+    });
+    if (formEl.dataset.delegationSchedulePreviewRequest !== requestId) return;
+    renderDelegationSchedulePreview(formEl, preview);
+  } catch (err) {
+    if (formEl.dataset.delegationSchedulePreviewRequest !== requestId) return;
+    renderDelegationSchedulePreview(formEl, null, { error: err.message });
+  }
+}
+
+function renderDelegationScheduleControls(formEl, schedule = {}, taskPrompt = "") {
+  const container = formEl?.querySelector("[data-delegation-schedule-controls]");
+  if (!container) return;
+  const source = String(formEl.querySelector('[name="source"]')?.value || "").trim();
+  const intervalField = formEl.querySelector("[data-delegation-interval-field]");
+  const intervalInput = intervalField?.querySelector('[name="interval_seconds"]');
+  if (!isDelegationTimerSource(source)) {
+    if (intervalField) intervalField.classList.remove("hidden");
+    if (intervalInput) {
+      intervalInput.disabled = false;
+      intervalInput.required = true;
+    }
+    container.innerHTML = "";
+    return;
+  }
+  if (intervalField) intervalField.classList.add("hidden");
+  if (intervalInput) {
+    intervalInput.disabled = true;
+    intervalInput.required = false;
+  }
+  const cronSchedule = schedule && schedule.type === "cron" ? schedule : {};
+  const expression = String(cronSchedule.expression || "0 9 * * 1-5").trim();
+  const timezone = String(cronSchedule.timezone || defaultDelegationTimezone()).trim();
+  const skipOverlapping = cronSchedule.overlap_policy !== "allow";
+  container.innerHTML = `
+    <section class="portal-delegation-source-config" data-delegation-timer-config>
+      <div class="portal-task-section-heading">
+        <span>Timer</span>
+        <span>Cron</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Task prompt</span><textarea class="portal-form-textarea" name="task_prompt" rows="5" required>${safe(taskPrompt)}</textarea></label>
+      <div class="portal-panel-grid cols-2">
+        <label class="portal-form-label"><span class="portal-form-label">Cron expression</span><input class="portal-form-input" name="schedule_cron_expression" value="${escapeHtmlAttr(expression)}" placeholder="30 9 * * 1-5" required /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Timezone</span><input class="portal-form-input" name="schedule_timezone" value="${escapeHtmlAttr(timezone)}" placeholder="Asia/Shanghai" required /></label>
+      </div>
+      <label class="portal-toggle-field portal-delegation-toggle-field"><span>Skip overlapping runs</span><span class="toggle-switch" aria-label="Skip overlapping runs"><input type="checkbox" name="schedule_skip_overlapping" ${skipOverlapping ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
+      <div data-delegation-schedule-preview class="portal-inline-state is-visible" aria-live="polite"></div>
+    </section>
+  `;
+  renderIcons();
+}
+
+async function setupDelegationSourceForm(formEl, sourceScope = {}, sourceConditions = {}, schedule = {}, taskPrompt = "") {
+  renderDelegationScheduleControls(formEl, schedule || {}, taskPrompt || "");
   renderDelegationSourceControls(formEl, sourceScope || {}, sourceConditions || {});
   await refreshDelegationSourcePreview(formEl);
+  await refreshDelegationSchedulePreview(formEl);
 }
 
 function delegationRunStatusTone(status) {
@@ -11074,7 +11217,14 @@ function delegationEventSourceLink(event) {
 }
 
 function delegationEventReplyLabel(event) {
+  const normalized = _safeJson(event?.normalized_payload_json) || {};
   const statusText = String(event?.status || "").trim();
+  if (isDelegationTimerSource(normalized.source || normalized.provider || "")) {
+    if (statusText === "reply_sent") return "Completed";
+    if (statusText === "reply_failed") return "Completion failed";
+    if (statusText === "task_created" || statusText === "task_done") return "Task pending";
+    return "-";
+  }
   if (statusText === "reply_sent") return "Reply sent";
   if (statusText === "reply_failed") return "Reply failed";
   if (statusText === "task_created" || statusText === "task_done") return "Reply pending";
@@ -11118,7 +11268,9 @@ function delegationEventTimelineItems(events) {
     const status = String(event.status || "unknown").trim();
     const tone = delegationEventStatusTone(status);
     const replyLabel = delegationEventReplyLabel(event);
-    const replyTone = replyLabel === "Reply sent" ? "success" : (replyLabel === "Reply failed" ? "error" : "neutral");
+    const replyTone = ["Reply sent", "Completed"].includes(replyLabel)
+      ? "success"
+      : (["Reply failed", "Completion failed"].includes(replyLabel) ? "error" : "neutral");
     const comment = delegationTruncate(normalized.source_comment || "", 180);
     const identity = String(normalized.represented_identity || "").trim();
     const taskId = String(event.task_id || "").trim();
@@ -11159,6 +11311,7 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
     const sourceLabel = delegationSourceLabel(source);
     const providerLabel = delegationProviderLabel(source);
     const intervalLabel = delegationIntervalLabel(detail.interval_seconds || 60);
+    const scheduleLabel = String(detail.schedule_summary || "").trim() || `Every ${intervalLabel}`;
     const skillLabel = delegationRuleSkillLabel(detail);
     const statusLabel = delegationRuleStatusLabel(detail);
     const statusTone = delegationRuleStatusTone(detail);
@@ -11205,7 +11358,7 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
         <section class="portal-task-metrics portal-delegation-metrics">
           <div><span>Source</span><strong>${safe(sourceLabel)}</strong></div>
           <div><span>Owner</span><strong>${safe(ownerLabel)}</strong></div>
-          <div><span>Interval</span><strong>Every ${safe(intervalLabel)}</strong></div>
+          <div><span>Schedule</span><strong>${safe(scheduleLabel)}</strong></div>
           <div><span>Last Run</span><strong>${safe(delegationDisplayTime(detail.last_run_at))}</strong></div>
           <div><span>Next Run</span><strong>${safe(delegationDisplayTime(detail.next_run_at))}</strong></div>
         </section>
@@ -11213,7 +11366,7 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
         <section class="portal-delegation-source-summary">
           <article class="portal-delegation-source-summary-item">
             <div>
-              <span>Runtime Source</span>
+              <span>${isDelegationTimerSource(source) ? "Source" : "Runtime Source"}</span>
               <strong>${safe(accountSummary)}</strong>
               ${sourceWarning ? `<small>${safe(sourceWarning)}</small>` : ""}
             </div>
@@ -11296,8 +11449,9 @@ async function openCreateDelegationRuleModal() {
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
           <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
           <div data-delegation-source-controls></div>
+          <div data-delegation-schedule-controls></div>
           <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
+          <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
           <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
         </section>
         <button class="portal-btn is-primary" type="submit">Create Delegation</button>
@@ -11334,7 +11488,9 @@ async function openEditDelegationRuleModal(ruleId) {
     .join("");
   const skillName = String(detail.skill_name || "").trim().replace(/^\/+/, "");
   const skillOptionLabel = skillName ? `/${safe(skillName)}` : "Select an agent first";
-  const intervalSeconds = Number(detail.interval_seconds || 60);
+  const schedule = detail.schedule || {};
+  const taskPrompt = String(detail.task_prompt || "");
+  const intervalSeconds = Number(schedule.type === "interval" ? (schedule.interval_seconds || 60) : (detail.interval_seconds || 60));
   const sourceScope = detail.source_scope || {};
   const sourceConditions = detail.source_conditions || {};
   dom.workspaceDetailContent.innerHTML = `
@@ -11349,6 +11505,8 @@ async function openEditDelegationRuleModal(ruleId) {
         data-original-source="${escapeHtmlAttr(sourceValue)}"
         data-original-source-scope="${delegationJsonAttr(sourceScope)}"
         data-original-source-conditions="${delegationJsonAttr(sourceConditions)}"
+        data-original-schedule="${delegationJsonAttr(schedule)}"
+        data-original-task-prompt="${escapeHtmlAttr(JSON.stringify(taskPrompt))}"
         data-original-skill-name="${escapeHtmlAttr(skillName)}"
         data-original-interval-seconds="${escapeHtmlAttr(String(intervalSeconds))}"
         data-original-enabled="${detail.enabled ? "true" : "false"}"
@@ -11359,8 +11517,9 @@ async function openEditDelegationRuleModal(ruleId) {
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
           <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
           <div data-delegation-source-controls></div>
+          <div data-delegation-schedule-controls></div>
           <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
+          <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
           <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
         </section>
         <div class="portal-task-form-actions">
@@ -11372,7 +11531,7 @@ async function openEditDelegationRuleModal(ruleId) {
   `;
   const form = document.getElementById("edit-delegation-inline-form");
   if (form) {
-    await setupDelegationSourceForm(form, sourceScope, sourceConditions);
+    await setupDelegationSourceForm(form, sourceScope, sourceConditions, schedule, taskPrompt);
     await populateCreateTaskSkillSelect(form);
   }
   renderIcons();
@@ -11380,16 +11539,20 @@ async function openEditDelegationRuleModal(ruleId) {
 
 async function submitCreateDelegationRule(formEl) {
   const fd = new FormData(formEl);
+  const source = String(fd.get("source") || "").trim();
+  const schedule = collectDelegationSchedule(formEl);
   const payload = {
     name: String(fd.get("name") || "").trim(),
     target_agent_id: String(fd.get("target_agent_id") || "").trim(),
     skill_name: String(fd.get("skill_name") || "").trim(),
-    source: String(fd.get("source") || "").trim(),
+    source,
     source_scope: collectDelegationSourceScope(formEl),
     source_conditions: collectDelegationSourceConditions(formEl),
-    interval_seconds: Number(fd.get("interval_seconds") || 60),
+    interval_seconds: schedule.type === "interval" ? schedule.interval_seconds : Number(fd.get("interval_seconds") || 60),
+    schedule,
     enabled: fd.get("enabled") !== null,
   };
+  if (isDelegationTimerSource(source)) payload.task_prompt = collectDelegationTaskPrompt(formEl);
   const created = await api("/api/delegation-rules", { method: "POST", body: JSON.stringify(payload) });
   await loadDelegationRules();
   await openDelegationRulePanel(created.id);
@@ -11407,9 +11570,13 @@ async function submitEditDelegationRule(formEl) {
   const sourceConditions = collectDelegationSourceConditions(formEl);
   const originalSourceScope = _safeJson(formEl.dataset.originalSourceScope || "{}") || {};
   const originalSourceConditions = _safeJson(formEl.dataset.originalSourceConditions || "{}") || {};
+  const originalSchedule = _safeJson(formEl.dataset.originalSchedule || "{}") || {};
+  const originalTaskPrompt = String(_safeJson(formEl.dataset.originalTaskPrompt || "\"\"") || "");
   const originalSkillName = String(formEl.dataset.originalSkillName || "");
   const skillName = fd.has("skill_name") ? String(fd.get("skill_name") || "").trim() : originalSkillName;
-  const intervalSeconds = Number(fd.get("interval_seconds") || 60);
+  const schedule = collectDelegationSchedule(formEl);
+  const intervalSeconds = schedule.type === "interval" ? schedule.interval_seconds : Number(fd.get("interval_seconds") || 60);
+  const taskPrompt = collectDelegationTaskPrompt(formEl);
   const enabled = fd.get("enabled") !== null;
   if (name !== String(formEl.dataset.originalName || "")) payload.name = name;
   if (targetAgentId !== String(formEl.dataset.originalTargetAgentId || "")) payload.target_agent_id = targetAgentId;
@@ -11422,7 +11589,9 @@ async function submitEditDelegationRule(formEl) {
     if (JSON.stringify(sourceConditions) !== JSON.stringify(originalSourceConditions)) payload.source_conditions = sourceConditions;
   }
   if (fd.has("skill_name") && skillName !== originalSkillName) payload.skill_name = skillName;
-  if (intervalSeconds !== Number(formEl.dataset.originalIntervalSeconds || 60)) payload.interval_seconds = intervalSeconds;
+  if (JSON.stringify(schedule) !== JSON.stringify(originalSchedule)) payload.schedule = schedule;
+  if (schedule.type === "interval" && intervalSeconds !== Number(formEl.dataset.originalIntervalSeconds || 60)) payload.interval_seconds = intervalSeconds;
+  if (isDelegationTimerSource(source) && taskPrompt !== originalTaskPrompt) payload.task_prompt = taskPrompt;
   if (enabled !== (formEl.dataset.originalEnabled === "true")) payload.enabled = enabled;
   if (!Object.keys(payload).length) {
     showToast("No changes to save");
@@ -12685,11 +12854,24 @@ function bindEvents() {
       return;
     }
     if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="source"]')) {
+      renderDelegationScheduleControls(formEl);
+      await refreshDelegationSchedulePreview(formEl);
       await refreshDelegationSourcePreview(formEl, { resetScope: true, resetConditions: true });
       return;
     }
     if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="source_scope_jira_instance"]')) {
       await refreshDelegationSourcePreview(formEl);
+      return;
+    }
+    if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="schedule_skip_overlapping"]')) {
+      await refreshDelegationSchedulePreview(formEl);
+    }
+  });
+  dom.workspaceDetailContent?.addEventListener("input", (event) => {
+    const formEl = event.target.closest("#create-delegation-inline-form, #edit-delegation-inline-form");
+    if (!formEl) return;
+    if (event.target.matches('[name="schedule_cron_expression"], [name="schedule_timezone"]')) {
+      refreshDelegationSchedulePreview(formEl, { debounce: true }).catch(() => {});
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {

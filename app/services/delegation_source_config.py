@@ -13,11 +13,13 @@ from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 
 GITHUB_DELEGATION_SOURCES = {"github_pr_review", "github_pr_mention"}
 JIRA_DELEGATION_SOURCES = {"jira_assignee", "jira_mention"}
+TIMER_DELEGATION_SOURCES = {"timer"}
 DELEGATION_SOURCE_PROVIDER = {
     "github_pr_review": "github",
     "github_pr_mention": "github",
     "jira_assignee": "jira",
     "jira_mention": "jira",
+    "timer": "timer",
 }
 
 
@@ -314,6 +316,8 @@ def build_delegation_condition_summary(source: str | None, scope: dict[str, Any]
             parts.append("labels +" + ", ".join(conditions["labels_include"]))
         if conditions.get("labels_exclude"):
             parts.append("labels -" + ", ".join(conditions["labels_exclude"]))
+    elif provider == "timer":
+        return "Scheduled by Portal timer"
     return " · ".join(parts) if parts else "All runtime profile source items"
 
 
@@ -337,6 +341,15 @@ def build_delegation_source_preview(
             condition_summary=condition_summary,
             status="missing",
             warning="Unsupported delegation source",
+        )
+    if provider == "timer":
+        return DelegationSourcePreview(
+            provider=provider,
+            source=source,
+            account_summary="Portal timer",
+            condition_summary="Scheduled by Portal timer",
+            status="ok",
+            warning=None,
         )
 
     _agent, profile, config, warning = _load_agent_runtime_profile_config(db, agent_id)

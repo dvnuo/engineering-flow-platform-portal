@@ -419,6 +419,90 @@ def test_run_once_skips_source_items_that_do_not_match_conditions():
     assert metrics["condition_skipped_count"] == 1
 
 
+def test_run_once_creates_agent_async_task_for_timer_source():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-timer")
+    svc = DelegationRuleService(db)
+    rule = svc.create_rule(
+        DelegationRuleCreate(
+            name="rule-timer",
+            target_agent_id=agent.id,
+            skill_name="custom-skill",
+            source="timer",
+            task_prompt="Run the scheduled portal review.",
+            schedule={"type": "cron", "expression": "30 9 * * 1-5", "timezone": "Asia/Shanghai"},
+        ),
+        current_user_id=user.id,
+    )
+    dispatched = []
+    svc.dispatcher.dispatch_task_in_background = lambda task_id: dispatched.append(task_id)
+
+    result = asyncio.run(svc.run_rule_once(rule.id, triggered_by="test"))
+
+    assert result.found_count == 1
+    assert result.created_task_count == 1
+    task = db.query(AgentTask).one()
+    assert task.provider == "timer"
+    assert task.trigger == "timer"
+    assert task.skill_name == "custom-skill"
+    assert dispatched == [task.id]
+    payload = json.loads(task.input_payload_json)
+    assert payload["user_task"] == "Run the scheduled portal review."
+    assert payload["delegation"]["source"] == "timer"
+    assert payload["delegation"]["reply_target"] == {}
+    assert payload["delegation"]["source_payload"]["cron_expression"] == "30 9 * * 1-5"
+    event = DelegationRuleRepository(db).list_events(rule.id, 10)[0]
+    assert event.status == "task_created"
+    assert event.dedupe_key.startswith("timer:")
+
+
+def test_timer_source_overlap_policy_skips_when_previous_task_active():
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-timer-overlap")
+    svc = DelegationRuleService(db)
+    rule = svc.create_rule(
+        DelegationRuleCreate(
+            name="rule-timer-overlap",
+            target_agent_id=agent.id,
+            skill_name="custom-skill",
+            source="timer",
+            task_prompt="Run the scheduled portal review.",
+            schedule={
+                "type": "cron",
+                "expression": "30 9 * * 1-5",
+                "timezone": "Asia/Shanghai",
+                "overlap_policy": "skip_if_running",
+            },
+        ),
+        current_user_id=user.id,
+    )
+    db.add(
+        AgentTask(
+            assignee_agent_id=agent.id,
+            source="delegation",
+            task_type="agent_async_task",
+            task_family="agent_task",
+            provider="timer",
+            trigger="timer",
+            title="Active timer task",
+            skill_name="custom-skill",
+            input_payload_json="{}",
+            status="running",
+        )
+    )
+    db.commit()
+    svc.dispatcher.dispatch_task_in_background = lambda _task_id: (_ for _ in ()).throw(AssertionError("should not dispatch"))
+
+    result = asyncio.run(svc.run_rule_once(rule.id, triggered_by="test"))
+
+    assert result.created_task_count == 0
+    assert result.skipped_count == 1
+    assert db.query(AgentTask).count() == 1
+    run = DelegationRuleRepository(db).list_runs(rule.id, 1)[0]
+    metrics = json.loads(run.metrics_json)
+    assert metrics["overlap_skipped"] is True
+
+
 def test_github_pr_review_task_creation_records_portal_start_reaction():
     db = _session()
     user, agent = _create_user_agent(db, username="u-review-start-reaction")

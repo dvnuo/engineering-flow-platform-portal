@@ -148,6 +148,67 @@ def test_api_create_accepts_all_sources():
         cleanup()
 
 
+def test_api_schedule_preview_for_timer_cron():
+    client, _db, _agents, cleanup = _build_client_with_overrides()
+    try:
+        resp = client.post(
+            "/api/delegation-rules/schedule-preview",
+            json={"schedule": {"type": "cron", "expression": "30 9 * * 1-5", "timezone": "Asia/Shanghai"}},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["valid"] is True
+        assert body["summary"] == "Every weekday at 09:30 (Asia/Shanghai)"
+        assert body["next_run_at"]
+        assert body["next_run_local"]
+    finally:
+        cleanup()
+
+
+def test_api_create_timer_source_does_not_require_runtime_provider_config():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        payload = _payload(agents.empty.id, "timer")
+        payload["task_prompt"] = "Run the scheduled health review."
+        payload["schedule"] = {"type": "cron", "expression": "30 9 * * 1-5", "timezone": "Asia/Shanghai"}
+        resp = client.post("/api/delegation-rules", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["source"] == "timer"
+        assert body["source_type"] == "timer"
+        assert body["schedule"]["type"] == "cron"
+        assert body["task_prompt"] == "Run the scheduled health review."
+        assert body["source_account_summary"] == "Portal timer"
+        assert body["source_config_status"] == "ok"
+    finally:
+        cleanup()
+
+
+def test_api_create_timer_source_requires_task_prompt():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        payload = _payload(agents.empty.id, "timer")
+        payload["schedule"] = {"type": "cron", "expression": "30 9 * * 1-5", "timezone": "Asia/Shanghai"}
+        resp = client.post("/api/delegation-rules", json=payload)
+        assert resp.status_code == 400
+        assert "task_prompt" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
+def test_api_create_timer_source_rejects_invalid_cron():
+    client, _db, agents, cleanup = _build_client_with_overrides()
+    try:
+        payload = _payload(agents.empty.id, "timer")
+        payload["task_prompt"] = "Run the scheduled health review."
+        payload["schedule"] = {"type": "cron", "expression": "0 9 * * * *", "timezone": "UTC"}
+        resp = client.post("/api/delegation-rules", json=payload)
+        assert resp.status_code == 400
+        assert "5 fields" in resp.json()["detail"]
+    finally:
+        cleanup()
+
+
 def test_api_create_returns_runtime_source_and_condition_summaries():
     client, _db, agents, cleanup = _build_client_with_overrides()
     try:
