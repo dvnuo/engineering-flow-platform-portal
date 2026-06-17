@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -10,6 +10,12 @@ from typing import Optional
 
 class AgentTask(Base):
     __tablename__ = "agent_tasks"
+    __table_args__ = (
+        Index("ix_agent_tasks_updated_created_id", "updated_at", "created_at", "id"),
+        Index("ix_agent_tasks_status_updated_created_id", "status", "updated_at", "created_at", "id"),
+        Index("ix_agent_tasks_owner_updated_created_id", "owner_user_id", "updated_at", "created_at", "id"),
+        Index("ix_agent_tasks_owner_status_updated_created_id", "owner_user_id", "status", "updated_at", "created_at", "id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     assignee_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False, index=True)
