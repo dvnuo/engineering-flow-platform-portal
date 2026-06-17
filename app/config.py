@@ -1,7 +1,7 @@
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from typing import Optional
 
 
@@ -34,6 +34,18 @@ class Settings(BaseSettings):
     k8s_agent_service_type: str = "ClusterIP"
     # GitHub HTTPS clone uses token-only auth. Username is fixed to x-access-token in askpass.
     k8s_git_token_key: Optional[str] = "GIT_TOKEN"
+    git_repo_auth_username: str = Field(
+        default="x-access-token",
+        validation_alias=AliasChoices("GIT_REPO_AUTH_USERNAME", "GIT_USERNAME"),
+    )
+    git_repo_auth_pat: str = Field(
+        default="",
+        validation_alias=AliasChoices("GIT_REPO_AUTH_PAT", "GIT_PAT", "GIT_TOKEN"),
+    )
+    git_repo_ls_remote_timeout_seconds: int = Field(
+        default=12,
+        validation_alias="GIT_REPO_LS_REMOTE_TIMEOUT_SECONDS",
+    )
 
     # Default agent config (image repo without tag)
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"

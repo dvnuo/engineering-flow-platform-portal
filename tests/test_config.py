@@ -11,7 +11,7 @@ def clean_env(monkeypatch):
     env_prefixes = (
         'SECRET_', 'DATABASE_', 'DEBUG', 'AGENTS_', 'K8S_', 
         'GITHUB_', 'JIRA_', 'CONFLUENCE_', 'BOOTSTRAP_',
-        'DEFAULT_', 'PORTAL_', 'RUNTIME_', 'ALLOW_INSECURE_', 'DELEGATION_', 'ASSETS_',
+        'DEFAULT_', 'PORTAL_', 'RUNTIME_', 'ALLOW_INSECURE_', 'DELEGATION_', 'ASSETS_', 'GIT_',
         'AGENT_TASK_', 'OPENCODE_'
     )
     for key in list(os.environ.keys()):
@@ -45,6 +45,37 @@ def test_settings_k8s_defaults():
     assert settings.k8s_pvc_access_modes == ["ReadWriteOnce"]
     assert settings.k8s_incluster is True
     assert settings.k8s_agent_service_type == "ClusterIP"
+
+
+def test_settings_git_repo_auth_defaults():
+    settings = Settings()
+    assert settings.git_repo_auth_username == "x-access-token"
+    assert settings.git_repo_auth_pat == ""
+    assert settings.git_repo_ls_remote_timeout_seconds == 12
+
+
+def test_settings_git_repo_auth_env_overrides(monkeypatch):
+    monkeypatch.setenv("GIT_REPO_AUTH_USERNAME", "portal-bot")
+    monkeypatch.setenv("GIT_REPO_AUTH_PAT", "pat-123")
+    monkeypatch.setenv("GIT_REPO_LS_REMOTE_TIMEOUT_SECONDS", "20")
+    settings = Settings()
+    assert settings.git_repo_auth_username == "portal-bot"
+    assert settings.git_repo_auth_pat == "pat-123"
+    assert settings.git_repo_ls_remote_timeout_seconds == 20
+
+
+def test_settings_git_repo_auth_accepts_short_env_aliases(monkeypatch):
+    monkeypatch.setenv("GIT_USERNAME", "short-bot")
+    monkeypatch.setenv("GIT_PAT", "short-pat")
+    settings = Settings()
+    assert settings.git_repo_auth_username == "short-bot"
+    assert settings.git_repo_auth_pat == "short-pat"
+
+
+def test_settings_git_repo_auth_accepts_git_token_alias(monkeypatch):
+    monkeypatch.setenv("GIT_TOKEN", "token-pat")
+    settings = Settings()
+    assert settings.git_repo_auth_pat == "token-pat"
 
 
 def test_settings_default_skill_asset_env_defaults():
