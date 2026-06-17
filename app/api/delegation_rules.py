@@ -14,6 +14,8 @@ from app.schemas.delegation_rule import (
     DelegationRuleRead,
     DelegationRuleRunOnceResponse,
     DelegationRuleRunRead,
+    DelegationSchedulePreviewRequest,
+    DelegationSchedulePreviewResponse,
     DelegationRuleUpdate,
 )
 from app.services.delegation_source_config import (
@@ -23,6 +25,7 @@ from app.services.delegation_source_config import (
     parse_json_object,
 )
 from app.services.delegation_rule_service import DelegationRuleService
+from app.services.delegation_schedule import normalize_delegation_schedule, preview_delegation_schedule, summarize_delegation_schedule
 
 router = APIRouter(prefix="/api/delegation-rules", tags=["delegation-rules"])
 
@@ -55,6 +58,13 @@ def _delegation_rule_response(db: Session, rule, user) -> DelegationRuleRead:
     source = str(getattr(rule, "trigger_type", "") or "").strip()
     source_scope = normalize_delegation_source_scope(source, parse_json_object(getattr(rule, "scope_json", "{}")))
     source_conditions = normalize_delegation_source_conditions(source, parse_json_object(getattr(rule, "trigger_config_json", "{}")))
+    raw_schedule = parse_json_object(getattr(rule, "schedule_json", "{}"))
+    try:
+        schedule = normalize_delegation_schedule(raw_schedule)
+        schedule_summary = summarize_delegation_schedule(schedule)
+    except ValueError:
+        schedule = raw_schedule
+        schedule_summary = ""
     source_preview = build_delegation_source_preview(
         db,
         agent_id=str(getattr(rule, "target_agent_id", "") or ""),
@@ -70,6 +80,8 @@ def _delegation_rule_response(db: Session, rule, user) -> DelegationRuleRead:
             "target_agent_missing": agent is None,
             "source_scope": source_scope,
             "source_conditions": source_conditions,
+            "schedule": schedule,
+            "schedule_summary": schedule_summary,
             "source_account_summary": source_preview.account_summary,
             "source_condition_summary": source_preview.condition_summary,
             "source_config_status": source_preview.status,
@@ -119,6 +131,12 @@ def get_delegation_source_preview(
         source=source,
         source_scope=source_scope,
     ).to_dict()
+
+
+@router.post("/schedule-preview", response_model=DelegationSchedulePreviewResponse)
+def preview_delegation_rule_schedule(payload: DelegationSchedulePreviewRequest, user=Depends(get_current_user)):
+    _ = user
+    return DelegationSchedulePreviewResponse(**preview_delegation_schedule(payload.schedule).to_dict())
 
 
 @router.get("/{rule_id}", response_model=DelegationRuleRead)

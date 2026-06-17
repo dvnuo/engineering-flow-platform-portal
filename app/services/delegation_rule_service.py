@@ -22,6 +22,11 @@ from app.services.delegation_source_config import (
     normalize_delegation_source_scope,
 )
 from app.services.delegation_source_pollers import SOURCE_PROVIDER, SUPPORTED_DELEGATION_SOURCES, DelegationSourcePoller
+from app.services.delegation_schedule import (
+    compute_next_run_at,
+    delegation_schedule_interval_seconds,
+    normalize_delegation_schedule,
+)
 from app.services.provider_config_resolver import (
     ProviderConfigResolverError,
     resolve_github_for_agent,
@@ -92,6 +97,13 @@ class DelegationRuleService:
         return "delegation:" + hashlib.sha256(full_dedupe_key.encode()).hexdigest()
 
     @staticmethod
+    def _normalize_schedule_or_400(raw: Any, *, interval_seconds: int | None = None) -> dict[str, Any]:
+        try:
+            return normalize_delegation_schedule(raw, interval_seconds=interval_seconds)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    @staticmethod
     def _derive_task_title(task_content: str) -> str:
         first_line = next((line.strip() for line in str(task_content or "").splitlines() if line.strip()), "")
         title = " ".join((first_line or "Delegation task").split())
@@ -103,6 +115,8 @@ class DelegationRuleService:
         agent = AgentRepository(self.db).get_by_id(agent_id)
         if not agent:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent not found")
+        if provider == "timer":
+            return
         try:
             if provider == "github":
                 resolve_github_for_agent(self.db, agent.id)
@@ -125,6 +139,16 @@ class DelegationRuleService:
         if not skill_name:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="skill_name is required")
         interval_seconds = int(payload.interval_seconds or 60)
+        schedule = self._normalize_schedule_or_400(
+            payload.schedule or {"type": "interval", "interval_seconds": interval_seconds},
+            interval_seconds=interval_seconds,
+        )
+        task_config = {"skill_name": skill_name}
+        if source == "timer":
+            task_prompt = str(payload.task_prompt or "").strip()
+            if not task_prompt:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_prompt is required for timer delegations")
+            task_config["task_prompt"] = task_prompt
         now = datetime.utcnow()
         create_data = {
             "name": payload.name.strip(),
@@ -135,12 +159,12 @@ class DelegationRuleService:
             "task_type": AGENT_ASYNC_TASK_TYPE,
             "scope_json": self._json(source_scope),
             "trigger_config_json": self._json(source_conditions),
-            "task_config_json": self._json({"skill_name": skill_name}),
-            "schedule_json": self._json({"interval_seconds": interval_seconds}),
+            "task_config_json": self._json(task_config),
+            "schedule_json": self._json(schedule),
             "state_json": "{}",
             "owner_user_id": current_user_id,
             "created_by_user_id": current_user_id,
-            "next_run_at": now + timedelta(seconds=interval_seconds) if payload.enabled else None,
+            "next_run_at": compute_next_run_at(schedule, after=now) if payload.enabled else None,
         }
         return self.repo.create(create_data, current_user_id=current_user_id)
 
@@ -194,19 +218,38 @@ class DelegationRuleService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="skill_name is required")
             task_config["skill_name"] = skill_name
             update_data["task_config_json"] = self._json(task_config)
+        if "task_prompt" in data:
+            task_prompt = str(data["task_prompt"] or "").strip()
+            if task_prompt:
+                task_config["task_prompt"] = task_prompt
+            else:
+                task_config.pop("task_prompt", None)
+            update_data["task_config_json"] = self._json(task_config)
         if "interval_seconds" in data:
             interval = int(data["interval_seconds"] or 60)
-            schedule["interval_seconds"] = interval
+            schedule = self._normalize_schedule_or_400({"type": "interval", "interval_seconds": interval}, interval_seconds=interval)
             update_data["schedule_json"] = self._json(schedule)
+        if "schedule" in data:
+            schedule = self._normalize_schedule_or_400(
+                data.get("schedule") or {},
+                interval_seconds=int(schedule.get("interval_seconds") or 60),
+            )
+            update_data["schedule_json"] = self._json(schedule)
+        if source == "timer":
+            task_prompt = str(task_config.get("task_prompt") or "").strip()
+            if not task_prompt:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_prompt is required for timer delegations")
+        elif source_changed and "task_prompt" in task_config:
+            task_config.pop("task_prompt", None)
+            update_data["task_config_json"] = self._json(task_config)
 
         now = datetime.utcnow()
         enabled = bool(update_data.get("enabled", rule.enabled))
-        interval_seconds = int(schedule.get("interval_seconds") or 60)
         if "enabled" in update_data and not enabled:
             update_data["next_run_at"] = None
             update_data["locked_until"] = None
-        elif ("enabled" in update_data or "interval_seconds" in data) and enabled:
-            update_data["next_run_at"] = now + timedelta(seconds=interval_seconds)
+        elif ("enabled" in update_data or "interval_seconds" in data or "schedule" in data or source_changed) and enabled:
+            update_data["next_run_at"] = compute_next_run_at(schedule, after=now)
         update_data["task_type"] = AGENT_ASYNC_TASK_TYPE
         update_data["updated_at"] = now
         return self.repo.update(rule, update_data)
@@ -563,6 +606,10 @@ class DelegationRuleService:
                 await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
                 sent_count += 1
                 continue
+            if str(normalized.get("source") or rule.trigger_type or "").strip() == "timer":
+                event = self.repo.update_event_status(event, status="reply_sent", task_id=event.task_id, error_message=None)
+                sent_count += 1
+                continue
             if not isinstance(reply_target, dict) or not reply_target:
                 event = self.repo.update_event_status(event, status="reply_failed", task_id=event.task_id, error_message="Missing reply target")
                 await self._cleanup_portal_start_reaction(rule=rule, event=event, normalized=normalized)
@@ -605,8 +652,8 @@ class DelegationRuleService:
 
         source = self._validate_source(rule.trigger_type)
         provider = self._provider_for_source(source)
-        schedule = self._parse_json(rule.schedule_json)
-        interval_seconds = int(schedule.get("interval_seconds") or 60)
+        schedule = normalize_delegation_schedule(self._parse_json(rule.schedule_json))
+        interval_seconds = delegation_schedule_interval_seconds(schedule)
         run = self.repo.create_run(rule_id=rule.id)
         found_count = 0
         created_task_count = 0
@@ -618,6 +665,46 @@ class DelegationRuleService:
         try:
             self._validate_agent_provider_config(agent_id=rule.target_agent_id, provider=provider)
             reply_sent_count, reply_failed_count = await self._process_pending_replies(rule)
+            if source == "timer" and schedule.get("overlap_policy") == "skip_if_running":
+                active_tasks = self.task_repo.list_active_tasks_for_delegation_item(
+                    assignee_agent_id=rule.target_agent_id,
+                    task_type=AGENT_ASYNC_TASK_TYPE,
+                    provider="timer",
+                    trigger="timer",
+                )
+                if active_tasks:
+                    now = datetime.utcnow()
+                    self.repo.finish_run(
+                        run,
+                        status="success",
+                        found_count=1,
+                        created_task_count=0,
+                        skipped_count=1,
+                        metrics={
+                            "triggered_by": triggered_by,
+                            "overlap_skipped": True,
+                            "active_task_ids": [task.id for task in active_tasks[:10]],
+                            "reply_sent_count": reply_sent_count,
+                            "reply_failed_count": reply_failed_count,
+                        },
+                    )
+                    self.repo.update(
+                        rule,
+                        {
+                            "last_run_at": now,
+                            "next_run_at": compute_next_run_at(schedule, after=now) if rule.enabled else None,
+                            "locked_until": None,
+                        },
+                    )
+                    return RunOnceResult(
+                        rule_id=rule.id,
+                        status="success",
+                        found_count=1,
+                        created_task_count=0,
+                        skipped_count=1,
+                        run_id=run.id,
+                        created_task_ids=[],
+                    )
             poll_result = await self.source_poller.poll(self.db, rule)
             items = poll_result.items if hasattr(poll_result, "items") else list(poll_result or [])
             found_count = len(items)
@@ -683,7 +770,7 @@ class DelegationRuleService:
                 {
                     "state_json": self._json(state),
                     "last_run_at": now,
-                    "next_run_at": now + timedelta(seconds=interval_seconds) if rule.enabled else None,
+                    "next_run_at": compute_next_run_at(schedule, after=now) if rule.enabled else None,
                     "locked_until": None,
                 },
             )

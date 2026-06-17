@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 
 from app.services.delegation_source_pollers import DelegationSourcePoller
@@ -82,6 +83,23 @@ def _poll_github_pr_review(monkeypatch, pull_payload):
     )
     rule = SimpleNamespace(target_agent_id="agent-1")
     return asyncio.run(DelegationSourcePoller()._poll_github_pr_review(object(), rule))
+
+
+def test_timer_poller_uses_current_time_when_next_run_is_future(monkeypatch):
+    fixed_now = datetime(2026, 6, 17, 1, 0, 0)
+    monkeypatch.setattr("app.services.delegation_source_pollers.utc_now_naive", lambda: fixed_now)
+    rule = SimpleNamespace(
+        next_run_at=datetime(2026, 6, 18, 1, 0, 0),
+        task_config_json='{"task_prompt": "Run a manual timer check."}',
+        schedule_json='{"type": "cron", "expression": "30 9 * * 1-5", "timezone": "Asia/Shanghai"}',
+    )
+
+    result = DelegationSourcePoller()._poll_timer(rule)
+
+    assert len(result.items) == 1
+    assert result.items[0]["dedupe_key"] == "timer:2026-06-17T01:00:00Z"
+    assert result.items[0]["task_content"] == "Run a manual timer check."
+    assert result.items[0]["source_payload"]["scheduled_for"] == "2026-06-17T01:00:00Z"
 
 
 def test_github_pr_review_direct_requested_reviewer_creates_source_item(monkeypatch):

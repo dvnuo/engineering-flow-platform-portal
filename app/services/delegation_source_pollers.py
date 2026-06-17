@@ -18,6 +18,7 @@ from app.services.delegation_source_config import (
     normalize_delegation_source_scope,
     parse_json_object,
 )
+from app.services.delegation_schedule import build_timer_source_item, normalize_delegation_schedule, utc_now_naive
 
 
 DELEGATION_REPLY_MARKER_PREFIX = "<!-- efp:delegation-reply "
@@ -25,12 +26,14 @@ MAX_SOURCE_TEXT_CHARS = 20000
 MAX_GITHUB_REPLY_CONTEXT_CHARS = 8000
 GITHUB_SOURCES = {"github_pr_review", "github_pr_mention"}
 JIRA_SOURCES = {"jira_assignee", "jira_mention"}
-SUPPORTED_DELEGATION_SOURCES = GITHUB_SOURCES | JIRA_SOURCES
+TIMER_SOURCES = {"timer"}
+SUPPORTED_DELEGATION_SOURCES = GITHUB_SOURCES | JIRA_SOURCES | TIMER_SOURCES
 SOURCE_PROVIDER = {
     "github_pr_review": "github",
     "github_pr_mention": "github",
     "jira_assignee": "jira",
     "jira_mention": "jira",
+    "timer": "timer",
 }
 
 
@@ -51,7 +54,18 @@ class DelegationSourcePoller:
             return await self._poll_jira_assignee(db, rule)
         if source == "jira_mention":
             return await self._poll_jira_mention(db, rule)
+        if source == "timer":
+            return self._poll_timer(rule)
         raise ValueError(f"Unsupported delegation source: {source}")
+
+    @staticmethod
+    def _poll_timer(rule) -> SourcePollResult:
+        schedule = normalize_delegation_schedule(parse_json_object(getattr(rule, "schedule_json", "{}")))
+        now = utc_now_naive()
+        scheduled_for = getattr(rule, "next_run_at", None)
+        if not scheduled_for or scheduled_for > now:
+            scheduled_for = now
+        return SourcePollResult(items=[build_timer_source_item(rule, schedule, scheduled_for=scheduled_for)])
 
     @staticmethod
     def _github_headers(provider_config: GithubProviderConfig) -> dict:
