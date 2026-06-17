@@ -8369,6 +8369,41 @@ function taskStatusFilterLabel(value) {
   return normalized.replace(/_/g, " ");
 }
 
+function taskStatusLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const labels = {
+    queued: "Queued",
+    running: "Running",
+    blocked: "Blocked",
+    done: "Done",
+    completed: "Done",
+    success: "Done",
+    failed: "Failed",
+    error: "Failed",
+    stale: "Stale",
+    cancelled: "Cancelled",
+    canceled: "Cancelled",
+    pending_restart: "Pending restart",
+    cancel_failed: "Cancel failed",
+  };
+  return labels[normalized] || (normalized ? normalized.replace(/_/g, " ") : "Unknown");
+}
+
+function taskStatusTone(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["done", "completed", "success"].includes(normalized)) return "success";
+  if (["failed", "error", "cancel_failed"].includes(normalized)) return "error";
+  if (["blocked", "stale", "pending_restart"].includes(normalized)) return "warning";
+  if (normalized === "running") return "info";
+  return "neutral";
+}
+
+function portalRowStatusDot(label, tone = "neutral") {
+  const displayLabel = String(label || "Status unknown").trim();
+  const displayTone = String(tone || "neutral").trim();
+  return `<span class="portal-row-status-dot is-${safe(displayTone)}" title="${escapeHtmlAttr(displayLabel)}" aria-label="${escapeHtmlAttr(displayLabel)}"></span>`;
+}
+
 function syncTaskFilterControls() {
   const filters = state.taskFilters || { status: "all", owner: "all" };
   if (dom.taskOwnerFilter && dom.taskOwnerFilter.value !== filters.owner) dom.taskOwnerFilter.value = filters.owner;
@@ -8405,12 +8440,15 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
     const displayTitle = title.length > 80 ? `${title.slice(0, 77).trim()}...` : title;
     const timeLabel = formatTaskNavTime(task.created_at || task.updated_at);
     const ownerLabel = taskOwnerLabel(task);
+    const statusLabel = taskStatusLabel(task.status);
+    const statusDot = portalRowStatusDot(`Task status: ${statusLabel}`, taskStatusTone(task.status));
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
     row.innerHTML = `
       <div class="portal-task-row-head">
         <div class="portal-task-row-title">${safe(displayTitle)}</div>
+        ${statusDot}
       </div>
       <div class="portal-task-row-meta">
         <span>Owner ${safe(ownerLabel)}</span>
@@ -10671,12 +10709,15 @@ function renderDelegationRuleNavList(rules = null) {
     const title = String(rule.name || sourceLabel || "Delegation").trim();
     const timeLabel = delegationDisplayTime(rule.created_at || rule.updated_at || rule.next_run_at || rule.last_run_at);
     const ownerLabel = delegationOwnerLabel(rule);
+    const statusLabel = delegationRuleStatusLabel(rule);
+    const statusDot = portalRowStatusDot(`Delegation status: ${statusLabel}`, delegationRuleStatusTone(rule));
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row portal-delegation-row${state.selectedDelegationRuleId === rule.id ? " is-active" : ""}`;
     row.innerHTML = `
       <div class="portal-task-row-head">
         <div class="portal-task-row-title">${safe(title)}</div>
+        ${statusDot}
       </div>
       <div class="portal-task-row-meta">
         <span>Owner ${safe(ownerLabel)}</span>

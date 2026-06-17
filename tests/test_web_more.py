@@ -251,10 +251,17 @@ def test_tasks_and_delegations_sidebar_filters_are_compact():
     assert "statusFilter" not in delegation_matches
     assert "filters.status" not in sync_delegation_filters
     assert "portal-status-badge" not in render_tasks
+    assert "portal-row-status-dot" in js
+    assert "portalRowStatusDot(" in render_tasks
+    assert "Task status:" in render_tasks
+    assert "taskStatusTone(task.status)" in render_tasks
     assert "portal-task-row-preview" not in render_tasks
     assert "skillName" not in render_tasks
     assert "safe(task.task_type" not in render_tasks
     assert "portal-status-badge" not in render_delegations
+    assert "portalRowStatusDot(" in render_delegations
+    assert "Delegation status:" in render_delegations
+    assert "delegationRuleStatusTone(rule)" in render_delegations
     assert "portal-task-row-preview" not in render_delegations
     assert "delegationRuleSkillLabel" not in render_delegations
     assert "intervalLabel" not in render_delegations
@@ -265,6 +272,9 @@ def test_tasks_and_delegations_sidebar_filters_are_compact():
     assert ".portal-task-filter-row .portal-filter-select" in css
     assert "flex: 0 0 auto;" in css
     assert "min-height: 58px;" in css
+    assert ".portal-row-status-dot" in css
+    assert ".portal-row-status-dot.is-success" in css
+    assert ".portal-row-status-dot.is-error" in css
 
     delegations_section = template[
         template.index('id="delegations-nav-section"') : template.index('id="delegation-rule-nav-list"')
