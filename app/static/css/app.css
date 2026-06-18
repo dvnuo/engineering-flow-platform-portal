@@ -2008,8 +2008,9 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 10px;
 }
 
-.create-agent-wizard-card {
-  width: min(840px, calc(100vw - 2rem));
+.modal-card.create-agent-wizard-card {
+  width: min(900px, calc(100vw - 2rem));
+  min-width: min(800px, calc(100vw - 2rem));
   max-height: min(88vh, 760px);
   overflow: auto;
 }

@@ -348,6 +348,7 @@ class K8sService:
         container = {
             "name": "agent",
             "image": agent.image,
+            "imagePullPolicy": "Always",
             "ports": [{"containerPort": 8000}],
             "env": api_client.sanitize_for_serialization(self._build_agent_container_env(agent)),
             "volumeMounts": api_client.sanitize_for_serialization(volume_mounts),
@@ -793,6 +794,7 @@ class K8sService:
                     client.V1Container(
                         name="agent",
                         image=agent.image,
+                        image_pull_policy="Always",
                         ports=[client.V1ContainerPort(container_port=8000)],
                         env=self._build_agent_container_env(agent),
                         resources=self._build_agent_container_resources(agent),

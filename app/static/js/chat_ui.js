@@ -13390,12 +13390,6 @@ function bindEvents() {
     }
   });
 
-  document.getElementById("create-runtime-profile-open")?.addEventListener("click", async () => {
-    document.getElementById("create-modal")?.classList.add("hidden");
-    document.getElementById("create-modal")?.setAttribute("aria-hidden", "true");
-    await setActiveNavSection("runtime-profiles", { toggleIfSame: false });
-  });
-
   document.getElementById("create-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;

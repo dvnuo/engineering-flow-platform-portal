@@ -166,6 +166,65 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(kwargs["header_params"]["Accept"], "application/json")
         self.assertNotIn("_content_type", kwargs)
 
+    def test_patch_deployment_sets_agent_image_pull_policy_always(self):
+        self.service.enabled = True
+        captured = {}
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="native",
+            deployment_name="agent-a1",
+            namespace="efp-agents",
+            image="ghcr.io/acme/runtime:v1",
+            mount_path="/workspace",
+            cpu=None,
+            memory=None,
+            skill_repo_url=None,
+            skill_branch=None,
+            agent_settings_repo_url=None,
+            agent_settings_branch=None,
+        )
+
+        def _patch_agent_deployment_merge(_agent, body):
+            captured["body"] = body
+
+        self.service._patch_agent_deployment_merge = _patch_agent_deployment_merge
+
+        self.service._patch_deployment(agent)
+
+        container = captured["body"]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["imagePullPolicy"], "Always")
+
+    def test_ensure_deployment_sets_agent_image_pull_policy_always(self):
+        captured = {}
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="native",
+            deployment_name="agent-a1",
+            namespace="efp-agents",
+            image="ghcr.io/acme/runtime:v1",
+            mount_path="/workspace",
+            cpu=None,
+            memory=None,
+            skill_repo_url=None,
+            skill_branch=None,
+            agent_settings_repo_url=None,
+            agent_settings_branch=None,
+        )
+
+        def _create_namespaced_deployment(namespace, body):
+            captured["namespace"] = namespace
+            captured["body"] = body
+
+        self.service.apps_api = SimpleNamespace(create_namespaced_deployment=_create_namespaced_deployment)
+
+        self.service._ensure_deployment(agent)
+
+        container = captured["body"].spec.template.spec.containers[0]
+        self.assertEqual(captured["namespace"], "efp-agents")
+        self.assertEqual(container.image_pull_policy, "Always")
+
     def test_patch_service_merge_uses_call_api_content_type(self):
         self.service.enabled = True
         calls = []
