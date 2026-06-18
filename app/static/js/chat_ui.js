@@ -5111,7 +5111,6 @@ function renderAgentMeta(agent) {
           </span>
         </div>
       </div>
-      <div id="agent-usage" class="portal-detail-subtle">Loading usage...</div>
     </div>
   `;
 
@@ -5122,12 +5121,6 @@ function renderAgentMeta(agent) {
       showToast(`Action failed: ${error.message}`);
     }
   });
-
-  // Fetch usage data
-  fetchUsageForAgent(agent.id);
-  
-  // Fetch and render system prompt config
-  renderSystemPromptSection(agent);
 
   // Fetch git info if repo is configured
   if (effectiveSkillRepoUrl) {
@@ -10676,6 +10669,172 @@ function moveCreateAgentStep(form, direction) {
   setCreateAgentStep(form, CREATE_AGENT_STEPS[nextIndex]);
 }
 
+const EDIT_AGENT_STEPS = ["runtime", "profile", "instructions", "skills", "review"];
+
+function editAgentStepIndex(step) {
+  const index = EDIT_AGENT_STEPS.indexOf(step);
+  return index >= 0 ? index : 0;
+}
+
+function editAgentFieldValue(form, name) {
+  return createAgentFieldValue(form, name);
+}
+
+function editAgentRuntimeType(form, defaults) {
+  const runtimeType = form?.dataset?.runtimeType || "native";
+  return normalizeRuntimeTypeValue(runtimeType, defaults || state.agentDefaults || {});
+}
+
+function editAgentSelectedProfileLabel(form) {
+  return createAgentSelectedProfileLabel(form);
+}
+
+function setEditAgentRepoFeedback(elementId, kind, message) {
+  setCreateAgentRepoFeedback(elementId, kind, message);
+}
+
+async function refreshEditRepoBranches(kind) {
+  const form = document.getElementById("edit-form");
+  if (!form?.elements) return;
+  const isAgentSettings = kind === "agent-settings";
+  const repoField = isAgentSettings ? "agent_settings_repo_url" : "skill_repo_url";
+  const branchField = isAgentSettings ? "agent_settings_branch" : "skill_branch";
+  const selectId = isAgentSettings ? "edit-agent-settings-branch-select" : "edit-skill-branch-select";
+  const feedbackId = isAgentSettings ? "edit-agent-settings-msg" : "edit-skills-msg";
+  const defaultBranch = isAgentSettings ? state.agentDefaults?.default_agent_settings_branch : state.agentDefaults?.default_skill_branch;
+  const repoUrl = editAgentFieldValue(form, repoField);
+  if (!repoUrl) {
+    populateBranchSelect(selectId, [], editAgentFieldValue(form, branchField), defaultBranch);
+    setEditAgentRepoFeedback(feedbackId, "", "");
+    return;
+  }
+  setEditAgentRepoFeedback(feedbackId, "", "Loading branches...");
+  try {
+    const branches = await loadGitRepoBranches(repoUrl);
+    let selectedBranch = editAgentFieldValue(form, branchField);
+    if (!selectedBranch && branches.length) {
+      selectedBranch = branches.includes("master") ? "master" : (branches.includes("main") ? "main" : branches[0]);
+    }
+    populateBranchSelect(selectId, branches, selectedBranch, defaultBranch);
+    setEditAgentRepoFeedback(feedbackId, branches.length ? "success" : "", branches.length ? `${branches.length} branches loaded.` : "No branches found.");
+  } catch (error) {
+    populateBranchSelect(selectId, [], editAgentFieldValue(form, branchField), defaultBranch);
+    setEditAgentRepoFeedback(feedbackId, "error", error.message || "Failed to load branches.");
+  }
+}
+
+function syncEditRuntimeProfileState(form) {
+  const profiles = state.runtimeProfiles || [];
+  const hasProfiles = profiles.length > 0;
+  const select = form?.elements?.["runtime_profile_id"];
+  if (select) select.disabled = !hasProfiles;
+  const emptyEl = document.getElementById("edit-runtime-profile-empty");
+  emptyEl?.classList.toggle("hidden", hasProfiles);
+}
+
+function editRuntimeTypeLabel(form, defaults) {
+  const runtimeType = editAgentRuntimeType(form, defaults);
+  const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
+  const label = runtimeConfig?.label || runtimeType;
+  return label === runtimeType ? runtimeType : `${label} (${runtimeType})`;
+}
+
+function updateEditRuntimeTypeDisplay(form, defaults) {
+  const displayEl = document.getElementById("edit-runtime-type-display");
+  if (!displayEl) return;
+  displayEl.textContent = editRuntimeTypeLabel(form, defaults || state.agentDefaults || {});
+}
+
+function renderEditAgentReview(form, defaults) {
+  const reviewEl = document.getElementById("edit-agent-review");
+  if (!reviewEl) return;
+  const runtimeType = editAgentRuntimeType(form, defaults);
+  const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
+  const rows = [
+    ["Assistant Name", editAgentFieldValue(form, "name") || "Untitled"],
+    ["Runtime Type", editRuntimeTypeLabel(form, defaults)],
+    ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
+    ["Runtime Profile", editAgentSelectedProfileLabel(form) || "Not selected"],
+    ["Instructions Repository", editAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
+    ["Instructions Branch", editAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
+    ["Skill Repository", editAgentFieldValue(form, "skill_repo_url") || "Configured default"],
+    ["Skill Branch", editAgentFieldValue(form, "skill_branch") || "Configured default"],
+  ];
+  reviewEl.innerHTML = rows.map(([label, value]) => `
+    <div class="create-agent-review-item">
+      <span class="create-agent-review-label">${safe(label)}</span>
+      <div class="create-agent-review-value">${safe(value)}</div>
+    </div>
+  `).join("");
+}
+
+function setEditAgentStep(form, step) {
+  if (!form) return;
+  const normalizedStep = EDIT_AGENT_STEPS[editAgentStepIndex(step)];
+  const activeIndex = editAgentStepIndex(normalizedStep);
+  form.dataset.currentStep = normalizedStep;
+  form.querySelectorAll("[data-edit-step-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.editStepPanel !== normalizedStep);
+  });
+  form.querySelectorAll("[data-edit-step-indicator]").forEach((indicator) => {
+    const index = editAgentStepIndex(indicator.dataset.editStepIndicator);
+    indicator.classList.toggle("is-active", index === activeIndex);
+    indicator.classList.toggle("is-complete", index < activeIndex);
+    if (index === activeIndex) {
+      indicator.setAttribute("aria-current", "step");
+    } else {
+      indicator.removeAttribute("aria-current");
+    }
+  });
+  syncEditRuntimeProfileState(form);
+  updateEditRuntimeTypeDisplay(form, state.agentDefaults || {});
+  const actions = form.querySelector(".edit-agent-wizard-actions");
+  actions?.classList.toggle("is-review", normalizedStep === "review");
+  const backButton = form.querySelector("[data-edit-back]");
+  if (backButton) backButton.disabled = activeIndex === 0;
+  if (normalizedStep === "review") renderEditAgentReview(form, state.agentDefaults || {});
+}
+
+function validateEditAgentStep(form) {
+  const step = form?.dataset?.currentStep || "runtime";
+  const msgEl = document.getElementById("edit-msg");
+  if (msgEl) {
+    msgEl.textContent = "";
+    setModalFeedback(msgEl, "", "");
+  }
+  if (step === "runtime") {
+    const nameInput = form?.elements?.["name"];
+    if (nameInput && !nameInput.checkValidity()) {
+      nameInput.reportValidity();
+      return false;
+    }
+  }
+  if (step === "profile") {
+    if (!(state.runtimeProfiles || []).length) {
+      if (msgEl) {
+        msgEl.textContent = "Create a runtime profile first.";
+        setModalFeedback(msgEl, "error", msgEl.textContent);
+      }
+      return false;
+    }
+    if (!editAgentFieldValue(form, "runtime_profile_id")) {
+      if (msgEl) {
+        msgEl.textContent = "Choose a runtime profile.";
+        setModalFeedback(msgEl, "error", msgEl.textContent);
+      }
+      return false;
+    }
+  }
+  return true;
+}
+
+function moveEditAgentStep(form, direction) {
+  const currentIndex = editAgentStepIndex(form?.dataset?.currentStep || "runtime");
+  if (direction > 0 && !validateEditAgentStep(form)) return;
+  const nextIndex = Math.max(0, Math.min(EDIT_AGENT_STEPS.length - 1, currentIndex + direction));
+  setEditAgentStep(form, EDIT_AGENT_STEPS[nextIndex]);
+}
+
 function getRuntimeTypes(defaults) {
   const runtimeTypes = Array.isArray(defaults?.runtime_types) ? defaults.runtime_types : [];
   if (runtimeTypes.length) return runtimeTypes;
@@ -12032,24 +12191,29 @@ async function openEditDialog(agent) {
   if (form && form.elements) {
     if (form.elements["id"]) form.elements["id"].value = agent.id ?? "";
     if (form.elements["name"]) form.elements["name"].value = agent.name || "";
-    if (form.elements["runtime_type"]) {
-      populateRuntimeTypeSelect(form.elements["runtime_type"], state.agentDefaults || {}, agent.runtime_type || "native");
-    }
+    form.dataset.runtimeType = normalizeRuntimeTypeValue(agent.runtime_type || state.agentDefaults?.default_runtime_type || "native", state.agentDefaults || {});
+    updateEditRuntimeTypeDisplay(form, state.agentDefaults || {});
     if (form.elements["agent_settings_repo_url"]) form.elements["agent_settings_repo_url"].value = agent.agent_settings_repo_url || "";
     if (form.elements["agent_settings_branch"]) {
-      form.elements["agent_settings_branch"].value = agent.agent_settings_branch || "";
-      form.elements["agent_settings_branch"].placeholder = state.agentDefaults?.default_agent_settings_branch
-        ? `Configured default branch (${state.agentDefaults.default_agent_settings_branch})`
-        : "Configured default branch";
+      populateBranchSelect(
+        "edit-agent-settings-branch-select",
+        [],
+        agent.agent_settings_branch || "",
+        state.agentDefaults?.default_agent_settings_branch || "",
+      );
     }
     if (form.elements["skill_repo_url"]) form.elements["skill_repo_url"].value = agent.skill_repo_url || "";
     if (form.elements["skill_branch"]) {
-      form.elements["skill_branch"].value = agent.skill_branch || "";
-      form.elements["skill_branch"].placeholder = state.agentDefaults?.default_skill_branch
-        ? `Configured default branch (${state.agentDefaults.default_skill_branch})`
-        : "Configured default branch";
+      populateBranchSelect(
+        "edit-skill-branch-select",
+        [],
+        agent.skill_branch || "",
+        state.agentDefaults?.default_skill_branch || "",
+      );
     }
     if (form.elements["runtime_profile_id"]) populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
+    syncEditRuntimeProfileState(form);
+    setEditAgentStep(form, "runtime");
   }
 
   // Show the modal
@@ -12058,6 +12222,10 @@ async function openEditDialog(agent) {
     editModal.classList.remove("hidden");
     editModal.setAttribute("aria-hidden", "false");
   }
+  Promise.allSettled([
+    refreshEditRepoBranches("agent-settings"),
+    refreshEditRepoBranches("skills"),
+  ]);
 }
 
 // Open message edit modal
@@ -12637,6 +12805,11 @@ function bindEvents() {
   dom.editForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
+    if ((form?.dataset?.currentStep || "runtime") !== "review") {
+      moveEditAgentStep(form, 1);
+      return;
+    }
+    if (!validateEditAgentStep(form)) return;
     const formData = new FormData(form);
     const id = formData.get("id");
 
@@ -12646,7 +12819,6 @@ function bindEvents() {
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
     const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
-    const runtimeType = (formData.get("runtime_type") || "").toString().trim().toLowerCase();
 
     // Always include agent settings and skill fields; empty values mean "use configured default".
     if (agentSettingsRepoUrl !== undefined) updates.agent_settings_repo_url = agentSettingsRepoUrl || null;
@@ -12654,7 +12826,6 @@ function bindEvents() {
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
     updates.runtime_profile_id = runtimeProfileId || null;
-    if (runtimeType) updates.runtime_type = runtimeType;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -12675,6 +12846,29 @@ function bindEvents() {
     } catch (err) {
       msgEl.textContent = err.message || "Error saving";
       setModalFeedback(msgEl, "error", msgEl.textContent);
+    }
+  });
+
+  dom.editForm?.addEventListener("change", (event) => {
+    if (event.currentTarget?.dataset?.currentStep === "review") {
+      renderEditAgentReview(event.currentTarget, state.agentDefaults || {});
+    }
+  });
+
+  dom.editForm?.addEventListener("click", async (event) => {
+    const form = event.currentTarget;
+    const loadBranches = event.target?.closest?.("[data-edit-load-branches]")?.dataset?.editLoadBranches;
+    if (loadBranches) {
+      await refreshEditRepoBranches(loadBranches);
+      if (form?.dataset?.currentStep === "review") renderEditAgentReview(form, state.agentDefaults || {});
+      return;
+    }
+    if (event.target?.closest?.("[data-edit-back]")) {
+      moveEditAgentStep(form, -1);
+      return;
+    }
+    if (event.target?.closest?.("[data-edit-next]")) {
+      moveEditAgentStep(form, 1);
     }
   });
 

@@ -48,6 +48,11 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
     assert "fetchSkillGitInfo(agent.id)" in render_agent_meta
 
     assert "Tools Repository" not in render_agent_meta
+    assert "agent-usage" not in render_agent_meta
+    assert "fetchUsageForAgent(agent.id)" not in render_agent_meta
+    assert "renderSystemPromptSection(agent)" not in render_agent_meta
+    assert "System Prompt" not in render_agent_meta
+    assert "AGENTS.md" not in render_agent_meta
 
 
 def test_agent_health_card_is_wired_into_agent_meta():

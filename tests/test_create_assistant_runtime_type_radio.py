@@ -23,14 +23,21 @@ def test_create_assistant_has_runtime_type_control():
     assert 'value="opencode"' in block
 
 
-def test_edit_assistant_has_runtime_type_control():
+def test_edit_assistant_shows_runtime_type_as_readonly_wizard_field():
     block = _edit_form_block()
-    assert 'name="runtime_type"' in block
-    assert "edit-runtime-type-select" in block
+    assert 'name="runtime_type"' not in block
+    assert "edit-runtime-type-select" not in block
+    assert "edit-runtime-type-display" in block
     assert "Runtime Type" in block
-    assert "Changing runtime type" in block
-    assert 'value="native"' in block
-    assert 'value="opencode"' in block
+    assert "Runtime type is fixed after creation." in block
+    assert 'data-edit-step-panel="runtime"' in block
+    assert 'data-edit-step-panel="profile"' in block
+    assert 'data-edit-step-panel="instructions"' in block
+    assert 'data-edit-step-panel="skills"' in block
+    assert 'data-edit-step-panel="review"' in block
+    assert 'data-edit-load-branches="agent-settings"' in block
+    assert 'data-edit-load-branches="skills"' in block
+    assert "edit-agent-review" in block
 
 
 def test_create_runtime_type_js_helpers_present():
@@ -40,7 +47,8 @@ def test_create_runtime_type_js_helpers_present():
     assert "function getCreateRuntimeTypes(" in js
     assert 'formData.get("runtime_type")' in js
     assert "runtime_type: runtimeType" in js
-    assert "updates.runtime_type = runtimeType" in js
+    assert "form.dataset.runtimeType" in js
+    assert "updates.runtime_type" not in js
 
 
 def test_config_and_schema_use_single_native_runtime_default():
