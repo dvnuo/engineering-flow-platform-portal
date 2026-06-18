@@ -37,18 +37,10 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
         },
         "jenkins": {
             "enabled": True,
-            "default_instance": " ci ",
-            "instances": [
-                {
-                    "name": " ci ",
-                    "url": " https://jenkins.example.com/ ",
-                    "username": " build ",
-                    "password": " jenkins-password ",
-                    "token": "drop-token",
-                    "space": "drop-space",
-                },
-                {"name": "missing-url", "username": "drop", "password": "drop"},
-            ],
+            "username": " build ",
+            "password": " jenkins-password ",
+            "url": "drop",
+            "instances": [{"name": "drop"}],
         },
         "proxy": {"enabled": True, "url": " http://proxy ", "username": " me ", "password": " secret "},
         "git": {"user": {"name": " Bot ", "email": " bot@example.com ", "x": "bad"}},
@@ -67,15 +59,8 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
     }
     assert s["jenkins"] == {
         "enabled": True,
-        "default_instance": "ci",
-        "instances": [
-            {
-                "name": "ci",
-                "url": "https://jenkins.example.com",
-                "username": "build",
-                "password": "jenkins-password",
-            }
-        ],
+        "username": "build",
+        "password": "jenkins-password",
     }
     assert s["proxy"]["password"] == "secret"
     assert s["git"] == {"user": {"name": "Bot", "email": "bot@example.com"}}
@@ -171,7 +156,7 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
         "proxy": {"password": "pw"},
         "jira": {"instances": [{"name": "x", "password": "p", "token": "t"}]},
         "confluence": {"instances": [{"name": "x", "password": "p2", "token": "t2"}]},
-        "jenkins": {"instances": [{"name": "ci", "password": "jenkins-password"}]},
+        "jenkins": {"username": "build", "password": "jenkins-password"},
     }
     red = redact_runtime_profile_config_for_public_response(cfg)
     assert "api_key" not in red["llm"] and red["llm"]["api_key_present"] is True
@@ -182,8 +167,7 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     assert "password" not in red["proxy"] and red["proxy"]["password_present"] is True
     assert "password" not in red["jira"]["instances"][0] and red["jira"]["instances"][0]["password_present"] is True
     assert "token" not in red["confluence"]["instances"][0] and red["confluence"]["instances"][0]["token_present"] is True
-    assert "password" not in red["jenkins"]["instances"][0] and red["jenkins"]["instances"][0]["password_present"] is True
-    assert "token_present" not in red["jenkins"]["instances"][0]
+    assert "password" not in red["jenkins"] and red["jenkins"]["password_present"] is True
 
 
 def test_public_redaction_removes_token_aliases():
@@ -453,7 +437,7 @@ def test_public_redaction_never_exposes_raw_secret_literals():
         "proxy": {"password": "proxy-secret"},
         "jira": {"instances": [{"password": "jira-pass", "token": "jira-token"}]},
         "confluence": {"instances": [{"password": "conf-pass", "token": "conf-token"}]},
-        "jenkins": {"instances": [{"password": "jenkins-pass"}]},
+        "jenkins": {"password": "jenkins-pass"},
     }
     red = redact_runtime_profile_config_for_public_response(cfg)
     dumped = str(red)
@@ -468,7 +452,7 @@ def test_public_redaction_never_exposes_raw_secret_literals():
     assert red["jira"]["instances"][0]["token_present"] is True
     assert red["confluence"]["instances"][0]["password_present"] is True
     assert red["confluence"]["instances"][0]["token_present"] is True
-    assert red["jenkins"]["instances"][0]["password_present"] is True
+    assert red["jenkins"]["password_present"] is True
 
 
 def test_copilot_legacy_oauth_by_runtime_is_dropped_not_migrated():

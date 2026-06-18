@@ -353,26 +353,19 @@ def test_settings_merge_confluence_instance_clear_secret_removes_existing():
     assert "token" not in merged["confluence"]["instances"][0]
 
 
-def test_settings_merge_jenkins_instance_clear_secret_removes_existing():
+def test_settings_merge_jenkins_blank_password_clears_existing():
     merged, error = _settings_merge_payload(
-        {"jenkins": {"instances": [{"name": "CI", "url": "https://jenkins", "password": "oldp"}]}},
+        {"jenkins": {"enabled": True, "username": "old", "password": "oldp"}},
         {
             "__touch_jenkins": "1",
             "jenkins_enabled": "on",
-            "jenkins_instance_count": "1",
-            "jenkins_instances_0_original_name": "CI",
-            "jenkins_instances_0_original_url": "https://jenkins",
-            "jenkins_instances_0_name": "CI",
-            "jenkins_instances_0_url": "https://jenkins",
-            "jenkins_instances_0_username": "build",
-            "jenkins_instances_0_password": "",
-            "jenkins_instances_0_password_clear": "1",
+            "jenkins_username": "build",
+            "jenkins_password": "",
         },
     )
     assert error is None
-    instance = merged["jenkins"]["instances"][0]
-    assert instance["username"] == "build"
-    assert "password" not in instance
+    assert merged["jenkins"]["username"] == "build"
+    assert "password" not in merged["jenkins"]
 
 
 def test_settings_merge_jira_instance_enabled_false_is_preserved_from_unchecked_checkbox():
@@ -658,12 +651,8 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "aws_password": "aws-password",
             "__touch_jenkins": "1",
             "jenkins_enabled": "on",
-            "jenkins_instance_count": "1",
-            "jenkins_instances_0_name": "CI",
-            "jenkins_instances_0_url": "https://jenkins.example.com/",
-            "jenkins_instances_0_username": "jenkins-user",
-            "jenkins_instances_0_password": "jenkins-password",
-            "jenkins_instances_0_enabled": "1",
+            "jenkins_username": "jenkins-user",
+            "jenkins_password": "jenkins-password",
             "__touch_git": "1",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
@@ -717,15 +706,8 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
         },
         "jenkins": {
             "enabled": True,
-            "instances": [
-                {
-                    "enabled": True,
-                    "name": "CI",
-                    "url": "https://jenkins.example.com",
-                    "username": "jenkins-user",
-                    "password": "jenkins-password",
-                }
-            ],
+            "username": "jenkins-user",
+            "password": "jenkins-password",
         },
         "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
     }

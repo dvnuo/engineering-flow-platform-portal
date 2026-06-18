@@ -755,10 +755,8 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         llm["provider"] = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))
     jira = effective_config.get("jira") if isinstance(effective_config.get("jira"), dict) else {}
     confluence = effective_config.get("confluence") if isinstance(effective_config.get("confluence"), dict) else {}
-    jenkins = effective_config.get("jenkins") if isinstance(effective_config.get("jenkins"), dict) else {}
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
     confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
-    jenkins_instances = jenkins.get("instances") if isinstance(jenkins.get("instances"), list) else []
     raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
     raw_aws = raw_config.get("aws") if isinstance(raw_config.get("aws"), dict) else {}
     raw_jenkins = raw_config.get("jenkins") if isinstance(raw_config.get("jenkins"), dict) else {}
@@ -782,8 +780,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "jira_instances": jira_instances,
         "confluence": confluence,
         "confluence_instances": confluence_instances,
-        "jenkins": jenkins,
-        "jenkins_instances": jenkins_instances,
+        "jenkins": effective_config.get("jenkins") if isinstance(effective_config.get("jenkins"), dict) else {},
         "github": effective_config.get("github") if isinstance(effective_config.get("github"), dict) else {},
         "raw_github": raw_github,
         "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
@@ -1041,13 +1038,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     else:
         existing_confluence_instances = []
 
-    jenkins_config = config_payload.get("jenkins")
-    if isinstance(jenkins_config, dict):
-        jenkins_instances = jenkins_config.get("instances", [])
-        existing_jenkins_instances = jenkins_instances if isinstance(jenkins_instances, list) else []
-    else:
-        existing_jenkins_instances = []
-
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     if is_section_touched("llm"):
         provider_value = (form.get("llm_provider") or "").strip()
@@ -1172,17 +1162,16 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         config_payload["aws"] = aws_cfg
 
     if is_section_touched("jenkins"):
-        jenkins = (config_payload.get("jenkins") if isinstance(config_payload.get("jenkins"), dict) else {}).copy()
-        jenkins["enabled"] = as_bool(form.get("jenkins_enabled"))
-        if "jenkins_instance_count" in form:
-            jenkins["instances"] = _settings_parse_instances(
-                form,
-                "jenkins",
-                ["enabled", "name", "url", "username", "password"],
-                existing_instances=existing_jenkins_instances,
-                preserve_blank_fields={"password"},
-                clearable_fields={"password"},
-            )
+        jenkins = {"enabled": as_bool(form.get("jenkins_enabled"))}
+        for field, form_field in (
+            ("username", "jenkins_username"),
+            ("password", "jenkins_password"),
+        ):
+            if form_field not in form:
+                continue
+            value = (form.get(form_field) or "").strip()
+            if value:
+                jenkins[field] = value
         jenkins.pop("automation", None)
         config_payload["jenkins"] = jenkins
 
