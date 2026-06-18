@@ -2178,21 +2178,41 @@ def test_derive_session_recovery_notice_for_running_metadata():
 
     js_file = _chat_ui_js_source()
     derive_notice = _extract_js_function(js_file, "deriveSessionRecoveryNotice")
+    normalize_state = _extract_js_function(js_file, "normalizeChatRunState")
+    request_id_from_metadata = _extract_js_function(js_file, "chatRunRequestIdFromMetadata")
+    indicates_running = _extract_js_function(js_file, "metadataIndicatesRunningChatRun")
 
     script = f"""
+const RUNNING_CHAT_RUN_STATES = new Set(["running", "accepted", "queued", "in_progress"]);
+{normalize_state}
+{request_id_from_metadata}
+{indicates_running}
 {derive_notice}
-const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.started" }});
-const byState = deriveSessionRecoveryNotice({{ latest_event_state: "running" }});
-console.log(JSON.stringify({{ byType, byState }}));
+const byType = deriveSessionRecoveryNotice({{ latest_event_type: "chat.started", request_id: "req-1" }});
+const byState = deriveSessionRecoveryNotice({{ latest_event_state: "running", request_id: "req-2" }});
+const byChatlog = deriveSessionRecoveryNotice({{ chatlog_status: "running", request_id: "req-3" }});
+console.log(JSON.stringify({{ byType, byState, byChatlog }}));
 """
     completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["byType"]["level"] == "warning"
-    assert ("interrupted" in data["byType"]["message"].lower()) or ("still be running" in data["byType"]["message"].lower())
-    assert "cannot be resumed" in data["byType"]["message"].lower()
+    assert "reconnecting" in data["byType"]["message"].lower()
     assert data["byState"]["level"] == "warning"
-    assert ("interrupted" in data["byState"]["message"].lower()) or ("still be running" in data["byState"]["message"].lower())
-    assert "cannot be resumed" in data["byState"]["message"].lower()
+    assert "reconnecting" in data["byState"]["message"].lower()
+    assert data["byChatlog"]["level"] == "warning"
+    assert "reconnecting" in data["byChatlog"]["message"].lower()
+
+
+def test_recovered_chat_stream_only_reconnects_for_run_registry_status():
+    js_file = _chat_ui_js_source()
+    recover_start = js_file.find("async function recoverInflightChatRunForAgent")
+    assert recover_start >= 0
+    recover_slice = js_file[recover_start: recover_start + 5200]
+
+    assert "renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, \"Reconnecting\")" in recover_slice
+    assert "source_of_truth: \"session_metadata\"" in recover_slice
+    assert "requestCtx.reconnectStreamAllowed = statusPayload?.source_of_truth === \"run_registry\";" in recover_slice
+    assert "if (requestCtx.reconnectStreamAllowed) void reconnectRecoveredChatStreamForAgent(agentId, requestCtx);" in recover_slice
 
 
 def test_load_session_uses_recovery_notice_only_when_not_locally_active():
