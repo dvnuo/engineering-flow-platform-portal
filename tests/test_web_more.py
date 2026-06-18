@@ -164,6 +164,10 @@ def test_create_delegation_form_uses_trigger_task_reply_fields_only():
         "Interval seconds",
         "Name",
         "Enabled",
+        "modal-card panel create-agent-wizard-card portal-inline-wizard-card",
+        "portal-modal-titlebar",
+        "portal-modal-actions portal-task-form-actions portal-step-wizard-actions",
+        "class=\"stack portal-step-wizard\"",
         "data-wizard-steps=\"basics,source,work,review\"",
         "data-wizard-step-panel=\"basics\"",
         "data-wizard-step-panel=\"source\"",
@@ -302,6 +306,9 @@ def test_delegations_ui_uses_clean_names_and_endpoint():
     assert "/api/delegation-rules" in js
     assert "portal-delegation-" in js
     assert "portal-delegation-" in css
+    assert "modal-card panel create-agent-wizard-card portal-inline-wizard-card" in edit_fn
+    assert "portal-modal-actions portal-task-form-actions portal-step-wizard-actions" in edit_fn
+    assert "class=\"stack portal-step-wizard\"" in edit_fn
     assert "portal-step-wizard" in edit_fn
     assert 'data-wizard-steps="basics,source,work,review"' in edit_fn
     assert "data-delegation-review" in edit_fn
