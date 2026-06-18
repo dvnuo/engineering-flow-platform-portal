@@ -150,6 +150,13 @@ def test_task_create_panel_has_agent_skill_textarea_and_no_template(monkeypatch)
     assert 'name="assignee_agent_id"' in response.text
     assert 'name="skill_name"' in response.text
     assert 'name="task_content"' in response.text
+    assert 'data-wizard-steps="agent,skill,content,review"' in response.text
+    assert 'data-wizard-step-panel="agent"' in response.text
+    assert 'data-wizard-step-panel="skill"' in response.text
+    assert 'data-wizard-step-panel="content"' in response.text
+    assert 'data-wizard-step-panel="review"' in response.text
+    assert 'id="create-task-review"' in response.text
+    assert 'data-wizard-next' in response.text
     assert "Template" not in response.text
 
 
@@ -179,6 +186,9 @@ def test_agent_async_task_detail_renders_final_response_and_followup(monkeypatch
     assert "Finished the work." in response.text
     assert "Review the changes." in response.text
     assert 'id="continue-agent-task-form"' in response.text
+    assert 'data-wizard-steps="followup,review"' in response.text
+    assert 'id="continue-task-review"' in response.text
+    assert 'data-wizard-next' in response.text
     assert 'data-rerun-task="async-task-1"' in response.text
     assert "Start Follow-up" in response.text
     assert "Raw Input" in response.text

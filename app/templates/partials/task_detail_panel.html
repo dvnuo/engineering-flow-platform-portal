@@ -126,19 +126,42 @@
   {% endif %}
 
   {% if task_view_model.show_followup_form %}
-  <form id="continue-agent-task-form" class="portal-task-followup" data-task-id="{{ task.id }}">
-    <label class="portal-form-label" for="agent-task-followup">Follow-up</label>
-    <textarea
-      id="agent-task-followup"
-      name="task_content"
-      class="portal-form-textarea"
-      rows="5"
-      required
-      placeholder="Add the next instruction for this same task session."
-    ></textarea>
-    <div class="portal-task-form-actions">
+  <form
+    id="continue-agent-task-form"
+    class="portal-task-followup portal-step-wizard"
+    data-task-id="{{ task.id }}"
+    data-wizard-steps="followup,review"
+    data-current-step="followup"
+  >
+    <ol class="create-agent-steps" aria-label="Continue task steps" style="--portal-step-count: 2">
+      <li class="create-agent-step is-active" data-wizard-step-indicator="followup">
+        <span class="create-agent-step-index">1</span>
+        <span class="create-agent-step-label">Follow-up</span>
+      </li>
+      <li class="create-agent-step" data-wizard-step-indicator="review">
+        <span class="create-agent-step-index">2</span>
+        <span class="create-agent-step-label">Review</span>
+      </li>
+    </ol>
+    <section class="create-agent-step-panel" data-wizard-step-panel="followup">
+      <label class="portal-form-label" for="agent-task-followup">Follow-up</label>
+      <textarea
+        id="agent-task-followup"
+        name="task_content"
+        class="portal-form-textarea"
+        rows="5"
+        required
+        placeholder="Add the next instruction for this same task session."
+      ></textarea>
+    </section>
+    <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
+      <div id="continue-task-review" class="create-agent-review-grid"></div>
+    </section>
+    <div class="portal-task-form-actions portal-step-wizard-actions">
       <span class="portal-panel-note">Continues this task</span>
-      <button type="submit" class="portal-btn is-primary"><i data-lucide="message-square-plus" class="w-4 h-4"></i>Start Follow-up</button>
+      <button type="button" class="portal-btn is-secondary" data-wizard-back>Back</button>
+      <button type="button" class="portal-btn is-primary" data-wizard-next>Next</button>
+      <button type="submit" class="portal-btn is-primary" data-wizard-submit><i data-lucide="message-square-plus" class="w-4 h-4"></i>Start Follow-up</button>
     </div>
   </form>
   {% endif %}
