@@ -2015,24 +2015,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   overflow: auto;
 }
 
-.modal-card.portal-inline-wizard-card {
-  width: min(900px, 100%);
-  min-width: min(800px, 100%);
-  max-height: none;
-  overflow: visible;
-  justify-self: start;
-}
-
-.portal-inline-wizard-card .portal-modal-titlebar {
-  align-items: flex-start;
-}
-
-.portal-inline-wizard-card .portal-modal-titlebar h3 {
-  margin: 0;
-}
-
-.portal-inline-wizard-card .portal-modal-copy {
-  margin: 4px 0 0;
+.portal-workspace-wizard-modal {
+  padding: 16px;
 }
 
 .create-agent-steps {
@@ -2206,8 +2190,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   grid-template-columns: 1fr;
 }
 
-.portal-inline-wizard-card .portal-task-form-panel,
-.portal-inline-wizard-card .portal-task-followup {
+.portal-workspace-wizard-modal .portal-task-form-panel,
+.portal-workspace-wizard-modal .portal-task-followup {
   border: 0;
   background: transparent;
   border-radius: 0;

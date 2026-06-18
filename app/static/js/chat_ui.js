@@ -11832,6 +11832,8 @@ async function openCreateDelegationRuleModal() {
     dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">No agents available. Create or enable an agent first.</div>`;
     return;
   }
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "delegation-rule-create";
   const agentOptions = mineAgents
     .map((agent) => `<option value="${escapeHtmlAttr(agent.id)}">${safe(agent.name || agent.id)}</option>`)
     .join("");
@@ -11839,13 +11841,14 @@ async function openCreateDelegationRuleModal() {
     .map(([value, label], index) => `<option value="${escapeHtmlAttr(value)}" ${index === 0 ? "selected" : ""}>${safe(label)}</option>`)
     .join("");
   dom.workspaceDetailContent.innerHTML = `
-    <div class="portal-panel-stack">
-      <div class="modal-card panel create-agent-wizard-card portal-inline-wizard-card">
+    <div class="modal portal-workspace-wizard-modal" role="dialog" aria-modal="true" aria-labelledby="create-delegation-modal-title" aria-hidden="false">
+      <div class="modal-card panel create-agent-wizard-card">
         <div class="portal-modal-titlebar">
           <div>
-            <h3>Create Delegation</h3>
+            <h3 id="create-delegation-modal-title">Create Delegation</h3>
             <p class="portal-modal-copy">Route matching work into a writable agent.</p>
           </div>
+          <button class="portal-modal-close" type="button" title="Close" aria-label="Close" data-close-delegation-create-modal>✕</button>
         </div>
         <form
           id="create-delegation-inline-form"
@@ -11933,14 +11936,17 @@ async function openEditDelegationRuleModal(ruleId) {
   const intervalSeconds = Number(schedule.type === "interval" ? (schedule.interval_seconds || 60) : (detail.interval_seconds || 60));
   const sourceScope = detail.source_scope || {};
   const sourceConditions = detail.source_conditions || {};
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "delegation-rule-edit";
   dom.workspaceDetailContent.innerHTML = `
-    <div class="portal-panel-stack">
-      <div class="modal-card panel create-agent-wizard-card portal-inline-wizard-card">
+    <div class="modal portal-workspace-wizard-modal" role="dialog" aria-modal="true" aria-labelledby="edit-delegation-modal-title" aria-hidden="false">
+      <div class="modal-card panel create-agent-wizard-card">
         <div class="portal-modal-titlebar">
           <div>
-            <h3>Edit Delegation</h3>
+            <h3 id="edit-delegation-modal-title">Edit Delegation</h3>
             <p class="portal-modal-copy">Update how this delegation selects source work and runs the agent.</p>
           </div>
+          <button class="portal-modal-close" type="button" title="Close" aria-label="Close" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}">✕</button>
         </div>
         <form
           id="edit-delegation-inline-form"
@@ -12302,6 +12308,39 @@ function initializeInlineWizard(formEl) {
   if (!formEl || !inlineWizardSteps(formEl).length) return;
   setInlineWizardStep(formEl, inlineWizardCurrentStep(formEl));
   renderInlineWizardReview(formEl);
+}
+
+function openWorkspaceWizardModal(modalEl) {
+  if (!modalEl) return;
+  modalEl.classList.remove("hidden");
+  modalEl.setAttribute("aria-hidden", "false");
+  const formEl = modalEl.querySelector(".portal-step-wizard");
+  if (formEl) {
+    setInlineWizardStep(formEl, inlineWizardCurrentStep(formEl));
+    renderInlineWizardReview(formEl);
+  }
+  const focusTarget = formEl?.querySelector("input:not([type='hidden']):not(:disabled), select:not(:disabled), textarea:not(:disabled)")
+    || modalEl.querySelector("button:not(:disabled)");
+  focusTarget?.focus?.();
+}
+
+function closeWorkspaceWizardModal(modalEl) {
+  if (!modalEl) return;
+  modalEl.classList.add("hidden");
+  modalEl.setAttribute("aria-hidden", "true");
+}
+
+function closeCreateDelegationRuleModal() {
+  state.selectedDelegationRuleId = null;
+  renderDelegationRuleNavList();
+  renderWorkspaceDetailPlaceholder(
+    state.delegations.length ? "Select a delegation from the left sidebar." : "No delegations found.",
+    "delegations-placeholder",
+  );
+  syncMainHeader();
+  if (!isApplyingPortalRoute) {
+    commitPortalRoute({ section: "delegations" });
+  }
 }
 
 function _safeJson(raw) {
@@ -13602,6 +13641,13 @@ function bindEvents() {
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const closeDelegationCreateBtn = event.target.closest("[data-close-delegation-create-modal]");
+    if (closeDelegationCreateBtn) {
+      event.preventDefault();
+      closeCreateDelegationRuleModal();
+      return;
+    }
+
     const wizardButton = event.target.closest("[data-wizard-back], [data-wizard-next]");
     if (wizardButton) {
       event.preventDefault();
@@ -13659,6 +13705,27 @@ function bindEvents() {
   });
 
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const closeTaskCreateBtn = event.target.closest("[data-close-task-create-modal]");
+    if (closeTaskCreateBtn) {
+      event.preventDefault();
+      await returnFromTaskDetailToSidebar();
+      return;
+    }
+
+    const openTaskFollowupBtn = event.target.closest("[data-open-task-followup-modal]");
+    if (openTaskFollowupBtn) {
+      event.preventDefault();
+      openWorkspaceWizardModal(dom.workspaceDetailContent.querySelector("#task-followup-modal"));
+      return;
+    }
+
+    const closeTaskFollowupBtn = event.target.closest("[data-close-task-followup-modal]");
+    if (closeTaskFollowupBtn) {
+      event.preventDefault();
+      closeWorkspaceWizardModal(closeTaskFollowupBtn.closest(".modal"));
+      return;
+    }
+
     const openCreateTaskBtn = event.target.closest("[data-open-create-task-main]");
     if (openCreateTaskBtn) {
       event.preventDefault();
