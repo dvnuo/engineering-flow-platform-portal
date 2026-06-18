@@ -164,8 +164,11 @@ def test_create_delegation_form_uses_trigger_task_reply_fields_only():
         "Interval seconds",
         "Name",
         "Enabled",
-        "modal-card panel create-agent-wizard-card portal-inline-wizard-card",
+        "modal portal-workspace-wizard-modal",
+        "aria-modal=\"true\"",
+        "modal-card panel create-agent-wizard-card",
         "portal-modal-titlebar",
+        "data-close-delegation-create-modal",
         "portal-modal-actions portal-task-form-actions portal-step-wizard-actions",
         "class=\"stack portal-step-wizard\"",
         "data-wizard-steps=\"basics,source,work,review\"",
@@ -192,6 +195,10 @@ def test_create_delegation_form_uses_trigger_task_reply_fields_only():
     assert '"interval_seconds"' in submit_fn
     assert "task_content" not in submit_fn
     assert "prepareInlineWizardSubmit" in js
+    assert "function openWorkspaceWizardModal" in js
+    assert "function closeWorkspaceWizardModal" in js
+    assert "function closeCreateDelegationRuleModal" in js
+    assert "[data-close-delegation-create-modal]" in js
     assert "renderDelegationReview" in js
 
     old_fields = [
@@ -306,13 +313,19 @@ def test_delegations_ui_uses_clean_names_and_endpoint():
     assert "/api/delegation-rules" in js
     assert "portal-delegation-" in js
     assert "portal-delegation-" in css
-    assert "modal-card panel create-agent-wizard-card portal-inline-wizard-card" in edit_fn
+    assert "modal portal-workspace-wizard-modal" in edit_fn
+    assert "aria-modal=\"true\"" in edit_fn
+    assert "modal-card panel create-agent-wizard-card" in edit_fn
+    assert "portal-modal-close" in edit_fn
     assert "portal-modal-actions portal-task-form-actions portal-step-wizard-actions" in edit_fn
     assert "class=\"stack portal-step-wizard\"" in edit_fn
     assert "portal-step-wizard" in edit_fn
     assert 'data-wizard-steps="basics,source,work,review"' in edit_fn
     assert "data-delegation-review" in edit_fn
     assert "data-wizard-submit" in edit_fn
+    assert "[data-open-task-followup-modal]" in js
+    assert "[data-close-task-followup-modal]" in js
+    assert "[data-close-task-create-modal]" in js
 
     assert "/api/automation-rules" not in js
     assert "portal-automation-" not in js

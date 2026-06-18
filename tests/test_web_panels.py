@@ -146,7 +146,10 @@ def test_task_create_panel_has_agent_skill_textarea_and_no_template(monkeypatch)
     client = _setup_create_panel_client(monkeypatch, [agent])
     response = client.get("/app/tasks/create/panel")
     assert response.status_code == 200
-    assert "modal-card panel create-agent-wizard-card portal-inline-wizard-card" in response.text
+    assert 'class="modal portal-workspace-wizard-modal"' in response.text
+    assert 'aria-modal="true"' in response.text
+    assert 'class="modal-card panel create-agent-wizard-card"' in response.text
+    assert "data-close-task-create-modal" in response.text
     assert 'id="create-agent-async-task-form"' in response.text
     assert 'class="stack portal-task-create-form portal-step-wizard"' in response.text
     assert 'name="assignee_agent_id"' in response.text
@@ -187,7 +190,11 @@ def test_agent_async_task_detail_renders_final_response_and_followup(monkeypatch
     assert "Review current branch" in response.text
     assert "Finished the work." in response.text
     assert "Review the changes." in response.text
-    assert "modal-card panel create-agent-wizard-card portal-inline-wizard-card portal-task-followup-card" in response.text
+    assert "data-open-task-followup-modal" in response.text
+    assert 'id="task-followup-modal"' in response.text
+    assert 'class="modal portal-workspace-wizard-modal hidden"' in response.text
+    assert 'class="modal-card panel create-agent-wizard-card portal-task-followup-card"' in response.text
+    assert "data-close-task-followup-modal" in response.text
     assert 'id="continue-agent-task-form"' in response.text
     assert 'class="stack portal-task-followup portal-step-wizard"' in response.text
     assert 'data-wizard-steps="followup,review"' in response.text

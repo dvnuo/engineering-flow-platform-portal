@@ -21,6 +21,9 @@
       {% if task_view_model.can_cancel %}
       <button class="portal-btn is-danger" type="button" data-cancel-task="{{ task.id }}"><i data-lucide="square" class="w-4 h-4"></i>Cancel</button>
       {% endif %}
+      {% if task_view_model.show_followup_form %}
+      <button class="portal-btn is-primary" type="button" data-open-task-followup-modal><i data-lucide="message-square-plus" class="w-4 h-4"></i>Add Follow-up</button>
+      {% endif %}
     </div>
   </div>
 
@@ -126,52 +129,55 @@
   {% endif %}
 
   {% if task_view_model.show_followup_form %}
-  <div class="modal-card panel create-agent-wizard-card portal-inline-wizard-card portal-task-followup-card">
-    <div class="portal-modal-titlebar">
-      <div>
-        <h3>Continue Task</h3>
-        <p class="portal-modal-copy">Add the next instruction to this same task session.</p>
+  <div id="task-followup-modal" class="modal portal-workspace-wizard-modal hidden" role="dialog" aria-modal="true" aria-labelledby="task-followup-modal-title" aria-hidden="true">
+    <div class="modal-card panel create-agent-wizard-card portal-task-followup-card">
+      <div class="portal-modal-titlebar">
+        <div>
+          <h3 id="task-followup-modal-title">Continue Task</h3>
+          <p class="portal-modal-copy">Add the next instruction to this same task session.</p>
+        </div>
+        <button type="button" class="portal-modal-close" title="Close" aria-label="Close" data-close-task-followup-modal>✕</button>
       </div>
-    </div>
 
-    <form
-      id="continue-agent-task-form"
-      class="stack portal-task-followup portal-step-wizard"
-      data-task-id="{{ task.id }}"
-      data-wizard-steps="followup,review"
-      data-current-step="followup"
-    >
-      <ol class="create-agent-steps" aria-label="Continue task steps" style="--portal-step-count: 2">
-        <li class="create-agent-step is-active" data-wizard-step-indicator="followup">
-          <span class="create-agent-step-index">1</span>
-          <span class="create-agent-step-label">Follow-up</span>
-        </li>
-        <li class="create-agent-step" data-wizard-step-indicator="review">
-          <span class="create-agent-step-index">2</span>
-          <span class="create-agent-step-label">Review</span>
-        </li>
-      </ol>
-      <section class="create-agent-step-panel" data-wizard-step-panel="followup">
-        <label class="portal-form-label" for="agent-task-followup">Follow-up</label>
-        <textarea
-          id="agent-task-followup"
-          name="task_content"
-          class="portal-form-textarea"
-          rows="5"
-          required
-          placeholder="Add the next instruction for this same task session."
-        ></textarea>
-      </section>
-      <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
-        <div id="continue-task-review" class="create-agent-review-grid"></div>
-      </section>
-      <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
-        <span class="portal-panel-note">Continues this task</span>
-        <button type="button" class="portal-btn is-secondary" data-wizard-back>Back</button>
-        <button type="button" class="portal-btn is-primary" data-wizard-next>Next</button>
-        <button type="submit" class="portal-btn is-primary" data-wizard-submit><i data-lucide="message-square-plus" class="w-4 h-4"></i>Start Follow-up</button>
-      </div>
-    </form>
+      <form
+        id="continue-agent-task-form"
+        class="stack portal-task-followup portal-step-wizard"
+        data-task-id="{{ task.id }}"
+        data-wizard-steps="followup,review"
+        data-current-step="followup"
+      >
+        <ol class="create-agent-steps" aria-label="Continue task steps" style="--portal-step-count: 2">
+          <li class="create-agent-step is-active" data-wizard-step-indicator="followup">
+            <span class="create-agent-step-index">1</span>
+            <span class="create-agent-step-label">Follow-up</span>
+          </li>
+          <li class="create-agent-step" data-wizard-step-indicator="review">
+            <span class="create-agent-step-index">2</span>
+            <span class="create-agent-step-label">Review</span>
+          </li>
+        </ol>
+        <section class="create-agent-step-panel" data-wizard-step-panel="followup">
+          <label class="portal-form-label" for="agent-task-followup">Follow-up</label>
+          <textarea
+            id="agent-task-followup"
+            name="task_content"
+            class="portal-form-textarea"
+            rows="5"
+            required
+            placeholder="Add the next instruction for this same task session."
+          ></textarea>
+        </section>
+        <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
+          <div id="continue-task-review" class="create-agent-review-grid"></div>
+        </section>
+        <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
+          <span class="portal-panel-note">Continues this task</span>
+          <button type="button" class="portal-btn is-secondary" data-wizard-back>Back</button>
+          <button type="button" class="portal-btn is-primary" data-wizard-next>Next</button>
+          <button type="submit" class="portal-btn is-primary" data-wizard-submit><i data-lucide="message-square-plus" class="w-4 h-4"></i>Start Follow-up</button>
+        </div>
+      </form>
+    </div>
   </div>
   {% endif %}
 
