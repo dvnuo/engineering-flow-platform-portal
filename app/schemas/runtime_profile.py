@@ -13,6 +13,7 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "confluence",
     "github",
     "aws",
+    "jenkins",
     "git",
     "debug",
 }
@@ -62,6 +63,12 @@ PORTAL_MANAGED_FIELD_TREE = {
         "username": True,
         "password": True,
         "domain": True,
+    },
+    "jenkins": {
+        "enabled": True,
+        "instances": True,
+        "default_instance": True,
+        "defaultInstance": True,
     },
     "git": {
         "user": {
@@ -253,6 +260,25 @@ def sanitize_runtime_profile_confluence(value) -> dict:
     return out
 
 
+def sanitize_runtime_profile_jenkins(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    if "instances" in value:
+        instances = []
+        for item in sanitize_runtime_profile_external_instances(value.get("instances"), kind="jenkins"):
+            filtered = {key: item[key] for key in ("enabled", "name", "url", "username", "password") if key in item}
+            if filtered.get("url"):
+                instances.append(filtered)
+        out["instances"] = instances
+    default_instance = str(value.get("default_instance") or value.get("defaultInstance") or "").strip()
+    if default_instance:
+        out["default_instance"] = default_instance
+    return out
+
+
 def sanitize_runtime_profile_github(value) -> dict:
     if not isinstance(value, dict):
         return {}
@@ -383,6 +409,8 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         sanitized["github"] = sanitize_runtime_profile_github(sanitized.get("github"))
     if "aws" in sanitized:
         sanitized["aws"] = sanitize_runtime_profile_aws(sanitized.get("aws"))
+    if "jenkins" in sanitized:
+        sanitized["jenkins"] = sanitize_runtime_profile_jenkins(sanitized.get("jenkins"))
     if "proxy" in sanitized:
         sanitized["proxy"] = sanitize_runtime_profile_proxy(sanitized.get("proxy"))
     if "git" in sanitized:
@@ -436,7 +464,7 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
-    for section in ("jira", "confluence"):
+    for section in ("jira", "confluence", "jenkins"):
         cfg = redacted.get(section)
         if not isinstance(cfg, dict):
             continue
@@ -449,9 +477,10 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
                 continue
             inst_copy = inst.copy()
             inst_copy["password_present"] = bool(str(inst_copy.pop("password", "")).strip())
-            token_values = [str(inst_copy.pop(key, "")).strip() for key in ("token", "api_token", "access_token")]
-            token_present = any(token_values)
-            inst_copy["token_present"] = token_present
+            if section != "jenkins":
+                token_values = [str(inst_copy.pop(key, "")).strip() for key in ("token", "api_token", "access_token")]
+                token_present = any(token_values)
+                inst_copy["token_present"] = token_present
             redacted_instances.append(inst_copy)
         cfg["instances"] = redacted_instances
     return redacted

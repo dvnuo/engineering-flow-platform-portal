@@ -15,6 +15,7 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
     "confluence",
     "github",
     "aws",
+    "jenkins",
     "git",
     "debug",
 )
@@ -22,10 +23,10 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
 RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "Use bash for runtime profile CLI tools: jira/confluence for Atlassian, "
     "gh for GitHub issues, PRs, and api calls, aws for AWS operations, "
-    "and git for clone, fetch, push, and status. "
-    "For every jira and confluence command add --json. For complex jira/confluence calls, "
+    "jenkins for Jenkins controller operations, and git for clone, fetch, push, and status. "
+    "For every jira, confluence, and jenkins command add --json. For complex jira/confluence/jenkins calls, "
     "inspect commands, schema, or help llm first, for example `jira commands --json`, "
-    "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence commands. "
+    "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins commands. "
     "For AWS, prefer `aws --output json` for inspection and avoid changing cloud resources unless the user asks. "
     "Run write operations with --dry-run before executing them. Use --yes only for destructive "
     "operations after the user explicitly confirms. Runtime profile credentials are applied in "
@@ -159,6 +160,7 @@ def _has_enabled_external_cli_config(config: dict[str, Any]) -> bool:
     return (
         _has_enabled_instance_section(config, "jira")
         or _has_enabled_instance_section(config, "confluence")
+        or _has_enabled_instance_section(config, "jenkins")
         or _has_enabled_github_config(config)
         or _has_enabled_aws_config(config)
         or _has_git_config(config)
