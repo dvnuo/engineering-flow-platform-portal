@@ -86,7 +86,17 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "create-runtime-profile-open" not in js
     assert "runtime_types" in js
     assert "runtime_type: runtimeType" in js
-    assert "updates.runtime_type = runtimeType" in js
+    assert "form.dataset.runtimeType" in js
+    assert "updates.runtime_type" not in js
+    assert "edit-runtime-type-select" not in html
+    assert "edit-runtime-type-display" in html
+    assert 'data-edit-step-panel="runtime"' in html
+    assert 'data-edit-step-panel="profile"' in html
+    assert 'data-edit-step-panel="instructions"' in html
+    assert 'data-edit-step-panel="skills"' in html
+    assert 'data-edit-step-panel="review"' in html
+    assert 'id="edit-agent-settings-branch-select"' in html
+    assert 'id="edit-skill-branch-select"' in html
     assert "const runtimeTypeBadge" in js
     assert "${runtimeTypeBadge}${runtimeBadge}" in js
     assert "toolRepoSection" not in js

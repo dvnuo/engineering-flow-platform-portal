@@ -450,7 +450,7 @@ def test_frontend_assets_and_templates_are_syntax_valid():
     env = Environment(loader=FileSystemLoader("app/templates"))
     env.filters["data_attr"] = data_attr
     for template_path in Path("app/templates").rglob("*.html"):
-        rel_path = str(template_path.relative_to("app/templates"))
+        rel_path = template_path.relative_to("app/templates").as_posix()
         env.get_template(rel_path)
 
 

@@ -2140,12 +2140,37 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   display: none;
 }
 
+.edit-agent-wizard-actions [data-edit-submit] {
+  display: none;
+}
+
 .create-agent-wizard-actions.is-review [data-create-next] {
+  display: none;
+}
+
+.edit-agent-wizard-actions.is-review [data-edit-next] {
   display: none;
 }
 
 .create-agent-wizard-actions.is-review [data-create-submit] {
   display: inline-flex;
+}
+
+.edit-agent-wizard-actions.is-review [data-edit-submit] {
+  display: inline-flex;
+}
+
+.portal-readonly-field {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--portal-border);
+  border-radius: 8px;
+  background: var(--portal-surface-muted);
+  color: var(--portal-text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .runtime-type-fieldset {
