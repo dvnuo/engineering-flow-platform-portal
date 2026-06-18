@@ -32,6 +32,7 @@ def test_chat_ui_includes_agent_defaults_loading_and_application_helpers():
 
 def test_skill_repo_ui_fields_and_payload_regression():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
+    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert 'name="repo_url"' not in html
     assert 'name="branch"' not in html
     assert 'data-create-step-panel="runtime"' in html
@@ -54,6 +55,9 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "Agent Settings Subdirectory" not in html
     assert "Skill Repository" in html
     assert "Skill Branch" in html
+    assert "Open Runtime Profiles" not in html
+    assert 'id="create-runtime-profile-open"' not in html
+    assert "Manage runtime profiles from the Runtime Profiles section" in html
     assert 'id="create-agent-settings-branch-select"' in html
     assert 'id="create-skill-branch-select"' in html
     assert "create-agent-settings-branch-list" not in html
@@ -79,6 +83,7 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert '"personalization"' not in js
     assert "populateBranchSelect" in js
     assert "populateBranchDatalist" not in js
+    assert "create-runtime-profile-open" not in js
     assert "runtime_types" in js
     assert "runtime_type: runtimeType" in js
     assert "updates.runtime_type = runtimeType" in js
@@ -90,3 +95,5 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "empty string to clear" not in js
     assert "leave empty to use configured default" in html
     assert "leave empty to clear" not in html
+    assert ".modal-card.create-agent-wizard-card" in css
+    assert "min-width: min(800px, calc(100vw - 2rem));" in css
