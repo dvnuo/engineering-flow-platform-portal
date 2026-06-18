@@ -11840,54 +11840,61 @@ async function openCreateDelegationRuleModal() {
     .join("");
   dom.workspaceDetailContent.innerHTML = `
     <div class="portal-panel-stack">
-      <h3>Create Delegation</h3>
-      <form
-        id="create-delegation-inline-form"
-        class="portal-panel-stack portal-step-wizard"
-        data-wizard-steps="basics,source,work,review"
-        data-current-step="basics"
-      >
-        <ol class="create-agent-steps" aria-label="Create delegation steps" style="--portal-step-count: 4">
-          <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
-            <span class="create-agent-step-index">1</span>
-            <span class="create-agent-step-label">Basics</span>
-          </li>
-          <li class="create-agent-step" data-wizard-step-indicator="source">
-            <span class="create-agent-step-index">2</span>
-            <span class="create-agent-step-label">Source</span>
-          </li>
-          <li class="create-agent-step" data-wizard-step-indicator="work">
-            <span class="create-agent-step-index">3</span>
-            <span class="create-agent-step-label">Work</span>
-          </li>
-          <li class="create-agent-step" data-wizard-step-indicator="review">
-            <span class="create-agent-step-index">4</span>
-            <span class="create-agent-step-label">Review</span>
-          </li>
-        </ol>
-        <section class="portal-panel-section create-agent-step-panel" data-wizard-step-panel="basics">
-          <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" required /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
-          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
-        </section>
-        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="source">
-          <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
-          <div data-delegation-source-controls></div>
-        </section>
-        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="work">
-          <div data-delegation-schedule-controls></div>
-          <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
-          <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
-        </section>
-        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="review">
-          <div class="create-agent-review-grid" data-delegation-review></div>
-        </section>
-        <div class="portal-task-form-actions portal-step-wizard-actions">
-          <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
-          <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
-          <button class="portal-btn is-primary" type="submit" data-wizard-submit>Create Delegation</button>
+      <div class="modal-card panel create-agent-wizard-card portal-inline-wizard-card">
+        <div class="portal-modal-titlebar">
+          <div>
+            <h3>Create Delegation</h3>
+            <p class="portal-modal-copy">Route matching work into a writable agent.</p>
+          </div>
         </div>
-      </form>
+        <form
+          id="create-delegation-inline-form"
+          class="stack portal-step-wizard"
+          data-wizard-steps="basics,source,work,review"
+          data-current-step="basics"
+        >
+          <ol class="create-agent-steps" aria-label="Create delegation steps" style="--portal-step-count: 4">
+            <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
+              <span class="create-agent-step-index">1</span>
+              <span class="create-agent-step-label">Basics</span>
+            </li>
+            <li class="create-agent-step" data-wizard-step-indicator="source">
+              <span class="create-agent-step-index">2</span>
+              <span class="create-agent-step-label">Source</span>
+            </li>
+            <li class="create-agent-step" data-wizard-step-indicator="work">
+              <span class="create-agent-step-index">3</span>
+              <span class="create-agent-step-label">Work</span>
+            </li>
+            <li class="create-agent-step" data-wizard-step-indicator="review">
+              <span class="create-agent-step-index">4</span>
+              <span class="create-agent-step-label">Review</span>
+            </li>
+          </ol>
+          <section class="create-agent-step-panel" data-wizard-step-panel="basics">
+            <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" required /></label>
+            <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+            <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
+          </section>
+          <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
+            <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+            <div data-delegation-source-controls></div>
+          </section>
+          <section class="create-agent-step-panel hidden" data-wizard-step-panel="work">
+            <div data-delegation-schedule-controls></div>
+            <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
+            <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
+          </section>
+          <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
+            <div class="create-agent-review-grid" data-delegation-review></div>
+          </section>
+          <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
+            <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
+            <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
+            <button class="portal-btn is-primary" type="submit" data-wizard-submit>Create Delegation</button>
+          </div>
+        </form>
+      </div>
     </div>
   `;
   const form = document.getElementById("create-delegation-inline-form");
@@ -11928,67 +11935,74 @@ async function openEditDelegationRuleModal(ruleId) {
   const sourceConditions = detail.source_conditions || {};
   dom.workspaceDetailContent.innerHTML = `
     <div class="portal-panel-stack">
-      <h3>Edit Delegation</h3>
-      <form
-        id="edit-delegation-inline-form"
-        class="portal-panel-stack portal-step-wizard"
-        data-wizard-steps="basics,source,work,review"
-        data-current-step="basics"
-        data-rule-id="${escapeHtmlAttr(detail.id)}"
-        data-original-name="${escapeHtmlAttr(detail.name || "")}"
-        data-original-target-agent-id="${escapeHtmlAttr(currentAgentId)}"
-        data-original-source="${escapeHtmlAttr(sourceValue)}"
-        data-original-source-scope="${delegationJsonAttr(sourceScope)}"
-        data-original-source-conditions="${delegationJsonAttr(sourceConditions)}"
-        data-original-schedule="${delegationJsonAttr(schedule)}"
-        data-original-task-prompt="${escapeHtmlAttr(JSON.stringify(taskPrompt))}"
-        data-original-skill-name="${escapeHtmlAttr(skillName)}"
-        data-original-interval-seconds="${escapeHtmlAttr(String(intervalSeconds))}"
-        data-original-enabled="${detail.enabled ? "true" : "false"}"
-        data-selected-skill-name="${escapeHtmlAttr(skillName)}"
-      >
-        <ol class="create-agent-steps" aria-label="Edit delegation steps" style="--portal-step-count: 4">
-          <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
-            <span class="create-agent-step-index">1</span>
-            <span class="create-agent-step-label">Basics</span>
-          </li>
-          <li class="create-agent-step" data-wizard-step-indicator="source">
-            <span class="create-agent-step-index">2</span>
-            <span class="create-agent-step-label">Source</span>
-          </li>
-          <li class="create-agent-step" data-wizard-step-indicator="work">
-            <span class="create-agent-step-index">3</span>
-            <span class="create-agent-step-label">Work</span>
-          </li>
-          <li class="create-agent-step" data-wizard-step-indicator="review">
-            <span class="create-agent-step-index">4</span>
-            <span class="create-agent-step-label">Review</span>
-          </li>
-        </ol>
-        <section class="portal-panel-section create-agent-step-panel" data-wizard-step-panel="basics">
-          <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
-          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
-        </section>
-        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="source">
-          <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
-          <div data-delegation-source-controls></div>
-        </section>
-        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="work">
-          <div data-delegation-schedule-controls></div>
-          <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
-          <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
-        </section>
-        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="review">
-          <div class="create-agent-review-grid" data-delegation-review></div>
-        </section>
-        <div class="portal-task-form-actions portal-step-wizard-actions">
-          <button class="portal-btn is-secondary" type="button" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="arrow-left" class="w-4 h-4"></i>Cancel</button>
-          <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
-          <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
-          <button class="portal-btn is-primary" type="submit" data-wizard-submit><i data-lucide="save" class="w-4 h-4"></i>Save</button>
+      <div class="modal-card panel create-agent-wizard-card portal-inline-wizard-card">
+        <div class="portal-modal-titlebar">
+          <div>
+            <h3>Edit Delegation</h3>
+            <p class="portal-modal-copy">Update how this delegation selects source work and runs the agent.</p>
+          </div>
         </div>
-      </form>
+        <form
+          id="edit-delegation-inline-form"
+          class="stack portal-step-wizard"
+          data-wizard-steps="basics,source,work,review"
+          data-current-step="basics"
+          data-rule-id="${escapeHtmlAttr(detail.id)}"
+          data-original-name="${escapeHtmlAttr(detail.name || "")}"
+          data-original-target-agent-id="${escapeHtmlAttr(currentAgentId)}"
+          data-original-source="${escapeHtmlAttr(sourceValue)}"
+          data-original-source-scope="${delegationJsonAttr(sourceScope)}"
+          data-original-source-conditions="${delegationJsonAttr(sourceConditions)}"
+          data-original-schedule="${delegationJsonAttr(schedule)}"
+          data-original-task-prompt="${escapeHtmlAttr(JSON.stringify(taskPrompt))}"
+          data-original-skill-name="${escapeHtmlAttr(skillName)}"
+          data-original-interval-seconds="${escapeHtmlAttr(String(intervalSeconds))}"
+          data-original-enabled="${detail.enabled ? "true" : "false"}"
+          data-selected-skill-name="${escapeHtmlAttr(skillName)}"
+        >
+          <ol class="create-agent-steps" aria-label="Edit delegation steps" style="--portal-step-count: 4">
+            <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
+              <span class="create-agent-step-index">1</span>
+              <span class="create-agent-step-label">Basics</span>
+            </li>
+            <li class="create-agent-step" data-wizard-step-indicator="source">
+              <span class="create-agent-step-index">2</span>
+              <span class="create-agent-step-label">Source</span>
+            </li>
+            <li class="create-agent-step" data-wizard-step-indicator="work">
+              <span class="create-agent-step-index">3</span>
+              <span class="create-agent-step-label">Work</span>
+            </li>
+            <li class="create-agent-step" data-wizard-step-indicator="review">
+              <span class="create-agent-step-index">4</span>
+              <span class="create-agent-step-label">Review</span>
+            </li>
+          </ol>
+          <section class="create-agent-step-panel" data-wizard-step-panel="basics">
+            <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
+            <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+            <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
+          </section>
+          <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
+            <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+            <div data-delegation-source-controls></div>
+          </section>
+          <section class="create-agent-step-panel hidden" data-wizard-step-panel="work">
+            <div data-delegation-schedule-controls></div>
+            <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
+            <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
+          </section>
+          <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
+            <div class="create-agent-review-grid" data-delegation-review></div>
+          </section>
+          <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
+            <button class="portal-btn is-secondary" type="button" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="arrow-left" class="w-4 h-4"></i>Cancel</button>
+            <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
+            <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
+            <button class="portal-btn is-primary" type="submit" data-wizard-submit><i data-lucide="save" class="w-4 h-4"></i>Save</button>
+          </div>
+        </form>
+      </div>
     </div>
   `;
   const form = document.getElementById("edit-delegation-inline-form");
