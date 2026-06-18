@@ -205,7 +205,7 @@
       </div>
     </section>
 
-    <section class="portal-panel-section" data-instance-group="jenkins" data-managed-section="jenkins">
+    <section class="portal-panel-section" data-managed-section="jenkins">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
@@ -219,9 +219,10 @@
           </label>
           <span>Enabled</span>
       </div>
-      <input type="hidden" name="jenkins_instance_count" value="{{ jenkins_instances|length }}" data-instance-count="jenkins" />
-      <div class="space-y-2" data-instance-container="jenkins">{% for inst in jenkins_instances %}<div class="portal-settings-instance-card" data-instance-item="jenkins"><input type="hidden" data-original-field="name" value="{{ inst.get('name','') }}" /><input type="hidden" data-original-field="url" value="{{ inst.get('url','') }}" /><div class="portal-settings-instance-head"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><div class="portal-checkbox-row"><input type="checkbox" data-field="enabled" value="1" aria-label="Enabled" {% if inst.get('enabled', True) %}checked{% endif %} /><span>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jenkins">Remove</button></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://jenkins.example.com)" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Username" class="portal-form-input" /><input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" /></div></div>{% endfor %}</div>
-      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="jenkins">+ Add Jenkins Instance</button>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="jenkins_username" value="{{ raw_jenkins.get('username', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="jenkins_password" value="{{ raw_jenkins.get('password', '') }}" class="portal-form-input" /></label>
+      </div>
     </section>
 
     <section class="portal-panel-section" data-managed-section="git">

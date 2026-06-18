@@ -66,9 +66,8 @@ PORTAL_MANAGED_FIELD_TREE = {
     },
     "jenkins": {
         "enabled": True,
-        "instances": True,
-        "default_instance": True,
-        "defaultInstance": True,
+        "username": True,
+        "password": True,
     },
     "git": {
         "user": {
@@ -266,16 +265,10 @@ def sanitize_runtime_profile_jenkins(value) -> dict:
     out: dict = {}
     if "enabled" in value:
         out["enabled"] = _runtime_profile_bool(value.get("enabled"))
-    if "instances" in value:
-        instances = []
-        for item in sanitize_runtime_profile_external_instances(value.get("instances"), kind="jenkins"):
-            filtered = {key: item[key] for key in ("enabled", "name", "url", "username", "password") if key in item}
-            if filtered.get("url"):
-                instances.append(filtered)
-        out["instances"] = instances
-    default_instance = str(value.get("default_instance") or value.get("defaultInstance") or "").strip()
-    if default_instance:
-        out["default_instance"] = default_instance
+    for key in ("username", "password"):
+        cleaned = str(value.get(key) or "").strip()
+        if cleaned:
+            out[key] = cleaned
     return out
 
 
@@ -461,10 +454,13 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     aws = redacted.get("aws")
     if isinstance(aws, dict):
         aws["password_present"] = bool(str(aws.pop("password", "")).strip())
+    jenkins = redacted.get("jenkins")
+    if isinstance(jenkins, dict):
+        jenkins["password_present"] = bool(str(jenkins.pop("password", "")).strip())
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
-    for section in ("jira", "confluence", "jenkins"):
+    for section in ("jira", "confluence"):
         cfg = redacted.get(section)
         if not isinstance(cfg, dict):
             continue
@@ -477,10 +473,9 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
                 continue
             inst_copy = inst.copy()
             inst_copy["password_present"] = bool(str(inst_copy.pop("password", "")).strip())
-            if section != "jenkins":
-                token_values = [str(inst_copy.pop(key, "")).strip() for key in ("token", "api_token", "access_token")]
-                token_present = any(token_values)
-                inst_copy["token_present"] = token_present
+            token_values = [str(inst_copy.pop(key, "")).strip() for key in ("token", "api_token", "access_token")]
+            token_present = any(token_values)
+            inst_copy["token_present"] = token_present
             redacted_instances.append(inst_copy)
         cfg["instances"] = redacted_instances
     return redacted

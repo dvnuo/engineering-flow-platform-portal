@@ -404,36 +404,27 @@ def test_confluence_instance_ui_blocks_omit_api_version():
     assert 'data-field="api_version"' not in settings_conf_block
     assert "REST API v1" not in runtime_conf_block
     assert "REST API v1" not in settings_conf_block
-    confluence_branch = js[js.index('const projectHtml = group === "jira"'):js.index("const usernamePasswordHtml")]
+    confluence_branch = js[js.index('const apiVersionHtml = group === "jira"'):js.index("const urlPlaceholder")]
     assert "REST API v1" not in confluence_branch
     assert 'group === "confluence"' not in confluence_branch
 
 
-def test_jenkins_instance_ui_uses_username_password_only():
+def test_jenkins_ui_uses_profile_credentials_only():
     from pathlib import Path
 
     runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
     settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
-    runtime_start = runtime_tpl.index('data-instance-container="jenkins"')
-    runtime_end = runtime_tpl.index('data-action="add-instance" data-group="jenkins"')
-    runtime_block = runtime_tpl[runtime_start:runtime_end]
+    for template in (runtime_tpl, settings_tpl):
+        assert 'name="jenkins_username"' in template
+        assert 'name="jenkins_password"' in template
+        assert 'data-instance-container="jenkins"' not in template
+        assert 'data-action="add-instance" data-group="jenkins"' not in template
+        assert "https://jenkins.example.com" not in template
 
-    settings_start = settings_tpl.index('data-instance-container="jenkins"')
-    settings_end = settings_tpl.index('data-action="add-instance" data-group="jenkins"')
-    settings_block = settings_tpl[settings_start:settings_end]
-
-    for block in (runtime_block, settings_block):
-        assert 'data-field="username"' in block
-        assert 'data-field="password"' in block
-        assert 'data-field="token"' not in block
-        assert 'data-field="api_version"' not in block
-        assert "https://jenkins.example.com" in block
-
-    jenkins_branch = js[js.index('const isJenkins = group === "jenkins"'):js.index("const tokenAndScopeHtml")]
-    assert "Username" in jenkins_branch
-    assert "https://jenkins.example.com" in jenkins_branch
+    assert 'group === "jenkins"' not in js
+    assert 'normalizeInstanceInputs(root, "jenkins")' not in js
 
 
 def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypatch):
@@ -511,12 +502,8 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "aws_username": "aws-user",
             "aws_password": "aws-password",
             "jenkins_enabled": "on",
-            "jenkins_instance_count": "1",
-            "jenkins_instances_0_name": "CI",
-            "jenkins_instances_0_url": "https://jenkins.example.com/",
-            "jenkins_instances_0_username": "jenkins-user",
-            "jenkins_instances_0_password": "jenkins-password",
-            "jenkins_instances_0_enabled": "1",
+            "jenkins_username": "jenkins-user",
+            "jenkins_password": "jenkins-password",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
             "tool_loop": '{"max_iterations":12}',
@@ -571,15 +558,8 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             },
             "jenkins": {
                 "enabled": True,
-                "instances": [
-                    {
-                        "name": "CI",
-                        "url": "https://jenkins.example.com",
-                        "username": "jenkins-user",
-                        "password": "jenkins-password",
-                        "enabled": True,
-                    }
-                ],
+                "username": "jenkins-user",
+                "password": "jenkins-password",
             },
             "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
         }

@@ -27,10 +27,12 @@ RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "For every jira, confluence, and jenkins command add --json. For complex jira/confluence/jenkins calls, "
     "inspect commands, schema, or help llm first, for example `jira commands --json`, "
     "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins commands. "
+    "Jenkins runtime profile credentials are available as EFP_JENKINS_USERNAME and EFP_JENKINS_PASSWORD; "
+    "when the user provides a Jenkins controller URL or pipeline/job, configure or log in to that controller at that time and pass the password through stdin, never by echoing it. "
     "For AWS, prefer `aws --output json` for inspection and avoid changing cloud resources unless the user asks. "
     "Run write operations with --dry-run before executing them. Use --yes only for destructive "
     "operations after the user explicitly confirms. Runtime profile credentials are applied in "
-    "the runtime container through the CLIs; if a CLI returns auth_failed, report a runtime profile "
+    "the runtime container through CLIs or environment variables; if a CLI returns auth_failed, report a runtime profile "
     "configuration problem instead of guessing or inventing tokens."
 )
 
@@ -156,11 +158,20 @@ def _has_enabled_aws_config(config: dict[str, Any]) -> bool:
     return bool(domain and username and password)
 
 
+def _has_enabled_jenkins_config(config: dict[str, Any]) -> bool:
+    jenkins = config.get("jenkins")
+    if not isinstance(jenkins, dict) or jenkins.get("enabled") is not True:
+        return False
+    username = str(jenkins.get("username") or "").strip()
+    password = str(jenkins.get("password") or "").strip()
+    return bool(username and password)
+
+
 def _has_enabled_external_cli_config(config: dict[str, Any]) -> bool:
     return (
         _has_enabled_instance_section(config, "jira")
         or _has_enabled_instance_section(config, "confluence")
-        or _has_enabled_instance_section(config, "jenkins")
+        or _has_enabled_jenkins_config(config)
         or _has_enabled_github_config(config)
         or _has_enabled_aws_config(config)
         or _has_git_config(config)
