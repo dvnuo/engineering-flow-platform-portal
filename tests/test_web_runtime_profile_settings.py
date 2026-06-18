@@ -409,6 +409,33 @@ def test_confluence_instance_ui_blocks_omit_api_version():
     assert 'group === "confluence"' not in confluence_branch
 
 
+def test_jenkins_instance_ui_uses_username_password_only():
+    from pathlib import Path
+
+    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+
+    runtime_start = runtime_tpl.index('data-instance-container="jenkins"')
+    runtime_end = runtime_tpl.index('data-action="add-instance" data-group="jenkins"')
+    runtime_block = runtime_tpl[runtime_start:runtime_end]
+
+    settings_start = settings_tpl.index('data-instance-container="jenkins"')
+    settings_end = settings_tpl.index('data-action="add-instance" data-group="jenkins"')
+    settings_block = settings_tpl[settings_start:settings_end]
+
+    for block in (runtime_block, settings_block):
+        assert 'data-field="username"' in block
+        assert 'data-field="password"' in block
+        assert 'data-field="token"' not in block
+        assert 'data-field="api_version"' not in block
+        assert "https://jenkins.example.com" in block
+
+    jenkins_branch = js[js.index('const isJenkins = group === "jenkins"'):js.index("const tokenAndScopeHtml")]
+    assert "Username" in jenkins_branch
+    assert "https://jenkins.example.com" in jenkins_branch
+
+
 def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
@@ -454,6 +481,7 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "__touch_confluence": "1",
             "__touch_github": "1",
             "__touch_aws": "1",
+            "__touch_jenkins": "1",
             "__touch_git": "1",
             "__touch_debug": "0",
             "jira_enabled": "on",
@@ -482,6 +510,13 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "aws_domain": "HBEU",
             "aws_username": "aws-user",
             "aws_password": "aws-password",
+            "jenkins_enabled": "on",
+            "jenkins_instance_count": "1",
+            "jenkins_instances_0_name": "CI",
+            "jenkins_instances_0_url": "https://jenkins.example.com/",
+            "jenkins_instances_0_username": "jenkins-user",
+            "jenkins_instances_0_password": "jenkins-password",
+            "jenkins_instances_0_enabled": "1",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
             "tool_loop": '{"max_iterations":12}',
@@ -533,6 +568,18 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
                 "domain": "HBEU",
                 "username": "aws-user",
                 "password": "aws-password",
+            },
+            "jenkins": {
+                "enabled": True,
+                "instances": [
+                    {
+                        "name": "CI",
+                        "url": "https://jenkins.example.com",
+                        "username": "jenkins-user",
+                        "password": "jenkins-password",
+                        "enabled": True,
+                    }
+                ],
             },
             "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
         }
