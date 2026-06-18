@@ -8569,6 +8569,7 @@ async function openTaskDetailInMain(taskId, { updateRoute = true } = {}) {
   try {
     await htmx.ajax("GET", `/app/tasks/${encodeURIComponent(taskId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
     dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
+    initializeInlineWizard(dom.workspaceDetailContent.querySelector("#continue-agent-task-form"));
     syncMainHeader();
     if (updateRoute && !isApplyingPortalRoute) {
       commitPortalRoute({ section: "tasks", taskId });
@@ -11840,18 +11841,52 @@ async function openCreateDelegationRuleModal() {
   dom.workspaceDetailContent.innerHTML = `
     <div class="portal-panel-stack">
       <h3>Create Delegation</h3>
-      <form id="create-delegation-inline-form" class="portal-panel-stack">
-        <section class="portal-panel-section">
+      <form
+        id="create-delegation-inline-form"
+        class="portal-panel-stack portal-step-wizard"
+        data-wizard-steps="basics,source,work,review"
+        data-current-step="basics"
+      >
+        <ol class="create-agent-steps" aria-label="Create delegation steps" style="--portal-step-count: 4">
+          <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
+            <span class="create-agent-step-index">1</span>
+            <span class="create-agent-step-label">Basics</span>
+          </li>
+          <li class="create-agent-step" data-wizard-step-indicator="source">
+            <span class="create-agent-step-index">2</span>
+            <span class="create-agent-step-label">Source</span>
+          </li>
+          <li class="create-agent-step" data-wizard-step-indicator="work">
+            <span class="create-agent-step-index">3</span>
+            <span class="create-agent-step-label">Work</span>
+          </li>
+          <li class="create-agent-step" data-wizard-step-indicator="review">
+            <span class="create-agent-step-index">4</span>
+            <span class="create-agent-step-label">Review</span>
+          </li>
+        </ol>
+        <section class="portal-panel-section create-agent-step-panel" data-wizard-step-panel="basics">
           <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" required /></label>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
+        </section>
+        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="source">
           <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
           <div data-delegation-source-controls></div>
+        </section>
+        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="work">
           <div data-delegation-schedule-controls></div>
           <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
           <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
-          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
         </section>
-        <button class="portal-btn is-primary" type="submit">Create Delegation</button>
+        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="review">
+          <div class="create-agent-review-grid" data-delegation-review></div>
+        </section>
+        <div class="portal-task-form-actions portal-step-wizard-actions">
+          <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
+          <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
+          <button class="portal-btn is-primary" type="submit" data-wizard-submit>Create Delegation</button>
+        </div>
       </form>
     </div>
   `;
@@ -11859,6 +11894,7 @@ async function openCreateDelegationRuleModal() {
   if (form) {
     await setupDelegationSourceForm(form);
     await populateCreateTaskSkillSelect(form);
+    initializeInlineWizard(form);
   }
 }
 
@@ -11895,7 +11931,9 @@ async function openEditDelegationRuleModal(ruleId) {
       <h3>Edit Delegation</h3>
       <form
         id="edit-delegation-inline-form"
-        class="portal-panel-stack"
+        class="portal-panel-stack portal-step-wizard"
+        data-wizard-steps="basics,source,work,review"
+        data-current-step="basics"
         data-rule-id="${escapeHtmlAttr(detail.id)}"
         data-original-name="${escapeHtmlAttr(detail.name || "")}"
         data-original-target-agent-id="${escapeHtmlAttr(currentAgentId)}"
@@ -11909,19 +11947,46 @@ async function openEditDelegationRuleModal(ruleId) {
         data-original-enabled="${detail.enabled ? "true" : "false"}"
         data-selected-skill-name="${escapeHtmlAttr(skillName)}"
       >
-        <section class="portal-panel-section">
+        <ol class="create-agent-steps" aria-label="Edit delegation steps" style="--portal-step-count: 4">
+          <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
+            <span class="create-agent-step-index">1</span>
+            <span class="create-agent-step-label">Basics</span>
+          </li>
+          <li class="create-agent-step" data-wizard-step-indicator="source">
+            <span class="create-agent-step-index">2</span>
+            <span class="create-agent-step-label">Source</span>
+          </li>
+          <li class="create-agent-step" data-wizard-step-indicator="work">
+            <span class="create-agent-step-index">3</span>
+            <span class="create-agent-step-label">Work</span>
+          </li>
+          <li class="create-agent-step" data-wizard-step-indicator="review">
+            <span class="create-agent-step-index">4</span>
+            <span class="create-agent-step-label">Review</span>
+          </li>
+        </ol>
+        <section class="portal-panel-section create-agent-step-panel" data-wizard-step-panel="basics">
           <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
           <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
+        </section>
+        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="source">
           <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
           <div data-delegation-source-controls></div>
+        </section>
+        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="work">
           <div data-delegation-schedule-controls></div>
           <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
           <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
-          <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
         </section>
-        <div class="portal-task-form-actions">
+        <section class="portal-panel-section create-agent-step-panel hidden" data-wizard-step-panel="review">
+          <div class="create-agent-review-grid" data-delegation-review></div>
+        </section>
+        <div class="portal-task-form-actions portal-step-wizard-actions">
           <button class="portal-btn is-secondary" type="button" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="arrow-left" class="w-4 h-4"></i>Cancel</button>
-          <button class="portal-btn is-primary" type="submit"><i data-lucide="save" class="w-4 h-4"></i>Save</button>
+          <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
+          <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
+          <button class="portal-btn is-primary" type="submit" data-wizard-submit><i data-lucide="save" class="w-4 h-4"></i>Save</button>
         </div>
       </form>
     </div>
@@ -11930,6 +11995,7 @@ async function openEditDelegationRuleModal(ruleId) {
   if (form) {
     await setupDelegationSourceForm(form, sourceScope, sourceConditions, schedule, taskPrompt);
     await populateCreateTaskSkillSelect(form);
+    initializeInlineWizard(form);
   }
   renderIcons();
 }
@@ -12037,6 +12103,193 @@ async function loadDelegationRuleEvents(ruleId) {
   return api(`/api/delegation-rules/${encodeURIComponent(ruleId)}/events`);
 }
 
+function inlineWizardSteps(formEl) {
+  return String(formEl?.dataset?.wizardSteps || "")
+    .split(",")
+    .map((step) => step.trim())
+    .filter(Boolean);
+}
+
+function inlineWizardStepIndex(formEl, step) {
+  const steps = inlineWizardSteps(formEl);
+  const index = steps.indexOf(step);
+  return index >= 0 ? index : 0;
+}
+
+function inlineWizardCurrentStep(formEl) {
+  const steps = inlineWizardSteps(formEl);
+  if (!steps.length) return "";
+  const step = String(formEl?.dataset?.currentStep || "").trim();
+  return steps.includes(step) ? step : steps[0];
+}
+
+function selectedOptionLabel(formEl, name) {
+  const field = formEl?.querySelector(`[name="${name}"]`);
+  if (!field) return "";
+  if (field.tagName === "SELECT") {
+    return field.options?.[field.selectedIndex]?.textContent?.trim() || field.value || "";
+  }
+  return String(field.value || "").trim();
+}
+
+function wizardPreviewText(value, fallback = "Not set") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+function renderWizardReviewRows(container, rows) {
+  if (!container) return;
+  container.innerHTML = rows.map(([label, value]) => `
+    <div class="create-agent-review-item">
+      <span class="create-agent-review-label">${safe(label)}</span>
+      <div class="create-agent-review-value">${safe(value)}</div>
+    </div>
+  `).join("");
+}
+
+function renderTaskCreateReview(formEl) {
+  renderWizardReviewRows(document.getElementById("create-task-review"), [
+    ["Agent", selectedOptionLabel(formEl, "assignee_agent_id") || "Not selected"],
+    ["Skill", selectedOptionLabel(formEl, "skill_name") || "Not selected"],
+    ["Task Content", wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
+    ["Mode", "Background task"],
+  ]);
+}
+
+function renderTaskFollowupReview(formEl) {
+  renderWizardReviewRows(document.getElementById("continue-task-review"), [
+    ["Task", formEl?.dataset?.taskId || "Current task"],
+    ["Follow-up", wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
+  ]);
+}
+
+function delegationScheduleSummaryForForm(formEl) {
+  const source = String(formEl?.querySelector('[name="source"]')?.value || "").trim();
+  if (isDelegationTimerSource(source)) {
+    const expression = String(formEl?.querySelector('[name="schedule_cron_expression"]')?.value || "").trim();
+    const timezone = String(formEl?.querySelector('[name="schedule_timezone"]')?.value || "").trim() || defaultDelegationTimezone();
+    return expression ? `Cron ${expression} (${timezone})` : `Cron schedule (${timezone})`;
+  }
+  const seconds = Number(formEl?.querySelector('[name="interval_seconds"]')?.value || 60);
+  return delegationIntervalLabel(Number.isFinite(seconds) && seconds > 0 ? seconds : 60);
+}
+
+function renderDelegationReview(formEl) {
+  const source = String(formEl?.querySelector('[name="source"]')?.value || "").trim();
+  const scope = collectDelegationSourceScope(formEl);
+  const conditions = collectDelegationSourceConditions(formEl);
+  const rows = [
+    ["Name", selectedOptionLabel(formEl, "name") || "Untitled delegation"],
+    ["Agent", selectedOptionLabel(formEl, "target_agent_id") || "Not selected"],
+    ["Source", delegationSourceLabel(source) || "Not selected"],
+    ["Source Filters", delegationConditionSummaryLabel(source, scope, conditions)],
+    ["Skill", selectedOptionLabel(formEl, "skill_name") || "Not selected"],
+    ["Schedule", delegationScheduleSummaryForForm(formEl)],
+    ["Enabled", formEl?.querySelector('[name="enabled"]')?.checked ? "Yes" : "No"],
+  ];
+  if (isDelegationTimerSource(source)) {
+    rows.push(["Task Prompt", wizardPreviewText(collectDelegationTaskPrompt(formEl))]);
+  }
+  renderWizardReviewRows(formEl?.querySelector("[data-delegation-review]"), rows);
+}
+
+function renderInlineWizardReview(formEl) {
+  if (!formEl) return;
+  if (formEl.id === "create-agent-async-task-form") {
+    renderTaskCreateReview(formEl);
+  } else if (formEl.id === "continue-agent-task-form") {
+    renderTaskFollowupReview(formEl);
+  } else if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form")) {
+    renderDelegationReview(formEl);
+  }
+}
+
+function setInlineWizardStep(formEl, step) {
+  const steps = inlineWizardSteps(formEl);
+  if (!formEl || !steps.length) return;
+  const normalizedStep = steps[inlineWizardStepIndex(formEl, step)];
+  const activeIndex = inlineWizardStepIndex(formEl, normalizedStep);
+  formEl.dataset.currentStep = normalizedStep;
+  formEl.querySelectorAll("[data-wizard-step-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.wizardStepPanel !== normalizedStep);
+  });
+  formEl.querySelectorAll("[data-wizard-step-indicator]").forEach((indicator) => {
+    const index = inlineWizardStepIndex(formEl, indicator.dataset.wizardStepIndicator);
+    indicator.classList.toggle("is-active", index === activeIndex);
+    indicator.classList.toggle("is-complete", index < activeIndex);
+    if (index === activeIndex) indicator.setAttribute("aria-current", "step");
+    else indicator.removeAttribute("aria-current");
+  });
+  const actions = formEl.querySelector(".portal-step-wizard-actions");
+  actions?.classList.toggle("is-review", normalizedStep === "review");
+  const backButton = formEl.querySelector("[data-wizard-back]");
+  if (backButton) backButton.disabled = activeIndex === 0;
+  if (normalizedStep === "review") renderInlineWizardReview(formEl);
+}
+
+function validateInlineWizardPanel(formEl, panel) {
+  if (!formEl || !panel) return true;
+  const disabledRequired = Array.from(panel.querySelectorAll("input[required]:disabled, select[required]:disabled, textarea[required]:disabled"));
+  if (disabledRequired.length) {
+    showToast("Complete this step before continuing.");
+    return false;
+  }
+  const fields = Array.from(panel.querySelectorAll("input, select, textarea"));
+  const invalid = fields.find((field) => field.willValidate && !field.checkValidity());
+  if (invalid) {
+    invalid.reportValidity();
+    return false;
+  }
+  return true;
+}
+
+function validateInlineWizardStep(formEl) {
+  const step = inlineWizardCurrentStep(formEl);
+  const panel = Array.from(formEl?.querySelectorAll("[data-wizard-step-panel]") || [])
+    .find((item) => item.dataset.wizardStepPanel === step);
+  return validateInlineWizardPanel(formEl, panel);
+}
+
+function validateInlineWizardForm(formEl) {
+  const panels = Array.from(formEl?.querySelectorAll("[data-wizard-step-panel]") || []);
+  for (const panel of panels) {
+    const disabledRequired = Array.from(panel.querySelectorAll("input[required]:disabled, select[required]:disabled, textarea[required]:disabled"));
+    const fields = Array.from(panel.querySelectorAll("input, select, textarea"));
+    const invalid = fields.find((field) => field.willValidate && !field.checkValidity());
+    if (disabledRequired.length || invalid) {
+      setInlineWizardStep(formEl, panel.dataset.wizardStepPanel || inlineWizardCurrentStep(formEl));
+      return validateInlineWizardPanel(formEl, panel);
+    }
+  }
+  return true;
+}
+
+function moveInlineWizardStep(formEl, direction) {
+  const steps = inlineWizardSteps(formEl);
+  if (!steps.length) return;
+  if (direction > 0 && !validateInlineWizardStep(formEl)) return;
+  const currentIndex = inlineWizardStepIndex(formEl, inlineWizardCurrentStep(formEl));
+  const nextIndex = Math.max(0, Math.min(steps.length - 1, currentIndex + direction));
+  setInlineWizardStep(formEl, steps[nextIndex]);
+}
+
+function prepareInlineWizardSubmit(formEl) {
+  const steps = inlineWizardSteps(formEl);
+  if (!steps.length) return true;
+  if (inlineWizardCurrentStep(formEl) !== "review") {
+    moveInlineWizardStep(formEl, 1);
+    return false;
+  }
+  return validateInlineWizardForm(formEl);
+}
+
+function initializeInlineWizard(formEl) {
+  if (!formEl || !inlineWizardSteps(formEl).length) return;
+  setInlineWizardStep(formEl, inlineWizardCurrentStep(formEl));
+  renderInlineWizardReview(formEl);
+}
+
 function _safeJson(raw) {
   if (!raw) return null;
   try {
@@ -12056,7 +12309,10 @@ async function openTaskCreatePanelInMain() {
   dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task create form…</div>';
   await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
   const formEl = dom.workspaceDetailContent.querySelector("#create-agent-async-task-form");
-  if (formEl) await populateCreateTaskSkillSelect(formEl);
+  if (formEl) {
+    initializeInlineWizard(formEl);
+    await populateCreateTaskSkillSelect(formEl);
+  }
 }
 
 function setTaskSkillSelectOption(selectEl, label, { disabled = true, value = "" } = {}) {
@@ -12095,6 +12351,7 @@ async function populateCreateTaskSkillSelect(formEl) {
   if (!skillSelect) return;
   if (!agentId) {
     setTaskSkillSelectOption(skillSelect, "Select an agent first");
+    renderInlineWizardReview(formEl);
     return;
   }
   setTaskSkillSelectOption(skillSelect, "Loading skills...");
@@ -12112,6 +12369,7 @@ async function populateCreateTaskSkillSelect(formEl) {
         option.title = skill.title || skill.blocked_reason || skill.desc || "";
         skillSelect.append(option);
       });
+      renderInlineWizardReview(formEl);
       return;
     }
     let matchedSelectedSkill = false;
@@ -12140,8 +12398,10 @@ async function populateCreateTaskSkillSelect(formEl) {
       skillSelect.append(option);
     });
     skillSelect.disabled = false;
+    renderInlineWizardReview(formEl);
   } catch (error) {
     setTaskSkillSelectOption(skillSelect, `Failed to load skills: ${error.message}`);
+    renderInlineWizardReview(formEl);
   }
 }
 
@@ -13248,6 +13508,7 @@ function bindEvents() {
     const delegationForm = event.target.closest("#create-delegation-inline-form");
     if (delegationForm) {
       event.preventDefault();
+      if (!prepareInlineWizardSubmit(delegationForm)) return;
       try {
         await submitCreateDelegationRule(delegationForm);
       } catch (error) {
@@ -13258,6 +13519,7 @@ function bindEvents() {
     const editDelegationForm = event.target.closest("#edit-delegation-inline-form");
     if (editDelegationForm) {
       event.preventDefault();
+      if (!prepareInlineWizardSubmit(editDelegationForm)) return;
       try {
         await submitEditDelegationRule(editDelegationForm);
       } catch (error) {
@@ -13268,6 +13530,7 @@ function bindEvents() {
     const taskForm = event.target.closest("#create-agent-async-task-form");
     if (taskForm) {
       event.preventDefault();
+      if (!prepareInlineWizardSubmit(taskForm)) return;
       try {
         await submitCreateAgentAsyncTask(taskForm);
       } catch (error) {
@@ -13278,6 +13541,7 @@ function bindEvents() {
     const continueTaskForm = event.target.closest("#continue-agent-task-form");
     if (continueTaskForm) {
       event.preventDefault();
+      if (!prepareInlineWizardSubmit(continueTaskForm)) return;
       try {
         await submitContinueAgentTask(continueTaskForm);
       } catch (error) {
@@ -13294,23 +13558,29 @@ function bindEvents() {
       if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form")) {
         await refreshDelegationSourcePreview(formEl, { resetScope: true });
       }
+      renderInlineWizardReview(formEl);
       return;
     }
     if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="source"]')) {
       renderDelegationScheduleControls(formEl);
       await refreshDelegationSchedulePreview(formEl);
       await refreshDelegationSourcePreview(formEl, { resetScope: true, resetConditions: true });
+      renderInlineWizardReview(formEl);
       return;
     }
     if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="source_scope_jira_instance"]')) {
       await refreshDelegationSourcePreview(formEl);
+      renderInlineWizardReview(formEl);
       return;
     }
     if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form") && event.target.matches('[name="schedule_skip_overlapping"]')) {
       await refreshDelegationSchedulePreview(formEl);
     }
+    renderInlineWizardReview(formEl);
   });
   dom.workspaceDetailContent?.addEventListener("input", (event) => {
+    const wizardForm = event.target.closest(".portal-step-wizard");
+    if (wizardForm) renderInlineWizardReview(wizardForm);
     const formEl = event.target.closest("#create-delegation-inline-form, #edit-delegation-inline-form");
     if (!formEl) return;
     if (event.target.matches('[name="schedule_cron_expression"], [name="schedule_timezone"]')) {
@@ -13318,6 +13588,15 @@ function bindEvents() {
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const wizardButton = event.target.closest("[data-wizard-back], [data-wizard-next]");
+    if (wizardButton) {
+      event.preventDefault();
+      const formEl = wizardButton.closest(".portal-step-wizard");
+      if (!formEl) return;
+      moveInlineWizardStep(formEl, wizardButton.matches("[data-wizard-back]") ? -1 : 1);
+      return;
+    }
+
     const openDelegationBtn = event.target.closest("[data-open-delegation-rule]");
     if (openDelegationBtn) {
       event.preventDefault();

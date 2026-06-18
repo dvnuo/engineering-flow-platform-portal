@@ -164,6 +164,13 @@ def test_create_delegation_form_uses_trigger_task_reply_fields_only():
         "Interval seconds",
         "Name",
         "Enabled",
+        "data-wizard-steps=\"basics,source,work,review\"",
+        "data-wizard-step-panel=\"basics\"",
+        "data-wizard-step-panel=\"source\"",
+        "data-wizard-step-panel=\"work\"",
+        "data-wizard-step-panel=\"review\"",
+        "data-delegation-review",
+        "data-wizard-next",
     ]:
         assert expected in create_fn
 
@@ -180,6 +187,8 @@ def test_create_delegation_form_uses_trigger_task_reply_fields_only():
     assert '"source"' in submit_fn
     assert '"interval_seconds"' in submit_fn
     assert "task_content" not in submit_fn
+    assert "prepareInlineWizardSubmit" in js
+    assert "renderDelegationReview" in js
 
     old_fields = [
         "owner",
@@ -286,12 +295,17 @@ def test_delegations_ui_uses_clean_names_and_endpoint():
     js = _chat_ui_js_source()
     css = _app_css_source()
     template = _app_template_source()
+    edit_fn = _extract_js_function(js, "openEditDelegationRuleModal")
 
     assert "Delegations" in template
     assert "Create Delegation" in template
     assert "/api/delegation-rules" in js
     assert "portal-delegation-" in js
     assert "portal-delegation-" in css
+    assert "portal-step-wizard" in edit_fn
+    assert 'data-wizard-steps="basics,source,work,review"' in edit_fn
+    assert "data-delegation-review" in edit_fn
+    assert "data-wizard-submit" in edit_fn
 
     assert "/api/automation-rules" not in js
     assert "portal-automation-" not in js

@@ -2017,7 +2017,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .create-agent-steps {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--portal-step-count, 5), minmax(0, 1fr));
   gap: 22px;
   margin: 0;
   padding: 0;
@@ -2144,11 +2144,19 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   display: none;
 }
 
+.portal-step-wizard-actions [data-wizard-submit] {
+  display: none;
+}
+
 .create-agent-wizard-actions.is-review [data-create-next] {
   display: none;
 }
 
 .edit-agent-wizard-actions.is-review [data-edit-next] {
+  display: none;
+}
+
+.portal-step-wizard-actions.is-review [data-wizard-next] {
   display: none;
 }
 
@@ -2158,6 +2166,24 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .edit-agent-wizard-actions.is-review [data-edit-submit] {
   display: inline-flex;
+}
+
+.portal-step-wizard-actions.is-review [data-wizard-submit] {
+  display: inline-flex;
+}
+
+.portal-step-wizard {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.portal-step-wizard .create-agent-steps {
+  margin-bottom: 2px;
+}
+
+.portal-task-create-form.portal-step-wizard {
+  grid-template-columns: 1fr;
 }
 
 .portal-readonly-field {
