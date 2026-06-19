@@ -40,6 +40,7 @@ const dom = {
   agentActions: document.getElementById("agent-actions"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
+  dashboardMenuBtn: document.getElementById("dashboard-menu-btn"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
@@ -53,6 +54,7 @@ const dom = {
   secondaryPaneEyebrow: document.getElementById("secondary-pane-eyebrow"),
   secondaryPaneTitle: document.getElementById("secondary-pane-title"),
   secondaryPaneActions: document.getElementById("secondary-pane-actions"),
+  dashboardNavSection: document.getElementById("dashboard-nav-section"),
   assistantsNavSection: document.getElementById("assistants-nav-section"),
   bundlesNavSection: document.getElementById("bundles-nav-section"),
   tasksNavSection: document.getElementById("tasks-nav-section"),
@@ -70,6 +72,8 @@ const dom = {
   delegationSourceFilter: document.getElementById("delegation-source-filter"),
   delegationFilterSummary: document.getElementById("delegation-filter-summary"),
   delegationRuleNavList: document.getElementById("delegation-rule-nav-list"),
+  dashboardScopeFilter: document.getElementById("dashboard-scope-filter"),
+  dashboardFilterSummary: document.getElementById("dashboard-filter-summary"),
   refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
   addBundleBtn: document.getElementById("add-bundle-btn"),
   addTaskBtn: document.getElementById("add-task-btn"),
@@ -140,6 +144,7 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
+  "dashboard",
   "assistants",
   "bundles",
   "tasks",
@@ -340,6 +345,7 @@ const state = {
   hasRequirementBundlesCache: false,
   selectedBundleKey: null,
   activeNavSection: "assistants",
+  dashboardScope: "all",
   secondaryPaneCollapsed: !!initialUiLayoutPrefs.secondaryPaneCollapsed,
   toolPanelOpen: !!initialUiLayoutPrefs.toolPanelPinned,
   toolPanelPinned: !!initialUiLayoutPrefs.toolPanelPinned,
@@ -446,6 +452,10 @@ function portalHashForRoute(route = {}) {
     return agentId ? `#/assistants/${encodeURIComponent(agentId)}` : "#/assistants";
   }
 
+  if (section === "dashboard") {
+    return "#/dashboard";
+  }
+
   if (section === "bundles") {
     const bundleRef = route.bundleRef || null;
     if (bundleRef && (bundleRef.repo || bundleRef.path || bundleRef.branch)) {
@@ -481,6 +491,10 @@ function currentPortalRouteFromState() {
 
   if (section === "assistants") {
     return { section, agentId: state.selectedAgentId || "" };
+  }
+
+  if (section === "dashboard") {
+    return { section };
   }
 
   if (section === "bundles") {
@@ -537,6 +551,9 @@ function clearPortalSectionDetailSelection(section) {
 
 function portalSectionRoute(section) {
   const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : "assistants";
+  if (normalized === "dashboard") {
+    return { section: "dashboard" };
+  }
   if (normalized === "assistants") {
     return { section: "assistants", agentId: state.selectedAgentId || "" };
   }
@@ -624,6 +641,15 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
       renderAgentList();
       await syncSelectedAgentState();
     }
+    return;
+  }
+
+  if (route.section === "dashboard") {
+    await setActiveNavSection("dashboard", {
+      toggleIfSame: false,
+      updateRoute: false,
+      preferSectionLanding: true,
+    });
     return;
   }
 
@@ -7882,7 +7908,71 @@ function renderWorkspaceDetailPlaceholder(message = "Select a bundle or task fro
   dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${safe(message)}</div>`;
 }
 
+function syncDashboardScopeControls() {
+  const scope = state.dashboardScope || "all";
+  if (dom.dashboardScopeFilter && dom.dashboardScopeFilter.value !== scope) {
+    dom.dashboardScopeFilter.value = scope;
+  }
+  if (dom.dashboardFilterSummary) {
+    dom.dashboardFilterSummary.textContent = scope === "mine" ? "Only your owned work" : "All visible work";
+  }
+  const root = document.getElementById("dashboard-panel-root");
+  if (root) {
+    root.querySelectorAll("button[data-dashboard-scope]").forEach((button) => {
+      const buttonScope = button.getAttribute("data-dashboard-scope") || "";
+      button.classList.toggle("is-active", buttonScope === scope);
+    });
+  }
+}
+
+async function loadDashboardPanel({ scope = state.dashboardScope || "all" } = {}) {
+  if (!dom.workspaceDetailContent) return;
+  state.dashboardScope = scope === "mine" ? "mine" : "all";
+  syncDashboardScopeControls();
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "dashboard-loading";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading dashboard...</div>';
+  try {
+    await htmx.ajax("GET", `/app/dashboard/panel?scope=${encodeURIComponent(state.dashboardScope)}`, {
+      target: "#workspace-detail-content",
+      swap: "innerHTML",
+    });
+    dom.workspaceDetailContent.dataset.workspaceState = "dashboard";
+    syncDashboardScopeControls();
+    syncMainHeader();
+    renderIcons();
+  } catch (error) {
+    dom.workspaceDetailContent.dataset.workspaceState = "dashboard-error";
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load dashboard: ${safe(error.message)}</div>`;
+  }
+}
+
+function scrollDashboardSection(shortcut) {
+  const selectorByShortcut = {
+    attention: '[data-dashboard-section="attention"]',
+    workload: '[data-dashboard-section="workload"]',
+    "delegation-health": '[data-dashboard-section="delegation-health"]',
+  };
+  const selector = selectorByShortcut[shortcut];
+  const target = selector ? dom.workspaceDetailContent?.querySelector(selector) : null;
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function openDashboardAgent(agentId) {
+  if (!agentId) return;
+  await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
+  await selectAgentById(agentId);
+}
+
+async function openDashboardDelegation(ruleId) {
+  if (!ruleId) return;
+  await setActiveNavSection("delegations", { toggleIfSame: false, updateRoute: false });
+  await loadDelegationRules();
+  await openDelegationRulePanel(ruleId);
+}
+
 function getSecondaryPaneLabel() {
+  if (state.activeNavSection === "dashboard") return "Dashboard";
   if (state.activeNavSection === "bundles") return "Bundles";
   if (state.activeNavSection === "tasks") return "Tasks";
   if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
@@ -7934,7 +8024,11 @@ function renderSecondaryPaneHeader() {
   if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.add("hidden");
   if (addDelegationBtn) addDelegationBtn.classList.add("hidden");
 
-  if (state.activeNavSection === "assistants") {
+  if (state.activeNavSection === "dashboard") {
+    dom.secondaryPaneEyebrow.textContent = "Portal";
+    dom.secondaryPaneTitle.textContent = "Dashboard";
+    syncDashboardScopeControls();
+  } else if (state.activeNavSection === "assistants") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Assistants";
     if (addAgentBtn) addAgentBtn.classList.remove("hidden");
@@ -7971,7 +8065,10 @@ function syncMainHeader() {
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
-    if (state.activeNavSection === "bundles") {
+    if (state.activeNavSection === "dashboard") {
+      dom.embedTitle.textContent = "Dashboard";
+      setChatStatus("Operational overview across assistants, tasks, and delegations");
+    } else if (state.activeNavSection === "bundles") {
       dom.embedTitle.textContent = "Bundles";
       setChatStatus("Browse and open bundle detail in the main stage");
     } else if (state.activeNavSection === "tasks") {
@@ -8148,7 +8245,7 @@ async function setActiveNavSection(section, {
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = typeof PORTAL_ROUTE_SECTIONS !== "undefined"
     ? PORTAL_ROUTE_SECTIONS
-    : new Set(["assistants", "bundles", "tasks", "runtime-profiles", "delegations"]);
+    : new Set(["dashboard", "assistants", "bundles", "tasks", "runtime-profiles", "delegations"]);
   if (!validSections.has(section)) return;
 
   if (preferSectionLanding) {
@@ -8164,12 +8261,14 @@ async function setActiveNavSection(section, {
     }
   }
 
+  dom.dashboardMenuBtn?.classList.toggle("is-active", state.activeNavSection === "dashboard");
   dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
   dom.bundlesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "bundles");
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
 
+  dom.dashboardNavSection?.classList.toggle("hidden", state.activeNavSection !== "dashboard");
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.bundlesNavSection?.classList.toggle("hidden", state.activeNavSection !== "bundles");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
@@ -8207,7 +8306,9 @@ async function setActiveNavSection(section, {
   const shouldRefreshVisibleSection = didSwitchSection || didRevealPane || preferSectionLanding;
 
   if (didSwitchSection) {
-    if (section === "assistants") {
+    if (section === "dashboard") {
+      renderWorkspaceDetailPlaceholder("Loading dashboard...", "dashboard-loading");
+    } else if (section === "assistants") {
       showAssistantDefaultMainView();
     } else if (section === "bundles") {
       showBundlesLoadingMainView();
@@ -8253,6 +8354,10 @@ async function setActiveNavSection(section, {
         showBundlesEmptyMainView();
       }
     }
+  }
+
+  if (state.activeNavSection === "dashboard" && shouldRefreshVisibleSection) {
+    await loadDashboardPanel();
   }
 
   if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
@@ -13541,6 +13646,7 @@ function bindEvents() {
     chatState.modelOverride = (dom.chatModelSelect?.value || "").trim();
   });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  dom.dashboardMenuBtn?.addEventListener("click", () => openPortalSection("dashboard"));
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
   dom.agentSearchInput?.addEventListener("input", () => {
     state.agentFilters.query = String(dom.agentSearchInput.value || "").trim();
@@ -13559,6 +13665,19 @@ function bindEvents() {
     refreshMyTasks({ reset: true });
   });
   dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"));
+  dom.dashboardScopeFilter?.addEventListener("change", async () => {
+    state.dashboardScope = dom.dashboardScopeFilter.value === "mine" ? "mine" : "all";
+    await loadDashboardPanel();
+  });
+  dom.dashboardNavSection?.addEventListener("click", async (event) => {
+    const shortcut = event.target.closest("[data-dashboard-shortcut]");
+    if (!shortcut) return;
+    event.preventDefault();
+    if (state.activeNavSection !== "dashboard") {
+      await openPortalSection("dashboard", { toggleIfSame: false });
+    }
+    scrollDashboardSection(shortcut.dataset.dashboardShortcut || "");
+  });
   dom.delegationOwnerFilter?.addEventListener("change", () => {
     state.delegationFilters.owner = dom.delegationOwnerFilter.value || "all";
     renderDelegationRuleNavList();
@@ -13727,6 +13846,35 @@ function bindEvents() {
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+    const dashboardScopeBtn = event.target.closest("button[data-dashboard-scope]");
+    if (dashboardScopeBtn) {
+      event.preventDefault();
+      const nextScope = dashboardScopeBtn.dataset.dashboardScope === "mine" ? "mine" : "all";
+      await loadDashboardPanel({ scope: nextScope });
+      return;
+    }
+
+    const dashboardRefreshBtn = event.target.closest("[data-refresh-dashboard]");
+    if (dashboardRefreshBtn) {
+      event.preventDefault();
+      await loadDashboardPanel();
+      return;
+    }
+
+    const dashboardAgentBtn = event.target.closest("[data-open-dashboard-agent]");
+    if (dashboardAgentBtn) {
+      event.preventDefault();
+      await openDashboardAgent(dashboardAgentBtn.dataset.openDashboardAgent || "");
+      return;
+    }
+
+    const dashboardDelegationBtn = event.target.closest("[data-open-dashboard-delegation]");
+    if (dashboardDelegationBtn) {
+      event.preventDefault();
+      await openDashboardDelegation(dashboardDelegationBtn.dataset.openDashboardDelegation || "");
+      return;
+    }
+
     const closeDelegationCreateBtn = event.target.closest("[data-close-delegation-create-modal]");
     if (closeDelegationCreateBtn) {
       event.preventDefault();

@@ -41,6 +41,7 @@ from app.services.runtime_capability_catalog import build_runtime_capability_cat
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.thinking_process_view import build_thinking_process_view
+from app.services.dashboard_summary import DashboardSummaryService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
@@ -1302,6 +1303,26 @@ def requirement_bundles_panel(request: Request):
     db = SessionLocal()
     try:
         return _render_requirement_bundles_view(request, user, db, panel_mode=True)
+    finally:
+        db.close()
+
+
+@router.get("/app/dashboard/panel")
+def dashboard_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        summary = DashboardSummaryService(db).build(user, scope=scope)
+        return templates.TemplateResponse(
+            "partials/dashboard_panel.html",
+            {
+                "request": request,
+                "summary": summary,
+            },
+        )
     finally:
         db.close()
 

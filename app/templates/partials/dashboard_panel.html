@@ -1,0 +1,118 @@
+<div id="dashboard-panel-root" class="portal-panel-stack portal-dashboard-workspace" data-dashboard-scope="{{ summary.scope }}">
+  <div class="portal-task-toolbar portal-dashboard-toolbar">
+    <div>
+      <h2 class="portal-panel-title">Dashboard</h2>
+      <p class="portal-panel-subtitle">Operational summary across assistants, background tasks, and delegations.</p>
+    </div>
+    <div class="portal-dashboard-actions">
+      <button class="portal-btn is-secondary" type="button" data-dashboard-scope="all">All Visible</button>
+      <button class="portal-btn is-secondary" type="button" data-dashboard-scope="mine">Mine</button>
+      <button class="portal-btn is-secondary" type="button" data-refresh-dashboard><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
+    </div>
+  </div>
+
+  <section class="portal-dashboard-summary-grid" aria-label="Dashboard summary">
+    <article class="portal-dashboard-summary-card">
+      <span>Agents</span>
+      <strong>{{ summary.agents.total }}</strong>
+      <div>{{ summary.agents.running }} running - {{ summary.agents.attention }} attention</div>
+    </article>
+    <article class="portal-dashboard-summary-card">
+      <span>Tasks</span>
+      <strong>{{ summary.tasks.active }}</strong>
+      <div>{{ summary.tasks.attention }} need attention - {{ summary.tasks.done_24h }} done in 24h</div>
+    </article>
+    <article class="portal-dashboard-summary-card">
+      <span>Delegations</span>
+      <strong>{{ summary.delegations.enabled }}</strong>
+      <div>{{ summary.delegations.due }} due - {{ summary.delegations.failed_runs }} failed runs</div>
+    </article>
+  </section>
+
+  <section class="portal-dashboard-grid">
+    <article class="portal-dashboard-panel portal-dashboard-attention" data-dashboard-section="attention">
+      <div class="portal-dashboard-panel-head">
+        <h3>Needs Attention</h3>
+        <span>{{ summary.attention_items|length }}</span>
+      </div>
+      <div class="portal-dashboard-list">
+        {% for item in summary.attention_items %}
+        <button class="portal-dashboard-row is-{{ item.tone }}" type="button"
+          {% if item.target_type == "task" %}data-open-task-main="{{ item.target_id }}"{% endif %}
+          {% if item.target_type == "agent" %}data-open-dashboard-agent="{{ item.target_id }}"{% endif %}
+          {% if item.target_type == "delegation" %}data-open-dashboard-delegation="{{ item.target_id }}"{% endif %}>
+          <span class="portal-row-status-dot is-{{ 'error' if item.tone == 'error' else 'warning' }}" aria-hidden="true"></span>
+          <span>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.meta }}</small>
+          </span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No urgent items right now.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-dashboard-panel" data-dashboard-section="workload">
+      <div class="portal-dashboard-panel-head">
+        <h3>Agent Workload</h3>
+        <span>{{ summary.workload|length }}</span>
+      </div>
+      <div class="portal-dashboard-table">
+        {% for row in summary.workload %}
+        <button class="portal-dashboard-workload-row" type="button" data-open-dashboard-agent="{{ row.agent_id }}">
+          <span class="portal-row-status-dot is-{{ 'success' if row.status == 'running' else 'warning' }}" aria-hidden="true"></span>
+          <span class="portal-dashboard-workload-name">{{ row.agent_name }}</span>
+          <span>{{ row.active_tasks }} active</span>
+          <span>{{ row.attention_tasks }} attention</span>
+          <span>{{ row.delegations }} delegations</span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No agents available.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-dashboard-panel" data-dashboard-section="delegation-health">
+      <div class="portal-dashboard-panel-head">
+        <h3>Delegation Health</h3>
+        <span>{{ summary.delegation_health|length }}</span>
+      </div>
+      <div class="portal-dashboard-list">
+        {% for row in summary.delegation_health %}
+        <button class="portal-dashboard-row" type="button" data-open-dashboard-delegation="{{ row.rule_id }}">
+          <span class="portal-row-status-dot is-{{ 'success' if row.enabled and row.last_status != 'failed' else 'warning' }}" aria-hidden="true"></span>
+          <span>
+            <strong>{{ row.name }}</strong>
+            <small>{{ row.source }} - {{ row.agent_name }} - last {{ row.last_status }}</small>
+          </span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No delegations configured.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-dashboard-panel">
+      <div class="portal-dashboard-panel-head">
+        <h3>Recent Activity</h3>
+        <span>{{ summary.recent_activity|length }}</span>
+      </div>
+      <div class="portal-dashboard-list">
+        {% for item in summary.recent_activity %}
+        <button class="portal-dashboard-row" type="button"
+          {% if item.target_type == "task" %}data-open-task-main="{{ item.target_id }}"{% endif %}
+          {% if item.target_type == "delegation" %}data-open-dashboard-delegation="{{ item.target_id }}"{% endif %}>
+          <span class="portal-row-status-dot is-neutral" aria-hidden="true"></span>
+          <span>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.kind }} - {{ item.meta }}</small>
+          </span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No recent activity yet.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+</div>
