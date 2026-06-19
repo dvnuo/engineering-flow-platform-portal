@@ -2644,6 +2644,151 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   line-height: 1;
 }
 
+.portal-dashboard-workspace {
+  gap: 16px;
+}
+
+.portal-dashboard-toolbar {
+  align-items: center;
+}
+
+.portal-dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.portal-dashboard-actions .portal-btn.is-active {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent);
+}
+
+.portal-dashboard-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.portal-dashboard-summary-card {
+  min-width: 0;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface);
+  padding: 14px;
+}
+
+.portal-dashboard-summary-card span,
+.portal-dashboard-summary-card div {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.portal-dashboard-summary-card strong {
+  display: block;
+  margin: 6px 0;
+  color: var(--portal-text);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.portal-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.portal-dashboard-panel {
+  min-width: 0;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface);
+  padding: 14px;
+}
+
+.portal-dashboard-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.portal-dashboard-panel-head h3 {
+  margin: 0;
+  color: var(--portal-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.portal-dashboard-panel-head span {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.portal-dashboard-list,
+.portal-dashboard-table {
+  display: grid;
+  gap: 8px;
+}
+
+.portal-dashboard-row,
+.portal-dashboard-workload-row {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface-muted);
+  color: var(--portal-text);
+  text-align: left;
+  padding: 10px;
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  transition: background var(--portal-transition), border-color var(--portal-transition), transform var(--portal-transition);
+}
+
+.portal-dashboard-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.portal-dashboard-workload-row {
+  grid-template-columns: auto minmax(120px, 1fr) repeat(3, minmax(70px, auto));
+}
+
+.portal-dashboard-row:hover,
+.portal-dashboard-workload-row:hover {
+  background: var(--portal-surface-soft);
+  transform: translateY(-1px);
+}
+
+.portal-dashboard-row.is-error {
+  border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 68%);
+}
+
+.portal-dashboard-row.is-warning {
+  border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 68%);
+}
+
+.portal-dashboard-row strong,
+.portal-dashboard-workload-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.portal-dashboard-row small,
+.portal-dashboard-workload-row span:not(.portal-row-status-dot):not(.portal-dashboard-workload-name) {
+  min-width: 0;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
 .portal-task-card-list {
   display: grid;
   gap: 10px;
@@ -3336,8 +3481,22 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 
   .portal-task-summary-strip,
+  .portal-dashboard-summary-grid,
+  .portal-dashboard-grid,
   .portal-task-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portal-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-dashboard-workload-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .portal-dashboard-workload-row span:not(.portal-row-status-dot):not(.portal-dashboard-workload-name) {
+    display: none;
   }
 
   .portal-delegation-flow,
@@ -3359,6 +3518,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 
   .portal-task-actions,
+  .portal-dashboard-actions,
   .portal-task-form-actions {
     justify-content: flex-start;
   }

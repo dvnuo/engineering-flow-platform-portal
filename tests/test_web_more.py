@@ -335,6 +335,27 @@ def test_delegations_ui_uses_clean_names_and_endpoint():
     assert "#/automations" not in js
 
 
+def test_dashboard_summary_navigation_is_wired():
+    js = _chat_ui_js_source()
+    css = _app_css_source()
+    template = _app_template_source()
+
+    assert 'id="dashboard-menu-btn"' in template
+    assert 'id="dashboard-nav-section"' in template
+    assert 'id="dashboard-scope-filter"' in template
+    assert "Dashboard" in template
+
+    assert '"dashboard"' in js
+    assert "#/dashboard" in js
+    assert "loadDashboardPanel" in js
+    assert "/app/dashboard/panel" in js
+    assert "data-open-dashboard-agent" in js
+    assert "data-open-dashboard-delegation" in js
+
+    assert ".portal-dashboard-summary-grid" in css
+    assert ".portal-dashboard-workload-row" in css
+
+
 def test_chat_ui_layout_persistence_calls_present_in_tool_panel_actions():
     js = _chat_ui_js_source()
     toggle_fn = _extract_js_function(js, "toggleToolPanelPinned")

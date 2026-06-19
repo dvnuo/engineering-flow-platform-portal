@@ -10,6 +10,7 @@ from app.api.agent_tasks import router as agent_tasks_router
 from app.api.internal_session_metadata import router as internal_session_metadata_router
 from app.api.delegation_rules import router as delegation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
+from app.api.dashboard import router as dashboard_router
 from app.api.agents import router as agents_router
 from app.api.internal_agents import router as internal_agents_router
 from app.api.git_repos import router as git_repos_router
@@ -118,5 +119,6 @@ app.include_router(copilot_router)
 app.include_router(requirement_bundles_router)
 app.include_router(agent_tasks_router)
 app.include_router(delegation_rules_router)
+app.include_router(dashboard_router)
 app.include_router(runtime_capability_catalog_router)
 app.include_router(internal_session_metadata_router)

@@ -4,6 +4,9 @@
   <div class="portal-shell">
     <nav class="portal-rail" aria-label="Workspace navigation">
       <div class="portal-rail-top">
+        <button id="dashboard-menu-btn" class="portal-rail-btn" type="button" title="Dashboard">
+          <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+        </button>
         <button id="rail-assistants-btn" class="portal-rail-btn is-active" type="button" title="Assistants">
           <i data-lucide="bot" class="w-5 h-5"></i>
         </button>
@@ -65,6 +68,40 @@
         </div>
       </div>
       <div class="portal-secondary-list">
+        <section id="dashboard-nav-section" class="portal-secondary-section hidden">
+          <div class="portal-list-tools" aria-label="Dashboard filters">
+            <div class="portal-list-tool-row">
+              <select id="dashboard-scope-filter" class="portal-filter-select" aria-label="Dashboard scope">
+                <option value="all">All visible</option>
+                <option value="mine">Mine only</option>
+              </select>
+            </div>
+            <div id="dashboard-filter-summary" class="portal-filter-summary">Operational overview</div>
+          </div>
+          <div class="portal-secondary-list-body">
+            <button class="portal-task-row" type="button" data-dashboard-shortcut="attention">
+              <div class="portal-task-row-head">
+                <div class="portal-task-row-title">Needs Attention</div>
+                <span class="portal-row-status-dot is-warning" aria-hidden="true"></span>
+              </div>
+              <div class="portal-task-row-meta"><span>Failures and blocked work</span></div>
+            </button>
+            <button class="portal-task-row" type="button" data-dashboard-shortcut="workload">
+              <div class="portal-task-row-head">
+                <div class="portal-task-row-title">Agent Workload</div>
+                <span class="portal-row-status-dot is-info" aria-hidden="true"></span>
+              </div>
+              <div class="portal-task-row-meta"><span>Active tasks by assistant</span></div>
+            </button>
+            <button class="portal-task-row" type="button" data-dashboard-shortcut="delegation-health">
+              <div class="portal-task-row-head">
+                <div class="portal-task-row-title">Delegation Health</div>
+                <span class="portal-row-status-dot is-success" aria-hidden="true"></span>
+              </div>
+              <div class="portal-task-row-meta"><span>Delegation runs and schedules</span></div>
+            </button>
+          </div>
+        </section>
         <section id="assistants-nav-section" class="portal-secondary-section">
           <div class="portal-list-tools" aria-label="Assistant filters">
             <div class="portal-search-field">
