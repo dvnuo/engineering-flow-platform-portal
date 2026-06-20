@@ -8597,10 +8597,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
 
   dom.taskNavList.innerHTML = "";
   state.myTasks.forEach((task) => {
-    const inputPayload = _safeJson(task.input_payload_json) || {};
-    const taskContent = String(inputPayload.followup_task || inputPayload.user_task || task.summary || task.task_type || task.id || "").trim();
-    const firstLine = taskContent.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || taskContent;
-    const title = String(task.title || firstLine || task.id || "Task").trim();
+    const title = String(task.display_title || task.title || task.task_type || task.id || "Task").trim();
     const displayTitle = title.length > 80 ? `${title.slice(0, 77).trim()}...` : title;
     const timeLabel = formatTaskNavTime(task.created_at || task.updated_at);
     const ownerLabel = taskOwnerLabel(task);

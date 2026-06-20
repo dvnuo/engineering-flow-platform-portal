@@ -3,7 +3,9 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.models.agent import Agent
 from app.models.agent_task import AgentTask
+from app.models.user import User
 from typing import Optional
 
 
@@ -102,6 +104,76 @@ class AgentTaskRepository:
                 return []
             stmt = stmt.limit(limit)
         return list(self.db.scalars(stmt).all())
+
+    def list_visible_to_user_summaries(
+        self,
+        *,
+        user_id: int,
+        limit: int | None = None,
+        offset: int = 0,
+        status: str | None = None,
+        owner: str | None = None,
+        query: str | None = None,
+    ) -> list[dict]:
+        filters = []
+        normalized_status = (status or "").strip().lower()
+        if normalized_status == "active":
+            filters.append(AgentTask.status.in_(["queued", "running", "pending_restart"]))
+        elif normalized_status == "attention":
+            filters.append(AgentTask.status.in_(["failed", "blocked", "cancel_failed"]))
+        elif normalized_status and normalized_status != "all":
+            filters.append(AgentTask.status == normalized_status)
+
+        if (owner or "").strip().lower() == "mine":
+            filters.append(AgentTask.owner_user_id == user_id)
+
+        normalized_query = (query or "").strip()
+        if normalized_query:
+            like_query = f"%{normalized_query}%"
+            filters.append(
+                or_(
+                    AgentTask.id.ilike(like_query),
+                    AgentTask.title.ilike(like_query),
+                    AgentTask.summary.ilike(like_query),
+                    AgentTask.error_message.ilike(like_query),
+                    AgentTask.task_type.ilike(like_query),
+                    AgentTask.skill_name.ilike(like_query),
+                    AgentTask.source.ilike(like_query),
+                    AgentTask.input_payload_json.ilike(like_query),
+                )
+            )
+
+        stmt = (
+            select(
+                AgentTask.id.label("id"),
+                AgentTask.assignee_agent_id.label("assignee_agent_id"),
+                AgentTask.source.label("source"),
+                AgentTask.task_type.label("task_type"),
+                AgentTask.title.label("title"),
+                AgentTask.skill_name.label("skill_name"),
+                AgentTask.status.label("status"),
+                AgentTask.owner_user_id.label("owner_user_id"),
+                AgentTask.created_by_user_id.label("created_by_user_id"),
+                AgentTask.created_at.label("created_at"),
+                AgentTask.updated_at.label("updated_at"),
+                Agent.name.label("assignee_agent_name"),
+                User.username.label("owner_username"),
+                User.nickname.label("owner_nickname"),
+            )
+            .select_from(AgentTask)
+            .outerjoin(Agent, Agent.id == AgentTask.assignee_agent_id)
+            .outerjoin(User, User.id == AgentTask.owner_user_id)
+            .order_by(AgentTask.updated_at.desc(), AgentTask.created_at.desc())
+        )
+        if filters:
+            stmt = stmt.where(and_(*filters))
+        if offset > 0:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            if limit <= 0:
+                return []
+            stmt = stmt.limit(limit)
+        return [dict(row._mapping) for row in self.db.execute(stmt).all()]
 
     def find_recent_duplicate(
         self,
