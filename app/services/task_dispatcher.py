@@ -5,6 +5,7 @@ import logging
 import time
 import asyncio
 import threading
+from typing import Any
 
 import httpx
 from sqlalchemy.orm import Session
@@ -34,6 +35,58 @@ AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION = (
     "Run as a background long-running task. Do not ask the user for more information unless truly blocked. "
     "Make reasonable assumptions and complete as much as possible."
 )
+RUNTIME_RESULT_EVENT_LIST_KEYS = frozenset({"runtime_events", "thinking_events", "events"})
+RUNTIME_RESULT_EVENT_TAIL_ITEMS = 10
+RUNTIME_RESULT_MAX_TEXT_CHARS = 20_000
+RUNTIME_RESULT_MAX_LIST_ITEMS = 50
+RUNTIME_RESULT_MAX_DICT_ITEMS = 100
+RUNTIME_RESULT_MAX_DEPTH = 6
+RUNTIME_STATUS_MAX_BYTES_DEFAULT = 2_000_000
+
+
+def _truncate_runtime_text(value: str, *, limit: int = RUNTIME_RESULT_MAX_TEXT_CHARS) -> str:
+    if len(value) <= limit:
+        return value
+    omitted = len(value) - limit
+    return f"{value[:limit]}... [truncated {omitted} chars]"
+
+
+def _compact_runtime_value(value: Any, *, key: str | None = None, depth: int = 0) -> Any:
+    if isinstance(value, str):
+        return _truncate_runtime_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if depth >= RUNTIME_RESULT_MAX_DEPTH:
+        return {"_truncated": "max_depth_exceeded"}
+    if isinstance(value, dict):
+        compact: dict[str, Any] = {}
+        items = list(value.items())
+        for item_key, item_value in items[:RUNTIME_RESULT_MAX_DICT_ITEMS]:
+            normalized_key = str(item_key)
+            compact[normalized_key] = _compact_runtime_value(item_value, key=normalized_key, depth=depth + 1)
+        if len(items) > RUNTIME_RESULT_MAX_DICT_ITEMS:
+            compact["_truncated_keys_count"] = len(items) - RUNTIME_RESULT_MAX_DICT_ITEMS
+        return compact
+    if isinstance(value, list):
+        selected = value[-RUNTIME_RESULT_EVENT_TAIL_ITEMS:] if key in RUNTIME_RESULT_EVENT_LIST_KEYS else value[:RUNTIME_RESULT_MAX_LIST_ITEMS]
+        compact_list = [_compact_runtime_value(item, depth=depth + 1) for item in selected]
+        if key not in RUNTIME_RESULT_EVENT_LIST_KEYS and len(value) > RUNTIME_RESULT_MAX_LIST_ITEMS:
+            compact_list.append({"_truncated_items_count": len(value) - RUNTIME_RESULT_MAX_LIST_ITEMS})
+        return compact_list
+    return str(value)
+
+
+def _compact_runtime_response_payload(response_json: dict) -> dict:
+    compact: dict[str, Any] = {}
+    for key, value in response_json.items():
+        normalized_key = str(key)
+        if normalized_key in RUNTIME_RESULT_EVENT_LIST_KEYS and isinstance(value, list):
+            compact[normalized_key] = _compact_runtime_value(value, key=normalized_key)
+            compact[f"{normalized_key}_count"] = len(value)
+            compact[f"{normalized_key}_truncated"] = len(value) > RUNTIME_RESULT_EVENT_TAIL_ITEMS
+            continue
+        compact[normalized_key] = _compact_runtime_value(value, key=normalized_key)
+    return compact
 
 
 @dataclass
@@ -71,6 +124,29 @@ class TaskDispatcherService:
             normalized = default
         return max(minimum, normalized)
 
+    def _runtime_status_max_bytes(self) -> int:
+        return self._coerce_min_int(
+            getattr(get_settings(), "agent_task_runtime_status_max_bytes", RUNTIME_STATUS_MAX_BYTES_DEFAULT),
+            default=RUNTIME_STATUS_MAX_BYTES_DEFAULT,
+            minimum=0,
+        )
+
+    @staticmethod
+    def _runtime_status_response_too_large(
+        *,
+        request: httpx.Request,
+        runtime_status_code: int,
+        max_bytes: int,
+    ) -> httpx.Response:
+        payload = {
+            "ok": False,
+            "status": "error",
+            "error_code": "runtime_status_response_too_large",
+            "message": f"Runtime task status response exceeded {max_bytes} bytes; refusing to load full task payload.",
+            "runtime_status_code": runtime_status_code,
+        }
+        return httpx.Response(200, json=payload, request=request)
+
     @staticmethod
     def _parse_input_payload(input_payload_json: str | None) -> tuple[dict | None, str | None]:
         if input_payload_json is None or not input_payload_json.strip():
@@ -102,8 +178,26 @@ class TaskDispatcherService:
         headers = {}
         if isinstance(metadata, dict):
             headers.update(build_runtime_trace_headers(metadata))
+        max_bytes = self._runtime_status_max_bytes()
         async with httpx.AsyncClient(timeout=30.0) as client:
-            return await client.get(url, headers=headers)
+            async with client.stream("GET", url, headers=headers) as response:
+                chunks: list[bytes] = []
+                total_bytes = 0
+                async for chunk in response.aiter_bytes():
+                    total_bytes += len(chunk)
+                    if max_bytes and total_bytes > max_bytes:
+                        return self._runtime_status_response_too_large(
+                            request=response.request,
+                            runtime_status_code=response.status_code,
+                            max_bytes=max_bytes,
+                        )
+                    chunks.append(chunk)
+                return httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    content=b"".join(chunks),
+                    request=response.request,
+                )
 
     def _build_failure_payload(
         self,
@@ -497,7 +591,7 @@ class TaskDispatcherService:
                 is_malformed=True,
             )
 
-        normalized_payload_json = json.dumps(response_json)
+        normalized_payload_json = json.dumps(_compact_runtime_response_payload(response_json))
         normalized_status = str(status_value).lower()
         supported_statuses = {
             "success", "done", "completed",

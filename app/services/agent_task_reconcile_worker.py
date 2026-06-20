@@ -11,6 +11,14 @@ from app.services.task_dispatcher import TaskDispatcherService
 logger = logging.getLogger(__name__)
 
 
+def _coerce_non_negative_int(value, *, default: int) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        normalized = default
+    return max(0, normalized)
+
+
 class AgentTaskReconcileWorker:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -32,7 +40,10 @@ class AgentTaskReconcileWorker:
             thread.join(timeout=5)
 
     def _run_loop(self) -> None:
-        interval = max(1, int(self.settings.agent_task_reconcile_worker_interval_seconds))
+        initial_delay = self._initial_delay_seconds()
+        if initial_delay and self._stop_event.wait(initial_delay):
+            return
+        interval = self._interval_seconds()
         while not self._stop_event.is_set():
             try:
                 asyncio.run(self._run_once())
@@ -40,11 +51,32 @@ class AgentTaskReconcileWorker:
                 logger.exception("agent task reconcile worker iteration failed")
             self._stop_event.wait(interval)
 
+    def _initial_delay_seconds(self) -> int:
+        return _coerce_non_negative_int(
+            getattr(self.settings, "agent_task_reconcile_worker_initial_delay_seconds", 30),
+            default=30,
+        )
+
+    def _interval_seconds(self) -> int:
+        return max(
+            1,
+            _coerce_non_negative_int(
+                getattr(self.settings, "agent_task_reconcile_worker_interval_seconds", 5),
+                default=5,
+            ),
+        )
+
+    def _batch_size(self) -> int:
+        return _coerce_non_negative_int(
+            getattr(self.settings, "agent_task_reconcile_worker_batch_size", 50),
+            default=50,
+        )
+
     async def _run_once(self) -> None:
         db = SessionLocal()
         try:
             repo = AgentTaskRepository(db)
-            tasks = repo.list_active_agent_async_tasks(limit=int(self.settings.agent_task_reconcile_worker_batch_size))
+            tasks = repo.list_active_agent_async_tasks(limit=self._batch_size())
             for task in tasks:
                 status = (getattr(task, "status", None) or "").strip().lower()
                 try:
