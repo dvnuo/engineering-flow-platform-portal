@@ -339,6 +339,7 @@ def test_dashboard_summary_navigation_is_wired():
     js = _chat_ui_js_source()
     css = _app_css_source()
     template = _app_template_source()
+    dashboard_template = (_repo_root() / "app" / "templates" / "partials" / "dashboard_panel.html").read_text(encoding="utf-8")
 
     assert 'id="dashboard-menu-btn"' in template
     assert 'id="dashboard-nav-section"' in template
@@ -352,7 +353,14 @@ def test_dashboard_summary_navigation_is_wired():
     assert "data-open-dashboard-agent" in js
     assert "data-open-dashboard-delegation" in js
 
-    assert ".portal-dashboard-summary-grid" in css
+    assert "portal-dashboard-hero" in dashboard_template
+    assert "portal-dashboard-health-card" in dashboard_template
+    assert "portal-dashboard-segment-track" in dashboard_template
+    assert "portal-dashboard-timeline-row" in dashboard_template
+    assert ".portal-dashboard-overview-grid" in css
+    assert ".portal-dashboard-health-card" in css
+    assert ".portal-dashboard-segment-track" in css
+    assert ".portal-dashboard-timeline-row" in css
     assert ".portal-dashboard-workload-row" in css
 
 
