@@ -172,7 +172,8 @@ def test_task_detail_panel_renders_non_async_tasks_as_unsupported_read_only(monk
     assert "Unsupported Task" in response.text
     assert "This task type is not supported by the background task panel" in response.text
     assert "Input Payload" in response.text
-    assert "Result Payload" in response.text
+    assert "Result JSON" in response.text
+    assert "Download JSON" in response.text
     assert "Task " + "Template" not in response.text
 
 
@@ -203,7 +204,43 @@ def test_agent_async_task_detail_renders_final_response_and_followup(monkeypatch
     assert 'data-rerun-task="async-task-1"' in response.text
     assert "Start Follow-up" in response.text
     assert "Raw Input" in response.text
-    assert "Raw Result" in response.text
+    assert "Result JSON" in response.text
+    assert "Download JSON" in response.text
+    assert "/app/tasks/async-task-1/result.json" in response.text
+
+
+def test_task_result_json_download_falls_back_to_stored_compact_payload(monkeypatch):
+    import app.web as web_module
+
+    task = _agent_async_task("done")
+    client = _setup_task_client(monkeypatch, task)
+
+    class FakeAgentRepo:
+        def __init__(self, _db):
+            return None
+
+        def get_by_id(self, _agent_id):
+            return None
+
+    monkeypatch.setattr(web_module, "AgentRepository", FakeAgentRepo)
+    response = client.get("/app/tasks/async-task-1/result.json")
+    assert response.status_code == 200
+    assert "attachment" in response.headers["content-disposition"]
+    body = response.json()
+    assert body["source"] == "portal_stored_compact_result"
+    assert body["task_id"] == "async-task-1"
+    assert body["result_payload"]["final_response"] == "Finished the work."
+
+
+def test_agent_async_task_detail_does_not_inline_large_result_payload(monkeypatch):
+    task = _agent_async_task("done")
+    marker = "SHOULD_NOT_RENDER"
+    task.result_payload_json = json.dumps({"output_payload": {"final_response": marker * 15000}})
+    client = _setup_task_client(monkeypatch, task)
+    response = client.get("/app/tasks/async-task-1/panel")
+    assert response.status_code == 200
+    assert "Download JSON" in response.text
+    assert marker not in response.text
 
 
 def test_read_only_agent_async_task_hides_manage_actions(monkeypatch):
