@@ -100,8 +100,18 @@ def test_dashboard_summary_rolls_up_attention_workload_and_delegations():
         assert summary["tasks"]["attention"] == 1
         assert summary["delegations"]["enabled"] == 1
         assert summary["delegations"]["due"] == 1
+        assert summary["health"]["tone"] == "error"
+        assert summary["health"]["critical"] == 3
+        assert any(segment["status"] == "failed" and segment["tone"] == "error" for segment in summary["tasks"]["segments"])
+        assert any(segment["label"] == "Due" and segment["tone"] == "warning" for segment in summary["delegations"]["segments"])
         assert any(item["target_id"] == "task-failed" for item in summary["attention_items"])
         assert summary["workload"][0]["agent_id"] == "agent-bad"
+        assert summary["workload"][0]["status_tone"] == "error"
+        assert summary["workload"][0]["attention_percent"] == 100
         assert summary["delegation_health"][0]["rule_id"] == "rule-1"
+        assert summary["delegation_health"][0]["last_status_tone"] == "error"
+        assert summary["delegation_health"][0]["row_tone"] == "error"
+        assert summary["delegation_health"][0]["is_due"] is True
+        assert any(item["tone"] == "error" for item in summary["recent_activity"])
     finally:
         db.close()

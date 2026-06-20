@@ -16,6 +16,11 @@ from app.repositories.delegation_rule_repo import DelegationRuleRepository
 ACTIVE_TASK_STATUSES = {"queued", "running", "pending_restart"}
 ATTENTION_TASK_STATUSES = {"failed", "blocked", "cancel_failed", "stale"}
 ATTENTION_AGENT_STATUSES = {"failed"}
+SUCCESS_TASK_STATUSES = {"done", "success", "completed"}
+WARNING_TASK_STATUSES = {"queued", "running", "pending_restart", "blocked", "stale"}
+ERROR_TASK_STATUSES = {"failed", "cancel_failed"}
+SUCCESS_RUN_STATUSES = {"success", "done", "completed"}
+ERROR_RUN_STATUSES = {"failed", "error"}
 
 
 def _status_key(value: str | None) -> str:
@@ -24,6 +29,45 @@ def _status_key(value: str | None) -> str:
 
 def _dt_sort_key(value: datetime | None) -> datetime:
     return value or datetime.min
+
+
+def _percent(part: int, total: int) -> int:
+    if total <= 0:
+        return 0
+    return max(0, min(100, round((part / total) * 100)))
+
+
+def _tone_for_task_status(status: str | None) -> str:
+    key = _status_key(status)
+    if key in SUCCESS_TASK_STATUSES:
+        return "success"
+    if key in ERROR_TASK_STATUSES:
+        return "error"
+    if key in WARNING_TASK_STATUSES:
+        return "warning"
+    return "neutral"
+
+
+def _tone_for_run_status(status: str | None) -> str:
+    key = _status_key(status)
+    if key in SUCCESS_RUN_STATUSES:
+        return "success"
+    if key in ERROR_RUN_STATUSES:
+        return "error"
+    if key in {"running", "queued", "pending"}:
+        return "warning"
+    return "neutral"
+
+
+def _tone_for_agent_status(status: str | None) -> str:
+    key = _status_key(status)
+    if key == "running":
+        return "success"
+    if key in ATTENTION_AGENT_STATUSES:
+        return "error"
+    if key in {"pending", "creating", "restarting", "stopped"}:
+        return "warning"
+    return "neutral"
 
 
 class DashboardSummaryService:
@@ -55,6 +99,13 @@ class DashboardSummaryService:
         failed_runs = [run for run in latest_runs if _status_key(run.status) == "failed" or bool((run.error_message or "").strip())]
         due_rules = [rule for rule in rules if rule.enabled and rule.next_run_at and rule.next_run_at <= generated_at]
         missing_target_rules = [rule for rule in rules if rule.target_agent_id not in related_agent_by_id]
+        health = self._health_summary(
+            attention_tasks=attention_tasks,
+            attention_agents=attention_agents,
+            failed_runs=failed_runs,
+            due_rules=due_rules,
+            missing_target_rules=missing_target_rules,
+        )
 
         tasks_by_agent: dict[str, list[AgentTask]] = defaultdict(list)
         for task in tasks:
@@ -67,11 +118,13 @@ class DashboardSummaryService:
         return {
             "scope": normalized_scope,
             "generated_at": generated_at,
+            "health": health,
             "agents": {
                 "total": len(agents),
                 "running": agent_status_counts.get("running", 0),
                 "attention": len(attention_agents),
                 "by_status": dict(sorted(agent_status_counts.items())),
+                "segments": self._status_segments(agent_status_counts, total=len(agents), kind="agent"),
             },
             "tasks": {
                 "total": len(tasks),
@@ -80,6 +133,7 @@ class DashboardSummaryService:
                 "done_24h": sum(1 for task in tasks if _status_key(task.status) == "done" and _dt_sort_key(task.updated_at) >= window_start),
                 "failed_24h": sum(1 for task in tasks if _status_key(task.status) == "failed" and _dt_sort_key(task.updated_at) >= window_start),
                 "by_status": dict(sorted(task_status_counts.items())),
+                "segments": self._status_segments(task_status_counts, total=len(tasks), kind="task"),
             },
             "delegations": {
                 "total": len(rules),
@@ -89,6 +143,13 @@ class DashboardSummaryService:
                 "failed_runs": len(failed_runs),
                 "missing_targets": len(missing_target_rules),
                 "by_source": dict(sorted(source_counts.items())),
+                "segments": self._delegation_segments(
+                    enabled=sum(1 for rule in rules if rule.enabled),
+                    disabled=sum(1 for rule in rules if not rule.enabled),
+                    due=len(due_rules),
+                    failed=len(failed_runs),
+                    total=len(rules),
+                ),
             },
             "attention_items": self._attention_items(
                 attention_tasks=attention_tasks,
@@ -102,9 +163,101 @@ class DashboardSummaryService:
                 tasks_by_agent=tasks_by_agent,
                 rules_by_agent=rules_by_agent,
             )[:8],
-            "delegation_health": self._delegation_health_rows(rules=rules, latest_runs=latest_runs, agent_by_id=related_agent_by_id)[:8],
+            "delegation_health": self._delegation_health_rows(
+                rules=rules,
+                latest_runs=latest_runs,
+                agent_by_id=related_agent_by_id,
+                now=generated_at,
+            )[:8],
             "recent_activity": self._recent_activity(tasks=tasks, latest_runs=latest_runs, rules=rules, agent_by_id=related_agent_by_id)[:10],
         }
+
+    def _health_summary(
+        self,
+        *,
+        attention_tasks: list[AgentTask],
+        attention_agents: list[Agent],
+        failed_runs: list[DelegationRuleRun],
+        due_rules: list[DelegationRule],
+        missing_target_rules: list[DelegationRule],
+    ) -> dict[str, Any]:
+        critical_count = (
+            sum(1 for task in attention_tasks if _status_key(task.status) in ERROR_TASK_STATUSES)
+            + len(attention_agents)
+            + len(failed_runs)
+        )
+        warning_count = (
+            sum(1 for task in attention_tasks if _status_key(task.status) not in ERROR_TASK_STATUSES)
+            + len(due_rules)
+            + len(missing_target_rules)
+        )
+        score = max(0, min(100, 100 - critical_count * 14 - warning_count * 6))
+        if score >= 85:
+            label = "Healthy"
+            tone = "success"
+            headline = "Operations are steady"
+        elif score >= 60:
+            label = "Watch"
+            tone = "warning"
+            headline = "A few queues need attention"
+        else:
+            label = "Needs attention"
+            tone = "error"
+            headline = "Action is needed"
+        return {
+            "score": score,
+            "label": label,
+            "tone": tone,
+            "headline": headline,
+            "critical": critical_count,
+            "warning": warning_count,
+        }
+
+    def _status_segments(self, counts: Counter, *, total: int, kind: str) -> list[dict[str, Any]]:
+        segments = []
+        for status, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
+            tone = "neutral"
+            if kind == "task":
+                tone = _tone_for_task_status(status)
+            else:
+                tone = _tone_for_agent_status(status)
+            segments.append(
+                {
+                    "status": status,
+                    "label": status.replace("_", " ").title(),
+                    "count": int(count),
+                    "percent": _percent(int(count), total),
+                    "tone": tone,
+                }
+            )
+        return segments
+
+    def _delegation_segments(
+        self,
+        *,
+        enabled: int,
+        disabled: int,
+        due: int,
+        failed: int,
+        total: int,
+    ) -> list[dict[str, Any]]:
+        segment_total = max(total, due + failed, enabled + disabled)
+        items = [
+            ("Enabled", enabled, "success"),
+            ("Due", due, "warning"),
+            ("Failed", failed, "error"),
+            ("Disabled", disabled, "neutral"),
+        ]
+        return [
+            {
+                "label": label,
+                "count": count,
+                "percent": _percent(count, segment_total),
+                "tone": tone,
+            }
+            for label, count, tone in items
+            if count > 0
+        ]
 
     def _visible_agents(self, user, scope: str) -> list[Agent]:
         stmt = select(Agent).order_by(Agent.updated_at.desc(), Agent.created_at.desc())
@@ -224,11 +377,15 @@ class DashboardSummaryService:
                     "agent_id": agent.id,
                     "agent_name": agent.name,
                     "status": _status_key(agent.status),
+                    "status_tone": "error" if (agent.last_error or "").strip() else _tone_for_agent_status(agent.status),
+                    "total_tasks": len(tasks),
                     "active_tasks": sum(statuses.get(status, 0) for status in ACTIVE_TASK_STATUSES),
                     "queued_tasks": statuses.get("queued", 0),
                     "running_tasks": statuses.get("running", 0),
                     "attention_tasks": sum(statuses.get(status, 0) for status in ATTENTION_TASK_STATUSES),
                     "delegations": len(rules_by_agent.get(agent.id, [])),
+                    "active_percent": _percent(sum(statuses.get(status, 0) for status in ACTIVE_TASK_STATUSES), max(1, len(tasks))),
+                    "attention_percent": _percent(sum(statuses.get(status, 0) for status in ATTENTION_TASK_STATUSES), max(1, len(tasks))),
                     "updated_at": agent.updated_at or agent.created_at,
                 }
             )
@@ -244,6 +401,7 @@ class DashboardSummaryService:
         rules: list[DelegationRule],
         latest_runs: list[DelegationRuleRun],
         agent_by_id: dict[str, Agent],
+        now: datetime,
     ) -> list[dict[str, Any]]:
         latest_run_by_rule: dict[str, DelegationRuleRun] = {}
         for run in latest_runs:
@@ -252,6 +410,16 @@ class DashboardSummaryService:
         for rule in rules:
             agent = agent_by_id.get(rule.target_agent_id)
             run = latest_run_by_rule.get(rule.id)
+            last_status_tone = _tone_for_run_status(run.status) if run else "neutral"
+            is_due = bool(rule.enabled and rule.next_run_at and rule.next_run_at <= now)
+            if last_status_tone == "error":
+                row_tone = "error"
+            elif not rule.enabled:
+                row_tone = "neutral"
+            elif is_due or agent is None:
+                row_tone = "warning"
+            else:
+                row_tone = last_status_tone
             rows.append(
                 {
                     "rule_id": rule.id,
@@ -260,6 +428,9 @@ class DashboardSummaryService:
                     "source": rule.trigger_type or rule.source_type,
                     "agent_name": agent.name if agent else "Missing target",
                     "last_status": _status_key(run.status) if run else "never",
+                    "last_status_tone": last_status_tone,
+                    "row_tone": row_tone,
+                    "is_due": is_due,
                     "last_run_at": (run.finished_at or run.started_at) if run else rule.last_run_at,
                     "next_run_at": rule.next_run_at,
                 }
@@ -281,6 +452,7 @@ class DashboardSummaryService:
             items.append(
                 {
                     "kind": "task",
+                    "tone": _tone_for_task_status(task.status),
                     "title": task.title or task.summary or task.task_type or task.id,
                     "meta": f"{_status_key(task.status)} on {(agent.name if agent else task.assignee_agent_id)}",
                     "timestamp": task.updated_at or task.created_at,
@@ -293,6 +465,7 @@ class DashboardSummaryService:
             items.append(
                 {
                     "kind": "delegation",
+                    "tone": _tone_for_run_status(run.status),
                     "title": rule.name if rule else "Delegation run",
                     "meta": _status_key(run.status),
                     "timestamp": run.finished_at or run.started_at,
