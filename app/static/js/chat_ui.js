@@ -152,6 +152,123 @@ const PORTAL_ROUTE_SECTIONS = new Set([
   "delegations",
 ]);
 
+function initialPortalRouteSectionFromHash(hash = window.location.hash) {
+  const raw = typeof hash === "string" ? hash : "";
+  if (!raw || raw === "#") return "assistants";
+  const withoutHash = raw.startsWith("#") ? raw.slice(1) : raw;
+  const routeText = withoutHash.startsWith("/") ? withoutHash.slice(1) : withoutHash;
+  if (!routeText) return "assistants";
+  const queryIndex = routeText.indexOf("?");
+  const pathPart = queryIndex >= 0 ? routeText.slice(0, queryIndex) : routeText;
+  const encodedSection = pathPart.split("/")[0] || "";
+  try {
+    const section = decodeURIComponent(encodedSection);
+    return PORTAL_ROUTE_SECTIONS.has(section) ? section : "assistants";
+  } catch (_error) {
+    return "assistants";
+  }
+}
+
+const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
+
+function initialPortalSectionTitle(section) {
+  if (section === "dashboard") return "Dashboard";
+  if (section === "bundles") return "Bundles";
+  if (section === "tasks") return "Tasks";
+  if (section === "runtime-profiles") return "Runtime Profiles";
+  if (section === "delegations") return "Delegations";
+  return "Assistants";
+}
+
+function initialPortalStatusText(section) {
+  if (section === "dashboard") return "Operational overview across assistants, tasks, and delegations";
+  if (section === "bundles") return "Browse and open bundle detail in the main stage";
+  if (section === "tasks") return "Browse tasks and open task detail in the main stage";
+  if (section === "runtime-profiles") return "Browse and manage your runtime profiles";
+  if (section === "delegations") return "Manage delegations";
+  return "Ready";
+}
+
+function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
+  const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : "assistants";
+  const railButtons = {
+    dashboard: dom.dashboardMenuBtn,
+    assistants: dom.railAssistantsBtn,
+    bundles: dom.bundlesMenuBtn,
+    tasks: dom.tasksMenuBtn,
+    "runtime-profiles": dom.runtimeProfilesMenuBtn,
+    delegations: dom.delegationsMenuBtn,
+  };
+  const navSections = {
+    dashboard: dom.dashboardNavSection,
+    assistants: dom.assistantsNavSection,
+    bundles: dom.bundlesNavSection,
+    tasks: dom.tasksNavSection,
+    "runtime-profiles": dom.runtimeProfilesNavSection,
+    delegations: dom.delegationsNavSection,
+  };
+  Object.entries(railButtons).forEach(([key, element]) => {
+    element?.classList.toggle("is-active", key === normalized);
+  });
+  Object.entries(navSections).forEach(([key, element]) => {
+    element?.classList.toggle("hidden", key !== normalized);
+  });
+
+  const actionButtons = [
+    dom.addAgentBtn,
+    dom.refreshBundlesBtn,
+    dom.addBundleBtn,
+    dom.addTaskBtn,
+    dom.addRuntimeProfileBtn,
+    dom.addDelegationBtn,
+  ];
+  actionButtons.forEach((button) => button?.classList.add("hidden"));
+  if (normalized === "assistants") dom.addAgentBtn?.classList.remove("hidden");
+  if (normalized === "bundles") {
+    dom.refreshBundlesBtn?.classList.remove("hidden");
+    dom.addBundleBtn?.classList.remove("hidden");
+  }
+  if (normalized === "tasks") dom.addTaskBtn?.classList.remove("hidden");
+  if (normalized === "runtime-profiles") dom.addRuntimeProfileBtn?.classList.remove("hidden");
+  if (normalized === "delegations") dom.addDelegationBtn?.classList.remove("hidden");
+
+  const title = initialPortalSectionTitle(normalized);
+  if (dom.secondaryPaneEyebrow) {
+    dom.secondaryPaneEyebrow.textContent = normalized === "assistants" ? "My Space" : (normalized === "dashboard" ? "Portal" : "Workspace");
+  }
+  if (dom.secondaryPaneTitle) dom.secondaryPaneTitle.textContent = title;
+
+  const assistantOnlyControls = [
+    document.getElementById("btn-sessions"),
+    dom.headerNewChatBtn,
+    dom.detailToggle,
+    document.getElementById("btn-thinking"),
+    document.getElementById("btn-files"),
+  ];
+  assistantOnlyControls.forEach((element) => {
+    element?.classList.toggle("hidden", normalized !== "assistants");
+  });
+
+  if (normalized === "assistants") {
+    dom.centerPlaceholder?.classList.remove("hidden");
+    dom.workspaceDetailView?.classList.add("hidden");
+    dom.agentChatApp?.classList.add("hidden");
+    return;
+  }
+
+  dom.centerPlaceholder?.classList.add("hidden");
+  dom.agentChatApp?.classList.add("hidden");
+  dom.workspaceDetailView?.classList.remove("hidden");
+  if (dom.workspaceDetailContent) {
+    dom.workspaceDetailContent.dataset.workspaceState = `${normalized}-initial-loading`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">Loading ${title.toLowerCase()}...</div>`;
+  }
+  if (dom.embedTitle) dom.embedTitle.textContent = title;
+  if (dom.chatStatus) dom.chatStatus.textContent = initialPortalStatusText(normalized);
+}
+
+applyInitialPortalRouteShell();
+
 function normalizeUtilityPanelKey(panelKey) {
   if (typeof panelKey !== "string") return null;
   const normalized = panelKey.trim();
@@ -344,7 +461,7 @@ const state = {
   requirementBundles: [],
   hasRequirementBundlesCache: false,
   selectedBundleKey: null,
-  activeNavSection: "assistants",
+  activeNavSection: INITIAL_PORTAL_ROUTE_SECTION,
   dashboardScope: "all",
   secondaryPaneCollapsed: !!initialUiLayoutPrefs.secondaryPaneCollapsed,
   toolPanelOpen: !!initialUiLayoutPrefs.toolPanelPinned,
@@ -5382,7 +5499,9 @@ async function syncSelectedAgentState() {
     dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
     dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
     dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
-    setMainView("home");
+    if (state.activeNavSection === "assistants") {
+      setMainView("home");
+    }
     state.selectedAgentName = null;
     updateChatInputPlaceholder();
     syncMainHeader();
@@ -5411,6 +5530,11 @@ async function syncSelectedAgentState() {
 
   renderAgentMeta(agent);
   renderAgentActions(agent, status);
+
+  if (state.activeNavSection !== "assistants") {
+    syncMainHeader();
+    return;
+  }
 
   const running = status === "running";
   setMainView(running ? "chat" : "home");
