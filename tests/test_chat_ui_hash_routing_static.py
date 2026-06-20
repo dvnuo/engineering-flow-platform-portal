@@ -5,6 +5,7 @@ from _js_extract_helpers import _extract_js_function, _extract_js_set_values
 
 CHAT_UI = Path("app/static/js/chat_ui.js")
 APP_HTML = Path("app/templates/app.html")
+APP_CSS = Path("app/static/css/app.css")
 
 
 def _chat_ui_source() -> str:
@@ -172,9 +173,11 @@ def test_return_from_task_detail_routes_back_to_tasks_section():
     )
 
 
-def test_runtime_profiles_section_landing_does_not_auto_open_default_profile():
+def test_runtime_profiles_section_landing_auto_opens_first_profile():
     js = _chat_ui_source()
     set_active_section = _extract_js_function(js, "setActiveNavSection")
+    route_from_hash = _extract_js_function(js, "applyPortalRouteFromHash")
+    open_section = _extract_js_function(js, "openPortalSection")
     start = set_active_section.index('if (state.activeNavSection === "runtime-profiles"')
     end = set_active_section.index('if (state.activeNavSection === "tasks"', start)
     runtime_branch = set_active_section[start:end]
@@ -183,9 +186,27 @@ def test_runtime_profiles_section_landing_does_not_auto_open_default_profile():
     ]
 
     assert "preferSectionLanding" in runtime_branch
-    assert "state.selectedRuntimeProfileId = null" in prefer_branch
-    assert "Select a runtime profile from the left sidebar." in prefer_branch
-    assert "loadRuntimeProfilePanelContent(targetProfileId" not in prefer_branch
+    assert "const targetProfile = state.runtimeProfiles[0] || null" in prefer_branch
+    assert "state.selectedRuntimeProfileId = targetProfileId" in prefer_branch
+    assert "await loadRuntimeProfilePanelContent(targetProfileId, { updateRoute: false })" in prefer_branch
+    assert 'commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: targetProfileId })' in prefer_branch
+    assert "Select a runtime profile from the left sidebar." not in prefer_branch
+
+    assert "shouldNormalizeRuntimeProfileLandingRoute" in route_from_hash
+    assert '{ section: "runtime-profiles", runtimeProfileId: state.selectedRuntimeProfileId }' in route_from_hash
+    assert "const opensDetailByDefault = section === \"runtime-profiles\"" in open_section
+    assert "updateRoute: opensDetailByDefault" in open_section
+
+
+def test_assistant_rows_have_visible_hover_feedback():
+    css = APP_CSS.read_text(encoding="utf-8")
+    start = css.index(".portal-agent-row:hover")
+    end = css.index(".portal-agent-row.is-active", start)
+    hover_block = css[start:end]
+
+    assert "background: var(--portal-surface-soft)" in hover_block
+    assert "border-color: var(--portal-border-strong)" in hover_block
+    assert "transform: translateY(-1px)" in hover_block
 
 
 def test_detail_row_clicks_do_not_write_section_route_before_detail_open():

@@ -214,7 +214,11 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-agent-list { overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .portal-agent-section { display: flex; flex-direction: column; gap: 8px; }
 .portal-agent-row { width: 100%; min-width: 0; max-width: 100%; min-height: 64px; padding: 12px 14px; border-radius: var(--portal-radius-md); border: 1px solid var(--portal-border); background: var(--portal-surface-muted); color: var(--portal-text); display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 8px; overflow: hidden; text-align: left; transition: background var(--portal-transition), border-color var(--portal-transition), transform var(--portal-transition), box-shadow var(--portal-transition); animation: portal-list-item-in 180ms ease-out both; }
-.portal-agent-row:hover { transform: translateY(-1px); }
+.portal-agent-row:hover {
+  background: var(--portal-surface-soft);
+  border-color: var(--portal-border-strong);
+  transform: translateY(-1px);
+}
 .portal-agent-row.is-active { background: var(--portal-accent-soft); border-color: rgba(91,140,255,.4); }
 .portal-agent-row.is-error { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--portal-danger), transparent 20%); }
 .portal-agent-row.is-warning { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--portal-warning), transparent 20%); }
