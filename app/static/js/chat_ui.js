@@ -151,21 +151,22 @@ const PORTAL_ROUTE_SECTIONS = new Set([
   "runtime-profiles",
   "delegations",
 ]);
+const DEFAULT_PORTAL_ROUTE_SECTION = "dashboard";
 
 function initialPortalRouteSectionFromHash(hash = window.location.hash) {
   const raw = typeof hash === "string" ? hash : "";
-  if (!raw || raw === "#") return "assistants";
+  if (!raw || raw === "#") return DEFAULT_PORTAL_ROUTE_SECTION;
   const withoutHash = raw.startsWith("#") ? raw.slice(1) : raw;
   const routeText = withoutHash.startsWith("/") ? withoutHash.slice(1) : withoutHash;
-  if (!routeText) return "assistants";
+  if (!routeText) return DEFAULT_PORTAL_ROUTE_SECTION;
   const queryIndex = routeText.indexOf("?");
   const pathPart = queryIndex >= 0 ? routeText.slice(0, queryIndex) : routeText;
   const encodedSection = pathPart.split("/")[0] || "";
   try {
     const section = decodeURIComponent(encodedSection);
-    return PORTAL_ROUTE_SECTIONS.has(section) ? section : "assistants";
+    return PORTAL_ROUTE_SECTIONS.has(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   } catch (_error) {
-    return "assistants";
+    return DEFAULT_PORTAL_ROUTE_SECTION;
   }
 }
 
@@ -190,7 +191,7 @@ function initialPortalStatusText(section) {
 }
 
 function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
-  const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : "assistants";
+  const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   const railButtons = {
     dashboard: dom.dashboardMenuBtn,
     assistants: dom.railAssistantsBtn,
@@ -503,7 +504,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
   const hadHash = raw.length > 0 && raw !== "#";
   const fallback = {
     valid: false,
-    section: "assistants",
+    section: DEFAULT_PORTAL_ROUTE_SECTION,
     agentId: "",
     taskId: "",
     runtimeProfileId: "",
@@ -562,7 +563,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
 }
 
 function portalHashForRoute(route = {}) {
-  const section = PORTAL_ROUTE_SECTIONS.has(route?.section) ? route.section : "assistants";
+  const section = PORTAL_ROUTE_SECTIONS.has(route?.section) ? route.section : DEFAULT_PORTAL_ROUTE_SECTION;
 
   if (section === "assistants") {
     const agentId = route.agentId ? String(route.agentId) : "";
@@ -600,11 +601,11 @@ function portalHashForRoute(route = {}) {
     return delegationRuleId ? `#/delegations/${encodeURIComponent(delegationRuleId)}` : "#/delegations";
   }
 
-  return "#/assistants";
+  return "#/dashboard";
 }
 
 function currentPortalRouteFromState() {
-  const section = PORTAL_ROUTE_SECTIONS.has(state.activeNavSection) ? state.activeNavSection : "assistants";
+  const section = PORTAL_ROUTE_SECTIONS.has(state.activeNavSection) ? state.activeNavSection : DEFAULT_PORTAL_ROUTE_SECTION;
 
   if (section === "assistants") {
     return { section, agentId: state.selectedAgentId || "" };
@@ -634,7 +635,7 @@ function currentPortalRouteFromState() {
     return { section, delegationRuleId: state.selectedDelegationRuleId || "" };
   }
 
-  return { section: "assistants", agentId: state.selectedAgentId || "" };
+  return portalSectionRoute(DEFAULT_PORTAL_ROUTE_SECTION);
 }
 
 function commitPortalRoute(route = currentPortalRouteFromState(), { replace = false } = {}) {
@@ -667,7 +668,7 @@ function clearPortalSectionDetailSelection(section) {
 }
 
 function portalSectionRoute(section) {
-  const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : "assistants";
+  const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   if (normalized === "dashboard") {
     return { section: "dashboard" };
   }
@@ -713,8 +714,7 @@ async function applyPortalRouteFromHash({ replaceInvalid = false } = {}) {
   if (!route.valid || !route.hadHash) {
     route = {
       valid: true,
-      section: "assistants",
-      agentId: state.selectedAgentId || "",
+      section: DEFAULT_PORTAL_ROUTE_SECTION,
       hadHash: false,
     };
   }
@@ -735,7 +735,7 @@ async function applyPortalRouteFromHash({ replaceInvalid = false } = {}) {
 
 async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
   if (!route || !PORTAL_ROUTE_SECTIONS.has(route.section)) {
-    await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
+    await setActiveNavSection(DEFAULT_PORTAL_ROUTE_SECTION, { toggleIfSame: false, updateRoute: false });
     return;
   }
 
