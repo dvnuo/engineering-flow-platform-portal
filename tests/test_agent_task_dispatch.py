@@ -1272,6 +1272,52 @@ def test_normalize_runtime_response_unsupported_status_malformed():
     assert outcome.is_malformed is True
 
 
+def test_normalize_runtime_response_compacts_large_runtime_payload():
+    payload = {
+        "ok": True,
+        "status": "done",
+        "output_payload": {
+            "summary": "finished",
+            "final_response": "x" * 25_000,
+        },
+        "runtime_events": [
+            {"index": index, "detail": "y" * 25_000}
+            for index in range(12)
+        ],
+        "artifacts": {
+            "logs": ["z" * 25_000 for _ in range(60)],
+        },
+    }
+    response = httpx.Response(200, json=payload)
+
+    outcome = TaskDispatcherService._normalize_runtime_response(response)
+    stored = json.loads(outcome.result_payload_json)
+
+    assert outcome.terminal_status == "done"
+    assert stored["runtime_events_count"] == 12
+    assert stored["runtime_events_truncated"] is True
+    assert len(stored["runtime_events"]) == 10
+    assert stored["runtime_events"][0]["index"] == 2
+    assert len(stored["output_payload"]["final_response"]) < len(payload["output_payload"]["final_response"])
+    assert stored["artifacts"]["logs"][-1] == {"_truncated_items_count": 10}
+
+
+def test_runtime_status_response_too_large_normalizes_to_failed():
+    request = httpx.Request("GET", "http://runtime.example/api/tasks/task-1")
+    response = TaskDispatcherService._runtime_status_response_too_large(
+        request=request,
+        runtime_status_code=200,
+        max_bytes=1234,
+    )
+
+    outcome = TaskDispatcherService._normalize_runtime_response(response)
+    stored = json.loads(outcome.result_payload_json)
+
+    assert outcome.terminal_status == "failed"
+    assert stored["error_code"] == "runtime_status_response_too_large"
+    assert stored["runtime_status_code"] == 200
+
+
 def test_dispatch_task_sets_pending_restart_summary(db_session, monkeypatch):
     db, agent = db_session
     task = _create_task(db, agent.id)

@@ -87,3 +87,22 @@ def test_agent_task_reconcile_worker_schedules_queued_and_reconciles_running(mon
 
     assert calls["queued"] == [queued_id]
     assert calls["running"] == [(running_id, True)]
+
+
+def test_agent_task_reconcile_worker_uses_safe_defaults_for_missing_settings():
+    worker = AgentTaskReconcileWorker()
+    worker.settings = SimpleNamespace()
+
+    assert worker._initial_delay_seconds() == 30
+    assert worker._interval_seconds() == 5
+    assert worker._batch_size() == 50
+
+    worker.settings = SimpleNamespace(
+        agent_task_reconcile_worker_initial_delay_seconds="-1",
+        agent_task_reconcile_worker_interval_seconds="0",
+        agent_task_reconcile_worker_batch_size="bad",
+    )
+
+    assert worker._initial_delay_seconds() == 0
+    assert worker._interval_seconds() == 1
+    assert worker._batch_size() == 50

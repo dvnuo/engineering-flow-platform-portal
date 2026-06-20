@@ -151,8 +151,10 @@ def test_settings_agent_task_timeout_defaults():
     assert settings.agent_task_runtime_poll_timeout_seconds == 3600
     assert settings.agent_task_runtime_poll_interval_seconds == 1
     assert settings.agent_task_reconcile_worker_enabled is True
+    assert settings.agent_task_reconcile_worker_initial_delay_seconds == 30
     assert settings.agent_task_reconcile_worker_interval_seconds == 5
     assert settings.agent_task_reconcile_worker_batch_size == 50
+    assert settings.agent_task_runtime_status_max_bytes == 2_000_000
     assert settings.agent_task_runtime_missing_stale_after_seconds == 300
 
 
@@ -160,13 +162,17 @@ def test_settings_agent_task_timeout_env_overrides(monkeypatch):
     monkeypatch.setenv("AGENT_TASK_RUNTIME_POLL_TIMEOUT_SECONDS", "3700")
     monkeypatch.setenv("AGENT_TASK_RUNTIME_POLL_INTERVAL_SECONDS", "3")
     monkeypatch.setenv("AGENT_TASK_RECONCILE_WORKER_ENABLED", "false")
+    monkeypatch.setenv("AGENT_TASK_RECONCILE_WORKER_INITIAL_DELAY_SECONDS", "11")
     monkeypatch.setenv("AGENT_TASK_RECONCILE_WORKER_INTERVAL_SECONDS", "9")
     monkeypatch.setenv("AGENT_TASK_RECONCILE_WORKER_BATCH_SIZE", "17")
+    monkeypatch.setenv("AGENT_TASK_RUNTIME_STATUS_MAX_BYTES", "12345")
     monkeypatch.setenv("AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS", "42")
     settings = Settings()
     assert settings.agent_task_runtime_poll_timeout_seconds == 3700
     assert settings.agent_task_runtime_poll_interval_seconds == 3
     assert settings.agent_task_reconcile_worker_enabled is False
+    assert settings.agent_task_reconcile_worker_initial_delay_seconds == 11
     assert settings.agent_task_reconcile_worker_interval_seconds == 9
     assert settings.agent_task_reconcile_worker_batch_size == 17
+    assert settings.agent_task_runtime_status_max_bytes == 12345
     assert settings.agent_task_runtime_missing_stale_after_seconds == 42
