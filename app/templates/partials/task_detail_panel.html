@@ -190,13 +190,13 @@
       <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.input_payload_pretty }}</pre>
     </details>
 
-    <details class="portal-raw-disclosure" {% if task_view_model.error_text %}open{% endif %}>
-      <summary class="portal-raw-summary">
-        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Raw Result</strong></span>
-        <span class="portal-raw-toggle" aria-hidden="true"></span>
-      </summary>
-      <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.result_payload_pretty }}</pre>
-    </details>
+    <div class="portal-raw-disclosure">
+      <div class="portal-raw-summary">
+        <span><i data-lucide="download" class="w-4 h-4"></i><strong>Result JSON</strong></span>
+        <a class="portal-btn is-secondary" href="{{ task_view_model.result_payload_download_url }}" download>Download JSON</a>
+      </div>
+      <p class="portal-panel-note">Detailed result payload is available as a JSON download.</p>
+    </div>
   </div>
   {% else %}
   {% if task_view_model.unsupported_message %}
@@ -236,13 +236,13 @@
       <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.input_payload_pretty }}</pre>
     </details>
 
-    <details class="portal-raw-disclosure" {% if task_view_model.error_text %}open{% endif %}>
-      <summary class="portal-raw-summary">
-        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Result Payload</strong></span>
-        <span class="portal-raw-toggle" aria-hidden="true"></span>
-      </summary>
-      <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.result_payload_pretty }}</pre>
-    </details>
+    <div class="portal-raw-disclosure">
+      <div class="portal-raw-summary">
+        <span><i data-lucide="download" class="w-4 h-4"></i><strong>Result JSON</strong></span>
+        <a class="portal-btn is-secondary" href="{{ task_view_model.result_payload_download_url }}" download>Download JSON</a>
+      </div>
+      <p class="portal-panel-note">Detailed result payload is available as a JSON download.</p>
+    </div>
   </div>
   {% endif %}
 

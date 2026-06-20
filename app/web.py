@@ -49,6 +49,7 @@ from app.chat_payloads import normalize_assistant_chat_payload
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger(__name__)
+TASK_DETAIL_RESULT_PARSE_MAX_CHARS = 200_000
 
 def escape_data_attr(s):
     """Escape string for safe embedding in HTML data-* attributes using markupsafe."""
@@ -223,8 +224,10 @@ def _has_thinking_view_data(view: dict) -> bool:
     )
 
 
-def _safe_json_object(raw: str | None) -> dict | list | None:
+def _safe_json_object(raw: str | None, *, max_chars: int | None = None) -> dict | list | None:
     if raw is None or not str(raw).strip():
+        return None
+    if max_chars is not None and len(str(raw)) > max_chars:
         return None
     try:
         parsed = json.loads(raw)
@@ -569,7 +572,7 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
 
     input_payload = _safe_json_object(getattr(task, "input_payload_json", None))
     input_obj = input_payload if isinstance(input_payload, dict) else {}
-    result_payload = _safe_json_object(getattr(task, "result_payload_json", None))
+    result_payload = _safe_json_object(getattr(task, "result_payload_json", None), max_chars=TASK_DETAIL_RESULT_PARSE_MAX_CHARS)
     result_obj = _extract_async_result_payload(result_payload)
     task_content, task_content_label = _task_content_from_input(input_obj)
     original_task = ""
@@ -637,7 +640,7 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         "finished_at": getattr(task, "finished_at", None) or "-",
         "updated_at": getattr(task, "updated_at", None) or "-",
         "input_payload_pretty": _pretty_json_text(getattr(task, "input_payload_json", None)),
-        "result_payload_pretty": _pretty_json_text(getattr(task, "result_payload_json", None)),
+        "result_payload_download_url": f"/app/tasks/{quote(str(getattr(task, 'id', '')), safe='')}/result.json",
     }
 
 
@@ -694,7 +697,7 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         "retry_count": getattr(task, "retry_count", 0) or 0,
         "context_items": context_items,
         "input_payload_pretty": _pretty_json_text(getattr(task, "input_payload_json", None)),
-        "result_payload_pretty": _pretty_json_text(getattr(task, "result_payload_json", None)),
+        "result_payload_download_url": f"/app/tasks/{quote(str(getattr(task, 'id', '')), safe='')}/result.json",
     }
 
 
@@ -707,6 +710,7 @@ async def _forward_runtime(
     query_items,
     body,
     headers: Optional[dict[str, str]] = None,
+    return_response_headers: bool = False,
 ):
     return await proxy_service.forward(
         agent=agent,
@@ -716,6 +720,7 @@ async def _forward_runtime(
         body=body,
         headers=headers or {},
         extra_headers=_portal_extra_headers(user, agent),
+        return_response_headers=return_response_headers,
     )
 
 
@@ -1459,6 +1464,57 @@ def task_create_panel(request: Request):
     finally:
         db.close()
 
+
+@router.get("/app/tasks/{task_id}/result.json")
+async def task_result_json_download(request: Request, task_id: str):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        task = AgentTaskRepository(db).get_by_id(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        filename = _safe_task_result_filename(getattr(task, "id", task_id))
+        fallback_headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+        agent = AgentRepository(db).get_by_id(getattr(task, "assignee_agent_id", "") or "")
+        if agent and _can_access(agent, user):
+            runtime_task_id = quote(str(getattr(task, "id", task_id)), safe="")
+            trace_headers = build_runtime_trace_headers({"portal_task_id": getattr(task, "id", task_id)})
+            try:
+                status_code, content, content_type, response_headers = await _forward_runtime(
+                    user=user,
+                    agent=agent,
+                    method="GET",
+                    subpath=f"api/tasks/{runtime_task_id}/full",
+                    query_items=[],
+                    body=None,
+                    headers=trace_headers,
+                    return_response_headers=True,
+                )
+                if status_code < 400:
+                    headers = dict(fallback_headers)
+                    headers.update(response_headers)
+                    return Response(
+                        content=content,
+                        status_code=status_code,
+                        media_type=(content_type or "application/json").split(";")[0],
+                        headers=headers,
+                    )
+            except Exception:
+                logger.warning("Failed to download full runtime task payload; falling back to stored compact result", exc_info=True)
+
+        return Response(
+            content=_stored_task_result_download_bytes(task),
+            media_type="application/json",
+            headers=fallback_headers,
+        )
+    finally:
+        db.close()
+
+
 @router.get("/app/tasks/{task_id}/panel")
 def task_detail_panel(request: Request, task_id: str):
     user = _current_user_from_cookie(request)
@@ -1800,6 +1856,32 @@ def _runtime_skill_detail_for_panel(db, agent, skill_name: str | None) -> dict:
         if detail:
             return detail
     return {}
+
+
+def _safe_task_result_filename(task_id: str) -> str:
+    raw = str(task_id or "task")
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in raw).strip(".-")
+    if not safe:
+        safe = "task"
+    return f"task-{safe}-result.json"
+
+
+def _stored_task_result_download_bytes(task) -> bytes:
+    raw_result = getattr(task, "result_payload_json", None)
+    try:
+        result_payload = json.loads(raw_result) if raw_result else None
+    except Exception:
+        result_payload = {"raw_result_payload": raw_result}
+    payload = {
+        "task_id": getattr(task, "id", None),
+        "source": "portal_stored_compact_result",
+        "status": getattr(task, "status", None),
+        "runtime_request_id": getattr(task, "runtime_request_id", None),
+        "summary": getattr(task, "summary", None),
+        "error_message": getattr(task, "error_message", None),
+        "result_payload": result_payload,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
 def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
