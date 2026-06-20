@@ -1042,6 +1042,9 @@ class K8sService:
                 f'rm -rf "{workspace_dir}/instructions"',
                 f'mkdir -p "{workspace_dir}/instructions"',
                 f'cp -a "${{SOURCE_DIR}}/instructions"/. "{workspace_dir}/instructions"/',
+                f'mkdir -p "{workspace_dir}/.efp/instructions"',
+                f'find "{workspace_dir}/.efp/instructions" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +',
+                f'cp -a "${{SOURCE_DIR}}/instructions"/. "{workspace_dir}/.efp/instructions"/',
                 "rm -f /tmp/git-askpass.sh",
             ]
         )

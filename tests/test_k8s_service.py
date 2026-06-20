@@ -620,6 +620,9 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("instructions", command)
         self.assertIn('rm -rf "/workspace/instructions"', command)
         self.assertIn('cp -a "${SOURCE_DIR}/instructions"/. "/workspace/instructions"/', command)
+        self.assertIn('mkdir -p "/workspace/.efp/instructions"', command)
+        self.assertIn('find "/workspace/.efp/instructions" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +', command)
+        self.assertIn('cp -a "${SOURCE_DIR}/instructions"/. "/workspace/.efp/instructions"/', command)
         self.assertNotIn("https://example.com/agents.git", command)
 
     def test_opencode_agent_settings_init_container_uses_workspace_mount(self):
