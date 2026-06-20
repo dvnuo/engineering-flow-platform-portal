@@ -167,6 +167,25 @@ class DelegationRuleRead(BaseModel):
         from_attributes = True
 
 
+class DelegationRuleListItemRead(BaseModel):
+    id: str
+    name: str
+    enabled: bool
+    target_agent_id: str
+    source: str
+    trigger_type: str
+    owner_user_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None
+    owner_display_name: Optional[str] = None
+    can_manage: bool = False
+    target_agent_name: Optional[str] = None
+    target_agent_missing: bool = False
+    last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class DelegationRuleRunRead(BaseModel):
     id: str
     rule_id: str

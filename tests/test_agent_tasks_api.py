@@ -155,6 +155,8 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
             title="Owned review task",
             task_type="owned",
             status="queued",
+            input_payload_json='{"user_task":"' + ("x" * 1000) + '"}',
+            result_payload_json='{"runtime_events":["' + ("y" * 1000) + '"]}',
             summary="Review the owner branch",
         )
         created_task = AgentTask(
@@ -186,6 +188,10 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
         assert set(by_type) == {"owned", "created", "hidden"}
         assert by_type["owned"]["owner_display_name"] == owner_user.username
         assert by_type["owned"]["can_manage"] is True
+        assert by_type["owned"]["display_title"] == "Owned review task"
+        assert "input_payload_json" not in by_type["owned"]
+        assert "result_payload_json" not in by_type["owned"]
+        assert "summary" not in by_type["owned"]
         assert by_type["created"]["owner_display_name"] == other_user.username
         assert by_type["created"]["can_manage"] is False
         assert by_type["hidden"]["owner_display_name"] == other_user.username

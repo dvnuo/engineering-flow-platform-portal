@@ -68,3 +68,21 @@ class AgentTaskResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AgentTaskListItemResponse(BaseModel):
+    id: str
+    assignee_agent_id: str
+    source: str
+    task_type: str
+    title: Optional[str] = None
+    display_title: str
+    skill_name: Optional[str] = None
+    status: str
+    owner_user_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None
+    owner_display_name: Optional[str] = None
+    can_manage: bool = False
+    assignee_agent_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime

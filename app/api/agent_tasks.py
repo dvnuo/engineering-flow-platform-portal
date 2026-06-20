@@ -11,6 +11,7 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.agent_task import (
     AgentTaskCreateRequest,
+    AgentTaskListItemResponse,
     AgentTaskResponse,
     CreateAgentAsyncTaskRequest,
     CreateAgentTaskFollowupRequest,
@@ -89,6 +90,36 @@ def _task_response(db: Session, task, user) -> AgentTaskResponse:
             "assignee_agent_name": assignee_name or None,
         }
     )
+
+
+def _compact_display_title(value: str | None, *, fallback: str = "Task", limit: int = 80) -> str:
+    cleaned = " ".join((value or "").strip().split())
+    if not cleaned:
+        cleaned = fallback
+    if len(cleaned) > limit:
+        return cleaned[: limit - 3].rstrip() + "..."
+    return cleaned
+
+
+def _owner_display_name_from_row(row: dict) -> str | None:
+    owner_user_id = row.get("owner_user_id")
+    if owner_user_id is None:
+        return None
+    owner_name = str(row.get("owner_nickname") or row.get("owner_username") or "").strip()
+    return owner_name or f"User {owner_user_id}"
+
+
+def _task_list_item_response(row: dict, user) -> AgentTaskListItemResponse:
+    data = dict(row)
+    data["owner_display_name"] = _owner_display_name_from_row(data)
+    data["can_manage"] = data.get("owner_user_id") == getattr(user, "id", None)
+    data["display_title"] = _compact_display_title(
+        data.get("title"),
+        fallback=str(data.get("task_type") or data.get("id") or "Task"),
+    )
+    data.pop("owner_username", None)
+    data.pop("owner_nickname", None)
+    return AgentTaskListItemResponse(**data)
 
 
 def _normalize_skill_name(value: str | None) -> str:
@@ -372,7 +403,7 @@ def list_agent_tasks(user=Depends(get_current_user), db: Session = Depends(get_d
     return [_task_response(db, task, user) for task in tasks]
 
 
-@router.get("/api/my/tasks", response_model=list[AgentTaskResponse])
+@router.get("/api/my/tasks", response_model=list[AgentTaskListItemResponse])
 def list_my_tasks(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -382,7 +413,7 @@ def list_my_tasks(
     owner: str | None = Query(default=None, max_length=32),
     q: str | None = Query(default=None, max_length=120),
 ):
-    tasks = AgentTaskRepository(db).list_visible_to_user(
+    tasks = AgentTaskRepository(db).list_visible_to_user_summaries(
         user_id=user.id,
         limit=limit,
         offset=offset,
@@ -390,7 +421,7 @@ def list_my_tasks(
         owner=owner,
         query=q,
     )
-    return [_task_response(db, task, user) for task in tasks]
+    return [_task_list_item_response(task, user) for task in tasks]
 
 
 @router.get("/api/agent-tasks/{task_id}", response_model=AgentTaskResponse)

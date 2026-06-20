@@ -7,7 +7,9 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.agent import Agent
 from app.models.delegation_rule import DelegationRule, DelegationRuleEvent, DelegationRuleRun
+from app.models.user import User
 
 
 class DelegationRuleRepository:
@@ -15,14 +17,18 @@ class DelegationRuleRepository:
         self.db = db
 
     @staticmethod
-    def is_deleted_rule(rule: DelegationRule | None) -> bool:
-        if not rule:
-            return False
+    def is_deleted_state(state_json: str | None) -> bool:
         try:
-            state = json.loads(rule.state_json or "{}")
+            state = json.loads(state_json or "{}")
         except Exception:
             state = {}
         return bool(state.get("deleted"))
+
+    @staticmethod
+    def is_deleted_rule(rule: DelegationRule | None) -> bool:
+        if not rule:
+            return False
+        return DelegationRuleRepository.is_deleted_state(getattr(rule, "state_json", "{}"))
 
     def create(self, create_data: dict, current_user_id: int | None = None) -> DelegationRule:
         payload = dict(create_data)
@@ -53,6 +59,53 @@ class DelegationRuleRepository:
                 break
             for row in rows:
                 if self.is_deleted_rule(row):
+                    continue
+                collected.append(row)
+                if len(collected) >= limit:
+                    break
+            batch_offset += len(rows)
+        return collected
+
+    def list_summaries(self, limit: int = 100, offset: int = 0, enabled: bool | None = None) -> list[dict]:
+        if limit <= 0:
+            return []
+        collected: list[dict] = []
+        batch_offset = max(0, offset)
+        batch_size = max(50, min(200, limit))
+        while len(collected) < limit:
+            stmt = (
+                select(
+                    DelegationRule.id.label("id"),
+                    DelegationRule.name.label("name"),
+                    DelegationRule.enabled.label("enabled"),
+                    DelegationRule.trigger_type.label("trigger_type"),
+                    DelegationRule.target_agent_id.label("target_agent_id"),
+                    DelegationRule.state_json.label("state_json"),
+                    DelegationRule.last_run_at.label("last_run_at"),
+                    DelegationRule.next_run_at.label("next_run_at"),
+                    DelegationRule.owner_user_id.label("owner_user_id"),
+                    DelegationRule.created_by_user_id.label("created_by_user_id"),
+                    DelegationRule.created_at.label("created_at"),
+                    DelegationRule.updated_at.label("updated_at"),
+                    Agent.id.label("target_agent_found_id"),
+                    Agent.name.label("target_agent_name"),
+                    User.username.label("owner_username"),
+                    User.nickname.label("owner_nickname"),
+                )
+                .select_from(DelegationRule)
+                .outerjoin(Agent, Agent.id == DelegationRule.target_agent_id)
+                .outerjoin(User, User.id == DelegationRule.owner_user_id)
+                .order_by(DelegationRule.created_at.desc())
+                .offset(batch_offset)
+                .limit(batch_size)
+            )
+            if enabled is not None:
+                stmt = stmt.where(DelegationRule.enabled.is_(enabled))
+            rows = [dict(row._mapping) for row in self.db.execute(stmt).all()]
+            if not rows:
+                break
+            for row in rows:
+                if self.is_deleted_state(row.get("state_json")):
                     continue
                 collected.append(row)
                 if len(collected) >= limit:

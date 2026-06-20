@@ -11,6 +11,7 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.delegation_rule import (
     DelegationRuleCreate,
     DelegationRuleEventRead,
+    DelegationRuleListItemRead,
     DelegationRuleRead,
     DelegationRuleRunOnceResponse,
     DelegationRuleRunRead,
@@ -93,6 +94,27 @@ def _delegation_rule_response(db: Session, rule, user) -> DelegationRuleRead:
     )
 
 
+def _owner_display_name_from_row(row: dict) -> str | None:
+    owner_user_id = row.get("owner_user_id")
+    if owner_user_id is None:
+        return None
+    owner_name = str(row.get("owner_nickname") or row.get("owner_username") or "").strip()
+    return owner_name or f"User {owner_user_id}"
+
+
+def _delegation_rule_list_item(row: dict, user) -> DelegationRuleListItemRead:
+    data = dict(row)
+    data["source"] = data.get("trigger_type") or ""
+    data["owner_display_name"] = _owner_display_name_from_row(data)
+    data["can_manage"] = data.get("owner_user_id") == getattr(user, "id", None)
+    data["target_agent_missing"] = not bool(data.get("target_agent_found_id"))
+    data.pop("owner_username", None)
+    data.pop("owner_nickname", None)
+    data.pop("target_agent_found_id", None)
+    data.pop("state_json", None)
+    return DelegationRuleListItemRead(**data)
+
+
 def _ensure_accessible_target_agent(db: Session, user, target_agent_id: str):
     agent = AgentRepository(db).get_by_id(target_agent_id)
     if not agent:
@@ -102,10 +124,10 @@ def _ensure_accessible_target_agent(db: Session, user, target_agent_id: str):
     return agent
 
 
-@router.get("", response_model=list[DelegationRuleRead])
+@router.get("", response_model=list[DelegationRuleListItemRead])
 def list_delegation_rules(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    items = DelegationRuleRepository(db).list(limit=200)
-    return [_delegation_rule_response(db, item, user) for item in items]
+    items = DelegationRuleRepository(db).list_summaries(limit=200)
+    return [_delegation_rule_list_item(item, user) for item in items]
 
 
 @router.post("", response_model=DelegationRuleRead)

@@ -403,10 +403,16 @@ def test_non_owner_can_view_delegation_but_not_manage():
         assert created["id"] in listed
         assert listed[created["id"]]["can_manage"] is False
         assert listed[created["id"]]["owner_display_name"] == "owner"
+        assert listed[created["id"]]["source"] == created["source"]
+        assert "task_prompt" not in listed[created["id"]]
+        assert "scope_json" not in listed[created["id"]]
+        assert "trigger_config_json" not in listed[created["id"]]
+        assert "source_options" not in listed[created["id"]]
 
         detail_resp = client.get(f"/api/delegation-rules/{created['id']}")
         assert detail_resp.status_code == 200
         assert detail_resp.json()["can_manage"] is False
+        assert "task_prompt" in detail_resp.json()
 
         patch_resp = client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Nope"})
         assert patch_resp.status_code == 403
