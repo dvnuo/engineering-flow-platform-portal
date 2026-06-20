@@ -4,6 +4,7 @@ from _js_extract_helpers import _extract_js_function, _extract_js_set_values
 
 
 CHAT_UI = Path("app/static/js/chat_ui.js")
+APP_HTML = Path("app/templates/app.html")
 
 
 def _chat_ui_source() -> str:
@@ -14,6 +15,10 @@ def test_portal_hash_route_helpers_exist():
     js = _chat_ui_source()
 
     for function_name in [
+        "initialPortalRouteSectionFromHash",
+        "initialPortalSectionTitle",
+        "initialPortalStatusText",
+        "applyInitialPortalRouteShell",
         "parsePortalHashRoute",
         "portalHashForRoute",
         "currentPortalRouteFromState",
@@ -26,6 +31,27 @@ def test_portal_hash_route_helpers_exist():
         "applyPortalRoute",
     ]:
         _extract_js_function(js, function_name)
+
+
+def test_initial_hash_route_section_is_applied_before_async_route_load():
+    js = _chat_ui_source()
+    html = APP_HTML.read_text(encoding="utf-8")
+    state_start = js.index("const state = {")
+    state_end = js.index("};", state_start)
+    state_block = js[state_start:state_end]
+    sync_selected = _extract_js_function(js, "syncSelectedAgentState")
+
+    assert "const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();" in js
+    assert "applyInitialPortalRouteShell();" in js
+    assert 'activeNavSection: INITIAL_PORTAL_ROUTE_SECTION' in state_block
+    assert 'if (state.activeNavSection !== "assistants")' in sync_selected
+    assert sync_selected.index('if (state.activeNavSection !== "assistants")') < sync_selected.index(
+        'setMainView(running ? "chat" : "home")'
+    )
+
+    assert 'id="rail-assistants-btn" class="portal-rail-btn is-active"' not in html
+    assert 'id="assistants-nav-section" class="portal-secondary-section hidden"' in html
+    assert 'id="center-placeholder" class="portal-home hidden"' in html
 
 
 def test_section_only_helpers_are_wired_into_active_nav():
@@ -41,6 +67,7 @@ def test_portal_hash_route_sections_are_declared():
     js = _chat_ui_source()
 
     assert _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS") == {
+        "dashboard",
         "assistants",
         "bundles",
         "tasks",
