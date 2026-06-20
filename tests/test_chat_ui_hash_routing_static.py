@@ -42,7 +42,9 @@ def test_initial_hash_route_section_is_applied_before_async_route_load():
     sync_selected = _extract_js_function(js, "syncSelectedAgentState")
 
     assert "const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();" in js
+    assert 'const DEFAULT_PORTAL_ROUTE_SECTION = "dashboard";' in js
     assert "applyInitialPortalRouteShell();" in js
+    assert 'if (!raw || raw === "#") return DEFAULT_PORTAL_ROUTE_SECTION;' in js
     assert 'activeNavSection: INITIAL_PORTAL_ROUTE_SECTION' in state_block
     assert 'if (state.activeNavSection !== "assistants")' in sync_selected
     assert sync_selected.index('if (state.activeNavSection !== "assistants")') < sync_selected.index(
@@ -52,6 +54,20 @@ def test_initial_hash_route_section_is_applied_before_async_route_load():
     assert 'id="rail-assistants-btn" class="portal-rail-btn is-active"' not in html
     assert 'id="assistants-nav-section" class="portal-secondary-section hidden"' in html
     assert 'id="center-placeholder" class="portal-home hidden"' in html
+
+
+def test_empty_hash_defaults_to_dashboard_without_breaking_assistant_routes():
+    js = _chat_ui_source()
+    initial_route = _extract_js_function(js, "initialPortalRouteSectionFromHash")
+    parse_route = _extract_js_function(js, "parsePortalHashRoute")
+    apply_route_from_hash = _extract_js_function(js, "applyPortalRouteFromHash")
+    portal_hash = _extract_js_function(js, "portalHashForRoute")
+
+    assert 'return DEFAULT_PORTAL_ROUTE_SECTION' in initial_route
+    assert 'section: DEFAULT_PORTAL_ROUTE_SECTION' in parse_route
+    assert 'section: DEFAULT_PORTAL_ROUTE_SECTION' in apply_route_from_hash
+    assert 'if (section === "assistants")' in portal_hash
+    assert 'return agentId ? `#/assistants/${encodeURIComponent(agentId)}` : "#/assistants";' in portal_hash
 
 
 def test_section_only_helpers_are_wired_into_active_nav():
