@@ -695,13 +695,15 @@ async function openPortalSection(section, {
   // not a specific detail item.
   clearPortalSectionDetailSelection(section);
 
-  if (!isApplyingPortalRoute) {
+  const opensDetailByDefault = section === "runtime-profiles";
+
+  if (!isApplyingPortalRoute && !opensDetailByDefault) {
     commitPortalRoute(portalSectionRoute(section), { replace });
   }
 
   await setActiveNavSection(section, {
     toggleIfSame: toggleIfSame && !hadDetailSelection,
-    updateRoute: false,
+    updateRoute: opensDetailByDefault,
     preferSectionLanding: true,
   });
 }
@@ -726,6 +728,19 @@ async function applyPortalRouteFromHash({ replaceInvalid = false } = {}) {
     if (seq === portalRouteApplySeq) {
       isApplyingPortalRoute = false;
     }
+  }
+
+  const shouldNormalizeRuntimeProfileLandingRoute =
+    route.valid &&
+    route.section === "runtime-profiles" &&
+    !route.runtimeProfileId &&
+    state.selectedRuntimeProfileId;
+  if (shouldNormalizeRuntimeProfileLandingRoute) {
+    commitPortalRoute(
+      { section: "runtime-profiles", runtimeProfileId: state.selectedRuntimeProfileId },
+      { replace: true }
+    );
+    return;
   }
 
   if (!parsed.hadHash || (replaceInvalid && !parsed.valid)) {
@@ -8488,12 +8503,18 @@ async function setActiveNavSection(section, {
     await refreshRuntimeProfileList({ preserveSelection: !preferSectionLanding });
     if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed) {
       if (preferSectionLanding) {
-        state.selectedRuntimeProfileId = null;
+        const targetProfile = state.runtimeProfiles[0] || null;
+        const targetProfileId = targetProfile ? targetProfile.id : null;
+        state.selectedRuntimeProfileId = targetProfileId;
         renderRuntimeProfileList();
-        renderWorkspaceDetailPlaceholder(
-          "Select a runtime profile from the left sidebar.",
-          "runtime-profiles-placeholder"
-        );
+        if (targetProfileId) {
+          await loadRuntimeProfilePanelContent(targetProfileId, { updateRoute: false });
+          if (updateRoute && !isApplyingPortalRoute) {
+            commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: targetProfileId });
+          }
+        } else {
+          renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+        }
       } else {
         const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
         const preferredProfile = defaultProfile || state.runtimeProfiles[0] || null;
