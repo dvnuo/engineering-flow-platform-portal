@@ -203,6 +203,10 @@ class K8sService:
         workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
         return f"{workspace}/.opencode/opencode.json"
 
+    def _native_runtime_session_root(self, agent) -> str:
+        workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
+        return f"{workspace}/.efp/runtime"
+
     def _agent_container_working_dir(self, agent) -> str | None:
         return self._effective_mount_path(agent)
 
@@ -887,7 +891,9 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
-            if runtime_type == "opencode":
+            if runtime_type == "native":
+                env.append(client.V1EnvVar(name="EFP_RUNTIME_SESSION_ROOT", value=self._native_runtime_session_root(agent)))
+            elif runtime_type == "opencode":
                 configured_repos_dir = str(getattr(self.settings, "opencode_workspace_repos_dir", "") or "").strip()
                 workspace_repos_dir = configured_repos_dir or f"{workspace_dir.rstrip('/')}/repos"
                 checkout_timeout = self._positive_int_setting(

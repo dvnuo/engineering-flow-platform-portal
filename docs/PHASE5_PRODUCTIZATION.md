@@ -72,6 +72,7 @@ Portal injects runtime container env from `efp-agents-secret`:
 Portal also injects plain env:
 
 - `PORTAL_INTERNAL_BASE_URL` (only when configured; omitted if empty)
+- `EFP_RUNTIME_SESSION_ROOT` for native agents, pointing under the workspace mount (`<workspace>/.efp/runtime`) so session state survives pod restarts
 
 ## 6) Kubernetes git credential key wiring
 

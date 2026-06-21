@@ -755,6 +755,23 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertNotIn("EFP_OPENCODE_TOOL_REGISTRY_REQUEST_TIMEOUT_SECONDS", env_map)
         self.assertIn("EFP_SKILLS_DIR", env_map)
 
+    def test_native_env_persists_runtime_sessions_under_workspace_mount(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {e.name: getattr(e, 'value', None) for e in env}
+
+        self.assertEqual(env_map["PORTAL_RUNTIME_TYPE"], "native")
+        self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "native")
+        self.assertEqual(env_map["EFP_WORKSPACE_DIR"], "/workspace")
+        self.assertEqual(env_map["EFP_RUNTIME_SESSION_ROOT"], "/workspace/.efp/runtime")
+
+    def test_native_session_root_follows_custom_workspace_mount(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/custom/workspace")
+        env = self.service._build_agent_container_env(agent)
+        env_map = {e.name: getattr(e, 'value', None) for e in env}
+
+        self.assertEqual(env_map["EFP_RUNTIME_SESSION_ROOT"], "/custom/workspace/.efp/runtime")
+
     def test_single_runtime_env_excludes_old_timeout_contract(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
         env = self.service._build_agent_container_env(agent)
@@ -790,6 +807,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["EFP_OPENCODE_URL"], "http://127.0.0.1:4096")
         self.assertEqual(env_map["EFP_OPENCODE_PERMISSION_MODE"], "workspace_full_access")
         self.assertEqual(env_map["EFP_OPENCODE_ALLOW_BASH_ALL"], "true")
+        self.assertNotIn("EFP_RUNTIME_SESSION_ROOT", env_map)
 
     def test_opencode_mounts_workspace_state_adapter_and_skills_assets(self):
         agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="opencode", mount_path="/workspace", skill_repo_url="https://example.com/skills.git", skill_branch="main")

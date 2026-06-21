@@ -33,6 +33,8 @@
 
 ## 5) State contract
 - Portal K8s provisioning owns image, workspace, skill asset, and env wiring; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and recovery behavior.
+- For `native`, Portal sets `EFP_RUNTIME_SESSION_ROOT` under the configured workspace mount (`<workspace>/.efp/runtime`) so runtime sessions, checkpoints, todos, and chat artifacts persist on the agent PVC across pod restarts.
+- For `opencode`, Portal keeps using the adapter/OpenCode state mounts (`EFP_ADAPTER_STATE_DIR` and `OPENCODE_DATA_DIR`) for compatibility state and upstream OpenCode data.
 
 ## 6) Trace / observability contract
 - Portal request middleware creates/binds `X-Trace-Id`.
