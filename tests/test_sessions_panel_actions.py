@@ -80,7 +80,11 @@ def test_sessions_panel_excludes_task_prefixed_runtime_sessions(monkeypatch):
         runtime_sessions=[
             {"session_id": "s-human", "name": "Human Session", "last_message": "normal chat"},
             {"session_id": "agent-task:task-1", "name": "Task Execution", "last_message": "task-only chat"},
+            {"session_id": "agent-task-task-2", "name": "Native Agent Task", "last_message": "native task chat"},
+            {"session_id": "generic-task-task-3", "name": "Native Generic Task", "last_message": "generic task chat"},
             {"session_id": "delegation:rule-1:event-1", "name": "Legacy Delegation Task", "last_message": "legacy task chat"},
+            {"session_id": "delegation-rule-2-event-2", "name": "Safe Delegation Task", "last_message": "safe delegation task chat"},
+            {"session_id": "task-task-4", "name": "Fallback Task", "last_message": "fallback task chat"},
         ],
     )
 
@@ -92,9 +96,21 @@ def test_sessions_panel_excludes_task_prefixed_runtime_sessions(monkeypatch):
     assert "Task Execution" not in response.text
     assert "task-only chat" not in response.text
     assert "agent-task:task-1" not in response.text
+    assert "Native Agent Task" not in response.text
+    assert "native task chat" not in response.text
+    assert "agent-task-task-2" not in response.text
+    assert "Native Generic Task" not in response.text
+    assert "generic task chat" not in response.text
+    assert "generic-task-task-3" not in response.text
     assert "Legacy Delegation Task" not in response.text
     assert "legacy task chat" not in response.text
     assert "delegation:rule-1:event-1" not in response.text
+    assert "Safe Delegation Task" not in response.text
+    assert "safe delegation task chat" not in response.text
+    assert "delegation-rule-2-event-2" not in response.text
+    assert "Fallback Task" not in response.text
+    assert "fallback task chat" not in response.text
+    assert "task-task-4" not in response.text
 
 
 def test_sessions_panel_excludes_metadata_only_task_sessions(monkeypatch):
@@ -143,7 +159,10 @@ def test_sessions_panel_excludes_metadata_only_task_sessions(monkeypatch):
     assert "delegation:rule-1:event-1" not in response.text
 
 
-@pytest.mark.parametrize("task_marker", ["portal_task_id", "portal_task_session_id"])
+@pytest.mark.parametrize(
+    "task_marker",
+    ["portal_task_id", "portal_task_session_id", "runtime_task_session_id", "task_session_id", "task_id"],
+)
 def test_sessions_panel_excludes_runtime_sessions_marked_by_metadata_json(monkeypatch, task_marker):
     user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
     agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
@@ -154,6 +173,46 @@ def test_sessions_panel_excludes_runtime_sessions_marked_by_metadata_json(monkey
         metadata_json=json.dumps(
             {
                 task_marker: "task-1",
+                "context_summary_preview": "Task metadata preview",
+            }
+        ),
+    )
+    metadata_repo = SimpleNamespace(
+        list_by_agent_and_session_ids=lambda **_kwargs: [task_metadata_record],
+        list_by_agent=lambda *_args, **_kwargs: [task_metadata_record],
+    )
+    client = _setup_client(
+        monkeypatch,
+        user,
+        agent,
+        runtime_sessions=[
+            {"session_id": "s-human", "name": "Human Session", "last_message": "normal chat"},
+            {"session_id": "s-task", "name": "Task Runtime", "last_message": "task-only chat"},
+        ],
+        metadata_repo=metadata_repo,
+    )
+
+    response = client.get("/app/agents/agent-1/sessions/panel")
+
+    assert response.status_code == 200
+    assert "Human Session" in response.text
+    assert "normal chat" in response.text
+    assert "Task Runtime" not in response.text
+    assert "Task metadata preview" not in response.text
+    assert "task-only chat" not in response.text
+
+
+@pytest.mark.parametrize("task_metadata", [{"portal_task_mode": "agent_async_task"}, {"path": "/api/tasks/execute"}])
+def test_sessions_panel_excludes_runtime_sessions_marked_by_task_metadata(monkeypatch, task_metadata):
+    user = SimpleNamespace(id=11, username="owner", nickname="Owner", role="user")
+    agent = SimpleNamespace(id="agent-1", owner_user_id=11, visibility="public", status="running")
+    task_metadata_record = SimpleNamespace(
+        session_id="s-task",
+        latest_event_state="running",
+        snapshot_version=1,
+        metadata_json=json.dumps(
+            {
+                **task_metadata,
                 "context_summary_preview": "Task metadata preview",
             }
         ),

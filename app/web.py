@@ -94,10 +94,21 @@ def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
 
 
+TASK_SESSION_ID_PREFIXES = (
+    "agent-task:",
+    "agent-task-",
+    "generic-task:",
+    "generic-task-",
+    "delegation:",
+    "delegation-",
+    "task-",
+)
+
+
 def _session_id_is_task_session(session_id) -> bool:
     if not isinstance(session_id, str):
         return False
-    return session_id.strip().startswith(("agent-task:", "delegation:"))
+    return session_id.strip().startswith(TASK_SESSION_ID_PREFIXES)
 
 
 def _metadata_value_is_present(value) -> bool:
@@ -128,10 +139,16 @@ def _parse_metadata_json_object(metadata_json) -> dict:
 def _metadata_object_is_task_session(metadata: dict) -> bool:
     if not isinstance(metadata, dict):
         return False
+    path = str(metadata.get("path") or metadata.get("execution_path") or "").strip()
     return (
         _metadata_value_is_present(metadata.get("current_task_id"))
+        or _metadata_value_is_present(metadata.get("task_id"))
         or "portal_task_id" in metadata
         or "portal_task_session_id" in metadata
+        or "runtime_task_session_id" in metadata
+        or "task_session_id" in metadata
+        or metadata.get("portal_task_mode") == "agent_async_task"
+        or path == "/api/tasks/execute"
     )
 
 
