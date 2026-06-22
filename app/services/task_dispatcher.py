@@ -348,6 +348,73 @@ class TaskDispatcherService:
             runtime_status_code=runtime_status_code,
         )
 
+    def _runtime_unreachable_stale_outcome(
+        self,
+        *,
+        task_id: str,
+        error_message: str,
+        trace_context: dict[str, str],
+        error_code: str = "runtime_status_unreachable",
+    ) -> NormalizedRuntimeOutcome:
+        message = (
+            "Runtime could not be reached after the stale grace window. "
+            "The runtime pod, service, or network path may be unavailable."
+        )
+        return NormalizedRuntimeOutcome(
+            terminal_status="stale",
+            result_payload_json=json.dumps(
+                {
+                    "ok": False,
+                    "status": "stale",
+                    "error_code": error_code,
+                    "message": message,
+                    "last_error": error_message,
+                    "task_id": task_id,
+                    "runtime_status_code": None,
+                    "trace_id": trace_context.get("trace_id"),
+                    "portal_dispatch_id": trace_context.get("portal_dispatch_id"),
+                }
+            ),
+            message=message,
+            runtime_status_code=None,
+        )
+
+    def _runtime_unreachable_stale_after_seconds(self) -> int:
+        settings = get_settings()
+        fallback = getattr(settings, "agent_task_runtime_missing_stale_after_seconds", 300)
+        return self._coerce_min_int(
+            getattr(settings, "agent_task_runtime_unreachable_stale_after_seconds", fallback),
+            default=300,
+            minimum=1,
+        )
+
+    def _apply_runtime_unreachable_stale_if_elapsed(
+        self,
+        *,
+        db: Session,
+        task_repo: AgentTaskRepository,
+        task,
+        error_message: str,
+        trace_context: dict[str, str],
+        error_code: str = "runtime_status_unreachable",
+    ):
+        stale_after_seconds = self._runtime_unreachable_stale_after_seconds()
+        reference_time = task.started_at or task.updated_at or task.created_at or datetime.utcnow()
+        if reference_time > datetime.utcnow() - timedelta(seconds=stale_after_seconds):
+            return None
+        outcome = self._runtime_unreachable_stale_outcome(
+            task_id=task.id,
+            error_message=error_message,
+            trace_context=trace_context,
+            error_code=error_code,
+        )
+        return self._apply_runtime_outcome_to_task(
+            db=db,
+            task_repo=task_repo,
+            task=task,
+            outcome=outcome,
+        )
+
     async def _process_delegation_reply_after_done(self, db: Session, task) -> None:
         try:
             if (getattr(task, "source", None) or "").strip().lower() != "delegation":
@@ -1164,6 +1231,23 @@ class TaskDispatcherService:
             runtime_status_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}"
         except Exception as exc:
             error_message = sanitize_exception_message(exc)
+            stale_task = self._apply_runtime_unreachable_stale_if_elapsed(
+                db=db,
+                task_repo=task_repo,
+                task=task,
+                error_message=error_message,
+                trace_context=trace_context,
+                error_code="runtime_url_unreachable",
+            )
+            if stale_task:
+                return AgentTaskDispatchResult(
+                    True,
+                    stale_task.id,
+                    None,
+                    stale_task.status,
+                    stale_task.error_message or "Runtime URL resolution failed after stale grace window",
+                    stale_task.result_payload_json,
+                )
             mark_task_execution_status_best_effort(
                 db,
                 task=task,
@@ -1177,6 +1261,22 @@ class TaskDispatcherService:
             response = await self._get_runtime_task_status(runtime_status_url, metadata)
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             error_message = sanitize_exception_message(exc)
+            stale_task = self._apply_runtime_unreachable_stale_if_elapsed(
+                db=db,
+                task_repo=task_repo,
+                task=task,
+                error_message=error_message,
+                trace_context=trace_context,
+            )
+            if stale_task:
+                return AgentTaskDispatchResult(
+                    True,
+                    stale_task.id,
+                    None,
+                    stale_task.status,
+                    stale_task.error_message or "Runtime status poll failed after stale grace window",
+                    stale_task.result_payload_json,
+                )
             mark_task_execution_status_best_effort(
                 db,
                 task=task,
@@ -1322,6 +1422,16 @@ class TaskDispatcherService:
 
     async def cancel_task(self, task_id: str, db: Session, user=None):
         _ = user
+        incoming_context = get_log_context()
+        trace_id = incoming_context.get("trace_id")
+        if not trace_id or trace_id == "-":
+            trace_id = generate_trace_id()
+        portal_dispatch_id = incoming_context.get("portal_dispatch_id") or generate_span_id()
+        trace_context = {
+            "trace_id": trace_id,
+            "portal_dispatch_id": portal_dispatch_id,
+            "portal_task_id": task_id,
+        }
         task_repo = AgentTaskRepository(db)
         agent_repo = AgentRepository(db)
         task = task_repo.get_by_id(task_id)
@@ -1359,6 +1469,8 @@ class TaskDispatcherService:
             "current_task_id": task.id,
             "source_type": task.source or "portal",
             "source_ref": task.id,
+            "trace_id": trace_id,
+            "portal_dispatch_id": portal_dispatch_id,
         }
         if task.task_type == "agent_async_task":
             metadata["portal_task_mode"] = "agent_async_task"
@@ -1371,10 +1483,60 @@ class TaskDispatcherService:
             if getattr(task, "task_session_id", None):
                 metadata["portal_task_session_id"] = task.task_session_id
 
-        runtime_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}/cancel"
-        response = await self._post_cancel_to_runtime(runtime_url, metadata)
+        try:
+            runtime_url = self.proxy_service.build_agent_base_url(agent).rstrip("/") + f"/api/tasks/{task.id}/cancel"
+        except Exception as exc:
+            error_message = sanitize_exception_message(exc)
+            stale_task = self._apply_runtime_unreachable_stale_if_elapsed(
+                db=db,
+                task_repo=task_repo,
+                task=task,
+                error_message=error_message,
+                trace_context=trace_context,
+                error_code="runtime_cancel_url_unreachable",
+            )
+            if stale_task:
+                return stale_task
+            raise RuntimeError(f"Runtime cancel URL resolution failed: {error_message}") from exc
+
+        try:
+            response = await self._post_cancel_to_runtime(runtime_url, metadata)
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            error_message = sanitize_exception_message(exc)
+            stale_task = self._apply_runtime_unreachable_stale_if_elapsed(
+                db=db,
+                task_repo=task_repo,
+                task=task,
+                error_message=error_message,
+                trace_context=trace_context,
+                error_code="runtime_cancel_unreachable",
+            )
+            if stale_task:
+                return stale_task
+            raise RuntimeError(f"Runtime cancel request failed: {error_message}") from exc
+
+        preview = safe_preview(response.text or "", limit=500)
+        if response.status_code == 404:
+            settings = get_settings()
+            stale_after_seconds = self._coerce_min_int(
+                getattr(settings, "agent_task_runtime_missing_stale_after_seconds", 300),
+                default=300,
+                minimum=1,
+            )
+            reference_time = task.started_at or task.updated_at or task.created_at or datetime.utcnow()
+            if reference_time <= datetime.utcnow() - timedelta(seconds=stale_after_seconds):
+                outcome = self._runtime_missing_stale_outcome(
+                    task_id=task.id,
+                    runtime_status_code=response.status_code,
+                    trace_context=trace_context,
+                )
+                return self._apply_runtime_outcome_to_task(
+                    db=db,
+                    task_repo=task_repo,
+                    task=task,
+                    outcome=outcome,
+                )
         if not (200 <= response.status_code < 300):
-            preview = safe_preview(response.text or "", limit=500)
             raise RuntimeError(f"Runtime cancel failed with status {response.status_code}: {preview}")
 
         fresh_task = task_repo.get_by_id(task.id)
@@ -1382,17 +1544,28 @@ class TaskDispatcherService:
             raise ValueError("Task not found")
         if (fresh_task.status or "").strip().lower() in terminal_statuses:
             return fresh_task
-        fresh_task.status = "cancelled"
-        fresh_task.summary = "Task cancellation was requested."
-        fresh_task.finished_at = datetime.utcnow()
-        saved = task_repo.save(fresh_task)
-        mark_task_execution_status_best_effort(
-            db,
-            task=saved,
-            status=saved.status,
-            error_code="task_cancelled",
-            result_summary=saved.summary,
+
+        phase, _payload, outcome = self._normalize_runtime_status_response(
+            response,
+            trace_context=trace_context,
+            raw_response_preview=preview,
+            allow_pending=True,
         )
+        if outcome and outcome.is_malformed:
+            raise RuntimeError(f"Runtime cancel returned malformed response: {preview}")
+        if phase == "pending":
+            raise RuntimeError("Runtime cancel request did not return a terminal task status")
+        if outcome is None:
+            raise RuntimeError("Runtime cancel response normalization failed")
+
+        saved = self._apply_runtime_outcome_to_task(
+            db=db,
+            task_repo=task_repo,
+            task=fresh_task,
+            outcome=outcome,
+        )
+        if saved.status == "done":
+            await self._process_delegation_reply_after_done(db, saved)
         return saved
 
     def dispatch_task_in_background(self, task_id: str) -> None:
