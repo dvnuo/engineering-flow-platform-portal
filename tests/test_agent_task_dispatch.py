@@ -850,6 +850,65 @@ def test_reconcile_running_task_marks_old_runtime_404_stale(db_session, monkeypa
     assert payload["error_code"] == "runtime_task_missing"
 
 
+def test_reconcile_running_task_keeps_recent_runtime_connect_error_running(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow()
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    monkeypatch.setattr(
+        task_dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
+    )
+
+    async def fake_get(_url, _meta):
+        raise httpx.ConnectError("all attempts failed")
+
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.reconcile_running_task(task.id, db))
+
+    assert result.task_status == "running"
+    db.refresh(task)
+    assert task.status == "running"
+    assert task.finished_at is None
+
+
+def test_reconcile_running_task_marks_old_runtime_connect_error_stale(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow() - timedelta(seconds=600)
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    monkeypatch.setattr(
+        task_dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
+    )
+
+    async def fake_get(_url, _meta):
+        raise httpx.ConnectError("all attempts failed")
+
+    monkeypatch.setattr(service, "_get_runtime_task_status", fake_get)
+
+    result = asyncio.run(service.reconcile_running_task(task.id, db))
+
+    assert result.task_status == "stale"
+    db.refresh(task)
+    assert task.status == "stale"
+    assert task.finished_at is not None
+    payload = json.loads(task.result_payload_json or "{}")
+    assert payload["error_code"] == "runtime_status_unreachable"
+    assert payload["last_error"] == "all attempts failed"
+
+
 def test_dispatch_task_continues_polling_on_http_200_running(db_session, monkeypatch):
     db, agent = db_session
     task = _create_task(db, agent.id)
@@ -1060,6 +1119,94 @@ def test_dispatch_late_runtime_success_cannot_overwrite_cancelled(db_session, mo
     db.refresh(task)
     assert task.status == "cancelled"
     assert task.summary == "Cancelled locally."
+
+
+def test_cancel_running_task_recent_runtime_connect_error_raises_clean_runtime_error(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow()
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    monkeypatch.setattr(
+        task_dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
+    )
+
+    async def fake_cancel(_url, _meta):
+        raise httpx.ConnectError("all attempts failed")
+
+    monkeypatch.setattr(service, "_post_cancel_to_runtime", fake_cancel)
+
+    with pytest.raises(RuntimeError, match="Runtime cancel request failed"):
+        asyncio.run(service.cancel_task(task.id, db))
+
+    db.refresh(task)
+    assert task.status == "running"
+    assert task.finished_at is None
+
+
+def test_cancel_running_task_old_runtime_connect_error_marks_stale(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow() - timedelta(seconds=600)
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+    monkeypatch.setattr(
+        task_dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(agent_task_runtime_unreachable_stale_after_seconds=300),
+    )
+
+    async def fake_cancel(_url, _meta):
+        raise httpx.ConnectError("all attempts failed")
+
+    monkeypatch.setattr(service, "_post_cancel_to_runtime", fake_cancel)
+
+    saved = asyncio.run(service.cancel_task(task.id, db))
+
+    assert saved.status == "stale"
+    db.refresh(task)
+    assert task.status == "stale"
+    assert task.finished_at is not None
+    payload = json.loads(task.result_payload_json or "{}")
+    assert payload["error_code"] == "runtime_cancel_unreachable"
+    assert payload["last_error"] == "all attempts failed"
+
+
+def test_cancel_running_task_applies_runtime_terminal_success(db_session, monkeypatch):
+    db, agent = db_session
+    task = _create_task(db, agent.id)
+    task.status = "running"
+    task.started_at = datetime.utcnow()
+    db.add(task)
+    db.commit()
+    service = TaskDispatcherService()
+    monkeypatch.setattr(service.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime")
+
+    class DoneResp:
+        status_code = 200
+        text = '{"ok": true, "status": "success", "output_payload": {"summary": "already done"}}'
+
+        @staticmethod
+        def json():
+            return {"ok": True, "status": "success", "output_payload": {"summary": "already done"}}
+
+    async def fake_cancel(_url, _meta):
+        return DoneResp()
+
+    monkeypatch.setattr(service, "_post_cancel_to_runtime", fake_cancel)
+
+    saved = asyncio.run(service.cancel_task(task.id, db))
+
+    assert saved.status == "done"
+    assert saved.summary == "already done"
 
 
 def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypatch):

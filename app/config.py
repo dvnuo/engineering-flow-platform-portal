@@ -141,6 +141,7 @@ class Settings(BaseSettings):
     agent_task_reconcile_worker_batch_size: int = Field(default=50, validation_alias="AGENT_TASK_RECONCILE_WORKER_BATCH_SIZE")
     agent_task_runtime_status_max_bytes: int = Field(default=2_000_000, validation_alias="AGENT_TASK_RUNTIME_STATUS_MAX_BYTES")
     agent_task_runtime_missing_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS")
+    agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")
     runtime_profile_sync_worker_enabled: bool = Field(default=True, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_ENABLED")
     runtime_profile_sync_worker_interval_seconds: int = Field(default=5, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_INTERVAL_SECONDS")
     runtime_profile_sync_worker_batch_size: int = Field(default=20, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_BATCH_SIZE")
