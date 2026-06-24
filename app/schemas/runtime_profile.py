@@ -14,6 +14,7 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "github",
     "aws",
     "jenkins",
+    "mobile",
     "git",
     "debug",
 }
@@ -68,6 +69,60 @@ PORTAL_MANAGED_FIELD_TREE = {
         "enabled": True,
         "username": True,
         "password": True,
+    },
+    "mobile": {
+        "enabled": True,
+        "default_provider": True,
+        "state_dir": True,
+        "artifacts_dir": True,
+        "retention_hours": True,
+        "defaults": {
+            "platform": True,
+            "network_mode": True,
+            "idle_timeout_seconds": True,
+            "new_command_timeout_seconds": True,
+            "interactive_debugging": True,
+            "video": True,
+        },
+        "browserstack": {
+            "api_base_url": True,
+            "appium_base_url": True,
+            "username_env": True,
+            "access_key_env": True,
+            "username": True,
+            "access_key": True,
+            "verify_ssl": True,
+            "ca_cert": True,
+            "http_proxy": {
+                "proxy_host": True,
+                "proxy_port": True,
+                "proxy_user_env": True,
+                "proxy_pass_env": True,
+                "no_proxy_hosts": True,
+                "disable_proxy_discovery": True,
+                "force_proxy": True,
+            },
+            "local": {
+                "mode": True,
+                "binary": True,
+                "binary_env": True,
+                "default_hold_minutes": True,
+                "max_hold_minutes": True,
+                "ready_timeout_seconds": True,
+                "heartbeat_seconds": True,
+                "force_local": True,
+                "disable_proxy_discovery": True,
+                "force_proxy": True,
+                "proxy_host": True,
+                "proxy_port": True,
+                "proxy_user_env": True,
+                "proxy_pass_env": True,
+                "only_automate": True,
+                "force": True,
+                "include_hosts": True,
+                "exclude_hosts": True,
+            },
+        },
     },
     "git": {
         "user": {
@@ -322,6 +377,132 @@ def sanitize_runtime_profile_proxy(value) -> dict:
     return out
 
 
+def _sanitize_runtime_profile_positive_int(value) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _sanitize_runtime_profile_string_list(value) -> list[str]:
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        return []
+    items: list[str] = []
+    for item in raw_items:
+        cleaned = str(item or "").strip()
+        if cleaned:
+            items.append(cleaned)
+    return items
+
+
+def _sanitize_mobile_http_proxy(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    for key in ("proxy_host", "proxy_user_env", "proxy_pass_env"):
+        cleaned = str(value.get(key) or "").strip()
+        if cleaned:
+            out[key] = cleaned
+    proxy_port = _sanitize_runtime_profile_positive_int(value.get("proxy_port"))
+    if proxy_port is not None:
+        out["proxy_port"] = proxy_port
+    no_proxy_hosts = _sanitize_runtime_profile_string_list(value.get("no_proxy_hosts"))
+    if no_proxy_hosts:
+        out["no_proxy_hosts"] = no_proxy_hosts
+    for key in ("disable_proxy_discovery", "force_proxy"):
+        if key in value:
+            out[key] = _runtime_profile_bool(value.get(key))
+    return out
+
+
+def _sanitize_mobile_local(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    mode = str(value.get("mode") or "").strip().lower()
+    if mode in {"managed", "external"}:
+        out["mode"] = mode
+    for key in ("binary", "binary_env", "proxy_host", "proxy_user_env", "proxy_pass_env"):
+        cleaned = str(value.get(key) or "").strip()
+        if cleaned:
+            out[key] = cleaned
+    for key in ("default_hold_minutes", "max_hold_minutes", "ready_timeout_seconds", "heartbeat_seconds", "proxy_port"):
+        parsed = _sanitize_runtime_profile_positive_int(value.get(key))
+        if parsed is not None:
+            out[key] = parsed
+    for key in ("force_local", "disable_proxy_discovery", "force_proxy", "only_automate", "force"):
+        if key in value:
+            out[key] = _runtime_profile_bool(value.get(key))
+    for key in ("include_hosts", "exclude_hosts"):
+        hosts = _sanitize_runtime_profile_string_list(value.get(key))
+        if hosts:
+            out[key] = hosts
+    return out
+
+
+def sanitize_runtime_profile_mobile(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    default_provider = str(value.get("default_provider") or "").strip().lower()
+    if default_provider:
+        out["default_provider"] = default_provider
+    for key in ("state_dir", "artifacts_dir"):
+        cleaned = str(value.get(key) or "").strip()
+        if cleaned:
+            out[key] = cleaned
+    retention = _sanitize_runtime_profile_positive_int(value.get("retention_hours"))
+    if retention is not None:
+        out["retention_hours"] = retention
+
+    defaults = value.get("defaults")
+    if isinstance(defaults, dict):
+        defaults_out: dict = {}
+        platform = str(defaults.get("platform") or "").strip().lower()
+        if platform in {"android", "ios"}:
+            defaults_out["platform"] = platform
+        network_mode = str(defaults.get("network_mode") or "").strip().lower()
+        if network_mode in {"public", "private-managed", "private-external"}:
+            defaults_out["network_mode"] = network_mode
+        for key in ("idle_timeout_seconds", "new_command_timeout_seconds"):
+            parsed = _sanitize_runtime_profile_positive_int(defaults.get(key))
+            if parsed is not None:
+                defaults_out[key] = parsed
+        for key in ("interactive_debugging", "video"):
+            if key in defaults:
+                defaults_out[key] = _runtime_profile_bool(defaults.get(key))
+        if defaults_out:
+            out["defaults"] = defaults_out
+
+    browserstack = value.get("browserstack")
+    if isinstance(browserstack, dict):
+        bs_out: dict = {}
+        for key in ("api_base_url", "appium_base_url", "username_env", "access_key_env", "username", "access_key", "ca_cert"):
+            cleaned = str(browserstack.get(key) or "").strip()
+            if cleaned:
+                bs_out[key] = cleaned.rstrip("/") if key.endswith("_url") else cleaned
+        if "verify_ssl" in browserstack:
+            bs_out["verify_ssl"] = _runtime_profile_bool(browserstack.get("verify_ssl"))
+        http_proxy = _sanitize_mobile_http_proxy(browserstack.get("http_proxy"))
+        if http_proxy:
+            bs_out["http_proxy"] = http_proxy
+        local = _sanitize_mobile_local(browserstack.get("local"))
+        if local:
+            bs_out["local"] = local
+        if bs_out:
+            out["browserstack"] = bs_out
+    return out
+
+
 def sanitize_runtime_profile_git(value) -> dict:
     if not isinstance(value, dict):
         return {}
@@ -404,6 +585,8 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         sanitized["aws"] = sanitize_runtime_profile_aws(sanitized.get("aws"))
     if "jenkins" in sanitized:
         sanitized["jenkins"] = sanitize_runtime_profile_jenkins(sanitized.get("jenkins"))
+    if "mobile" in sanitized:
+        sanitized["mobile"] = sanitize_runtime_profile_mobile(sanitized.get("mobile"))
     if "proxy" in sanitized:
         sanitized["proxy"] = sanitize_runtime_profile_proxy(sanitized.get("proxy"))
     if "git" in sanitized:
@@ -457,6 +640,11 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     jenkins = redacted.get("jenkins")
     if isinstance(jenkins, dict):
         jenkins["password_present"] = bool(str(jenkins.pop("password", "")).strip())
+    mobile = redacted.get("mobile")
+    if isinstance(mobile, dict):
+        browserstack = mobile.get("browserstack")
+        if isinstance(browserstack, dict):
+            browserstack["access_key_present"] = bool(str(browserstack.pop("access_key", "")).strip())
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())

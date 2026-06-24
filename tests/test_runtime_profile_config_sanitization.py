@@ -17,7 +17,7 @@ def _assert_cli_instruction_texts(instruction_texts):
     assert isinstance(instruction_texts, list)
     assert len(instruction_texts) == 1
     text = instruction_texts[0]
-    for expected in ["bash", "jira", "confluence", "gh", "aws", "jenkins", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
+    for expected in ["bash", "jira", "confluence", "gh", "aws", "jenkins", "mobile", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
         assert expected in text
 
 
@@ -157,6 +157,7 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
         "jira": {"instances": [{"name": "x", "password": "p", "token": "t"}]},
         "confluence": {"instances": [{"name": "x", "password": "p2", "token": "t2"}]},
         "jenkins": {"username": "build", "password": "jenkins-password"},
+        "mobile": {"browserstack": {"username": "bs-user", "access_key": "bs-access-key"}},
     }
     red = redact_runtime_profile_config_for_public_response(cfg)
     assert "api_key" not in red["llm"] and red["llm"]["api_key_present"] is True
@@ -168,6 +169,8 @@ def test_public_redaction_removes_all_secrets_and_sets_presence_flags():
     assert "password" not in red["jira"]["instances"][0] and red["jira"]["instances"][0]["password_present"] is True
     assert "token" not in red["confluence"]["instances"][0] and red["confluence"]["instances"][0]["token_present"] is True
     assert "password" not in red["jenkins"] and red["jenkins"]["password_present"] is True
+    assert "access_key" not in red["mobile"]["browserstack"]
+    assert red["mobile"]["browserstack"]["access_key_present"] is True
 
 
 def test_public_redaction_removes_token_aliases():
@@ -217,6 +220,66 @@ def test_alias_fields_are_normalized_to_canonical_shape():
     assert s["confluence"]["instances"][0] == {"name": "C", "url": "https://a/wiki", "username": "c@x", "token": "ct", "space": "DOCS", "enabled": True}
     assert s["github"] == {"api_token": "gh", "base_url": "https://api.github.com"}
     assert s["aws"] == {"domain": "HBEU", "username": "alice", "password": "pw"}
+
+
+def test_mobile_profile_config_is_sanitized_to_runtime_shape():
+    s = sanitize_runtime_profile_config_dict(
+        {
+            "mobile": {
+                "enabled": "yes",
+                "default_provider": " BrowserStack ",
+                "state_dir": " /workspace/.efp/mobile/runs ",
+                "artifacts_dir": " /workspace/.efp/mobile/artifacts ",
+                "retention_hours": "48",
+                "defaults": {
+                    "platform": "Android",
+                    "network_mode": "private-external",
+                    "idle_timeout_seconds": "60",
+                    "new_command_timeout_seconds": "120",
+                    "interactive_debugging": "true",
+                    "video": "false",
+                },
+                "browserstack": {
+                    "api_base_url": " https://api.browserstack.com/ ",
+                    "appium_base_url": " https://hub-cloud.browserstack.com/wd/hub/ ",
+                    "username_env": " BROWSERSTACK_USERNAME ",
+                    "access_key_env": " BROWSERSTACK_ACCESS_KEY ",
+                    "username": " user ",
+                    "access_key": " key ",
+                    "verify_ssl": "true",
+                    "http_proxy": {
+                        "proxy_host": " proxy.example ",
+                        "proxy_port": "8080",
+                        "proxy_user_env": " BS_PROXY_USER ",
+                        "proxy_pass_env": " BS_PROXY_PASS ",
+                        "no_proxy_hosts": "localhost, 127.0.0.1",
+                        "force_proxy": "1",
+                    },
+                    "local": {
+                        "mode": "External",
+                        "binary": " /usr/local/bin/BrowserStackLocal ",
+                        "ready_timeout_seconds": "90",
+                        "force_local": "0",
+                        "proxy_port": "8081",
+                        "include_hosts": [" internal.example ", ""],
+                    },
+                },
+            }
+        }
+    )
+
+    assert s["mobile"]["enabled"] is True
+    assert s["mobile"]["default_provider"] == "browserstack"
+    assert s["mobile"]["retention_hours"] == 48
+    assert s["mobile"]["defaults"]["platform"] == "android"
+    assert s["mobile"]["defaults"]["network_mode"] == "private-external"
+    assert s["mobile"]["browserstack"]["api_base_url"] == "https://api.browserstack.com"
+    assert s["mobile"]["browserstack"]["appium_base_url"] == "https://hub-cloud.browserstack.com/wd/hub"
+    assert s["mobile"]["browserstack"]["access_key"] == "key"
+    assert s["mobile"]["browserstack"]["http_proxy"]["proxy_port"] == 8080
+    assert s["mobile"]["browserstack"]["http_proxy"]["no_proxy_hosts"] == ["localhost", "127.0.0.1"]
+    assert s["mobile"]["browserstack"]["local"]["mode"] == "external"
+    assert s["mobile"]["browserstack"]["local"]["include_hosts"] == ["internal.example"]
 
 
 def test_external_instances_require_endpoint_and_normalize_url_aliases():
@@ -603,6 +666,29 @@ def test_native_runtime_profile_context_config_adds_external_cli_instruction_tex
     assert projected["github"]["api_token"] == "ghp"
     assert projected["aws"]["domain"] == "HBEU"
     assert projected["git"]["user"]["email"] == "bot@example.com"
+
+
+def test_native_runtime_profile_context_config_projects_mobile_profile():
+    projected = build_runtime_profile_context_config(
+        {
+            "mobile": {
+                "enabled": True,
+                "defaults": {"platform": "android", "network_mode": "private-external"},
+                "browserstack": {
+                    "username": "bs-user",
+                    "access_key": "bs-key",
+                    "local": {"mode": "external", "binary": "/usr/local/bin/BrowserStackLocal"},
+                },
+            }
+        },
+        runtime_type="native",
+    )
+
+    _assert_cli_instruction_texts(projected["instruction_texts"])
+    assert projected["mobile"]["enabled"] is True
+    assert projected["mobile"]["browserstack"]["username"] == "bs-user"
+    assert projected["mobile"]["browserstack"]["access_key"] == "bs-key"
+    assert projected["mobile"]["browserstack"]["local"]["binary"] == "/usr/local/bin/BrowserStackLocal"
 
 
 def test_opencode_runtime_profile_context_config_omits_efp_instruction_texts():

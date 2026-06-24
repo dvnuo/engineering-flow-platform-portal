@@ -16,6 +16,7 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
     "github",
     "aws",
     "jenkins",
+    "mobile",
     "git",
     "debug",
 )
@@ -23,10 +24,13 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
 RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "Use bash for runtime profile CLI tools: jira/confluence for Atlassian, "
     "gh for GitHub issues, PRs, and api calls, aws for AWS operations, "
-    "jenkins for Jenkins controller operations, and git for clone, fetch, push, and status. "
-    "For every jira, confluence, and jenkins command add --json. For complex jira/confluence/jenkins calls, "
+    "jenkins for Jenkins controller operations, mobile for BrowserStack/Appium device automation, "
+    "and git for clone, fetch, push, and status. "
+    "For every jira, confluence, jenkins, and mobile command add --json. For complex jira/confluence/jenkins/mobile calls, "
     "inspect commands, schema, or help llm first, for example `jira commands --json`, "
-    "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins commands. "
+    "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins/mobile commands. "
+    "For mobile work, start with `mobile doctor --json` and `mobile auth test --json`; use BrowserStackLocal through "
+    "`private-external` with a supplied local identifier or `private-managed` only when the runtime image has BrowserStackLocal installed. "
     "Jenkins runtime profile credentials are available as EFP_JENKINS_USERNAME and EFP_JENKINS_PASSWORD; "
     "when the user provides a Jenkins controller URL or pipeline/job, configure or log in to that controller at that time and pass the password through stdin, never by echoing it. "
     "For AWS, prefer `aws --output json` for inspection and avoid changing cloud resources unless the user asks. "
@@ -167,11 +171,26 @@ def _has_enabled_jenkins_config(config: dict[str, Any]) -> bool:
     return bool(username and password)
 
 
+def _has_enabled_mobile_config(config: dict[str, Any]) -> bool:
+    mobile = config.get("mobile")
+    if not isinstance(mobile, dict) or mobile.get("enabled") is not True:
+        return False
+    browserstack = mobile.get("browserstack")
+    if not isinstance(browserstack, dict):
+        return False
+    return bool(
+        str(browserstack.get("username") or browserstack.get("username_env") or "").strip()
+        or str(browserstack.get("access_key") or browserstack.get("access_key_env") or "").strip()
+        or str(browserstack.get("api_base_url") or browserstack.get("appium_base_url") or "").strip()
+    )
+
+
 def _has_enabled_external_cli_config(config: dict[str, Any]) -> bool:
     return (
         _has_enabled_instance_section(config, "jira")
         or _has_enabled_instance_section(config, "confluence")
         or _has_enabled_jenkins_config(config)
+        or _has_enabled_mobile_config(config)
         or _has_enabled_github_config(config)
         or _has_enabled_aws_config(config)
         or _has_git_config(config)

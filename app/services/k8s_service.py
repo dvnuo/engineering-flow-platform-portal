@@ -207,6 +207,18 @@ class K8sService:
         workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
         return f"{workspace}/.efp/runtime"
 
+    def _efp_config_path(self, agent) -> str:
+        workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
+        return f"{workspace}/.efp/config.yaml"
+
+    def _mobile_state_dir(self, agent) -> str:
+        workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
+        return f"{workspace}/.efp/mobile/runs"
+
+    def _mobile_artifacts_dir(self, agent) -> str:
+        workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
+        return f"{workspace}/.efp/mobile/artifacts"
+
     def _agent_container_working_dir(self, agent) -> str | None:
         return self._effective_mount_path(agent)
 
@@ -891,6 +903,10 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
+            env.append(client.V1EnvVar(name="EFP_CONFIG", value=self._efp_config_path(agent)))
+            env.append(client.V1EnvVar(name="MOBILE_STATE_DIR", value=self._mobile_state_dir(agent)))
+            env.append(client.V1EnvVar(name="MOBILE_ARTIFACTS_DIR", value=self._mobile_artifacts_dir(agent)))
+            env.append(client.V1EnvVar(name="BROWSERSTACK_LOCAL_BINARY", value="/usr/local/bin/BrowserStackLocal"))
             if runtime_type == "native":
                 env.append(client.V1EnvVar(name="EFP_RUNTIME_SESSION_ROOT", value=self._native_runtime_session_root(agent)))
             elif runtime_type == "opencode":

@@ -63,6 +63,8 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "advanced runtime controls" not in text
     assert "runtime_profile.config" in text
     assert "LLM provider/model/Copilot API key fields" in text
+    assert "mobile BrowserStack config" in text
+    assert "BrowserStackLocal" in text
     assert "Removed legacy aliases" in text
     assert "runtime-owned compatibility decisions" in text
     assert "summary, revert, and unrevert" in text
@@ -101,6 +103,7 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "Runtime profile apply/config contract" in phase5
     assert "runtime_profile.config" in phase5
     assert "Portal-owned profile context" in phase5
+    assert "Mobile/BrowserStack" in phase5
     assert "Python EFP runtime" in phase5
     assert "transport-focused" not in phase5
     assert "summary, revert, and unrevert" in phase5
