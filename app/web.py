@@ -785,6 +785,12 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     raw_jenkins = raw_config.get("jenkins") if isinstance(raw_config.get("jenkins"), dict) else {}
     raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
     raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
+    mobile = effective_config.get("mobile") if isinstance(effective_config.get("mobile"), dict) else {}
+    raw_mobile = raw_config.get("mobile") if isinstance(raw_config.get("mobile"), dict) else {}
+    mobile_browserstack = mobile.get("browserstack") if isinstance(mobile.get("browserstack"), dict) else {}
+    raw_mobile_browserstack = (
+        raw_mobile.get("browserstack") if isinstance(raw_mobile.get("browserstack"), dict) else {}
+    )
     raw_llm_timeout_ms = raw_llm.get("timeout_ms")
     if raw_llm_timeout_ms is None:
         raw_llm_timeout_ms = raw_llm.get("timeout")
@@ -806,6 +812,10 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "jenkins": effective_config.get("jenkins") if isinstance(effective_config.get("jenkins"), dict) else {},
         "github": effective_config.get("github") if isinstance(effective_config.get("github"), dict) else {},
         "raw_github": raw_github,
+        "mobile": mobile,
+        "raw_mobile": raw_mobile,
+        "mobile_browserstack": mobile_browserstack,
+        "raw_mobile_browserstack": raw_mobile_browserstack,
         "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
         "raw_aws": raw_aws,
         "raw_jenkins": raw_jenkins,
@@ -1169,6 +1179,33 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 github_cfg.pop("base_url", None)
         github_cfg.pop("automation", None)
         config_payload["github"] = github_cfg
+
+    if is_section_touched("mobile"):
+        mobile_cfg = (config_payload.get("mobile") if isinstance(config_payload.get("mobile"), dict) else {}).copy()
+        mobile_cfg["enabled"] = as_bool(form.get("mobile_enabled"))
+        mobile_cfg["default_provider"] = "browserstack"
+        browserstack_cfg = (
+            mobile_cfg.get("browserstack") if isinstance(mobile_cfg.get("browserstack"), dict) else {}
+        ).copy()
+        username_value = (form.get("mobile_browserstack_username") or "").strip()
+        access_key_value = (form.get("mobile_browserstack_access_key") or "").strip()
+        if "mobile_browserstack_username" in form:
+            if username_value:
+                browserstack_cfg["username"] = username_value
+            else:
+                browserstack_cfg.pop("username", None)
+        if "mobile_browserstack_access_key" in form:
+            if access_key_value:
+                browserstack_cfg["access_key"] = access_key_value
+            else:
+                browserstack_cfg.pop("access_key", None)
+        elif is_clear("mobile_browserstack_access_key_clear"):
+            browserstack_cfg.pop("access_key", None)
+        if browserstack_cfg:
+            mobile_cfg["browserstack"] = browserstack_cfg
+        else:
+            mobile_cfg.pop("browserstack", None)
+        config_payload["mobile"] = mobile_cfg
 
     if is_section_touched("aws"):
         aws_cfg = {"enabled": as_bool(form.get("aws_enabled"))}
