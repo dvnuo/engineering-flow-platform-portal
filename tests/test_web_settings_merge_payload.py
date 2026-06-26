@@ -221,7 +221,7 @@ def test_settings_merge_mobile_browserstack_credentials():
     )
 
     assert error is None
-    assert merged["mobile"] == {
+    assert merged["mobile-auto"] == {
         "enabled": True,
         "default_provider": "browserstack",
         "browserstack": {
@@ -234,7 +234,7 @@ def test_settings_merge_mobile_browserstack_credentials():
 def test_settings_merge_blank_mobile_browserstack_access_key_clears_existing():
     merged, error = _settings_merge_payload(
         {
-            "mobile": {
+            "mobile-auto": {
                 "enabled": True,
                 "default_provider": "browserstack",
                 "browserstack": {
@@ -253,9 +253,9 @@ def test_settings_merge_blank_mobile_browserstack_access_key_clears_existing():
     )
 
     assert error is None
-    assert merged["mobile"]["browserstack"]["username"] == "new-user"
-    assert merged["mobile"]["browserstack"]["api_base_url"] == "https://api.browserstack.com"
-    assert "access_key" not in merged["mobile"]["browserstack"]
+    assert merged["mobile-auto"]["browserstack"]["username"] == "new-user"
+    assert merged["mobile-auto"]["browserstack"]["api_base_url"] == "https://api.browserstack.com"
+    assert "access_key" not in merged["mobile-auto"]["browserstack"]
 
 
 def test_settings_merge_aws_form_rebuilds_minimal_config():
@@ -751,7 +751,7 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "api_token": "github-token",
             "base_url": "https://github.example.com/api/v3",
         },
-        "mobile": {
+        "mobile-auto": {
             "enabled": True,
             "default_provider": "browserstack",
             "browserstack": {

@@ -63,7 +63,7 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "advanced runtime controls" not in text
     assert "runtime_profile.config" in text
     assert "LLM provider/model/Copilot API key fields" in text
-    assert "mobile BrowserStack config" in text
+    assert "mobile-auto BrowserStack config" in text
     assert "BrowserStackLocal" in text
     assert "Removed legacy aliases" in text
     assert "runtime-owned compatibility decisions" in text

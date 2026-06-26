@@ -16,7 +16,7 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
     "github",
     "aws",
     "jenkins",
-    "mobile",
+    "mobile-auto",
     "git",
     "debug",
 )
@@ -24,12 +24,12 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
 RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "Use bash for runtime profile CLI tools: jira/confluence for Atlassian, "
     "gh for GitHub issues, PRs, and api calls, aws for AWS operations, "
-    "jenkins for Jenkins controller operations, mobile for BrowserStack/Appium device automation, "
+    "jenkins for Jenkins controller operations, mobile-auto for BrowserStack/Appium device automation, "
     "and git for clone, fetch, push, and status. "
-    "For every jira, confluence, jenkins, and mobile command add --json. For complex jira/confluence/jenkins/mobile calls, "
+    "For every jira, confluence, jenkins, and mobile-auto command add --json. For complex jira/confluence/jenkins/mobile-auto calls, "
     "inspect commands, schema, or help llm first, for example `jira commands --json`, "
-    "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins/mobile commands. "
-    "For mobile work, start with `mobile doctor --json` and `mobile auth test --json`; use BrowserStackLocal through "
+    "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins/mobile-auto commands. "
+    "For mobile work, start with `mobile-auto doctor --json` and `mobile-auto auth test --json`; use BrowserStackLocal through "
     "`private-external` with a supplied local identifier or `private-managed` only when the runtime image has BrowserStackLocal installed. "
     "Jenkins runtime profile credentials are available as EFP_JENKINS_USERNAME and EFP_JENKINS_PASSWORD; "
     "when the user provides a Jenkins controller URL or pipeline/job, configure or log in to that controller at that time and pass the password through stdin, never by echoing it. "
@@ -172,7 +172,7 @@ def _has_enabled_jenkins_config(config: dict[str, Any]) -> bool:
 
 
 def _has_enabled_mobile_config(config: dict[str, Any]) -> bool:
-    mobile = config.get("mobile")
+    mobile = config.get("mobile-auto")
     if not isinstance(mobile, dict) or mobile.get("enabled") is not True:
         return False
     browserstack = mobile.get("browserstack")

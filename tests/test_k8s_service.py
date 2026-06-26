@@ -764,8 +764,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "native")
         self.assertEqual(env_map["EFP_WORKSPACE_DIR"], "/workspace")
         self.assertEqual(env_map["EFP_CONFIG"], "/workspace/.efp/config.yaml")
-        self.assertEqual(env_map["MOBILE_STATE_DIR"], "/workspace/.efp/mobile/runs")
-        self.assertEqual(env_map["MOBILE_ARTIFACTS_DIR"], "/workspace/.efp/mobile/artifacts")
+        self.assertEqual(env_map["MOBILE_AUTO_STATE_DIR"], "/workspace/.efp/mobile-auto/runs")
+        self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/workspace/.efp/mobile-auto/artifacts")
         self.assertEqual(env_map["BROWSERSTACK_LOCAL_BINARY"], "/usr/local/bin/BrowserStackLocal")
         self.assertEqual(env_map["EFP_RUNTIME_SESSION_ROOT"], "/workspace/.efp/runtime")
 
@@ -776,8 +776,8 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.assertEqual(env_map["EFP_RUNTIME_SESSION_ROOT"], "/custom/workspace/.efp/runtime")
         self.assertEqual(env_map["EFP_CONFIG"], "/custom/workspace/.efp/config.yaml")
-        self.assertEqual(env_map["MOBILE_STATE_DIR"], "/custom/workspace/.efp/mobile/runs")
-        self.assertEqual(env_map["MOBILE_ARTIFACTS_DIR"], "/custom/workspace/.efp/mobile/artifacts")
+        self.assertEqual(env_map["MOBILE_AUTO_STATE_DIR"], "/custom/workspace/.efp/mobile-auto/runs")
+        self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/custom/workspace/.efp/mobile-auto/artifacts")
 
     def test_single_runtime_env_excludes_old_timeout_contract(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
@@ -801,8 +801,8 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "opencode")
         self.assertEqual(env_map["EFP_WORKSPACE_DIR"], "/workspace")
         self.assertEqual(env_map["EFP_CONFIG"], "/workspace/.efp/config.yaml")
-        self.assertEqual(env_map["MOBILE_STATE_DIR"], "/workspace/.efp/mobile/runs")
-        self.assertEqual(env_map["MOBILE_ARTIFACTS_DIR"], "/workspace/.efp/mobile/artifacts")
+        self.assertEqual(env_map["MOBILE_AUTO_STATE_DIR"], "/workspace/.efp/mobile-auto/runs")
+        self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/workspace/.efp/mobile-auto/artifacts")
         self.assertEqual(env_map["BROWSERSTACK_LOCAL_BINARY"], "/usr/local/bin/BrowserStackLocal")
         self.assertEqual(env_map["EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT"], "true")
         self.assertEqual(env_map["HOME"], "/root")

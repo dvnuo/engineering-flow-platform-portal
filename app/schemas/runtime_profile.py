@@ -14,7 +14,7 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "github",
     "aws",
     "jenkins",
-    "mobile",
+    "mobile-auto",
     "git",
     "debug",
 }
@@ -70,7 +70,7 @@ PORTAL_MANAGED_FIELD_TREE = {
         "username": True,
         "password": True,
     },
-    "mobile": {
+    "mobile-auto": {
         "enabled": True,
         "default_provider": True,
         "state_dir": True,
@@ -585,8 +585,8 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         sanitized["aws"] = sanitize_runtime_profile_aws(sanitized.get("aws"))
     if "jenkins" in sanitized:
         sanitized["jenkins"] = sanitize_runtime_profile_jenkins(sanitized.get("jenkins"))
-    if "mobile" in sanitized:
-        sanitized["mobile"] = sanitize_runtime_profile_mobile(sanitized.get("mobile"))
+    if "mobile-auto" in sanitized:
+        sanitized["mobile-auto"] = sanitize_runtime_profile_mobile(sanitized.get("mobile-auto"))
     if "proxy" in sanitized:
         sanitized["proxy"] = sanitize_runtime_profile_proxy(sanitized.get("proxy"))
     if "git" in sanitized:
@@ -640,7 +640,7 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     jenkins = redacted.get("jenkins")
     if isinstance(jenkins, dict):
         jenkins["password_present"] = bool(str(jenkins.pop("password", "")).strip())
-    mobile = redacted.get("mobile")
+    mobile = redacted.get("mobile-auto")
     if isinstance(mobile, dict):
         browserstack = mobile.get("browserstack")
         if isinstance(browserstack, dict):

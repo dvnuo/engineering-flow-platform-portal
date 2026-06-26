@@ -87,7 +87,7 @@ class RuntimeProfileService:
             "aws": {
                 "enabled": False,
             },
-            "mobile": {
+            "mobile-auto": {
                 "enabled": False,
             },
             "git": {"user": {}},

@@ -76,16 +76,16 @@ Runtime responsibility:
 - Return non-success completion states such as `blocked`, `incomplete`, `empty_final`, or `error` when no final visible text is available.
 
 ## 10) Runtime profile/config contract
-- Runtime profiles are Portal-owned only for concise integration context: `llm`, `proxy`, `jira`, `confluence`, `github`, `aws`, `jenkins`, `mobile`, `git`, and `debug`.
+- Runtime profiles are Portal-owned only for concise integration context: `llm`, `proxy`, `jira`, `confluence`, `github`, `aws`, `jenkins`, `mobile-auto`, `git`, and `debug`.
 - Portal stores and forwards LLM provider/model/Copilot API key fields that it owns.
 - Portal stores and forwards proxy and external integration sections that it owns. For the Python EFP runtime this includes enough config for runtime-side file generation:
   - `jira.enabled` and `jira.instances[]` with `name`, `url` (accepted from `url` or `base_url`), `username` (accepted from `username` or `email`), `password`, `token` (accepted from `token` or `api_token`), `project` (accepted from `project` or `project_key`), `api_version`, and per-instance `enabled`.
   - `confluence.enabled` and `confluence.instances[]` with `name`, `url` (accepted from `url` or `base_url`), `username` (accepted from `username` or `email`), `password`, `token` (accepted from `token` or `api_token`), `space` (accepted from `space` or `space_key`), and per-instance `enabled`.
   - `github.enabled`, `github.api_token` (accepted from `api_token`, `token`, or `access_token`), and `github.base_url`.
-  - `mobile.enabled`, `mobile.defaults`, and `mobile.browserstack` fields for BrowserStack REST/Appium credentials, proxy, BrowserStackLocal mode, and local binary path.
+  - `mobile-auto.enabled`, `mobile-auto.defaults`, and `mobile-auto.browserstack` fields for BrowserStack REST/Appium credentials, proxy, BrowserStackLocal mode, and local binary path.
   - `git.user.name` and `git.user.email`.
-- The Python runtime consumes the applied profile config and writes its own external tool files: `ATLASSIAN_CONFIG` / `~/.config/atlassian/config.json` for the `engineering-flow-platform-tools` `jira` and `confluence` CLIs, GitHub CLI host config for `gh`, mobile BrowserStack config in `EFP_CONFIG`, and git user config for `git`.
-- Portal must not write those runtime files itself and must not execute `jira`, `confluence`, `gh`, `mobile`, `BrowserStackLocal`, or `git` commands.
+- The Python runtime consumes the applied profile config and writes its own external tool files: `ATLASSIAN_CONFIG` / `~/.config/atlassian/config.json` for the `engineering-flow-platform-tools` `jira` and `confluence` CLIs, GitHub CLI host config for `gh`, mobile-auto BrowserStack config in `EFP_CONFIG`, and git user config for `git`.
+- Portal must not write those runtime files itself and must not execute `jira`, `confluence`, `gh`, `mobile-auto`, `BrowserStackLocal`, or `git` commands.
 - Portal drops low-level runtime internals for tools, skills, loop control, context shaping, compaction, prompt assembly, structured output, and runtime mode.
 - Runtime profile apply payloads and trusted chat metadata carry the sanitized profile context under `config` / `runtime_profile.config`.
 - Browser-provided chat `metadata` is untrusted. Portal replaces it with server-owned runtime profile/config/authorization metadata.

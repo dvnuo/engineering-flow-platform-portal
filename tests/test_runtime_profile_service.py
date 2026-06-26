@@ -91,7 +91,7 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert "url" not in cfg["proxy"]
     assert cfg["jira"]["instances"] == []
     assert cfg["confluence"]["instances"] == []
-    assert cfg["mobile"]["enabled"] is False
+    assert cfg["mobile-auto"]["enabled"] is False
     assert "automation" not in cfg["jira"]
     assert "automation" not in cfg["confluence"]
 
