@@ -50,7 +50,7 @@ Removed legacy aliases such as `read_file`, `write_file`, `list_dir`, `shell_exe
 
 ## 3) Runtime profile apply/config contract
 
-Portal now sends only concise Portal-owned profile context under `runtime_profile.config`: LLM provider/model/Copilot API key fields, proxy, and external integration sections for Jira, Confluence, GitHub, Git, and debug.
+Portal now sends only concise Portal-owned profile context under `runtime_profile.config`: LLM provider/model/Copilot API key fields, proxy, and external integration sections for Jira, Confluence, GitHub, AWS, Jenkins, Mobile/BrowserStack, Git, and debug.
 
 Portal keeps the managed Copilot provider/model projection, including `llm.provider` and `llm.model`, without coupling it to a runtime selection UI.
 

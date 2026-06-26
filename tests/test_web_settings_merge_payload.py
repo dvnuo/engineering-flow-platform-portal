@@ -209,6 +209,55 @@ def test_settings_merge_blank_github_token_clears_existing():
     assert "api_token" not in merged["github"]
 
 
+def test_settings_merge_mobile_browserstack_credentials():
+    merged, error = _settings_merge_payload(
+        {},
+        {
+            "__touch_mobile": "1",
+            "mobile_enabled": "on",
+            "mobile_browserstack_username": "browserstack-user",
+            "mobile_browserstack_access_key": "browserstack-key",
+        },
+    )
+
+    assert error is None
+    assert merged["mobile-auto"] == {
+        "enabled": True,
+        "default_provider": "browserstack",
+        "browserstack": {
+            "username": "browserstack-user",
+            "access_key": "browserstack-key",
+        },
+    }
+
+
+def test_settings_merge_blank_mobile_browserstack_access_key_clears_existing():
+    merged, error = _settings_merge_payload(
+        {
+            "mobile-auto": {
+                "enabled": True,
+                "default_provider": "browserstack",
+                "browserstack": {
+                    "username": "old-user",
+                    "access_key": "old-key",
+                    "api_base_url": "https://api.browserstack.com",
+                },
+            }
+        },
+        {
+            "__touch_mobile": "1",
+            "mobile_enabled": "on",
+            "mobile_browserstack_username": "new-user",
+            "mobile_browserstack_access_key": "",
+        },
+    )
+
+    assert error is None
+    assert merged["mobile-auto"]["browserstack"]["username"] == "new-user"
+    assert merged["mobile-auto"]["browserstack"]["api_base_url"] == "https://api.browserstack.com"
+    assert "access_key" not in merged["mobile-auto"]["browserstack"]
+
+
 def test_settings_merge_aws_form_rebuilds_minimal_config():
     merged, error = _settings_merge_payload(
         {
@@ -644,6 +693,10 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "github_enabled": "on",
             "github_api_token": "github-token",
             "github_base_url": "https://github.example.com/api/v3/",
+            "__touch_mobile": "1",
+            "mobile_enabled": "on",
+            "mobile_browserstack_username": "browserstack-user",
+            "mobile_browserstack_access_key": "browserstack-key",
             "__touch_aws": "1",
             "aws_enabled": "on",
             "aws_domain": "HBEU",
@@ -697,6 +750,14 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "enabled": True,
             "api_token": "github-token",
             "base_url": "https://github.example.com/api/v3",
+        },
+        "mobile-auto": {
+            "enabled": True,
+            "default_provider": "browserstack",
+            "browserstack": {
+                "username": "browserstack-user",
+                "access_key": "browserstack-key",
+            },
         },
         "aws": {
             "enabled": True,
