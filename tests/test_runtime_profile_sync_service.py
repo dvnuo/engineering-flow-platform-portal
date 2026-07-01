@@ -195,7 +195,7 @@ def test_sync_profile_to_bound_agents_collects_pending_and_partial(monkeypatch):
         db.close()
 
 
-def test_build_apply_payload_from_profile_keeps_shape_and_uses_raw_profile_config():
+def test_build_apply_payload_from_profile_adds_default_llm_timeout():
     db, rp, _running, _stopped = _build_db()
     try:
         rp.config_json = '{"llm": {"provider": "openai"}}'
@@ -209,7 +209,7 @@ def test_build_apply_payload_from_profile_keeps_shape_and_uses_raw_profile_confi
         assert payload["name"] == rp.name
         assert payload["revision"] == rp.revision
         assert payload["config"] == {
-            "llm": {"provider": "openai"},
+            "llm": {"provider": "openai", "timeout_ms": 300000},
         }
     finally:
         db.close()
@@ -261,7 +261,7 @@ def test_build_apply_payload_from_profile_drops_context_budget_when_present():
         db.refresh(rp)
 
         payload = RuntimeProfileSyncService.build_apply_payload_from_profile(rp)
-        assert payload["config"]["llm"] == {"provider": "openai"}
+        assert payload["config"]["llm"] == {"provider": "openai", "timeout_ms": 300000}
     finally:
         db.close()
 
@@ -464,10 +464,10 @@ def test_build_apply_payload_for_agent_projects_copilot_for_opencode_runtime():
         db.close()
 
 
-def test_build_apply_payload_for_agent_preserves_llm_timeout_ms_for_native_runtime():
+def test_build_apply_payload_for_agent_uses_default_llm_timeout_for_native_runtime():
     db, rp, running, _stopped = _build_db()
     try:
-        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","timeout_ms":300000}}'
+        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","timeout_ms":10000}}'
         running.runtime_type = "native"
         db.add_all([rp, running])
         db.commit()
@@ -483,10 +483,10 @@ def test_build_apply_payload_for_agent_preserves_llm_timeout_ms_for_native_runti
         db.close()
 
 
-def test_build_apply_payload_for_agent_preserves_llm_timeout_ms_for_opencode_runtime():
+def test_build_apply_payload_for_agent_uses_default_llm_timeout_for_opencode_runtime():
     db, rp, running, _stopped = _build_db()
     try:
-        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","timeout_ms":300000}}'
+        rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","timeout_ms":10000}}'
         running.runtime_type = "opencode"
         db.add_all([rp, running])
         db.commit()

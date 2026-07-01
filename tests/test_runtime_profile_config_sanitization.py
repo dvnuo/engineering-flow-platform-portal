@@ -471,6 +471,22 @@ def test_copilot_legacy_oauth_by_runtime_is_dropped_not_migrated():
     assert "oauth_by_runtime" not in sanitized["llm"]
 
 
+def test_runtime_profile_sanitizer_drops_llm_timeout_overrides():
+    sanitized = sanitize_runtime_profile_config_dict(
+        {
+            "llm": {
+                "provider": "github_copilot",
+                "timeout": 10000,
+                "timeout_ms": 10000,
+                "chunk_timeout_ms": 10000,
+                "chunkTimeout": 10000,
+            }
+        }
+    )
+
+    assert sanitized["llm"] == {"provider": "github_copilot"}
+
+
 def test_non_copilot_provider_does_not_migrate_stale_oauth_token():
     raw = {
         "llm": {

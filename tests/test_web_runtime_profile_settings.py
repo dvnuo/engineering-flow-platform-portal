@@ -112,28 +112,26 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
         cleanup()
 
 
-def test_settings_panel_renders_llm_request_timeout_ms(monkeypatch):
+def test_settings_panel_hides_llm_request_timeout_ms(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         _bind_profile(db, agent, {"llm": {"provider": "openai", "timeout_ms": 300000}})
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
-        assert 'name="llm_timeout_ms"' in resp.text
-        assert 'Request timeout (ms)' in resp.text
-        assert 'value="300000"' in resp.text
+        assert 'name="llm_timeout_ms"' not in resp.text
+        assert "Request timeout (ms)" not in resp.text
     finally:
         cleanup()
 
 
-def test_runtime_profile_panel_renders_legacy_llm_timeout_as_request_timeout_ms(monkeypatch):
+def test_runtime_profile_panel_hides_legacy_llm_timeout(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"llm": {"provider": "openai", "timeout": 60000}})
         resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
         assert resp.status_code == 200
-        assert 'name="llm_timeout_ms"' in resp.text
-        assert 'Request timeout (ms)' in resp.text
-        assert 'value="60000"' in resp.text
+        assert 'name="llm_timeout_ms"' not in resp.text
+        assert "Request timeout (ms)" not in resp.text
     finally:
         cleanup()
 
@@ -346,15 +344,26 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
         cleanup()
 
 
-def test_settings_save_persists_llm_request_timeout_ms(monkeypatch):
+def test_settings_save_clears_llm_request_timeout_overrides(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        rp = _bind_profile(db, agent, {"llm": {"provider": "openai", "timeout": 60000}})
+        rp = _bind_profile(
+            db,
+            agent,
+            {
+                "llm": {
+                    "provider": "openai",
+                    "timeout": 60000,
+                    "timeout_ms": 10000,
+                    "chunk_timeout_ms": 10000,
+                    "chunkTimeout": 10000,
+                }
+            },
+        )
         payload = {
             "__touch_llm": "1",
             "llm_provider": "openai",
             "llm_model": "gpt-5",
-            "llm_timeout_ms": "300000",
         }
         resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
         assert resp.status_code == 200
@@ -362,8 +371,10 @@ def test_settings_save_persists_llm_request_timeout_ms(monkeypatch):
         cfg = json.loads(rp.config_json)
         assert cfg["llm"]["provider"] == "openai"
         assert cfg["llm"]["model"] == "gpt-5"
-        assert cfg["llm"]["timeout_ms"] == 300000
         assert "timeout" not in cfg["llm"]
+        assert "timeout_ms" not in cfg["llm"]
+        assert "chunk_timeout_ms" not in cfg["llm"]
+        assert "chunkTimeout" not in cfg["llm"]
     finally:
         cleanup()
 

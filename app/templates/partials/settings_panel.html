@@ -104,7 +104,6 @@
         </label>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>
-      <label class="portal-form-label"><span class="portal-form-label">Request timeout (ms)</span><input type="number" name="llm_timeout_ms" value="{{ raw_llm_timeout_ms }}" min="1" step="1" placeholder="Runtime default" class="portal-form-input" /></label>
       <div class="space-y-2 hidden" data-copilot-auth-root>
         <button type="button" data-copilot-auth-button class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
         <div class="portal-form-input hidden" data-copilot-instructions>

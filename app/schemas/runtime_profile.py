@@ -27,10 +27,6 @@ PORTAL_MANAGED_FIELD_TREE = {
         "api_base": True,
         "baseURL": True,
         "endpoint": True,
-        "timeout": True,
-        "timeout_ms": True,
-        "chunk_timeout_ms": True,
-        "chunkTimeout": True,
         "temperature": True,
         "max_tokens": True,
     },
@@ -361,21 +357,6 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
                 cleaned = str(llm_copy.get(key) or "").strip()
                 if cleaned:
                     llm_copy[key] = cleaned
-                else:
-                    llm_copy.pop(key, None)
-        for key in ("timeout", "timeout_ms", "chunk_timeout_ms", "chunkTimeout"):
-            if key in llm_copy:
-                raw_value = llm_copy.get(key)
-                if isinstance(raw_value, bool):
-                    llm_copy.pop(key, None)
-                    continue
-                try:
-                    parsed = int(raw_value)
-                except (TypeError, ValueError):
-                    llm_copy.pop(key, None)
-                    continue
-                if parsed > 0:
-                    llm_copy[key] = parsed
                 else:
                     llm_copy.pop(key, None)
         if runtime_profile_model_supports_temperature(llm_copy.get("model")):
