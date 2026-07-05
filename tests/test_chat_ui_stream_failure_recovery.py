@@ -39,7 +39,11 @@ def test_recovered_run_poll_has_give_up_bounds():
 
 def _poll_constants(js_source: str) -> str:
     lines = []
-    for name in ("RECOVERED_RUN_POLL_MAX_MS", "RECOVERED_RUN_POLL_MAX_UNKNOWN_STREAK"):
+    for name in (
+        "RECOVERED_RUN_POLL_MAX_MS",
+        "RECOVERED_RUN_POLL_MAX_UNKNOWN_STREAK",
+        "RECOVERED_RUN_POLL_MAX_FALLBACK_FROZEN_STREAK",
+    ):
         match = re.search(rf"^const {name} = .+;$", js_source, re.MULTILINE)
         assert match, f"missing const {name} in chat_ui.js"
         lines.append(match.group(0))
@@ -201,6 +205,92 @@ globalThis.clearTimeout = (_id) => {};
   assert.ok(statusCalls.length <= 10, `expected bounded polling, got ${statusCalls.length}`);
   assert.ok(calls.some((c) => c[0] === "toast"));
   assert.equal(pending.length, 0);
+  console.log("ok");
+})().catch((error) => { console.error(error); process.exit(1); });
+"""
+    )
+    result = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout
+
+
+def test_recovered_run_poll_gives_up_on_frozen_fallback_running_node_smoke():
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping frozen fallback poll behavior test")
+
+    js_source = SRC.read_text(encoding="utf-8")
+    functions = "\n".join(
+        _extract_js_function(js_source, name)
+        for name in ["scheduleRecoveredChatRunPoll", "stopRecoveredRunPolling", "isTerminalChatRunState", "normalizeChatRunStatus"]
+    )
+    script = (
+        _poll_constants(js_source)
+        + """
+const assert = require("node:assert/strict");
+
+const calls = [];
+const requestCtx = { clientRequestId: "req-1" };
+const chatState = { currentRequest: requestCtx };
+let statusResponses = [];
+
+function ensureChatState(_agentId) { return chatState; }
+async function fetchChatRunStatusForAgent(_agentId, _sessionId, _requestId) {
+  calls.push(["status"]);
+  return statusResponses.length > 1 ? statusResponses.shift() : statusResponses[0];
+}
+async function finishRecoveredChatRun(agentId, sessionId, requestId, _ctx, payload) {
+  calls.push(["finish", requestId, payload && payload.state]);
+  chatState.currentRequest = null;
+}
+function showToast(message) { calls.push(["toast", message]); }
+
+let pending = [];
+globalThis.setTimeout = (callback, _ms) => { pending.push(callback); return pending.length; };
+globalThis.clearTimeout = (_id) => {};
+
+"""
+        + functions
+        + """
+
+(async () => {
+  // A phantom: fallback-sourced running with a frozen updated_at (nothing
+  // will ever refresh it; e.g. old-runtime metadata after a pod restart).
+  statusResponses = [
+    { ok: true, state: "running", terminal: false, source_of_truth: "session_metadata", updated_at: "2026-01-01T00:00:00Z" },
+  ];
+  scheduleRecoveredChatRunPoll("agent-1", "s-1", "req-1", requestCtx);
+  for (let i = 0; i < 50 && pending.length; i += 1) {
+    const next = pending.shift();
+    await next();
+  }
+  const finishCalls = calls.filter((c) => c[0] === "finish");
+  assert.equal(finishCalls.length, 1);
+  assert.equal(finishCalls[0][2], "unknown");
+  const statusCalls = calls.filter((c) => c[0] === "status");
+  assert.ok(statusCalls.length <= 12, `expected bounded polling, got ${statusCalls.length}`);
+
+  // Registry-sourced running must NOT trip the fallback bound: it polls on
+  // until terminal.
+  calls.length = 0;
+  pending = [];
+  const requestCtx2 = { clientRequestId: "req-2" };
+  chatState.currentRequest = requestCtx2;
+  statusResponses = [];
+  for (let i = 0; i < 15; i += 1) {
+    statusResponses.push({ ok: true, state: "running", terminal: false, source_of_truth: "run_registry", updated_at: "2026-01-01T00:00:00Z" });
+  }
+  statusResponses.push({ ok: true, state: "completed", terminal: true, source_of_truth: "run_registry" });
+  scheduleRecoveredChatRunPoll("agent-1", "s-1", "req-2", requestCtx2);
+  for (let i = 0; i < 50 && pending.length; i += 1) {
+    const next = pending.shift();
+    await next();
+  }
+  const finishCalls2 = calls.filter((c) => c[0] === "finish");
+  assert.equal(finishCalls2.length, 1);
+  assert.equal(finishCalls2[0][2], "completed");
+  assert.ok(!calls.some((c) => c[0] === "toast"));
+
   console.log("ok");
 })().catch((error) => { console.error(error); process.exit(1); });
 """

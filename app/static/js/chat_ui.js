@@ -9121,6 +9121,7 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
 
 const RECOVERED_RUN_POLL_MAX_MS = 30 * 60 * 1000;
 const RECOVERED_RUN_POLL_MAX_UNKNOWN_STREAK = 8;
+const RECOVERED_RUN_POLL_MAX_FALLBACK_FROZEN_STREAK = 8;
 
 function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx) {
   stopRecoveredRunPolling(requestCtx);
@@ -9137,6 +9138,21 @@ function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx)
       requestCtx.recoveryUnknownStreak = (normalizeChatRunStatus(statusPayload?.state) === "unknown" || statusPayload?.error)
         ? (requestCtx.recoveryUnknownStreak || 0) + 1
         : 0;
+      // A "running" state served from a metadata/chatlog fallback with a
+      // frozen updated_at is a phantom (the registry record is gone and
+      // nothing refreshes the fallback); a live run either has a registry
+      // record or keeps advancing the fallback timestamp.
+      const sourceOfTruth = String(statusPayload?.source_of_truth || "");
+      const runningFromFallback = normalizeChatRunStatus(statusPayload?.state) === "running"
+        && !!sourceOfTruth
+        && sourceOfTruth !== "run_registry";
+      const fallbackUpdatedAt = String(statusPayload?.updated_at || "");
+      if (runningFromFallback && fallbackUpdatedAt === String(requestCtx.recoveryLastFallbackUpdatedAt ?? null)) {
+        requestCtx.recoveryFallbackFrozenStreak = (requestCtx.recoveryFallbackFrozenStreak || 0) + 1;
+      } else {
+        requestCtx.recoveryFallbackFrozenStreak = 0;
+      }
+      requestCtx.recoveryLastFallbackUpdatedAt = runningFromFallback ? fallbackUpdatedAt : null;
     } catch {
       requestCtx.recoveryUnknownStreak = (requestCtx.recoveryUnknownStreak || 0) + 1;
     }
@@ -9144,6 +9160,7 @@ function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx)
     if (
       elapsedMs >= RECOVERED_RUN_POLL_MAX_MS
       || (requestCtx.recoveryUnknownStreak || 0) >= RECOVERED_RUN_POLL_MAX_UNKNOWN_STREAK
+      || (requestCtx.recoveryFallbackFrozenStreak || 0) >= RECOVERED_RUN_POLL_MAX_FALLBACK_FROZEN_STREAK
     ) {
       // Never poll forever: give up, unlock the composer, show latest state.
       showToast("Stopped waiting for the running response; showing the latest session state.");
