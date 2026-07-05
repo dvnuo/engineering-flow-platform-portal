@@ -33,6 +33,7 @@
     <input type="hidden" name="__touch_jira" value="0" data-touch-flag="jira" />
     <input type="hidden" name="__touch_confluence" value="0" data-touch-flag="confluence" />
     <input type="hidden" name="__touch_github" value="0" data-touch-flag="github" />
+    <input type="hidden" name="__touch_mobile" value="0" data-touch-flag="mobile" />
     <input type="hidden" name="__touch_aws" value="0" data-touch-flag="aws" />
     <input type="hidden" name="__touch_jenkins" value="0" data-touch-flag="jenkins" />
     <input type="hidden" name="__touch_git" value="0" data-touch-flag="git" />
@@ -181,6 +182,26 @@
         <label class="portal-form-label"><span class="portal-form-label">API Token</span><input type="password" name="github_api_token" value="{{ raw_github.get('api_token', '') }}" placeholder="GitHub token" class="portal-form-input" /></label>
       </div>
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="github">Test GitHub</button><div class="portal-inline-state" data-test-result="github"></div></div>
+    </section>
+
+    <section class="portal-panel-section" data-managed-section="mobile">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+          <div class="portal-settings-section-title">
+            <span class="portal-section-accent" aria-hidden="true"></span>
+            <h6>BrowserStack Mobile</h6>
+          </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable BrowserStack Mobile">
+              <input type="checkbox" name="mobile_enabled" {% if mobile.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="mobile_browserstack_username" value="{{ raw_mobile_browserstack.get('username', mobile_browserstack.get('username', '')) }}" placeholder="BrowserStack username" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Access Key</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="BrowserStack access key" class="portal-form-input" /></label>
+      </div>
     </section>
 
     <section class="portal-panel-section" data-managed-section="aws">
