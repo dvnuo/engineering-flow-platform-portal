@@ -933,7 +933,11 @@ class K8sService:
                 env.append(client.V1EnvVar(name="EFP_GIT_CHECKOUT_TIMEOUT_SECONDS", value=str(checkout_timeout)))
                 env.append(client.V1EnvVar(name="EFP_TASK_COMPLETION_TIMEOUT_SECONDS", value=str(task_completion_timeout)))
                 env.append(client.V1EnvVar(name="EFP_CHAT_SUBMIT_TIMEOUT_SECONDS", value=str(chat_submit_timeout)))
-                env.append(client.V1EnvVar(name="EFP_CHAT_COMPLETION_TIMEOUT_SECONDS", value=str(chat_submit_timeout)))
+                # Chatbox-driven work can run as long as dispatched tasks; use
+                # the task completion budget so long chats do not flip to
+                # "incomplete" at the (shorter) submit timeout while OpenCode
+                # keeps executing in the background.
+                env.append(client.V1EnvVar(name="EFP_CHAT_COMPLETION_TIMEOUT_SECONDS", value=str(task_completion_timeout)))
                 env.append(client.V1EnvVar(name="OPENCODE_CONFIG", value=self._opencode_config_path(agent)))
                 env.append(client.V1EnvVar(name="EFP_OPENCODE_URL", value=f"http://127.0.0.1:{OPENCODE_INTERNAL_HTTP_PORT}"))
                 env.append(

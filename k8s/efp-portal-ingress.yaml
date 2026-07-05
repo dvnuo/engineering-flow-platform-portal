@@ -5,6 +5,13 @@ metadata:
   namespace: default
   labels:
     app: efp-portal-ingress
+  annotations:
+    # Chat SSE streams and event WebSockets stay open for the duration of
+    # long agent runs. The ingress-nginx defaults (60s proxy read/send
+    # timeouts) would kill them during quiet stretches; runtimes also send
+    # SSE keepalives every 15s as the primary protection.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   ingressClassName: nginx
   rules:

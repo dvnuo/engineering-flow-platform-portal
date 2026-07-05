@@ -813,7 +813,9 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["EFP_GIT_CHECKOUT_TIMEOUT_SECONDS"], "120")
         self.assertEqual(env_map["EFP_TASK_COMPLETION_TIMEOUT_SECONDS"], "3600")
         self.assertEqual(env_map["EFP_CHAT_SUBMIT_TIMEOUT_SECONDS"], "900")
-        self.assertEqual(env_map["EFP_CHAT_COMPLETION_TIMEOUT_SECONDS"], "900")
+        # Chat completion shares the task completion budget so long chatbox
+        # runs are not cut to "incomplete" at the shorter submit timeout.
+        self.assertEqual(env_map["EFP_CHAT_COMPLETION_TIMEOUT_SECONDS"], "3600")
         self.assertEqual(env_map["OPENCODE_CONFIG"], "/workspace/.opencode/opencode.json")
         self.assertEqual(env_map["EFP_OPENCODE_URL"], "http://127.0.0.1:4096")
         self.assertEqual(env_map["EFP_OPENCODE_PERMISSION_MODE"], "workspace_full_access")
