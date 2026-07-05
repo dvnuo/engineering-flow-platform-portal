@@ -7586,9 +7586,65 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   }
 }
 
-function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
+async function tryRecoverBrokenChatStream(agentIdAtSend, requestCtx) {
+  const chatState = ensureChatState(agentIdAtSend);
+  const requestId = requestCtx?.clientRequestId || "";
+  if (!chatState || !requestId) return false;
+  cancelAssistantTypewriter(requestCtx);
+  let statusPayload = null;
+  try {
+    statusPayload = await fetchChatRunStatusForAgent(
+      agentIdAtSend,
+      requestCtx.sessionIdAtSend || chatState.sessionId || "",
+      requestId,
+    );
+  } catch {
+    return false;
+  }
+  const runState = normalizeChatRunStatus(statusPayload?.state);
+  const sessionId = requestCtx.sessionIdAtSend || chatState.sessionId || String(statusPayload?.session_id || "");
+  if (!sessionId) return false;
+  if (isTerminalChatRunState(runState) || statusPayload?.terminal === true) {
+    // The run finished while our stream was broken: deliver it from history.
+    await finishRecoveredChatRun(agentIdAtSend, sessionId, requestId, requestCtx, statusPayload);
+    return true;
+  }
+  if (runState !== "running") return false;
+  // The run is still executing detached; hand off to the standard recovery
+  // flow instead of reporting a false send failure.
+  persistInflightChatRun(agentIdAtSend, {
+    session_id: sessionId,
+    request_id: requestId,
+    message_preview: requestCtx.message || "",
+    started_at: requestCtx.startedAt ? new Date(requestCtx.startedAt).toISOString() : new Date().toISOString(),
+  });
+  chatState.currentRequest = null;
+  if (state.selectedAgentId === agentIdAtSend) {
+    setChatStatus("Connection lost. Reconnecting to running response...");
+  }
+  const recovered = await recoverInflightChatRunForAgent(
+    agentIdAtSend,
+    sessionId,
+    {},
+    { render: state.selectedAgentId === agentIdAtSend },
+  );
+  if (!recovered) chatState.currentRequest = requestCtx;
+  return recovered;
+}
+
+async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   const chatState = ensureChatState(agentIdAtSend);
   if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  if (requestCtx.usedStream && !requestCtx.aborted) {
+    // A broken stream is not proof of failure: the run usually continues
+    // detached on the runtime. Verify before declaring a send failure.
+    try {
+      if (await tryRecoverBrokenChatStream(agentIdAtSend, requestCtx)) return;
+    } catch {
+      // Fall through to the regular failure handling.
+    }
+    if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId) return;
+  }
   const restoredMessage = requestCtx.backupMessage || "";
   const errorMsg = error?.message || "Send failed";
   const finalPayload = {
@@ -9063,8 +9119,13 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
   }
 }
 
+const RECOVERED_RUN_POLL_MAX_MS = 30 * 60 * 1000;
+const RECOVERED_RUN_POLL_MAX_UNKNOWN_STREAK = 8;
+const RECOVERED_RUN_POLL_MAX_FALLBACK_FROZEN_STREAK = 8;
+
 function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx) {
   stopRecoveredRunPolling(requestCtx);
+  if (!requestCtx.recoveryPollStartedAt) requestCtx.recoveryPollStartedAt = Date.now();
   requestCtx.recoveryPollTimerId = setTimeout(async () => {
     const chatState = ensureChatState(agentId);
     if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestId) return;
@@ -9074,7 +9135,38 @@ function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx)
         await finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx, statusPayload);
         return;
       }
-    } catch {}
+      requestCtx.recoveryUnknownStreak = (normalizeChatRunStatus(statusPayload?.state) === "unknown" || statusPayload?.error)
+        ? (requestCtx.recoveryUnknownStreak || 0) + 1
+        : 0;
+      // A "running" state served from a metadata/chatlog fallback with a
+      // frozen updated_at is a phantom (the registry record is gone and
+      // nothing refreshes the fallback); a live run either has a registry
+      // record or keeps advancing the fallback timestamp.
+      const sourceOfTruth = String(statusPayload?.source_of_truth || "");
+      const runningFromFallback = normalizeChatRunStatus(statusPayload?.state) === "running"
+        && !!sourceOfTruth
+        && sourceOfTruth !== "run_registry";
+      const fallbackUpdatedAt = String(statusPayload?.updated_at || "");
+      if (runningFromFallback && fallbackUpdatedAt === String(requestCtx.recoveryLastFallbackUpdatedAt ?? null)) {
+        requestCtx.recoveryFallbackFrozenStreak = (requestCtx.recoveryFallbackFrozenStreak || 0) + 1;
+      } else {
+        requestCtx.recoveryFallbackFrozenStreak = 0;
+      }
+      requestCtx.recoveryLastFallbackUpdatedAt = runningFromFallback ? fallbackUpdatedAt : null;
+    } catch {
+      requestCtx.recoveryUnknownStreak = (requestCtx.recoveryUnknownStreak || 0) + 1;
+    }
+    const elapsedMs = Date.now() - (requestCtx.recoveryPollStartedAt || Date.now());
+    if (
+      elapsedMs >= RECOVERED_RUN_POLL_MAX_MS
+      || (requestCtx.recoveryUnknownStreak || 0) >= RECOVERED_RUN_POLL_MAX_UNKNOWN_STREAK
+      || (requestCtx.recoveryFallbackFrozenStreak || 0) >= RECOVERED_RUN_POLL_MAX_FALLBACK_FROZEN_STREAK
+    ) {
+      // Never poll forever: give up, unlock the composer, show latest state.
+      showToast("Stopped waiting for the running response; showing the latest session state.");
+      await finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx, { state: "unknown" });
+      return;
+    }
     scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx);
   }, 2500);
 }

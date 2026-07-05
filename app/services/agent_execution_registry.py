@@ -327,15 +327,20 @@ class ChatStreamExecutionObserver:
 
     def _handle_event_block(self, block: str) -> None:
         event_name = "message"
+        has_event_field = False
         data_lines: list[str] = []
         for raw_line in block.split("\n"):
             line = raw_line.strip("\r")
             if not line or line.startswith(":"):
                 continue
             if line.startswith("event:"):
+                has_event_field = True
                 event_name = line.split(":", 1)[1].strip()
             elif line.startswith("data:"):
                 data_lines.append(line.split(":", 1)[1].lstrip())
+        if not has_event_field and not data_lines:
+            # Pure comment blocks (runtime SSE keepalives) are not events.
+            return
         if not event_name:
             return
         self.event_count += 1
