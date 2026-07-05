@@ -296,34 +296,24 @@ def test_settings_merge_blank_llm_api_key_clears_existing():
     assert "api_key" not in merged["llm"]
 
 
-def test_settings_merge_llm_timeout_ms_saves_positive_integer_and_replaces_legacy_timeout():
+def test_settings_merge_llm_clears_timeout_overrides():
     merged, error = _settings_merge_payload(
-        {"llm": {"provider": "openai", "timeout": 60}},
-        {"__touch_llm": "1", "llm_provider": "openai", "llm_timeout_ms": "300000"},
+        {
+            "llm": {
+                "provider": "openai",
+                "timeout": 60,
+                "timeout_ms": 10000,
+                "chunk_timeout_ms": 10000,
+                "chunkTimeout": 10000,
+            }
+        },
+        {"__touch_llm": "1", "llm_provider": "openai"},
     )
     assert error is None
-    assert merged["llm"]["timeout_ms"] == 300000
     assert "timeout" not in merged["llm"]
-
-
-def test_settings_merge_blank_llm_timeout_ms_clears_timeout_overrides():
-    merged, error = _settings_merge_payload(
-        {"llm": {"provider": "openai", "timeout_ms": 300000, "timeout": 60}},
-        {"__touch_llm": "1", "llm_provider": "openai", "llm_timeout_ms": ""},
-    )
-    assert error is None
     assert "timeout_ms" not in merged["llm"]
-    assert "timeout" not in merged["llm"]
-
-
-def test_settings_merge_llm_timeout_ms_rejects_invalid_values():
-    for value in ["abc", "0", "-1"]:
-        merged, error = _settings_merge_payload(
-            {"llm": {"provider": "openai", "timeout_ms": 300000}},
-            {"__touch_llm": "1", "llm_provider": "openai", "llm_timeout_ms": value},
-        )
-        assert error == "Request timeout must be a positive integer in milliseconds."
-        assert merged["llm"]["timeout_ms"] == 300000
+    assert "chunk_timeout_ms" not in merged["llm"]
+    assert "chunkTimeout" not in merged["llm"]
 
 
 def test_settings_merge_clear_flags_remove_secrets():

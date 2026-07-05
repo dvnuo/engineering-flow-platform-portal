@@ -72,6 +72,10 @@ def test_runtime_profile_field_tree_no_oauth_by_runtime_managed_key():
     llm_tree = PORTAL_MANAGED_FIELD_TREE.get("llm", {})
     assert "oauth_by_runtime" not in llm_tree
     assert "oauth" not in llm_tree
+    assert "timeout" not in llm_tree
+    assert "timeout_ms" not in llm_tree
+    assert "chunk_timeout_ms" not in llm_tree
+    assert "chunkTimeout" not in llm_tree
 
 
 def test_opencode_projection_omits_native_efp_instruction_texts():

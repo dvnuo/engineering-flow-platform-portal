@@ -65,6 +65,7 @@ OPENCODE_RUNTIME_RESTRICTION_FIELDS = frozenset(
         "derived_runtime_rules",
     }
 )
+DEFAULT_LLM_REQUEST_TIMEOUT_MS = 300_000
 
 
 def is_opencode_runtime_type(runtime_type: str | None) -> bool:
@@ -243,6 +244,7 @@ def build_runtime_profile_context_config(
             projected_llm.pop("oauth", None)
             projected_llm.pop("oauth_by_runtime", None)
         if projected_llm:
+            projected_llm["timeout_ms"] = DEFAULT_LLM_REQUEST_TIMEOUT_MS
             canonical["llm"] = projected_llm
         else:
             canonical.pop("llm", None)
