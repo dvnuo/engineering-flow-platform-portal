@@ -8621,6 +8621,20 @@ async function setActiveNavSection(section, {
     }
   }
 
+  // Landing on the Assistants section (rail/menu) keeps the already-selected
+  // agent; load its last session so it shows immediately instead of only after
+  // re-clicking the agent. The selectAgentById and route-apply paths carry
+  // their own syncSelectedAgentState and do not set preferSectionLanding, so
+  // gating on it here avoids a double load.
+  if (
+    state.activeNavSection === "assistants" &&
+    shouldRefreshVisibleSection &&
+    preferSectionLanding &&
+    state.selectedAgentId
+  ) {
+    await syncSelectedAgentState();
+  }
+
   commitCurrentRoute();
 }
 
