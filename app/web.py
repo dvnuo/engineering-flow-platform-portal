@@ -2050,6 +2050,28 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
     finally:
         db.close()
 
+def _max_upload_bytes() -> int:
+    """User-facing per-file upload cap in bytes, from settings (EFP_MAX_UPLOAD_MB)."""
+    try:
+        mb = int(get_settings().max_upload_mb)
+    except (TypeError, ValueError):
+        mb = 25
+    if mb <= 0:
+        mb = 25
+    return mb * 1024 * 1024
+
+
+def _enforce_upload_size(content: bytes) -> None:
+    """Reject an upload that exceeds the configured cap with a clear 413."""
+    limit = _max_upload_bytes()
+    if len(content) > limit:
+        limit_mb = limit // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {limit_mb}MB.",
+        )
+
+
 @router.post("/a/{agent_id}/api/files/upload")
 async def agent_files_upload(agent_id: str, request: Request):
     """Proxy file upload to EFP agent"""
@@ -2073,12 +2095,10 @@ async def agent_files_upload(agent_id: str, request: Request):
 
         # Read file content
         content = await file_field.read()
-        
-        # Limit file size to 10MB to prevent memory issues
-        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail=f"File too large. Maximum size is 10MB.")
-        
+
+        # Cap file size (configurable via EFP_MAX_UPLOAD_MB) to bound memory.
+        _enforce_upload_size(content)
+
         # Prepare files for upload
         files = {"file": (file_field.filename, content, file_field.content_type)}
         
@@ -2123,6 +2143,7 @@ async def agent_server_files_upload(agent_id: str, request: Request):
             raise HTTPException(status_code=400, detail="No file provided")
 
         content = await file_field.read()
+        _enforce_upload_size(content)
         files = {"file": (file_field.filename, content, file_field.content_type)}
 
         status_code, content_bytes, content_type = await _forward_runtime_multipart(

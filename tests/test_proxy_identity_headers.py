@@ -6,6 +6,48 @@ from fastapi.testclient import TestClient
 from app.services.proxy_service import build_runtime_trace_headers
 
 
+def _install_fake_download_stream(monkeypatch, proxy_module, *, status_code=200, headers=None, chunks=(b"data",)):
+    """Mock the streaming server-files/download upstream (httpx client).
+
+    The download branch streams via httpx.AsyncClient(...).stream(...) instead
+    of the buffered proxy_service.forward(); tests drive that here.
+    """
+    hdrs = dict(headers or {})
+
+    class _Upstream:
+        def __init__(self):
+            self.status_code = status_code
+            self.headers = hdrs
+
+        async def aiter_raw(self):
+            for chunk in chunks:
+                yield chunk
+
+    class _StreamCM:
+        async def __aenter__(self):
+            return _Upstream()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def stream(self, *args, **kwargs):
+            return _StreamCM()
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(proxy_module.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(
+        proxy_module.proxy_service,
+        "build_agent_base_url",
+        lambda agent: "http://runtime.local:8000",
+    )
+
+
 def test_proxy_agent_injects_trusted_identity_headers(monkeypatch):
     from app.main import app
     import app.api.proxy as proxy_module
@@ -1371,12 +1413,14 @@ def test_proxy_agent_server_files_download_preserves_content_disposition(monkeyp
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
 
-        async def _fake_forward(**kwargs):
-            assert kwargs["subpath"] == "api/server-files/download"
-            assert kwargs["return_response_headers"] is True
-            return 200, b"# hello", "text/markdown", {"Content-Disposition": 'attachment; filename="notes.md"'}
-
-        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        _install_fake_download_stream(
+            monkeypatch,
+            proxy_module,
+            headers={
+                "content-disposition": 'attachment; filename="notes.md"',
+                "content-type": "text/markdown",
+            },
+        )
 
         client = TestClient(app)
         response = client.get("/a/agent-1/api/server-files/download?paths=/workspace/notes.md")
@@ -1416,12 +1460,9 @@ def test_proxy_agent_server_files_download_fallback_filename_when_runtime_header
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
 
-        async def _fake_forward(**kwargs):
-            assert kwargs["subpath"] == "api/server-files/download"
-            assert kwargs["return_response_headers"] is True
-            return 200, b"zip-bytes", "application/zip", {}
-
-        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        _install_fake_download_stream(
+            monkeypatch, proxy_module, headers={"content-type": "application/zip"}
+        )
 
         client = TestClient(app)
         response = client.get("/a/agent-1/api/server-files/download?paths=/workspace/bundle")
@@ -1460,12 +1501,9 @@ def test_proxy_agent_server_files_download_multiple_paths_fallback_filename(monk
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
 
-        async def _fake_forward(**kwargs):
-            assert kwargs["subpath"] == "api/server-files/download"
-            assert kwargs["return_response_headers"] is True
-            return 200, b"zip-bytes", "application/zip", {}
-
-        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        _install_fake_download_stream(
+            monkeypatch, proxy_module, headers={"content-type": "application/zip"}
+        )
 
         client = TestClient(app)
         response = client.get("/a/agent-1/api/server-files/download?paths=/workspace/a.txt&paths=/workspace/b.md")
@@ -1504,12 +1542,9 @@ def test_proxy_agent_server_files_download_single_file_fallback_filename_when_ru
             lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent),
         )
 
-        async def _fake_forward(**kwargs):
-            assert kwargs["subpath"] == "api/server-files/download"
-            assert kwargs["return_response_headers"] is True
-            return 200, b"# hello", "text/markdown", {}
-
-        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        _install_fake_download_stream(
+            monkeypatch, proxy_module, headers={"content-type": "text/markdown"}
+        )
 
         client = TestClient(app)
         response = client.get("/a/agent-1/api/server-files/download?paths=/workspace/notes.md")

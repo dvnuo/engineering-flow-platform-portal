@@ -1253,8 +1253,13 @@ function renderInputPreview() {
     let statusBadge = '';
 
     // Status badge
+    let progressBar = '';
     if (pf.status === 'uploading') {
-      statusBadge = '<span class="input-preview-badge is-uploading" aria-hidden="true">⏳</span>';
+      const hasPct = typeof pf.uploadProgress === 'number';
+      const pct = hasPct ? Math.max(0, Math.min(100, Math.round(pf.uploadProgress))) : 0;
+      const pctLabel = hasPct ? ` (${pct}%)` : '';
+      statusBadge = `<span class="input-preview-badge is-uploading" title="Uploading${pctLabel}" aria-hidden="true">⏳</span>`;
+      progressBar = `<div class="input-preview-progress" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(148,163,184,0.35);border-bottom-left-radius:inherit;border-bottom-right-radius:inherit;overflow:hidden;"><div style="height:100%;width:${pct}%;background:#3b82f6;transition:width .15s ease;"></div></div>`;
     } else if (pf.status === 'parsing') {
       const safeParseError = escapeHtmlAttr(pf.parseError || '');
       statusBadge = `<span class="input-preview-badge is-uploading" aria-hidden="true" title="${safeParseError || "Processing file"}">🧠</span>`;
@@ -1276,7 +1281,7 @@ function renderInputPreview() {
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
     const safePreviewUrl = escapeHtmlAttr(pf.previewUrl || '');
     const safePreviewName = escapeHtmlAttr(pf.name || '');
-    return `<div class="input-preview-card" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button></div>`;
+    return `<div class="input-preview-card" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button>${progressBar}</div>`;
   }).join('');
 }
 
@@ -1293,6 +1298,15 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
 
     const xhr = new XMLHttpRequest();
     pf.xhr = xhr;  // Store reference for cancellation
+
+    pf.uploadProgress = 0;
+    xhr.upload.addEventListener('progress', (event) => {
+      if (pf.cancelled) return;
+      if (event.lengthComputable && event.total > 0) {
+        pf.uploadProgress = Math.round((event.loaded / event.total) * 100);
+        renderInputPreview();
+      }
+    });
 
     xhr.addEventListener('load', () => {
       // Check if cancelled during upload
