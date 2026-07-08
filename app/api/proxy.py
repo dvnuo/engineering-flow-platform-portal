@@ -156,6 +156,26 @@ def _select_streaming_response_headers(upstream_headers) -> dict[str, str]:
     return selected
 
 
+def _select_download_response_headers(upstream_headers) -> dict[str, str]:
+    # Downloads must keep the filename and length (browser progress), unlike
+    # SSE which strips them.
+    allowed = {
+        "content-disposition",
+        "content-type",
+        "content-length",
+        "accept-ranges",
+        "etag",
+        "last-modified",
+        "cache-control",
+    }
+    selected: dict[str, str] = {}
+    for key in allowed:
+        value = upstream_headers.get(key)
+        if value:
+            selected[key] = value
+    return selected
+
+
 def _websocket_connect_header_kwargs(headers: dict[str, str]) -> dict[str, dict[str, str]]:
     try:
         params = inspect.signature(websockets.connect).parameters
@@ -377,20 +397,67 @@ async def proxy_agent(
         filtered_query_items = _filter_proxy_query_items(request.query_params.multi_items())
         normalized_subpath = (subpath or "").strip("/").lower()
         if request.method.upper() == "GET" and normalized_subpath == "api/server-files/download":
-            status_code, content, content_type, response_headers = await proxy_service.forward(
-                agent=agent,
-                method=request.method,
-                subpath=subpath,
-                query_items=filtered_query_items,
-                body=request_body,
-                headers=forward_headers,
-                extra_headers=extra_headers,
-                return_response_headers=True,
+            # Stream the download instead of buffering the whole file/zip into
+            # Portal memory (a large workspace download would otherwise spike
+            # RSS on the shared control plane).
+            try:
+                base = proxy_service.build_agent_base_url(agent).rstrip("/")
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+            download_path = f"/{subpath.strip('/')}" if subpath else "/"
+            download_url = f"{base}{download_path}"
+            outbound_headers = proxy_service._build_outbound_headers(forward_headers, extra_headers)
+            download_client = httpx.AsyncClient(timeout=None)
+            download_stream = download_client.stream(
+                method="GET",
+                url=download_url,
+                params=filtered_query_items,
+                headers=outbound_headers,
             )
-            if status_code < 400 and "Content-Disposition" not in response_headers:
-                fallback_filename = _server_files_download_fallback_filename(filtered_query_items, content_type)
+            try:
+                download_upstream = await download_stream.__aenter__()
+            except Exception as exc:
+                await download_client.aclose()
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=sanitize_exception_message(exc),
+                ) from exc
+
+            download_closed = False
+
+            async def _close_download() -> None:
+                nonlocal download_closed
+                if download_closed:
+                    return
+                download_closed = True
+                try:
+                    await download_stream.__aexit__(None, None, None)
+                finally:
+                    await download_client.aclose()
+
+            async def _iter_download():
+                try:
+                    async for chunk in download_upstream.aiter_raw():
+                        yield chunk
+                finally:
+                    await _close_download()
+
+            response_headers = _select_download_response_headers(download_upstream.headers)
+            if download_upstream.status_code < 400 and not any(
+                key.lower() == "content-disposition" for key in response_headers
+            ):
+                fallback_filename = _server_files_download_fallback_filename(
+                    filtered_query_items, download_upstream.headers.get("content-type")
+                )
                 response_headers["Content-Disposition"] = _attachment_content_disposition(fallback_filename)
-            return Response(status_code=status_code, content=content, media_type=content_type, headers=response_headers)
+            return StreamingResponse(
+                _iter_download(),
+                status_code=download_upstream.status_code,
+                media_type=download_upstream.headers.get("content-type"),
+                headers=response_headers,
+                background=BackgroundTask(_close_download),
+            )
 
         status_code, content, content_type = await proxy_service.forward(
             agent=agent,
