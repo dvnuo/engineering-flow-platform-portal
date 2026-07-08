@@ -208,8 +208,13 @@ class K8sService:
         return f"{workspace}/.efp/runtime"
 
     def _efp_config_path(self, agent) -> str:
-        workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
-        return f"{workspace}/.efp/config.yaml"
+        # The EFP config carries plaintext CLI secrets (atlassian/jenkins/aws/
+        # browserstack tokens). Keep it OUT of the workspace, which is both
+        # agent-writable and browsable/downloadable via the server-files panel.
+        # Home (/root) is agent-private and the runtime re-projects the profile
+        # on every pod start, so an ephemeral location is fine. Sessions stay on
+        # the workspace volume (see _native_runtime_session_root).
+        return "/root/.efp/config.yaml"
 
     def _mobile_state_dir(self, agent) -> str:
         workspace = self._effective_mount_path(agent).rstrip("/") or "/workspace"
