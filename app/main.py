@@ -33,6 +33,7 @@ from app.web import router as web_router
 from app.services.delegation_worker import worker_singleton
 from app.services.runtime_profile_sync_worker import runtime_profile_sync_worker_singleton
 from app.services.agent_task_reconcile_worker import agent_task_reconcile_worker_singleton
+from app.services.idle_agent_stop_worker import idle_agent_stop_worker_singleton
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -87,6 +88,8 @@ def on_startup() -> None:
         runtime_profile_sync_worker_singleton.start()
     if settings.agent_task_reconcile_worker_enabled:
         agent_task_reconcile_worker_singleton.start()
+    if settings.idle_agent_stop_worker_enabled:
+        idle_agent_stop_worker_singleton.start()
 
 
 @app.on_event("shutdown")
@@ -94,6 +97,7 @@ def shutdown_delegation_worker() -> None:
     worker_singleton.stop()
     runtime_profile_sync_worker_singleton.stop()
     agent_task_reconcile_worker_singleton.stop()
+    idle_agent_stop_worker_singleton.stop()
 
 
 @app.get("/health")

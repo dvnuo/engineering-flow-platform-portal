@@ -20,6 +20,7 @@ from app.db import SessionLocal
 from app.deps import get_current_user
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, get_log_context, reset_log_context
 from app.repositories.agent_repo import AgentRepository
+from app.services.agent_activity import touch_agent_activity
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
@@ -283,6 +284,7 @@ async def proxy_agent(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if agent.status != "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is not running")
+    touch_agent_activity(agent.id)
 
     try:
         forward_headers = {}
@@ -536,6 +538,7 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
             if agent.status != "running":
                 await websocket.close(code=4409, reason="Agent is not running")
                 return
+            touch_agent_activity(agent.id)
         finally:
             db.close()
 

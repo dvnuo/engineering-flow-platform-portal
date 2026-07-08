@@ -30,6 +30,12 @@ class AgentRepository:
     def list_all(self) -> list[Agent]:
         return list(self.db.scalars(select(Agent).order_by(Agent.created_at.desc())).all())
 
+    def list_by_status(self, status: str, *, limit: Optional[int] = None) -> list[Agent]:
+        stmt = select(Agent).where(Agent.status == status).order_by(Agent.created_at.asc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(self.db.scalars(stmt).all())
+
     def get_by_id(self, agent_id: str) -> Optional[Agent]:
         return self.db.get(Agent, agent_id)
 

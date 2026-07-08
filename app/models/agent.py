@@ -38,5 +38,7 @@ class Agent(Base):
     agent_type: Mapped[str] = mapped_column(String(32), nullable=False, default="workspace")
     runtime_profile_id: Mapped[Optional[str]] = mapped_column(ForeignKey("runtime_profiles.id"), nullable=True, index=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text)
+    # Last user-driven use (proxy/chat/task) or start; drives idle auto-stop.
+    last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 import logging
@@ -558,6 +560,7 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     runtime = k8s_service.start_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
+    agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
     try:
         runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_start")
@@ -611,6 +614,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
 
     agent.status = "restarting"
     agent.last_error = runtime.message
+    agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
     try:
         runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_restart")

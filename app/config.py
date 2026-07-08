@@ -150,6 +150,13 @@ class Settings(BaseSettings):
     agent_task_reconcile_worker_initial_delay_seconds: int = Field(default=30, validation_alias="AGENT_TASK_RECONCILE_WORKER_INITIAL_DELAY_SECONDS")
     agent_task_reconcile_worker_interval_seconds: int = Field(default=5, validation_alias="AGENT_TASK_RECONCILE_WORKER_INTERVAL_SECONDS")
     agent_task_reconcile_worker_batch_size: int = Field(default=50, validation_alias="AGENT_TASK_RECONCILE_WORKER_BATCH_SIZE")
+    # Auto-stop long-idle agents (scale their deployment to 0) to reclaim
+    # resources. Idle = no user traffic (proxy/chat/task) for the threshold.
+    idle_agent_stop_worker_enabled: bool = Field(default=True, validation_alias="IDLE_AGENT_STOP_WORKER_ENABLED")
+    idle_agent_stop_worker_initial_delay_seconds: int = Field(default=120, validation_alias="IDLE_AGENT_STOP_WORKER_INITIAL_DELAY_SECONDS")
+    idle_agent_stop_worker_interval_seconds: int = Field(default=600, validation_alias="IDLE_AGENT_STOP_WORKER_INTERVAL_SECONDS")
+    idle_agent_stop_worker_batch_size: int = Field(default=100, validation_alias="IDLE_AGENT_STOP_WORKER_BATCH_SIZE")
+    agent_idle_stop_after_seconds: int = Field(default=259200, validation_alias="AGENT_IDLE_STOP_AFTER_SECONDS")  # 3 days
     agent_task_runtime_status_max_bytes: int = Field(default=2_000_000, validation_alias="AGENT_TASK_RUNTIME_STATUS_MAX_BYTES")
     agent_task_runtime_missing_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS")
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")
