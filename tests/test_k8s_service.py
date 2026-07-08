@@ -763,7 +763,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["PORTAL_RUNTIME_TYPE"], "native")
         self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "native")
         self.assertEqual(env_map["EFP_WORKSPACE_DIR"], "/workspace")
-        self.assertEqual(env_map["EFP_CONFIG"], "/workspace/.efp/config.yaml")
+        self.assertEqual(env_map["EFP_CONFIG"], "/root/.efp/config.yaml")
         self.assertEqual(env_map["MOBILE_AUTO_STATE_DIR"], "/workspace/.efp/mobile-auto/runs")
         self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/workspace/.efp/mobile-auto/artifacts")
         self.assertEqual(env_map["BROWSERSTACK_LOCAL_BINARY"], "/usr/local/bin/BrowserStackLocal")
@@ -775,9 +775,25 @@ class K8sServiceNoopTest(unittest.TestCase):
         env_map = {e.name: getattr(e, 'value', None) for e in env}
 
         self.assertEqual(env_map["EFP_RUNTIME_SESSION_ROOT"], "/custom/workspace/.efp/runtime")
-        self.assertEqual(env_map["EFP_CONFIG"], "/custom/workspace/.efp/config.yaml")
+        # Config intentionally does NOT follow the workspace mount: it holds
+        # plaintext CLI secrets and must stay out of the agent-writable /
+        # server-files-browsable workspace.
+        self.assertEqual(env_map["EFP_CONFIG"], "/root/.efp/config.yaml")
         self.assertEqual(env_map["MOBILE_AUTO_STATE_DIR"], "/custom/workspace/.efp/mobile-auto/runs")
         self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/custom/workspace/.efp/mobile-auto/artifacts")
+
+    def test_efp_config_stays_outside_workspace_for_both_runtimes(self):
+        # Regression: the EFP config (plaintext CLI secrets) must live outside
+        # the workspace so it is neither agent-writable nor browsable via the
+        # server-files panel; it is re-projected on every pod start.
+        for runtime_type in ("native", "opencode"):
+            agent = SimpleNamespace(
+                id="a1", runtime_type=runtime_type, mount_path="/custom/workspace", name="A"
+            )
+            env = self.service._build_agent_container_env(agent)
+            env_map = {e.name: getattr(e, "value", None) for e in env}
+            self.assertEqual(env_map["EFP_CONFIG"], "/root/.efp/config.yaml")
+            self.assertNotIn("/workspace", env_map["EFP_CONFIG"])
 
     def test_single_runtime_env_excludes_old_timeout_contract(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
@@ -800,7 +816,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["PORTAL_RUNTIME_TYPE"], "opencode")
         self.assertEqual(env_map["EFP_RUNTIME_TYPE"], "opencode")
         self.assertEqual(env_map["EFP_WORKSPACE_DIR"], "/workspace")
-        self.assertEqual(env_map["EFP_CONFIG"], "/workspace/.efp/config.yaml")
+        self.assertEqual(env_map["EFP_CONFIG"], "/root/.efp/config.yaml")
         self.assertEqual(env_map["MOBILE_AUTO_STATE_DIR"], "/workspace/.efp/mobile-auto/runs")
         self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/workspace/.efp/mobile-auto/artifacts")
         self.assertEqual(env_map["BROWSERSTACK_LOCAL_BINARY"], "/usr/local/bin/BrowserStackLocal")
