@@ -5926,7 +5926,7 @@ async function submitChatForSelectedAgent() {
       runtime_events: payload?.runtime_events || [],
     });
   } catch (error) {
-    handleAgentChatFailure(agentIdAtSend, requestCtx, error);
+    await handleAgentChatFailure(agentIdAtSend, requestCtx, error);
   } finally {
     localClearWaitingForRuntimeEventsTimer(requestCtx);
   }

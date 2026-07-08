@@ -26,6 +26,10 @@ def test_handle_agent_chat_failure_verifies_run_status_before_failing():
     assert "tryRecoverBrokenChatStream" in failure_fn
     assert "requestCtx.usedStream" in failure_fn
     assert "requestCtx.aborted" in failure_fn
+    # The call site must await the now-async failure handler so exceptions
+    # cannot become unhandled promise rejections.
+    assert "await handleAgentChatFailure(" in js_source
+    assert re.search(r"(?<!await )(?<!function )handleAgentChatFailure\(agentIdAtSend", js_source) is None
 
 
 def test_recovered_run_poll_has_give_up_bounds():
