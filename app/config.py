@@ -118,6 +118,12 @@ class Settings(BaseSettings):
     default_agent_memory: str = "512Mi"
     default_agent_mount_path: str = "/workspace"
 
+    # User-facing maximum upload size (MB) for chat attachments and workspace
+    # files. Must be matched by the runtime aiohttp client_max_size (same env)
+    # and the ingress proxy-body-size annotation, or the smallest of the three
+    # wins.
+    max_upload_mb: int = Field(default=25, validation_alias="EFP_MAX_UPLOAD_MB")
+
     assets_github_token: str = Field(default="", validation_alias="ASSETS_GITHUB_TOKEN")
     assets_github_api_base_url: str = Field(default="https://api.github.com", validation_alias="ASSETS_GITHUB_API_BASE_URL")
     assets_repo_full_name: str = Field(

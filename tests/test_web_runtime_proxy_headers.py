@@ -44,8 +44,12 @@ def test_file_upload_route_contract_uses_forward_runtime_multipart_and_query_fil
 def test_file_upload_route_contract_keeps_oversize_guard():
     web_source = _web_source()
 
-    assert "MAX_FILE_SIZE = 10 * 1024 * 1024" in web_source
-    assert "File too large. Maximum size is 10MB." in web_source
+    # Cap is now settings-driven (EFP_MAX_UPLOAD_MB) via a shared guard, and
+    # applied to both the attachment and server-files upload proxies.
+    assert "def _enforce_upload_size(content: bytes)" in web_source
+    assert "get_settings().max_upload_mb" in web_source
+    assert web_source.count("_enforce_upload_size(content)") >= 2
+    assert "File too large. Maximum size is" in web_source
 
 
 def test_server_files_upload_contract_uses_forward_runtime_multipart_with_path_data_and_passthrough():

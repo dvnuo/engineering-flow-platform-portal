@@ -19,7 +19,9 @@ def test_agent_file_upload_route_contract_exists_and_is_guarded():
     source = _web_source()
 
     assert '@router.post("/a/{agent_id}/api/files/upload")' in source
-    assert "MAX_FILE_SIZE = 10 * 1024 * 1024" in source
+    # Upload size is capped via the shared, settings-driven guard.
+    assert "_enforce_upload_size(content)" in source
+    assert "def _enforce_upload_size(content: bytes)" in source
     assert "_forward_runtime_multipart(" in source
     assert 'subpath="api/files/upload"' in source
 

@@ -12,6 +12,12 @@ metadata:
     # SSE keepalives every 15s as the primary protection.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Upload size ceiling for browser -> Portal. Without this, ingress-nginx
+    # defaults to 1MB and caps every upload there. Kept a little above the
+    # app's EFP_MAX_UPLOAD_MB (25MB) so oversized uploads get the Portal's
+    # clear 413 ("Maximum size is 25MB") instead of nginx's generic one.
+    # Raise both together when increasing the limit.
+    nginx.ingress.kubernetes.io/proxy-body-size: "30m"
 spec:
   ingressClassName: nginx
   rules:
