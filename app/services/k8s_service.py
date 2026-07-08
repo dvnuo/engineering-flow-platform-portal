@@ -967,9 +967,25 @@ class K8sService:
             requests["cpu"] = agent.cpu
         if getattr(agent, "memory", None):
             requests["memory"] = agent.memory
-        if not requests:
+
+        # Hard ceilings so a runaway agent pod cannot starve the node of CPU or
+        # hoard memory (it gets throttled at the CPU limit and OOMKilled past the
+        # memory limit). Configurable via DEFAULT_AGENT_CPU_LIMIT /
+        # DEFAULT_AGENT_MEMORY_LIMIT; an empty value disables that limit.
+        limits = {}
+        cpu_limit = str(getattr(self.settings, "default_agent_cpu_limit", "") or "").strip()
+        if cpu_limit:
+            limits["cpu"] = cpu_limit
+        memory_limit = str(getattr(self.settings, "default_agent_memory_limit", "") or "").strip()
+        if memory_limit:
+            limits["memory"] = memory_limit
+
+        if not requests and not limits:
             return None
-        return client.V1ResourceRequirements(requests=requests)
+        return client.V1ResourceRequirements(
+            requests=requests or None,
+            limits=limits or None,
+        )
 
     def _skill_git_clone_shell_command(self, target_dir: str) -> str:
         return "\n".join(

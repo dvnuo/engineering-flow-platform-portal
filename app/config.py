@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     default_agent_disk_size_gi: int = 20
     default_agent_cpu: str = "250m"
     default_agent_memory: str = "512Mi"
+    # Hard ceilings on agent pod resources. Without limits, a runaway pod can
+    # consume a whole node's CPU and hoard memory (never OOMKilled). Set as
+    # Kubernetes quantities; empty string disables that limit.
+    default_agent_cpu_limit: str = Field(default="10", validation_alias="DEFAULT_AGENT_CPU_LIMIT")
+    default_agent_memory_limit: str = Field(default="2Gi", validation_alias="DEFAULT_AGENT_MEMORY_LIMIT")
     default_agent_mount_path: str = "/workspace"
 
     # User-facing maximum upload size (MB) for chat attachments and workspace

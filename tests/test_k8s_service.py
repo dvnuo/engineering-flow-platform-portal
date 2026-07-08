@@ -795,6 +795,39 @@ class K8sServiceNoopTest(unittest.TestCase):
             self.assertEqual(env_map["EFP_CONFIG"], "/root/.efp/config.yaml")
             self.assertNotIn("/workspace", env_map["EFP_CONFIG"])
 
+    def test_agent_container_resources_apply_cpu_and_memory_limits(self):
+        agent = SimpleNamespace(id="a1", cpu="250m", memory="512Mi")
+        resources = self.service._build_agent_container_resources(agent)
+        self.assertIsNotNone(resources)
+        self.assertEqual(resources.requests, {"cpu": "250m", "memory": "512Mi"})
+        self.assertEqual(resources.limits, {"cpu": "10", "memory": "2Gi"})
+
+    def test_agent_container_resources_set_limits_even_without_requests(self):
+        agent = SimpleNamespace(id="a1", cpu=None, memory=None)
+        resources = self.service._build_agent_container_resources(agent)
+        self.assertIsNotNone(resources)
+        self.assertIsNone(resources.requests)
+        self.assertEqual(resources.limits, {"cpu": "10", "memory": "2Gi"})
+
+    def test_agent_container_resource_limits_are_configurable_and_optional(self):
+        s = self.service.settings
+        original = (s.default_agent_cpu_limit, s.default_agent_memory_limit)
+        try:
+            s.default_agent_cpu_limit = "4"
+            s.default_agent_memory_limit = "1Gi"
+            resources = self.service._build_agent_container_resources(
+                SimpleNamespace(id="a1", cpu=None, memory=None)
+            )
+            self.assertEqual(resources.limits, {"cpu": "4", "memory": "1Gi"})
+            # An empty value disables that specific limit.
+            s.default_agent_cpu_limit = ""
+            resources = self.service._build_agent_container_resources(
+                SimpleNamespace(id="a1", cpu=None, memory=None)
+            )
+            self.assertEqual(resources.limits, {"memory": "1Gi"})
+        finally:
+            s.default_agent_cpu_limit, s.default_agent_memory_limit = original
+
     def test_single_runtime_env_excludes_old_timeout_contract(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace")
         env = self.service._build_agent_container_env(agent)
