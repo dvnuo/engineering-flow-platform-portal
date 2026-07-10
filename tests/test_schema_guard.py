@@ -9,7 +9,6 @@ REQUIRED_PORTAL_TABLES = (
     "audit_logs",
     "agent_session_metadata",
     "runtime_profiles",
-    "runtime_profile_sync_jobs",
     "runtime_capability_catalog_snapshots",
     "agent_tasks",
     "agent_executions",
@@ -17,29 +16,6 @@ REQUIRED_PORTAL_TABLES = (
     "delegation_rule_runs",
     "delegation_rule_events",
 )
-
-
-def _runtime_profile_sync_jobs_table(metadata: MetaData, *, minimal: bool = False):
-    if minimal:
-        return Table("runtime_profile_sync_jobs", metadata, Column("id", String(36), primary_key=True))
-    return Table(
-        "runtime_profile_sync_jobs",
-        metadata,
-        Column("id", String(36), primary_key=True),
-        Column("agent_id", String(36)),
-        Column("runtime_profile_id", String(36)),
-        Column("requested_revision", Integer),
-        Column("action", String(16)),
-        Column("reason", String(128)),
-        Column("status", String(32)),
-        Column("attempts", Integer),
-        Column("max_attempts", Integer),
-        Column("next_run_at", String(32)),
-        Column("locked_until", String(32)),
-        Column("last_error", String(255)),
-        Column("created_at", String(32)),
-        Column("updated_at", String(32)),
-    )
 
 
 def test_schema_guard_passes_when_agents_table_has_required_columns():
@@ -50,6 +26,9 @@ def test_schema_guard_passes_when_agents_table_has_required_columns():
         metadata,
         Column("id", String(36), primary_key=True),
         Column("runtime_profile_id", String(36)),
+        Column("agent_settings_repo_url", String(512)),
+        Column("agent_settings_branch", String(128)),
+        Column("agent_settings_subdir", String(255)),
     )
     metadata.create_all(engine)
 
@@ -109,8 +88,6 @@ def test_portal_schema_ready_passes_with_all_required_tables():
             Table(table_name, metadata, Column("id", Integer, primary_key=True))
         elif table_name == "delegation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
-        elif table_name == "runtime_profile_sync_jobs":
-            _runtime_profile_sync_jobs_table(metadata)
         else:
             Table(table_name, metadata, Column("id", String(36), primary_key=True))
     metadata.create_all(engine)
@@ -127,59 +104,7 @@ def test_portal_schema_guard_requires_delegation_tables_not_automation_tables():
     assert "automation_rule_events" not in REQUIRED_PORTAL_TABLES
 
 
-def test_portal_schema_ready_requires_runtime_profile_sync_jobs_table():
-    engine = create_engine("sqlite:///:memory:")
-    metadata = MetaData()
+def test_portal_schema_guard_does_not_require_retired_sync_jobs_table():
+    from app.services.schema_guard import REQUIRED_PORTAL_TABLES as GUARD_TABLES
 
-    for table_name in REQUIRED_PORTAL_TABLES:
-        if table_name == "runtime_profile_sync_jobs":
-            continue
-        if table_name == "alembic_version":
-            Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
-        elif table_name == "users":
-            Table(table_name, metadata, Column("id", Integer, primary_key=True))
-        elif table_name == "delegation_rule_events":
-            Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
-        else:
-            Table(table_name, metadata, Column("id", String(36), primary_key=True))
-
-    metadata.create_all(engine)
-
-    try:
-        assert_portal_schema_ready(engine)
-    except RuntimeError as exc:
-        message = str(exc)
-        assert "runtime_profile_sync_jobs" in message
-        assert "alembic upgrade head" in message
-    else:
-        raise AssertionError("expected RuntimeError for missing runtime_profile_sync_jobs table")
-
-
-def test_portal_schema_ready_rejects_runtime_profile_sync_jobs_missing_columns():
-    engine = create_engine("sqlite:///:memory:")
-    metadata = MetaData()
-
-    for table_name in REQUIRED_PORTAL_TABLES:
-        if table_name == "alembic_version":
-            Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
-        elif table_name == "users":
-            Table(table_name, metadata, Column("id", Integer, primary_key=True))
-        elif table_name == "delegation_rule_events":
-            Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
-        elif table_name == "runtime_profile_sync_jobs":
-            _runtime_profile_sync_jobs_table(metadata, minimal=True)
-        else:
-            Table(table_name, metadata, Column("id", String(36), primary_key=True))
-
-    metadata.create_all(engine)
-
-    try:
-        assert_portal_schema_ready(engine)
-    except RuntimeError as exc:
-        message = str(exc)
-        assert "runtime_profile_sync_jobs" in message
-        assert "agent_id" in message
-        assert "status" in message
-        assert "alembic upgrade head" in message
-    else:
-        raise AssertionError("expected RuntimeError for incomplete runtime_profile_sync_jobs table")
+    assert "runtime_profile_sync_jobs" not in GUARD_TABLES

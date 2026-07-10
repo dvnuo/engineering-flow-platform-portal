@@ -32,9 +32,9 @@ from app.services.requirement_bundle_github_service import (
 )
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
+from app.services.k8s_service import K8sService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
-from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
-from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
+from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider_from_settings, RuntimeCapabilityCatalogProvider
@@ -62,8 +62,8 @@ settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
 requirement_bundle_service = RequirementBundleGithubService()
-runtime_profile_sync_service = RuntimeProfileSyncService(proxy_service=proxy_service)
-runtime_profile_sync_queue_service = RuntimeProfileSyncQueueService(runtime_profile_sync_service=runtime_profile_sync_service)
+k8s_service = K8sService()
+runtime_profile_secret_service = RuntimeProfileSecretService(k8s_service=k8s_service)
 runtime_profile_test_service = RuntimeProfileTestService()
 base_uri = settings.base_uri
 
@@ -913,6 +913,31 @@ def _settings_settings_panel_summary(db, agent_id: str) -> dict:
     return _settings_delegation_activity_summary(db, agent_id)
 
 
+def _apply_runtime_profile_save(db, runtime_profile) -> tuple[str, str]:
+    """Update the profile Secret and restart bound running agents.
+
+    Returns (status_type, status_message).
+    """
+    try:
+        result = runtime_profile_secret_service.apply_profile_save(db, runtime_profile)
+    except Exception:
+        db.rollback()
+        logger.exception("runtime profile secret save/restart failed profile_id=%s", runtime_profile.id)
+        return (
+            "error",
+            "Runtime profile was saved, but updating the profile Secret or restarting agents failed. Save again to retry.",
+        )
+
+    running = result.get("running_agent_count", 0)
+    if not running:
+        return ("success", "Runtime profile saved. No running agents; changes will apply on next start.")
+    message = f"Runtime profile saved. Restarting {running} running agents to apply revision {runtime_profile.revision}."
+    failed = result.get("failed_agent_ids") or []
+    if failed:
+        return ("warning", f"{message} Restart failed for {len(failed)} agent(s).")
+    return ("success", message)
+
+
 def _runtime_profile_panel_context(
     request: Request,
     profile,
@@ -922,6 +947,7 @@ def _runtime_profile_panel_context(
     status_message: str = "",
 ) -> dict:
     bound_count = profile_repo.count_bound_agents(profile.id)
+    running_count = profile_repo.count_running_bound_agents(profile.id)
     raw_config_data = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
     config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
     view_data = _settings_view_payload(raw_config_data, config_data)
@@ -935,6 +961,7 @@ def _runtime_profile_panel_context(
         "profile_revision": profile.revision,
         "profile_is_default": bool(profile.is_default),
         "profile_bound_agent_count": bound_count,
+        "profile_running_bound_agent_count": running_count,
         **view_data,
     }
 
@@ -2339,11 +2366,13 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
 
         runtime_profile = None
         bound_agent_count = 0
+        running_bound_agent_count = 0
         if agent.runtime_profile_id:
             profile_repo = RuntimeProfileRepository(db)
             runtime_profile = profile_repo.get_by_id(agent.runtime_profile_id)
             if runtime_profile and runtime_profile.owner_user_id in {user.id, agent.owner_user_id}:
                 bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
+                running_bound_agent_count = profile_repo.count_running_bound_agents(runtime_profile.id)
             else:
                 runtime_profile = None
 
@@ -2379,6 +2408,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                 "profile_name": runtime_profile.name,
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": bound_agent_count,
+                "profile_running_bound_agent_count": running_bound_agent_count,
                 "read_only": read_only,
                 **summary,
                 **view_data,
@@ -2466,20 +2496,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         runtime_profile.revision = (runtime_profile.revision or 0) + 1
         runtime_profile = profile_repo.save(runtime_profile)
 
-        try:
-            sync_result = runtime_profile_sync_queue_service.enqueue_profile_to_bound_agents(db, runtime_profile, reason="runtime_profile_settings_save")
-            status_message = (
-                "Runtime profile saved. "
-                f"Sync queued for {sync_result.get('queued_agent_count', 0)} bound agents. "
-                "Running agents will apply soon; starting agents will apply after they become running."
-            )
-        except Exception:
-            db.rollback()
-            logger.exception("runtime profile fan-out sync failed after settings save profile_id=%s", runtime_profile.id)
-            status_type = "error"
-            status_message = (
-                "Runtime profile was saved, but sync enqueue failed this time. Runtime profile sync can be retried later."
-            )
+        status_type, status_message = _apply_runtime_profile_save(db, runtime_profile)
 
         view_data = _settings_view_payload(sanitized_config, RuntimeProfileService.merge_with_managed_defaults(sanitized_config))
         return templates.TemplateResponse(
@@ -2493,6 +2510,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                 "profile_name": runtime_profile.name,
                 "profile_revision": runtime_profile.revision,
                 "profile_bound_agent_count": profile_bound_agent_count,
+                "profile_running_bound_agent_count": profile_repo.count_running_bound_agents(runtime_profile.id),
                 "read_only": False,
                 **summary,
                 **view_data,
@@ -2628,18 +2646,7 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
         status_type = "success"
         status_message = "Runtime profile saved."
         if config_changed:
-            try:
-                sync_result = runtime_profile_sync_queue_service.enqueue_profile_to_bound_agents(db, updated, reason="runtime_profile_panel_save")
-                status_message = (
-                    "Runtime profile saved. "
-                    f"Sync queued for {sync_result.get('queued_agent_count', 0)} bound agents. "
-                    "Running agents will apply soon; starting agents will apply after they become running."
-                )
-            except Exception:
-                db.rollback()
-                logger.exception("runtime profile fan-out sync failed after profile save profile_id=%s", updated.id)
-                status_type = "error"
-                status_message = "Runtime profile saved, but sync enqueue failed."
+            status_type, status_message = _apply_runtime_profile_save(db, updated)
 
         response = templates.TemplateResponse(
             "partials/runtime_profile_panel.html",

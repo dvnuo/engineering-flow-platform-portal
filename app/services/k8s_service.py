@@ -372,6 +372,7 @@ class K8sService:
             "imagePullPolicy": "Always",
             "ports": [{"containerPort": 8000}],
             "env": api_client.sanitize_for_serialization(self._build_agent_container_env(agent)),
+            "readinessProbe": api_client.sanitize_for_serialization(self._build_agent_readiness_probe()),
             "volumeMounts": api_client.sanitize_for_serialization(volume_mounts),
         }
         serialized_resources = api_client.sanitize_for_serialization(resources) if resources else None
@@ -386,6 +387,10 @@ class K8sService:
                 "annotations": annotations,
             },
             "spec": {
+                # rollingUpdate must be cleared explicitly in the merge patch,
+                # otherwise a pre-existing rollingUpdate block conflicts with
+                # the Recreate strategy type.
+                "strategy": {"type": "Recreate", "rollingUpdate": None},
                 "template": {
                     "metadata": {
                         "labels": labels,
@@ -659,6 +664,47 @@ class K8sService:
         except Exception:
             return False
 
+    def _is_not_found(self, exc: Exception) -> bool:
+        try:
+            from kubernetes.client.exceptions import ApiException
+
+            return isinstance(exc, ApiException) and exc.status == 404
+        except Exception:
+            return False
+
+    def upsert_secret(self, name: str, string_data: dict[str, str], namespace: Optional[str] = None) -> None:
+        """Create or replace an Opaque Secret in the agents namespace."""
+        if not self.enabled:
+            return
+        from kubernetes import client
+
+        namespace = namespace or self.settings.agents_namespace
+        body = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name=name,
+                namespace=namespace,
+                labels={"app": "agent", "managed-by": "portal"},
+            ),
+            string_data=string_data,
+            type="Opaque",
+        )
+        try:
+            self.core_api.create_namespaced_secret(namespace=namespace, body=body)
+        except Exception as exc:
+            if not self._is_already_exists(exc):
+                raise
+            self.core_api.replace_namespaced_secret(name=name, namespace=namespace, body=body)
+
+    def delete_secret(self, name: str, namespace: Optional[str] = None) -> None:
+        if not self.enabled:
+            return
+        namespace = namespace or self.settings.agents_namespace
+        try:
+            self.core_api.delete_namespaced_secret(name=name, namespace=namespace)
+        except Exception as exc:
+            if not self._is_not_found(exc):
+                raise
+
     def _sanitize_label_value(self, value: Optional[str]) -> str:
         normalized = re.sub(r"[^a-z0-9-]", "-", (value or "").lower())
         normalized = re.sub(r"-+", "-", normalized).strip("-")
@@ -806,6 +852,10 @@ class K8sService:
             ),
             spec=client.V1DeploymentSpec(
                 replicas=1,
+                # Recreate avoids a rolling-update window where two pods share
+                # the same EFS session directory (and lets a bad profile block
+                # readiness visibly instead of running old+new side by side).
+                strategy=client.V1DeploymentStrategy(type="Recreate"),
                 selector=client.V1LabelSelector(match_labels={"app": "agent", "agent-id": agent.id}),
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(labels=labels, annotations=annotations or None),
@@ -818,6 +868,7 @@ class K8sService:
                         image_pull_policy="Always",
                         ports=[client.V1ContainerPort(container_port=8000)],
                         env=self._build_agent_container_env(agent),
+                        readiness_probe=self._build_agent_readiness_probe(),
                         resources=self._build_agent_container_resources(agent),
                         volume_mounts=volume_mounts,
                         working_dir=self._agent_container_working_dir(agent),
@@ -880,21 +931,17 @@ class K8sService:
         env.append(client.V1EnvVar(name="AGENT_SETTINGS_REPO_SUBDIR", value=subdir))
         return env
 
+    def _profile_secret_name(self, agent) -> str:
+        profile_id = str(getattr(agent, "runtime_profile_id", None) or "").strip()
+        return f"efp-profile-{profile_id}" if profile_id else "efp-profile-none"
+
+    def _profile_secret_config_key(self, runtime_type: str) -> str:
+        return "opencode.json" if runtime_type == "opencode" else "native.json"
+
     def _build_agent_container_env(self, agent=None):
         from kubernetes import client
 
-        env = [
-            client.V1EnvVar(
-                name="EFP_CONFIG_KEY",
-                value_from=client.V1EnvVarSource(
-                    secret_key_ref=client.V1SecretKeySelector(
-                        name="efp-agents-secret",
-                        key="EFP_CONFIG_KEY",
-                        optional=True,
-                    )
-                ),
-            ),
-        ]
+        env = []
         base_url = (self.settings.portal_internal_base_url or "").strip()
         if base_url:
             env.append(client.V1EnvVar(name="PORTAL_INTERNAL_BASE_URL", value=base_url))
@@ -904,6 +951,33 @@ class K8sService:
                 env.append(client.V1EnvVar(name="PORTAL_AGENT_NAME", value=str(agent.name)))
             runtime_type = self._runtime_type(agent)
             workspace_dir = self._effective_mount_path(agent)
+            profile_secret_name = self._profile_secret_name(agent)
+            profile_id = str(getattr(agent, "runtime_profile_id", None) or "").strip() or "none"
+            # Not optional: a missing profile Secret must block container start
+            # (CreateContainerConfigError) instead of booting without config.
+            env.append(
+                client.V1EnvVar(
+                    name="EFP_PROFILE_CONFIG",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=profile_secret_name,
+                            key=self._profile_secret_config_key(runtime_type),
+                        )
+                    ),
+                )
+            )
+            env.append(
+                client.V1EnvVar(
+                    name="EFP_PROFILE_REVISION",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=profile_secret_name,
+                            key="revision",
+                        )
+                    ),
+                )
+            )
+            env.append(client.V1EnvVar(name="EFP_PROFILE_ID", value=profile_id))
             env.append(client.V1EnvVar(name="PORTAL_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_RUNTIME_TYPE", value=runtime_type))
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
@@ -929,7 +1003,6 @@ class K8sService:
                     getattr(self.settings, "opencode_chat_submit_timeout_seconds", 900),
                     900,
                 )
-                env.append(client.V1EnvVar(name="EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT", value="true"))
                 env.append(client.V1EnvVar(name="HOME", value="/root"))
                 env.append(client.V1EnvVar(name="OPENCODE_DATA_DIR", value=self._opencode_state_dir()))
                 env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
@@ -958,6 +1031,18 @@ class K8sService:
                     )
                 )
         return env
+
+    def _build_agent_readiness_probe(self):
+        from kubernetes import client
+
+        # Both runtimes expose GET /ready on :8000, returning 200 only after
+        # the boot-time profile projection succeeded.
+        return client.V1Probe(
+            http_get=client.V1HTTPGetAction(path="/ready", port=8000),
+            initial_delay_seconds=5,
+            period_seconds=10,
+            failure_threshold=60,
+        )
 
     def _build_agent_container_resources(self, agent):
         from kubernetes import client

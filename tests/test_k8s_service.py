@@ -853,7 +853,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["MOBILE_AUTO_STATE_DIR"], "/workspace/.efp/mobile-auto/runs")
         self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/workspace/.efp/mobile-auto/artifacts")
         self.assertEqual(env_map["BROWSERSTACK_LOCAL_BINARY"], "/usr/local/bin/BrowserStackLocal")
-        self.assertEqual(env_map["EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT"], "true")
+        self.assertNotIn("EFP_REQUIRE_PORTAL_RUNTIME_CONTEXT", env_map)
         self.assertEqual(env_map["HOME"], "/root")
         self.assertEqual(env_map["OPENCODE_DATA_DIR"], "/root/.local/share/opencode")
         self.assertEqual(env_map["EFP_ADAPTER_STATE_DIR"], "/root/.local/share/efp-compat")
@@ -890,6 +890,160 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn('"$AGENT_STATE_ROOT/opencode-state"', command)
         self.assertIn('"$AGENT_STATE_ROOT/adapter-state"', command)
         self.assertIn("chown -R 0:0", command)
+
+    def _env_by_name(self, env):
+        return {e.name: e for e in env}
+
+    def test_profile_env_uses_bound_profile_secret_with_runtime_type_key(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace", runtime_profile_id="rp-123")
+        env = self._env_by_name(self.service._build_agent_container_env(agent))
+
+        config_ref = env["EFP_PROFILE_CONFIG"].value_from.secret_key_ref
+        self.assertEqual(config_ref.name, "efp-profile-rp-123")
+        self.assertEqual(config_ref.key, "native.json")
+        self.assertIsNone(config_ref.optional)
+
+        revision_ref = env["EFP_PROFILE_REVISION"].value_from.secret_key_ref
+        self.assertEqual(revision_ref.name, "efp-profile-rp-123")
+        self.assertEqual(revision_ref.key, "revision")
+
+        self.assertEqual(env["EFP_PROFILE_ID"].value, "rp-123")
+        self.assertNotIn("EFP_CONFIG_KEY", env)
+
+    def test_profile_env_opencode_runtime_selects_opencode_json_key(self):
+        agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace", name="A", runtime_profile_id="rp-9")
+        env = self._env_by_name(self.service._build_agent_container_env(agent))
+
+        config_ref = env["EFP_PROFILE_CONFIG"].value_from.secret_key_ref
+        self.assertEqual(config_ref.name, "efp-profile-rp-9")
+        self.assertEqual(config_ref.key, "opencode.json")
+
+    def test_profile_env_unbound_agent_uses_shared_none_secret(self):
+        agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace", runtime_profile_id=None)
+        env = self._env_by_name(self.service._build_agent_container_env(agent))
+
+        config_ref = env["EFP_PROFILE_CONFIG"].value_from.secret_key_ref
+        self.assertEqual(config_ref.name, "efp-profile-none")
+        self.assertEqual(config_ref.key, "native.json")
+        self.assertEqual(env["EFP_PROFILE_ID"].value, "none")
+
+    def test_ensure_deployment_sets_readiness_probe_and_recreate_strategy(self):
+        captured = {}
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="native",
+            deployment_name="agent-a1",
+            namespace="efp-agents",
+            image="ghcr.io/acme/runtime:v1",
+            mount_path="/workspace",
+            cpu=None,
+            memory=None,
+            skill_repo_url=None,
+            skill_branch=None,
+            agent_settings_repo_url=None,
+            agent_settings_branch=None,
+        )
+
+        def _create_namespaced_deployment(namespace, body):
+            captured["body"] = body
+
+        self.service.apps_api = SimpleNamespace(create_namespaced_deployment=_create_namespaced_deployment)
+
+        self.service._ensure_deployment(agent)
+
+        spec = captured["body"].spec
+        self.assertEqual(spec.strategy.type, "Recreate")
+        probe = spec.template.spec.containers[0].readiness_probe
+        self.assertEqual(probe.http_get.path, "/ready")
+        self.assertEqual(probe.http_get.port, 8000)
+        self.assertEqual(probe.initial_delay_seconds, 5)
+        self.assertEqual(probe.period_seconds, 10)
+        self.assertEqual(probe.failure_threshold, 60)
+
+    def test_patch_deployment_sets_readiness_probe_and_recreate_strategy(self):
+        self.service.enabled = True
+        captured = {}
+        agent = SimpleNamespace(
+            id="a1",
+            owner_user_id=1,
+            runtime_type="native",
+            deployment_name="agent-a1",
+            namespace="efp-agents",
+            image="ghcr.io/acme/runtime:v1",
+            mount_path="/workspace",
+            cpu=None,
+            memory=None,
+            skill_repo_url=None,
+            skill_branch=None,
+            agent_settings_repo_url=None,
+            agent_settings_branch=None,
+        )
+
+        def _patch_agent_deployment_merge(_agent, body):
+            captured["body"] = body
+
+        self.service._patch_agent_deployment_merge = _patch_agent_deployment_merge
+
+        self.service._patch_deployment(agent)
+
+        body = captured["body"]
+        self.assertEqual(body["spec"]["strategy"], {"type": "Recreate", "rollingUpdate": None})
+        container = body["spec"]["template"]["spec"]["containers"][0]
+        probe = container["readinessProbe"]
+        self.assertEqual(probe["httpGet"]["path"], "/ready")
+        self.assertEqual(probe["httpGet"]["port"], 8000)
+        self.assertEqual(probe["initialDelaySeconds"], 5)
+        self.assertEqual(probe["periodSeconds"], 10)
+        self.assertEqual(probe["failureThreshold"], 60)
+        env_names = {item["name"] for item in container["env"]}
+        self.assertIn("EFP_PROFILE_CONFIG", env_names)
+        self.assertIn("EFP_PROFILE_REVISION", env_names)
+        self.assertIn("EFP_PROFILE_ID", env_names)
+        self.assertNotIn("EFP_CONFIG_KEY", env_names)
+
+    def test_upsert_secret_creates_then_replaces_on_conflict(self):
+        from kubernetes.client.exceptions import ApiException
+
+        self.service.enabled = True
+        calls = []
+
+        def _create(namespace, body):
+            calls.append(("create", namespace, body.metadata.name))
+            raise ApiException(status=409)
+
+        def _replace(name, namespace, body):
+            calls.append(("replace", namespace, name))
+
+        self.service.core_api = SimpleNamespace(
+            create_namespaced_secret=_create,
+            replace_namespaced_secret=_replace,
+        )
+        self.service.settings.agents_namespace = "efp-agents"
+
+        self.service.upsert_secret("efp-profile-rp-1", {"native.json": "{}", "revision": "1"})
+
+        self.assertEqual(
+            calls,
+            [("create", "efp-agents", "efp-profile-rp-1"), ("replace", "efp-agents", "efp-profile-rp-1")],
+        )
+
+    def test_delete_secret_swallows_not_found(self):
+        from kubernetes.client.exceptions import ApiException
+
+        self.service.enabled = True
+
+        def _delete(name, namespace):
+            raise ApiException(status=404)
+
+        self.service.core_api = SimpleNamespace(delete_namespaced_secret=_delete)
+        self.service.delete_secret("efp-profile-gone")
+
+    def test_secret_helpers_noop_when_k8s_disabled(self):
+        self.service.enabled = False
+        self.service.core_api = None
+        self.service.upsert_secret("efp-profile-x", {"revision": "1"})
+        self.service.delete_secret("efp-profile-x")
 
     def test_labels_annotations_exclude_tool_git_metadata(self):
         agent = SimpleNamespace(id="a1", owner_user_id=1, runtime_type="native", skill_repo_url="https://example.com/skills.git", skill_branch="main")

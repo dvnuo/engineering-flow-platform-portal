@@ -76,3 +76,15 @@ class RuntimeProfileRepository:
         from app.models.agent import Agent
 
         return int(self.db.scalar(select(func.count()).select_from(Agent).where(Agent.runtime_profile_id == profile_id)) or 0)
+
+    def count_running_bound_agents(self, profile_id: str) -> int:
+        from app.models.agent import Agent
+
+        return int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(Agent)
+                .where(and_(Agent.runtime_profile_id == profile_id, func.lower(Agent.status) == "running"))
+            )
+            or 0
+        )
