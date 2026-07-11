@@ -1,6 +1,4 @@
-import asyncio
 import json
-from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -108,91 +106,6 @@ def _build_db():
     db.refresh(stopped)
 
     return db, rp, running, stopped
-
-
-def test_push_payload_to_agent_swallows_forward_exception(monkeypatch):
-    db, rp, running, _stopped = _build_db()
-    try:
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-
-        async def _raise_forward(**_kwargs):
-            raise RuntimeError("network down")
-
-        monkeypatch.setattr(service.proxy_service, "forward", _raise_forward)
-
-        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
-        assert result.ok is False
-    finally:
-        db.close()
-
-
-def test_sync_profile_to_bound_agents_collects_failures_without_raising(monkeypatch):
-    db, rp, running, stopped = _build_db()
-    try:
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-
-        async def _raise_forward(**_kwargs):
-            raise RuntimeError("runtime unreachable")
-
-        monkeypatch.setattr(service.proxy_service, "forward", _raise_forward)
-
-        result = asyncio.run(service.sync_profile_to_bound_agents(db, rp))
-        assert result["updated_running_count"] == 0
-        assert result["skipped_not_running_count"] == 1
-        assert running.id in result["failed_agent_ids"]
-        assert stopped.id not in result["failed_agent_ids"]
-    finally:
-        db.close()
-
-
-def test_push_payload_to_agent_uses_content_type_and_portal_trusted_headers(monkeypatch):
-    db, rp, running, _stopped = _build_db()
-    try:
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-        captured = {}
-
-        async def _fake_forward(**kwargs):
-            captured.update(kwargs)
-            return 200, b'{"ok": true}', "application/json"
-
-        monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
-
-        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
-        assert result.ok is True
-        assert captured["headers"] == {"content-type": "application/json"}
-        assert captured["extra_headers"] == {"X-Portal-Author-Source": "portal"}
-    finally:
-        db.close()
-
-
-def test_push_payload_to_agent_pending_restart_is_not_failure(monkeypatch):
-    db, rp, running, _stopped = _build_db()
-    try:
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-        async def _fake_forward(**_kwargs):
-            return 200, b'{"ok": true, "status": "pending_restart", "pending_restart": true}', "application/json"
-        monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
-        result = asyncio.run(service.push_payload_to_agent(running, service.build_apply_payload_from_profile(rp)))
-        assert result.ok is True
-        assert result.pending_restart is True
-    finally:
-        db.close()
-
-
-def test_sync_profile_to_bound_agents_collects_pending_and_partial(monkeypatch):
-    db, rp, running, _stopped = _build_db()
-    try:
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-        async def _fake_push(_agent, _payload):
-            from app.services.runtime_profile_sync_service import RuntimeProfilePushResult
-            return RuntimeProfilePushResult(agent_id=running.id, ok=True, status_code=200, apply_status="partially_applied", partially_applied=True)
-        monkeypatch.setattr(service, "push_payload_to_agent", _fake_push)
-        result = asyncio.run(service.sync_profile_to_bound_agents(db, rp))
-        assert result["failed_agent_ids"] == []
-        assert result["partially_applied_agent_ids"] == [running.id]
-        assert result["updated_running_count"] == 1
-    finally:
-        db.close()
 
 
 def test_build_apply_payload_from_profile_adds_default_llm_timeout():
@@ -322,49 +235,6 @@ def test_build_apply_payload_from_profile_includes_response_flow_when_present():
         db.close()
 
 
-def test_sync_profile_to_bound_agents_builds_payload_per_running_agent(monkeypatch):
-    db, rp, running, _stopped = _build_db()
-    try:
-        running_two = Agent(
-            name="running-agent-2",
-            owner_user_id=running.owner_user_id,
-            visibility="private",
-            status="running",
-            image="example/image:latest",
-            repo_url=None,
-            branch=None,
-            disk_size_gi=20,
-            mount_path="/root/.efp",
-            namespace="efp-agents",
-            deployment_name="dep-running-2",
-            service_name="svc-running-2",
-            pvc_name="pvc-running-2",
-            endpoint_path="/",
-            agent_type="workspace",
-            runtime_profile_id=rp.id,
-        )
-        db.add(running_two)
-        db.commit()
-        db.refresh(running_two)
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-        built_for = []
-
-        def _build(db_s, agent_s, rp_s):
-            built_for.append(agent_s.id)
-            return {"runtime_profile_id": rp_s.id, "revision": rp_s.revision, "config": {"agent_id": agent_s.id}}
-
-        async def _push(_agent, _payload):
-            return True
-
-        monkeypatch.setattr(service, "build_apply_payload_for_agent", _build)
-        monkeypatch.setattr(service, "push_payload_to_agent", _push)
-        result = asyncio.run(service.sync_profile_to_bound_agents(db, rp))
-        assert set(built_for) == {running.id, running_two.id}
-        assert result["updated_running_count"] == 2
-    finally:
-        db.close()
-
-
 def test_build_apply_payload_for_agent_drops_tool_selection_and_allowlists():
     db, rp, running, _stopped = _build_db()
     try:
@@ -390,7 +260,7 @@ def test_build_apply_payload_for_agent_drops_tool_selection_and_allowlists():
         db.commit()
         db.refresh(running)
 
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        service = RuntimeProfileSyncService()
         original_config = rp.config_json
         payload = service.build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
@@ -418,7 +288,7 @@ def test_build_apply_payload_for_agent_does_not_infer_github_authorization_from_
         db.commit()
         db.refresh(running)
 
-        service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
+        service = RuntimeProfileSyncService()
         payload = service.build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
 
@@ -439,7 +309,7 @@ def test_build_apply_payload_for_agent_sends_copilot_api_key_for_single_runtime(
         rp.config_json = '{"llm":{"provider":"github_copilot","api_key":"gho_A"}}'
         running.runtime_type = "native"
         db.add_all([rp, running]); db.commit(); db.refresh(running)
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
         assert payload["config"]["llm"]["api_key"] == "gho_A"
         assert payload["config"]["llm"]["provider"] == "github_copilot"
         assert "oauth" not in payload["config"]["llm"]
@@ -453,7 +323,7 @@ def test_build_apply_payload_for_agent_projects_copilot_for_opencode_runtime():
         rp.config_json = '{"llm":{"provider":"github_copilot","model":"gpt-5-mini","api_key":"gho_A"}}'
         running.runtime_type = "opencode"
         db.add_all([rp, running]); db.commit(); db.refresh(running)
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
         assert payload["runtime_type"] == "opencode"
         assert payload["config"]["llm"]["provider"] == "github-copilot"
         assert payload["config"]["llm"]["model"] == "github-copilot/gpt-5-mini"
@@ -473,7 +343,7 @@ def test_build_apply_payload_for_agent_uses_default_llm_timeout_for_native_runti
         db.commit()
         db.refresh(running)
 
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
 
         assert payload["runtime_type"] == "native"
         assert payload["config"]["llm"]["provider"] == "github_copilot"
@@ -492,7 +362,7 @@ def test_build_apply_payload_for_agent_uses_default_llm_timeout_for_opencode_run
         db.commit()
         db.refresh(running)
 
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
 
         assert payload["runtime_type"] == "opencode"
         assert payload["config"]["llm"]["provider"] == "github-copilot"
@@ -522,7 +392,7 @@ def test_build_apply_payload_for_agent_strips_opencode_runtime_restrictions():
         db.refresh(rp)
         db.refresh(running)
 
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
 
         assert payload["runtime_type"] == "opencode"
         assert "tools" not in payload["config"]["llm"]
@@ -562,7 +432,7 @@ def test_build_apply_payload_for_agent_filters_tool_selection_and_authorization_
         db.refresh(rp)
         db.refresh(running)
 
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
 
         assert cfg["llm"]["provider"] == "github_copilot"
@@ -574,13 +444,6 @@ def test_build_apply_payload_for_agent_filters_tool_selection_and_authorization_
         _assert_no_removed_restriction_keys(cfg)
     finally:
         db.close()
-
-
-def test_safe_body_preview_redacts_github_oauth_tokens():
-    preview = RuntimeProfileSyncService._safe_body_preview(b'{"error":"bad","access":"gho_SECRET","refresh":"ghu_SECRET"}')
-    assert "gho_SECRET" not in preview
-    assert "ghu_SECRET" not in preview
-    assert "[REDACTED]" in preview
 
 
 def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_secrets():
@@ -645,7 +508,7 @@ def test_build_apply_payload_for_agent_includes_external_cli_config_fields_and_s
         db.refresh(rp)
         db.refresh(running)
 
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
 
         assert payload["runtime_type"] == "native"
@@ -724,7 +587,7 @@ def test_build_apply_payload_for_agent_filters_name_only_instances_without_cli_i
         db.refresh(rp)
         db.refresh(running)
 
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
 
         assert "instruction_texts" not in cfg
@@ -761,7 +624,7 @@ def test_build_apply_payload_for_agent_keeps_endpoint_aliases_and_adds_cli_instr
         db.refresh(rp)
         db.refresh(running)
 
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
         cfg = payload["config"]
 
         _assert_cli_instruction_texts(cfg.pop("instruction_texts"))
@@ -782,7 +645,7 @@ def test_build_apply_payload_for_agent_adds_runtime_type_agent_id_and_external_s
         rp.config_json = '{"llm":{"provider":"github_copilot","api_key":"OA"},"jira":{"enabled":true,"instances":[{"name":"j"}]},"confluence":{"enabled":true,"instances":[{"name":"c"}]},"github":{"enabled":true,"api_token":"gh"},"aws":{"enabled":true,"region":"us-east-1"},"proxy":{"enabled":true,"password":"pw"},"git":{"user":{"name":"bot"}},"debug":{"enabled":true,"log_level":"INFO"}}'
         db.add_all([running, rp])
         db.commit(); db.refresh(running); db.refresh(rp)
-        payload = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None)).build_apply_payload_for_agent(db, running, rp)
+        payload = RuntimeProfileSyncService().build_apply_payload_for_agent(db, running, rp)
         assert payload["runtime_type"] == "native"
         assert payload["agent_id"] == running.id
         assert "runtime_type" not in payload["config"]

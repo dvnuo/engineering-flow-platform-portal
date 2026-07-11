@@ -119,6 +119,8 @@ class AgentStatusResponse(BaseModel):
     cpu_usage: Optional[str] = None
     memory_usage: Optional[str] = None
     last_error: Optional[str] = None
+    desired_profile_revision: Optional[int] = None
+    applied_profile_revision: Optional[int] = None
 
 
 class AgentChatModelProfileResponse(BaseModel):

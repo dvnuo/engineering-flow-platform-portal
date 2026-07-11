@@ -14,11 +14,11 @@ from app.schemas.runtime_profile import (
     RuntimeProfileResponse,
     RuntimeProfileUpdateRequest,
 )
+from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
-from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 
 router = APIRouter(prefix="/api/runtime-profiles", tags=["runtime-profiles"])
-runtime_profile_sync_queue_service = RuntimeProfileSyncQueueService()
+runtime_profile_secret_service = RuntimeProfileSecretService()
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +39,10 @@ def create_runtime_profile(payload: RuntimeProfileCreateRequest, user=Depends(ge
         config_json=payload.config_json,
         is_default=payload.is_default,
     )
+    try:
+        runtime_profile_secret_service.sync_profile_secret(profile)
+    except Exception:
+        logger.exception("runtime profile secret sync failed after create profile_id=%s", profile.id)
     return _runtime_profile_response(service, profile)
 
 
@@ -82,10 +86,12 @@ async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateR
 
     if config_changed:
         try:
-            runtime_profile_sync_queue_service.enqueue_profile_to_bound_agents(db, profile, reason="runtime_profile_update")
+            # Secret update + restart of bound running agents is the only
+            # activation path; stopped agents pick the change up on next start.
+            runtime_profile_secret_service.apply_profile_save(db, profile)
         except Exception:
             db.rollback()
-            logger.exception("runtime profile fan-out sync failed profile_id=%s", profile.id)
+            logger.exception("runtime profile secret save/restart failed profile_id=%s", profile.id)
 
     return _runtime_profile_response(service, profile)
 
@@ -93,4 +99,8 @@ async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateR
 @router.delete("/{profile_id}")
 def delete_runtime_profile(profile_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     RuntimeProfileService(db).delete_for_user(user, profile_id)
+    try:
+        runtime_profile_secret_service.delete_profile_secret(profile_id)
+    except Exception:
+        logger.exception("runtime profile secret delete failed profile_id=%s", profile_id)
     return {"ok": True}

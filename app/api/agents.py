@@ -1,9 +1,11 @@
+import asyncio
+import json
+import logging
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-import logging
-from uuid import uuid4
 
 from app.config import get_settings
 from app.contracts.runtime_type import InvalidRuntimeType, normalize_runtime_type, normalize_runtime_type_or_default
@@ -23,9 +25,9 @@ from app.schemas.agent import (
 )
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.k8s_service import K8sService
+from app.services.proxy_service import ProxyService
+from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
-from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
-from app.services.runtime_profile_sync_queue_service import RuntimeProfileSyncQueueService
 from app.utils.git_urls import normalize_git_repo_url
 from app.utils.agent_responses import build_agent_response
 from app.utils.naming import runtime_names
@@ -77,8 +79,8 @@ def get_agent_defaults(user=Depends(get_current_user)):
 
 
 k8s_service = K8sService()
-runtime_profile_sync_service = RuntimeProfileSyncService()
-runtime_profile_sync_queue_service = RuntimeProfileSyncQueueService()
+proxy_service = ProxyService()
+runtime_profile_secret_service = RuntimeProfileSecretService(k8s_service=k8s_service)
 
 
 def _can_read(agent, user) -> bool:
@@ -182,28 +184,17 @@ def _opencode_runtime_image_tag() -> str:
     return (settings.default_opencode_runtime_image_tag or "1.14.39").strip() or "1.14.39"
 
 
-async def _sync_runtime_profile_to_running_agent_or_record_warning(db: Session, agent) -> None:
-    if (agent.status or "").lower() != "running" or not agent.runtime_profile_id:
-        return
-    repo = AgentRepository(db)
-    profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
-    if not profile:
-        agent.last_error = "runtime profile not found"
-        repo.save(agent)
-        return
-    payload = runtime_profile_sync_service.build_apply_payload_for_agent(db, agent, profile)
-    result = await runtime_profile_sync_service.push_payload_to_agent_with_retry(
-        agent, payload, timeout_seconds=180, interval_seconds=3
-    )
-    if not result.ok:
-        agent.last_error = f"runtime profile sync failed: {result.apply_status or result.message}"
-    elif result.pending_restart:
-        agent.last_error = "runtime profile applied but runtime restart required"
-    elif result.partially_applied:
-        agent.last_error = "runtime profile partially applied"
-    else:
-        agent.last_error = None
-    repo.save(agent)
+def _ensure_agent_profile_secrets(db: Session, agent) -> None:
+    """Best-effort: make sure the Secret the pod env references exists before the
+    pod (re)starts, so the EFP_PROFILE_CONFIG secretKeyRef always resolves."""
+    try:
+        runtime_profile_secret_service.ensure_none_secret()
+        if getattr(agent, "runtime_profile_id", None):
+            profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
+            if profile:
+                runtime_profile_secret_service.sync_profile_secret(profile)
+    except Exception:
+        logger.exception("failed to ensure runtime profile secret agent_id=%s", getattr(agent, "id", "-"))
 
 
 def _runtime_image_parts(runtime_type: str) -> tuple[str, str]:
@@ -378,6 +369,9 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
     agent.deployment_name, agent.service_name, agent.pvc_name, agent.endpoint_path = runtime_names(agent.id)
     repo.save(agent)
 
+    # The profile Secret must exist before the Deployment so the pod's
+    # EFP_PROFILE_CONFIG secretKeyRef resolves on first start.
+    _ensure_agent_profile_secrets(db, agent)
     runtime = k8s_service.create_agent_runtime(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
@@ -401,16 +395,6 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         },
     )
 
-    # Do not push runtime profile synchronously during agent creation.
-    # Creating K8s resources does not mean the runtime HTTP endpoint is ready,
-    # especially during runtime cold starts. POST /api/agents must return
-    # after Portal has persisted the agent and submitted K8s resources. Runtime
-    # readiness is reflected by /api/agents/{agent_id}/status.
-    try:
-        runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_create")
-    except Exception:
-        db.rollback()
-        logger.exception("failed to enqueue runtime profile sync after agent create agent_id=%s", agent.id)
     return build_agent_response(agent)
 
 
@@ -451,15 +435,10 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     repo.save(agent)
 
     if "runtime_profile_id" in changes:
-        try:
-            runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(
-                db,
-                agent,
-                reason="agent_runtime_profile_update",
-            )
-        except Exception:
-            db.rollback()
-            logger.exception("failed to enqueue runtime profile sync after agent update agent_id=%s", agent.id)
+        # Rebinding changes the pod's EFP_PROFILE_CONFIG secretKeyRef target;
+        # ensure the new Secret exists before the Deployment env re-render below
+        # rolls the pod onto it.
+        _ensure_agent_profile_secrets(db, agent)
 
     skill_runtime_fields = {"skill_repo_url", "skill_branch"}
     if any(field in changes for field in skill_runtime_fields):
@@ -480,6 +459,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
 
     k8s_reprovision_fields = {
         "runtime_type",
+        "runtime_profile_id",
         "image",
         "agent_settings_repo_url",
         "agent_settings_branch",
@@ -557,16 +537,12 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     if not can_transition(agent.status, "running"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Cannot start agent from status '{agent.status}'")
 
+    _ensure_agent_profile_secrets(db, agent)
     runtime = k8s_service.start_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
     agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
-    try:
-        runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_start")
-    except Exception:
-        db.rollback()
-        logger.exception("failed to enqueue runtime profile sync after agent start agent_id=%s", agent.id)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -603,6 +579,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
             detail=f"Cannot restart agent from status '{agent.status}'",
         )
 
+    _ensure_agent_profile_secrets(db, agent)
     runtime = k8s_service.restart_agent(agent)
     if runtime.status == "failed":
         agent.last_error = runtime.message
@@ -616,11 +593,6 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     agent.last_error = runtime.message
     agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
-    try:
-        runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync(db, agent, reason="agent_restart")
-    except Exception:
-        db.rollback()
-        logger.exception("failed to enqueue runtime profile sync after agent restart agent_id=%s", agent.id)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -666,8 +638,31 @@ def destroy_agent(agent_id: str, user=Depends(get_current_user), db: Session = D
     return _delete_agent_with_mode(repo, agent, user, db, destroy_data=True)
 
 
+async def _fetch_applied_profile_revision(agent) -> int | None:
+    """Best-effort read of the revision the runtime actually booted with."""
+    try:
+        status_code, content, _ = await asyncio.wait_for(
+            proxy_service.forward(
+                agent=agent,
+                method="GET",
+                subpath="ready",
+                query_items=[],
+                body=None,
+                headers={},
+            ),
+            timeout=2.0,
+        )
+        if status_code != 200:
+            return None
+        data = json.loads(content.decode("utf-8"))
+        revision = data.get("revision")
+        return int(revision) if revision is not None else None
+    except Exception:
+        return None
+
+
 @router.get("/{agent_id}/status", response_model=AgentStatusResponse)
-def agent_status(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def agent_status(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo = AgentRepository(db)
     agent = repo.get_by_id(agent_id)
     if not agent:
@@ -679,10 +674,22 @@ def agent_status(agent_id: str, user=Depends(get_current_user), db: Session = De
     agent.status = runtime.status if is_valid_status(runtime.status) else "failed"
     agent.last_error = runtime.message
     repo.save(agent)
+
+    desired_profile_revision = None
+    if agent.runtime_profile_id:
+        profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
+        desired_profile_revision = getattr(profile, "revision", None) if profile else None
+
+    applied_profile_revision = None
+    if agent.status == "running":
+        applied_profile_revision = await _fetch_applied_profile_revision(agent)
+
     return AgentStatusResponse(
         id=agent.id,
         status=agent.status,
         cpu_usage=runtime.cpu_usage,
         memory_usage=runtime.memory_usage,
         last_error=agent.last_error,
+        desired_profile_revision=desired_profile_revision,
+        applied_profile_revision=applied_profile_revision,
     )

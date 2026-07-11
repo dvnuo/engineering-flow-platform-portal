@@ -12,7 +12,6 @@ from app.api.delegation_rules import router as delegation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.dashboard import router as dashboard_router
 from app.api.agents import router as agents_router
-from app.api.internal_agents import router as internal_agents_router
 from app.api.git_repos import router as git_repos_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
@@ -31,7 +30,6 @@ from app.services.schema_guard import (
 )
 from app.web import router as web_router
 from app.services.delegation_worker import worker_singleton
-from app.services.runtime_profile_sync_worker import runtime_profile_sync_worker_singleton
 from app.services.agent_task_reconcile_worker import agent_task_reconcile_worker_singleton
 from app.services.idle_agent_stop_worker import idle_agent_stop_worker_singleton
 
@@ -84,8 +82,6 @@ def on_startup() -> None:
 
     if settings.delegation_rules_worker_enabled:
         worker_singleton.start()
-    if settings.runtime_profile_sync_worker_enabled:
-        runtime_profile_sync_worker_singleton.start()
     if settings.agent_task_reconcile_worker_enabled:
         agent_task_reconcile_worker_singleton.start()
     if settings.idle_agent_stop_worker_enabled:
@@ -95,7 +91,6 @@ def on_startup() -> None:
 @app.on_event("shutdown")
 def shutdown_delegation_worker() -> None:
     worker_singleton.stop()
-    runtime_profile_sync_worker_singleton.stop()
     agent_task_reconcile_worker_singleton.stop()
     idle_agent_stop_worker_singleton.stop()
 
@@ -114,7 +109,6 @@ app.include_router(web_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(agents_router)
-app.include_router(internal_agents_router)
 app.include_router(git_repos_router)
 app.include_router(runtime_profiles_router)
 app.include_router(admin_router)

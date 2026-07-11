@@ -1,16 +1,16 @@
 """add agent last_activity_at
 
-Revision ID: 20260708_0030
-Revises: 20260617_0029
-Create Date: 2026-07-08
+Revision ID: 20260710_0031
+Revises: 20260709_0030
+Create Date: 2026-07-10
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260708_0030"
-down_revision = "20260617_0029"
+revision = "20260710_0031"
+down_revision = "20260709_0030"
 branch_labels = None
 depends_on = None
 

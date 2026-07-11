@@ -160,12 +160,6 @@ class Settings(BaseSettings):
     agent_task_runtime_status_max_bytes: int = Field(default=2_000_000, validation_alias="AGENT_TASK_RUNTIME_STATUS_MAX_BYTES")
     agent_task_runtime_missing_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS")
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")
-    runtime_profile_sync_worker_enabled: bool = Field(default=True, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_ENABLED")
-    runtime_profile_sync_worker_interval_seconds: int = Field(default=5, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_INTERVAL_SECONDS")
-    runtime_profile_sync_worker_batch_size: int = Field(default=20, validation_alias="RUNTIME_PROFILE_SYNC_WORKER_BATCH_SIZE")
-    runtime_profile_sync_job_lock_lease_seconds: int = Field(default=60, validation_alias="RUNTIME_PROFILE_SYNC_JOB_LOCK_LEASE_SECONDS")
-    runtime_profile_sync_push_timeout_seconds: int = Field(default=10, validation_alias="RUNTIME_PROFILE_SYNC_PUSH_TIMEOUT_SECONDS")
-    runtime_profile_sync_job_max_attempts: int = Field(default=40, validation_alias="RUNTIME_PROFILE_SYNC_JOB_MAX_ATTEMPTS")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

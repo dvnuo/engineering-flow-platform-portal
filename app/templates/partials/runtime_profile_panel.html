@@ -21,8 +21,8 @@
         <label class="portal-form-label"><span class="portal-form-label">Description</span><input type="text" name="description" value="{{ profile_description }}" class="portal-form-input" /></label>
       </div>
       <div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="is_default" {% if profile_is_default %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Default profile</span></div>
-      <div class="portal-inline-state">Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong></div>
-      <div class="portal-inline-note">Changes here update a shared Runtime Profile and affect all bound agents.</div>
+      <div class="portal-inline-state">Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong> · Running: <strong>{{ profile_running_bound_agent_count }}</strong>{% if profile_running_bound_agent_count %} (will restart on save){% endif %}</div>
+      <div class="portal-inline-note">Changes here update a shared Runtime Profile and affect all bound agents. Saving restarts running bound agents to apply the new revision.</div>
     </section>
 
     <section class="portal-panel-section" data-managed-section="proxy">
@@ -199,6 +199,6 @@
       <label class="portal-form-label"><span class="portal-form-label">Log Level</span><select name="debug_log_level" class="portal-form-select"><option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option><option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option><option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option><option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option></select></label>
     </section>
 
-    <div class="flex items-center gap-2"><button type="submit" class="portal-btn is-primary">Save Settings</button><button type="button" class="portal-btn" data-delete-runtime-profile="{{ profile_id }}">Delete Runtime Profile</button></div>
+    <div class="flex items-center gap-2"><button type="submit" class="portal-btn is-primary" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running agent(s); in-flight tasks will be interrupted."{% endif %}>Save Settings</button><button type="button" class="portal-btn" data-delete-runtime-profile="{{ profile_id }}">Delete Runtime Profile</button></div>
   </form>
 </div>
