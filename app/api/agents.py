@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -540,6 +541,7 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     runtime = k8s_service.start_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
+    agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
@@ -589,6 +591,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
 
     agent.status = "restarting"
     agent.last_error = runtime.message
+    agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)

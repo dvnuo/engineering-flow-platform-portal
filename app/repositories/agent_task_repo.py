@@ -9,9 +9,23 @@ from app.models.user import User
 from typing import Optional
 
 
+_ACTIVE_TASK_STATUSES = ["queued", "running", "pending_restart"]
+
+
 class AgentTaskRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    def has_active_task(self, assignee_agent_id: str) -> bool:
+        stmt = (
+            select(AgentTask.id)
+            .where(
+                AgentTask.assignee_agent_id == assignee_agent_id,
+                AgentTask.status.in_(_ACTIVE_TASK_STATUSES),
+            )
+            .limit(1)
+        )
+        return self.db.scalar(stmt) is not None
 
     def create(self, **kwargs) -> AgentTask:
         task = AgentTask(**kwargs)
