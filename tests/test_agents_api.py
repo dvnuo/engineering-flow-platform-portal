@@ -245,66 +245,33 @@ def test_create_agent_uses_default_runtime_type_setting_when_omitted(monkeypatch
         cleanup()
 
 
-def test_create_agent_does_not_wait_for_runtime_profile_sync(monkeypatch):
+def test_create_agent_ensures_profile_secret_before_deployment(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
-        import app.api.agents as agents_api
-
+        order = []
         monkeypatch.setattr(
             "app.api.agents.k8s_service.create_agent_runtime",
-            lambda _agent: SimpleNamespace(status="running", message=None),
+            lambda _agent: order.append("create_runtime") or SimpleNamespace(status="running", message=None),
         )
-
-        async def _unexpected_create_sync(*_args, **_kwargs):
-            raise AssertionError("POST /api/agents must not wait for runtime profile sync")
-
         monkeypatch.setattr(
-            agents_api,
-            "_sync_runtime_profile_to_running_agent_or_record_warning",
-            _unexpected_create_sync,
+            "app.api.agents.runtime_profile_secret_service.ensure_none_secret",
+            lambda: order.append("ensure_none_secret"),
+        )
+        monkeypatch.setattr(
+            "app.api.agents.runtime_profile_secret_service.sync_profile_secret",
+            lambda _profile: order.append("sync_profile_secret"),
         )
 
-        response = client.post(
-            "/api/agents",
-            json={"name": "fast-create"},
-        )
-
+        response = client.post("/api/agents", json={"name": "secret-first-create"})
         assert response.status_code == 200
-        body = response.json()
-        assert body["name"] == "fast-create"
-        assert body["runtime_type"] == "native"
+        # Secrets must exist before the Deployment so EFP_PROFILE_CONFIG
+        # secretKeyRef resolves on first pod start.
+        assert order == ["ensure_none_secret", "sync_profile_secret", "create_runtime"]
     finally:
         cleanup()
 
 
-
-
-def test_create_agent_enqueues_runtime_profile_sync_without_runtime_push(monkeypatch):
-    client, _db, cleanup = _build_agents_client_with_overrides()
-    try:
-        calls = {"enqueue": 0}
-        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-
-        def _enqueue(_db, _agent, *, reason):
-            calls["enqueue"] += 1
-            return None
-
-        async def _unexpected(*_args, **_kwargs):
-            raise AssertionError("should not push in create")
-
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
-        monkeypatch.setattr("app.api.agents._sync_runtime_profile_to_running_agent_or_record_warning", _unexpected)
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _unexpected)
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent_with_retry", _unexpected)
-
-        response = client.post("/api/agents", json={"name": "enqueue-create"})
-        assert response.status_code == 200
-        assert calls["enqueue"] == 1
-    finally:
-        cleanup()
-
-
-def test_create_agent_enqueue_failure_still_returns_created_agent(monkeypatch):
+def test_create_agent_secret_ensure_failure_still_returns_created_agent(monkeypatch):
     client, _db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr(
@@ -313,21 +280,21 @@ def test_create_agent_enqueue_failure_still_returns_created_agent(monkeypatch):
         )
 
         def _boom(*_args, **_kwargs):
-            raise RuntimeError("queue insert failed")
+            raise RuntimeError("secret upsert failed")
 
         monkeypatch.setattr(
-            "app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync",
+            "app.api.agents.runtime_profile_secret_service.sync_profile_secret",
             _boom,
         )
 
         response = client.post(
             "/api/agents",
-            json={"name": "enqueue-failure-create"},
+            json={"name": "secret-failure-create"},
         )
 
         assert response.status_code == 200
         body = response.json()
-        assert body["name"] == "enqueue-failure-create"
+        assert body["name"] == "secret-failure-create"
         assert body["status"] == "creating"
     finally:
         cleanup()
@@ -668,7 +635,7 @@ def test_agent_chat_model_profile_does_not_infer_provider_model_from_defaults(mo
         cleanup()
 
 
-def test_update_runtime_profile_id_enqueues_sync_job_without_direct_push(monkeypatch):
+def test_update_runtime_profile_id_ensures_secret_and_rolls_deployment(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -687,21 +654,25 @@ def test_update_runtime_profile_id_enqueues_sync_job_without_direct_push(monkeyp
         assert create_ok.status_code == 200
         agent_id = create_ok.json()["id"]
 
-        calls = {"enqueue": 0}
+        calls = {"secret": [], "update_runtime": 0}
 
-        def _enqueue(_db, _agent, *, reason):
-            calls["enqueue"] += 1
-            return None
+        def _sync_secret(profile):
+            calls["secret"].append(profile.id)
 
-        async def _unexpected_push(*_args, **_kwargs):
-            raise AssertionError("update should not push directly")
+        def _update_runtime(_agent):
+            calls["update_runtime"] += 1
+            return SimpleNamespace(status="running", message=None)
 
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _unexpected_push)
+        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.sync_profile_secret", _sync_secret)
+        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.ensure_none_secret", lambda: None)
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _update_runtime)
 
         apply_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
         assert apply_resp.status_code == 200
-        assert calls["enqueue"] >= 1
+        # Rebind ensures the target Secret exists and rolls the deployment so
+        # the pod env secretKeyRef points at the new profile Secret.
+        assert calls["secret"] == [rp.id]
+        assert calls["update_runtime"] == 1
 
         clear_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": None})
         assert clear_resp.status_code == 422
@@ -710,13 +681,13 @@ def test_update_runtime_profile_id_enqueues_sync_job_without_direct_push(monkeyp
         cleanup()
 
 
-def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
+def test_restart_ensures_profile_secret_and_restarts(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         monkeypatch.setattr("app.api.agents.k8s_service.start_agent", lambda _agent: SimpleNamespace(status="running", message=None))
         monkeypatch.setattr("app.api.agents.k8s_service.enabled", True)
-        calls = {"enqueue": 0, "restart": 0}
+        calls = {"secret": 0, "restart": 0}
 
         def _stop_agent(_agent):
             raise AssertionError("restart endpoint must not stop the agent")
@@ -726,17 +697,13 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
             assert agent.status == "running"
             return SimpleNamespace(status="restarting", message="Restart requested: req-1")
 
-        def _enqueue(_db, _agent, *, reason):
-            calls["enqueue"] += 1
-            return None
-
-        async def _unexpected(*_args, **_kwargs):
-            raise AssertionError("start/restart should not use sync helper")
-
         monkeypatch.setattr("app.api.agents.k8s_service.stop_agent", _stop_agent)
         monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", _restart_agent)
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
-        monkeypatch.setattr("app.api.agents._sync_runtime_profile_to_running_agent_or_record_warning", _unexpected)
+        monkeypatch.setattr(
+            "app.api.agents.runtime_profile_secret_service.sync_profile_secret",
+            lambda _profile: calls.__setitem__("secret", calls["secret"] + 1),
+        )
+        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.ensure_none_secret", lambda: None)
 
         create_ok = client.post("/api/agents", json={"name": "sync-fail-agent", "image": "example/image:latest"})
         agent_id = create_ok.json()["id"]
@@ -747,7 +714,7 @@ def test_start_and_restart_enqueue_sync_job_without_direct_sync(monkeypatch):
         assert persisted.status == "restarting"
         assert persisted.last_error == "Restart requested: req-1"
         assert calls["restart"] == 1
-        assert calls["enqueue"] >= 1
+        assert calls["secret"] >= 1
     finally:
         cleanup()
 
@@ -764,10 +731,6 @@ def test_restart_allows_stopped_and_failed_agents(monkeypatch):
             return SimpleNamespace(status="restarting", message=f"Restart requested from {agent.status}")
 
         monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", _restart_agent)
-        monkeypatch.setattr(
-            "app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync",
-            lambda *_args, **_kwargs: None,
-        )
 
         create_ok = client.post("/api/agents", json={"name": "restart-allowed-agent", "image": "example/image:latest"})
         agent_id = create_ok.json()["id"]
@@ -794,20 +757,13 @@ def test_restart_returns_502_without_marking_agent_failed_when_runtime_restart_f
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         message = "Deployment patch failed"
-        calls = {"enqueue": 0}
 
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         monkeypatch.setattr("app.api.agents.k8s_service.enabled", True)
         monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", lambda _agent: SimpleNamespace(status="failed", message=message))
 
-        def _enqueue(*_args, **_kwargs):
-            calls["enqueue"] += 1
-
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
-
         create_ok = client.post("/api/agents", json={"name": "restart-fail-agent", "image": "example/image:latest"})
         agent_id = create_ok.json()["id"]
-        calls["enqueue"] = 0
 
         restart_resp = client.post(f"/api/agents/{agent_id}/restart")
 
@@ -816,7 +772,6 @@ def test_restart_returns_502_without_marking_agent_failed_when_runtime_restart_f
         persisted = db.get(Agent, agent_id)
         assert persisted.status == "running"
         assert persisted.last_error == message
-        assert calls["enqueue"] == 0
     finally:
         cleanup()
 
@@ -1018,10 +973,11 @@ def test_patch_name_only_does_not_set_skill_rollout_marker(monkeypatch):
         cleanup()
 
 
-def test_patch_runtime_profile_update_enqueues_sync_job(monkeypatch):
+def test_patch_runtime_profile_update_ensures_target_secret(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         from app.models.runtime_profile import RuntimeProfile
 
         rp = RuntimeProfile(owner_user_id=1, name="rp-agent-aware", config_json='{"llm": {"provider": "openai"}}', revision=1, is_default=True)
@@ -1030,19 +986,16 @@ def test_patch_runtime_profile_update_enqueues_sync_job(monkeypatch):
         db.refresh(rp)
         agent_id = client.post("/api/agents", json={"name": "sync-agent-aware", "image": "example/image:latest"}).json()["id"]
 
-        calls = {"enqueue": 0}
-        def _enqueue(_db, _agent, *, reason):
-            calls["enqueue"] += 1
-            return None
+        calls = {"secret": []}
 
-        async def _unexpected_push(*_args, **_kwargs):
-            raise AssertionError("update should not push directly")
+        def _sync_secret(profile):
+            calls["secret"].append(profile.id)
 
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_queue_service.enqueue_agent_runtime_profile_sync", _enqueue)
-        monkeypatch.setattr("app.api.agents.runtime_profile_sync_service.push_payload_to_agent", _unexpected_push)
+        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.sync_profile_secret", _sync_secret)
+        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.ensure_none_secret", lambda: None)
         resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
         assert resp.status_code == 200
-        assert calls["enqueue"] == 1
+        assert calls["secret"] == [rp.id]
     finally:
         cleanup()
 

@@ -5,7 +5,6 @@ from app.api import agents as agents_api
 from app.main import app
 from app.db import Base
 from app.models import Agent, User
-from app.services.runtime_profile_sync_service import RuntimeProfileSyncService
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -108,29 +107,6 @@ def test_t13_defaults_expose_dual_runtime_choice_matrix(monkeypatch):
     assert defaults["image_repo"] == "ghcr.io/example/efp-runtime"
     assert defaults["image_tag"] == "test-runtime"
     assert defaults["mount_path"] == "/workspace"
-
-
-def test_t13_runtime_profile_sync_uses_internal_apply_contract(monkeypatch):
-    service = RuntimeProfileSyncService(proxy_service=SimpleNamespace(forward=None))
-    captured = {}
-
-    async def _fake_forward(**kwargs):
-        captured.update(kwargs)
-        return 200, b"{}", "application/json"
-
-    monkeypatch.setattr(service.proxy_service, "forward", _fake_forward)
-    agent = SimpleNamespace(
-        id="a-single",
-        namespace="efp-agents",
-        service_name="svc-single",
-        runtime_type="native",
-    )
-    result = asyncio.run(service.push_payload_to_agent(agent, {"x": 1}))
-    assert result.ok is True
-    assert result.apply_status == "applied"
-    assert captured["subpath"] == "api/internal/runtime-profile/apply"
-    assert "/config" not in captured["subpath"]
-    assert "/auth" not in captured["subpath"]
 
 
 def test_t13_proxy_route_keeps_agent_api_prefix():
