@@ -39,7 +39,7 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
             "enabled": True,
             "username": " build ",
             "password": " jenkins-password ",
-            "url": "drop",
+            "url": " https://jenkins.example.com/ ",
             "instances": [{"name": "drop"}],
         },
         "proxy": {"enabled": True, "url": " http://proxy ", "username": " me ", "password": " secret "},
@@ -59,6 +59,7 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
     }
     assert s["jenkins"] == {
         "enabled": True,
+        "url": "https://jenkins.example.com",
         "username": "build",
         "password": "jenkins-password",
     }

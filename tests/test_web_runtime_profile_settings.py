@@ -433,11 +433,11 @@ def test_jenkins_ui_uses_profile_credentials_only():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
     for template in (runtime_tpl, settings_tpl):
+        assert 'name="jenkins_url"' in template
         assert 'name="jenkins_username"' in template
         assert 'name="jenkins_password"' in template
         assert 'data-instance-container="jenkins"' not in template
         assert 'data-action="add-instance" data-group="jenkins"' not in template
-        assert "https://jenkins.example.com" not in template
 
     assert 'group === "jenkins"' not in js
     assert 'normalizeInstanceInputs(root, "jenkins")' not in js
@@ -518,6 +518,7 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "aws_username": "aws-user",
             "aws_password": "aws-password",
             "jenkins_enabled": "on",
+            "jenkins_url": "https://jenkins.example.com/",
             "jenkins_username": "jenkins-user",
             "jenkins_password": "jenkins-password",
             "git_user_name": "EFP Bot",
@@ -574,6 +575,7 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             },
             "jenkins": {
                 "enabled": True,
+                "url": "https://jenkins.example.com",
                 "username": "jenkins-user",
                 "password": "jenkins-password",
             },

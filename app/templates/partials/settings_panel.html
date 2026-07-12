@@ -240,6 +240,7 @@
           <span>Enabled</span>
       </div>
       <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">URL</span><input type="text" name="jenkins_url" value="{{ raw_jenkins.get('url', '') }}" placeholder="https://jenkins.example.com" class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="jenkins_username" value="{{ raw_jenkins.get('username', '') }}" class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="jenkins_password" value="{{ raw_jenkins.get('password', '') }}" class="portal-form-input" /></label>
       </div>

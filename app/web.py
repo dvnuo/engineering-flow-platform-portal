@@ -1240,6 +1240,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     if is_section_touched("jenkins"):
         jenkins = {"enabled": as_bool(form.get("jenkins_enabled"))}
         for field, form_field in (
+            ("url", "jenkins_url"),
             ("username", "jenkins_username"),
             ("password", "jenkins_password"),
         ):
