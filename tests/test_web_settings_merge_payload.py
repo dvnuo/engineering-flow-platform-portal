@@ -394,15 +394,17 @@ def test_settings_merge_confluence_instance_clear_secret_removes_existing():
 
 def test_settings_merge_jenkins_blank_password_clears_existing():
     merged, error = _settings_merge_payload(
-        {"jenkins": {"enabled": True, "username": "old", "password": "oldp"}},
+        {"jenkins": {"enabled": True, "url": "https://old.example.com", "username": "old", "password": "oldp"}},
         {
             "__touch_jenkins": "1",
             "jenkins_enabled": "on",
+            "jenkins_url": "https://jenkins.example.com/",
             "jenkins_username": "build",
             "jenkins_password": "",
         },
     )
     assert error is None
+    assert merged["jenkins"]["url"] == "https://jenkins.example.com"
     assert merged["jenkins"]["username"] == "build"
     assert "password" not in merged["jenkins"]
 
@@ -694,6 +696,7 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "aws_password": "aws-password",
             "__touch_jenkins": "1",
             "jenkins_enabled": "on",
+            "jenkins_url": "https://jenkins.example.com/",
             "jenkins_username": "jenkins-user",
             "jenkins_password": "jenkins-password",
             "__touch_git": "1",
@@ -757,6 +760,7 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
         },
         "jenkins": {
             "enabled": True,
+            "url": "https://jenkins.example.com",
             "username": "jenkins-user",
             "password": "jenkins-password",
         },

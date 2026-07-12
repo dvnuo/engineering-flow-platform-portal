@@ -63,6 +63,7 @@ PORTAL_MANAGED_FIELD_TREE = {
     },
     "jenkins": {
         "enabled": True,
+        "url": True,
         "username": True,
         "password": True,
     },
@@ -316,6 +317,9 @@ def sanitize_runtime_profile_jenkins(value) -> dict:
     out: dict = {}
     if "enabled" in value:
         out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    url = str(value.get("url") or value.get("base_url") or "").strip().rstrip("/")
+    if url:
+        out["url"] = url
     for key in ("username", "password"):
         cleaned = str(value.get(key) or "").strip()
         if cleaned:
