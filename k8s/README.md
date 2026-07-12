@@ -26,7 +26,6 @@ kubectl apply -f efp-agents-secret.yaml
 - (optional) `GIT_TOKEN` for Portal init clone and `/api/git-repos/branches` lookups
 
 `efp-agents-secret` should include:
-- `EFP_CONFIG_KEY`
 - (optional) `GIT_TOKEN` used by agent runtime/skill/tools git-clone initContainers
 
 ### Create Deployment

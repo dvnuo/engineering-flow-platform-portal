@@ -768,6 +768,9 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env_map["MOBILE_AUTO_ARTIFACTS_DIR"], "/workspace/.efp/mobile-auto/artifacts")
         self.assertEqual(env_map["BROWSERSTACK_LOCAL_BINARY"], "/usr/local/bin/BrowserStackLocal")
         self.assertEqual(env_map["EFP_RUNTIME_SESSION_ROOT"], "/workspace/.efp/runtime")
+        # Native derives credential/config paths from $HOME too, so it must be
+        # pinned to /root just like opencode (not left to the runtime default).
+        self.assertEqual(env_map["HOME"], "/root")
 
     def test_native_session_root_follows_custom_workspace_mount(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/custom/workspace")

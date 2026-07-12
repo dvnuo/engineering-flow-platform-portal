@@ -986,6 +986,11 @@ class K8sService:
             env.append(client.V1EnvVar(name="MOBILE_AUTO_STATE_DIR", value=self._mobile_state_dir(agent)))
             env.append(client.V1EnvVar(name="MOBILE_AUTO_ARTIFACTS_DIR", value=self._mobile_artifacts_dir(agent)))
             env.append(client.V1EnvVar(name="BROWSERSTACK_LOCAL_BINARY", value="/usr/local/bin/BrowserStackLocal"))
+            # Both runtimes derive credential/config paths from $HOME (gh, aws,
+            # git, ~/.config/efp) and EFP_CONFIG is hardcoded under /root, so pin
+            # HOME=/root for every runtime rather than trusting the container
+            # runtime's implicit default.
+            env.append(client.V1EnvVar(name="HOME", value="/root"))
             if runtime_type == "native":
                 env.append(client.V1EnvVar(name="EFP_RUNTIME_SESSION_ROOT", value=self._native_runtime_session_root(agent)))
             elif runtime_type == "opencode":
@@ -1003,7 +1008,6 @@ class K8sService:
                     getattr(self.settings, "opencode_chat_submit_timeout_seconds", 900),
                     900,
                 )
-                env.append(client.V1EnvVar(name="HOME", value="/root"))
                 env.append(client.V1EnvVar(name="OPENCODE_DATA_DIR", value=self._opencode_state_dir()))
                 env.append(client.V1EnvVar(name="EFP_ADAPTER_STATE_DIR", value=self._opencode_adapter_state_dir()))
                 env.append(client.V1EnvVar(name="OPENCODE_WORKSPACE", value=workspace_dir))
