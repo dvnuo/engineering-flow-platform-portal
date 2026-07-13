@@ -1226,7 +1226,7 @@ async function addPendingFilesAndUpload(files) {
       pf.parseError = "";
       pf.parseData = null;
       renderInputPreview();
-      showToast('Upload failed: ' + error.message);
+      showToast('Upload failed: ' + error.message, { variant: 'error' });
     }
   }
 }
@@ -4502,10 +4502,10 @@ document.addEventListener("click", async (event) => {
       setDebugCopyButtonCopied(button);
       showToast("Copied to clipboard");
     } else {
-      showToast("Copy failed");
+      showToast("Copy failed", { variant: 'error' });
     }
   } catch (error) {
-    showToast("Copy failed");
+    showToast("Copy failed", { variant: 'error' });
   } finally {
     button.disabled = false;
   }
@@ -5322,7 +5322,7 @@ function renderAgentMeta(agent) {
     try {
       await handleAgentHealthAction(agent, event.currentTarget.dataset.agentHealthAction);
     } catch (error) {
-      showToast(`Action failed: ${error.message}`);
+      showToast(`Action failed: ${error.message}`, { variant: 'error' });
     }
   });
 
@@ -7713,7 +7713,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   if (dom.chatInput) dom.chatInput.value = restoredMessage;
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
-  showToast("Send failed. Please re-attach files before retrying.");
+  showToast("Send failed. Please re-attach files before retrying.", { variant: 'error' });
   renderInputPreview();
   syncChatInputHeight();
   if (typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend)) {
@@ -8712,7 +8712,7 @@ async function refreshRequirementBundles({ showLoadingState = true, force = true
     if (!hadBundleCache) {
       renderRequirementBundleList(`Failed to load bundles: ${error.message}`);
     } else {
-      showToast(`Failed to refresh bundles: ${error.message}`);
+      showToast(`Failed to refresh bundles: ${error.message}`, { variant: 'error' });
     }
   } finally {
     setButtonDisabled(dom.refreshBundlesBtn, false);
@@ -9394,7 +9394,7 @@ async function renameSessionForAgent(agentId, sessionId, currentName) {
   if (!agentId || !normalizedSessionId) return;
 
   const defaultName = String(currentName || "").trim();
-  const proposedName = prompt("Rename session", defaultName || "");
+  const proposedName = await showPrompt({ title: "Rename session", defaultValue: defaultName, confirmText: "Rename" });
   if (proposedName === null) return;
 
   const nextName = proposedName.trim();
@@ -9415,14 +9415,14 @@ async function renameSessionForAgent(agentId, sessionId, currentName) {
     await openSessionsPanel();
     renderIcons();
   } catch (error) {
-    showToast(`Rename failed: ${safe(error.message)}`);
+    showToast(`Rename failed: ${safe(error.message)}`, { variant: 'error' });
   }
 }
 
 async function deleteSessionForAgent(agentId, sessionId) {
   const normalizedSessionId = (sessionId || "").trim();
   if (!agentId || !normalizedSessionId) return;
-  if (!confirm("Delete this session? This cannot be undone.")) return;
+  if (!(await showConfirm({ title: "Delete session", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
 
   try {
     const resp = await fetch(`/app/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(normalizedSessionId)}`, {
@@ -9466,7 +9466,7 @@ async function deleteSessionForAgent(agentId, sessionId) {
     await openSessionsPanel();
     renderIcons();
   } catch (error) {
-    showToast(`Delete failed: ${safe(error.message)}`);
+    showToast(`Delete failed: ${safe(error.message)}`, { variant: 'error' });
   }
 }
 
@@ -9833,7 +9833,7 @@ async function uploadToServerFiles(targetPath) {
 async function deleteSelectedServerFiles(paths, currentPath) {
   if (!Array.isArray(paths) || paths.length === 0) return;
 
-  const confirmed = window.confirm(`Delete ${paths.length} selected item(s)? This cannot be undone.`);
+  const confirmed = await showConfirm({ title: "Delete files", message: `Delete ${paths.length} selected item(s)? This can't be undone.`, confirmText: "Delete", danger: true });
   if (!confirmed) return;
 
   setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`, "server-files");
@@ -10375,7 +10375,7 @@ async function runManagedSettingsTest(root, target, button) {
       resultEl.className = "portal-inline-state is-error";
       resultEl.textContent = safe(error.message);
     }
-    showToast(`Test failed: ${safe(error.message)}`);
+    showToast(`Test failed: ${safe(error.message)}`, { variant: 'error' });
   } finally {
     button.disabled = false;
     button.textContent = original;
@@ -10510,7 +10510,7 @@ async function startCopilotAuth(root) {
       }
     }, (Number(data.interval) || 5) * 1000);
   } catch (error) {
-    showToast(`Copilot authorization failed: ${safe(error.message)}`);
+    showToast(`Copilot authorization failed: ${safe(error.message)}`, { variant: 'error' });
     finishCopilotAuthWithMessage(root, `Copilot authorization failed: ${safe(error.message)}`);
   }
 }
@@ -10839,7 +10839,7 @@ function resetLocalChatSubmissionForAgent(agentId) {
 }
 
 async function action(path, method = "POST", needsConfirm = false) {
-  if (needsConfirm && !confirm("Please confirm this action.")) return;
+  if (needsConfirm && !(await showConfirm({ title: "Confirm action", message: "Please confirm this action.", confirmText: "Continue" }))) return;
   const lifecycle = parseAgentLifecycleAction(path);
   const normalizedMethod = String(method || "POST").toUpperCase();
   const isRestartAction = Boolean(lifecycle && normalizedMethod === "POST" && lifecycle.action === "restart");
@@ -12558,7 +12558,7 @@ async function toggleDelegationRuleEnabled(ruleId, enabled) {
 }
 
 async function deleteDelegationRule(ruleId) {
-  if (!window.confirm("Delete this delegation? This cannot be undone.")) return;
+  if (!(await showConfirm({ title: "Delete delegation", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
   await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
   await loadDelegationRules();
   if (state.delegations.length) {
@@ -13426,7 +13426,7 @@ async function retryAssistantMessage(row) {
   }
 
   if (hasFollowingMessageRows(row)) {
-    const shouldContinue = window.confirm("Retrying this response will remove this message and all messages after it. Continue?");
+    const shouldContinue = await showConfirm({ title: "Retry response", message: "Retrying will remove this message and all messages after it.", confirmText: "Retry", danger: true });
     if (!shouldContinue) return;
   }
 
@@ -13443,12 +13443,12 @@ async function retryAssistantMessage(row) {
     try {
       result = await response.json();
     } catch (_error) {
-      showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));
+      showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"), { variant: 'error' });
       return;
     }
 
     if (!response.ok || !result.success) {
-      showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"));
+      showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"), { variant: 'error' });
       return;
     }
 
@@ -13458,7 +13458,7 @@ async function retryAssistantMessage(row) {
     setChatStatus("Retrying...");
     await submitChatForSelectedAgent();
   } catch (err) {
-    showToast("Retry failed: " + (err?.message || String(err)));
+    showToast("Retry failed: " + (err?.message || String(err)), { variant: 'error' });
     setChatStatus("Ready");
   } finally {
     if (retryBtn) retryBtn.disabled = false;
@@ -13557,12 +13557,19 @@ function simpleHash(str) {
 }
 
 // Global toast notification
-function showToast(message, duration = 2000) {
+function showToast(message, opts = {}) {
   const toast = document.getElementById('global-toast');
   if (!toast) return;
-  toast.querySelector('div').textContent = message;
+  const o = typeof opts === 'number' ? { duration: opts } : (opts || {});
+  const duration = o.duration || 2000;
+  const inner = toast.querySelector('div');
+  inner.textContent = message;
+  inner.classList.remove('is-error', 'is-info');
+  if (o.variant === 'error') inner.classList.add('is-error');
+  else if (o.variant === 'info') inner.classList.add('is-info');
   toast.classList.remove('hidden');
-  setTimeout(() => toast.classList.add('hidden'), duration);
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => toast.classList.add('hidden'), duration);
 }
 
 // ===== wiring =====
@@ -13663,7 +13670,7 @@ function bindEvents() {
       return;
     }
     if (!sessionId || !messageId) {
-      showToast("Invalid session");
+      showToast("Invalid session", { variant: 'error' });
       return;
     }
     if (!newContent.trim()) {
@@ -13800,7 +13807,7 @@ function bindEvents() {
           edit: true,
         }, message);
       } else {
-        showToast("Error editing message: " + message);
+        showToast("Error editing message: " + message, { variant: 'error' });
         setChatStatus(message || "Ready", true);
       }
     } finally {
@@ -14032,7 +14039,7 @@ function bindEvents() {
       try {
         await submitCreateDelegationRule(delegationForm);
       } catch (error) {
-        showToast(`Create delegation failed: ${error.message}`);
+        showToast(`Create delegation failed: ${error.message}`, { variant: 'error' });
       }
       return;
     }
@@ -14043,7 +14050,7 @@ function bindEvents() {
       try {
         await submitEditDelegationRule(editDelegationForm);
       } catch (error) {
-        showToast(`Update delegation failed: ${error.message}`);
+        showToast(`Update delegation failed: ${error.message}`, { variant: 'error' });
       }
       return;
     }
@@ -14054,7 +14061,7 @@ function bindEvents() {
       try {
         await submitCreateAgentAsyncTask(taskForm);
       } catch (error) {
-        showToast(`Create task failed: ${error.message}`);
+        showToast(`Create task failed: ${error.message}`, { variant: 'error' });
       }
       return;
     }
@@ -14065,7 +14072,7 @@ function bindEvents() {
       try {
         await submitContinueAgentTask(continueTaskForm);
       } catch (error) {
-        showToast(`Continue task failed: ${error.message}`);
+        showToast(`Continue task failed: ${error.message}`, { variant: 'error' });
       }
     }
   });
@@ -14253,7 +14260,7 @@ function bindEvents() {
       try {
         await cancelAgentTask(taskId);
       } catch (error) {
-        showToast(`Cancel task failed: ${error.message}`);
+        showToast(`Cancel task failed: ${error.message}`, { variant: 'error' });
       }
       return;
     }
@@ -14266,7 +14273,7 @@ function bindEvents() {
       try {
         await rerunAgentTask(taskId);
       } catch (error) {
-        showToast(`Rerun task failed: ${error.message}`);
+        showToast(`Rerun task failed: ${error.message}`, { variant: 'error' });
       }
       return;
     }
@@ -14275,7 +14282,8 @@ function bindEvents() {
     if (deleteProfileBtn) {
       event.preventDefault();
       const profileId = deleteProfileBtn.dataset.deleteRuntimeProfile || "";
-      if (!profileId || !confirm("Delete this runtime profile?")) return;
+      if (!profileId) return;
+      if (!(await showConfirm({ title: "Delete runtime profile", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
       try {
         const resp = await fetch(`/api/runtime-profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
         if (!resp.ok) throw new Error(await handleErrorResponse(resp));
@@ -14288,7 +14296,7 @@ function bindEvents() {
           renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
         }
       } catch (err) {
-        showToast(err.message);
+        showToast(err.message, { variant: 'error' });
       }
     }
   });
@@ -14303,7 +14311,7 @@ function bindEvents() {
     try {
       await openTaskCreatePanelInMain();
     } catch (error) {
-      showToast(`Open task create failed: ${error.message}`);
+      showToast(`Open task create failed: ${error.message}`, { variant: 'error' });
     }
   });
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"));
@@ -14739,14 +14747,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 window.addEventListener("hashchange", () => {
   applyPortalRouteFromHash({ replaceInvalid: true }).catch((error) => {
     console.error("Failed to apply portal route from hash", error);
-    showToast("Failed to open URL route: " + (error?.message || error));
+    showToast("Failed to open URL route: " + (error?.message || error), { variant: 'error' });
   });
 });
 
 window.addEventListener("popstate", () => {
   applyPortalRouteFromHash({ replaceInvalid: true }).catch((error) => {
     console.error("Failed to apply portal route from history", error);
-    showToast("Failed to open URL route: " + (error?.message || error));
+    showToast("Failed to open URL route: " + (error?.message || error), { variant: 'error' });
   });
 });
 
@@ -15078,7 +15086,7 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
   payload[section] = { enabled: enabled };
   api('/a/' + agentId + '/api/agent/system-prompt/config', { method: 'PUT', body: JSON.stringify(payload) }).catch(function(e) {
     console.error('Failed to update:', e);
-    showToast('Failed to update: ' + e.message);
+    showToast('Failed to update: ' + e.message, { variant: 'error' });
     loadSystemPromptConfig(agentId);
   });
 }
@@ -15088,7 +15096,7 @@ function editSystemPromptSection(agentId, section) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled, data || {});
   }).catch(function(e) {
     console.error('Failed to load:', e);
-    showToast('Failed to load: ' + e.message);
+    showToast('Failed to load: ' + e.message, { variant: 'error' });
   });
 }
 
@@ -15182,7 +15190,7 @@ function saveSystemPromptSection(agentId, section) {
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {
     console.error('Failed to save:', e);
-    showToast('Failed to save: ' + e.message);
+    showToast('Failed to save: ' + e.message, { variant: 'error' });
     loadSystemPromptConfig(agentId);
   });
 }
