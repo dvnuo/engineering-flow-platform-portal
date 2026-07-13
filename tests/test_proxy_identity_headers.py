@@ -257,7 +257,7 @@ def test_proxy_agent_blocks_runtime_internal_paths_for_owner(monkeypatch):
 
         monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
         client = TestClient(app)
-        internal_resp = client.post("/a/agent-1/api/internal/runtime-profile/apply", content=b"{}")
+        internal_resp = client.post("/a/agent-1/api/internal/ping", content=b"{}")
     finally:
         app.dependency_overrides.clear()
 
