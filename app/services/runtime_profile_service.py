@@ -12,13 +12,11 @@ from app.services.runtime_profile_config_policy import canonicalize_portal_runti
 class RuntimeProfileService:
     _MANAGED_PROVIDER_MODELS = {
         "github_copilot": (
-            "gpt-5.4-mini",
             "gpt-5.4",
-            "gpt-5.3-codex",
-            "gpt-5-mini",
-            "gpt-4.1",
-            "gpt-4o",
-            "gemini-2.5-pro",
+            "gpt-5.5",
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
         ),
         "openai": (
             "gpt-5.4-mini",
@@ -69,7 +67,7 @@ class RuntimeProfileService:
         return {
             "llm": {
                 "provider": "github_copilot",
-                "model": "gpt-5.4-mini",
+                "model": "gpt-5.6-terra",
                 "max_tokens": 64000,
             },
             "proxy": {"enabled": False},

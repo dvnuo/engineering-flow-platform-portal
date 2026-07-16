@@ -71,7 +71,7 @@ def test_delete_default_promotes_other_and_last_delete_conflict():
 
 def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
-    assert cfg["llm"]["model"] == "gpt-5.4-mini"
+    assert cfg["llm"]["model"] == "gpt-5.6-terra"
     assert cfg["llm"]["max_tokens"] == 64000
     assert "temperature" not in cfg["llm"]
     assert "max_retries" not in cfg["llm"]
@@ -101,9 +101,9 @@ def test_default_profile_config_has_safe_managed_defaults():
 def test_managed_provider_models_prefer_gpt_5_4_mini():
     github_models = RuntimeProfileService.managed_model_values_for_provider("github_copilot")
     openai_models = RuntimeProfileService.managed_model_values_for_provider("openai")
-    assert github_models[0] == "gpt-5.4-mini"
+    assert github_models[0] == "gpt-5.4"
     assert openai_models[0] == "gpt-5.4-mini"
-    assert "gpt-5-mini" in github_models
+    assert "gpt-5.6-terra" in github_models
     assert "gpt-5-mini" in openai_models
 
 

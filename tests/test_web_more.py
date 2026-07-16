@@ -505,7 +505,7 @@ def test_update_model_options_keeps_unknown_initial_but_not_cross_provider_leak(
     assert 'github_copilot' in managed_models_block
     github_block_start = managed_models_block.index('github_copilot: [')
     github_first_model = managed_models_block[github_block_start:github_block_start + 160]
-    assert '{ value: "gpt-5.4-mini", label: "GPT-5.4 mini" }' in github_first_model
+    assert '{ value: "gpt-5.4", label: "GPT-5.4" }' in github_first_model
     openai_block_start = managed_models_block.index('openai: [')
     openai_first_model = managed_models_block[openai_block_start:openai_block_start + 140]
     assert '{ value: "gpt-5.4-mini", label: "GPT-5.4 mini" }' in openai_first_model

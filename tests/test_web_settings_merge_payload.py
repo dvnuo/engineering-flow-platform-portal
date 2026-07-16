@@ -197,7 +197,7 @@ def test_settings_merge_llm_response_flow_invalid_min_tokens_returns_error():
 
 
 def test_settings_merge_copilot_uses_llm_api_key_only():
-    merged, error = _settings_merge_payload({}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_model":"gpt-5.4-mini","llm_api_key":"TOKEN"})
+    merged, error = _settings_merge_payload({}, {"__touch_llm":"1","llm_provider":"github_copilot","llm_model":"gpt-5.6-terra","llm_api_key":"TOKEN"})
     assert error is None
     assert merged["llm"]["api_key"] == "TOKEN"
     assert "oauth" not in merged["llm"]

@@ -52,7 +52,7 @@ def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
                 "config": {
                     "llm": {
                         "provider": "github_copilot",
-                        "model": "gpt-5.4-mini",
+                        "model": "gpt-5.6-terra",
                     }
                 },
             },
@@ -66,10 +66,10 @@ def test_runtime_metadata_includes_runtime_profile_and_tool_loop(monkeypatch):
     assert metadata["runtime_profile"]["runtime_profile_id"] == "rp-1"
     assert metadata["runtime_profile"]["revision"] == 7
     assert metadata["runtime_profile"]["provider"] == "github_copilot"
-    assert metadata["runtime_profile"]["model"] == "gpt-5.4-mini"
+    assert metadata["runtime_profile"]["model"] == "gpt-5.6-terra"
     assert metadata["runtime_profile"]["config"]["llm"]["provider"] == "github_copilot"
-    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.4-mini"
-    assert metadata["model"] == "gpt-5.4-mini"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.6-terra"
+    assert metadata["model"] == "gpt-5.6-terra"
     assert "tool_loop" not in metadata["runtime_profile"]["config"]["llm"]
     assert "llm_tool_loop" not in metadata
 
@@ -98,7 +98,7 @@ def test_runtime_metadata_does_not_materialize_default_tool_loop_for_sparse_prof
     assert runtime_context["runtime_profile_id"] == "rp-1"
     assert runtime_context["revision"] is None
     assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
-    assert runtime_context["config"]["llm"]["model"] == "gpt-5.4-mini"
+    assert runtime_context["config"]["llm"]["model"] == "gpt-5.6-terra"
     assert "tool_loop" not in runtime_context["config"]["llm"]
 
 
@@ -127,7 +127,7 @@ def test_runtime_metadata_drops_explicit_tool_loop_override(monkeypatch):
 
     assert runtime_profile_id == "rp-1"
     assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
-    assert runtime_context["config"]["llm"]["model"] == "gpt-5.4-mini"
+    assert runtime_context["config"]["llm"]["model"] == "gpt-5.6-terra"
     assert "tool_loop" not in runtime_context["config"]["llm"]
 
 
