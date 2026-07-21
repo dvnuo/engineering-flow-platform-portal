@@ -2493,11 +2493,21 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             )
 
         sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
-        runtime_profile.config_json = dump_runtime_profile_config_json(sanitized_config)
-        runtime_profile.revision = (runtime_profile.revision or 0) + 1
-        runtime_profile = profile_repo.save(runtime_profile)
-
-        status_type, status_message = _apply_runtime_profile_save(db, runtime_profile)
+        # Mirror the profile-save path: only bump the revision and restart bound
+        # running agents when the persisted config actually changed. Saving with
+        # no effective change must not disrupt running agents.
+        before_config = runtime_profile.config_json
+        new_config_json = RuntimeProfileService.normalize_persisted_config_json(
+            dump_runtime_profile_config_json(sanitized_config)
+        )
+        config_changed = before_config != new_config_json
+        if config_changed:
+            runtime_profile.config_json = new_config_json
+            runtime_profile.revision = (runtime_profile.revision or 0) + 1
+            runtime_profile = profile_repo.save(runtime_profile)
+            status_type, status_message = _apply_runtime_profile_save(db, runtime_profile)
+        else:
+            status_type, status_message = ("success", "Runtime profile saved.")
 
         view_data = _settings_view_payload(sanitized_config, RuntimeProfileService.merge_with_managed_defaults(sanitized_config))
         return templates.TemplateResponse(
