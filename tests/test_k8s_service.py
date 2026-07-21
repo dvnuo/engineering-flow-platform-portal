@@ -911,7 +911,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(revision_ref.key, "revision")
 
         self.assertEqual(env["EFP_PROFILE_ID"].value, "rp-123")
-        self.assertNotIn("EFP_CONFIG_KEY", env)
+
+        # The decryption key is injected from the shared agents secret as an
+        # optional ref: absent key -> plaintext config; ENC: values without the
+        # key fail loudly at runtime start.
+        config_key_ref = env["EFP_CONFIG_KEY"].value_from.secret_key_ref
+        self.assertEqual(config_key_ref.name, "efp-agents-secret")
+        self.assertEqual(config_key_ref.key, "EFP_CONFIG_KEY")
+        self.assertTrue(config_key_ref.optional)
 
     def test_profile_env_opencode_runtime_uses_same_config_key(self):
         agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace", name="A", runtime_profile_id="rp-9")
@@ -1004,7 +1011,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertIn("EFP_PROFILE_CONFIG", env_names)
         self.assertIn("EFP_PROFILE_REVISION", env_names)
         self.assertIn("EFP_PROFILE_ID", env_names)
-        self.assertNotIn("EFP_CONFIG_KEY", env_names)
+        self.assertIn("EFP_CONFIG_KEY", env_names)
 
     def test_upsert_secret_creates_then_replaces_on_conflict(self):
         from kubernetes.client.exceptions import ApiException

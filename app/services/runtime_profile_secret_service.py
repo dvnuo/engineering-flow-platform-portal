@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.k8s_service import K8sService
+from app.services.profile_secret_encryption import encrypt_sensitive_fields
 from app.services.runtime_profile_context_projection import (
     build_canonical_profile_config,
 )
@@ -32,7 +33,9 @@ def render_profile_secret_data(profile) -> dict[str, str]:
         "runtime_profile_id": profile.id,
         "name": getattr(profile, "name", "") or "",
         "revision": profile.revision,
-        "config": build_canonical_profile_config(parsed_config),
+        # Sensitive values are encrypted (ENC:...) with EFP_CONFIG_KEY when set,
+        # so broad Secret readers see ciphertext; runtimes decrypt at boot.
+        "config": encrypt_sensitive_fields(build_canonical_profile_config(parsed_config)),
     }
     return {
         PROFILE_SECRET_CONFIG_KEY: json.dumps(payload),
