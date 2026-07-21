@@ -993,6 +993,21 @@ class K8sService:
             # HOME=/root for every runtime rather than trusting the container
             # runtime's implicit default.
             env.append(client.V1EnvVar(name="HOME", value="/root"))
+            # Key for decrypting ENC: values in the profile config at boot.
+            # Optional: absent means the config was stored in plaintext; a config
+            # with ENC: values but no key fails loudly at runtime start.
+            env.append(
+                client.V1EnvVar(
+                    name="EFP_CONFIG_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name="efp-agents-secret",
+                            key="EFP_CONFIG_KEY",
+                            optional=True,
+                        )
+                    ),
+                )
+            )
             if runtime_type == "native":
                 env.append(client.V1EnvVar(name="EFP_RUNTIME_SESSION_ROOT", value=self._native_runtime_session_root(agent)))
             elif runtime_type == "opencode":
