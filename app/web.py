@@ -1138,6 +1138,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         from app.contracts.llm_catalog import normalize_provider
 
         if normalize_provider(llm.get("provider")) == "ai_platform":
+            # api_key is a Copilot-only field; drop any stale value carried over
+            # from the hidden Copilot input when the provider is ai_platform.
+            llm.pop("api_key", None)
             existing_ap = llm.get("ai_platform") if isinstance(llm.get("ai_platform"), dict) else {}
             existing_auth = existing_ap.get("auth") if isinstance(existing_ap.get("auth"), dict) else {}
 

@@ -89,6 +89,19 @@ def test_projection_maps_ai_platform_and_preserves_block():
     assert oc["ai_platform"]["auth"]["password"] == "pw"
 
 
+def test_public_redaction_hides_ai_platform_password_and_token():
+    from app.schemas.runtime_profile import (
+        redact_runtime_profile_config_for_public_response as redact,
+    )
+
+    prof = _ai_profile()
+    prof["llm"]["ai_platform"]["auth"]["token"] = "JWT-secret"
+    auth = redact(prof)["llm"]["ai_platform"]["auth"]
+    assert "password" not in auth and auth["password_present"] is True
+    assert "token" not in auth and auth["token_present"] is True
+    assert auth["username"] == "u"  # non-secret preserved
+
+
 def test_legacy_and_copilot_still_coerce_to_copilot():
     c = canon({"llm": {"provider": "openai", "model": "gpt-4o", "api_key": "sk"}})["llm"]
     assert c["provider"] == "github_copilot"
