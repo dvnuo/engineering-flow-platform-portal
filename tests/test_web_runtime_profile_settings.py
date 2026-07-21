@@ -332,6 +332,42 @@ def test_runtime_profile_panel_restart_confirm_is_on_form_not_button(monkeypatch
         cleanup()
 
 
+def test_settings_save_persists_ai_platform_config(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {})
+        payload = {
+            "__touch_llm": "1",
+            "llm_provider": "ai_platform",
+            "llm_model": "gpt-5.4",
+            "llm_ai_platform_chat_host": "https://chat.int",
+            "llm_ai_platform_chat_uri": "/v1/api/v1/chat/completions",
+            "llm_ai_platform_ib2b_host": "https://ib2b.int",
+            "llm_ai_platform_ib2b_uri": "/dsp/token",
+            "llm_ai_platform_username": "u",
+            "llm_ai_platform_password": "pw",
+            "llm_ai_platform_usercase": "uc",
+            "llm_ai_platform_trust_token_header": "X-Trust",
+            "llm_ai_platform_tracking_prefix": "EFP",
+        }
+        resp = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+        assert resp.status_code == 200
+        db.refresh(rp)
+        cfg = json.loads(rp.config_json)
+        assert cfg["llm"]["provider"] == "ai_platform"
+        assert cfg["llm"]["model"] == "gpt-5.4"
+        ap = cfg["llm"]["ai_platform"]
+        assert ap["chat"]["host"] == "https://chat.int"
+        assert ap["ib2b"]["uri"] == "/dsp/token"
+        assert ap["auth"]["password"] == "pw"
+        assert ap["auth"]["usercase"] == "uc"
+        # the rendered panel selects AI Platform and shows its fields
+        assert 'option value="ai_platform" selected' in resp.text
+        assert 'name="llm_ai_platform_chat_host"' in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_save_unchanged_config_skips_restart(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:

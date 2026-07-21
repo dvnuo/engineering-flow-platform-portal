@@ -29,6 +29,21 @@ PORTAL_MANAGED_FIELD_TREE = {
         "endpoint": True,
         "temperature": True,
         "max_tokens": True,
+        "reasoning_effort": True,
+        # AI Platform rich config (mirrors the tools inspect-image ai_platform
+        # shape): chat/ib2b endpoints + credentials. password is encrypted in
+        # the Secret and redacted in views.
+        "ai_platform": {
+            "chat": {"host": True, "uri": True},
+            "ib2b": {"host": True, "uri": True},
+            "auth": {
+                "username": True,
+                "password": True,
+                "usercase": True,
+                "trust_token_header": True,
+                "tracking_prefix": True,
+            },
+        },
     },
     "proxy": {
         "enabled": True,
@@ -583,6 +598,12 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
         llm["api_key_present"] = bool(str(llm.pop("api_key", "")).strip())
         llm.pop("oauth", None)
         llm.pop("oauth_by_runtime", None)
+        ai_platform = llm.get("ai_platform")
+        if isinstance(ai_platform, dict):
+            auth = ai_platform.get("auth")
+            if isinstance(auth, dict):
+                auth["password_present"] = bool(str(auth.pop("password", "")).strip())
+                auth["token_present"] = bool(str(auth.pop("token", "")).strip())
     github = redacted.get("github")
     if isinstance(github, dict):
         token_values = [str(github.pop(key, "")).strip() for key in ("api_token", "token", "access_token")]
