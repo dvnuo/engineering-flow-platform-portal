@@ -8,13 +8,13 @@ from app.models.agent import Agent
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.k8s_service import K8sService
 from app.services.runtime_profile_context_projection import (
-    build_runtime_profile_context_config,
+    build_canonical_profile_config,
 )
 
 logger = logging.getLogger(__name__)
 
 NONE_SECRET_NAME = "efp-profile-none"
-RUNTIME_TYPE_SECRET_KEYS = {"native": "native.json", "opencode": "opencode.json"}
+PROFILE_SECRET_CONFIG_KEY = "config.json"
 
 
 def profile_secret_name(profile_id: str) -> str:
@@ -22,37 +22,36 @@ def profile_secret_name(profile_id: str) -> str:
 
 
 def render_profile_secret_data(profile) -> dict[str, str]:
-    """Render both per-runtime apply payloads plus the revision marker."""
+    """Render the single runtime-agnostic canonical payload plus the revision.
+
+    Each runtime applies its own projection (LLM provider/model form, opencode
+    field stripping, native CLI tool instructions) to this config at boot.
+    """
     parsed_config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-    data: dict[str, str] = {}
-    for runtime_type, key in RUNTIME_TYPE_SECRET_KEYS.items():
-        payload = {
-            "runtime_profile_id": profile.id,
-            "name": getattr(profile, "name", "") or "",
-            "revision": profile.revision,
-            "runtime_type": runtime_type,
-            "config": build_runtime_profile_context_config(parsed_config, runtime_type=runtime_type),
-        }
-        data[key] = json.dumps(payload)
-    data["revision"] = str(profile.revision or 0)
-    return data
+    payload = {
+        "runtime_profile_id": profile.id,
+        "name": getattr(profile, "name", "") or "",
+        "revision": profile.revision,
+        "config": build_canonical_profile_config(parsed_config),
+    }
+    return {
+        PROFILE_SECRET_CONFIG_KEY: json.dumps(payload),
+        "revision": str(profile.revision or 0),
+    }
 
 
 def render_none_secret_data() -> dict[str, str]:
-    """Shared empty payloads for agents without a bound runtime profile."""
-    data: dict[str, str] = {}
-    for runtime_type, key in RUNTIME_TYPE_SECRET_KEYS.items():
-        data[key] = json.dumps(
-            {
-                "runtime_profile_id": None,
-                "name": "",
-                "revision": None,
-                "runtime_type": runtime_type,
-                "config": {},
-            }
-        )
-    data["revision"] = "0"
-    return data
+    """Shared empty payload for agents without a bound runtime profile."""
+    payload = {
+        "runtime_profile_id": None,
+        "name": "",
+        "revision": None,
+        "config": {},
+    }
+    return {
+        PROFILE_SECRET_CONFIG_KEY: json.dumps(payload),
+        "revision": "0",
+    }
 
 
 class RuntimeProfileSecretService:

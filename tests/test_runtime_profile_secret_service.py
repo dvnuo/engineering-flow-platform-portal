@@ -83,44 +83,39 @@ class _FakeK8s:
         return SimpleNamespace(status=self.restart_status, message=f"Restart requested: {agent.id}")
 
 
-def test_render_profile_secret_data_contains_both_runtime_payloads_and_revision():
+def test_render_profile_secret_data_contains_single_canonical_config_and_revision():
     db, _owner, rp = _build_db()
     try:
         data = render_profile_secret_data(rp)
-        assert set(data.keys()) == {"native.json", "opencode.json", "revision"}
+        assert set(data.keys()) == {"config.json", "revision"}
         assert data["revision"] == "7"
 
-        native = json.loads(data["native.json"])
-        opencode = json.loads(data["opencode.json"])
+        payload = json.loads(data["config.json"])
+        assert payload["runtime_profile_id"] == rp.id
+        assert payload["name"] == "rp-secret"
+        assert payload["revision"] == 7
+        # Runtime-agnostic canonical payload: no per-runtime marker.
+        assert "runtime_type" not in payload
 
-        for payload, runtime_type in ((native, "native"), (opencode, "opencode")):
-            assert payload["runtime_profile_id"] == rp.id
-            assert payload["name"] == "rp-secret"
-            assert payload["revision"] == 7
-            assert payload["runtime_type"] == runtime_type
-
-        # Per-runtime projection must differ: opencode uses provider/model aliases.
-        assert native["config"]["llm"]["provider"] == "github_copilot"
-        assert native["config"]["llm"]["model"] == "gpt-5-mini"
-        assert opencode["config"]["llm"]["provider"] == "github-copilot"
-        assert opencode["config"]["llm"]["model"] == "github-copilot/gpt-5-mini"
+        # Canonical LLM stays in the portal/native form; each runtime re-projects
+        # (opencode -> provider/model aliases) at boot, not here.
+        assert payload["config"]["llm"]["provider"] == "github_copilot"
+        assert payload["config"]["llm"]["model"] == "gpt-5-mini"
     finally:
         db.close()
 
 
 def test_render_none_secret_data_is_valid_empty_profile():
     data = render_none_secret_data()
-    assert set(data.keys()) == {"native.json", "opencode.json", "revision"}
+    assert set(data.keys()) == {"config.json", "revision"}
     assert data["revision"] == "0"
-    for key, runtime_type in (("native.json", "native"), ("opencode.json", "opencode")):
-        payload = json.loads(data[key])
-        assert payload == {
-            "runtime_profile_id": None,
-            "name": "",
-            "revision": None,
-            "runtime_type": runtime_type,
-            "config": {},
-        }
+    payload = json.loads(data["config.json"])
+    assert payload == {
+        "runtime_profile_id": None,
+        "name": "",
+        "revision": None,
+        "config": {},
+    }
 
 
 def test_sync_profile_secret_upserts_named_secret():
