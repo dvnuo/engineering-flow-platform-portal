@@ -136,7 +136,6 @@ const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";
 const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "details",
   "sessions",
-  "thinking",
   "server-files",
   "skills",
   "usage",
@@ -243,7 +242,6 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     document.getElementById("btn-sessions"),
     dom.headerNewChatBtn,
     dom.detailToggle,
-    document.getElementById("btn-thinking"),
     document.getElementById("btn-files"),
   ];
   assistantOnlyControls.forEach((element) => {
@@ -7961,7 +7959,6 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
     const requiresSelectedAssistant = new Set([
       "details",
       "sessions",
-      "thinking",
       "server-files",
       "skills",
       "usage",
@@ -7995,10 +7992,6 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       return;
     }
 
-    if (panelKey === "thinking") {
-      await openThinkingProcessPanel();
-      return;
-    }
     if (panelKey === "server-files") {
       await openServerFiles();
       return;
@@ -8265,7 +8258,7 @@ function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
+  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-files")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -14715,15 +14708,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openServerFiles();
-  });
-
-  // Thinking Process button in header
-  document.getElementById('btn-thinking')?.addEventListener('click', () => {
-    if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
-      return;
-    }
-    openThinkingProcessPanel();
   });
 
   await loadAgentDefaults();
