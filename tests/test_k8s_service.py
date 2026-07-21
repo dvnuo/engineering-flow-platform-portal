@@ -897,13 +897,13 @@ class K8sServiceNoopTest(unittest.TestCase):
     def _env_by_name(self, env):
         return {e.name: e for e in env}
 
-    def test_profile_env_uses_bound_profile_secret_with_runtime_type_key(self):
+    def test_profile_env_uses_bound_profile_secret_config_key(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace", runtime_profile_id="rp-123")
         env = self._env_by_name(self.service._build_agent_container_env(agent))
 
         config_ref = env["EFP_PROFILE_CONFIG"].value_from.secret_key_ref
         self.assertEqual(config_ref.name, "efp-profile-rp-123")
-        self.assertEqual(config_ref.key, "native.json")
+        self.assertEqual(config_ref.key, "config.json")
         self.assertIsNone(config_ref.optional)
 
         revision_ref = env["EFP_PROFILE_REVISION"].value_from.secret_key_ref
@@ -913,13 +913,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(env["EFP_PROFILE_ID"].value, "rp-123")
         self.assertNotIn("EFP_CONFIG_KEY", env)
 
-    def test_profile_env_opencode_runtime_selects_opencode_json_key(self):
+    def test_profile_env_opencode_runtime_uses_same_config_key(self):
         agent = SimpleNamespace(id="a1", runtime_type="opencode", mount_path="/workspace", name="A", runtime_profile_id="rp-9")
         env = self._env_by_name(self.service._build_agent_container_env(agent))
 
         config_ref = env["EFP_PROFILE_CONFIG"].value_from.secret_key_ref
         self.assertEqual(config_ref.name, "efp-profile-rp-9")
-        self.assertEqual(config_ref.key, "opencode.json")
+        # Both runtimes read the same runtime-agnostic canonical config.
+        self.assertEqual(config_ref.key, "config.json")
 
     def test_profile_env_unbound_agent_uses_shared_none_secret(self):
         agent = SimpleNamespace(id="a1", runtime_type="native", mount_path="/workspace", runtime_profile_id=None)
@@ -927,7 +928,7 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         config_ref = env["EFP_PROFILE_CONFIG"].value_from.secret_key_ref
         self.assertEqual(config_ref.name, "efp-profile-none")
-        self.assertEqual(config_ref.key, "native.json")
+        self.assertEqual(config_ref.key, "config.json")
         self.assertEqual(env["EFP_PROFILE_ID"].value, "none")
 
     def test_ensure_deployment_sets_readiness_probe_and_recreate_strategy(self):

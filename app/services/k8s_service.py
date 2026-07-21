@@ -936,7 +936,9 @@ class K8sService:
         return f"efp-profile-{profile_id}" if profile_id else "efp-profile-none"
 
     def _profile_secret_config_key(self, runtime_type: str) -> str:
-        return "opencode.json" if runtime_type == "opencode" else "native.json"
+        # One runtime-agnostic canonical config for both runtimes; each runtime
+        # applies its own projection at boot.
+        return "config.json"
 
     def _build_agent_container_env(self, agent=None):
         from kubernetes import client

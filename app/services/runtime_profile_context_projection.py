@@ -214,14 +214,22 @@ def _with_native_cli_tool_instructions(
     return projected
 
 
-def build_runtime_profile_context_config(
+def build_canonical_profile_config(
     config: dict[str, Any] | None,
     *,
-    runtime_type: str = "native",
     default_llm: dict[str, Any] | None = None,
     include_portal_sections: bool = True,
     include_llm_credentials: bool = True,
 ) -> dict[str, Any]:
+    """Build the runtime-agnostic canonical profile config.
+
+    This is everything a runtime needs EXCEPT the per-runtime projection
+    (LLM provider/model normalization, opencode field stripping, native CLI
+    tool instructions), which each runtime applies at boot via
+    :func:`project_canonical_for_runtime`. The LLM is normalized to the portal
+    canonical form (github_copilot + bare model). This is what the profile
+    Secret stores as its single ``config.json``.
+    """
     sanitized = sanitize_runtime_profile_config_dict(config or {})
     canonical = canonicalize_portal_runtime_profile_config(sanitized)
 
@@ -238,7 +246,9 @@ def build_runtime_profile_context_config(
         canonical["llm"] = llm
     if isinstance(llm, dict):
         llm = _with_default_llm_fields(llm, default_llm)
-        projected_llm = project_llm_for_runtime(llm, runtime_type)
+        # "native" yields the portal canonical LLM form (github_copilot, bare
+        # model); each runtime re-projects to its own form at boot.
+        projected_llm = project_llm_for_runtime(llm, "native")
         if not include_llm_credentials:
             projected_llm.pop("api_key", None)
             projected_llm.pop("oauth", None)
@@ -249,6 +259,40 @@ def build_runtime_profile_context_config(
         else:
             canonical.pop("llm", None)
 
-    canonical = _strip_runtime_owned_llm_fields(canonical)
-    canonical = strip_opencode_runtime_restrictions(canonical, runtime_type)
-    return _with_native_cli_tool_instructions(canonical, runtime_type)
+    return _strip_runtime_owned_llm_fields(canonical)
+
+
+def project_canonical_for_runtime(
+    canonical: dict[str, Any] | None,
+    runtime_type: str | None,
+) -> dict[str, Any]:
+    """Apply the per-runtime projection to a canonical config.
+
+    The runtimes call this (a ported copy) at boot on the config parsed from
+    the Secret. Native re-normalizes the LLM to itself (a no-op) and gains the
+    CLI tool instructions; opencode re-normalizes the LLM to its
+    ``provider/model`` form and drops the opencode-restricted fields.
+    """
+    projected = deepcopy(canonical) if isinstance(canonical, dict) else {}
+    llm = projected.get("llm")
+    if isinstance(llm, dict):
+        projected["llm"] = project_llm_for_runtime(llm, runtime_type)
+    projected = strip_opencode_runtime_restrictions(projected, runtime_type)
+    return _with_native_cli_tool_instructions(projected, runtime_type)
+
+
+def build_runtime_profile_context_config(
+    config: dict[str, Any] | None,
+    *,
+    runtime_type: str = "native",
+    default_llm: dict[str, Any] | None = None,
+    include_portal_sections: bool = True,
+    include_llm_credentials: bool = True,
+) -> dict[str, Any]:
+    canonical = build_canonical_profile_config(
+        config,
+        default_llm=default_llm,
+        include_portal_sections=include_portal_sections,
+        include_llm_credentials=include_llm_credentials,
+    )
+    return project_canonical_for_runtime(canonical, runtime_type)
