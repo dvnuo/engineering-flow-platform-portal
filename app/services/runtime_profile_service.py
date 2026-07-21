@@ -5,14 +5,14 @@ from sqlalchemy.orm import Session
 from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
-from app.contracts.llm_catalog import COPILOT_MODELS, COPILOT_PROVIDER
+from app.contracts.llm_catalog import PROVIDER_MODELS, normalize_provider
 from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 
 
 class RuntimeProfileService:
-    # GitHub Copilot is the only supported LLM provider.
-    _MANAGED_PROVIDER_MODELS = {COPILOT_PROVIDER: COPILOT_MODELS}
+    # Supported LLM providers -> their selectable models.
+    _MANAGED_PROVIDER_MODELS = PROVIDER_MODELS
 
     def __init__(self, db: Session):
         self.db = db
@@ -20,11 +20,11 @@ class RuntimeProfileService:
 
     @staticmethod
     def normalize_managed_llm_provider(value: str | None) -> str:
-        # GitHub Copilot is the only supported provider; every NON-empty value
-        # (copilot aliases or a legacy openai/anthropic value) normalizes to it.
-        # An empty value stays empty so callers can tell "not set" from "Copilot".
+        # Normalize a NON-empty value to a supported provider (github_copilot or
+        # ai_platform). An empty value stays empty so callers can tell "not set"
+        # from a concrete provider.
         provider = str(value or "").strip().lower()
-        return COPILOT_PROVIDER if provider else ""
+        return normalize_provider(provider) if provider else ""
 
     @staticmethod
     def managed_model_values_for_provider(provider: str | None) -> tuple[str, ...]:

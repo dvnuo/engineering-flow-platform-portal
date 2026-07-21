@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from app.contracts.llm_catalog import COPILOT_MODELS, COPILOT_PROVIDER, DEFAULT_COPILOT_MODEL
+from app.contracts.llm_catalog import coerce_to_provider_model, normalize_provider
 
 HIDDEN_PORTAL_LLM_FIELDS: tuple[str, ...] = (
     "temperature",
@@ -31,16 +31,16 @@ def canonicalize_portal_runtime_profile_config(config: dict[str, Any] | None) ->
     for key in REMOVED_PORTAL_LLM_CREDENTIAL_FIELDS:
         llm.pop(key, None)
 
-    # GitHub Copilot is the only supported provider. Coerce any llm block that
-    # carries a provider/model (legacy openai/anthropic, aliases, blanks) to a
-    # valid Copilot pair, so the persisted canonical config — and everything
-    # projected from it into the runtime Secret — is Copilot-only. This runs on
-    # every save and via sanitize_all_persisted_runtime_profiles (migration).
+    # Normalize the provider to a supported one (github_copilot or ai_platform;
+    # blank/unknown/legacy -> github_copilot) and coerce the model to a valid one
+    # for that provider. Keeps the persisted canonical config — and everything
+    # projected from it into the runtime Secret — on a supported provider/model
+    # pair. Runs on every save and via sanitize_all_persisted_runtime_profiles.
     if llm.get("provider") or llm.get("model"):
-        llm["provider"] = COPILOT_PROVIDER
-    if llm.get("model") is not None:
-        model = str(llm.get("model") or "").strip()
-        llm["model"] = model if model in COPILOT_MODELS else DEFAULT_COPILOT_MODEL
+        provider = normalize_provider(llm.get("provider"))
+        llm["provider"] = provider
+        if llm.get("model") is not None:
+            llm["model"] = coerce_to_provider_model(provider, llm.get("model"))
 
     if llm:
         canonical["llm"] = llm

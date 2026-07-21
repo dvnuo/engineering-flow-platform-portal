@@ -1,14 +1,25 @@
+# Kept self-contained (no imports) so the native/opencode runtime projection
+# ports can copy this module's functions verbatim.
+_AI_PLATFORM_ALIASES = {"ai_platform", "ai-platform", "ai platform"}
+
+
 def normalize_provider_for_portal(value: str | None) -> str:
-    # GitHub Copilot is the only supported provider; coerce every value
-    # (copilot aliases, blank, and any legacy openai/anthropic value) to it.
-    _ = value
+    # Two supported providers: github_copilot (default) and ai_platform.
+    # Anything blank/unknown (incl. copilot aliases and legacy openai/anthropic)
+    # falls back to github_copilot.
+    raw = (value or "").strip().lower()
+    if raw in _AI_PLATFORM_ALIASES:
+        return "ai_platform"
     return "github_copilot"
 
 
 def normalize_provider_for_runtime(runtime_type: str, provider: str | None) -> str:
     portal_provider = normalize_provider_for_portal(provider)
-    if (runtime_type or "").strip().lower() == "opencode" and portal_provider == "github_copilot":
-        return "github-copilot"
+    if (runtime_type or "").strip().lower() == "opencode":
+        if portal_provider == "github_copilot":
+            return "github-copilot"
+        if portal_provider == "ai_platform":
+            return "ai-platform"
     return portal_provider
 
 

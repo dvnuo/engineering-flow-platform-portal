@@ -93,7 +93,8 @@
         <label class="portal-form-label">
           <span class="portal-form-label">Provider</span>
           <select name="llm_provider" id="llm_provider" class="portal-form-select">
-            <option value="github_copilot" selected>GitHub Copilot</option>
+            <option value="github_copilot" {{ 'selected' if raw_llm.get('provider') != 'ai_platform' else '' }}>GitHub Copilot</option>
+            <option value="ai_platform" {{ 'selected' if raw_llm.get('provider') == 'ai_platform' else '' }}>AI Platform</option>
           </select>
         </label>
         <label class="portal-form-label">
@@ -101,6 +102,7 @@
           <select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ raw_llm.get('model', '') }}" data-initial-value="{{ raw_llm.get('model', '') }}"></select>
         </label>
       </div>
+      <div class="space-y-2" data-provider-fields="github_copilot">
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>
       <div class="space-y-2 hidden" data-copilot-auth-root>
         <button type="button" data-copilot-auth-button class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
@@ -116,6 +118,25 @@
         <div class="portal-inline-note hidden" data-copilot-result-summary></div>
               <div class="portal-inline-note" data-copilot-auth-help>Generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save Settings to persist it.</div>
         <div class="portal-inline-note" data-copilot-auth-help>GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.</div>
+      </div>
+      </div>
+      {% set ap = raw_llm.get('ai_platform', {}) %}
+      {% set ap_chat = ap.get('chat', {}) %}
+      {% set ap_ib2b = ap.get('ib2b', {}) %}
+      {% set ap_auth = ap.get('auth', {}) %}
+      <div class="space-y-2 hidden" data-provider-fields="ai_platform">
+        <div class="grid grid-cols-2 gap-3">
+          <label class="portal-form-label"><span class="portal-form-label">Chat Host</span><input type="text" name="llm_ai_platform_chat_host" value="{{ ap_chat.get('host', '') }}" placeholder="https://chat.internal" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Chat URI</span><input type="text" name="llm_ai_platform_chat_uri" value="{{ ap_chat.get('uri', '') }}" placeholder="/v1/api/v1/chat/completions" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">iB2B Host</span><input type="text" name="llm_ai_platform_ib2b_host" value="{{ ap_ib2b.get('host', '') }}" placeholder="https://ib2b.internal" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">iB2B URI</span><input type="text" name="llm_ai_platform_ib2b_uri" value="{{ ap_ib2b.get('uri', '') }}" placeholder="/dsp/rest-sts/..." class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="llm_ai_platform_username" value="{{ ap_auth.get('username', '') }}" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="llm_ai_platform_password" value="{{ ap_auth.get('password', '') }}" placeholder="Password" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Usercase</span><input type="text" name="llm_ai_platform_usercase" value="{{ ap_auth.get('usercase', '') }}" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Trust Token Header</span><input type="text" name="llm_ai_platform_trust_token_header" value="{{ ap_auth.get('trust_token_header', '') }}" placeholder="X-...-E2E-Trust-Token" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Tracking Prefix</span><input type="text" name="llm_ai_platform_tracking_prefix" value="{{ ap_auth.get('tracking_prefix', '') }}" placeholder="EFP" class="portal-form-input" /></label>
+        </div>
+        <div class="portal-inline-note">AI Platform exchanges username/password for a short-lived token via iB2B, then calls the chat endpoint. The password is stored encrypted.</div>
       </div>
 
     </section>

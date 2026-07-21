@@ -123,16 +123,20 @@ class RuntimeProfileTestService:
         return True, f"Confluence connection OK for {name}."
 
     async def _test_llm(self, config: dict, runtime_type: str | None = None) -> tuple[bool, str]:
+        from app.contracts.llm_catalog import normalize_provider
+
         llm_cfg = config.get("llm") if isinstance(config.get("llm"), dict) else {}
-        provider = str(llm_cfg.get("provider") or "").strip()
+        provider = normalize_provider(llm_cfg.get("provider"))
         model = str(llm_cfg.get("model") or "").strip()
-        api_key = str(llm_cfg.get("api_key") or "").strip()
         _ = runtime_type
 
-        if provider != "github_copilot":
-            return False, f"Unsupported LLM provider: {provider or 'empty'}"
         if not model:
             return False, "LLM model is required."
+
+        if provider == "ai_platform":
+            return await self._test_ai_platform(llm_cfg, model)
+
+        api_key = str(llm_cfg.get("api_key") or "").strip()
         if not api_key:
             return False, "LLM API key is required."
 
@@ -161,6 +165,73 @@ class RuntimeProfileTestService:
         if not ok:
             return False, f"{provider}/{model} test failed: {message}"
         return True, f"LLM smoke test OK: {provider}/{model}."
+
+    async def _test_ai_platform(self, llm_cfg: dict, model: str) -> tuple[bool, str]:
+        ap = llm_cfg.get("ai_platform") if isinstance(llm_cfg.get("ai_platform"), dict) else {}
+        chat = ap.get("chat") if isinstance(ap.get("chat"), dict) else {}
+        ib2b = ap.get("ib2b") if isinstance(ap.get("ib2b"), dict) else {}
+        auth = ap.get("auth") if isinstance(ap.get("auth"), dict) else {}
+        chat_host = str(chat.get("host") or "").strip()
+        chat_uri = str(chat.get("uri") or "/v1/api/v1/chat/completions").strip()
+        ib2b_host = str(ib2b.get("host") or "").strip()
+        ib2b_uri = str(ib2b.get("uri") or "").strip()
+        username = str(auth.get("username") or "").strip()
+        password = str(auth.get("password") or "").strip()
+        usercase = str(auth.get("usercase") or "").strip()
+        trust_header = str(auth.get("trust_token_header") or "X-XXXX-E2E-Trust-Token").strip()
+        prefix = str(auth.get("tracking_prefix") or "EFP").strip()
+        token = str(auth.get("token") or "").strip()
+
+        if not chat_host:
+            return False, "AI Platform chat host is required."
+
+        # Exchange username/password for a short-lived JWT via iB2B unless a token
+        # was supplied directly.
+        if not token:
+            if not (username and password and ib2b_host and ib2b_uri):
+                return False, "AI Platform requires a token, or username/password plus iB2B host/uri."
+            ok, message, data = await self._http_json_request(
+                method="POST",
+                url=self._join_url(ib2b_host, ib2b_uri),
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                payload={
+                    "input_token_state": {"token_type": "CREDENTIAL", "username": username, "password": password},
+                    "output_token_state": {"token_type": "JWT"},
+                },
+                timeout=20.0,
+            )
+            if not ok:
+                return False, f"AI Platform token exchange failed: {message}"
+            token = str((data or {}).get("issued_token") or "").strip()
+            if not token:
+                return False, "AI Platform token exchange did not return issued_token."
+
+        tracking = f"{prefix}-smoketest"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            trust_header: token,
+            "x-correlation-id": tracking,
+            "x-usersession-id": tracking,
+        }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_completion_tokens": 1,
+        }
+        if usercase:
+            payload["user"] = usercase
+        return await self._provider_request("ai_platform", model, self._join_url(chat_host, chat_uri), headers, payload)
+
+    @staticmethod
+    def _join_url(host: str, uri: str) -> str:
+        host = host.rstrip("/")
+        uri = uri.strip()
+        if uri.startswith("http://") or uri.startswith("https://"):
+            return uri
+        if not uri.startswith("/"):
+            uri = "/" + uri
+        return host + uri
 
     @staticmethod
     def _first_auth_instance(instances: list) -> dict | None:

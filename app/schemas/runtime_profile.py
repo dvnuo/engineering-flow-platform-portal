@@ -29,6 +29,21 @@ PORTAL_MANAGED_FIELD_TREE = {
         "endpoint": True,
         "temperature": True,
         "max_tokens": True,
+        "reasoning_effort": True,
+        # AI Platform rich config (mirrors the tools inspect-image ai_platform
+        # shape): chat/ib2b endpoints + credentials. password is encrypted in
+        # the Secret and redacted in views.
+        "ai_platform": {
+            "chat": {"host": True, "uri": True},
+            "ib2b": {"host": True, "uri": True},
+            "auth": {
+                "username": True,
+                "password": True,
+                "usercase": True,
+                "trust_token_header": True,
+                "tracking_prefix": True,
+            },
+        },
     },
     "proxy": {
         "enabled": True,
