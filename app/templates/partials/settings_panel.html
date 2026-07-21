@@ -93,10 +93,7 @@
         <label class="portal-form-label">
           <span class="portal-form-label">Provider</span>
           <select name="llm_provider" id="llm_provider" class="portal-form-select">
-            <option value="" {{ 'selected' if not raw_llm.get('provider') else '' }}>Use runtime local default</option>
-            <option value="openai" {{ 'selected' if raw_llm.get('provider') == 'openai' else '' }}>OpenAI</option>
-            <option value="anthropic" {{ 'selected' if raw_llm.get('provider') == 'anthropic' else '' }}>Anthropic</option>
-            <option value="github_copilot" {{ 'selected' if raw_llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option>
+            <option value="github_copilot" selected>GitHub Copilot</option>
           </select>
         </label>
         <label class="portal-form-label">

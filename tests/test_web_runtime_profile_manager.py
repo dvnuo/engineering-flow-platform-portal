@@ -129,7 +129,7 @@ def test_runtime_profile_save_updates_and_triggers(monkeypatch):
         assert rp.description == "new-desc"
         assert rp.revision == 2
         saved = json.loads(rp.config_json)
-        assert saved["llm"]["provider"] == "anthropic"
+        assert saved["llm"]["provider"] == "github_copilot"
         assert "temperature" not in saved["llm"]
         assert "tools" not in saved["llm"]
         assert "max_tokens" not in saved["llm"]
@@ -172,7 +172,7 @@ def test_runtime_profile_save_full_form_only_touched_debug_persists_only_debug(m
         assert resp.status_code == 200
         db.refresh(rp)
         assert json.loads(rp.config_json) == {
-            "llm": {"provider": "openai"},
+            "llm": {"provider": "github_copilot"},
             "debug": {"enabled": True, "log_level": "ERROR"},
         }
     finally:
@@ -257,7 +257,7 @@ def test_runtime_profile_panel_renders_view_defaults_for_sparse_profiles(monkeyp
         assert resp.status_code == 200
         assert 'name="jira_instance_count" value="0"' in resp.text
         assert 'name="confluence_instance_count" value="0"' in resp.text
-        assert 'option value="" selected>Use runtime local default</option>' in resp.text
+        assert '<option value="github_copilot" selected>GitHub Copilot</option>' in resp.text
         assert 'name="llm_tools_mode"' not in resp.text
         assert 'data-current-value="" data-initial-value=""' in resp.text
         assert "PR review requests" not in resp.text
@@ -492,68 +492,5 @@ def test_runtime_profile_save_ignores_hidden_llm_advanced_fields(monkeypatch):
         assert "tools" not in saved["llm"]
         assert "temperature" not in saved["llm"]
         assert "response_flow" not in saved["llm"]
-    finally:
-        cleanup()
-
-
-def test_runtime_profile_save_persists_temperature_only_for_exact_gpt4(monkeypatch):
-    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
-    try:
-        resp = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={
-                "__touch_llm": "1",
-                "__touch_proxy": "0",
-                "__touch_jira": "0",
-                "__touch_confluence": "0",
-                "__touch_github": "0",
-                "__touch_git": "0",
-                "__touch_debug": "0",
-                "name": rp.name,
-                "description": rp.description or "",
-                "llm_provider": "openai",
-                "llm_model": "gpt-4",
-                "llm_temperature": "0.2",
-                "llm_tools_mode": "inherit",
-            },
-        )
-        assert resp.status_code == 200
-        db.refresh(rp)
-        saved = json.loads(rp.config_json)
-        assert saved["llm"]["model"] == "gpt-4"
-        assert "temperature" not in saved["llm"]
-    finally:
-        cleanup()
-
-
-def test_runtime_profile_save_clears_temperature_when_model_not_gpt4_even_if_input_disabled(monkeypatch):
-    client, db, _owner, _other, rp, _running, _set_user, cleanup = _build_client(monkeypatch)
-    try:
-        rp.config_json = json.dumps({"llm": {"provider": "openai", "model": "gpt-4", "temperature": 0.4}})
-        db.add(rp)
-        db.commit()
-
-        resp = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={
-                "__touch_llm": "1",
-                "__touch_proxy": "0",
-                "__touch_jira": "0",
-                "__touch_confluence": "0",
-                "__touch_github": "0",
-                "__touch_git": "0",
-                "__touch_debug": "0",
-                "name": rp.name,
-                "description": rp.description or "",
-                "llm_provider": "openai",
-                "llm_model": "gpt-5.4-mini",
-                "llm_tools_mode": "inherit",
-            },
-        )
-        assert resp.status_code == 200
-        db.refresh(rp)
-        saved = json.loads(rp.config_json)
-        assert saved["llm"]["model"] == "gpt-5.4-mini"
-        assert "temperature" not in saved["llm"]
     finally:
         cleanup()

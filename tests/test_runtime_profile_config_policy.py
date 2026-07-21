@@ -9,8 +9,8 @@ def test_canonicalize_none_and_empty():
 def test_canonicalize_strips_hidden_llm_fields_and_preserves_other_llm_fields():
     raw = {
         "llm": {
-            "provider": "openai",
-            "model": "gpt-5",
+            "provider": "github_copilot",
+            "model": "gpt-5.6-terra",
             "temperature": 0.1,
             "response_flow": {"plan_policy": "always"},
             "tool_loop": {"one_tool_per_turn": True},
@@ -21,8 +21,8 @@ def test_canonicalize_strips_hidden_llm_fields_and_preserves_other_llm_fields():
         "jira": {"enabled": True},
     }
     result = canonicalize_portal_runtime_profile_config(raw)
-    assert result["llm"]["provider"] == "openai"
-    assert result["llm"]["model"] == "gpt-5"
+    assert result["llm"]["provider"] == "github_copilot"
+    assert result["llm"]["model"] == "gpt-5.6-terra"
     assert "temperature" not in result["llm"]
     assert "response_flow" not in result["llm"]
     assert "tool_loop" not in result["llm"]

@@ -638,7 +638,7 @@ def test_runtime_profile_context_projection_drops_tool_restriction_fields():
             "enabled" + "_tools": None,
             "disabled" + "_tools": ["write"],
             "tool" + "_permissions": {"bash": "ask"},
-            "llm": {"provider": "github_copilot", "model": "gpt-5-mini", "tools": ["bash"]},
+            "llm": {"provider": "github_copilot", "model": "gpt-5.5", "tools": ["bash"]},
             "github": {"enabled": True, "api_token": "ghp"},
             "aws": {"enabled": True, "domain": "HBEU", "username": "user", "password": "pw"},
         },
@@ -652,7 +652,7 @@ def test_runtime_profile_context_projection_drops_tool_restriction_fields():
     assert "tool" + "_permissions" not in projected
     assert "tools" not in projected["llm"]
     assert projected["llm"]["provider"] == "github_copilot"
-    assert projected["llm"]["model"] == "gpt-5-mini"
+    assert projected["llm"]["model"] == "gpt-5.5"
     assert projected["github"]["api_token"] == "ghp"
     assert projected["aws"]["domain"] == "HBEU"
     assert projected["aws"]["username"] == "user"

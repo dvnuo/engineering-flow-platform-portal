@@ -24,7 +24,6 @@ from app.schemas.runtime_profile import (
     dump_runtime_profile_config_json,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_config_dict,
-    runtime_profile_model_supports_temperature,
 )
 from app.services.requirement_bundle_github_service import (
     RequirementBundleGithubService,
@@ -803,7 +802,6 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "llm": llm,
         "raw_llm": raw_llm,
         "effective_llm": llm,
-        "llm_temperature_allowed": runtime_profile_model_supports_temperature(raw_llm.get("model")),
         "jira": jira,
         "jira_instances": jira_instances,
         "confluence": confluence,

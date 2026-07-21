@@ -131,7 +131,7 @@ def test_runtime_metadata_carries_concise_runtime_profile_context(monkeypatch):
             {
                 "llm": {
                     "provider": "github_copilot",
-                    "model": "gpt-5-mini",
+                    "model": "gpt-5.5",
                     "api_key": "OA",
                     "tools": ["bash"],
                 },
@@ -193,9 +193,9 @@ def test_runtime_metadata_carries_concise_runtime_profile_context(monkeypatch):
 
     assert metadata["runtime_profile_id"] == "rp-1"
     assert metadata["provider"] == "github_copilot"
-    assert metadata["model"] == "gpt-5-mini"
+    assert metadata["model"] == "gpt-5.5"
     assert cfg["llm"]["provider"] == "github_copilot"
-    assert cfg["llm"]["model"] == "gpt-5-mini"
+    assert cfg["llm"]["model"] == "gpt-5.5"
     assert cfg["llm"]["api_key"] == "OA"
     assert "tools" not in cfg["llm"]
     assert "runtime_type" not in cfg
@@ -213,7 +213,7 @@ def test_runtime_metadata_drops_tool_selection_and_authorization_metadata(monkey
         revision=8,
         config_json=json.dumps(
             {
-                "llm": {"provider": "github_copilot", "model": "gpt-5-mini"},
+                "llm": {"provider": "github_copilot", "model": "gpt-5.5"},
                 "enabled" + "_tools": ["bash", "read"],
                 "disabled" + "_tools": ["webfetch"],
                 "tool" + "_permissions": {"bash": "ask"},

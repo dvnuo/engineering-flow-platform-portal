@@ -529,7 +529,7 @@ def test_agent_async_task_dispatch_uses_single_runtime_profile_model(db_session,
             {
                 "llm": {
                     "provider": "github_copilot",
-                    "model": "gpt-5.4-mini",
+                    "model": "gpt-5.4",
                 }
             }
         ),
@@ -599,10 +599,10 @@ def test_agent_async_task_dispatch_uses_single_runtime_profile_model(db_session,
     assert captured["url"].endswith("/api/tasks/execute")
     metadata = captured["body"]["metadata"]
     assert metadata["provider"] == "github_copilot"
-    assert metadata["model"] == "gpt-5.4-mini"
+    assert metadata["model"] == "gpt-5.4"
     assert metadata["runtime_profile"]["provider"] == "github_copilot"
-    assert metadata["runtime_profile"]["model"] == "gpt-5.4-mini"
-    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.4-mini"
+    assert metadata["runtime_profile"]["model"] == "gpt-5.4"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.4"
 
 
 def test_dispatcher_derives_summary_from_review_summary():

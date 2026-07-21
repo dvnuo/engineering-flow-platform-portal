@@ -1,5 +1,4 @@
 import json
-import math
 from copy import deepcopy
 from datetime import datetime
 
@@ -181,33 +180,6 @@ def normalize_runtime_profile_model_id_for_capabilities(value) -> str:
             model = model.rsplit(sep, 1)[-1].strip()
     return model
 
-
-def runtime_profile_model_supports_temperature(model) -> bool:
-    """Only exact gpt-4 may persist/use temperature."""
-    return normalize_runtime_profile_model_id_for_capabilities(model) == "gpt-4"
-
-
-def normalize_runtime_profile_temperature(value) -> float:
-    if isinstance(value, bool) or value is None:
-        raise ValueError("llm.temperature must be a number between 0 and 2")
-
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("llm.temperature must be a number between 0 and 2")
-        candidate = stripped
-    else:
-        candidate = value
-
-    try:
-        parsed = float(candidate)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("llm.temperature must be a number between 0 and 2") from exc
-
-    if not math.isfinite(parsed) or parsed < 0 or parsed > 2:
-        raise ValueError("llm.temperature must be a number between 0 and 2")
-
-    return parsed
 
 def sanitize_runtime_profile_llm_oauth(value) -> dict:
     if not isinstance(value, dict):
@@ -544,11 +516,8 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
                     llm_copy[key] = cleaned
                 else:
                     llm_copy.pop(key, None)
-        if runtime_profile_model_supports_temperature(llm_copy.get("model")):
-            if "temperature" in llm_copy:
-                llm_copy["temperature"] = normalize_runtime_profile_temperature(llm_copy.get("temperature"))
-        else:
-            llm_copy.pop("temperature", None)
+        # Temperature is not a Copilot-managed knob; never persist it.
+        llm_copy.pop("temperature", None)
         api_key = str(llm_copy.get("api_key") or "").strip()
         if api_key:
             llm_copy["api_key"] = api_key
