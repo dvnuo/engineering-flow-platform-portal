@@ -283,6 +283,82 @@ def test_settings_save_ignores_llm_tools_custom_patterns(monkeypatch):
         cleanup()
 
 
+def test_settings_panel_restart_confirm_is_on_form_not_button(monkeypatch):
+    # htmx resolves hx-confirm from the request-issuing element (the <form>),
+    # never from a descendant submit button, so the restart confirmation must
+    # live on the form to actually fire.
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {})
+        agent.status = "running"
+        db.add(agent)
+        db.commit()
+
+        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert resp.status_code == 200
+        text = resp.text
+
+        # The form carries the confirm.
+        form_open = text[text.index('<form id="settings-form"'):]
+        form_tag = form_open[: form_open.index(">") + 1]
+        assert "hx-confirm=" in form_tag
+        assert "Saving will restart 1 running agent(s)" in form_tag
+
+        # The submit button carries no hx-confirm (would be a silent no-op).
+        assert 'class="portal-btn is-primary">Save Settings</button>' in text
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_panel_restart_confirm_is_on_form_not_button(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {})
+        agent.status = "running"
+        db.add(agent)
+        db.commit()
+
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        text = resp.text
+
+        form_open = text[text.index('<form id="runtime-profile-form"'):]
+        form_tag = form_open[: form_open.index(">") + 1]
+        assert "hx-confirm=" in form_tag
+        assert "Saving will restart 1 running agent(s)" in form_tag
+
+        assert 'class="portal-btn is-primary">Save Settings</button>' in text
+    finally:
+        cleanup()
+
+
+def test_settings_save_unchanged_config_skips_restart(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {})
+
+        payload = {"__touch_jira": "1", "jira_enabled": "on"}
+
+        # First save changes the config (enables jira): revision bumps and the
+        # running bound agent restarts.
+        first = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+        assert first.status_code == 200
+        db.refresh(rp)
+        assert rp.revision == 2
+        assert "to apply revision" in first.text  # restart status message
+
+        # Re-saving the byte-identical config is a no-op: no revision bump and no
+        # restart of the running agent.
+        second = client.post(f"/app/agents/{agent.id}/settings/save", data=payload)
+        assert second.status_code == 200
+        db.refresh(rp)
+        assert rp.revision == 2
+        assert "to apply revision" not in second.text
+        assert "Runtime profile saved." in second.text
+    finally:
+        cleanup()
+
+
 def test_settings_save_drops_existing_llm_tools_on_save(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:

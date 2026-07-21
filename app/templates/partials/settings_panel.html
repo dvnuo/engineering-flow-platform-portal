@@ -27,7 +27,7 @@
       Recent failed trigger: <strong>{{ recent_failed_trigger_summary }}</strong>
     </div>
   {% else %}
-  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" class="portal-panel-stack">
+  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running agent(s); in-flight tasks will be interrupted."{% endif %} class="portal-panel-stack">
     <input type="hidden" name="__touch_llm" value="0" data-touch-flag="llm" />
     <input type="hidden" name="__touch_proxy" value="0" data-touch-flag="proxy" />
     <input type="hidden" name="__touch_jira" value="0" data-touch-flag="jira" />
@@ -268,7 +268,7 @@
       <label class="portal-form-label"><span class="portal-form-label">Log Level</span><select name="debug_log_level" class="portal-form-select"><option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option><option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option><option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option><option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option></select></label>
     </section>
 
-    <button type="submit" class="portal-btn is-primary" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running agent(s); in-flight tasks will be interrupted."{% endif %}>Save Settings</button>
+    <button type="submit" class="portal-btn is-primary">Save Settings</button>
     {% endif %}
   </form>
   {% endif %}
