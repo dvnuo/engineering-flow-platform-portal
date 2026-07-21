@@ -109,7 +109,7 @@ def test_settings_panel_get_llm_tools_all_mode_by_default(monkeypatch):
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
         assert 'name="llm_provider"' in resp.text
-        assert 'option value="" selected>Use runtime local default</option>' in resp.text
+        assert 'option value="github_copilot" selected>GitHub Copilot</option>' in resp.text
         assert 'name="llm_tools_mode"' not in resp.text
         assert 'data-current-value="" data-initial-value=""' in resp.text
         assert 'name="llm_temperature"' not in resp.text
@@ -275,7 +275,7 @@ def test_settings_save_ignores_llm_tools_custom_patterns(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["provider"] == "openai"
+        assert cfg["llm"]["provider"] == "github_copilot"
         assert "tools" not in cfg["llm"]
         assert 'name="llm_tools_count"' not in resp.text
         assert 'data-action="add-llm-tool-pattern"' not in resp.text
@@ -413,8 +413,8 @@ def test_settings_save_merges_into_raw_profile_without_injecting_hidden_defaults
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["provider"] == "openai"
-        assert cfg["llm"]["model"] == "gpt-5"
+        assert cfg["llm"]["provider"] == "github_copilot"
+        assert cfg["llm"]["model"] == "gpt-5.6-terra"
         assert "tools" not in cfg["llm"]
         assert "max_retries" not in cfg["llm"]
         assert "system-prompt" not in cfg["llm"]
@@ -450,8 +450,8 @@ def test_settings_save_clears_llm_request_timeout_overrides(monkeypatch):
         assert resp.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["provider"] == "openai"
-        assert cfg["llm"]["model"] == "gpt-5"
+        assert cfg["llm"]["provider"] == "github_copilot"
+        assert cfg["llm"]["model"] == "gpt-5.6-terra"
         assert "timeout" not in cfg["llm"]
         assert "timeout_ms" not in cfg["llm"]
         assert "chunk_timeout_ms" not in cfg["llm"]
@@ -730,7 +730,7 @@ def test_settings_panel_hides_response_flow_controls_and_ignores_submitted_value
         assert save.status_code == 200
         db.refresh(rp)
         cfg = json.loads(rp.config_json)
-        assert cfg["llm"]["provider"] == "openai"
+        assert cfg["llm"]["provider"] == "github_copilot"
         assert "tools" not in cfg["llm"]
         assert "response_flow" not in cfg["llm"]
     finally:

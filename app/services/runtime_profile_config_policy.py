@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from app.contracts.llm_catalog import COPILOT_MODELS, COPILOT_PROVIDER, DEFAULT_COPILOT_MODEL
+
 HIDDEN_PORTAL_LLM_FIELDS: tuple[str, ...] = (
     "temperature",
     "response_flow",
@@ -28,6 +30,17 @@ def canonicalize_portal_runtime_profile_config(config: dict[str, Any] | None) ->
         llm.pop(key, None)
     for key in REMOVED_PORTAL_LLM_CREDENTIAL_FIELDS:
         llm.pop(key, None)
+
+    # GitHub Copilot is the only supported provider. Coerce any llm block that
+    # carries a provider/model (legacy openai/anthropic, aliases, blanks) to a
+    # valid Copilot pair, so the persisted canonical config — and everything
+    # projected from it into the runtime Secret — is Copilot-only. This runs on
+    # every save and via sanitize_all_persisted_runtime_profiles (migration).
+    if llm.get("provider") or llm.get("model"):
+        llm["provider"] = COPILOT_PROVIDER
+    if llm.get("model") is not None:
+        model = str(llm.get("model") or "").strip()
+        llm["model"] = model if model in COPILOT_MODELS else DEFAULT_COPILOT_MODEL
 
     if llm:
         canonical["llm"] = llm

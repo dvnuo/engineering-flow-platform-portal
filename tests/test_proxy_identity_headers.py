@@ -335,16 +335,16 @@ def test_normalize_and_validate_model_override_accepts_trimmed_allowed_value(mon
     import app.api.proxy as proxy_module
 
     fake_agent = SimpleNamespace(runtime_profile_id="rp-1")
-    fake_profile = SimpleNamespace(config_json='{"llm": {"provider": "openai", "model": "gpt-5-mini"}}')
+    fake_profile = SimpleNamespace(config_json='{"llm": {"provider": "github_copilot", "model": "gpt-5.6-terra"}}')
     monkeypatch.setattr(
         proxy_module,
         "RuntimeProfileRepository",
         lambda _db: SimpleNamespace(get_by_id=lambda _profile_id: fake_profile),
     )
 
-    payload = {"message": "hi", "model_override": "  gpt-5  "}
+    payload = {"message": "hi", "model_override": "  gpt-5.6-sol  "}
     normalized = proxy_module._normalize_and_validate_model_override_for_agent(payload, agent=fake_agent, db=object())
-    assert normalized["model_override"] == "gpt-5"
+    assert normalized["model_override"] == "gpt-5.6-sol"
 
 
 def test_normalize_and_validate_model_override_rejects_model_not_allowed_for_provider(monkeypatch):

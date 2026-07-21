@@ -10023,27 +10023,13 @@ function updateTemperatureInputState(root) {
 }
 
 const managedProviderModels = {
+  // GitHub Copilot is the only supported LLM provider.
   github_copilot: [
     { value: "gpt-5.4", label: "GPT-5.4" },
     { value: "gpt-5.5", label: "GPT-5.5" },
     { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
     { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
-  ],
-  openai: [
-    { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
-    { value: "gpt-5", label: "GPT-5" },
-    { value: "gpt-5-mini", label: "GPT-5 mini" },
-    { value: "gpt-4.1", label: "GPT-4.1" },
-    { value: "gpt-4o", label: "GPT-4o" },
-    { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-    { value: "gpt-4", label: "GPT-4" },
-    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-  ],
-  anthropic: [
-    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-    { value: "claude-haiku-4-20250514", label: "Claude Haiku 4" },
-    { value: "claude-opus-4-20250514", label: "Claude Opus 4" },
   ],
 };
 

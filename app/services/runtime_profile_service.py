@@ -5,35 +5,14 @@ from sqlalchemy.orm import Session
 from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.contracts.llm_catalog import COPILOT_MODELS, COPILOT_PROVIDER
 from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 
 
 class RuntimeProfileService:
-    _MANAGED_PROVIDER_MODELS = {
-        "github_copilot": (
-            "gpt-5.4",
-            "gpt-5.5",
-            "gpt-5.6-luna",
-            "gpt-5.6-sol",
-            "gpt-5.6-terra",
-        ),
-        "openai": (
-            "gpt-5.4-mini",
-            "gpt-5",
-            "gpt-5-mini",
-            "gpt-4.1",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4",
-            "gpt-3.5-turbo",
-        ),
-        "anthropic": (
-            "claude-sonnet-4-20250514",
-            "claude-haiku-4-20250514",
-            "claude-opus-4-20250514",
-        ),
-    }
+    # GitHub Copilot is the only supported LLM provider.
+    _MANAGED_PROVIDER_MODELS = {COPILOT_PROVIDER: COPILOT_MODELS}
 
     def __init__(self, db: Session):
         self.db = db
@@ -41,14 +20,11 @@ class RuntimeProfileService:
 
     @staticmethod
     def normalize_managed_llm_provider(value: str | None) -> str:
+        # GitHub Copilot is the only supported provider; every NON-empty value
+        # (copilot aliases or a legacy openai/anthropic value) normalizes to it.
+        # An empty value stays empty so callers can tell "not set" from "Copilot".
         provider = str(value or "").strip().lower()
-        aliases = {
-            "claude": "anthropic",
-            "github": "github_copilot",
-            "github-copilot": "github_copilot",
-            "copilot": "github_copilot",
-        }
-        return aliases.get(provider, provider)
+        return COPILOT_PROVIDER if provider else ""
 
     @staticmethod
     def managed_model_values_for_provider(provider: str | None) -> tuple[str, ...]:

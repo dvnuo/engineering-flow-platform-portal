@@ -526,7 +526,7 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
             name="profile-with-secrets",
             revision=7,
             is_default=True,
-            config_json='{"llm":{"provider":"claude","model":"claude-sonnet-4-20250514"},"github":{"token":"ghp_secret"},"proxy":{"password":"secret"}}',
+            config_json='{"llm":{"provider":"github_copilot","model":"gpt-5.5"},"github":{"token":"ghp_secret"},"proxy":{"password":"secret"}}',
         )
         db.add(profile)
         db.commit()
@@ -545,8 +545,8 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
         assert body == {
             "runtime_profile_id": profile.id,
             "revision": 7,
-            "provider": "anthropic",
-            "current_model": "claude-sonnet-4-20250514",
+            "provider": "github_copilot",
+            "current_model": "gpt-5.5",
         }
         assert "config_json" not in body
         assert "token" not in body

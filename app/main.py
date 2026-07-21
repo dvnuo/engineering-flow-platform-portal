@@ -77,6 +77,10 @@ def on_startup() -> None:
             runtime_profile_service.ensure_user_has_default_profile(admin_user)
 
         runtime_profile_service.ensure_defaults_for_all_users(db)
+        # Migrate any persisted profile still on a legacy (non-Copilot) provider:
+        # canonicalize now coerces provider/model to GitHub Copilot, and this
+        # rewrites existing rows so the UI and stored config stay consistent.
+        runtime_profile_service.sanitize_all_persisted_runtime_profiles()
     finally:
         db.close()
 

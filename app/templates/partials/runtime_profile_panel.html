@@ -47,7 +47,7 @@
     <section class="portal-panel-section" data-managed-section="llm">
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>LLM Model</h6></div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="llm_provider" id="llm_provider" class="portal-form-select"><option value="" {{ 'selected' if not raw_llm.get('provider') else '' }}>Use runtime local default</option><option value="openai" {{ 'selected' if raw_llm.get('provider') == 'openai' else '' }}>OpenAI</option><option value="anthropic" {{ 'selected' if raw_llm.get('provider') == 'anthropic' else '' }}>Anthropic</option><option value="github_copilot" {{ 'selected' if raw_llm.get('provider') == 'github_copilot' else '' }}>GitHub Copilot</option></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="llm_provider" id="llm_provider" class="portal-form-select"><option value="github_copilot" selected>GitHub Copilot</option></select></label>
         <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ raw_llm.get('model', '') }}" data-initial-value="{{ raw_llm.get('model', '') }}"></select></label>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>

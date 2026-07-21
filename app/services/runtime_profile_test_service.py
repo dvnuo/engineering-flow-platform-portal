@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.schemas.runtime_profile import runtime_profile_model_supports_temperature
 
 
 class RuntimeProfileTestService:
@@ -130,43 +129,10 @@ class RuntimeProfileTestService:
         api_key = str(llm_cfg.get("api_key") or "").strip()
         _ = runtime_type
 
-        if provider not in {"openai", "anthropic", "github_copilot"}:
+        if provider != "github_copilot":
             return False, f"Unsupported LLM provider: {provider or 'empty'}"
         if not model:
             return False, "LLM model is required."
-        if provider in {"openai", "anthropic"} and not api_key:
-            return False, "LLM API key is required."
-
-        if provider == "openai":
-            api_base = self._llm_base_url(llm_cfg, "https://api.openai.com/v1")
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": "ping"}],
-            }
-            if model.startswith("gpt-5"):
-                payload["max_completion_tokens"] = 1
-            else:
-                payload["max_tokens"] = 1
-
-            if runtime_profile_model_supports_temperature(model):
-                payload["temperature"] = 0
-            return await self._provider_request(provider, model, f"{api_base}/chat/completions", headers, payload)
-
-        if provider == "anthropic":
-            api_base = self._llm_base_url(llm_cfg, "https://api.anthropic.com")
-            headers = {
-                "x-api-key": api_key,
-                "Content-Type": "application/json",
-                "anthropic-version": "2023-06-01",
-            }
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-            }
-            return await self._provider_request(provider, model, f"{api_base}/messages", headers, payload)
-
         if not api_key:
             return False, "LLM API key is required."
 

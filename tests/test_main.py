@@ -42,6 +42,7 @@ def test_main_calls_setup_logging_on_startup_not_import(monkeypatch):
         lambda _db: SimpleNamespace(
             ensure_user_has_default_profile=lambda _user: None,
             ensure_defaults_for_all_users=lambda _db2: None,
+            sanitize_all_persisted_runtime_profiles=lambda: None,
         ),
     )
 
@@ -72,6 +73,7 @@ def test_main_startup_does_not_call_create_all(monkeypatch):
         lambda _db: SimpleNamespace(
             ensure_user_has_default_profile=lambda _user: None,
             ensure_defaults_for_all_users=lambda _db2: None,
+            sanitize_all_persisted_runtime_profiles=lambda: None,
         ),
     )
     monkeypatch.setattr(
@@ -110,6 +112,10 @@ def test_main_startup_starts_worker_after_runtime_profile_defaults(monkeypatch):
 
         def ensure_defaults_for_all_users(self, _db):
             call_order.append("ensure_defaults")
+
+        def sanitize_all_persisted_runtime_profiles(self):
+            call_order.append("sanitize_profiles")
+            return 0
 
     monkeypatch.setattr(app_main, "RuntimeProfileService", DummyRuntimeProfileService)
     monkeypatch.setattr(app_main, "SessionLocal", lambda: SimpleNamespace(close=lambda: call_order.append("db_close")))

@@ -94,10 +94,10 @@ def test_settings_merge_llm_tools_custom_mode_all_blank_patterns_skips_llm_confi
 
 def test_settings_merge_llm_response_flow_writes_nested_dict():
     merged, error = _settings_merge_payload(
-        {"llm": {"provider": "openai", "tools": ["*"]}},
+        {"llm": {"provider": "github_copilot", "tools": ["*"]}},
         {
             "__touch_llm": "1",
-            "llm_provider": "openai",
+            "llm_provider": "github_copilot",
             "llm_response_flow_plan_policy": "explicit_or_complex",
             "llm_response_flow_staging_policy": "always",
             "llm_response_flow_default_skill_execution_style": "direct",
@@ -108,7 +108,7 @@ def test_settings_merge_llm_response_flow_writes_nested_dict():
         },
     )
     assert error is None
-    assert merged["llm"]["provider"] == "openai"
+    assert merged["llm"]["provider"] == "github_copilot"
     assert "tools" not in merged["llm"]
     assert "response_flow" not in merged["llm"]
 
@@ -117,7 +117,7 @@ def test_settings_merge_llm_response_flow_blank_values_omit_subtree():
     merged, error = _settings_merge_payload(
         {
             "llm": {
-                "provider": "openai",
+                "provider": "github_copilot",
                 "response_flow": {
                     "plan_policy": "always",
                     "complexity_prompt_budget_ratio": 0.2,
@@ -126,7 +126,7 @@ def test_settings_merge_llm_response_flow_blank_values_omit_subtree():
         },
         {
             "__touch_llm": "1",
-            "llm_provider": "openai",
+            "llm_provider": "github_copilot",
             "llm_response_flow_plan_policy": "",
             "llm_response_flow_staging_policy": "",
             "llm_response_flow_default_skill_execution_style": "",
@@ -138,7 +138,7 @@ def test_settings_merge_llm_response_flow_blank_values_omit_subtree():
     )
     assert error is None
     assert "response_flow" not in merged["llm"]
-    assert merged["llm"]["provider"] == "openai"
+    assert merged["llm"]["provider"] == "github_copilot"
 
 
 def test_settings_merge_llm_response_flow_active_skill_conflict_policy_valid_value_writes_nested_key():
