@@ -39,7 +39,6 @@ from app.services.runtime_profile_config_policy import canonicalize_portal_runti
 from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider_from_settings, RuntimeCapabilityCatalogProvider
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
-from app.services.thinking_process_view import build_thinking_process_view
 from app.services.dashboard_summary import DashboardSummaryService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import get_log_context
@@ -218,26 +217,6 @@ def _status_tone_from_value(value: str | None) -> str:
     if normalized in {"", "unknown", "none", "null"}:
         return "neutral"
     return "info"
-
-
-def _has_thinking_view_data(view: dict) -> bool:
-    if not isinstance(view, dict):
-        return False
-    if "has_data" in view:
-        return bool(view.get("has_data"))
-    context = view.get("context") if isinstance(view.get("context"), dict) else {}
-    budget = view.get("budget") if isinstance(view.get("budget"), dict) else {}
-    active_skill = view.get("active_skill") if isinstance(view.get("active_skill"), dict) else {}
-    fallback = view.get("fallback") if isinstance(view.get("fallback"), dict) else {}
-    return bool(
-        view.get("events")
-        or budget
-        or active_skill.get("name")
-        or any(context.get(key) for key in ("objective", "summary", "current_state", "next_step"))
-        or fallback.get("latest_event_type")
-        or fallback.get("latest_event_state")
-        or fallback.get("last_execution_id")
-    )
 
 
 def _safe_json_object(raw: str | None, *, max_chars: int | None = None) -> dict | list | None:
@@ -2331,74 +2310,6 @@ async def agent_files_download(agent_id: str, request: Request, path: str = "", 
             media_type=content_type, 
             status_code=status_code,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/agents/{agent_id}/thinking/panel")
-async def app_agent_thinking_panel(request: Request, agent_id: str, session_id: str = ""):
-    """Backend-rendered thinking process panel"""
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    if not session_id:
-        return templates.TemplateResponse(
-            "partials/thinking_process_panel.html",
-            {"request": request, "agent_id": agent_id, "session_id": "", "chatlog": None, "view": {}, "error": "No session selected"},
-        )
-
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        metadata_record = AgentSessionMetadataRepository(db).get_by_agent_and_session(agent_id, session_id)
-
-        if not settings.k8s_enabled:
-            view = build_thinking_process_view(None, metadata_record)
-            return templates.TemplateResponse(
-                "partials/thinking_process_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "session_id": session_id,
-                    "chatlog": None,
-                    "view": view,
-                    "error": None if _has_thinking_view_data(view) else "Agent not running",
-                },
-            )
-
-        status_code, content, _ = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="GET",
-            subpath=f"api/sessions/{session_id}/chatlog",
-            query_items=[],
-            body=None,
-        )
-
-        if status_code >= 400:
-            if metadata_record:
-                view = build_thinking_process_view(None, metadata_record)
-                view["warning"] = f"Runtime unavailable ({status_code}), showing last metadata snapshot."
-                return templates.TemplateResponse(
-                    "partials/thinking_process_panel.html",
-                    {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "view": view, "error": None},
-                )
-            return templates.TemplateResponse(
-                "partials/thinking_process_panel.html",
-                {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": None, "view": {}, "error": f"Error: {status_code}"},
-            )
-
-        chatlog = json.loads(content.decode("utf-8"))
-        view = build_thinking_process_view(chatlog, metadata_record)
-        return templates.TemplateResponse(
-            "partials/thinking_process_panel.html",
-            {"request": request, "agent_id": agent_id, "session_id": session_id, "chatlog": chatlog, "view": view, "error": None},
         )
     finally:
         db.close()

@@ -28,7 +28,7 @@ def _run_node(script: str) -> dict:
 def _timeline_bundle(js: str) -> str:
     helper_names = [
         "normalizeRuntimeEventTypeAlias",
-        "isTrackableThinkingEvent",
+        "isTrackableStreamEvent",
         "isCompletionRuntimeState",
         "normalizeRuntimeEvent",
         "runtimeEventSummaryHash",
@@ -104,8 +104,8 @@ const toolItem = timeline.items.find((item) => item.kind === "tool");
 console.log(JSON.stringify({{
   normalizedToolType: opencodeTool.type,
   normalizedToolCall: opencodeTool.data.callID,
-  trackableTool: isTrackableThinkingEvent("session.next.tool.success"),
-  trackableQuestion: isTrackableThinkingEvent("question.requested"),
+  trackableTool: isTrackableStreamEvent("session.next.tool.success"),
+  trackableQuestion: isTrackableStreamEvent("question.requested"),
   duplicateChanged: results[3].changed,
   assistantText: timeline.assistantText,
   completed: timeline.completed,

@@ -1616,13 +1616,6 @@ async function runSuccessScenario() {{
     assert "Bundles refreshed" in data["success"]["toastMessages"]
 
 
-def test_thinking_process_template_prefers_normalized_fields():
-    template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
-    assert "event.get('type')" in template or "event.event_type or event.type" in template
-    if "event.summary" in template and "event.data and event.data.message" in template:
-        assert template.find("event.summary") < template.find("event.data and event.data.message")
-
-
 def test_copilot_auth_no_runtime_proxy_strings():
     js = _chat_ui_js_source()
     assert "/a/${agentId}/api/copilot/auth/start" not in js
@@ -1889,30 +1882,6 @@ async function runScenario(mode) {{
     assert "missing status" in data["missingStatus"]["summaryText"]
     assert "runtime_type" not in data["missingStatus"]["startBody"]
 
-
-def test_thinking_process_advanced_debug_copy_controls_are_wired():
-    template = Path("app/templates/partials/thinking_process_panel.html").read_text(encoding="utf-8")
-    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
-    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
-
-    assert 'data-copy-debug-text="1"' in template
-    assert 'data-copyable-text-block="1"' in template
-    assert 'data-copy-source="1"' in template
-    assert 'data-copy-label="System Prompt"' in template
-    assert 'data-copy-label="Request Flow"' in template
-    assert 'data-copy-label="Available Tools"' in template
-    assert 'data-copy-label="Final Response"' in template
-
-    assert 'target?.closest("[data-copy-debug-text]")' in js
-    assert 'closest("[data-copyable-text-block]")' in js
-    assert 'querySelector("[data-copy-source]")' in js
-    assert "copyText(text)" in js
-    assert "setDebugCopyButtonCopied" in js
-    assert "Copied to clipboard" in js
-
-    assert ".portal-copy-icon-btn" in css
-    assert ".portal-copy-icon-btn.is-copied" in css
-    assert ".portal-copyable-text-head" in css
 
 def test_chat_stream_event_type_parsing_source_markers_present():
     js = _chat_ui_js_source()

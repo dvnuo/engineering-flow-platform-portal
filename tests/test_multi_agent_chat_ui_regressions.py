@@ -41,20 +41,6 @@ def test_chat_ui_includes_display_block_renderer_helpers():
     assert "function enhanceMarkdownBlock(" in js_source
 
 
-def test_chat_ui_uses_live_thinking_panel_rendering():
-    js_source = _chat_ui_js_source()
-    css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
-    assert "renderThinkingPanelFromClientState" in js_source
-    assert "scheduleThinkingPanelRefresh" in js_source
-    assert "loadPersistedThinkingPanel" in js_source
-    assert "View Thinking Process" not in js_source
-    assert "attachThinkingToLatestAssistant" not in js_source
-    assert "renderThinkingProcess(" not in js_source
-    assert "data-thinking-id" not in js_source
-    assert ".portal-context-meter" in css_source
-    assert ".portal-live-thinking" in css_source
-
-
 def test_composer_model_selector_keeps_per_agent_model_override_isolated():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -326,7 +312,7 @@ def test_background_success_does_not_render_into_current_dom():
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
     mark_unread = _extract_js_function(js_file, "markAgentUnread")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
 
     script = f"""
@@ -368,8 +354,7 @@ aState.currentRequest = {{ clientRequestId: "req-a" }};
     needsReload: ensureChatState("agent-A").needsReload,
     bSession: state.agentSessionIds.get("agent-B"),
     renderAgentListCalls: rendered,
-    inflightThinking: ensureChatState("agent-A").inflightThinking,
-    pendingThinkingEvents: ensureChatState("agent-A").pendingThinkingEvents
+    inflightEventStream: ensureChatState("agent-A").inflightEventStream,
   }}));
 }})();
 """
@@ -379,8 +364,7 @@ aState.currentRequest = {{ clientRequestId: "req-a" }};
     assert data["needsReload"] is True
     assert data["bSession"] == "s-b"
     assert data["renderAgentListCalls"] == 1
-    assert data["inflightThinking"] is None
-    assert data["pendingThinkingEvents"] is None
+    assert data["inflightEventStream"] is None
 
 
 def test_selected_agent_hidden_success_notifies_and_merges_events():
@@ -393,7 +377,7 @@ def test_selected_agent_hidden_success_notifies_and_merges_events():
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
     handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
 
@@ -433,7 +417,7 @@ function loadSessionForAgent() {{ throw new Error("should not reload"); }}
 {handle_success}
 const chatState = ensureChatState("agent-A");
 chatState.currentRequest = {{ clientRequestId: "req-a" }};
-chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id: "req-a", session_id: "s-a", data: {{ message: "ws" }} }}] }};
+chatState.inflightEventStream = {{ events: [{{type: "execution.started", request_id: "req-a", session_id: "s-a", data: {{ message: "ws" }} }}] }};
 (async () => {{
   await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
     session_id: "s-a2",
@@ -443,7 +427,7 @@ chatState.inflightThinking = {{ events: [{{type: "execution.started", request_id
   console.log(JSON.stringify({{
     notifyCalls,
     editCalls,
-    mergedCount: (ensureChatState("agent-A").lastThinkingSnapshot?.events || []).length,
+    mergedCount: (ensureChatState("agent-A").lastEventStreamSnapshot?.events || []).length,
   }}));
 }})();
 """
@@ -559,50 +543,6 @@ console.log(JSON.stringify(result));
     assert data["budget"]["usage_percent"] == 33
 
 
-def test_update_thinking_context_from_event_preserves_existing_contents_when_incoming_is_budget_only():
-    node_bin = shutil.which("node")
-    if not node_bin:
-        pytest.skip("node is not installed; skipping JS helper behavior test")
-
-    js_file = _chat_ui_js_source()
-    extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
-    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
-    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
-    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
-
-    script = f"""
-{extract_context_budget}
-{has_meaningful}
-{has_contents}
-{update_context}
-
-const thinking = {{
-  contextState: {{
-    summary: "Existing live summary",
-    next_step: "Existing next step",
-    budget: {{ usage_percent: 20 }},
-  }},
-  contextBudget: {{ usage_percent: 20 }},
-}};
-
-updateThinkingContextFromEvent(thinking, {{
-  type: "context_snapshot",
-  data: {{
-    context_state: {{
-      budget: {{ usage_percent: 55 }},
-    }},
-  }},
-}});
-
-console.log(JSON.stringify(thinking));
-"""
-    completed = _run_node_script(node_bin, script)
-    data = json.loads(completed.stdout)
-    assert data["contextState"]["summary"] == "Existing live summary"
-    assert data["contextState"]["next_step"] == "Existing next step"
-    assert data["contextBudget"]["usage_percent"] == 55
-
-
 def test_handle_agent_chat_success_marks_merged_event_context_as_final_response():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -613,7 +553,7 @@ def test_handle_agent_chat_success_marks_merged_event_context_as_final_response(
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
@@ -662,7 +602,7 @@ async function loadSessionForAgent() {{}}
 {handle_success}
 const chatState = ensureChatState("agent-A");
 chatState.currentRequest = {{ clientRequestId: "req-a" }};
-chatState.inflightThinking = {{
+chatState.inflightEventStream = {{
   events: [{{ type: "context_snapshot", request_id: "req-a", session_id: "s-a", data: {{ context_state: {{ summary: "Live summary" }} }} }}],
   contextState: {{ summary: "Live summary", next_step: "Keep me" }},
   contextBudget: {{ usage_percent: 11 }},
@@ -676,8 +616,8 @@ chatState.inflightThinking = {{
     runtime_events: [],
   }});
   console.log(JSON.stringify({{
-    summary: ensureChatState("agent-A").lastThinkingSnapshot.contextState.summary,
-    contextSource: ensureChatState("agent-A").lastThinkingSnapshot.contextSource,
+    summary: ensureChatState("agent-A").lastEventStreamSnapshot.contextState.summary,
+    contextSource: ensureChatState("agent-A").lastEventStreamSnapshot.contextSource,
   }}));
 }})();
 """
@@ -697,7 +637,7 @@ def test_handle_agent_chat_success_prefers_event_context_contents_over_budget_on
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
@@ -748,7 +688,7 @@ async function loadSessionForAgent() {{}}
 {handle_success}
 const chatState = ensureChatState("agent-A");
 chatState.currentRequest = {{ clientRequestId: "req-a" }};
-chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {{ usage_percent: 7 }} }};
+chatState.inflightEventStream = {{ events: [], contextState: null, contextBudget: {{ usage_percent: 7 }} }};
 (async () => {{
   await handleAgentChatSuccess("agent-A", {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }}, {{
     session_id: "s-a",
@@ -771,7 +711,7 @@ chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {
       }}
     ],
   }});
-  const snapshot = ensureChatState("agent-A").lastThinkingSnapshot;
+  const snapshot = ensureChatState("agent-A").lastEventStreamSnapshot;
   console.log(JSON.stringify({{
     summary: snapshot.contextState.summary,
     nextStep: snapshot.contextState.next_step,
@@ -788,124 +728,6 @@ chatState.inflightThinking = {{ events: [], contextState: null, contextBudget: {
     assert data["contextSource"] == "final_response"
 
 
-def test_handle_agent_chat_success_renders_final_snapshot_when_panel_is_open():
-    node_bin = shutil.which("node")
-    if not node_bin:
-        pytest.skip("node is not installed; skipping JS helper behavior test")
-
-    js_file = _chat_ui_js_source()
-    create_state = _extract_js_function(js_file, "createDefaultChatState")
-    ensure_state = _extract_js_function(js_file, "ensureChatState")
-    update_session = _extract_js_function(js_file, "updateAgentSession")
-    set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
-    extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
-    has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
-    has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
-    get_runtime_event_data = _extract_js_function(js_file, "getRuntimeEventData")
-    latest_from_events = _extract_js_function(js_file, "extractLatestContextStateFromEvents")
-    pick_context_contents_first = _extract_js_function(js_file, "pickContextStateWithContentsFirst")
-    pick_context_budget = _extract_js_function(js_file, "pickContextBudget")
-    get_active_snapshot = _extract_js_function(js_file, "getActiveThinkingSnapshot")
-    handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
-
-    script = f"""
-const state = {{
-  selectedAgentId: "agent-A",
-  mineAgents: [{{id: "agent-A", name: "Agent A"}}],
-  chatStatesByAgent: new Map(),
-  agentSessionIds: new Map(),
-}};
-let renderedSnapshot = null;
-const dom = {{
-  messageList: {{ insertAdjacentHTML() {{}} }},
-}};
-const document = {{ hidden: false }};
-function isThinkingPanelActiveForAgent(agentId) {{ return agentId === "agent-A"; }}
-function renderThinkingPanelFromClientState(chatState) {{
-  const snapshot = getActiveThinkingSnapshot(chatState);
-  renderedSnapshot = {{
-    summary: snapshot?.contextState?.summary || "",
-    nextStep: snapshot?.contextState?.next_step || "",
-    completed: snapshot?.completed === true,
-    contextSource: snapshot?.contextSource || "",
-  }};
-}}
-async function loadPersistedThinkingPanel() {{ return false; }}
-function setLastSessionId() {{}}
-function syncHiddenSessionInputFromState() {{}}
-function ensureEventSocketForSelectedAgent() {{}}
-function removeTemporaryAssistantRows() {{}}
-function getLatestOptimisticUserArticle() {{ return {{ dataset: {{ optimisticUser: "1" }} }}; }}
-function buildAssistantMessageArticle() {{ return ""; }}
-function getSelectedAssistantDisplayName() {{ return "Agent A"; }}
-function setChatStatus() {{}}
-function renderMarkdown() {{}}
-function decorateToolMessages() {{}}
-function renderIcons() {{}}
-function scrollToBottom() {{}}
-function addEditButtonsToMessages() {{}}
-function markAgentUnread() {{}}
-function renderAgentList() {{}}
-function notifyAgentCompletion() {{}}
-async function loadSessionForAgent() {{}}
-{create_state}
-{ensure_state}
-{update_session}
-{set_submitting}
-{merge_events}
-{extract_context_budget}
-{has_meaningful}
-{has_contents}
-{get_runtime_event_data}
-{latest_from_events}
-{pick_context_contents_first}
-{pick_context_budget}
-{get_active_snapshot}
-{handle_success}
-const chatState = ensureChatState("agent-A");
-chatState.currentRequest = {{ clientRequestId: "req-a" }};
-chatState.inflightThinking = {{
-  requestId: "req-a",
-  sessionId: "s-a",
-  completed: false,
-  events: [],
-  contextState: {{ summary: "Stale live summary", next_step: "Still running" }},
-  contextBudget: {{ usage_percent: 11 }},
-}};
-(async () => {{
-  await handleAgentChatSuccess(
-    "agent-A",
-    {{ clientRequestId: "req-a", sessionIdAtSend: "s-a" }},
-    {{
-      session_id: "s-a",
-      request_id: "req-a",
-      response: "done",
-      context_state: {{
-        summary: "Final payload summary",
-        next_step: "Final next step",
-        budget: {{ usage_percent: 22 }},
-      }},
-      runtime_events: [],
-    }}
-  );
-  console.log(JSON.stringify({{
-    rendered: renderedSnapshot,
-    inflightIsNull: ensureChatState("agent-A").inflightThinking === null,
-    lastSummary: ensureChatState("agent-A").lastThinkingSnapshot?.contextState?.summary || "",
-  }}));
-}})();
-"""
-    completed = _run_node_script(node_bin, script)
-    data = json.loads(completed.stdout)
-    assert data["rendered"]["summary"] == "Final payload summary"
-    assert data["rendered"]["nextStep"] == "Final next step"
-    assert data["rendered"]["completed"] is True
-    assert data["rendered"]["contextSource"] == "final_response"
-    assert data["inflightIsNull"] is True
-    assert data["lastSummary"] == "Final payload summary"
-
-
 def test_handle_agent_event_message_merges_late_event_for_completed_request_into_last_snapshot():
     node_bin = shutil.which("node")
     if not node_bin:
@@ -916,12 +738,11 @@ def test_handle_agent_event_message_merges_late_event_for_completed_request_into
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     normalize_event = _extract_js_function(js_file, "normalizeRuntimeEvent")
     completion_state = _extract_js_function(js_file, "isCompletionRuntimeState")
-    is_trackable = _extract_js_function(js_file, "isTrackableThinkingEvent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    is_trackable = _extract_js_function(js_file, "isTrackableStreamEvent")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     extract_context_budget = _extract_js_function(js_file, "extractContextBudget")
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
-    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
     script = f"""
@@ -943,11 +764,10 @@ function scheduleThinkingPanelRefresh() {{}}
 {extract_context_budget}
 {has_meaningful}
 {has_contents}
-{update_context}
 {handle_event}
 const chatState = ensureChatState("agent-A");
 chatState.currentRequest = null;
-chatState.lastThinkingSnapshot = {{
+chatState.lastEventStreamSnapshot = {{
   requestId: "req-a",
   sessionId: "s-a",
   completed: true,
@@ -974,11 +794,11 @@ handleAgentEventMessage(JSON.stringify({{
   }},
 }}), {{ agentId: "agent-A", sessionId: "s-a" }});
 console.log(JSON.stringify({{
-  inflightIsNull: chatState.inflightThinking === null,
-  eventCount: chatState.lastThinkingSnapshot.events.length,
-  summary: chatState.lastThinkingSnapshot.contextState.summary,
-  nextStep: chatState.lastThinkingSnapshot.contextState.next_step,
-  budgetUsage: chatState.lastThinkingSnapshot.contextBudget.usage_percent,
+  inflightIsNull: chatState.inflightEventStream === null,
+  eventCount: chatState.lastEventStreamSnapshot.events.length,
+  summary: chatState.lastEventStreamSnapshot.contextState.summary,
+  nextStep: chatState.lastEventStreamSnapshot.contextState.next_step,
+  budgetUsage: chatState.lastEventStreamSnapshot.contextBudget.usage_percent,
 }}));
 """
     completed = _run_node_script(node_bin, script)
@@ -988,111 +808,6 @@ console.log(JSON.stringify({{
     assert data["summary"] == "Late final summary"
     assert data["nextStep"] == "Late next step"
     assert data["budgetUsage"] == 44
-
-
-def test_load_persisted_thinking_panel_preserves_local_context_when_persisted_has_no_context():
-    node_bin = shutil.which("node")
-    if not node_bin:
-        pytest.skip("node is not installed; skipping JS helper behavior test")
-
-    js_file = _chat_ui_js_source()
-    create_state = _extract_js_function(js_file, "createDefaultChatState")
-    ensure_state = _extract_js_function(js_file, "ensureChatState")
-    get_active_snapshot = _extract_js_function(js_file, "getActiveThinkingSnapshot")
-    has_meaningful_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
-    load_persisted = _extract_js_function(js_file, "loadPersistedThinkingPanel")
-
-    script = f"""
-const state = {{
-  selectedAgentId: "agent-A",
-  chatStatesByAgent: new Map(),
-  agentSessionIds: new Map(),
-}};
-const dom = {{ toolPanelBody: {{ innerHTML: "<div>LOCAL SNAPSHOT</div>" }} }};
-const document = {{
-  createElement(tag) {{
-    if (tag !== "template") return {{}};
-    return {{
-      _html: "",
-      set innerHTML(value) {{ this._html = value; }},
-      get content() {{
-        const html = this._html || "";
-        const extract = (name) => {{
-          const pattern = new RegExp(`${{name}}="([^"]*)"`);
-          const match = html.match(pattern);
-          return match ? match[1] : undefined;
-        }};
-        return {{
-          querySelector(selector) {{
-            if (selector !== "[data-thinking-panel-root]") return null;
-            if (!html.includes("data-thinking-panel-root")) return null;
-            return {{
-              dataset: {{
-                thinkingHasData: extract("data-thinking-has-data"),
-                thinkingHasContext: extract("data-thinking-has-context"),
-                thinkingRequestId: extract("data-thinking-request-id"),
-              }},
-            }};
-          }},
-        }};
-      }},
-    }};
-  }},
-}};
-function renderIcons() {{}}
-function setToolPanel() {{}}
-{create_state}
-{ensure_state}
-{get_active_snapshot}
-{has_meaningful_contents}
-{load_persisted}
-const chatState = ensureChatState("agent-A");
-chatState.lastThinkingSnapshot = {{
-  completed: true,
-  requestId: "req-a",
-  sessionId: "s-a",
-  contextState: {{ summary: "Local final context" }},
-  events: [],
-}};
-let first = true;
-global.fetch = async () => ({{
-  ok: true,
-  text: async () => first
-    ? `<div data-thinking-panel-root="1" data-thinking-has-data="1" data-thinking-has-context="0" data-thinking-request-id="req-a"><div>No context snapshot was captured for this run.</div></div>`
-    : `<div data-thinking-panel-root="1" data-thinking-has-data="1" data-thinking-has-context="1" data-thinking-request-id="req-a"><div>Persisted Context</div></div>`,
-}});
-(async () => {{
-  const before = dom.toolPanelBody.innerHTML;
-  const changedFirst = await loadPersistedThinkingPanel("s-a", {{
-    preserveLiveOnFailure: true,
-    preserveLiveIfEmpty: true,
-    preserveLiveIfNoContext: true,
-    expectedRequestId: "req-a",
-  }});
-  const afterFirst = dom.toolPanelBody.innerHTML;
-  first = false;
-  const changedSecond = await loadPersistedThinkingPanel("s-a", {{
-    preserveLiveOnFailure: true,
-    preserveLiveIfEmpty: true,
-    preserveLiveIfNoContext: true,
-    expectedRequestId: "req-a",
-  }});
-  const afterSecond = dom.toolPanelBody.innerHTML;
-  console.log(JSON.stringify({{
-    changedFirst,
-    before,
-    afterFirst,
-    changedSecond,
-    afterSecond,
-  }}));
-}})();
-"""
-    completed = _run_node_script(node_bin, script)
-    data = json.loads(completed.stdout)
-    assert data["changedFirst"] is False
-    assert data["before"] == data["afterFirst"]
-    assert data["changedSecond"] is True
-    assert "Persisted Context" in data["afterSecond"]
 
 
 def test_success_without_optimistic_row_reloads_session():
@@ -1105,7 +820,7 @@ def test_success_without_optimistic_row_reloads_session():
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
 
     script = f"""
@@ -1531,7 +1246,7 @@ function renderMarkdown() {{ renderMarkdownCalls += 1; }}
 function decorateToolMessages() {{}}
 function attachThinkingToLatestAssistant() {{}}
 function scrollToBottom() {{}}
-function isTrackableThinkingEvent() {{ return false; }}
+function isTrackableStreamEvent() {{ return false; }}
 const document = {{
   createElement(tag) {{
     return {{
@@ -1651,7 +1366,7 @@ function renderMarkdown() {{}}
 function decorateToolMessages() {{}}
 function attachThinkingToLatestAssistant() {{}}
 function scrollToBottom() {{}}
-function isTrackableThinkingEvent() {{ return false; }}
+function isTrackableStreamEvent() {{ return false; }}
 const document = {{
   createElement(tag) {{
     return {{
@@ -1705,7 +1420,7 @@ function renderMarkdown() {{}}
 function decorateToolMessages() {{}}
 function attachThinkingToLatestAssistant() {{}}
 function scrollToBottom() {{}}
-function isTrackableThinkingEvent() {{ return false; }}
+function isTrackableStreamEvent() {{ return false; }}
 const document = {{
   createElement(tag) {{
     return {{
@@ -1758,7 +1473,7 @@ function renderMarkdown() {{}}
 function decorateToolMessages() {{}}
 function attachThinkingToLatestAssistant() {{}}
 function scrollToBottom() {{}}
-function isTrackableThinkingEvent() {{ return false; }}
+function isTrackableStreamEvent() {{ return false; }}
 const document = {{
   createElement(tag) {{
     return {{
@@ -1794,7 +1509,7 @@ def test_handle_agent_chat_success_passes_selected_assistant_name_to_final_messa
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     update_session = _extract_js_function(js_file, "updateAgentSession")
     set_submitting = _extract_js_function(js_file, "setChatSubmittingForAgent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     get_selected_assistant_display_name = _extract_js_function(js_file, "getSelectedAssistantDisplayName")
     handle_success = _extract_js_function(js_file, "handleAgentChatSuccess")
 
@@ -2234,17 +1949,14 @@ def test_success_completion_clears_active_request_before_resyncing_controls():
     success_slice = js_source[success_start: success_start + 4500]
 
     idx_clear_active = success_slice.find("chatState.currentRequest = null;")
-    idx_clear_inflight = success_slice.find("chatState.inflightThinking = null;")
-    idx_clear_pending = success_slice.find("chatState.pendingThinkingEvents = null;")
+    idx_clear_inflight = success_slice.find("chatState.inflightEventStream = null;")
     idx_resync_controls = success_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
 
     assert idx_clear_active >= 0
     assert idx_clear_inflight >= 0
-    assert idx_clear_pending >= 0
     assert idx_resync_controls >= 0
     assert idx_clear_active < idx_resync_controls
     assert idx_clear_inflight < idx_resync_controls
-    assert idx_clear_pending < idx_resync_controls
 
 
 def test_failure_completion_marks_inflight_done_before_resyncing_controls():
@@ -2255,7 +1967,7 @@ def test_failure_completion_marks_inflight_done_before_resyncing_controls():
     failure_slice = js_source[failure_start: failure_start + 3000]
 
     idx_clear_active = failure_slice.find("chatState.currentRequest = null;")
-    idx_mark_done = failure_slice.find("chatState.inflightThinking.completed = true;")
+    idx_mark_done = failure_slice.find("chatState.inflightEventStream.completed = true;")
     idx_resync_controls = failure_slice.find("setChatSubmittingForAgent(agentIdAtSend, false);")
 
     assert idx_clear_active >= 0
@@ -2276,12 +1988,11 @@ def test_event_message_does_not_claim_empty_session_without_matching_request():
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     normalize_runtime_event = _extract_js_function(js_file, "normalizeRuntimeEvent")
     is_completion = _extract_js_function(js_file, "isCompletionRuntimeState")
-    is_trackable = _extract_js_function(js_file, "isTrackableThinkingEvent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    is_trackable = _extract_js_function(js_file, "isTrackableStreamEvent")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     extract_budget = _extract_js_function(js_file, "extractContextBudget")
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
-    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
     has_active = _extract_js_function(js_file, "hasActiveChatRequestForAgent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
@@ -2304,7 +2015,6 @@ function scheduleThinkingPanelRefresh() {{}}
 {extract_budget}
 {has_meaningful}
 {has_contents}
-{update_context}
 {has_active}
 {handle_event}
 const chatState = ensureChatState("agent-A");
@@ -2321,7 +2031,7 @@ console.log(JSON.stringify({{
   sessionId: chatState.sessionId,
   hasAgentSession: state.agentSessionIds.has("agent-A"),
   domSession: dom.chatSessionId.value,
-  inflightThinking: !!chatState.inflightThinking,
+  inflightEventStream: !!chatState.inflightEventStream,
   busy: hasActiveChatRequestForAgent("agent-A"),
 }}));
 """
@@ -2330,7 +2040,7 @@ console.log(JSON.stringify({{
     assert data["sessionId"] == ""
     assert data["hasAgentSession"] is False
     assert data["domSession"] == ""
-    assert data["inflightThinking"] is False
+    assert data["inflightEventStream"] is False
     assert data["busy"] is False
 
 
@@ -2345,12 +2055,11 @@ def test_event_message_can_claim_empty_session_when_matching_active_request():
     ensure_state = _extract_js_function(js_file, "ensureChatState")
     normalize_runtime_event = _extract_js_function(js_file, "normalizeRuntimeEvent")
     is_completion = _extract_js_function(js_file, "isCompletionRuntimeState")
-    is_trackable = _extract_js_function(js_file, "isTrackableThinkingEvent")
-    merge_events = _extract_js_function(js_file, "mergeThinkingEvents")
+    is_trackable = _extract_js_function(js_file, "isTrackableStreamEvent")
+    merge_events = _extract_js_function(js_file, "mergeRuntimeStreamEvents")
     extract_budget = _extract_js_function(js_file, "extractContextBudget")
     has_meaningful = _extract_js_function(js_file, "hasMeaningfulContextState")
     has_contents = _extract_js_function(js_file, "hasMeaningfulContextContents")
-    update_context = _extract_js_function(js_file, "updateThinkingContextFromEvent")
     handle_event = _extract_js_function(js_file, "handleAgentEventMessage")
 
     script = f"""
@@ -2372,7 +2081,6 @@ function scheduleThinkingPanelRefresh() {{}}
 {extract_budget}
 {has_meaningful}
 {has_contents}
-{update_context}
 {handle_event}
 const chatState = ensureChatState("agent-A");
 chatState.sessionId = "";

@@ -136,7 +136,6 @@ const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";
 const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "details",
   "sessions",
-  "thinking",
   "server-files",
   "skills",
   "usage",
@@ -243,7 +242,6 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     document.getElementById("btn-sessions"),
     dom.headerNewChatBtn,
     dom.detailToggle,
-    document.getElementById("btn-thinking"),
     document.getElementById("btn-files"),
   ];
   assistantOnlyControls.forEach((element) => {
@@ -486,7 +484,6 @@ const state = {
   gitRepoBranches: new Map(),
   createAgentStep: "runtime",
 };
-let thinkingPanelRefreshRaf = null;
 let hasRestoredPinnedToolPanel = false;
 let isApplyingPortalRoute = false;
 let portalRouteApplySeq = 0;
@@ -851,11 +848,10 @@ function createDefaultChatState() {
     sessionId: "",
     isSubmitting: false,
     pendingFiles: [],
-    inflightThinking: null,
+    inflightEventStream: null,
     inflightAgentTimeline: null,
     lastAgentTimelineSnapshot: null,
-    lastThinkingSnapshot: null,
-    pendingThinkingEvents: null,
+    lastEventStreamSnapshot: null,
     draftText: "",
     needsReload: false,
     unreadCount: 0,
@@ -1640,7 +1636,7 @@ function canonicalMessagesToLegacyDisplayMessages(canonicalMessages = []) {
     .filter((message) => message.role !== "assistant" || String(message.display_content || message.content || "").trim());
 }
 
-function canonicalPartToThinkingItem(message = {}, part = {}, index = 0) {
+function canonicalPartToStreamItem(message = {}, part = {}, index = 0) {
   const partType = String(part.type || "").toLowerCase();
   const messageId = String(message.message_id || message.info?.id || part.messageID || part.messageId || part.message_id || "");
   const partId = String(part.id || `${messageId}:part:${index}`);
@@ -1697,19 +1693,19 @@ function canonicalPartToThinkingItem(message = {}, part = {}, index = 0) {
   return null;
 }
 
-function canonicalMessagesToThinkingItems(canonicalMessages = []) {
+function canonicalMessagesToStreamItems(canonicalMessages = []) {
   const out = [];
   canonicalMessages.forEach((message) => {
     const parts = Array.isArray(message.parts) ? message.parts : [];
     parts.forEach((part, index) => {
-      const item = canonicalPartToThinkingItem(message, part, index);
+      const item = canonicalPartToStreamItem(message, part, index);
       if (item) out.push(item);
     });
   });
   return out;
 }
 
-function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
+function canonicalStreamItemToRuntimeEvent(item = {}, sessionId = "") {
   const baseData = {
     ...item,
     message_id: item.message_id || "",
@@ -1764,38 +1760,34 @@ function canonicalThinkingItemToRuntimeEvent(item = {}, sessionId = "") {
   return null;
 }
 
-function canonicalMessagesToThinkingEvents(canonicalMessages = [], sessionId = "") {
-  return canonicalMessagesToThinkingItems(canonicalMessages)
-    .map((item) => canonicalThinkingItemToRuntimeEvent(item, sessionId))
+function canonicalMessagesToStreamEvents(canonicalMessages = [], sessionId = "") {
+  return canonicalMessagesToStreamItems(canonicalMessages)
+    .map((item) => canonicalStreamItemToRuntimeEvent(item, sessionId))
     .filter(Boolean);
 }
 
 function applyCanonicalMessagesToChatState(agentId, sessionId, chatState, canonicalMessages = [], metadata = {}) {
   if (!chatState || !Array.isArray(canonicalMessages) || !canonicalMessages.length) return;
-  const canonicalEvents = canonicalMessagesToThinkingEvents(canonicalMessages, sessionId);
+  const canonicalEvents = canonicalMessagesToStreamEvents(canonicalMessages, sessionId);
   if (!canonicalEvents.length) return;
-  const target = chatState.inflightThinking && chatState.inflightThinking.completed !== true
-    ? chatState.inflightThinking
+  const target = chatState.inflightEventStream && chatState.inflightEventStream.completed !== true
+    ? chatState.inflightEventStream
     : null;
-  const existing = target || chatState.lastThinkingSnapshot || {};
+  const existing = target || chatState.lastEventStreamSnapshot || {};
   const requestId = String(metadata.request_id || metadata.latest_request_id || existing.requestId || existing.id || "");
   const merged = {
     ...existing,
     id: existing.id || requestId || `canonical-${sessionId || Date.now()}`,
     requestId,
     sessionId: sessionId || existing.sessionId || "",
-    events: mergeThinkingEvents(existing.events || [], canonicalEvents),
-    canonicalThinkingItems: canonicalMessagesToThinkingItems(canonicalMessages),
+    events: mergeRuntimeStreamEvents(existing.events || [], canonicalEvents),
     contextSource: "runtime_canonical",
     completed: target ? false : (existing.completed ?? true),
     status: target ? (existing.status || "connected") : (existing.status || "snapshot"),
     lastEventAt: Date.now(),
   };
   if (target) Object.assign(target, merged);
-  else chatState.lastThinkingSnapshot = merged;
-  if (agentId === state.selectedAgentId && isThinkingPanelActiveForAgent(agentId)) {
-    scheduleThinkingPanelRefresh(agentId);
-  }
+  else chatState.lastEventStreamSnapshot = merged;
 }
 
 function buildUserMessageArticle(text, attachments = [], options = {}) {
@@ -2093,7 +2085,7 @@ function normalizeRuntimeEventTypeAlias(type) {
   return normalized;
 }
 
-function isTrackableThinkingEvent(type) {
+function isTrackableStreamEvent(type) {
   const localNormalizeRuntimeEventTypeAlias = (value) => {
     if (typeof normalizeRuntimeEventTypeAlias === "function") {
       return normalizeRuntimeEventTypeAlias(value);
@@ -2277,172 +2269,6 @@ function isCompletionRuntimeState(state) {
 }
 // RUNTIME_EVENT_HELPER_END: completionRuntimeState
 
-function getThinkingEventDisplay(event) {
-  const type = normalizeRuntimeEventTypeAlias(event?.type || "event");
-  const data = event?.data || {};
-  const contextBudget = (data.budget && typeof data.budget === "object")
-    ? data.budget
-    : ((data.context_state?.budget && typeof data.context_state.budget === "object")
-      ? data.context_state.budget
-      : {});
-  const contextPct = contextBudget.prepared_usage_percent ?? contextBudget.usage_percent;
-  const contextStage = data.stage || "";
-  const formatContextDetail = (fallback) => {
-    const pieces = [];
-    if (contextPct != null) pieces.push(`${contextPct}% used`);
-    if (contextStage) pieces.push(contextStage);
-    if (contextBudget.tokens_until_soft_threshold != null) {
-      pieces.push(`${contextBudget.tokens_until_soft_threshold} tokens until soft threshold`);
-    }
-    if (contextBudget.next_compaction_action) {
-      pieces.push(`next: ${contextBudget.next_compaction_action}`);
-    }
-    if (data.next_pruning_policy || contextBudget.next_pruning_policy) {
-      pieces.push(data.next_pruning_policy || contextBudget.next_pruning_policy);
-    }
-    return pieces.join(" · ") || fallback;
-  };
-  const byType = {
-    "execution.started": { icon: "play-circle", title: "Execution Started", detail: data.message || "Execution started" },
-    "execution.completed": { icon: "flag", title: "Execution Completed", detail: data.message || "Execution complete", response: data.response, total_iterations: data.total_iterations },
-    "execution.failed": { icon: "x-circle", title: "Execution Failed", detail: data.error || data.message || "Execution failed" },
-    iteration_start: { icon: "rotate-cw", title: "Iteration Start", detail: `Iteration ${data.iteration || 1}${data.total ? `/${data.total}` : ""}` },
-    llm_thinking: { icon: "brain", title: "LLM Thinking", detail: data.message || data.thinking || "Model is reasoning" },
-    tool_call: { icon: "wrench", title: "Tool Call", detail: data.tool ? `Calling ${data.tool}` : "Calling tool", args: data.args },
-    tool_result: { icon: data.success === false ? "x-circle" : "check-circle-2", title: "Tool Result", detail: data.success === false ? (data.error || "Tool failed") : (data.tool ? `${data.tool} completed` : "Tool completed"), result: data.result, output: data.output },
-    "runtime.reasoning": { icon: "brain", title: "Runtime Reasoning", detail: data.text || data.message || "Reasoning update", kind: data.status === "completed" ? "success" : "running" },
-    "runtime.tool": { icon: data.error ? "x-circle" : "wrench", title: "Runtime Tool", detail: data.tool ? `${data.tool} ${data.status || "running"}` : (data.message || "Tool update"), kind: data.error ? "error" : (data.status === "completed" ? "success" : "running"), args: data.input, output: data.output },
-    "runtime.step.started": { icon: "list-start", title: "Runtime Step Started", detail: data.message || "Step started" },
-    "runtime.step.finished": { icon: "list-checks", title: "Runtime Step Finished", detail: data.reason || data.message || "Step finished", kind: "success" },
-    "session.next.prompted": { icon: "send", title: "Prompt Sent", detail: data.message || "Prompt sent to runtime" },
-    "session.next.step.started": { icon: "list-start", title: "Agent Step Started", detail: data.message || data.model || "Step started" },
-    "session.next.step.ended": { icon: "flag", title: "Agent Step Completed", detail: data.reason || data.message || "Step completed", kind: "success" },
-    "session.next.step.failed": { icon: "x-circle", title: "Agent Step Failed", detail: data.error || data.message || "Step failed", kind: "error" },
-    "session.next.text.started": { icon: "message-square", title: "Text Started", detail: data.message || "Assistant text started" },
-    "session.next.text.delta": { icon: "message-square", title: "Text Streaming", detail: data.delta || data.message || "Assistant text streaming" },
-    "session.next.text.ended": { icon: "message-square-check", title: "Text Completed", detail: data.message || "Assistant text completed", kind: "success" },
-    "session.next.reasoning.started": { icon: "brain", title: "Reasoning Started", detail: data.summary || data.message || "Reasoning started" },
-    "session.next.reasoning.delta": { icon: "brain", title: "Reasoning Update", detail: data.summary || data.delta || data.message || "Reasoning update" },
-    "session.next.reasoning.ended": { icon: "check-circle-2", title: "Reasoning Completed", detail: data.summary || data.message || "Reasoning completed", kind: "success" },
-    "session.next.tool.input.started": { icon: "wrench", title: "Tool Input Started", detail: data.tool || data.message || "Preparing tool input" },
-    "session.next.tool.input.delta": { icon: "wrench", title: "Tool Input Update", detail: data.tool || data.message || "Preparing tool input" },
-    "session.next.tool.input.ended": { icon: "wrench", title: "Tool Input Ready", detail: data.tool || data.message || "Tool input ready" },
-    "session.next.tool.called": { icon: "wrench", title: "Tool Called", detail: data.tool || data.name || data.message || "Tool called", args: data.input },
-    "session.next.tool.progress": { icon: "activity", title: "Tool Progress", detail: data.progress || data.message || "Tool progress" },
-    "session.next.tool.success": { icon: "check-circle-2", title: "Tool Succeeded", detail: data.tool || data.message || "Tool completed", kind: "success", output: data.output || data.result },
-    "session.next.tool.failed": { icon: "x-circle", title: "Tool Failed", detail: data.error || data.message || "Tool failed", kind: "error" },
-    "session.next.compaction.started": { icon: "scissors", title: "Compaction Started", detail: data.summary || data.message || "Context compaction started" },
-    "session.next.compaction.delta": { icon: "scissors", title: "Compaction Update", detail: data.summary || data.delta || data.message || "Context compaction update" },
-    "session.next.compaction.ended": { icon: "archive", title: "Compaction Completed", detail: data.summary || data.message || "Context compaction completed", kind: "success" },
-    skill_matched: { icon: "zap", title: "Skill Matched", detail: normalizeSkillCommand(data.skill) || "Skill matched", skill: data.skill },
-    complete: { icon: "flag", title: "Complete", detail: "Execution complete", response: data.response, total_iterations: data.total_iterations },
-    context_snapshot: {
-      icon: "gauge",
-      title: "Context Snapshot",
-      detail: formatContextDetail("Context updated"),
-    },
-    context_compaction_planned: {
-      icon: "scissors",
-      title: "Compaction Planned",
-      detail: formatContextDetail("Compaction planned"),
-    },
-    context_compaction_applied: {
-      icon: "archive",
-      title: "Context Compaction Applied",
-      detail: formatContextDetail("Context compaction applied"),
-    },
-    // Skill mode events
-    skill_mode_start: { icon: "play-circle", title: "Skill Mode", detail: `Starting: ${data.skill || "Skill"}` },
-    skill_step: { icon: "list-checks", title: `Step: ${data.step || "Step"}`, detail: data.detail || "", status: data.status },
-    skill_session_start: { icon: "clipboard-list", title: "Skill Session", detail: `Goal: ${data.goal || ""}` },
-    skill_compaction: { icon: data.status === "completed" ? "archive" : "scissors", title: "Compaction", detail: data.status === "completed" ? `Steps: ${data.remaining_steps}` : `Tokens: ${data.current_tokens}` },
-    skill_complete: { icon: "check-square", title: data.reason === "finish" ? "Skill Finished" : "Skill Awaiting Input", detail: data.result || data.question || "" },
-    skill_runtime_applied: {
-      icon: "layers",
-      title: "Skill Runtime Applied",
-      detail: data.skill ? `Using ${data.skill}` : "Skill runtime applied",
-      skill: data.skill
-    },
-    skill_contract_active: {
-      icon: "pin",
-      title: "Active Skill",
-      detail: data.skill ? `${data.skill}${data.reason ? ` · ${data.reason}` : ""}` : "Active skill",
-      skill: data.skill
-    },
-    skill_tool_denied: {
-      icon: "shield-alert",
-      title: "Skill Tool Denied",
-      detail: data.tool ? `${data.tool} denied by ${data.skill || "active skill"}` : "Tool denied by active skill",
-    },
-    "tool.started": { icon: "wrench", title: "Tool Started", detail: data.message || "Tool started" },
-    "tool.completed": { icon: "check-circle-2", title: "Tool Completed", detail: data.message || "Tool completed" },
-    "tool.failed": { icon: "x-circle", title: "Tool Failed", detail: data.error || data.message || "Tool failed" },
-    "chat.started": { icon: "play-circle", title: "Chat Started", detail: data.message || "Chat request started" },
-    heartbeat: { icon: "activity", title: "Heartbeat", detail: data.message || "Runtime heartbeat" },
-    status: { icon: "activity", title: "Status", detail: data.message || data.status || "Runtime status" },
-    "permission.requested": { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
-    permission_request: { icon: "shield", title: "Permission Requested", detail: data.message || "Permission requested" },
-    "permission.resolved": { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
-    permission_resolved: { icon: "shield-check", title: "Permission Resolved", detail: data.message || "Permission resolved" },
-    "permission.denied": { icon: "shield-alert", title: "Permission Denied", detail: data.message || data.reason || "Permission denied" },
-    "permission.allowed": { icon: "shield-check", title: "Permission Allowed", detail: data.message || "Permission allowed" },
-    "stream.started": { icon: "activity", title: "Stream Started", detail: data.message || "Streaming response started" },
-    "chat.incomplete": { icon: "alert-triangle", title: "Incomplete", detail: data.incomplete_reason || data.message || "Incomplete after auto-continue" },
-    "chat.blocked": { icon: "shield-alert", title: "Blocked", detail: data.message || "Blocked waiting for permission" },
-    "chat.empty_final": { icon: "alert-triangle", title: "Empty Final", detail: data.message || "Empty final response" },
-    "chat.failed": { icon: "x-circle", title: "Chat Failed", detail: data.error || data.message || "Chat failed" },
-    "chat.completed": { icon: "check-circle-2", title: "Chat Completed", detail: data.message || "Chat completed" },
-    final: { icon: "flag", title: "Final", detail: data.incomplete_reason || data.message || data.completion_state || "Final response received" },
-    "provider.retry": { icon: "refresh-cw", title: "Provider Retry", detail: data.message || "Provider API retrying" },
-    "provider.rate_limit": { icon: "clock-alert", title: "Provider Rate Limit", detail: data.message || "Provider rate limit" },
-    "model.retry": { icon: "refresh-cw", title: "Model Retry", detail: data.message || "Model retrying" },
-    "event_bridge.connected": { icon: "plug", title: "Event Bridge Connected", detail: data.message || "Runtime event bridge connected" },
-    "event_bridge.disconnected": { icon: "unplug", title: "Event Bridge Disconnected", detail: data.message || "Runtime event bridge disconnected" },
-    "event_bridge.reconnected": { icon: "plug-zap", title: "Event Bridge Reconnected", detail: data.message || "Runtime event bridge reconnected" },
-    "runtime.raw": { icon: "terminal", title: "Runtime Event", detail: data.summary || data.message || "Runtime event" },
-    "runtime.status.validated": { icon: "shield-check", title: "Runtime Status Validated", detail: data.message || "Runtime active status validated" },
-    "assistant.message.started": { icon: "message-square", title: "Assistant Message Started", detail: data.message || "Assistant message started" },
-    "assistant.message.updated": { icon: "message-square", title: "Assistant Message Updated", detail: data.message || data.delta || "Assistant message updated" },
-    "assistant.message.completed": { icon: "message-square-check", title: "Assistant Message Completed", detail: data.message || "Assistant message completed" },
-    "provider.status": { icon: "activity", title: "Provider Status", detail: data.message || data.status || "Provider status update" },
-    "skill.loaded": { icon: "zap", title: "Skill Loaded", detail: data.skill || data.message || "Skill loaded" },
-    "skill.detected": { icon: "zap", title: "Skill Detected", detail: data.skill || data.message || "Skill detected" },
-    "skill.blocked": { icon: "shield-alert", title: "Skill Blocked", detail: data.reason || data.blocked_reason || data.message || "Skill blocked" },
-    "skill.command.executed": { icon: "terminal", title: "Skill Command Executed", detail: data.command || data.message || "Skill command executed" },
-    "skill.prompt_applied": { icon: "layers", title: "Skill Prompt Applied", detail: data.skill || data.message || "Skill prompt applied" },
-    "skill.completed": { icon: "check-square", title: "Skill Completed", detail: data.message || "Skill completed" },
-    "task.started": { icon: "list-start", title: "Task Started", detail: data.message || "Task started" },
-    "task.completed": { icon: "list-checks", title: "Task Completed", detail: data.message || "Task completed" },
-    "usage.updated": { icon: "gauge", title: "Usage Updated", detail: data.message || "Usage updated" },
-    "message.delta": { icon: "message-square", title: "Message Streaming", detail: data.message || "Streaming" },
-    "message.completed": { icon: "message-square-check", title: "Message Completed", detail: data.message || "Completed" },
-    skill_contract_cleared: {
-      icon: "x-circle",
-      title: "Active Skill Cleared",
-      detail: data.skill ? `${data.skill} cleared` : "Active skill cleared",
-    },
-  };
-  return byType[type] || { icon: "circle", title: type.replaceAll("_", " "), detail: "" };
-}
-
-function isThinkingPanelActiveForAgent(agentId) {
-  return (
-    agentId === state.selectedAgentId &&
-    state.toolPanelOpen &&
-    state.activeUtilityPanel === "thinking"
-  );
-}
-
-function scheduleThinkingPanelRefresh(agentId) {
-  if (thinkingPanelRefreshRaf) return;
-  thinkingPanelRefreshRaf = requestAnimationFrame(() => {
-    thinkingPanelRefreshRaf = null;
-    if (!isThinkingPanelActiveForAgent(agentId)) return;
-    const chatState = ensureChatState(agentId);
-    renderThinkingPanelFromClientState(chatState);
-  });
-}
-
 function extractContextBudget(contextState) {
   if (!contextState || typeof contextState !== "object") return null;
   const budget = contextState.budget;
@@ -2550,338 +2376,6 @@ function pickContextBudget(...candidates) {
   return null;
 }
 
-function hasMeaningfulThinkingSnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== "object") return false;
-  if (hasMeaningfulContextState(snapshot.contextState)) return true;
-  if (snapshot.contextBudget && typeof snapshot.contextBudget === "object" && Object.keys(snapshot.contextBudget).length) return true;
-  if (Array.isArray(snapshot.events) && snapshot.events.length) return true;
-  return false;
-}
-
-function updateThinkingContextFromEvent(thinking, entry) {
-  if (!thinking || !entry) return;
-  const data = entry.data || {};
-  if (!["context_snapshot", "context_compaction_planned", "context_compaction_applied"].includes(entry.type)) return;
-
-  const contextState = (
-    data.context_state && typeof data.context_state === "object"
-      ? data.context_state
-      : null
-  );
-  const hasIncomingContents = hasMeaningfulContextContents(contextState);
-  const hasExistingContents = hasMeaningfulContextContents(thinking.contextState);
-  const meaningfulContextState = hasMeaningfulContextState(contextState) ? contextState : null;
-  const budget = (
-    data.budget && typeof data.budget === "object"
-      ? data.budget
-      : extractContextBudget(meaningfulContextState)
-  );
-
-  if (hasIncomingContents || (meaningfulContextState && !hasExistingContents && !hasMeaningfulContextState(thinking.contextState))) {
-    thinking.contextState = meaningfulContextState;
-  }
-  if (budget) thinking.contextBudget = budget;
-}
-
-function getActiveThinkingSnapshot(chatState) {
-  return chatState?.inflightThinking || chatState?.lastThinkingSnapshot || null;
-}
-
-function truncateThinkingText(value, max = 700) {
-  const text = String(value || "");
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-function formatElapsedDuration(ms) {
-  const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
-  if (minutes) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
-  return `${seconds}s`;
-}
-
-function formatThinkingTimestamp(value) {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function isNonSuccessCompletionState(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return Boolean(normalized && !["success", "completed", "complete", "done"].includes(normalized));
-}
-
-function isSecretEventFieldName(key) {
-  const normalized = String(key || "").trim().toLowerCase().replaceAll("-", "_");
-  return (
-    normalized === "token"
-    || normalized === "password"
-    || normalized === "api_key"
-    || normalized === "apikey"
-    || normalized === "authorization"
-    || normalized.includes("password")
-    || normalized.includes("api_key")
-    || normalized.includes("access_token")
-  );
-}
-
-function sanitizeEventDetailPayload(value, depth = 0) {
-  if (depth > 4) return "[truncated]";
-  if (Array.isArray(value)) {
-    const items = value.slice(0, 30).map((item) => sanitizeEventDetailPayload(item, depth + 1));
-    if (value.length > 30) items.push(`... ${value.length - 30} more items`);
-    return items;
-  }
-  if (value && typeof value === "object") {
-    const result = {};
-    Object.entries(value).slice(0, 40).forEach(([key, item]) => {
-      result[key] = isSecretEventFieldName(key) ? "[redacted]" : sanitizeEventDetailPayload(item, depth + 1);
-    });
-    if (Object.keys(value).length > 40) result["..."] = `${Object.keys(value).length - 40} more fields`;
-    return result;
-  }
-  if (typeof value === "string") return truncateThinkingText(value, 1200);
-  return value;
-}
-
-function nonSuccessHintForPayload(payload = {}) {
-  const reason = String(
-    payload.incomplete_reason ||
-    payload.incompleteReason ||
-    payload.error ||
-    payload.detail ||
-    payload.reason ||
-    ""
-  ).toLowerCase();
-
-  if (reason.includes("opencode_abort_still_active")) {
-    return "Stop was requested, but the runtime still reports this session is running. Reset the session or start a new chat.";
-  }
-
-  const status = String(payload.status || payload.completion_state || "").toLowerCase();
-  if (["busy", "running", "streaming", "retry"].includes(status)) {
-    return "The assistant is still working. Wait for it to finish before sending another message.";
-  }
-
-  return 'You can send "continue" to ask the runtime to resume, or inspect the event details here.';
-}
-
-function getThinkingSnapshotStatus(snapshot) {
-  const completionState = String(snapshot?.completion_state || "").trim().toLowerCase();
-  if (snapshot?.completed) {
-    if (completionState === "failed" || completionState === "error") return "Failed";
-    if (isNonSuccessCompletionState(completionState) || snapshot?.incomplete_reason) return "Incomplete";
-    return "Completed";
-  }
-  if (snapshot?.connectionStatus === "reconnecting" || snapshot?.status === "reconnecting") return "Syncing";
-  if (snapshot?.connectionStatus === "disconnected") return "Disconnected";
-  return "Connected";
-}
-
-function renderThinkingPanelFromClientState(chatState) {
-  if (!dom.toolPanelBody) return;
-  const uiState = computeRuntimeUiState(
-    (typeof getSelectedAgent === "function") ? (getSelectedAgent() || {}) : {},
-    chatState || {}
-  );
-  const runtimeStateNotes = renderRuntimeStateNotes(uiState);
-  const snapshot = getActiveThinkingSnapshot(chatState);
-  if (!snapshot) {
-    dom.toolPanelBody.innerHTML = `<div class="portal-panel-section"><div class="portal-panel-title">Runtime State</div>${runtimeStateNotes}<div class="portal-panel-note">${safe(runtimeUiStatusText(uiState))}</div></div><div class="portal-inline-state">Waiting for runtime events…</div>`;
-    return;
-  }
-  const events = Array.isArray(snapshot.events) ? snapshot.events : [];
-  const contextState = hasMeaningfulContextState(snapshot.contextState) ? snapshot.contextState : null;
-  const hasContextContents = hasMeaningfulContextContents(contextState);
-  const budget = (snapshot.contextBudget && typeof snapshot.contextBudget === "object")
-    ? snapshot.contextBudget
-    : extractContextBudget(contextState);
-  const usagePercentRaw = budget ? (budget.prepared_usage_percent ?? budget.usage_percent) : null;
-  const usagePercent = Number(usagePercentRaw);
-  const clampedPercent = Number.isFinite(usagePercent) ? Math.max(0, Math.min(100, usagePercent)) : 0;
-  const preparedTokens = budget?.prepared_tokens ?? budget?.estimated_tokens;
-  const contextWindowTokens = budget?.context_window_tokens;
-  const untilSoft = budget?.tokens_until_soft_threshold;
-  const untilHard = budget?.tokens_until_hard_threshold;
-  const nextPruningPolicy = budget?.next_pruning_policy;
-  const latestSkillEvent = [...events].reverse().find((event) => ["skill_contract_active", "skill_runtime_applied", "skill_matched"].includes(event?.type));
-  const skillData = latestSkillEvent?.data || {};
-  const visibleEvents = events.slice(-100);
-  const capNote = events.length > 100 ? `<div class="portal-panel-note">showing latest 100 of ${events.length} events</div>` : "";
-  const now = Date.now();
-  const startedAt = Number(snapshot.startedAt || snapshot.createdAt || now);
-  const elapsedMs = snapshot.completed && snapshot.completedAt
-    ? Number(snapshot.completedAt) - startedAt
-    : now - startedAt;
-  const lastEventAt = Number(snapshot.lastEventAt || 0);
-  const lastEventLabel = lastEventAt ? formatThinkingTimestamp(lastEventAt) : "—";
-  const liveStatus = getThinkingSnapshotStatus(snapshot);
-  const completionState = String(snapshot.completion_state || snapshot.completionState || "").trim();
-  const incompleteReason = String(snapshot.incomplete_reason || snapshot.incompleteReason || "").trim();
-  const showNonSuccess = isNonSuccessCompletionState(completionState) || Boolean(incompleteReason);
-  const nonSuccessHint = nonSuccessHintForPayload({
-    ...snapshot,
-    completion_state: completionState,
-    incomplete_reason: incompleteReason,
-  });
-  const stillRunning = !snapshot.completed && elapsedMs >= 10 * 60 * 1000;
-  const contextSourceLabel = snapshot.completed
-    ? (snapshot.contextSource === "last_observed_live"
-        ? "Last observed live snapshot — persisted snapshot pending"
-        : snapshot.contextSource === "context_window_only"
-          ? "Context window only — no context contents captured"
-          : "Final Context Snapshot")
-    : "Live Context Snapshot";
-
-  const renderArray = (value) => {
-    if (!Array.isArray(value) || !value.length) return '<div class="portal-panel-note">—</div>';
-    return `<ul>${value.slice(0, 10).map((item) => `<li>${safe(truncateThinkingText(item, 220))}</li>`).join("")}</ul>`;
-  };
-
-  const timeline = visibleEvents.map((event) => {
-    const view = getThinkingEventDisplay(event);
-    const payload = view.args ?? view.result ?? view.output ?? event.safe_detail_payload ?? event.data ?? null;
-    const safePayload = sanitizeEventDetailPayload(payload);
-    const detailText = (safePayload && (typeof safePayload === "string" || typeof safePayload === "object"))
-      ? truncateThinkingText(typeof safePayload === "string" ? safePayload : JSON.stringify(safePayload, null, 2), 1200)
-      : "";
-    const detailJson = detailText
-      ? `<details class="portal-event-detail"><summary>Details</summary><pre class="portal-panel-pre">${safe(detailText)}</pre></details>`
-      : "";
-    const kind = String(event.kind || view.kind || "").trim().toLowerCase();
-    const running = kind === "running" || ["tool.started", "heartbeat"].includes(event.type);
-    const replayed = Boolean(event.replayed);
-    const badges = [
-      running ? '<span class="portal-live-chip is-running">Running</span>' : "",
-      replayed ? '<span class="portal-live-chip is-replay">Historical</span>' : "",
-    ].filter(Boolean).join("");
-    return `<div class="portal-timeline-event ${kind ? `is-${safe(kind)}` : ""} ${replayed ? "is-replayed" : ""}"><span class="portal-timeline-event-icon"><i data-lucide="${safe(view.icon)}"></i></span><div class="portal-timeline-event-body"><div class="portal-panel-title">${safe(view.title)}${badges ? ` ${badges}` : ""}</div><div class="portal-panel-note">${safe(view.detail || "")}</div>${detailJson}</div></div>`;
-  }).join("");
-
-  dom.toolPanelBody.innerHTML = `
-    <div class="portal-panel-stack portal-live-thinking" data-live-thinking-panel="1">
-      <div class="portal-panel-section">
-        <div class="portal-live-header">
-          <div class="portal-panel-title">Thinking Process Live</div>
-          <span class="portal-live-status is-${safe(liveStatus.toLowerCase())}">${safe(liveStatus)}</span>
-        </div>
-        <div class="portal-panel-note">Elapsed: ${safe(formatElapsedDuration(elapsedMs))}</div>
-        <div class="portal-panel-note">Last event: ${safe(lastEventLabel)}</div>
-        <div class="portal-panel-note">Request ID: ${safe(snapshot.requestId || snapshot.id || "—")}</div>
-        <div class="portal-panel-note">Session ID: ${safe(snapshot.sessionId || "—")}</div>
-        <div class="portal-panel-note">Events: ${events.length}</div>
-        ${runtimeStateNotes}
-        <div class="portal-panel-note">${safe(runtimeUiStatusText(uiState))}</div>
-      </div>
-      ${showNonSuccess ? `<div class="portal-completion-banner is-warning"><strong>${safe(completionState || "non-success")}</strong>${incompleteReason ? `<div>${safe(incompleteReason)}</div>` : ""}<div>${safe(nonSuccessHint)}</div></div>` : ""}
-      ${stillRunning ? '<div class="portal-inline-state">Still running. Live events will continue to appear here.</div>' : ""}
-      ${budget ? `<div class="portal-panel-section"><div class="portal-panel-title">Context Window</div><div class="portal-panel-note">${safe(String(usagePercentRaw ?? "—"))}% used</div><div class="portal-context-meter"><div class="portal-context-meter-fill" style="width: ${clampedPercent}%"></div></div><div class="portal-panel-note">${safe(String(preparedTokens ?? "—"))} / ${safe(String(contextWindowTokens ?? "—"))} estimated tokens</div><div class="portal-panel-note">Micro threshold: ${safe(String(budget?.soft_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Hard threshold: ${safe(String(budget?.hard_threshold_percent ?? "—"))}%</div><div class="portal-panel-note">Next: ${safe(String(budget?.next_compaction_action || "—"))}</div>${untilSoft != null ? `<div class="portal-panel-note">Until soft threshold: ${safe(String(untilSoft))} tokens</div>` : ""}${untilHard != null ? `<div class="portal-panel-note">Until hard threshold: ${safe(String(untilHard))} tokens</div>` : ""}${nextPruningPolicy ? `<div class="portal-panel-note">Pruning policy: ${safe(truncateThinkingText(nextPruningPolicy, 500))}</div>` : ""}</div>` : ""}
-      <div class="portal-panel-section">
-        <div class="portal-panel-title">Context Contents</div>
-        <div class="portal-panel-note">${safe(contextSourceLabel)}</div>
-        ${hasContextContents ? `<div class="portal-context-grid">
-          <div class="portal-context-kv"><strong>objective</strong><div>${safe(truncateThinkingText(contextState?.objective || "", 700) || "—")}</div></div>
-          <div class="portal-context-kv"><strong>summary</strong><div>${safe(truncateThinkingText(contextState?.summary || "", 700) || "—")}</div></div>
-          <div class="portal-context-kv"><strong>current_state</strong><div>${safe(truncateThinkingText(contextState?.current_state || "", 700) || "—")}</div></div>
-          <div class="portal-context-kv"><strong>next_step</strong><div>${safe(truncateThinkingText(contextState?.next_step || "", 700) || "—")}</div></div>
-          <div class="portal-context-kv"><strong>constraints</strong>${renderArray(contextState?.constraints)}</div>
-          <div class="portal-context-kv"><strong>decisions</strong>${renderArray(contextState?.decisions)}</div>
-          <div class="portal-context-kv"><strong>open_loops</strong>${renderArray(contextState?.open_loops)}</div>
-        </div>` : '<div class="portal-inline-state">No context snapshot was captured for this run.</div>'}
-      </div>
-      ${(skillData.skill || skillData.skill_name) ? `<div class="portal-panel-section"><div class="portal-panel-title">Active Skill</div><div class="portal-panel-note">${safe(skillData.skill || skillData.skill_name)}</div>${skillData.goal ? `<div class="portal-panel-note">Goal: ${safe(truncateThinkingText(skillData.goal, 300))}</div>` : ""}${skillData.turn_count != null ? `<div class="portal-panel-note">Turn: ${safe(String(skillData.turn_count))}</div>` : ""}${skillData.reason ? `<div class="portal-panel-note">Reason: ${safe(truncateThinkingText(skillData.reason, 180))}</div>` : ""}${Array.isArray(skillData.allowed_tools) && skillData.allowed_tools.length ? `<div class="portal-panel-note">Allowed tools: ${safe(skillData.allowed_tools.slice(0, 10).join(", "))}</div>` : ""}</div>` : ""}
-      <div class="portal-panel-section">
-        <div class="portal-panel-title">Execution Timeline</div>
-        ${capNote}
-        ${timeline || '<div class="portal-inline-state">Waiting for runtime events…</div>'}
-      </div>
-    </div>
-  `;
-  renderIcons();
-}
-
-async function loadPersistedThinkingPanel(
-  sessionId,
-  {
-    preserveLiveOnFailure = false,
-    preserveLiveIfEmpty = false,
-    preserveLiveIfNoContext = false,
-    expectedRequestId = "",
-  } = {},
-) {
-  if (!state.selectedAgentId || !sessionId) return false;
-  try {
-    const response = await fetch(`/app/agents/${state.selectedAgentId}/thinking/panel?session_id=${encodeURIComponent(sessionId)}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const html = await response.text();
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    const root = template.content.querySelector("[data-thinking-panel-root]");
-    const hasData = root?.dataset?.thinkingHasData === "1";
-    const hasContext = root?.dataset?.thinkingHasContext === "1";
-    const persistedRequestId = root?.dataset?.thinkingRequestId || "";
-    const requestMatches = !expectedRequestId || !persistedRequestId || persistedRequestId === expectedRequestId;
-    const selectedChatState = state.selectedAgentId ? ensureChatState(state.selectedAgentId) : null;
-    const localSnapshot = getActiveThinkingSnapshot(selectedChatState);
-    const localHasContext = hasMeaningfulContextContents(localSnapshot?.contextState);
-    if (preserveLiveIfEmpty && (!hasData || !requestMatches)) return false;
-    if (preserveLiveIfNoContext && localHasContext && !hasContext) return false;
-    if (dom.toolPanelBody) dom.toolPanelBody.innerHTML = html;
-    renderIcons();
-    return true;
-  } catch (err) {
-    if (preserveLiveOnFailure) return false;
-    setToolPanel("Thinking Process", `<div class="portal-inline-state is-error">Error: ${safe(err.message)}</div>`, "thinking");
-    return false;
-  }
-}
-
-async function openThinkingProcessPanel() {
-  if (!state.selectedAgentId) {
-    showToast("Please select an assistant first");
-    return;
-  }
-
-  const chatState = ensureChatState(state.selectedAgentId);
-  const liveSnapshot = getActiveThinkingSnapshot(chatState);
-  let currentSessionId = currentSessionIdForSelectedAgent()
-    || liveSnapshot?.sessionId
-    || "";
-  const hiddenSessionInput = document.getElementById("chat-session-id");
-  if (!currentSessionId && hiddenSessionInput) {
-    currentSessionId = (hiddenSessionInput.value || "").trim();
-  }
-  const localSnapshot = getActiveThinkingSnapshot(chatState);
-  const isLiveRun = !!(localSnapshot && (chatState.currentRequest || !localSnapshot.completed));
-  const localMatchesSession = !currentSessionId || !localSnapshot?.sessionId || localSnapshot.sessionId === currentSessionId;
-  const canUseLocalSnapshot = localMatchesSession && (isLiveRun || hasMeaningfulThinkingSnapshot(localSnapshot));
-  if (canUseLocalSnapshot) {
-    setToolPanel("Thinking Process", "", "thinking");
-    renderThinkingPanelFromClientState(chatState);
-    ensureEventSocketForSelectedAgent();
-    if (localSnapshot.completed && currentSessionId) {
-      await loadPersistedThinkingPanel(currentSessionId, {
-        preserveLiveOnFailure: true,
-        preserveLiveIfEmpty: true,
-        preserveLiveIfNoContext: true,
-        expectedRequestId: localSnapshot.requestId || localSnapshot.id || "",
-      });
-    }
-    return;
-  }
-
-  if (!currentSessionId) {
-    setToolPanel("Thinking Process", '<div class="portal-inline-state">No session selected. Start a conversation first.</div>', "thinking");
-    return;
-  }
-
-  setToolPanel("Thinking Process", '<div class="portal-inline-state">Loading…</div>', "thinking");
-  await loadPersistedThinkingPanel(currentSessionId);
-}
-
 function runtimeEventSummaryHash(value) {
   const text = String(value || "");
   let hash = 0;
@@ -2921,7 +2415,7 @@ function runtimeEventDedupKey(event) {
   return `${eventType}|${rawEventType}|${createdAt}|${callId}|${partId}|${deltaIndex}|${payloadHash}`;
 }
 
-function mergeThinkingEvents(primaryEvents, secondaryEvents) {
+function mergeRuntimeStreamEvents(primaryEvents, secondaryEvents) {
   const first = Array.isArray(primaryEvents) ? primaryEvents : [];
   const second = Array.isArray(secondaryEvents) ? secondaryEvents : [];
   const merged = [];
@@ -2948,15 +2442,15 @@ function mergeThinkingEvents(primaryEvents, secondaryEvents) {
   return merged;
 }
 
-function normalizeThinkingEvents(events) {
+function normalizeRuntimeStreamEvents(events) {
   if (!Array.isArray(events)) return [];
   return events
     .map((event) => normalizeRuntimeEvent(event) || event)
     .filter((event) => event && typeof event === "object");
 }
 
-function normalizePayloadThinkingEvents(events) {
-  return normalizeThinkingEvents(events);
+function normalizePayloadStreamEvents(events) {
+  return normalizeRuntimeStreamEvents(events);
 }
 
 function createAgentTimelineState({ requestId = "", sessionId = "" } = {}) {
@@ -3695,7 +3189,6 @@ function syncAgentTimelineAssistantTextFromStream(chatState, requestCtx = {}, te
   return timeline;
 }
 
-// Render thinking events from chat response (non-WebSocket)
 function escapeHtml(str) {
   if (str == null) return '';
   return String(str)
@@ -3706,7 +3199,6 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Note: Event rendering is handled by thinking tool panel live renderer.
 
 function isAssistantMessageRuntimeEvent(type) {
   return [
@@ -3773,31 +3265,29 @@ function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatc
   return "updated";
 }
 
-function markThinkingTerminalFromEvent(chatState, entry = {}) {
+function markStreamTerminalFromEvent(chatState, entry = {}) {
   if (!chatState) return false;
 
-  if (chatState.inflightThinking) {
-    chatState.inflightThinking.completed = true;
-    chatState.inflightThinking.status = chatState.inflightThinking.status || "completed";
-    chatState.inflightThinking.completedAt = chatState.inflightThinking.completedAt || Date.now();
-    updateThinkingContextFromEvent(chatState.inflightThinking, entry);
-    chatState.lastThinkingSnapshot = {
-      ...chatState.inflightThinking,
-      events: mergeThinkingEvents(chatState.inflightThinking.events || [], [entry]),
+  if (chatState.inflightEventStream) {
+    chatState.inflightEventStream.completed = true;
+    chatState.inflightEventStream.status = chatState.inflightEventStream.status || "completed";
+    chatState.inflightEventStream.completedAt = chatState.inflightEventStream.completedAt || Date.now();
+    chatState.lastEventStreamSnapshot = {
+      ...chatState.inflightEventStream,
+      events: mergeRuntimeStreamEvents(chatState.inflightEventStream.events || [], [entry]),
       completed: true,
-      completedAt: chatState.inflightThinking.completedAt,
+      completedAt: chatState.inflightEventStream.completedAt,
     };
     return true;
   }
 
-  if (chatState.lastThinkingSnapshot) {
-    chatState.lastThinkingSnapshot = {
-      ...chatState.lastThinkingSnapshot,
-      events: mergeThinkingEvents(chatState.lastThinkingSnapshot.events || [], [entry]),
+  if (chatState.lastEventStreamSnapshot) {
+    chatState.lastEventStreamSnapshot = {
+      ...chatState.lastEventStreamSnapshot,
+      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]),
       completed: true,
-      completedAt: chatState.lastThinkingSnapshot.completedAt || Date.now(),
+      completedAt: chatState.lastEventStreamSnapshot.completedAt || Date.now(),
     };
-    updateThinkingContextFromEvent(chatState.lastThinkingSnapshot, entry);
     return true;
   }
 
@@ -3819,8 +3309,8 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentRequestIds = new Set([
     chatState.currentRequest?.clientRequestId,
     chatState.currentRequest?.requestId,
-    chatState.inflightThinking?.requestId,
-    chatState.inflightThinking?.id,
+    chatState.inflightEventStream?.requestId,
+    chatState.inflightEventStream?.id,
     chatState.inflightAgentTimeline?.requestId,
   ].map((value) => String(value || "")).filter(Boolean));
   const localRequestId = chatState.currentRequest?.requestId
@@ -3853,8 +3343,8 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   }
   const eventMatchesLastCompletedRequest = Boolean(
     entry.request_id
-    && chatState.lastThinkingSnapshot?.requestId
-    && entry.request_id === chatState.lastThinkingSnapshot.requestId
+    && chatState.lastEventStreamSnapshot?.requestId
+    && entry.request_id === chatState.lastEventStreamSnapshot.requestId
   );
   if (
     entry.session_id
@@ -3862,36 +3352,32 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     && !(eventMatchesCurrentRequest || eventMatchesSocketRequest || eventMatchesLastCompletedRequest || canAdoptRequestId)
   ) {
     // Drop unmatched stale events when no current session is bound.
-    // Otherwise they can recreate inflightThinking and cause false busy/session pollution.
+    // Otherwise they can recreate inflightEventStream and cause false busy/session pollution.
     return;
   }
 
   // Handle additive runtime state fields while keeping existing event semantics.
   const isCompletion = isCompletionRuntimeState(entry.state);
   const lifecycleType = entry.lifecycle_type;
-  if (!isTrackableThinkingEvent(type) && !lifecycleType && !isCompletion) return;
+  if (!isTrackableStreamEvent(type) && !lifecycleType && !isCompletion) return;
 
   const isLateEventForCompletedRequest = Boolean(
     !chatState.currentRequest
     && eventMatchesLastCompletedRequest
-    && chatState.lastThinkingSnapshot
+    && chatState.lastEventStreamSnapshot
   );
 
   if (isLateEventForCompletedRequest) {
-    chatState.lastThinkingSnapshot = {
-      ...chatState.lastThinkingSnapshot,
-      events: mergeThinkingEvents(chatState.lastThinkingSnapshot.events || [], [entry]),
+    chatState.lastEventStreamSnapshot = {
+      ...chatState.lastEventStreamSnapshot,
+      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]),
       completed: true,
     };
-    updateThinkingContextFromEvent(chatState.lastThinkingSnapshot, entry);
-    if (isThinkingPanelActiveForAgent(currentAgentId)) {
-      scheduleThinkingPanelRefresh(currentAgentId);
-    }
     return;
   }
 
-  if (!chatState.inflightThinking) {
-    chatState.inflightThinking = {
+  if (!chatState.inflightEventStream) {
+    chatState.inflightEventStream = {
       id: entry.request_id || `event-${Date.now()}`,
       requestId: entry.request_id || "",
       sessionId: entry.session_id || currentSessionId || "",
@@ -3904,12 +3390,12 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       lastEventAt: Date.now(),
     };
   }
-  if (entry.request_id && (!chatState.inflightThinking.requestId || type === "chat.started")) {
-    chatState.inflightThinking.requestId = entry.request_id;
-    chatState.inflightThinking.id = chatState.inflightThinking.id || entry.request_id;
+  if (entry.request_id && (!chatState.inflightEventStream.requestId || type === "chat.started")) {
+    chatState.inflightEventStream.requestId = entry.request_id;
+    chatState.inflightEventStream.id = chatState.inflightEventStream.id || entry.request_id;
   }
-  if (entry.session_id && !chatState.inflightThinking.sessionId) {
-    chatState.inflightThinking.sessionId = entry.session_id;
+  if (entry.session_id && !chatState.inflightEventStream.sessionId) {
+    chatState.inflightEventStream.sessionId = entry.session_id;
   }
   if (
     entry.session_id
@@ -3923,11 +3409,11 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     }
   }
 
-  if (!chatState.inflightThinking) return;
-  chatState.inflightThinking.lastEventAt = Date.now();
-  chatState.inflightThinking.lastEventTs = entry.ts || null;
-  chatState.inflightThinking.lastEventCreatedAt = entry.created_at || "";
-  chatState.inflightThinking.status = "connected";
+  if (!chatState.inflightEventStream) return;
+  chatState.inflightEventStream.lastEventAt = Date.now();
+  chatState.inflightEventStream.lastEventTs = entry.ts || null;
+  chatState.inflightEventStream.lastEventCreatedAt = entry.created_at || "";
+  chatState.inflightEventStream.status = "connected";
   const runtimeEventDedupKey = (typeof globalThis !== "undefined" && typeof globalThis.runtimeEventDedupKey === "function")
     ? globalThis.runtimeEventDedupKey
     : (event) => {
@@ -3940,17 +3426,16 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       return `${eventType}|${createdAt}|${summary}`;
     };
   const entryDedupKey = runtimeEventDedupKey(entry);
-  const alreadySeen = (chatState.inflightThinking.events || []).some((event) => {
+  const alreadySeen = (chatState.inflightEventStream.events || []).some((event) => {
     const key = runtimeEventDedupKey(event);
     return key === entryDedupKey;
   });
   if (alreadySeen) {
-    if (isThinkingPanelActiveForAgent(currentAgentId)) scheduleThinkingPanelRefresh(currentAgentId);
     return;
   }
 
-  if (!chatState.inflightThinking.started && type !== "execution.started") {
-    chatState.inflightThinking.events.push({
+  if (!chatState.inflightEventStream.started && type !== "execution.started") {
+    chatState.inflightEventStream.events.push({
       type: "execution.started",
       raw_type: "execution.started",
       lifecycle_type: "execution.started",
@@ -3958,17 +3443,17 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       ts: entry.ts,
       state: "started",
     });
-    chatState.inflightThinking.started = true;
+    chatState.inflightEventStream.started = true;
   }
 
-  chatState.inflightThinking.events.push(entry);
-  if (type === "execution.started") chatState.inflightThinking.started = true;
+  chatState.inflightEventStream.events.push(entry);
+  if (type === "execution.started") chatState.inflightEventStream.started = true;
 
   if (lifecycleType && lifecycleType !== type) {
     const terminalDetail = lifecycleType === "execution.failed"
       ? (entry?.data?.error || entry?.data?.message || "Execution failed")
       : (entry?.data?.message || "Execution complete");
-    chatState.inflightThinking.events.push({
+    chatState.inflightEventStream.events.push({
       type: lifecycleType,
       raw_type: lifecycleType,
       lifecycle_type: lifecycleType,
@@ -4003,12 +3488,8 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     }
   }
 
-  updateThinkingContextFromEvent(chatState.inflightThinking, entry);
   if (entry.request_id && canAdoptRequestId && state.eventWsRequestId !== entry.request_id) {
     ensureEventSocketForAgent(currentAgentId, entry.session_id || currentSessionId, entry.request_id);
-  }
-  if (isThinkingPanelActiveForAgent(currentAgentId)) {
-    scheduleThinkingPanelRefresh(currentAgentId);
   }
 
   let assistantRuntimeEventResult = "ignored";
@@ -4024,11 +3505,8 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
 
   if (
     assistantRuntimeEventResult === "finalized"
-    && !chatState.inflightThinking
+    && !chatState.inflightEventStream
   ) {
-    if (isThinkingPanelActiveForAgent(currentAgentId)) {
-      scheduleThinkingPanelRefresh(currentAgentId);
-    }
     syncSelectedAgentChatActionControls();
     return;
   }
@@ -4057,10 +3535,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   );
 
   if (isTerminalRuntimeEvent) {
-    markThinkingTerminalFromEvent(chatState, entry);
-    if (isThinkingPanelActiveForAgent(currentAgentId)) {
-      scheduleThinkingPanelRefresh(currentAgentId);
-    }
+    markStreamTerminalFromEvent(chatState, entry);
     syncSelectedAgentChatActionControls();
   }
 }
@@ -4077,14 +3552,14 @@ function hasLiveEventSocketWork(agentId, requestId = "") {
     ].map((value) => String(value || "")).includes(String(requestId));
   }
   return Boolean(
-    (chatState.inflightThinking && chatState.inflightThinking.completed === false)
+    (chatState.inflightEventStream && chatState.inflightEventStream.completed === false)
     || (chatState.inflightAgentTimeline && chatState.inflightAgentTimeline.completed === false)
   );
 }
 
 function updateEventSocketStatus(agentId, status) {
   const chatState = ensureChatState(agentId);
-  const snapshot = chatState?.inflightThinking || chatState?.lastThinkingSnapshot;
+  const snapshot = chatState?.inflightEventStream || chatState?.lastEventStreamSnapshot;
   if (!snapshot) return;
   snapshot.connectionStatus = status;
   snapshot.status = status === "reconnecting" ? "reconnecting" : snapshot.status;
@@ -4095,7 +3570,6 @@ function updateEventSocketStatus(agentId, status) {
   } else if (status === "disconnected") {
     snapshot.disconnectedAt = Date.now();
   }
-  if (isThinkingPanelActiveForAgent(agentId)) scheduleThinkingPanelRefresh(agentId);
 }
 
 function scheduleEventSocketReconnect(agentId, sessionId, requestId = "") {
@@ -4130,8 +3604,8 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
   if (session) params.set("session_id", session);
   if (requestId) params.set("request_id", requestId);
   params.set("replay", "1");
-  const lastEventAt = chatState?.inflightThinking?.lastEventCreatedAt
-    || chatState?.lastThinkingSnapshot?.lastEventCreatedAt
+  const lastEventAt = chatState?.inflightEventStream?.lastEventCreatedAt
+    || chatState?.lastEventStreamSnapshot?.lastEventCreatedAt
     || "";
   if (lastEventAt) params.set("last_event_at", lastEventAt);
   const query = params.toString();
@@ -5864,7 +5338,7 @@ async function submitChatForSelectedAgent() {
       buildUserMessageArticle(displayMessage, displayAttachments, { clientRequestId })
     );
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(clientRequestId));
-    chatState.inflightThinking = {
+    chatState.inflightEventStream = {
       id: clientRequestId,
       requestId: clientRequestId,
       sessionId: sessionIdAtSend || "",
@@ -5884,9 +5358,6 @@ async function submitChatForSelectedAgent() {
       });
     }
     ensureEventSocketForAgent(agentIdAtSend, sessionIdAtSend, clientRequestId);
-    if (isThinkingPanelActiveForAgent(agentIdAtSend)) {
-      renderThinkingPanelFromClientState(chatState);
-    }
     scrollToBottom();
   }
   chatState.pendingFiles = [];
@@ -6722,7 +6193,7 @@ function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) 
   markdownEl.appendChild(warningBlock);
   const responseEl = document.createElement("div");
   responseEl.className = "chat-incomplete-response md-render";
-  responseEl.dataset.md = responseText || "No final assistant response was returned. See Thinking Process for runtime events.";
+  responseEl.dataset.md = responseText || "No final assistant response was returned.";
   responseEl.dataset.displayBlocks = "[]";
   markdownEl.appendChild(responseEl);
   article.querySelector('.assistant-stream-cursor')?.remove();
@@ -6730,26 +6201,26 @@ function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) 
   renderMarkdown(responseEl.parentElement); decorateToolMessages(article); renderIcons();
   return true;
 }
-function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
+function mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "");
   const status = ["blocked", "incomplete", "error", "failed", "empty_final"].includes(completionState)
     ? (completionState === "failed" ? "error" : completionState)
     : "completed";
-  const existing = chatState.lastThinkingSnapshot || chatState.inflightThinking || { events: [] };
+  const existing = chatState.lastEventStreamSnapshot || chatState.inflightEventStream || { events: [] };
   const finalPayloadEvents = [
-    ...normalizePayloadThinkingEvents(finalPayload?.events || []),
-    ...normalizePayloadThinkingEvents(finalPayload?.runtime_events || []),
+    ...normalizePayloadStreamEvents(finalPayload?.events || []),
+    ...normalizePayloadStreamEvents(finalPayload?.runtime_events || []),
   ];
-  const mergedEvents = mergeThinkingEvents(existing.events || [], finalPayloadEvents).slice(-100);
+  const mergedEvents = mergeRuntimeStreamEvents(existing.events || [], finalPayloadEvents).slice(-100);
   const finalContextState =
     finalPayload?.context_state ||
     finalPayload?.contextState ||
     existing.contextState ||
     existing.context_state ||
     null;
-  chatState.lastThinkingSnapshot = {
+  chatState.lastEventStreamSnapshot = {
     ...existing,
     completed: true,
     status,
@@ -6763,14 +6234,13 @@ function mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload = {}) {
     event_count: mergedEvents.length,
     events: mergedEvents,
   };
-  if (isThinkingPanelActiveForAgent(agentId)) renderThinkingPanelFromClientState(chatState);
 }
 function terminalStatusFromCompletionState(completionState) {
   if (completionState === "failed") return "error";
   if (["blocked", "incomplete", "error", "empty_final"].includes(completionState)) return completionState;
   return completionState || "completed";
 }
-function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
+function finalizeTerminalStreamState(agentId, requestCtx, finalPayload = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   stopRecoveredRunPolling(requestCtx);
@@ -6779,14 +6249,14 @@ function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
   const sessionId = finalPayload?.session_id || requestCtx?.sessionIdAtSend || chatState.sessionId || "";
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "");
   const status = terminalStatusFromCompletionState(completionState);
-  if (chatState.inflightThinking && (!requestId || !chatState.inflightThinking.requestId || chatState.inflightThinking.requestId === requestId || chatState.inflightThinking.id === requestId)) {
-    chatState.inflightThinking.completed = true;
-    chatState.inflightThinking.status = status;
-    chatState.inflightThinking.completion_state = completionState;
-    chatState.inflightThinking.incomplete_reason = finalPayload?.incomplete_reason || "";
+  if (chatState.inflightEventStream && (!requestId || !chatState.inflightEventStream.requestId || chatState.inflightEventStream.requestId === requestId || chatState.inflightEventStream.id === requestId)) {
+    chatState.inflightEventStream.completed = true;
+    chatState.inflightEventStream.status = status;
+    chatState.inflightEventStream.completion_state = completionState;
+    chatState.inflightEventStream.incomplete_reason = finalPayload?.incomplete_reason || "";
   }
-  const existing = chatState.lastThinkingSnapshot || chatState.inflightThinking || { events: [] };
-  chatState.lastThinkingSnapshot = {
+  const existing = chatState.lastEventStreamSnapshot || chatState.inflightEventStream || { events: [] };
+  chatState.lastEventStreamSnapshot = {
     ...existing,
     completed: true,
     status,
@@ -6800,12 +6270,10 @@ function finalizeTerminalThinkingState(agentId, requestCtx, finalPayload = {}) {
   if (typeof finalizeAgentTimelineState === "function") {
     finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
   }
-  chatState.inflightThinking = null;
-  chatState.pendingThinkingEvents = null;
+  chatState.inflightEventStream = null;
   if (chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
   chatState.isSubmitting = false;
   clearWaitingForRuntimeEventsTimer(requestCtx);
-  if (isThinkingPanelActiveForAgent(agentId)) renderThinkingPanelFromClientState(chatState);
   syncSelectedAgentChatActionControls();
 }
 function setTerminalCompletionStatus(finalPayload = {}) {
@@ -6828,8 +6296,8 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
   }
   requestCtx.terminalPayload = finalPayload;
   finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload);
-  mergeFinalThinkingSnapshot(agentId, requestCtx, finalPayload);
-  finalizeTerminalThinkingState(agentId, requestCtx, finalPayload);
+  mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload);
+  finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
   if (state.selectedAgentId === agentId) setTerminalCompletionStatus(finalPayload);
   cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
 }
@@ -6839,7 +6307,7 @@ function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = fals
   stopRecoveredRunPolling(requestCtx);
   clearPersistedInflightChatRun(agentIdAtSend, requestCtx?.clientRequestId || requestCtx?.requestId || "");
   if (requestCtx?.streamIncomplete || requestCtx?.streamFailed) {
-    finalizeTerminalThinkingState(agentIdAtSend, requestCtx, requestCtx?.terminalPayload || requestCtx?.streamFinalPayload || {});
+    finalizeTerminalStreamState(agentIdAtSend, requestCtx, requestCtx?.terminalPayload || requestCtx?.streamFinalPayload || {});
   }
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (chatState?.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
@@ -6892,10 +6360,9 @@ async function abortActiveChatRequestForSelectedAgent() {
   req.aborted = true;
   req.streamFailed = true;
   chatState.currentRequest = null;
-  chatState.inflightThinking = null;
+  chatState.inflightEventStream = null;
   if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
   else chatState.inflightAgentTimeline = null;
-  chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentId, false);
   setChatStatus("Stopped current response.");
   showToast("Stopped current response.");
@@ -7222,7 +6689,7 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
     renderIcons();
     scrollToBottom();
   } else {
-    finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload);
+    finalizeTerminalStreamState(agentIdAtSend, requestCtx, finalPayload);
     chatState.needsReload = true;
     markAgentUnread(agentIdAtSend, "completed");
     renderAgentList();
@@ -7370,8 +6837,8 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       const ids = localNormalizeAssistantMessageIds(candidate);
       return String(candidate?.assistant_message_id || ids[ids.length - 1] || "");
     };
-  const localNormalizePayloadThinkingEvents = (typeof normalizePayloadThinkingEvents === "function")
-    ? normalizePayloadThinkingEvents
+  const localNormalizePayloadStreamEvents = (typeof normalizePayloadStreamEvents === "function")
+    ? normalizePayloadStreamEvents
     : (events) => Array.isArray(events) ? events : [];
   const chatState = ensureChatState(agentIdAtSend);
   const activeMatches = Boolean(
@@ -7397,10 +6864,9 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     const finalSessionId = payload?.session_id || requestCtx?.sessionIdAtSend || chatState?.sessionId || "";
     removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true });
     chatState.currentRequest = null;
-    chatState.inflightThinking = null;
+    chatState.inflightEventStream = null;
     if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
     else chatState.inflightAgentTimeline = null;
-    chatState.pendingThinkingEvents = null;
     chatState.needsReload = true;
     setChatSubmittingForAgent(agentIdAtSend, false);
     setChatStatus("Completed without a visible assistant response. Reloading session...");
@@ -7410,13 +6876,13 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     if (typeof syncSelectedAgentChatActionControls === "function") syncSelectedAgentChatActionControls();
     return;
   }
-  const payloadThinkingEvents = [
-    ...localNormalizePayloadThinkingEvents(payload?.events || []),
-    ...localNormalizePayloadThinkingEvents(payload?.runtime_events || []),
+  const payloadStreamEvents = [
+    ...localNormalizePayloadStreamEvents(payload?.events || []),
+    ...localNormalizePayloadStreamEvents(payload?.runtime_events || []),
   ];
-  const mergedThinkingEvents = mergeThinkingEvents(
-    chatState.inflightThinking?.events || [],
-    payloadThinkingEvents,
+  const mergedStreamEvents = mergeRuntimeStreamEvents(
+    chatState.inflightEventStream?.events || [],
+    payloadStreamEvents,
   );
   const hasMeaningfulContext = (typeof hasMeaningfulContextState === "function")
     ? hasMeaningfulContextState
@@ -7447,10 +6913,10 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   const finalSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
   clearPersistedInflightChatRun(agentIdAtSend, requestCtx.clientRequestId);
   const payloadContextState = payload?.context_state;
-  const mergedEventContextState = contextFromEvents(mergedThinkingEvents);
-  const eventContextState = contextFromEvents(payloadThinkingEvents);
-  const liveContextState = chatState.inflightThinking?.contextState;
-  const priorContextState = chatState.lastThinkingSnapshot?.contextState;
+  const mergedEventContextState = contextFromEvents(mergedStreamEvents);
+  const eventContextState = contextFromEvents(payloadStreamEvents);
+  const liveContextState = chatState.inflightEventStream?.contextState;
+  const priorContextState = chatState.lastEventStreamSnapshot?.contextState;
   const finalContextState = pickContextState(
     payloadContextState,
     mergedEventContextState,
@@ -7469,12 +6935,12 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
           : hasMeaningfulContext(finalContextState)
             ? "context_window_only"
             : "none";
-  const finalThinkingSnapshot = {
-    ...(chatState.inflightThinking || {}),
+  const finalStreamSnapshot = {
+    ...(chatState.inflightEventStream || {}),
     id: payload.request_id || requestCtx.clientRequestId,
     requestId: payload.request_id || requestCtx.clientRequestId,
     sessionId: finalSessionId,
-    events: mergedThinkingEvents,
+    events: mergedStreamEvents,
     completed: true,
     contextState: finalContextState,
     contextSource,
@@ -7487,34 +6953,21 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
         liveContextState,
         priorContextState,
       )
-      || chatState.inflightThinking?.contextBudget
-      || chatState.lastThinkingSnapshot?.contextBudget
+      || chatState.inflightEventStream?.contextBudget
+      || chatState.lastEventStreamSnapshot?.contextBudget
       || null
     ),
     completedAt: Date.now(),
   };
-  chatState.lastThinkingSnapshot = finalThinkingSnapshot;
+  chatState.lastEventStreamSnapshot = finalStreamSnapshot;
   if (typeof finalizeAgentTimelineState === "function") {
     finalizeAgentTimelineState(chatState, requestCtx, payload);
   }
-  const canRenderThinkingPanel = typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend);
   chatState.currentRequest = null;
-  chatState.inflightThinking = null;
-  chatState.pendingThinkingEvents = null;
+  chatState.inflightEventStream = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (typeof syncSelectedAgentChatActionControls === "function") syncSelectedAgentChatActionControls();
   if (state.selectedAgentId !== agentIdAtSend) {
-    if (canRenderThinkingPanel) {
-      if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
-      if (finalSessionId) {
-        if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, {
-          preserveLiveOnFailure: true,
-          preserveLiveIfEmpty: true,
-          preserveLiveIfNoContext: true,
-          expectedRequestId: finalThinkingSnapshot.requestId,
-        });
-      }
-    }
     chatState.needsReload = true;
     markAgentUnread(agentIdAtSend, "completed");
     renderAgentList();
@@ -7527,17 +6980,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   if (!optimisticUserArticle) {
     if (finalSessionId) {
       await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
-    }
-    if (canRenderThinkingPanel) {
-      if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
-      if (finalSessionId) {
-        if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, {
-          preserveLiveOnFailure: true,
-          preserveLiveIfEmpty: true,
-          preserveLiveIfNoContext: true,
-          expectedRequestId: finalThinkingSnapshot.requestId,
-        });
-      }
     }
     addEditButtonsToMessages();
     setChatStatus("Ready");
@@ -7576,17 +7018,6 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       { userMessageId: payload.user_message_id || optimisticUserArticle?.dataset?.messageId || "", messageIds: localNormalizeAssistantMessageIds(payload), primaryMessageId: localPrimaryAssistantMessageId(payload), requestId: payload.request_id || "", copyText: payload.response || "" }
     );
     dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
-  }
-  if (canRenderThinkingPanel) {
-    if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
-    if (finalSessionId) {
-      if (typeof loadPersistedThinkingPanel === "function") loadPersistedThinkingPanel(finalSessionId, {
-        preserveLiveOnFailure: true,
-        preserveLiveIfEmpty: true,
-        preserveLiveIfNoContext: true,
-        expectedRequestId: finalThinkingSnapshot.requestId,
-      });
-    }
   }
   setChatStatus("Ready");
   renderMarkdown(dom.messageList);
@@ -7669,7 +7100,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   };
   stopRecoveredRunPolling(requestCtx);
   clearPersistedInflightChatRun(agentIdAtSend, requestCtx.clientRequestId);
-  if (chatState.inflightThinking) {
+  if (chatState.inflightEventStream) {
     const failedEvent = {
       type: "execution.failed",
       raw_type: "execution.failed",
@@ -7680,26 +7111,24 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
       request_id: requestCtx.clientRequestId,
       session_id: requestCtx.sessionIdAtSend || "",
     };
-    chatState.inflightThinking.events.push(failedEvent);
-    chatState.inflightThinking.completed = true;
-    chatState.lastThinkingSnapshot = { ...chatState.inflightThinking };
+    chatState.inflightEventStream.events.push(failedEvent);
+    chatState.inflightEventStream.completed = true;
+    chatState.lastEventStreamSnapshot = { ...chatState.inflightEventStream };
   }
   requestCtx.streamFailed = true;
   requestCtx.terminalPayload = finalPayload;
-  if (typeof finalizeTerminalThinkingState === "function") finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload);
+  if (typeof finalizeTerminalStreamState === "function") finalizeTerminalStreamState(agentIdAtSend, requestCtx, finalPayload);
   else {
-    chatState.lastThinkingSnapshot = chatState.lastThinkingSnapshot || (chatState.inflightThinking ? { ...chatState.inflightThinking } : null);
-    chatState.inflightThinking = null;
+    chatState.lastEventStreamSnapshot = chatState.lastEventStreamSnapshot || (chatState.inflightEventStream ? { ...chatState.inflightEventStream } : null);
+    chatState.inflightEventStream = null;
     if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
     else chatState.inflightAgentTimeline = null;
-    chatState.pendingThinkingEvents = null;
   }
   chatState.currentRequest = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (state.selectedAgentId !== agentIdAtSend) {
     chatState.draftText = restoredMessage;
     chatState.pendingFiles = [];
-    chatState.pendingThinkingEvents = null;
     chatState.needsReload = false;
     markAgentUnread(agentIdAtSend, "error");
     renderAgentList();
@@ -7716,9 +7145,6 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   showToast("Send failed. Please re-attach files before retrying.", { variant: 'error' });
   renderInputPreview();
   syncChatInputHeight();
-  if (typeof isThinkingPanelActiveForAgent === "function" && isThinkingPanelActiveForAgent(agentIdAtSend)) {
-    if (typeof renderThinkingPanelFromClientState === "function") renderThinkingPanelFromClientState(chatState);
-  }
   if (typeof setTerminalCompletionStatus === "function") setTerminalCompletionStatus(finalPayload);
   else setChatStatus(errorMsg, true);
   if (dom.messageList) {
@@ -7961,7 +7387,6 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
     const requiresSelectedAssistant = new Set([
       "details",
       "sessions",
-      "thinking",
       "server-files",
       "skills",
       "usage",
@@ -7995,10 +7420,6 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       return;
     }
 
-    if (panelKey === "thinking") {
-      await openThinkingProcessPanel();
-      return;
-    }
     if (panelKey === "server-files") {
       await openServerFiles();
       return;
@@ -8265,7 +7686,7 @@ function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-thinking"), document.getElementById("btn-files")];
+  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-files")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -9133,8 +8554,7 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
   }
   if (chatState) {
     chatState.isSubmitting = false;
-    chatState.inflightThinking = null;
-    chatState.pendingThinkingEvents = null;
+    chatState.inflightEventStream = null;
     if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
     else chatState.inflightAgentTimeline = null;
   }
@@ -9275,7 +8695,7 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   };
   chatState.currentRequest = requestCtx;
   requestCtx.reconnectStreamAllowed = statusPayload?.source_of_truth === "run_registry";
-  chatState.inflightThinking = {
+  chatState.inflightEventStream = {
     id: candidate.request_id,
     requestId: candidate.request_id,
     sessionId,
@@ -9451,7 +8871,7 @@ async function deleteSessionForAgent(agentId, sessionId) {
       if (agentId === state.selectedAgentId) {
         const chatState = getChatState();
         if (chatState) {
-          chatState.inflightThinking = null;
+          chatState.inflightEventStream = null;
           if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
           else chatState.inflightAgentTimeline = null;
         }
@@ -10636,7 +10056,7 @@ async function clearChat() {
     updateSelectedAgentSession("");
     const chatState = getChatState();
     if (chatState) {
-      chatState.inflightThinking = null;
+      chatState.inflightEventStream = null;
       if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
       else chatState.inflightAgentTimeline = null;
     }
@@ -10657,7 +10077,7 @@ async function startNewChatForSelectedAgent() {
   updateSelectedAgentSession("");
   const chatState = getChatState();
   if (chatState) {
-    chatState.inflightThinking = null;
+    chatState.inflightEventStream = null;
     if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
     else chatState.inflightAgentTimeline = null;
     chatState.currentRequest = null;
@@ -10821,10 +10241,9 @@ function resetLocalChatSubmissionForAgent(agentId) {
     }
   }
   chatState.currentRequest = null;
-  chatState.inflightThinking = null;
+  chatState.inflightEventStream = null;
   if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
   else chatState.inflightAgentTimeline = null;
-  chatState.pendingThinkingEvents = null;
   setChatSubmittingForAgent(agentId, false, { suppressSync: true });
 }
 
@@ -13248,23 +12667,22 @@ function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { 
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   const requestId = requestCtx?.clientRequestId || requestCtx?.requestId || finalPayload?.request_id || "";
-  if (chatState.inflightThinking && (!requestId || chatState.inflightThinking.requestId === requestId || chatState.inflightThinking.id === requestId)) {
-    chatState.inflightThinking.completed = true;
-    chatState.inflightThinking.status = status;
-    chatState.inflightThinking.completion_state = finalPayload?.completion_state || (status === "error" ? "error" : "completed");
-    chatState.lastThinkingSnapshot = {
-      ...chatState.inflightThinking,
+  if (chatState.inflightEventStream && (!requestId || chatState.inflightEventStream.requestId === requestId || chatState.inflightEventStream.id === requestId)) {
+    chatState.inflightEventStream.completed = true;
+    chatState.inflightEventStream.status = status;
+    chatState.inflightEventStream.completion_state = finalPayload?.completion_state || (status === "error" ? "error" : "completed");
+    chatState.lastEventStreamSnapshot = {
+      ...chatState.inflightEventStream,
       completed: true,
       completedAt: Date.now(),
       requestId,
       sessionId: finalPayload?.session_id || requestCtx?.sessionIdAtSend || chatState.sessionId || "",
     };
-    chatState.inflightThinking = null;
+    chatState.inflightEventStream = null;
   }
   if (typeof finalizeAgentTimelineState === "function") {
     finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
   }
-  chatState.pendingThinkingEvents = null;
   if (chatState.currentRequest?.clientRequestId === requestId) chatState.currentRequest = null;
   setChatSubmittingForAgent(agentId, false);
   syncSelectedAgentChatActionControls();
@@ -13764,7 +13182,7 @@ function bindEvents() {
       }
 
       chatState.currentRequest = requestCtx;
-      chatState.inflightThinking = {
+      chatState.inflightEventStream = {
         id: requestId,
         requestId,
         sessionId: finalSessionId,
@@ -14715,15 +14133,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openServerFiles();
-  });
-
-  // Thinking Process button in header
-  document.getElementById('btn-thinking')?.addEventListener('click', () => {
-    if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
-      return;
-    }
-    openThinkingProcessPanel();
   });
 
   await loadAgentDefaults();

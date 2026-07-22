@@ -255,7 +255,7 @@ function syncSelectedAgentChatActionControls() {{ controlsSynced += 1; }}
     eventSocketCalls,
     pollCalls,
     currentRequest: chatState.currentRequest || null,
-    inflightThinking: chatState.inflightThinking || null,
+    inflightEventStream: chatState.inflightEventStream || null,
   }}));
 }})();
 """
@@ -346,7 +346,7 @@ def test_accepted_response_closes_modal_before_llm_final_and_appends_pending_ui(
     }]
     assert data["currentRequest"]["clientRequestId"] == "req-edit-1"
     assert data["currentRequest"]["edit"] is True
-    assert data["inflightThinking"]["completed"] is False
+    assert data["inflightEventStream"]["completed"] is False
     assert data["beginCalls"][0]["pendingText"] == "Saving..."
     assert len(data["endCalls"]) == 1
 
@@ -391,7 +391,7 @@ const state = {{ selectedAgentId: "agent-1" }};
 const chatState = {{
   sessionId: "s1",
   currentRequest: {{ clientRequestId: "req-edit-1" }},
-  inflightThinking: {{
+  inflightEventStream: {{
     id: "req-edit-1",
     requestId: "req-edit-1",
     sessionId: "s1",
@@ -453,8 +453,8 @@ function showToast() {{}}
     chatSubmittingValues,
     status,
     currentRequestCleared: chatState.currentRequest === null,
-    inflightThinkingCleared: chatState.inflightThinking === null,
-    lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
+    inflightEventStreamCleared: chatState.inflightEventStream === null,
+    lastThinkingCompleted: chatState.lastEventStreamSnapshot?.completed || false,
     controlsSynced,
     editButtons,
     icons,
@@ -472,7 +472,7 @@ function showToast() {{}}
     assert data["renderCalls"][0]["metadata"] == {"source": "poll"}
     assert data["chatSubmittingValues"] == [False]
     assert data["currentRequestCleared"] is True
-    assert data["inflightThinkingCleared"] is True
+    assert data["inflightEventStreamCleared"] is True
     assert data["lastThinkingCompleted"] is True
     assert data["status"] == [{"value": "Ready", "isError": False}]
     assert data["editButtons"] == 1
@@ -549,7 +549,7 @@ const state = {{ selectedAgentId: "agent-1" }};
 const chatState = {{
   sessionId: "s1",
   currentRequest: {{ clientRequestId: "req-edit-1", edit: true }},
-  inflightThinking: {{
+  inflightEventStream: {{
     id: "req-edit-1",
     requestId: "req-edit-1",
     sessionId: "s1",
@@ -615,8 +615,8 @@ function showToast(value) {{ toast.push(value); }}
     status,
     toast,
     currentRequestCleared: chatState.currentRequest === null,
-    inflightThinkingCleared: chatState.inflightThinking === null,
-    lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
+    inflightEventStreamCleared: chatState.inflightEventStream === null,
+    lastThinkingCompleted: chatState.lastEventStreamSnapshot?.completed || false,
     controlsSynced,
     editButtons,
     icons,
@@ -631,7 +631,7 @@ function showToast(value) {{ toast.push(value); }}
     assert data["chatSubmittingValues"] == [False]
     assert len(data["finalizerCalls"]) == 1
     assert data["currentRequestCleared"] is True
-    assert data["inflightThinkingCleared"] is True
+    assert data["inflightEventStreamCleared"] is True
     assert data["lastThinkingCompleted"] is True
     assert data["status"][-1] == {
         "value": "Edited message was saved, but regeneration failed: simulated resend failure",
@@ -661,7 +661,7 @@ const state = {{ selectedAgentId: "agent-1" }};
 const chatState = {{
   sessionId: "s1",
   currentRequest: {{ clientRequestId: "req-edit-1", edit: true }},
-  inflightThinking: {{
+  inflightEventStream: {{
     id: "req-edit-1",
     requestId: "req-edit-1",
     sessionId: "s1",
@@ -726,8 +726,8 @@ function showToast() {{}}
     finalizerCalls,
     status,
     currentRequestCleared: chatState.currentRequest === null,
-    inflightThinkingCleared: chatState.inflightThinking === null,
-    lastThinkingCompleted: chatState.lastThinkingSnapshot?.completed || false,
+    inflightEventStreamCleared: chatState.inflightEventStream === null,
+    lastThinkingCompleted: chatState.lastEventStreamSnapshot?.completed || false,
     needsReload: chatState.needsReload,
     controlsSynced,
     editButtons,
@@ -743,7 +743,7 @@ function showToast() {{}}
     assert data["chatSubmittingValues"] == [False]
     assert len(data["finalizerCalls"]) == 1
     assert data["currentRequestCleared"] is True
-    assert data["inflightThinkingCleared"] is True
+    assert data["inflightEventStreamCleared"] is True
     assert data["lastThinkingCompleted"] is True
     assert data["needsReload"] is True
     assert data["status"][-1] == {
@@ -758,10 +758,10 @@ function showToast() {{}}
 
 
 def test_trackable_thinking_events_include_edit_failed():
-    body = _extract_js_function(_src(), "isTrackableThinkingEvent")
+    body = _extract_js_function(_src(), "isTrackableStreamEvent")
     script = f"""
 {body}
-console.log(JSON.stringify({{ editFailed: isTrackableThinkingEvent("edit.failed") }}));
+console.log(JSON.stringify({{ editFailed: isTrackableStreamEvent("edit.failed") }}));
 """
     data = _run_node(script)
 

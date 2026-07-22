@@ -77,8 +77,8 @@ def test_canonical_snapshot_conversion_node_smoke():
                 _extract_js_function(src, "canonicalMessageVisibleText"),
                 _extract_js_function(src, "canonicalMessageToLegacyDisplayMessage"),
                 _extract_js_function(src, "canonicalMessagesToLegacyDisplayMessages"),
-                _extract_js_function(src, "canonicalPartToThinkingItem"),
-                _extract_js_function(src, "canonicalMessagesToThinkingItems"),
+                _extract_js_function(src, "canonicalPartToStreamItem"),
+                _extract_js_function(src, "canonicalMessagesToStreamItems"),
             ]
         )
         + "\n"
@@ -107,7 +107,7 @@ def test_canonical_snapshot_conversion_node_smoke():
             });
             const legacy = canonicalMessagesToLegacyDisplayMessages(canonical);
             const assistant = legacy.find((message) => message.role === "assistant");
-            const thinking = canonicalMessagesToThinkingItems(canonical);
+            const thinking = canonicalMessagesToStreamItems(canonical);
 
             assert.equal(canonical.length, 2);
             assert.equal(legacy.length, 2);
@@ -139,32 +139,3 @@ def test_opencode_long_task_sse_recovery_markers_are_removed():
 
     for marker in forbidden:
         assert marker not in src
-
-
-def test_non_success_hint_keeps_continue_for_generic_incomplete_only():
-    src = SRC.read_text(encoding="utf-8")
-    script = (
-        _extract_js_function(src, "nonSuccessHintForPayload")
-        + "\n"
-        + textwrap.dedent(
-            r"""
-            const assert = require("node:assert/strict");
-
-            const busy = nonSuccessHintForPayload({ status: "busy" });
-            assert.equal(busy.includes('send "continue"'), false);
-            assert.match(busy, /still working/);
-
-            const stillActive = nonSuccessHintForPayload({ error: "opencode_abort_still_active" });
-            assert.equal(stillActive.includes('send "continue"'), false);
-            assert.match(stillActive, /Reset the session|start a new chat/);
-
-            const incomplete = nonSuccessHintForPayload({
-              completion_state: "incomplete",
-              incomplete_reason: "idle incomplete",
-            });
-            assert.match(incomplete, /send "continue"/);
-            """
-        )
-    )
-    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
-    assert result.returncode == 0, result.stderr

@@ -16,15 +16,15 @@ def test_has_active_chat_request_uses_only_local_submit_state():
     assert "chatState?.isSubmitting" in body
     assert 'isOpenCodeSessionInactivePayload(payload)' not in body
     assert 'isOpenCodeSessionBlocking(chatState)' not in body
-    assert 'chatState.inflightThinking && chatState.inflightThinking.completed === false' not in body
+    assert 'chatState.inflightEventStream && chatState.inflightEventStream.completed === false' not in body
     assert 'hasIncompleteInflightThinking(chatState)' not in body
 
 
 def test_terminal_thinking_cleanup_clears_busy_state():
     src = _src()
-    body = _extract_js_function(src, "finalizeTerminalThinkingState")
-    assert 'chatState.inflightThinking.completed = true' in body
-    assert 'chatState.inflightThinking = null' in body
+    body = _extract_js_function(src, "finalizeTerminalStreamState")
+    assert 'chatState.inflightEventStream.completed = true' in body
+    assert 'chatState.inflightEventStream = null' in body
     assert 'chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId' in body
     assert 'chatState.currentRequest = null' in body
     assert 'chatState.isSubmitting = false' in body
@@ -35,7 +35,7 @@ def test_terminal_thinking_cleanup_clears_busy_state():
 def test_cleanup_chat_stream_request_uses_terminal_cleanup_and_clears_request_flags():
     src = _src()
     body = _extract_js_function(src, "cleanupChatStreamRequest")
-    assert 'finalizeTerminalThinkingState(agentIdAtSend, requestCtx' in body
+    assert 'finalizeTerminalStreamState(agentIdAtSend, requestCtx' in body
     assert 'setChatSubmittingForAgent(agentIdAtSend, false)' in body
     assert 'chatState.currentRequest = null' in body
 
@@ -70,13 +70,13 @@ def test_stream_error_source_marks_stream_failed():
 def test_error_path_clears_active_request_is_submitting_and_inflight_thinking():
     src = _src()
     failure = _extract_js_function(src, "handleAgentChatFailure")
-    terminal = _extract_js_function(src, "finalizeTerminalThinkingState")
+    terminal = _extract_js_function(src, "finalizeTerminalStreamState")
     assert 'requestCtx.streamFailed = true' in failure
     assert 'requestCtx.terminalPayload = finalPayload' in failure
-    assert 'finalizeTerminalThinkingState(agentIdAtSend, requestCtx, finalPayload)' in failure
+    assert 'finalizeTerminalStreamState(agentIdAtSend, requestCtx, finalPayload)' in failure
     assert 'chatState.currentRequest = null' in terminal
     assert 'chatState.isSubmitting = false' in terminal
-    assert 'chatState.inflightThinking = null' in terminal
+    assert 'chatState.inflightEventStream = null' in terminal
 
 
 def test_completed_success_and_fallback_paths_clear_busy_state():
@@ -84,7 +84,7 @@ def test_completed_success_and_fallback_paths_clear_busy_state():
     success = _extract_js_function(src, "handleAgentChatSuccess")
     submit = _extract_js_function(src, "submitChatForSelectedAgent")
     assert 'chatState.currentRequest = null' in success
-    assert 'chatState.inflightThinking = null' in success
+    assert 'chatState.inflightEventStream = null' in success
     assert 'setChatSubmittingForAgent(agentIdAtSend, false)' in success
     assert 'setChatStatus("Ready")' in success
     assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, payload, "fallback")' in submit
