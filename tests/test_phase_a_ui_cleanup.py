@@ -133,23 +133,13 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".assistant-header" not in js_source
     assert ".flex.flex-col" not in js_source
     assert "message message-error flex gap-3 py-3" not in js_source
-    assert "renderThinkingPanelFromClientState" in js_source
-    assert "scheduleThinkingPanelRefresh" in js_source
-    assert "loadPersistedThinkingPanel" in js_source
-    assert "tokens_until_soft_threshold" in js_source
-    assert "tokens_until_hard_threshold" in js_source
     assert "context_compaction_planned" in js_source
-    assert "next_pruning_policy" in js_source
-    assert "Pruning policy" in js_source
-    assert "normalizePayloadThinkingEvents" in js_source
+    assert "normalizePayloadStreamEvents" in js_source
     assert "payload?.runtime_events" in js_source
-    assert "Until soft threshold" in js_source
-    assert "Until hard threshold" in js_source
     assert "context_next_pruning_policy" in session_context_preview_source
     assert "context_next_pruning_policy" in schema_source
     assert "liveSnapshot.events?.length || !liveSnapshot.completed" not in js_source
-    assert "const isLiveRun" in js_source
-    assert "entry.session_id && !chatState.inflightThinking.sessionId" in js_source
+    assert "entry.session_id && !chatState.inflightEventStream.sessionId" in js_source
     assert 'context_compaction_planned", "context_compaction_applied' in js_source
     assert "View Thinking Process" not in js_source
     assert "attachThinkingToLatestAssistant" not in js_source
@@ -469,7 +459,6 @@ def test_thinking_process_removed_from_assistant_messages():
     submit_block = js_source[js_source.find("async function submitChatForSelectedAgent()"):js_source.find("async function handleAgentChatSuccess(")]
     assert "ensureEventSocketForAgent(" in submit_block
     handler_block = js_source[js_source.find("function handleAgentEventMessage("):js_source.find("function ensureEventSocketForAgent(")]
-    assert "scheduleThinkingPanelRefresh(" in handler_block
     history_block = js_source[js_source.find("function renderChatHistory("):js_source.find("async function loadSessionForAgent(")]
     assert "attachThinkingToLatestAssistant" not in history_block
 

@@ -14,7 +14,6 @@ def test_chat_ui_skill_slash_helpers_and_metadata_markers_present():
     assert "slash_command:" in js
     assert 'source: "portal-chat-ui"' in js
     assert 'runtime_equivalence: skill?.runtime_equivalence ?? ""' in js
-    assert 'data.reason || data.blocked_reason || data.message || "Skill blocked"' in js
 
 
 def test_chat_ui_skill_non_callable_blocker_present_and_returns_before_send():

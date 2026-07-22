@@ -77,7 +77,7 @@ async function handleIncompleteChatStream(agentId, requestCtx, reason, payload) 
 async function handleErrorResponse() {{ return "bad"; }}
 let fetchQueue = [];
 async function fetch() {{ return fetchQueue.shift(); }}
-const chatState = {{ currentRequest: null, sessionId: "s1", inflightThinking: null, pendingThinkingEvents: null, needsReload: false }};
+const chatState = {{ currentRequest: null, sessionId: "s1", inflightEventStream: null, needsReload: false }};
 {_base_functions(js)}
 
 (async () => {{
@@ -177,8 +177,7 @@ let chatState = {{
   profileDefaultModel: "",
   currentRequest: null,
   sessionId: "s1",
-  inflightThinking: null,
-  pendingThinkingEvents: null,
+  inflightEventStream: null,
 }};
 function ensureChatState() {{ return chatState; }}
 function guardNoActiveChatRequestForAgent() {{ return true; }}
@@ -242,13 +241,13 @@ def test_runtime_event_normalization_and_dedup_helpers_handle_live_timeline_even
     script = f"""
 const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "finished"]);
 {_extract_js_function(js, "normalizeRuntimeEventTypeAlias")}
-{_extract_js_function(js, "isTrackableThinkingEvent")}
+{_extract_js_function(js, "isTrackableStreamEvent")}
 {_extract_js_function(js, "isCompletionRuntimeState")}
 {_extract_js_function(js, "normalizeRuntimeEvent")}
 {_extract_js_function(js, "runtimeEventSummaryHash")}
 {_extract_js_function(js, "runtimeEventUniqueId")}
 {_extract_js_function(js, "runtimeEventDedupKey")}
-{_extract_js_function(js, "mergeThinkingEvents")}
+{_extract_js_function(js, "mergeRuntimeStreamEvents")}
 
 const normalized = normalizeRuntimeEvent({{
   event_type: "message.delta",
@@ -275,13 +274,13 @@ const fallbackB = {{
   summary: "retrying",
   data: {{ message: "retrying" }},
 }};
-const merged = mergeThinkingEvents([normalized, fallbackA], [duplicateByRuntimeId, fallbackB]);
+const merged = mergeRuntimeStreamEvents([normalized, fallbackA], [duplicateByRuntimeId, fallbackB]);
 console.log(JSON.stringify({{
   normalizedType: normalized.type,
   rawType: normalized.raw_type,
   runtimeEventId: normalized.runtime_event_id,
-  trackableRetry: isTrackableThinkingEvent("provider.retry"),
-  trackableFinal: isTrackableThinkingEvent("final"),
+  trackableRetry: isTrackableStreamEvent("provider.retry"),
+  trackableFinal: isTrackableStreamEvent("final"),
   keyById: runtimeEventDedupKey(normalized),
   fallbackKeysMatch: runtimeEventDedupKey(fallbackA) === runtimeEventDedupKey(fallbackB),
   mergedTypes: merged.map((event) => event.type),
