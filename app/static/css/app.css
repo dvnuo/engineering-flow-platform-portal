@@ -753,7 +753,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .message-markdown:empty + .agent-timeline { margin-top: 0; }
 .agent-timeline-head { min-height: 22px; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--portal-text-secondary); font-size: 12px; }
 .agent-timeline-status { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; }
-.agent-timeline-status .portal-running-spinner { width: 12px; height: 12px; border-width: 2px; flex: 0 0 auto; }
+.agent-timeline-status .portal-running-spinner { width: 12px; height: 12px; border-radius: 999px; border: 2px solid color-mix(in srgb, var(--portal-accent), transparent 70%); border-top-color: var(--portal-accent); animation: portal-spin 900ms linear infinite; flex: 0 0 auto; }
+@keyframes portal-spin { to { transform: rotate(360deg); } }
 .agent-timeline-meta { min-width: 0; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text-muted); text-align: right; }
 .agent-timeline-list { display: grid; gap: 0; min-width: 0; }
 .agent-timeline-empty { color: var(--portal-text-muted); font-size: 12px; padding: 4px 0; }
