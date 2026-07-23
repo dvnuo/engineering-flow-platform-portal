@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from alembic import command
@@ -9,6 +10,31 @@ def test_env_runs_standard_migrations_without_create_all_shortcut():
     source = Path("alembic/env.py").read_text(encoding="utf-8")
     assert "Base.metadata.create_all" not in source
     assert "alembic_bootstrap" not in source
+
+
+def test_env_logging_setup_does_not_disable_existing_app_loggers(tmp_path, monkeypatch):
+    """env.py imports the app package (instantiating every `app.*` logger) and
+    then hands alembic.ini to fileConfig; unless it opts out, fileConfig
+    disables every logger it does not name, so run a real in-process upgrade and
+    check an already-existing app logger still logs afterwards."""
+    from app.config import get_settings
+
+    probe = logging.getLogger("app.alembic_fileconfig_probe")
+    probe.disabled = False
+    database_url = f"sqlite:///{tmp_path / 'logging.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+
+    try:
+        alembic_cfg = Config(str(Path("alembic.ini")))
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+        command.upgrade(alembic_cfg, "head")
+
+        assert probe.disabled is False
+        assert probe.isEnabledFor(logging.ERROR)
+    finally:
+        probe.disabled = False
+        get_settings.cache_clear()
 
 
 def test_initial_baseline_migration_exists_and_is_root():

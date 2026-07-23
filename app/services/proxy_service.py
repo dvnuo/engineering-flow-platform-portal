@@ -161,7 +161,10 @@ class ProxyService:
                     for port in svc.spec.ports:
                         if port.node_port:
                             base_url = f"http://{self.node_ip}:{port.node_port}"
-                            logger.debug(
+                            # INFO, not DEBUG: DEBUG is never enabled in the k8s
+                            # manifests, so the upstream runtime URL was invisible
+                            # in pod logs. Only ids/URL here -- no bodies/tokens.
+                            logger.info(
                                 "Resolved runtime base URL via NodePort agent_id=%s service_name=%s namespace=%s service_type=%s base_url=%s",
                                 getattr(agent, "id", "-"),
                                 getattr(agent, "service_name", "-"),
@@ -173,7 +176,7 @@ class ProxyService:
                 # For ClusterIP, try internal DNS
                 elif svc.spec.type == "ClusterIP":
                     base_url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
-                    logger.debug(
+                    logger.info(
                         "Resolved runtime base URL via ClusterIP agent_id=%s service_name=%s namespace=%s service_type=%s base_url=%s",
                         getattr(agent, "id", "-"),
                         getattr(agent, "service_name", "-"),
@@ -196,7 +199,7 @@ class ProxyService:
                 )
         # Fallback to internal DNS
         fallback_url = f"http://{agent.service_name}.{agent.namespace}.svc.cluster.local:8000"
-        logger.debug(
+        logger.info(
             "Resolved runtime base URL via fallback DNS agent_id=%s service_name=%s namespace=%s service_type=%s base_url=%s",
             getattr(agent, "id", "-"),
             getattr(agent, "service_name", "-"),
