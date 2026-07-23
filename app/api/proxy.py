@@ -2,6 +2,8 @@ import asyncio
 import inspect
 import json
 import logging
+import re
+import time
 from pathlib import PurePosixPath
 logger = logging.getLogger(__name__)
 from urllib.parse import urlencode
@@ -28,6 +30,7 @@ from app.services.proxy_service import (
     ProxyService,
     build_portal_agent_headers,
     build_runtime_trace_headers,
+    sanitize_header_value,
 )
 from app.services.agent_execution_registry import (
     ChatStreamExecutionObserver,
@@ -128,6 +131,27 @@ def _server_files_download_fallback_filename(query_items, content_type: str) -> 
     return _safe_download_filename(basename, fallback="server-files.zip" if _is_zip_content_type(content_type) else "server-files")
 
 
+
+
+_LOGGABLE_ID_UNSAFE_RE = re.compile(r"[^A-Za-z0-9._:-]")
+
+
+def _loggable_id(value, fallback: str = "-") -> str:
+    """Sanitize an identifier for a ``key=value`` log line.
+
+    Only ids/sizes are ever logged from the chat path -- never bodies, chat
+    content, auth headers or tokens. But session_id/request_id come straight
+    from the client (chat JSON body, or ?session_id=/?request_id=), and merely
+    stripping control characters still leaves spaces and '=' through: a value
+    like ``sess-1 status=999 trace_id=forged`` would inject its own fields
+    ahead of ours and poison trace correlation. So anything outside a
+    conservative id charset becomes '_', and non-scalar JSON values (dict,
+    list, ...) are dropped rather than rendered with their repr braces.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return fallback
+    sanitized = _LOGGABLE_ID_UNSAFE_RE.sub("_", sanitize_header_value(value, max_length=128))
+    return sanitized or fallback
 
 
 def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
@@ -300,6 +324,8 @@ async def proxy_agent(
         }
 
         chat_execution_id = None
+        chat_session_id = _loggable_id(request.query_params.get("session_id"))
+        chat_request_id = _loggable_id(request.query_params.get("request_id"))
         if is_direct_chat_execution and request_body:
             if not _content_type_is_json(content_type):
                 raise HTTPException(
@@ -312,6 +338,8 @@ async def proxy_agent(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
             if not isinstance(parsed_payload, dict):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
+            chat_session_id = _loggable_id(parsed_payload.get("session_id"), fallback=chat_session_id)
+            chat_request_id = _loggable_id(parsed_payload.get("request_id"), fallback=chat_request_id)
             parsed_payload = _normalize_and_validate_model_override_for_agent(
                 parsed_payload,
                 agent=agent,
@@ -332,10 +360,17 @@ async def proxy_agent(
             request_body = json.dumps(parsed_payload).encode("utf-8")
 
         if _is_streaming_runtime_path(request.method, subpath):
+            # Closed-over local: the request log contextvar is already reset by
+            # the time the StreamingResponse body is drained, so anything read
+            # from it in the callbacks below would render '-'.
+            stream_trace_id = _loggable_id(get_log_context().get("trace_id"))
+            stream_started_at = time.perf_counter()
+            resolve_started_at = stream_started_at
             try:
                 base = proxy_service.build_agent_base_url(agent).rstrip("/")
             except ValueError as exc:
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+            resolve_ms = round((time.perf_counter() - resolve_started_at) * 1000, 2)
 
             path = f"/{subpath.strip('/')}" if subpath else "/"
             upstream_url = f"{base}{path}"
@@ -348,10 +383,24 @@ async def proxy_agent(
                 content=request_body,
                 headers=outbound_headers,
             )
+            open_started_at = time.perf_counter()
             try:
                 upstream_response = await stream_cm.__aenter__()
             except Exception as exc:
                 await client.aclose()
+                logger.warning(
+                    "Runtime stream open failed agent_id=%s session_id=%s request_id=%s upstream_url=%s "
+                    "resolve_ms=%s open_ms=%s exception_class=%s message=%s trace_id=%s",
+                    agent_id,
+                    chat_session_id,
+                    chat_request_id,
+                    upstream_url,
+                    resolve_ms,
+                    round((time.perf_counter() - open_started_at) * 1000, 2),
+                    exc.__class__.__name__,
+                    sanitize_exception_message(exc),
+                    stream_trace_id,
+                )
                 mark_execution_failed_best_effort(
                     db,
                     execution_id=chat_execution_id,
@@ -359,8 +408,11 @@ async def proxy_agent(
                     error_message=sanitize_exception_message(exc),
                 )
                 raise
+            open_ms = round((time.perf_counter() - open_started_at) * 1000, 2)
 
             closed = False
+            ttfb_ms = None
+            request_body_bytes = len(request_body or b"")
             stream_observer = ChatStreamExecutionObserver(chat_execution_id)
 
             async def _close_stream_resources() -> None:
@@ -371,12 +423,34 @@ async def proxy_agent(
                 try:
                     await stream_cm.__aexit__(None, None, None)
                 finally:
-                    await client.aclose()
+                    try:
+                        await client.aclose()
+                    finally:
+                        # ttfb_ms is THE number that shows whether the wait is
+                        # the runtime's pre-LLM work rather than Portal.
+                        logger.info(
+                            "Runtime stream end agent_id=%s session_id=%s request_id=%s upstream_url=%s "
+                            "status=%s request_body_bytes=%s resolve_ms=%s open_ms=%s ttfb_ms=%s total_ms=%s trace_id=%s",
+                            agent_id,
+                            chat_session_id,
+                            chat_request_id,
+                            upstream_url,
+                            upstream_response.status_code,
+                            request_body_bytes,
+                            resolve_ms,
+                            open_ms,
+                            "-" if ttfb_ms is None else ttfb_ms,
+                            round((time.perf_counter() - stream_started_at) * 1000, 2),
+                            stream_trace_id,
+                        )
 
             async def _iter_upstream_response():
+                nonlocal ttfb_ms
                 stream_error = None
                 try:
                     async for chunk in upstream_response.aiter_raw():
+                        if ttfb_ms is None:
+                            ttfb_ms = round((time.perf_counter() - stream_started_at) * 1000, 2)
                         stream_observer.feed(chunk)
                         yield chunk
                 except Exception as exc:

@@ -13,7 +13,14 @@ from app import models  # noqa: F401
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: fileConfig otherwise disables every logger
+    # created before this point -- including all the `app.*` loggers the imports
+    # above instantiate. The deployed container runs `alembic upgrade head` as
+    # its own short-lived process, so nothing in the serving path is affected
+    # today; this only matters for in-process callers (the test suite, and any
+    # future startup-time migration), which would otherwise silently lose portal
+    # logging for the rest of the process.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)

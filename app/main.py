@@ -1,4 +1,5 @@
 import logging
+import time
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +34,8 @@ from app.services.delegation_worker import worker_singleton
 from app.services.agent_task_reconcile_worker import agent_task_reconcile_worker_singleton
 from app.services.idle_agent_stop_worker import idle_agent_stop_worker_singleton
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
@@ -46,9 +49,25 @@ async def bind_request_log_context(request, call_next):
         parent_span_id="-",
         path=request.url.path,
     )
+    started_at = time.perf_counter()
+    status_code = 500
     try:
         response = await call_next(request)
+        status_code = response.status_code
     finally:
+        # trace_id is the closed-over local, never re-read from the log
+        # contextvar: the contextvar is reset here and stays reset while a
+        # StreamingResponse body is drained, so reading it back renders '-'.
+        # duration_ms is time-to-response-headers; for SSE the body streams on
+        # afterwards, so pair this with the proxy's ttfb_ms/total_ms line.
+        logger.info(
+            "HTTP request end method=%s path=%s status=%s duration_ms=%s trace_id=%s",
+            request.method,
+            request.url.path,
+            status_code,
+            round((time.perf_counter() - started_at) * 1000, 2),
+            trace_id,
+        )
         reset_log_context(token)
     response.headers["X-Trace-Id"] = trace_id
     return response
