@@ -537,22 +537,37 @@ def test_confluence_instance_ui_blocks_omit_api_version():
     assert 'group === "confluence"' not in confluence_branch
 
 
-def test_jenkins_ui_uses_profile_credentials_only():
-    from pathlib import Path
+def test_jenkins_ui_is_multi_instance_like_jira_and_confluence(monkeypatch):
+    """Jenkins gets the same instance-card UI as Jira/Confluence, and the flat
+    single-instance inputs are gone from both panels."""
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        _bind_profile(
+            db,
+            agent,
+            {
+                "jenkins": {
+                    "enabled": True,
+                    "instances": [{"name": "ci", "url": "https://ci.example.com", "username": "ci-bot"}],
+                }
+            },
+        )
+        agent_panel = client.get(f"/app/agents/{agent.id}/settings/panel")
+        assert agent_panel.status_code == 200
+        profile_panel = client.get(f"/app/runtime-profiles/{agent.runtime_profile_id}/panel")
+        assert profile_panel.status_code == 200
 
-    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
-    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
-    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
-
-    for template in (runtime_tpl, settings_tpl):
-        assert 'name="jenkins_url"' in template
-        assert 'name="jenkins_username"' in template
-        assert 'name="jenkins_password"' in template
-        assert 'data-instance-container="jenkins"' not in template
-        assert 'data-action="add-instance" data-group="jenkins"' not in template
-
-    assert 'group === "jenkins"' not in js
-    assert 'normalizeInstanceInputs(root, "jenkins")' not in js
+        for html in (agent_panel.text, profile_panel.text):
+            assert 'data-instance-container="jenkins"' in html
+            assert 'data-instance-count="jenkins"' in html
+            assert 'data-action="add-instance" data-group="jenkins"' in html
+            assert 'name="jenkins_instance_count"' in html
+            assert 'name="jenkins_url"' not in html
+            assert 'name="jenkins_username"' not in html
+            assert 'name="jenkins_password"' not in html
+            assert 'name="jenkins_instances_0_url"' in html or 'data-field="url"' in html
+    finally:
+        cleanup()
 
 
 def test_settings_save_full_form_only_touched_debug_persists_debug_only(monkeypatch):
@@ -630,9 +645,13 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             "aws_username": "aws-user",
             "aws_password": "aws-password",
             "jenkins_enabled": "on",
-            "jenkins_url": "https://jenkins.example.com/",
-            "jenkins_username": "jenkins-user",
-            "jenkins_password": "jenkins-password",
+            "jenkins_instance_count": "1",
+            "jenkins_instances_0_name": "ci",
+            "jenkins_instances_0_url": "https://jenkins.example.com/",
+            "jenkins_instances_0_username": "jenkins-user",
+            "jenkins_instances_0_password": "jenkins-password",
+            "jenkins_instances_0_token": "jenkins-token",
+            "jenkins_instances_0_enabled": "1",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
             "tool_loop": '{"max_iterations":12}',
@@ -687,9 +706,16 @@ def test_settings_save_persists_external_cli_config_sections(monkeypatch):
             },
             "jenkins": {
                 "enabled": True,
-                "url": "https://jenkins.example.com",
-                "username": "jenkins-user",
-                "password": "jenkins-password",
+                "instances": [
+                    {
+                        "name": "ci",
+                        "url": "https://jenkins.example.com",
+                        "username": "jenkins-user",
+                        "password": "jenkins-password",
+                        "token": "jenkins-token",
+                        "enabled": True,
+                    }
+                ],
             },
             "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
         }

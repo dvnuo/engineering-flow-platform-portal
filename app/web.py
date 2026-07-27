@@ -21,7 +21,9 @@ from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
 from app.schemas.runtime_profile import (
+    JENKINS_DEFAULT_INSTANCE_NAME,
     dump_runtime_profile_config_json,
+    normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_config_dict,
 )
@@ -758,6 +760,11 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     confluence = effective_config.get("confluence") if isinstance(effective_config.get("confluence"), dict) else {}
     jira_instances = jira.get("instances") if isinstance(jira.get("instances"), list) else []
     confluence_instances = confluence.get("instances") if isinstance(confluence.get("instances"), list) else []
+    jenkins = effective_config.get("jenkins") if isinstance(effective_config.get("jenkins"), dict) else {}
+    # A profile that predates the multi-instance Jenkins UI still stores the flat
+    # {url, username, password} shape; normalize it so the instance cards
+    # pre-fill instead of silently dropping the user's saved credentials.
+    jenkins_instances = normalize_jenkins_section_instances(jenkins)
     raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
     raw_aws = raw_config.get("aws") if isinstance(raw_config.get("aws"), dict) else {}
     raw_jenkins = raw_config.get("jenkins") if isinstance(raw_config.get("jenkins"), dict) else {}
@@ -785,7 +792,8 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "jira_instances": jira_instances,
         "confluence": confluence,
         "confluence_instances": confluence_instances,
-        "jenkins": effective_config.get("jenkins") if isinstance(effective_config.get("jenkins"), dict) else {},
+        "jenkins": jenkins,
+        "jenkins_instances": jenkins_instances,
         "github": effective_config.get("github") if isinstance(effective_config.get("github"), dict) else {},
         "raw_github": raw_github,
         "mobile": mobile,
@@ -1074,6 +1082,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     else:
         existing_confluence_instances = []
 
+    # Accepts the legacy flat Jenkins section as well, so an unmigrated profile
+    # still matches its saved credentials to the submitted instance rows.
+    existing_jenkins_instances = normalize_jenkins_section_instances(config_payload.get("jenkins"))
+
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     if is_section_touched("llm"):
         provider_value = (form.get("llm_provider") or "").strip()
@@ -1272,17 +1284,40 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         config_payload["aws"] = aws_cfg
 
     if is_section_touched("jenkins"):
-        jenkins = {"enabled": as_bool(form.get("jenkins_enabled"))}
-        for field, form_field in (
-            ("url", "jenkins_url"),
-            ("username", "jenkins_username"),
-            ("password", "jenkins_password"),
-        ):
-            if form_field not in form:
-                continue
-            value = (form.get(form_field) or "").strip()
-            if value:
-                jenkins[field] = value
+        jenkins = (config_payload.get("jenkins") if isinstance(config_payload.get("jenkins"), dict) else {}).copy()
+        jenkins["enabled"] = as_bool(form.get("jenkins_enabled"))
+        if "jenkins_instance_count" in form:
+            jenkins["instances"] = _settings_parse_instances(
+                form,
+                "jenkins",
+                ["enabled", "name", "url", "username", "password", "token"],
+                existing_instances=existing_jenkins_instances,
+                preserve_blank_fields={"password", "token"},
+                clearable_fields={"password", "token"},
+            )
+        elif any(field in form for field in ("jenkins_url", "jenkins_username", "jenkins_password")):
+            # Legacy flat form post (pre multi-instance UI): fold it into the
+            # one instance the flat shape has always meant.
+            legacy_name = str(
+                (existing_jenkins_instances[0].get("name") if existing_jenkins_instances else "")
+                or JENKINS_DEFAULT_INSTANCE_NAME
+            ).strip()
+            legacy_instance = {"name": legacy_name or JENKINS_DEFAULT_INSTANCE_NAME}
+            for field, form_field in (
+                ("url", "jenkins_url"),
+                ("username", "jenkins_username"),
+                ("password", "jenkins_password"),
+            ):
+                if form_field not in form:
+                    continue
+                value = (form.get(form_field) or "").strip()
+                if value:
+                    legacy_instance[field] = value
+            jenkins["instances"] = [legacy_instance] if legacy_instance.get("url") else []
+        # Any legacy flat keys still on the section are deliberately left alone:
+        # sanitize_runtime_profile_jenkins ignores them once instances[] exists,
+        # and folds them into instances[] when a form arrives without one - so a
+        # partial post can never wipe an unmigrated profile's credentials.
         jenkins.pop("automation", None)
         config_payload["jenkins"] = jenkins
 
