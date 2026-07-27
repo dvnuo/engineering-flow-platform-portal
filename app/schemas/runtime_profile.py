@@ -77,6 +77,13 @@ PORTAL_MANAGED_FIELD_TREE = {
     },
     "jenkins": {
         "enabled": True,
+        "instances": True,
+        "default_instance": True,
+        # Legacy flat single-instance keys. They MUST stay in the tree: the tree
+        # filter runs BEFORE sanitize_runtime_profile_jenkins, so dropping them
+        # here would delete an unmigrated profile's Jenkins credentials before
+        # the sanitizer ever gets a chance to fold them into instances[].
+        "name": True,
         "url": True,
         "username": True,
         "password": True,
@@ -298,19 +305,51 @@ def sanitize_runtime_profile_confluence(value) -> dict:
     return out
 
 
+JENKINS_DEFAULT_INSTANCE_NAME = "jenkins"
+
+_JENKINS_SECTION_ONLY_KEYS = frozenset({"enabled", "instances", "default_instance", "automation"})
+
+
+def normalize_jenkins_section_instances(value) -> list[dict]:
+    """Return the raw (still unsanitized) per-instance dicts of a Jenkins section.
+
+    Accepts both shapes:
+
+    * the multi-instance ``{enabled, instances: [...]}`` shape Jira/Confluence
+      have always used, and
+    * the legacy flat ``{enabled, url, username, password}`` shape every Jenkins
+      profile saved before the Portal grew a multi-instance Jenkins UI still
+      carries.
+
+    A legacy section is wrapped into a single instance named ``jenkins`` (unless
+    the section names itself) so it keeps resolving to exactly the same tools
+    instance downstream. Mirrors ``_normalized_product_config`` in the runtimes'
+    ``external_cli/profile_config.py``.
+    """
+    if not isinstance(value, dict):
+        return []
+    instances = value.get("instances")
+    if isinstance(instances, list):
+        return [item for item in instances if isinstance(item, dict)]
+    legacy = {key: item for key, item in value.items() if key not in _JENKINS_SECTION_ONLY_KEYS}
+    if not _first_nonblank_string(legacy, ("url", "base_url", "baseUrl", "uri")):
+        return []
+    legacy["name"] = str(legacy.get("name") or JENKINS_DEFAULT_INSTANCE_NAME).strip() or JENKINS_DEFAULT_INSTANCE_NAME
+    return [legacy]
+
+
 def sanitize_runtime_profile_jenkins(value) -> dict:
     if not isinstance(value, dict):
         return {}
     out: dict = {}
     if "enabled" in value:
         out["enabled"] = _runtime_profile_bool(value.get("enabled"))
-    url = str(value.get("url") or value.get("base_url") or "").strip().rstrip("/")
-    if url:
-        out["url"] = url
-    for key in ("username", "password"):
-        cleaned = str(value.get(key) or "").strip()
-        if cleaned:
-            out[key] = cleaned
+    default_instance = str(value.get("default_instance") or "").strip()
+    if default_instance:
+        out["default_instance"] = default_instance
+    raw_instances = normalize_jenkins_section_instances(value)
+    if raw_instances or isinstance(value.get("instances"), list):
+        out["instances"] = sanitize_runtime_profile_external_instances(raw_instances, kind="jenkins")
     return out
 
 
@@ -612,9 +651,6 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     aws = redacted.get("aws")
     if isinstance(aws, dict):
         aws["password_present"] = bool(str(aws.pop("password", "")).strip())
-    jenkins = redacted.get("jenkins")
-    if isinstance(jenkins, dict):
-        jenkins["password_present"] = bool(str(jenkins.pop("password", "")).strip())
     mobile = redacted.get("mobile-auto")
     if isinstance(mobile, dict):
         browserstack = mobile.get("browserstack")
@@ -623,10 +659,19 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
-    for section in ("jira", "confluence"):
+    for section in ("jira", "confluence", "jenkins"):
         cfg = redacted.get(section)
         if not isinstance(cfg, dict):
             continue
+        # An unmigrated Jenkins section still carries top-level credentials.
+        # Strip them here too so a legacy-shaped config can never leak a secret
+        # just because it has not been re-saved through the instances[] form.
+        if any(key in cfg for key in ("password", "token", "api_token", "access_token")):
+            cfg["password_present"] = bool(str(cfg.pop("password", "")).strip())
+            # Materialize before any(): a generator would short-circuit and
+            # leave the remaining secret keys in the response.
+            legacy_tokens = [str(cfg.pop(key, "")).strip() for key in ("token", "api_token", "access_token")]
+            cfg["token_present"] = any(legacy_tokens)
         instances = cfg.get("instances")
         if not isinstance(instances, list):
             continue

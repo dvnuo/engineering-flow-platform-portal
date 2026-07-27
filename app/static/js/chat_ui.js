@@ -9538,15 +9538,47 @@ async function refreshComposerModelProfile(agentId) {
 const managedSettingsActionSelector = "[data-settings-action]";
 // keep regression guard text for static test:
 
+const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins" };
+
+// Per-product placeholder copy for a freshly added instance card. Kept as a
+// plain lookup table (not inline ternaries) so it stays in step with the
+// server-rendered cards in the runtime-profile/settings panel templates.
+const INSTANCE_GROUP_PLACEHOLDERS = {
+  "jira": { "url": "URL (e.g. https://yourcompany.atlassian.net)", "username": "Email" },
+  "confluence": { "url": "URL (e.g. https://yourcompany.atlassian.net/wiki)", "username": "Email" },
+  "jenkins": { "url": "URL (e.g. https://jenkins.example.com)", "username": "Username" }
+};
+
+function instanceGroupLabel(group) {
+  return INSTANCE_GROUP_LABELS[group] || String(group || "");
+}
+
+// Keeps the "disabled" affordance in sync with the per-instance toggle: the
+// card dims (CSS) AND the state word changes, so the state is never conveyed
+// by colour alone.
+function syncInstanceEnabledState(item) {
+  if (!item) return;
+  const input = item.querySelector('input[data-field="enabled"]');
+  if (!input) return;
+  const enabled = !!input.checked;
+  item.classList.toggle("is-instance-disabled", !enabled);
+  const state = item.querySelector("[data-instance-state]");
+  if (state) state.textContent = enabled ? "Enabled" : "Disabled";
+}
+
 function normalizeInstanceInputs(root, group) {
   const container = root?.querySelector(`[data-instance-container="${group}"]`);
   const countInput = root?.querySelector(`[data-instance-count="${group}"]`);
   if (!container || !countInput) return;
 
+  const label = instanceGroupLabel(group);
   const items = Array.from(container.querySelectorAll(`[data-instance-item="${group}"]`));
   items.forEach((item, idx) => {
     const title = item.querySelector(".portal-settings-instance-title");
     if (title) title.textContent = `Instance ${idx + 1}`;
+    const enabledInput = item.querySelector('input[data-field="enabled"]');
+    if (enabledInput) enabledInput.setAttribute("aria-label", `Enable ${label} instance ${idx + 1}`);
+    syncInstanceEnabledState(item);
     item.querySelectorAll("[data-field]").forEach((fieldEl) => {
       const field = fieldEl.dataset.field;
       fieldEl.name = `${group}_instances_${idx}_${field}`;
@@ -9571,29 +9603,23 @@ function addInstanceRow(root, group) {
   div.className = "portal-settings-instance-card";
   div.dataset.instanceItem = group;
 
-  const projectHtml = group === "jira"
+  // Must stay structurally identical to the server-rendered card in
+  // partials/runtime_profile_panel.html + partials/settings_panel.html,
+  // otherwise a freshly added row looks different from the saved ones.
+  const scopedFieldHtml = group === "jira"
     ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
-    : `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`;
+    : group === "confluence"
+      ? `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`
+      : `<div></div>`;
   const apiVersionHtml = group === "jira"
-    ? `<div class="portal-panel-grid cols-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>Auto API Version</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
+    ? `<div class="grid grid-cols-2 gap-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>Auto API Version</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
     : "";
-  const urlPlaceholder = group === "confluence"
-    ? "URL (e.g. https://yourcompany.atlassian.net/wiki)"
-    : "URL (e.g. https://yourcompany.atlassian.net)";
+  const placeholders = INSTANCE_GROUP_PLACEHOLDERS[group] || INSTANCE_GROUP_PLACEHOLDERS.jira;
+  const urlPlaceholder = placeholders.url;
+  const usernamePlaceholder = placeholders.username;
+  const label = instanceGroupLabel(group);
 
-  div.innerHTML = `
-    <input type="hidden" data-original-field="name" value="" />
-    <input type="hidden" data-original-field="url" value="" />
-    <div class="portal-settings-instance-head">
-      <span class="portal-settings-instance-title">Instance</span>
-      <label class="portal-checkbox-row"><input type="checkbox" data-field="enabled" value="1" checked /><span>Enabled</span></label>
-      <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button>
-    </div>
-    <div class="portal-panel-grid cols-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>
-    <div class="portal-panel-grid cols-2"><input type="text" data-field="username" value="" placeholder="Email" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div>
-    <div class="portal-panel-grid cols-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${projectHtml}</div>
-    ${apiVersionHtml}
-  `;
+  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>${apiVersionHtml}</div>`;
   container.append(div);
   normalizeInstanceInputs(root, group);
 
@@ -9929,6 +9955,7 @@ function initializeManagedSettingsRoot(root) {
   if (!root) return;
   normalizeInstanceInputs(root, "jira");
   normalizeInstanceInputs(root, "confluence");
+  normalizeInstanceInputs(root, "jenkins");
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -9954,6 +9981,9 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
+    if (event.target?.dataset?.field === "enabled") {
+      syncInstanceEnabledState(event.target.closest("[data-instance-item]"));
+    }
     const section = sectionNameForElement(event.target);
     if (section) markManagedSectionTouched(root, section);
   });

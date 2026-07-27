@@ -394,6 +394,39 @@ def test_settings_merge_confluence_instance_clear_secret_removes_existing():
 
 def test_settings_merge_jenkins_blank_password_clears_existing():
     merged, error = _settings_merge_payload(
+        {
+            "jenkins": {
+                "enabled": True,
+                "instances": [
+                    {"name": "ci", "url": "https://old.example.com", "username": "old", "password": "oldp"}
+                ],
+            }
+        },
+        {
+            "__touch_jenkins": "1",
+            "jenkins_enabled": "on",
+            "jenkins_instance_count": "1",
+            "jenkins_instances_0_enabled": "1",
+            "jenkins_instances_0_original_name": "ci",
+            "jenkins_instances_0_original_url": "https://old.example.com",
+            "jenkins_instances_0_name": "ci",
+            "jenkins_instances_0_url": "https://jenkins.example.com/",
+            "jenkins_instances_0_username": "build",
+            "jenkins_instances_0_password": "",
+            "jenkins_instances_0_password_clear": "1",
+        },
+    )
+    assert error is None
+    instance = merged["jenkins"]["instances"][0]
+    assert instance["url"] == "https://jenkins.example.com"
+    assert instance["username"] == "build"
+    assert "password" not in instance
+
+
+def test_settings_merge_legacy_flat_jenkins_form_is_folded_into_one_instance():
+    """A pre-multi-instance client still posting jenkins_url/username/password
+    must land in instances[] rather than resurrect the flat shape."""
+    merged, error = _settings_merge_payload(
         {"jenkins": {"enabled": True, "url": "https://old.example.com", "username": "old", "password": "oldp"}},
         {
             "__touch_jenkins": "1",
@@ -404,9 +437,29 @@ def test_settings_merge_jenkins_blank_password_clears_existing():
         },
     )
     assert error is None
-    assert merged["jenkins"]["url"] == "https://jenkins.example.com"
-    assert merged["jenkins"]["username"] == "build"
-    assert "password" not in merged["jenkins"]
+    assert merged["jenkins"] == {
+        "enabled": True,
+        "instances": [{"name": "jenkins", "url": "https://jenkins.example.com", "username": "build"}],
+    }
+    for legacy_key in ("url", "username", "password"):
+        assert legacy_key not in merged["jenkins"]
+
+
+def test_settings_merge_untouched_jenkins_keeps_legacy_flat_credentials():
+    """Saving another section must never destroy an unmigrated Jenkins profile."""
+    legacy = {"enabled": True, "url": "https://old.example.com", "username": "old", "password": "oldp"}
+    merged, error = _settings_merge_payload(
+        {"jenkins": dict(legacy)},
+        {"__touch_debug": "1", "debug_enabled": "on", "debug_log_level": "INFO"},
+    )
+    assert error is None
+    # Untouched, but the sanitizer normalizes it to the multi-instance shape.
+    assert merged["jenkins"] == {
+        "enabled": True,
+        "instances": [
+            {"name": "jenkins", "url": "https://old.example.com", "username": "old", "password": "oldp"}
+        ],
+    }
 
 
 def test_settings_merge_jira_instance_enabled_false_is_preserved_from_unchecked_checkbox():
@@ -696,9 +749,13 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
             "aws_password": "aws-password",
             "__touch_jenkins": "1",
             "jenkins_enabled": "on",
-            "jenkins_url": "https://jenkins.example.com/",
-            "jenkins_username": "jenkins-user",
-            "jenkins_password": "jenkins-password",
+            "jenkins_instance_count": "1",
+            "jenkins_instances_0_name": "ci",
+            "jenkins_instances_0_url": "https://jenkins.example.com/",
+            "jenkins_instances_0_username": "jenkins-user",
+            "jenkins_instances_0_password": "jenkins-password",
+            "jenkins_instances_0_token": "jenkins-token",
+            "jenkins_instances_0_enabled": "1",
             "__touch_git": "1",
             "git_user_name": "EFP Bot",
             "git_user_email": "efp-bot@example.com",
@@ -760,9 +817,16 @@ def test_settings_merge_external_cli_config_sections_are_persisted():
         },
         "jenkins": {
             "enabled": True,
-            "url": "https://jenkins.example.com",
-            "username": "jenkins-user",
-            "password": "jenkins-password",
+            "instances": [
+                {
+                    "enabled": True,
+                    "name": "ci",
+                    "url": "https://jenkins.example.com",
+                    "username": "jenkins-user",
+                    "password": "jenkins-password",
+                    "token": "jenkins-token",
+                }
+            ],
         },
         "git": {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}},
     }

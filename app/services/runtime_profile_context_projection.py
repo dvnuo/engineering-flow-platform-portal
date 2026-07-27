@@ -31,8 +31,11 @@ RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins/mobile-auto commands. "
     "For mobile work, start with `mobile-auto doctor --json` and `mobile-auto auth test --json`; use BrowserStackLocal through "
     "`private-external` with a supplied local identifier or `private-managed` only when the runtime image has BrowserStackLocal installed. "
-    "Jenkins runtime profile credentials are available as EFP_JENKINS_USERNAME and EFP_JENKINS_PASSWORD; "
-    "when the user provides a Jenkins controller URL or pipeline/job, configure or log in to that controller at that time and pass the password through stdin, never by echoing it. "
+    "A profile can configure several jira, confluence, and jenkins instances; each is addressed by name with --instance, "
+    "for example `jenkins job list --instance ci --json`. Without --instance the CLI uses the profile's default instance. "
+    "EFP_JENKINS_USERNAME and EFP_JENKINS_PASSWORD hold the credentials of the DEFAULT Jenkins instance only, so do not "
+    "reuse them against a different instance; run `jenkins auth login --instance <name>` for the others. "
+    "When the user provides a Jenkins controller URL or pipeline/job, configure or log in to that controller at that time and pass the password through stdin, never by echoing it. "
     "For AWS, prefer `aws --output json` for inspection and avoid changing cloud resources unless the user asks. "
     "Run write operations with --dry-run before executing them. Use --yes only for destructive "
     "operations after the user explicitly confirms. Runtime profile credentials are applied in "
@@ -167,9 +170,18 @@ def _has_enabled_jenkins_config(config: dict[str, Any]) -> bool:
     jenkins = config.get("jenkins")
     if not isinstance(jenkins, dict) or jenkins.get("enabled") is not True:
         return False
-    username = str(jenkins.get("username") or "").strip()
-    password = str(jenkins.get("password") or "").strip()
-    return bool(username and password)
+    if isinstance(jenkins.get("instances"), list):
+        # Multi-instance Jenkins profiles are shaped like jira/confluence.
+        return _has_enabled_instance_section(config, "jenkins")
+    # Legacy flat section (pre multi-instance Jenkins UI): judged by the same
+    # rule, as a single instance. Requiring username+password here instead
+    # would get it wrong in both directions -- it claimed Jenkins was usable
+    # with no endpoint at all (the projection drops such a section, so the
+    # agent was told about a CLI it could not use), and it denied a valid
+    # url+token profile that the CLI does support.
+    return _has_enabled_instance_section(
+        {"jenkins": {"enabled": True, "instances": [jenkins]}}, "jenkins"
+    )
 
 
 def _has_enabled_mobile_config(config: dict[str, Any]) -> bool:
