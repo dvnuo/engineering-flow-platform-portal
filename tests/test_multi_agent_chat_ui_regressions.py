@@ -1445,7 +1445,15 @@ console.log(JSON.stringify({{ authorLabel }}));
     assert data["authorLabel"] == "Agent A"
 
 
-def test_render_chat_history_blank_author_name_falls_back_to_current_names():
+def test_history_user_author_fallback_is_not_current_viewer():
+    source = _chat_ui_js_source()
+    helper = _extract_js_function(source, "getHistoryMessageDisplayName")
+
+    assert 'if (isUser) return "User";' in helper
+    assert "if (isUser) return getCurrentUserDisplayName();" not in helper
+
+
+def test_render_chat_history_blank_user_author_uses_neutral_label():
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping JS helper behavior test")
@@ -1496,7 +1504,7 @@ console.log(JSON.stringify({{ authorLabels }}));
 """
     completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
-    assert data["authorLabels"] == ["Alice", "Portal Agent"]
+    assert data["authorLabels"] == ["User", "Portal Agent"]
 
 
 def test_handle_agent_chat_success_passes_selected_assistant_name_to_final_message_builder():
