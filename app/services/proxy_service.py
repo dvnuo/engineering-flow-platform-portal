@@ -13,6 +13,7 @@ except Exception:
 
 from app.config import get_settings
 from app.redaction import sanitize_exception_message
+from app.services.runtime_auth import derive_runtime_internal_token
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,12 @@ def build_portal_identity_headers(user) -> dict[str, str]:
 
 def build_portal_agent_headers(user, agent) -> dict[str, str]:
     headers = build_portal_identity_headers(user)
+    internal_token = derive_runtime_internal_token(
+        get_settings().secret_key,
+        getattr(agent, "id", None),
+    )
+    if internal_token:
+        headers["X-Portal-Internal-Token"] = internal_token
     sanitized_name = sanitize_header_value(getattr(agent, "name", None))
     if sanitized_name:
         headers["X-Portal-Agent-Name"] = sanitized_name
@@ -300,6 +307,7 @@ class ProxyService:
             "x-portal-user-id": "X-Portal-User-Id",
             "x-portal-user-name": "X-Portal-User-Name",
             "x-portal-agent-name": "X-Portal-Agent-Name",
+            "x-portal-internal-token": "X-Portal-Internal-Token",
             "x-trace-id": "X-Trace-Id",
             "x-span-id": "X-Span-Id",
             "x-parent-span-id": "X-Parent-Span-Id",

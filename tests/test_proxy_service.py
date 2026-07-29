@@ -15,6 +15,7 @@ from app.services.proxy_service import (
     build_portal_identity_headers,
     sanitize_header_value,
 )
+from app.services.runtime_auth import derive_runtime_internal_token
 
 
 def test_proxy_service_init():
@@ -152,6 +153,7 @@ def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
             "x-portal-user-name": "Taylor 😀",
             "X-Portal-Agent-Name": "Agent One",
             "X-Portal-Author-Source": "portal",
+            "X-Portal-Internal-Token": "runtime-token",
             "Content-Type": "text/plain",
             "Host": "evil.example",
             "Connection": "close",
@@ -163,9 +165,19 @@ def test_proxy_service_forward_includes_safe_extra_headers(monkeypatch):
         "content-type": "application/json",
         "X-Portal-Author-Source": "portal",
         "X-Portal-Agent-Name": "Agent One",
+        "X-Portal-Internal-Token": "runtime-token",
         "X-Portal-User-Id": "42",
         "X-Portal-User-Name": "Taylor",
     }
+
+
+def test_runtime_internal_token_is_agent_scoped_and_deterministic():
+    first = derive_runtime_internal_token("portal-secret", "agent-1")
+
+    assert first == derive_runtime_internal_token("portal-secret", "agent-1")
+    assert first != derive_runtime_internal_token("portal-secret", "agent-2")
+    assert derive_runtime_internal_token("", "agent-1") == ""
+    assert derive_runtime_internal_token("portal-secret", "") == ""
 
 
 def test_proxy_service_forward_can_return_content_disposition_header(monkeypatch):
@@ -352,7 +364,7 @@ def test_build_portal_identity_headers_falls_back_to_sanitized_username():
 
 def test_build_portal_agent_headers_adds_sanitized_agent_name():
     user = SimpleNamespace(id=123, username="alice", nickname="Alice")
-    agent = SimpleNamespace(name=" Agent\r\nName ")
+    agent = SimpleNamespace(id="agent-1", name=" Agent\r\nName ")
 
     headers = build_portal_agent_headers(user, agent)
 
@@ -360,13 +372,17 @@ def test_build_portal_agent_headers_adds_sanitized_agent_name():
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "123",
         "X-Portal-User-Name": "Alice",
+        "X-Portal-Internal-Token": derive_runtime_internal_token(
+            proxy_module.get_settings().secret_key,
+            "agent-1",
+        ),
         "X-Portal-Agent-Name": "AgentName",
     }
 
 
 def test_build_portal_agent_headers_omits_empty_agent_name():
     user = SimpleNamespace(id=123, username="alice", nickname="Alice")
-    agent = SimpleNamespace(name=" \r\n\t ")
+    agent = SimpleNamespace(id="agent-1", name=" \r\n\t ")
 
     headers = build_portal_agent_headers(user, agent)
 
@@ -374,6 +390,10 @@ def test_build_portal_agent_headers_omits_empty_agent_name():
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "123",
         "X-Portal-User-Name": "Alice",
+        "X-Portal-Internal-Token": derive_runtime_internal_token(
+            proxy_module.get_settings().secret_key,
+            "agent-1",
+        ),
     }
 
 

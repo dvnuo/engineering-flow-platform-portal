@@ -911,6 +911,12 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.assertEqual(revision_ref.key, "revision")
 
         self.assertEqual(env["EFP_PROFILE_ID"].value, "rp-123")
+        from app.services.runtime_auth import derive_runtime_internal_token
+
+        self.assertEqual(
+            env["PORTAL_INTERNAL_TOKEN"].value,
+            derive_runtime_internal_token(self.service.settings.secret_key, "a1"),
+        )
 
         # The decryption key is injected from the shared agents secret as an
         # optional ref: absent key -> plaintext config; ENC: values without the

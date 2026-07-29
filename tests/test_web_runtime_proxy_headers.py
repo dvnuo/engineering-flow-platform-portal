@@ -5,6 +5,8 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.proxy_service import build_portal_agent_headers
+from app.config import get_settings
+from app.services.runtime_auth import derive_runtime_internal_token
 
 
 def _web_source() -> str:
@@ -65,12 +67,16 @@ def test_server_files_upload_contract_uses_forward_runtime_multipart_with_path_d
 
 def test_identity_headers_helper_adds_portal_user_and_agent_fields():
     fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(name="Agent One")
+    fake_agent = SimpleNamespace(id="agent-1", name="Agent One")
 
     assert build_portal_agent_headers(fake_user, fake_agent) == {
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "321",
         "X-Portal-User-Name": "Portal User",
+        "X-Portal-Internal-Token": derive_runtime_internal_token(
+            get_settings().secret_key,
+            "agent-1",
+        ),
         "X-Portal-Agent-Name": "Agent One",
     }
 
