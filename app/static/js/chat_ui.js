@@ -1543,7 +1543,7 @@ function getNonBlankAuthorName(value) {
 function getHistoryMessageDisplayName(message, isUser) {
   const persistedName = getNonBlankAuthorName(message?.author_name);
   if (persistedName) return persistedName;
-  if (isUser) return getCurrentUserDisplayName();
+  if (isUser) return "User";
   return getSelectedAssistantDisplayName();
 }
 
