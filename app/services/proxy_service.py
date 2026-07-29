@@ -65,7 +65,7 @@ def build_portal_identity_headers(user) -> dict[str, str]:
 def build_portal_agent_headers(user, agent) -> dict[str, str]:
     headers = build_portal_identity_headers(user)
     internal_token = derive_runtime_internal_token(
-        get_settings().secret_key,
+        get_settings().runtime_internal_secret,
         getattr(agent, "id", None),
     )
     if internal_token:

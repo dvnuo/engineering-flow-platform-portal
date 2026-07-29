@@ -951,7 +951,7 @@ class K8sService:
         if agent is not None and getattr(agent, "id", None):
             env.append(client.V1EnvVar(name="PORTAL_AGENT_ID", value=str(agent.id)))
             internal_token = derive_runtime_internal_token(
-                self.settings.secret_key,
+                self.settings.runtime_internal_secret,
                 agent.id,
             )
             if internal_token:

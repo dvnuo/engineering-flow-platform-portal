@@ -32,6 +32,7 @@ class K8sServiceNoopTest(unittest.TestCase):
                 "opencode_git_checkout_timeout_seconds",
                 "opencode_task_completion_timeout_seconds",
                 "opencode_chat_submit_timeout_seconds",
+                "runtime_internal_secret",
             )
         }
         self.service.settings.default_agent_settings_repo_url = ""
@@ -48,6 +49,7 @@ class K8sServiceNoopTest(unittest.TestCase):
         self.service.settings.opencode_git_checkout_timeout_seconds = 120
         self.service.settings.opencode_task_completion_timeout_seconds = 3600
         self.service.settings.opencode_chat_submit_timeout_seconds = 900
+        self.service.settings.runtime_internal_secret = "test-runtime-secret"
 
     def tearDown(self):
         for name, value in self._settings_snapshot.items():
@@ -915,7 +917,7 @@ class K8sServiceNoopTest(unittest.TestCase):
 
         self.assertEqual(
             env["PORTAL_INTERNAL_TOKEN"].value,
-            derive_runtime_internal_token(self.service.settings.secret_key, "a1"),
+            derive_runtime_internal_token(self.service.settings.runtime_internal_secret, "a1"),
         )
 
         # The decryption key is injected from the shared agents secret as an

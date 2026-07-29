@@ -26,9 +26,20 @@ def test_settings_defaults():
     assert settings.debug is False
     assert settings.database_url == "sqlite:///./portal.db"
     assert settings.secret_key == "change-me-in-production"
+    assert settings.runtime_internal_secret == ""
     assert settings.agents_namespace == "efp-agents"
     assert settings.k8s_enabled is False
     assert settings.k8s_storage_class == "local-path"
+
+
+def test_runtime_internal_secret_uses_dedicated_environment_variable(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "session-secret")
+    monkeypatch.setenv("RUNTIME_INTERNAL_SECRET", "runtime-secret")
+
+    settings = Settings()
+
+    assert settings.secret_key == "session-secret"
+    assert settings.runtime_internal_secret == "runtime-secret"
 
 
 def test_settings_bootstrap_defaults():

@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     debug: bool = False
     database_url: str = "sqlite:///./portal.db"
     secret_key: str = "change-me-in-production"
+    # Keep runtime request authentication independent from the session-signing
+    # key so rotating SECRET_KEY does not invalidate already-running Agent pods.
+    runtime_internal_secret: str = Field(default="", validation_alias="RUNTIME_INTERNAL_SECRET")
     session_cookie_name: str = "portal_session"
     portal_internal_base_url: str = Field(default="", validation_alias="PORTAL_INTERNAL_BASE_URL")
     # Preferred runtime-catalog alignment hook for Portal runtime compatibility metadata.

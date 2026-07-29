@@ -72,6 +72,11 @@ spec:
                   name: efp-portal-secret
                   key: BOOTSTRAP_ADMIN_PASSWORD
                   optional: true
+            - name: RUNTIME_INTERNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: efp-portal-secret
+                  key: RUNTIME_INTERNAL_SECRET
             - name: GIT_REPO_AUTH_PAT
               valueFrom:
                 secretKeyRef:

@@ -362,7 +362,13 @@ def test_build_portal_identity_headers_falls_back_to_sanitized_username():
     }
 
 
-def test_build_portal_agent_headers_adds_sanitized_agent_name():
+def test_build_portal_agent_headers_adds_sanitized_agent_name(monkeypatch):
+    runtime_secret = "test-runtime-secret"
+    monkeypatch.setattr(
+        proxy_module,
+        "get_settings",
+        lambda: SimpleNamespace(runtime_internal_secret=runtime_secret),
+    )
     user = SimpleNamespace(id=123, username="alice", nickname="Alice")
     agent = SimpleNamespace(id="agent-1", name=" Agent\r\nName ")
 
@@ -373,14 +379,20 @@ def test_build_portal_agent_headers_adds_sanitized_agent_name():
         "X-Portal-User-Id": "123",
         "X-Portal-User-Name": "Alice",
         "X-Portal-Internal-Token": derive_runtime_internal_token(
-            proxy_module.get_settings().secret_key,
+            runtime_secret,
             "agent-1",
         ),
         "X-Portal-Agent-Name": "AgentName",
     }
 
 
-def test_build_portal_agent_headers_omits_empty_agent_name():
+def test_build_portal_agent_headers_omits_empty_agent_name(monkeypatch):
+    runtime_secret = "test-runtime-secret"
+    monkeypatch.setattr(
+        proxy_module,
+        "get_settings",
+        lambda: SimpleNamespace(runtime_internal_secret=runtime_secret),
+    )
     user = SimpleNamespace(id=123, username="alice", nickname="Alice")
     agent = SimpleNamespace(id="agent-1", name=" \r\n\t ")
 
@@ -391,10 +403,26 @@ def test_build_portal_agent_headers_omits_empty_agent_name():
         "X-Portal-User-Id": "123",
         "X-Portal-User-Name": "Alice",
         "X-Portal-Internal-Token": derive_runtime_internal_token(
-            proxy_module.get_settings().secret_key,
+            runtime_secret,
             "agent-1",
         ),
     }
+
+
+def test_build_portal_agent_headers_does_not_rotate_with_session_secret(monkeypatch):
+    settings = SimpleNamespace(
+        secret_key="session-secret-before",
+        runtime_internal_secret="stable-runtime-secret",
+    )
+    monkeypatch.setattr(proxy_module, "get_settings", lambda: settings)
+    user = SimpleNamespace(id=123, username="alice", nickname="Alice")
+    agent = SimpleNamespace(id="agent-1", name="Agent One")
+
+    token_before = build_portal_agent_headers(user, agent)["X-Portal-Internal-Token"]
+    settings.secret_key = "session-secret-after"
+    token_after = build_portal_agent_headers(user, agent)["X-Portal-Internal-Token"]
+
+    assert token_after == token_before
 
 
 def test_build_portal_identity_fields_normalizes_identity_values():
