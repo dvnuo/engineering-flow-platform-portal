@@ -4,9 +4,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import app.services.proxy_service as proxy_module
 from app.services.proxy_service import build_portal_agent_headers
-from app.services.runtime_auth import derive_runtime_internal_token
 
 
 def _web_source() -> str:
@@ -65,24 +63,14 @@ def test_server_files_upload_contract_uses_forward_runtime_multipart_with_path_d
     assert "return Response(content=content_bytes, media_type=content_type, status_code=status_code)" in web_source
 
 
-def test_identity_headers_helper_adds_portal_user_and_agent_fields(monkeypatch):
-    runtime_secret = "test-runtime-secret"
-    monkeypatch.setattr(
-        proxy_module,
-        "get_settings",
-        lambda: SimpleNamespace(runtime_internal_secret=runtime_secret),
-    )
+def test_identity_headers_helper_adds_portal_user_and_agent_fields():
     fake_user = SimpleNamespace(id=321, username="portal-user", nickname="Portal User", role="user")
-    fake_agent = SimpleNamespace(id="agent-1", name="Agent One")
+    fake_agent = SimpleNamespace(name="Agent One")
 
     assert build_portal_agent_headers(fake_user, fake_agent) == {
         "X-Portal-Author-Source": "portal",
         "X-Portal-User-Id": "321",
         "X-Portal-User-Name": "Portal User",
-        "X-Portal-Internal-Token": derive_runtime_internal_token(
-            runtime_secret,
-            "agent-1",
-        ),
         "X-Portal-Agent-Name": "Agent One",
     }
 

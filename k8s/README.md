@@ -23,9 +23,6 @@ kubectl apply -f efp-agents-secret.yaml
 
 `efp-portal-secret` should include:
 - `BOOTSTRAP_ADMIN_PASSWORD`
-- `RUNTIME_INTERNAL_SECRET` (required; generate a strong random value once and
-  keep it stable when rotating `SECRET_KEY`, because running Agent pods use
-  tokens derived from it)
 - (optional) `GIT_TOKEN` for Portal init clone and `/api/git-repos/branches` lookups
 
 `efp-agents-secret` should include:

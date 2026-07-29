@@ -55,7 +55,6 @@ Access `http://localhost:8000/login`
 |----------|-------------|---------|
 | `DATABASE_URL` | SQLite database path | `sqlite:///./portal.db` |
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
-| `RUNTIME_INTERNAL_SECRET` | Stable secret used to derive per-Agent Portal proxy tokens; configure once and keep independent from `SECRET_KEY` rotations | empty |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |

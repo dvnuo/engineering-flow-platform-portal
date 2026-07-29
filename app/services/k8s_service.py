@@ -10,7 +10,6 @@ from uuid import uuid4
 from app.config import get_settings
 from app.contracts.runtime_type import InvalidRuntimeType, normalize_runtime_type
 from app.redaction import sanitize_exception_message
-from app.services.runtime_auth import derive_runtime_internal_token
 from app.utils.git_urls import normalize_git_repo_url
 
 
@@ -950,17 +949,6 @@ class K8sService:
             env.append(client.V1EnvVar(name="PORTAL_INTERNAL_BASE_URL", value=base_url))
         if agent is not None and getattr(agent, "id", None):
             env.append(client.V1EnvVar(name="PORTAL_AGENT_ID", value=str(agent.id)))
-            internal_token = derive_runtime_internal_token(
-                self.settings.runtime_internal_secret,
-                agent.id,
-            )
-            if internal_token:
-                env.append(
-                    client.V1EnvVar(
-                        name="PORTAL_INTERNAL_TOKEN",
-                        value=internal_token,
-                    )
-                )
             if getattr(agent, "name", None):
                 env.append(client.V1EnvVar(name="PORTAL_AGENT_NAME", value=str(agent.name)))
             runtime_type = self._runtime_type(agent)
