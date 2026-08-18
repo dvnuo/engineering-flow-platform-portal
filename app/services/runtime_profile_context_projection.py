@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
+from app.services.ai_platform_config import materialize_ai_platform_llm_config
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
@@ -232,6 +233,7 @@ def build_canonical_profile_config(
     default_llm: dict[str, Any] | None = None,
     include_portal_sections: bool = True,
     include_llm_credentials: bool = True,
+    settings=None,
 ) -> dict[str, Any]:
     """Build the runtime-agnostic canonical profile config.
 
@@ -258,6 +260,7 @@ def build_canonical_profile_config(
         canonical["llm"] = llm
     if isinstance(llm, dict):
         llm = _with_default_llm_fields(llm, default_llm)
+        llm = materialize_ai_platform_llm_config(llm, settings=settings)
         # "native" yields the portal canonical LLM form (github_copilot, bare
         # model); each runtime re-projects to its own form at boot.
         projected_llm = project_llm_for_runtime(llm, "native")
@@ -265,6 +268,15 @@ def build_canonical_profile_config(
             projected_llm.pop("api_key", None)
             projected_llm.pop("oauth", None)
             projected_llm.pop("oauth_by_runtime", None)
+            ai_platform = projected_llm.get("ai_platform")
+            if isinstance(ai_platform, dict):
+                auth = ai_platform.get("auth")
+                if isinstance(auth, dict):
+                    auth.pop("username", None)
+                    auth.pop("password", None)
+                    auth.pop("usercase", None)
+                    if not auth:
+                        ai_platform.pop("auth", None)
         if projected_llm:
             projected_llm["timeout_ms"] = DEFAULT_LLM_REQUEST_TIMEOUT_MS
             canonical["llm"] = projected_llm
@@ -300,11 +312,13 @@ def build_runtime_profile_context_config(
     default_llm: dict[str, Any] | None = None,
     include_portal_sections: bool = True,
     include_llm_credentials: bool = True,
+    settings=None,
 ) -> dict[str, Any]:
     canonical = build_canonical_profile_config(
         config,
         default_llm=default_llm,
         include_portal_sections=include_portal_sections,
         include_llm_credentials=include_llm_credentials,
+        settings=settings,
     )
     return project_canonical_for_runtime(canonical, runtime_type)

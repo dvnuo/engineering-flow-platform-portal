@@ -20,6 +20,22 @@ class Settings(BaseSettings):
         validation_alias="RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON",
     )
 
+    # AI Platform connection details are deployment-managed. Runtime Profile
+    # users only provide username/password/usercase; these fixed values are
+    # materialized into the runtime config immediately before test/sync/use.
+    ai_platform_chat_host: str = Field(default="", validation_alias="AI_PLATFORM_CHAT_HOST")
+    ai_platform_chat_uri: str = Field(
+        default="/v1/api/v1/chat/completions",
+        validation_alias="AI_PLATFORM_CHAT_URI",
+    )
+    ai_platform_ib2b_host: str = Field(default="", validation_alias="AI_PLATFORM_IB2B_HOST")
+    ai_platform_ib2b_uri: str = Field(default="", validation_alias="AI_PLATFORM_IB2B_URI")
+    ai_platform_trust_token_header: str = Field(
+        default="X-XXXX-E2E-Trust-Token",
+        validation_alias="AI_PLATFORM_TRUST_TOKEN_HEADER",
+    )
+    ai_platform_tracking_prefix: str = Field(default="EFP", validation_alias="AI_PLATFORM_TRACKING_PREFIX")
+
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")
 

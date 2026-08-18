@@ -203,6 +203,23 @@ def test_settings_merge_copilot_uses_llm_api_key_only():
     assert "oauth" not in merged["llm"]
     assert "oauth_by_runtime" not in merged["llm"]
 
+
+def test_settings_merge_ai_platform_requires_three_user_credentials():
+    merged, error = _settings_merge_payload(
+        {},
+        {
+            "__touch_llm": "1",
+            "llm_provider": "ai_platform",
+            "llm_model": "gpt-5.4",
+            "llm_ai_platform_username": "user",
+            "llm_ai_platform_password": "password",
+            "llm_ai_platform_usercase": "",
+        },
+    )
+
+    assert merged == {}
+    assert error == "AI Platform username, password, and usercase are required."
+
 def test_settings_merge_blank_github_token_clears_existing():
     merged, error = _settings_merge_payload({"github": {"api_token": "old"}}, {"__touch_github": "1", "github_enabled": "on", "github_api_token": ""})
     assert error is None

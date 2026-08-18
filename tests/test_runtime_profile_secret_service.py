@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import get_settings
 from app.db import Base
 from app.models import Agent, User
 from app.models.runtime_profile import RuntimeProfile
@@ -102,6 +103,46 @@ def test_render_profile_secret_data_contains_single_canonical_config_and_revisio
         assert payload["config"]["llm"]["provider"] == "github_copilot"
         assert payload["config"]["llm"]["model"] == "gpt-5.4"
     finally:
+        db.close()
+
+
+def test_render_profile_secret_materializes_ai_platform_connection_from_app_config(monkeypatch):
+    db, _owner, rp = _build_db()
+    try:
+        rp.config_json = json.dumps(
+            {
+                "llm": {
+                    "provider": "ai_platform",
+                    "model": "gpt-5.4",
+                    "ai_platform": {
+                        "auth": {"username": "user", "password": "pw", "usercase": "case"},
+                        "chat": {"host": "https://profile-override.invalid"},
+                    },
+                }
+            }
+        )
+        monkeypatch.setenv("AI_PLATFORM_CHAT_HOST", "https://chat.config")
+        monkeypatch.setenv("AI_PLATFORM_IB2B_HOST", "https://ib2b.config")
+        monkeypatch.setenv("AI_PLATFORM_IB2B_URI", "/token")
+        monkeypatch.setenv("AI_PLATFORM_TRUST_TOKEN_HEADER", "X-Trust")
+        monkeypatch.setenv("AI_PLATFORM_TRACKING_PREFIX", "PORTAL")
+        monkeypatch.delenv("EFP_CONFIG_KEY", raising=False)
+        get_settings.cache_clear()
+
+        payload = json.loads(render_profile_secret_data(rp)["config.json"])
+        ai_platform = payload["config"]["llm"]["ai_platform"]
+
+        assert ai_platform["chat"]["host"] == "https://chat.config"
+        assert ai_platform["ib2b"] == {"host": "https://ib2b.config", "uri": "/token"}
+        assert ai_platform["auth"] == {
+            "trust_token_header": "X-Trust",
+            "tracking_prefix": "PORTAL",
+            "username": "user",
+            "password": "pw",
+            "usercase": "case",
+        }
+    finally:
+        get_settings.cache_clear()
         db.close()
 
 
