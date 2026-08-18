@@ -1,22 +1,128 @@
-<div id="my-tasks-panel-root" class="portal-panel-stack portal-task-workspace">
-  <div class="portal-task-toolbar">
-    <div>
+<div id="my-tasks-panel-root" class="portal-panel-stack portal-task-workspace portal-overview-workspace" data-task-overview-scope="{{ overview.scope }}">
+  <div class="portal-overview-hero">
+    <div class="portal-overview-title-block">
+      <div class="portal-overview-eyebrow">Task Operations</div>
       <h2 class="portal-panel-title">Tasks</h2>
-      <p class="portal-panel-subtitle">Background agent work visible to everyone.</p>
+      <p class="portal-panel-subtitle">{{ overview.health.headline }} · {{ overview.generated_at.strftime('%Y-%m-%d %H:%M') if overview.generated_at else '' }}</p>
     </div>
-    <button class="portal-btn is-primary" type="button" data-open-create-task-main="1"><i data-lucide="plus" class="w-4 h-4"></i>Create Task</button>
+    <div class="portal-overview-actions" role="group" aria-label="Task overview scope">
+      <button class="portal-btn is-secondary{% if overview.scope == 'all' %} is-active{% endif %}" type="button" data-task-overview-scope="all">All Visible</button>
+      <button class="portal-btn is-secondary{% if overview.scope == 'mine' %} is-active{% endif %}" type="button" data-task-overview-scope="mine">Mine</button>
+      <button class="portal-btn is-secondary" type="button" data-refresh-task-overview><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
+      <button class="portal-btn is-primary" type="button" data-open-create-task-main="1"><i data-lucide="plus" class="w-4 h-4"></i>Create Task</button>
+    </div>
   </div>
 
-  <div class="portal-task-summary-strip" aria-label="Task status summary">
-    <div class="portal-task-summary-item"><span>Queued</span><strong>{{ summary.queued }}</strong></div>
-    <div class="portal-task-summary-item"><span>Running</span><strong>{{ summary.running }}</strong></div>
-    <div class="portal-task-summary-item"><span>Done</span><strong>{{ summary.done }}</strong></div>
-    <div class="portal-task-summary-item"><span>Blocked</span><strong>{{ summary.blocked }}</strong></div>
-    <div class="portal-task-summary-item"><span>Failed</span><strong>{{ summary.failed }}</strong></div>
-    <div class="portal-task-summary-item"><span>Cancelled</span><strong>{{ summary.cancelled }}</strong></div>
-  </div>
+  <section class="portal-overview-overview-grid" aria-label="Task overview">
+    <article class="portal-overview-health-card is-{{ overview.health.tone }}">
+      <div class="portal-overview-health-main">
+        <div class="portal-overview-health-icon"><i data-lucide="activity" class="w-5 h-5"></i></div>
+        <div><span>Task Health</span><strong>{{ overview.health.label }}</strong></div>
+      </div>
+      <div class="portal-overview-health-score">
+        <span>{{ overview.health.score }}</span>
+        <div class="portal-overview-score-bar" aria-hidden="true"><i style="width: {{ overview.health.score }}%"></i></div>
+      </div>
+      <div class="portal-overview-health-foot">
+        <span>{{ overview.health.critical }} critical</span>
+        <span>{{ overview.health.warning }} warnings</span>
+      </div>
+    </article>
+    <article class="portal-overview-metric-card">
+      <div class="portal-overview-metric-head"><i data-lucide="list-checks" class="w-4 h-4"></i><span>Active</span></div>
+      <strong>{{ overview.active }}</strong>
+      <div>{{ overview.total }} total · {{ overview.attention }} attention</div>
+    </article>
+    <article class="portal-overview-metric-card">
+      <div class="portal-overview-metric-head"><i data-lucide="circle-check" class="w-4 h-4"></i><span>Completed</span></div>
+      <strong>{{ overview.done_24h }}</strong>
+      <div>Done in the last 24 hours</div>
+    </article>
+    <article class="portal-overview-metric-card">
+      <div class="portal-overview-metric-head"><i data-lucide="triangle-alert" class="w-4 h-4"></i><span>Failed</span></div>
+      <strong>{{ overview.failed_24h }}</strong>
+      <div>Failed in the last 24 hours</div>
+    </article>
+  </section>
 
-  <div class="portal-task-card-list">
-    {% include "partials/task_cards.html" %}
-  </div>
+  <section class="portal-overview-distribution-grid is-two-column" aria-label="Task operations">
+    <article class="portal-overview-distribution-card">
+      <div class="portal-overview-panel-head"><h3>Task Mix</h3><span>{{ overview.total }} total</span></div>
+      <div class="portal-overview-segment-stack">
+        {% for segment in overview.segments %}
+        <div class="portal-overview-segment-row">
+          <span>{{ segment.label }}</span>
+          <div class="portal-overview-segment-track" aria-hidden="true"><i class="is-{{ segment.tone }}" style="width: {{ segment.percent }}%"></i></div>
+          <strong>{{ segment.count }}</strong>
+        </div>
+        {% else %}
+        <div class="portal-panel-empty">No task activity.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-overview-panel portal-overview-attention">
+      <div class="portal-overview-panel-head"><h3>Needs Attention</h3><span>{{ overview.priority_items|length }} items</span></div>
+      <div class="portal-overview-list">
+        {% for item in overview.priority_items %}
+        <button class="portal-overview-row is-{{ item.tone }}" type="button" data-open-task-main="{{ item.target_id }}">
+          <span class="portal-row-status-dot is-{{ item.tone }}" aria-hidden="true"></span>
+          <span><strong>{{ item.title }}</strong><small>{{ item.meta }}</small></span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No tasks need attention right now.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="portal-overview-grid">
+    <article class="portal-overview-panel">
+      <div class="portal-overview-panel-head"><h3>Assistant Workload</h3><span>{{ overview.workload|length }} assistants</span></div>
+      <div class="portal-overview-table">
+        {% for row in overview.workload %}
+        <button class="portal-overview-workload-row" type="button" data-open-overview-agent="{{ row.agent_id }}">
+          <span class="portal-row-status-dot is-{{ row.status_tone }}" aria-hidden="true"></span>
+          <span class="portal-overview-workload-name">{{ row.agent_name }}</span>
+          <span>{{ row.running_tasks }} running</span>
+          <span>{{ row.queued_tasks }} queued</span>
+          <span>{{ row.attention_tasks }} attention</span>
+          <div class="portal-overview-workload-meter" aria-hidden="true">
+            <i class="is-success" style="width: {{ row.active_percent }}%"></i>
+            <i class="is-error" style="width: {{ row.attention_percent }}%"></i>
+          </div>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No assistants available.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-overview-panel portal-overview-activity">
+      <div class="portal-overview-panel-head"><h3>Recent Task Activity</h3><span>{{ overview.recent_activity|length }} events</span></div>
+      <div class="portal-overview-timeline">
+        {% for item in overview.recent_activity %}
+        <button class="portal-overview-timeline-row is-{{ item.tone }}" type="button" data-open-task-main="{{ item.target_id }}">
+          <span class="portal-row-status-dot is-{{ item.tone }}" aria-hidden="true"></span>
+          <span><strong>{{ item.title }}</strong><small>{{ item.meta }}</small></span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No recent task activity.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="portal-task-history-section">
+    <div class="portal-overview-panel-head"><h3>Recent Tasks</h3><span>{{ tasks|length }} shown</span></div>
+    <div class="portal-task-summary-strip" aria-label="Task status summary">
+      <div class="portal-task-summary-item"><span>Queued</span><strong>{{ summary.queued }}</strong></div>
+      <div class="portal-task-summary-item"><span>Running</span><strong>{{ summary.running }}</strong></div>
+      <div class="portal-task-summary-item"><span>Done</span><strong>{{ summary.done }}</strong></div>
+      <div class="portal-task-summary-item"><span>Blocked</span><strong>{{ summary.blocked }}</strong></div>
+      <div class="portal-task-summary-item"><span>Failed</span><strong>{{ summary.failed }}</strong></div>
+      <div class="portal-task-summary-item"><span>Cancelled</span><strong>{{ summary.cancelled }}</strong></div>
+    </div>
+    <div class="portal-task-card-list">{% include "partials/task_cards.html" %}</div>
+  </section>
 </div>

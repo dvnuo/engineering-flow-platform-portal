@@ -19,17 +19,12 @@ from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRep
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
-from app.schemas.requirement_bundle import BundleRef, RequirementBundleCreateForm
 from app.schemas.runtime_profile import (
     JENKINS_DEFAULT_INSTANCE_NAME,
     dump_runtime_profile_config_json,
     normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_config_dict,
-)
-from app.services.requirement_bundle_github_service import (
-    RequirementBundleGithubService,
-    RequirementBundleGithubServiceError,
 )
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
@@ -41,7 +36,7 @@ from app.services.runtime_profile_config_policy import canonicalize_portal_runti
 from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider_from_settings, RuntimeCapabilityCatalogProvider
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
-from app.services.dashboard_summary import DashboardSummaryService
+from app.services.work_overview import WorkOverviewService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
@@ -61,7 +56,6 @@ templates.env.filters['data_attr'] = escape_data_attr
 settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
-requirement_bundle_service = RequirementBundleGithubService()
 k8s_service = K8sService()
 runtime_profile_secret_service = RuntimeProfileSecretService(k8s_service=k8s_service)
 runtime_profile_test_service = RuntimeProfileTestService()
@@ -348,11 +342,6 @@ def _normalize_runtime_error_detail(content: bytes) -> str:
     return f"Runtime error: {' '.join(parts)}"
 
 
-def _short_sha(value: str | None) -> str:
-    cleaned = (value or "").strip()
-    return cleaned[:7] if cleaned else "-"
-
-
 def _format_duration_label(started_at, finished_at) -> str:
     if not started_at:
         return "-"
@@ -365,62 +354,6 @@ def _format_duration_label(started_at, finished_at) -> str:
     if minutes:
         return f"{minutes}m {seconds:02d}s"
     return f"{seconds}s"
-
-
-def _humanize_artifact_label(value: str | None) -> str:
-    cleaned = (value or "").strip()
-    return cleaned.replace("_", " ").title() if cleaned else "Artifact"
-
-
-def _build_bundle_detail_view_model(bundle_detail) -> dict:
-    manifest = bundle_detail.manifest if isinstance(bundle_detail.manifest, dict) else {}
-    scope = manifest.get("scope") if isinstance(manifest.get("scope"), dict) else {}
-    bundle_path = (bundle_detail.bundle_ref.path or "").strip()
-    fallback_title = bundle_path.split("/")[-1] if bundle_path else "Bundle"
-    title = manifest.get("title") or fallback_title or "Bundle"
-    bundle_ref_label = title or fallback_title or "-"
-    status_label = manifest.get("status") or "unknown"
-    bundle_label = getattr(bundle_detail, "bundle_label", None) or "Requirement Bundle"
-    subtitle = " · ".join(part for part in (bundle_path or "-", bundle_label, status_label) if part)
-    repo = bundle_detail.bundle_ref.repo or "-"
-    branch = bundle_detail.bundle_ref.branch or "-"
-    github_url = f"https://github.com/{repo}/tree/{branch}/{bundle_detail.bundle_ref.path}"
-
-    artifacts = []
-    for artifact in (bundle_detail.artifacts or []):
-        exists = bool(artifact.exists)
-        artifacts.append(
-            {
-                "artifact_key": artifact.artifact_key,
-                "label": _humanize_artifact_label(artifact.artifact_key),
-                "file_path": artifact.file_path or "-",
-                "exists": exists,
-                "status_label": "Ready" if exists else "Missing",
-                "status_tone": "success" if exists else "error",
-                "github_url": f"https://github.com/{repo}/blob/{branch}/{bundle_detail.bundle_ref.path}/{artifact.file_path}"
-                if artifact.file_path
-                else None,
-            }
-        )
-
-    return {
-        "title": title,
-        "subtitle": subtitle,
-        "bundle_ref_label": bundle_ref_label,
-        "status_label": status_label,
-        "status_tone": _status_tone_from_value(status_label),
-        "domain": scope.get("domain") or "-",
-        "bundle_label": bundle_label,
-        "repo": repo,
-        "branch": branch,
-        "path": bundle_path or "-",
-        "github_url": github_url,
-        "last_commit_short": _short_sha(bundle_detail.last_commit_sha),
-        "last_commit_full": bundle_detail.last_commit_sha or "-",
-        "artifact_ready_count": sum(1 for item in artifacts if item["exists"]),
-        "artifact_total_count": len(artifacts),
-        "artifacts": artifacts,
-    }
 
 
 def _extract_text_field(payload: dict | None, keys: tuple[str, ...]) -> str:
@@ -1406,57 +1339,8 @@ def app_page(request: Request):
             "nickname": user.nickname or user.username,
             "user_id": user.id,
             "role": user.role,
-            "bundle_base_branch": settings.assets_default_base_branch,
         },
     )
-
-
-@router.get("/app/requirement-bundles")
-def requirement_bundles_page(request: Request):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    db = SessionLocal()
-    try:
-        return _render_requirement_bundles_view(request, user, db)
-    finally:
-        db.close()
-
-
-@router.get("/app/requirement-bundles/panel")
-def requirement_bundles_panel(request: Request):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    db = SessionLocal()
-    try:
-        return _render_requirement_bundles_view(request, user, db, panel_mode=True)
-    finally:
-        db.close()
-
-
-@router.get("/app/dashboard/panel")
-def dashboard_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    db = SessionLocal()
-    try:
-        summary = DashboardSummaryService(db).build(user, scope=scope)
-        return templates.TemplateResponse(
-            "partials/dashboard_panel.html",
-            {
-                "request": request,
-                "summary": summary,
-            },
-        )
-    finally:
-        db.close()
-
-
 
 
 def _content_target_from_request(request: Request, default: str = "#tool-panel-body") -> str:
@@ -1472,45 +1356,8 @@ def _content_target_from_request(request: Request, default: str = "#tool-panel-b
         return query_target if query_target.startswith("#") else f"#{query_target}"
     return default
 
-def _is_htmx_request(request: Request) -> bool:
-    return request.headers.get("HX-Request", "").lower() == "true"
-
-
-def _requirement_bundles_context(request: Request, user, db, **kwargs) -> dict:
-    context = {
-        "request": request,
-        "title": "Bundles",
-        "username": user.username,
-        "nickname": user.nickname or user.username,
-        "bundle_defaults": {
-            "repo": settings.assets_repo_full_name,
-            "base_branch": settings.assets_default_base_branch,
-            "root_dir": settings.assets_bundle_root_dir,
-        },
-        "bundle_result": None,
-        "bundle_detail": None,
-        "status_type": "",
-        "status_message": "",
-        "bundle_view_model": None,
-    }
-    context.update(kwargs)
-    return context
-
-
-def _render_requirement_bundles_view(request: Request, user, db, *, panel_mode: bool = False, **kwargs):
-    context = _requirement_bundles_context(request, user, db, **kwargs)
-    if context.get("bundle_detail"):
-        context["bundle_view_model"] = _build_bundle_detail_view_model(context["bundle_detail"])
-    context["content_target"] = _content_target_from_request(
-        request,
-        default="#tool-panel-body" if panel_mode else "#requirement-bundles-page-content",
-    )
-    template_name = "partials/requirement_bundles_panel.html" if panel_mode else "requirement_bundles.html"
-    return templates.TemplateResponse(template_name, context)
-
-
 @router.get("/app/tasks/panel")
-def my_tasks_panel(request: Request):
+def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
     user = _current_user_from_cookie(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
@@ -1518,11 +1365,23 @@ def my_tasks_panel(request: Request):
     db = SessionLocal()
     try:
         repo = AgentTaskRepository(db)
+        overview = WorkOverviewService(db).build_tasks(user, scope=scope)
         task_page_size = 20
         task_offset = 0
-        tasks = repo.list_visible_to_user(user_id=user.id, limit=task_page_size, offset=task_offset)
+        tasks = repo.list_visible_to_user(
+            user_id=user.id,
+            limit=task_page_size,
+            offset=task_offset,
+            owner=scope,
+        )
         summary = {"queued": 0, "running": 0, "done": 0, "blocked": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
-        summary.update({status: count for status, count in repo.count_by_status().items() if status in summary})
+        summary.update(
+            {
+                segment["status"]: segment["count"]
+                for segment in overview["segments"]
+                if segment["status"] in summary
+            }
+        )
         task_owner_labels = {task.id: _user_label_for_id(db, getattr(task, "owner_user_id", None)) for task in tasks}
         return templates.TemplateResponse(
             "partials/my_tasks_panel.html",
@@ -1530,27 +1389,56 @@ def my_tasks_panel(request: Request):
                 "request": request,
                 "tasks": tasks,
                 "summary": summary,
+                "overview": overview,
                 "task_owner_labels": task_owner_labels,
                 "content_target": _content_target_from_request(request),
                 "task_page_size": task_page_size,
                 "task_offset": task_offset,
                 "next_offset": task_offset + len(tasks),
                 "has_more_tasks": len(tasks) >= task_page_size,
+                "task_scope": scope,
             },
         )
     finally:
         db.close()
 
 
-@router.get("/app/tasks/list")
-def my_tasks_list(request: Request, limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0)):
+@router.get("/app/delegations/panel")
+def delegations_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
     user = _current_user_from_cookie(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
     db = SessionLocal()
     try:
-        tasks = AgentTaskRepository(db).list_visible_to_user(user_id=user.id, limit=limit, offset=offset)
+        overview = WorkOverviewService(db).build_delegations(user, scope=scope)
+        return templates.TemplateResponse(
+            "partials/delegations_panel.html",
+            {"request": request, "overview": overview},
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/tasks/list")
+def my_tasks_list(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    owner: str = Query(default="all", pattern="^(all|mine)$"),
+):
+    user = _current_user_from_cookie(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        tasks = AgentTaskRepository(db).list_visible_to_user(
+            user_id=user.id,
+            limit=limit,
+            offset=offset,
+            owner=owner,
+        )
         task_owner_labels = {task.id: _user_label_for_id(db, getattr(task, "owner_user_id", None)) for task in tasks}
         return templates.TemplateResponse(
             "partials/task_cards.html",
@@ -1563,6 +1451,7 @@ def my_tasks_list(request: Request, limit: int = Query(default=20, ge=1, le=100)
                 "task_offset": offset,
                 "next_offset": offset + len(tasks),
                 "has_more_tasks": len(tasks) >= limit,
+                "task_scope": owner,
             },
         )
     finally:
@@ -1659,83 +1548,6 @@ def task_detail_panel(request: Request, task_id: str):
                 "task_view_model": _build_task_detail_view_model(task, db=db, user=user),
                 "content_target": _content_target_from_request(request),
             },
-        )
-    finally:
-        db.close()
-
-
-@router.post("/app/requirement-bundles/create")
-async def requirement_bundle_create(request: Request):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    panel_mode = _is_htmx_request(request)
-    db = SessionLocal()
-    try:
-        form_data = await request.form()
-        create_form = RequirementBundleCreateForm(
-            title=str(form_data.get("title") or ""),
-            domain=str(form_data.get("domain") or ""),
-            slug=(str(form_data.get("slug") or "").strip() or None),
-            base_branch=str(form_data.get("base_branch") or settings.assets_default_base_branch),
-        )
-        bundle_ref = requirement_bundle_service.create_bundle(create_form)
-        bundle_detail = requirement_bundle_service.inspect_bundle(bundle_ref)
-        return _render_requirement_bundles_view(
-            request,
-            user,
-            db,
-            panel_mode=panel_mode,
-            bundle_result=bundle_ref,
-            bundle_detail=bundle_detail,
-            status_type="success",
-            status_message="Bundle created successfully.",
-        )
-    except RequirementBundleGithubServiceError as exc:
-        return _render_requirement_bundles_view(
-            request,
-            user,
-            db,
-            panel_mode=panel_mode,
-            status_type="error",
-            status_message=str(exc),
-        )
-    finally:
-        db.close()
-
-
-@router.get("/app/requirement-bundles/open")
-def requirement_bundle_open(request: Request, repo: str = Query(""), path: str = Query(""), branch: str = Query("")):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    target_repo = (repo or settings.assets_repo_full_name).strip()
-    target_path = (path or "").strip()
-    target_branch = (branch or settings.assets_default_base_branch).strip()
-    panel_mode = _is_htmx_request(request)
-
-    db = SessionLocal()
-    try:
-        detail = requirement_bundle_service.inspect_bundle(
-            BundleRef(repo=target_repo, path=target_path, branch=target_branch)
-        )
-        return _render_requirement_bundles_view(
-            request,
-            user,
-            db,
-            panel_mode=panel_mode,
-            bundle_detail=detail,
-        )
-    except RequirementBundleGithubServiceError as exc:
-        return _render_requirement_bundles_view(
-            request,
-            user,
-            db,
-            panel_mode=panel_mode,
-            status_type="error",
-            status_message=str(exc),
         )
     finally:
         db.close()

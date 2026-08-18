@@ -1232,7 +1232,7 @@ def test_dispatch_task_inherits_parent_span_in_same_thread(db_session, monkeypat
 
     monkeypatch.setattr(service, "_post_to_runtime", fake_post)
 
-    token = bind_log_context(trace_id="trace-parent", span_id="span-parent", path="/app/requirement-bundles")
+    token = bind_log_context(trace_id="trace-parent", span_id="span-parent", path="/app/tasks")
     try:
         result = asyncio.run(service.dispatch_task(task.id, db))
     finally:
@@ -1287,7 +1287,7 @@ def test_dispatch_task_in_background_rebinds_parent_context(monkeypatch):
     parent_token = bind_log_context(
         trace_id="trace-bg-1",
         span_id="span-bg-1",
-        path="/app/requirement-bundles",
+        path="/app/tasks",
         agent_id="agent-9",
     )
     try:
@@ -1297,7 +1297,7 @@ def test_dispatch_task_in_background_rebinds_parent_context(monkeypatch):
 
     assert seen["context"]["trace_id"] == "trace-bg-1"
     assert seen["context"]["span_id"] == "span-bg-1"
-    assert seen["context"]["path"] == "/app/requirement-bundles"
+    assert seen["context"]["path"] == "/app/tasks"
     assert seen["context"]["agent_id"] == "agent-9"
 
 

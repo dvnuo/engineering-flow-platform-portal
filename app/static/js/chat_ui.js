@@ -40,12 +40,10 @@ const dom = {
   agentActions: document.getElementById("agent-actions"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
-  dashboardMenuBtn: document.getElementById("dashboard-menu-btn"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
   delegationsMenuBtn: document.getElementById("delegations-menu-btn"),
-  bundlesMenuBtn: document.getElementById("bundles-menu-btn"),
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
   portalSecondaryPane: document.getElementById("portal-secondary-pane"),
@@ -54,15 +52,12 @@ const dom = {
   secondaryPaneEyebrow: document.getElementById("secondary-pane-eyebrow"),
   secondaryPaneTitle: document.getElementById("secondary-pane-title"),
   secondaryPaneActions: document.getElementById("secondary-pane-actions"),
-  dashboardNavSection: document.getElementById("dashboard-nav-section"),
   assistantsNavSection: document.getElementById("assistants-nav-section"),
-  bundlesNavSection: document.getElementById("bundles-nav-section"),
   tasksNavSection: document.getElementById("tasks-nav-section"),
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
   agentSearchInput: document.getElementById("agent-search-input"),
   agentFilterSummary: document.getElementById("agent-filter-summary"),
-  bundleNavList: document.getElementById("bundle-nav-list"),
   taskOwnerFilter: document.getElementById("task-owner-filter"),
   taskStatusFilter: document.getElementById("task-status-filter"),
   taskFilterSummary: document.getElementById("task-filter-summary"),
@@ -72,10 +67,6 @@ const dom = {
   delegationSourceFilter: document.getElementById("delegation-source-filter"),
   delegationFilterSummary: document.getElementById("delegation-filter-summary"),
   delegationRuleNavList: document.getElementById("delegation-rule-nav-list"),
-  dashboardScopeFilter: document.getElementById("dashboard-scope-filter"),
-  dashboardFilterSummary: document.getElementById("dashboard-filter-summary"),
-  refreshBundlesBtn: document.getElementById("refresh-bundles-btn"),
-  addBundleBtn: document.getElementById("add-bundle-btn"),
   addTaskBtn: document.getElementById("add-task-btn"),
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addDelegationBtn: document.getElementById("add-delegation-btn"),
@@ -87,12 +78,8 @@ const dom = {
   homeSubtitle: document.getElementById("home-subtitle"),
   homeAgentSummary: document.getElementById("home-agent-summary"),
   homeStartChatBtn: document.getElementById("home-start-chat-btn"),
-  homeOpenBundlesBtn: document.getElementById("home-open-bundles-btn"),
   homeOpenTasksBtn: document.getElementById("home-open-tasks-btn"),
-  createBundleModal: document.getElementById("create-bundle-modal"),
-  createBundleForm: document.getElementById("create-bundle-form"),
-  createBundleMsg: document.getElementById("create-bundle-msg"),
-  closeCreateBundleModal: document.getElementById("close-create-bundle-modal"),
+  homeOpenDelegationsBtn: document.getElementById("home-open-delegations-btn"),
   createRuntimeProfileModal: document.getElementById("create-runtime-profile-modal"),
   createRuntimeProfileForm: document.getElementById("create-runtime-profile-form"),
   createRuntimeProfileMsg: document.getElementById("create-runtime-profile-msg"),
@@ -131,7 +118,6 @@ if (dom.chatInput) {
 
 const LAST_AGENT_STORAGE_KEY = "portal-last-agent-id";
 const INFLIGHT_CHAT_RUN_STORAGE_PREFIX = "portal-inflight-chat-run";
-const REQUIREMENT_BUNDLES_CACHE_KEY = "portal-requirement-bundles-cache-v1";
 const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";
 const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "details",
@@ -143,14 +129,12 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
-  "dashboard",
   "assistants",
-  "bundles",
   "tasks",
   "runtime-profiles",
   "delegations",
 ]);
-const DEFAULT_PORTAL_ROUTE_SECTION = "dashboard";
+const DEFAULT_PORTAL_ROUTE_SECTION = "assistants";
 
 function initialPortalRouteSectionFromHash(hash = window.location.hash) {
   const raw = typeof hash === "string" ? hash : "";
@@ -172,8 +156,6 @@ function initialPortalRouteSectionFromHash(hash = window.location.hash) {
 const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
 
 function initialPortalSectionTitle(section) {
-  if (section === "dashboard") return "Dashboard";
-  if (section === "bundles") return "Bundles";
   if (section === "tasks") return "Tasks";
   if (section === "runtime-profiles") return "Runtime Profiles";
   if (section === "delegations") return "Delegations";
@@ -181,9 +163,7 @@ function initialPortalSectionTitle(section) {
 }
 
 function initialPortalStatusText(section) {
-  if (section === "dashboard") return "Operational overview across assistants, tasks, and delegations";
-  if (section === "bundles") return "Browse and open bundle detail in the main stage";
-  if (section === "tasks") return "Browse tasks and open task detail in the main stage";
+  if (section === "tasks") return "Task health, workload, and recent activity";
   if (section === "runtime-profiles") return "Browse and manage your runtime profiles";
   if (section === "delegations") return "Manage delegations";
   return "Ready";
@@ -192,17 +172,13 @@ function initialPortalStatusText(section) {
 function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   const railButtons = {
-    dashboard: dom.dashboardMenuBtn,
     assistants: dom.railAssistantsBtn,
-    bundles: dom.bundlesMenuBtn,
     tasks: dom.tasksMenuBtn,
     "runtime-profiles": dom.runtimeProfilesMenuBtn,
     delegations: dom.delegationsMenuBtn,
   };
   const navSections = {
-    dashboard: dom.dashboardNavSection,
     assistants: dom.assistantsNavSection,
-    bundles: dom.bundlesNavSection,
     tasks: dom.tasksNavSection,
     "runtime-profiles": dom.runtimeProfilesNavSection,
     delegations: dom.delegationsNavSection,
@@ -216,25 +192,19 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
 
   const actionButtons = [
     dom.addAgentBtn,
-    dom.refreshBundlesBtn,
-    dom.addBundleBtn,
     dom.addTaskBtn,
     dom.addRuntimeProfileBtn,
     dom.addDelegationBtn,
   ];
   actionButtons.forEach((button) => button?.classList.add("hidden"));
   if (normalized === "assistants") dom.addAgentBtn?.classList.remove("hidden");
-  if (normalized === "bundles") {
-    dom.refreshBundlesBtn?.classList.remove("hidden");
-    dom.addBundleBtn?.classList.remove("hidden");
-  }
   if (normalized === "tasks") dom.addTaskBtn?.classList.remove("hidden");
   if (normalized === "runtime-profiles") dom.addRuntimeProfileBtn?.classList.remove("hidden");
   if (normalized === "delegations") dom.addDelegationBtn?.classList.remove("hidden");
 
   const title = initialPortalSectionTitle(normalized);
   if (dom.secondaryPaneEyebrow) {
-    dom.secondaryPaneEyebrow.textContent = normalized === "assistants" ? "My Space" : (normalized === "dashboard" ? "Portal" : "Workspace");
+    dom.secondaryPaneEyebrow.textContent = normalized === "assistants" ? "My Space" : "Workspace";
   }
   if (dom.secondaryPaneTitle) dom.secondaryPaneTitle.textContent = title;
 
@@ -457,11 +427,7 @@ const state = {
   isComposingInput: false,
   suggestRequestSeq: 0,
   suggestBlurHideTimer: null,
-  requirementBundles: [],
-  hasRequirementBundlesCache: false,
-  selectedBundleKey: null,
   activeNavSection: INITIAL_PORTAL_ROUTE_SECTION,
-  dashboardScope: "all",
   secondaryPaneCollapsed: !!initialUiLayoutPrefs.secondaryPaneCollapsed,
   toolPanelOpen: !!initialUiLayoutPrefs.toolPanelPinned,
   toolPanelPinned: !!initialUiLayoutPrefs.toolPanelPinned,
@@ -506,7 +472,6 @@ function parsePortalHashRoute(hash = window.location.hash) {
     taskId: "",
     runtimeProfileId: "",
     delegationRuleId: "",
-    bundleRef: null,
     hadHash,
     raw,
   };
@@ -528,18 +493,6 @@ function parsePortalHashRoute(hash = window.location.hash) {
     valid: true,
     section,
   };
-
-  if (section === "bundles") {
-    if (encodedParts.slice(1).some((part) => part !== "")) return fallback;
-    const params = new URLSearchParams(queryString);
-    const repo = params.get("repo") || "";
-    const path = params.get("path") || "";
-    const branch = params.get("branch") || "";
-    if (repo || path || branch) {
-      parsed.bundleRef = { repo, path, branch };
-    }
-    return parsed;
-  }
 
   if (queryString) return fallback;
   if (encodedParts.length > 2) return fallback;
@@ -567,22 +520,6 @@ function portalHashForRoute(route = {}) {
     return agentId ? `#/assistants/${encodeURIComponent(agentId)}` : "#/assistants";
   }
 
-  if (section === "dashboard") {
-    return "#/dashboard";
-  }
-
-  if (section === "bundles") {
-    const bundleRef = route.bundleRef || null;
-    if (bundleRef && (bundleRef.repo || bundleRef.path || bundleRef.branch)) {
-      const params = new URLSearchParams();
-      params.set("repo", bundleRef.repo || "");
-      params.set("path", bundleRef.path || "");
-      params.set("branch", bundleRef.branch || "");
-      return `#/bundles?${params.toString()}`;
-    }
-    return "#/bundles";
-  }
-
   if (section === "tasks") {
     const taskId = route.taskId ? String(route.taskId) : "";
     return taskId ? `#/tasks/${encodeURIComponent(taskId)}` : "#/tasks";
@@ -598,7 +535,7 @@ function portalHashForRoute(route = {}) {
     return delegationRuleId ? `#/delegations/${encodeURIComponent(delegationRuleId)}` : "#/delegations";
   }
 
-  return "#/dashboard";
+  return "#/assistants";
 }
 
 function currentPortalRouteFromState() {
@@ -606,18 +543,6 @@ function currentPortalRouteFromState() {
 
   if (section === "assistants") {
     return { section, agentId: state.selectedAgentId || "" };
-  }
-
-  if (section === "dashboard") {
-    return { section };
-  }
-
-  if (section === "bundles") {
-    const selectedBundle = (state.requirementBundles || []).find((item) => bundleKey(item) === state.selectedBundleKey);
-    if (selectedBundle?.bundle_ref) {
-      return { section, bundleRef: selectedBundle.bundle_ref };
-    }
-    return { section };
   }
 
   if (section === "tasks") {
@@ -653,9 +578,7 @@ function replacePortalRouteFromState() {
 }
 
 function clearPortalSectionDetailSelection(section) {
-  if (section === "bundles") {
-    state.selectedBundleKey = null;
-  } else if (section === "tasks") {
+  if (section === "tasks") {
     state.selectedTaskId = null;
   } else if (section === "runtime-profiles") {
     state.selectedRuntimeProfileId = null;
@@ -666,9 +589,6 @@ function clearPortalSectionDetailSelection(section) {
 
 function portalSectionRoute(section) {
   const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
-  if (normalized === "dashboard") {
-    return { section: "dashboard" };
-  }
   if (normalized === "assistants") {
     return { section: "assistants", agentId: state.selectedAgentId || "" };
   }
@@ -682,7 +602,6 @@ async function openPortalSection(section, {
   if (!PORTAL_ROUTE_SECTIONS.has(section)) return;
 
   const hadDetailSelection = (
-    (section === "bundles" && !!state.selectedBundleKey) ||
     (section === "tasks" && !!state.selectedTaskId) ||
     (section === "runtime-profiles" && !!state.selectedRuntimeProfileId) ||
     (section === "delegations" && !!state.selectedDelegationRuleId)
@@ -769,31 +688,6 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
     } else {
       renderAgentList();
       await syncSelectedAgentState();
-    }
-    return;
-  }
-
-  if (route.section === "dashboard") {
-    await setActiveNavSection("dashboard", {
-      toggleIfSame: false,
-      updateRoute: false,
-      preferSectionLanding: true,
-    });
-    return;
-  }
-
-  if (route.section === "bundles") {
-    if (route.bundleRef && route.bundleRef.repo && route.bundleRef.path) {
-      await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false });
-      loadRequirementBundlesFromCache();
-      renderRequirementBundleList();
-      await openRequirementBundleInMain(route.bundleRef, { updateRoute: false });
-    } else {
-      await setActiveNavSection("bundles", {
-        toggleIfSame: false,
-        updateRoute: false,
-        preferSectionLanding: true,
-      });
     }
     return;
   }
@@ -5000,7 +4894,7 @@ async function syncSelectedAgentState() {
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
     setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
     dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
-    dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
+    dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
     dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
     if (state.activeNavSection === "assistants") {
       setMainView("home");
@@ -5021,7 +4915,7 @@ async function syncSelectedAgentState() {
   setChatStatus("Ready");
   syncSelectedAgentChatActionControls();
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
-  dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting, inspect tasks, or browse bundles.");
+  dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
   if (dom.homeAgentSummary) {
     if (status !== "running") dom.homeAgentSummary.textContent = `${agent.name} is ${status}. Start it to open chat.`;
     else dom.homeAgentSummary.textContent = `${agent.name} is running. Open a session or start a new chat.`;
@@ -7531,79 +7425,60 @@ function restoreAssistantHeaderState() {
   setChatStatus("Ready");
 }
 
-function renderWorkspaceDetailPlaceholder(message = "Select a bundle or task from the left sidebar.", workspaceState = "workspace-placeholder") {
+function renderWorkspaceDetailPlaceholder(message = "Select a task or delegation from the left sidebar.", workspaceState = "workspace-placeholder") {
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = workspaceState;
   dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${safe(message)}</div>`;
 }
 
-function syncDashboardScopeControls() {
-  const scope = state.dashboardScope || "all";
-  if (dom.dashboardScopeFilter && dom.dashboardScopeFilter.value !== scope) {
-    dom.dashboardScopeFilter.value = scope;
-  }
-  if (dom.dashboardFilterSummary) {
-    dom.dashboardFilterSummary.textContent = scope === "mine" ? "Only your owned work" : "All visible work";
-  }
-  const root = document.getElementById("dashboard-panel-root");
-  if (root) {
-    root.querySelectorAll("button[data-dashboard-scope]").forEach((button) => {
-      const buttonScope = button.getAttribute("data-dashboard-scope") || "";
-      button.classList.toggle("is-active", buttonScope === scope);
-    });
-  }
-}
-
-async function loadDashboardPanel({ scope = state.dashboardScope || "all" } = {}) {
+async function loadTaskOverviewPanel({ scope = state.taskFilters?.owner || "all" } = {}) {
   if (!dom.workspaceDetailContent) return;
-  state.dashboardScope = scope === "mine" ? "mine" : "all";
-  syncDashboardScopeControls();
+  const normalizedScope = scope === "mine" ? "mine" : "all";
   setMainView("detail");
-  dom.workspaceDetailContent.dataset.workspaceState = "dashboard-loading";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading dashboard...</div>';
+  dom.workspaceDetailContent.dataset.workspaceState = "tasks-overview-loading";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task overview...</div>';
   try {
-    await htmx.ajax("GET", `/app/dashboard/panel?scope=${encodeURIComponent(state.dashboardScope)}`, {
+    await htmx.ajax("GET", `/app/tasks/panel?scope=${encodeURIComponent(normalizedScope)}`, {
       target: "#workspace-detail-content",
       swap: "innerHTML",
     });
-    dom.workspaceDetailContent.dataset.workspaceState = "dashboard";
-    syncDashboardScopeControls();
+    dom.workspaceDetailContent.dataset.workspaceState = "tasks-overview";
     syncMainHeader();
     renderIcons();
   } catch (error) {
-    dom.workspaceDetailContent.dataset.workspaceState = "dashboard-error";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load dashboard: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.dataset.workspaceState = "tasks-overview-error";
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load task overview: ${safe(error.message)}</div>`;
   }
 }
 
-function scrollDashboardSection(shortcut) {
-  const selectorByShortcut = {
-    attention: '[data-dashboard-section="attention"]',
-    workload: '[data-dashboard-section="workload"]',
-    "delegation-health": '[data-dashboard-section="delegation-health"]',
-  };
-  const selector = selectorByShortcut[shortcut];
-  const target = selector ? dom.workspaceDetailContent?.querySelector(selector) : null;
-  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+async function loadDelegationOverviewPanel({ scope = state.delegationFilters?.owner || "all" } = {}) {
+  if (!dom.workspaceDetailContent) return;
+  const normalizedScope = scope === "mine" ? "mine" : "all";
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "delegations-overview-loading";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading delegation overview...</div>';
+  try {
+    await htmx.ajax("GET", `/app/delegations/panel?scope=${encodeURIComponent(normalizedScope)}`, {
+      target: "#workspace-detail-content",
+      swap: "innerHTML",
+    });
+    dom.workspaceDetailContent.dataset.workspaceState = "delegations-overview";
+    syncMainHeader();
+    renderIcons();
+  } catch (error) {
+    dom.workspaceDetailContent.dataset.workspaceState = "delegations-overview-error";
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load delegation overview: ${safe(error.message)}</div>`;
+  }
 }
 
-async function openDashboardAgent(agentId) {
+async function openOverviewAgent(agentId) {
   if (!agentId) return;
   await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
   await selectAgentById(agentId);
 }
 
-async function openDashboardDelegation(ruleId) {
-  if (!ruleId) return;
-  await setActiveNavSection("delegations", { toggleIfSame: false, updateRoute: false });
-  await loadDelegationRules();
-  await openDelegationRulePanel(ruleId);
-}
-
 function getSecondaryPaneLabel() {
-  if (state.activeNavSection === "dashboard") return "Dashboard";
-  if (state.activeNavSection === "bundles") return "Bundles";
   if (state.activeNavSection === "tasks") return "Tasks";
   if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
   if (state.activeNavSection === "delegations") return "Delegations";
@@ -7642,31 +7517,18 @@ function applySecondaryPaneState() {
 function renderSecondaryPaneHeader() {
   if (!dom.secondaryPaneEyebrow || !dom.secondaryPaneTitle || !dom.secondaryPaneActions) return;
   const addAgentBtn = dom.addAgentBtn;
-  const addBundleBtn = dom.addBundleBtn;
-  const refreshBundlesBtn = dom.refreshBundlesBtn;
   const addTaskBtn = dom.addTaskBtn;
   const addRuntimeProfileBtn = dom.addRuntimeProfileBtn;
   const addDelegationBtn = dom.addDelegationBtn;
   if (addAgentBtn) addAgentBtn.classList.add("hidden");
-  if (addBundleBtn) addBundleBtn.classList.add("hidden");
-  if (refreshBundlesBtn) refreshBundlesBtn.classList.add("hidden");
   if (addTaskBtn) addTaskBtn.classList.add("hidden");
   if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.add("hidden");
   if (addDelegationBtn) addDelegationBtn.classList.add("hidden");
 
-  if (state.activeNavSection === "dashboard") {
-    dom.secondaryPaneEyebrow.textContent = "Portal";
-    dom.secondaryPaneTitle.textContent = "Dashboard";
-    syncDashboardScopeControls();
-  } else if (state.activeNavSection === "assistants") {
+  if (state.activeNavSection === "assistants") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Assistants";
     if (addAgentBtn) addAgentBtn.classList.remove("hidden");
-  } else if (state.activeNavSection === "bundles") {
-    dom.secondaryPaneEyebrow.textContent = "Workspace";
-    dom.secondaryPaneTitle.textContent = "Bundles";
-    if (refreshBundlesBtn) refreshBundlesBtn.classList.remove("hidden");
-    if (addBundleBtn) addBundleBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "tasks") {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Tasks";
@@ -7695,15 +7557,9 @@ function syncMainHeader() {
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
-    if (state.activeNavSection === "dashboard") {
-      dom.embedTitle.textContent = "Dashboard";
-      setChatStatus("Operational overview across assistants, tasks, and delegations");
-    } else if (state.activeNavSection === "bundles") {
-      dom.embedTitle.textContent = "Bundles";
-      setChatStatus("Browse and open bundle detail in the main stage");
-    } else if (state.activeNavSection === "tasks") {
+    if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "Tasks";
-      setChatStatus("Browse tasks and open task detail in the main stage");
+      setChatStatus("Task health, workload, and recent activity");
     } else if (state.activeNavSection === "delegations") {
       dom.embedTitle.textContent = "Delegations";
       setChatStatus("Manage delegations");
@@ -7725,30 +7581,6 @@ function showAssistantDefaultMainView() {
   syncMainHeader();
 }
 
-function showBundlesDefaultMainView() {
-  renderWorkspaceDetailPlaceholder("Select a bundle from the left sidebar.", "bundles-placeholder");
-  syncMainHeader();
-}
-
-function showBundlesEmptyMainView() {
-  renderWorkspaceDetailPlaceholder(
-    "No bundles found. Click refresh to check again or create a bundle.",
-    "bundles-placeholder"
-  );
-  syncMainHeader();
-}
-
-function showTasksDefaultMainView() {
-  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.", "tasks-placeholder");
-  syncMainHeader();
-}
-
-function showBundlesLoadingMainView() {
-  setMainView("detail");
-  renderWorkspaceDetailPlaceholder("Loading bundles…", "bundles-loading");
-  syncMainHeader();
-}
-
 function showTasksLoadingMainView() {
   setMainView("detail");
   renderWorkspaceDetailPlaceholder("Loading tasks…", "tasks-loading");
@@ -7760,12 +7592,8 @@ function syncDefaultMainViewForSection(section) {
     showAssistantDefaultMainView();
     return;
   }
-  if (section === "bundles") {
-    showBundlesDefaultMainView();
-    return;
-  }
   if (section === "tasks") {
-    showTasksDefaultMainView();
+    loadTaskOverviewPanel();
     return;
   }
   if (section === "runtime-profiles") {
@@ -7773,96 +7601,8 @@ function syncDefaultMainViewForSection(section) {
     return;
   }
   if (section === "delegations") {
-    renderWorkspaceDetailPlaceholder("Select a delegation from the left sidebar.", "delegations-placeholder");
+    loadDelegationOverviewPanel();
   }
-}
-
-function bundleKeyFromRef(ref) {
-  if (!ref) return null;
-  return `${ref.repo || ""}|${ref.path || ""}|${ref.branch || ""}`;
-}
-
-function bundleKey(item) {
-  return bundleKeyFromRef(item?.bundle_ref);
-}
-
-function setRequirementBundles(items, { persist = true, hasCache = true } = {}) {
-  state.requirementBundles = Array.isArray(items) ? items : [];
-  state.hasRequirementBundlesCache = Boolean(hasCache);
-  if (state.selectedBundleKey && !state.requirementBundles.some((item) => bundleKey(item) === state.selectedBundleKey)) {
-    state.selectedBundleKey = null;
-  }
-  if (!persist) return;
-  try {
-    localStorage.setItem(
-      REQUIREMENT_BUNDLES_CACHE_KEY,
-      JSON.stringify({
-        savedAt: Date.now(),
-        items: state.requirementBundles,
-      }),
-    );
-  } catch (_error) {}
-}
-
-function loadRequirementBundlesFromCache() {
-  try {
-    const raw = localStorage.getItem(REQUIREMENT_BUNDLES_CACHE_KEY);
-    if (!raw) {
-      setRequirementBundles([], { persist: false, hasCache: false });
-      return { hasCache: false, hasItems: false };
-    }
-    const parsed = JSON.parse(raw);
-    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.items) ? parsed.items : null);
-    if (!Array.isArray(items)) {
-      setRequirementBundles([], { persist: false, hasCache: false });
-      return { hasCache: false, hasItems: false };
-    }
-    setRequirementBundles(items, { persist: false, hasCache: true });
-    return { hasCache: true, hasItems: items.length > 0 };
-  } catch (_error) {
-    setRequirementBundles([], { persist: false, hasCache: false });
-    return { hasCache: false, hasItems: false };
-  }
-}
-
-function bundleListItemFromDetail(detail) {
-  const manifest = detail?.manifest || {};
-  const scope = manifest?.scope || {};
-  return {
-    bundle_id: manifest?.bundle_id || "",
-    title: manifest?.title || "",
-    domain: scope?.domain || "",
-    status: manifest?.status || "",
-    bundle_label: detail?.bundle_label || "Requirement Bundle",
-    artifacts: detail?.artifacts ?? null,
-    bundle_ref: detail?.bundle_ref || null,
-    manifest_ref: detail?.manifest_ref || null,
-    requirements_exists: detail?.requirements_exists ?? null,
-    test_cases_exists: detail?.test_cases_exists ?? null,
-    last_commit_sha: detail?.last_commit_sha || null,
-  };
-}
-
-function upsertRequirementBundleListItem(item, { persist = true } = {}) {
-  const itemKey = bundleKey(item);
-  if (!itemKey) return;
-  const nextItems = [...state.requirementBundles];
-  const existingIndex = nextItems.findIndex((candidate) => bundleKey(candidate) === itemKey);
-  if (existingIndex >= 0) {
-    nextItems[existingIndex] = item;
-  } else {
-    nextItems.push(item);
-  }
-  nextItems.sort((left, right) => {
-    const leftTuple = [left?.domain || "", left?.title || "", left?.bundle_ref?.path || ""];
-    const rightTuple = [right?.domain || "", right?.title || "", right?.bundle_ref?.path || ""];
-    for (let i = 0; i < leftTuple.length; i += 1) {
-      const cmp = String(leftTuple[i]).localeCompare(String(rightTuple[i]));
-      if (cmp !== 0) return cmp;
-    }
-    return 0;
-  });
-  setRequirementBundles(nextItems, { persist });
 }
 
 async function setActiveNavSection(section, {
@@ -7875,7 +7615,7 @@ async function setActiveNavSection(section, {
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = typeof PORTAL_ROUTE_SECTIONS !== "undefined"
     ? PORTAL_ROUTE_SECTIONS
-    : new Set(["dashboard", "assistants", "bundles", "tasks", "runtime-profiles", "delegations"]);
+    : new Set(["assistants", "tasks", "runtime-profiles", "delegations"]);
   if (!validSections.has(section)) return;
 
   if (preferSectionLanding) {
@@ -7891,16 +7631,12 @@ async function setActiveNavSection(section, {
     }
   }
 
-  dom.dashboardMenuBtn?.classList.toggle("is-active", state.activeNavSection === "dashboard");
   dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
-  dom.bundlesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "bundles");
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
 
-  dom.dashboardNavSection?.classList.toggle("hidden", state.activeNavSection !== "dashboard");
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
-  dom.bundlesNavSection?.classList.toggle("hidden", state.activeNavSection !== "bundles");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
   dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
   dom.delegationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "delegations");
@@ -7936,12 +7672,8 @@ async function setActiveNavSection(section, {
   const shouldRefreshVisibleSection = didSwitchSection || didRevealPane || preferSectionLanding;
 
   if (didSwitchSection) {
-    if (section === "dashboard") {
-      renderWorkspaceDetailPlaceholder("Loading dashboard...", "dashboard-loading");
-    } else if (section === "assistants") {
+    if (section === "assistants") {
       showAssistantDefaultMainView();
-    } else if (section === "bundles") {
-      showBundlesLoadingMainView();
     } else if (section === "tasks") {
       showTasksLoadingMainView();
     } else if (section === "runtime-profiles") {
@@ -7949,45 +7681,6 @@ async function setActiveNavSection(section, {
     } else if (section === "delegations") {
       renderWorkspaceDetailPlaceholder("Loading delegations…", "delegations-loading");
     }
-  }
-
-  if (state.activeNavSection === "bundles" && shouldRefreshVisibleSection) {
-    const cacheState = loadRequirementBundlesFromCache();
-    renderRequirementBundleList();
-    if (preferSectionLanding) {
-      if (!cacheState.hasCache) {
-        renderWorkspaceDetailPlaceholder(
-          "No cached bundles yet. Click refresh to load the latest bundles.",
-          "bundles-placeholder"
-        );
-        syncMainHeader();
-      } else if (cacheState.hasItems || state.requirementBundles.length) {
-        showBundlesDefaultMainView();
-      } else {
-        showBundlesEmptyMainView();
-      }
-    } else if (
-      state.activeNavSection === "bundles" &&
-      !state.secondaryPaneCollapsed &&
-      !state.selectedBundleKey &&
-      dom.workspaceDetailContent?.dataset.workspaceState === "bundles-loading"
-    ) {
-      if (!cacheState.hasCache) {
-        renderWorkspaceDetailPlaceholder(
-          "No cached bundles yet. Click refresh to load the latest bundles.",
-          "bundles-placeholder"
-        );
-        syncMainHeader();
-      } else if (cacheState.hasItems) {
-        showBundlesDefaultMainView();
-      } else {
-        showBundlesEmptyMainView();
-      }
-    }
-  }
-
-  if (state.activeNavSection === "dashboard" && shouldRefreshVisibleSection) {
-    await loadDashboardPanel();
   }
 
   if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
@@ -8029,30 +7722,27 @@ async function setActiveNavSection(section, {
     if (preferSectionLanding) {
       state.selectedTaskId = null;
       renderTaskNavList();
-      showTasksDefaultMainView();
+      await loadTaskOverviewPanel();
     } else if (
       state.activeNavSection === "tasks" &&
       !state.secondaryPaneCollapsed &&
       !state.selectedTaskId &&
-      dom.workspaceDetailContent?.dataset.workspaceState === "tasks-loading"
+      ["tasks-loading", "tasks-overview-loading"].includes(dom.workspaceDetailContent?.dataset.workspaceState)
     ) {
-      showTasksDefaultMainView();
+      await loadTaskOverviewPanel();
     }
   }
   if (state.activeNavSection === "delegations" && shouldRefreshVisibleSection) {
     await loadDelegationRules();
-    const first = state.delegations[0];
     if (preferSectionLanding) {
       state.selectedDelegationRuleId = null;
       renderDelegationRuleNavList();
-      if (first) {
-        renderWorkspaceDetailPlaceholder("Select a delegation from the left sidebar.", "delegations-placeholder");
-        syncMainHeader();
-      } else {
-        renderWorkspaceDetailPlaceholder("No delegations found.", "delegations-placeholder");
-      }
-    } else if (!first) {
-      renderWorkspaceDetailPlaceholder("No delegations found.", "delegations-placeholder");
+      await loadDelegationOverviewPanel();
+    } else if (
+      !state.selectedDelegationRuleId &&
+      ["delegations-loading", "delegations-overview-loading"].includes(dom.workspaceDetailContent?.dataset.workspaceState)
+    ) {
+      await loadDelegationOverviewPanel();
     }
   }
 
@@ -8071,98 +7761,6 @@ async function setActiveNavSection(section, {
   }
 
   commitCurrentRoute();
-}
-
-function renderRequirementBundleList(errorMessage = "") {
-  if (!dom.bundleNavList) return;
-  if (errorMessage) {
-    dom.bundleNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
-    return;
-  }
-
-  if (!state.requirementBundles.length) {
-    const emptyMessage = state.hasRequirementBundlesCache ? "No bundles found" : "No cached bundles yet";
-    dom.bundleNavList.innerHTML = `<div class="portal-bundle-list-state">${safe(emptyMessage)}</div>`;
-    return;
-  }
-
-  dom.bundleNavList.innerHTML = "";
-  state.requirementBundles.forEach((item) => {
-    const key = bundleKey(item);
-    const activeClass = state.selectedBundleKey === key ? " is-active" : "";
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = `portal-bundle-row${activeClass}`;
-    row.innerHTML = `
-      <div class="portal-bundle-title">${safe(item.title || item.bundle_id || item.bundle_ref?.path || "Bundle")}</div>
-      <div class="portal-bundle-meta">${safe(item.bundle_label || "Requirement Bundle")} · ${safe(item.domain || "unknown")} · ${safe(item.status || "unknown")}</div>
-    `;
-    row.addEventListener("click", async () => {
-      await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false });
-      await openRequirementBundleInMain(item.bundle_ref);
-    });
-    dom.bundleNavList.append(row);
-  });
-}
-
-async function refreshRequirementBundles({ showLoadingState = true, force = true, notifyOnSuccess = false } = {}) {
-  if (!dom.bundleNavList) return;
-  const hadBundleCache = state.hasRequirementBundlesCache;
-  if (!hadBundleCache && showLoadingState) {
-    dom.bundleNavList.innerHTML = '<div class="portal-bundle-list-state">Loading bundles…</div>';
-  }
-  setButtonDisabled(dom.refreshBundlesBtn, true, "Refreshing bundles...");
-  try {
-    const endpoint = force ? "/api/requirement-bundles?refresh=1" : "/api/requirement-bundles";
-    const bundles = await api(endpoint);
-    setRequirementBundles(Array.isArray(bundles) ? bundles : [], { persist: true, hasCache: true });
-    renderRequirementBundleList();
-    if (
-      state.activeNavSection === "bundles" &&
-      !state.secondaryPaneCollapsed &&
-      !state.selectedBundleKey
-    ) {
-      if (state.requirementBundles.length > 0) {
-        showBundlesDefaultMainView();
-      } else {
-        showBundlesEmptyMainView();
-      }
-    }
-    if (notifyOnSuccess) showToast("Bundles refreshed");
-  } catch (error) {
-    if (!hadBundleCache) {
-      renderRequirementBundleList(`Failed to load bundles: ${error.message}`);
-    } else {
-      showToast(`Failed to refresh bundles: ${error.message}`, { variant: 'error' });
-    }
-  } finally {
-    setButtonDisabled(dom.refreshBundlesBtn, false);
-  }
-}
-
-async function openRequirementBundleInMain(bundleRef = null, { updateRoute = true } = {}) {
-  if (!dom.workspaceDetailContent) return;
-  setMainView("detail");
-  dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading bundles…</div>';
-  try {
-    let path = "/app/requirement-bundles/panel";
-    if (bundleRef) {
-      const params = new URLSearchParams({ repo: bundleRef.repo, path: bundleRef.path, skill_branch: bundleRef.branch });
-      path = `/app/requirement-bundles/open?${params.toString()}`;
-      state.selectedBundleKey = bundleKeyFromRef(bundleRef);
-      renderRequirementBundleList();
-    }
-    await htmx.ajax("GET", path, { target: "#workspace-detail-content", swap: "innerHTML" });
-    dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
-    syncMainHeader();
-    if (updateRoute && bundleRef && !isApplyingPortalRoute) {
-      commitPortalRoute({ section: "bundles", bundleRef });
-    }
-  } catch (error) {
-    dom.workspaceDetailContent.dataset.workspaceState = "bundle-detail";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
-  }
 }
 
 function taskOwnerLabel(task) {
@@ -8241,7 +7839,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
     return;
   }
   if (!state.myTasks.length) {
-    dom.taskNavList.innerHTML = `<div class="portal-bundle-list-state">${hasActiveTaskFilters() ? "No tasks match these filters." : "No visible tasks yet."}</div>`;
+    dom.taskNavList.innerHTML = `<div class="portal-list-state">${hasActiveTaskFilters() ? "No tasks match these filters." : "No visible tasks yet."}</div>`;
     return;
   }
 
@@ -8290,7 +7888,7 @@ function formatTaskNavTime(value) {
 async function refreshMyTasks({ reset = true } = {}) {
   if (!dom.taskNavList || state.taskListLoading) return;
   if (reset) {
-    dom.taskNavList.innerHTML = '<div class="portal-bundle-list-state">Loading tasks...</div>';
+    dom.taskNavList.innerHTML = '<div class="portal-list-state">Loading tasks...</div>';
   }
   state.taskListLoading = true;
   if (reset) {
@@ -8372,8 +7970,7 @@ async function returnFromTaskDetailToSidebar() {
     updateRoute: false,
     preferSectionLanding: true,
   });
-  renderWorkspaceDetailPlaceholder("Select a task from the left sidebar.", "tasks-placeholder");
-  syncMainHeader();
+  await loadTaskOverviewPanel();
   if (!isApplyingPortalRoute) {
     commitPortalRoute({ section: "tasks" });
   }
@@ -10890,17 +10487,17 @@ function renderRuntimeProfileList(errorMessage = "") {
     return;
   }
   if (!state.runtimeProfiles.length) {
-    dom.runtimeProfileNavList.innerHTML = '<div class="portal-bundle-list-state">No runtime profiles found.</div>';
+    dom.runtimeProfileNavList.innerHTML = '<div class="portal-list-state">No runtime profiles found.</div>';
     return;
   }
   dom.runtimeProfileNavList.innerHTML = "";
   state.runtimeProfiles.forEach((profile) => {
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `portal-bundle-row${state.selectedRuntimeProfileId === profile.id ? " is-active" : ""}`;
+    row.className = `portal-list-row${state.selectedRuntimeProfileId === profile.id ? " is-active" : ""}`;
     row.innerHTML = `
-      <div class="portal-bundle-title">${safe(profile.name || 'Runtime Profile')}</div>
-      <div class="portal-bundle-meta">Revision ${safe(String(profile.revision || 1))}${profile.is_default ? ' · Default' : ''}</div>
+      <div class="portal-list-title">${safe(profile.name || 'Runtime Profile')}</div>
+      <div class="portal-list-meta">Revision ${safe(String(profile.revision || 1))}${profile.is_default ? ' · Default' : ''}</div>
     `;
     row.addEventListener("click", async () => {
       state.selectedRuntimeProfileId = profile.id;
@@ -10989,7 +10586,7 @@ function renderDelegationRuleNavList(rules = null) {
   const items = Array.isArray(rules) ? rules : visibleDelegationRules();
   syncDelegationFilterControls(items.length);
   if (!items.length) {
-    dom.delegationRuleNavList.innerHTML = `<div class="portal-bundle-list-state">${hasActiveDelegationFilters() ? "No delegations match these filters." : "No delegations found."}</div>`;
+    dom.delegationRuleNavList.innerHTML = `<div class="portal-list-state">${hasActiveDelegationFilters() ? "No delegations match these filters." : "No delegations found."}</div>`;
     return;
   }
   dom.delegationRuleNavList.innerHTML = "";
@@ -12003,7 +11600,8 @@ async function deleteDelegationRule(ruleId) {
   if (state.delegations.length) {
     await openDelegationRulePanel(state.delegations[0].id);
   } else {
-    renderWorkspaceDetailPlaceholder("No delegations found.", "delegations-placeholder");
+    state.selectedDelegationRuleId = null;
+    await loadDelegationOverviewPanel();
   }
 }
 
@@ -12225,11 +11823,7 @@ function closeWorkspaceWizardModal(modalEl) {
 function closeCreateDelegationRuleModal() {
   state.selectedDelegationRuleId = null;
   renderDelegationRuleNavList();
-  renderWorkspaceDetailPlaceholder(
-    state.delegations.length ? "Select a delegation from the left sidebar." : "No delegations found.",
-    "delegations-placeholder",
-  );
-  syncMainHeader();
+  loadDelegationOverviewPanel().catch(() => {});
   if (!isApplyingPortalRoute) {
     commitPortalRoute({ section: "delegations" });
   }
@@ -13353,41 +12947,28 @@ function bindEvents() {
     chatState.modelOverride = (dom.chatModelSelect?.value || "").trim();
   });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
-  dom.dashboardMenuBtn?.addEventListener("click", () => openPortalSection("dashboard"));
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
   dom.agentSearchInput?.addEventListener("input", () => {
     state.agentFilters.query = String(dom.agentSearchInput.value || "").trim();
     renderAgentList();
   });
-  dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"));
   dom.taskNavList?.addEventListener("scroll", () => {
     if (state.activeNavSection === "tasks") loadMoreTasksIfNeeded();
   });
-  dom.taskOwnerFilter?.addEventListener("change", () => {
+  dom.taskOwnerFilter?.addEventListener("change", async () => {
     state.taskFilters.owner = dom.taskOwnerFilter.value || "all";
-    refreshMyTasks({ reset: true });
+    await refreshMyTasks({ reset: true });
+    if (state.activeNavSection === "tasks" && !state.selectedTaskId) await loadTaskOverviewPanel();
   });
   dom.taskStatusFilter?.addEventListener("change", () => {
     state.taskFilters.status = dom.taskStatusFilter.value || "all";
     refreshMyTasks({ reset: true });
   });
   dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"));
-  dom.dashboardScopeFilter?.addEventListener("change", async () => {
-    state.dashboardScope = dom.dashboardScopeFilter.value === "mine" ? "mine" : "all";
-    await loadDashboardPanel();
-  });
-  dom.dashboardNavSection?.addEventListener("click", async (event) => {
-    const shortcut = event.target.closest("[data-dashboard-shortcut]");
-    if (!shortcut) return;
-    event.preventDefault();
-    if (state.activeNavSection !== "dashboard") {
-      await openPortalSection("dashboard", { toggleIfSame: false });
-    }
-    scrollDashboardSection(shortcut.dataset.dashboardShortcut || "");
-  });
-  dom.delegationOwnerFilter?.addEventListener("change", () => {
+  dom.delegationOwnerFilter?.addEventListener("change", async () => {
     state.delegationFilters.owner = dom.delegationOwnerFilter.value || "all";
     renderDelegationRuleNavList();
+    if (state.activeNavSection === "delegations" && !state.selectedDelegationRuleId) await loadDelegationOverviewPanel();
   });
   dom.delegationSourceFilter?.addEventListener("change", () => {
     state.delegationFilters.source = dom.delegationSourceFilter.value || "all";
@@ -13404,11 +12985,11 @@ function bindEvents() {
     }
   });
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
-  dom.homeOpenBundlesBtn?.addEventListener("click", async () => {
-    await openPortalSection("bundles");
-  });
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
     await openPortalSection("tasks");
+  });
+  dom.homeOpenDelegationsBtn?.addEventListener("click", async () => {
+    await openPortalSection("delegations");
   });
   document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
 
@@ -13553,32 +13134,52 @@ function bindEvents() {
     }
   });
   dom.workspaceDetailContent?.addEventListener("click", async (event) => {
-    const dashboardScopeBtn = event.target.closest("button[data-dashboard-scope]");
-    if (dashboardScopeBtn) {
+    const taskScopeBtn = event.target.closest("button[data-task-overview-scope]");
+    if (taskScopeBtn) {
       event.preventDefault();
-      const nextScope = dashboardScopeBtn.dataset.dashboardScope === "mine" ? "mine" : "all";
-      await loadDashboardPanel({ scope: nextScope });
+      state.taskFilters.owner = taskScopeBtn.dataset.taskOverviewScope === "mine" ? "mine" : "all";
+      await refreshMyTasks({ reset: true });
+      await loadTaskOverviewPanel();
       return;
     }
 
-    const dashboardRefreshBtn = event.target.closest("[data-refresh-dashboard]");
-    if (dashboardRefreshBtn) {
+    const delegationScopeBtn = event.target.closest("button[data-delegation-overview-scope]");
+    if (delegationScopeBtn) {
       event.preventDefault();
-      await loadDashboardPanel();
+      state.delegationFilters.owner = delegationScopeBtn.dataset.delegationOverviewScope === "mine" ? "mine" : "all";
+      renderDelegationRuleNavList();
+      await loadDelegationOverviewPanel();
       return;
     }
 
-    const dashboardAgentBtn = event.target.closest("[data-open-dashboard-agent]");
-    if (dashboardAgentBtn) {
+    const taskOverviewRefreshBtn = event.target.closest("[data-refresh-task-overview]");
+    if (taskOverviewRefreshBtn) {
       event.preventDefault();
-      await openDashboardAgent(dashboardAgentBtn.dataset.openDashboardAgent || "");
+      await refreshMyTasks({ reset: true });
+      await loadTaskOverviewPanel();
       return;
     }
 
-    const dashboardDelegationBtn = event.target.closest("[data-open-dashboard-delegation]");
-    if (dashboardDelegationBtn) {
+    const delegationOverviewRefreshBtn = event.target.closest("[data-refresh-delegation-overview]");
+    if (delegationOverviewRefreshBtn) {
       event.preventDefault();
-      await openDashboardDelegation(dashboardDelegationBtn.dataset.openDashboardDelegation || "");
+      await loadDelegationRules();
+      await loadDelegationOverviewPanel();
+      return;
+    }
+
+    const overviewAgentBtn = event.target.closest("[data-open-overview-agent]");
+    if (overviewAgentBtn) {
+      event.preventDefault();
+      await openOverviewAgent(overviewAgentBtn.dataset.openOverviewAgent || "");
+      return;
+    }
+
+    const createDelegationMainBtn = event.target.closest("[data-open-create-delegation-main]");
+    if (createDelegationMainBtn) {
+      event.preventDefault();
+      if (!state.mineAgents || !state.mineAgents.length) await loadMineAgents();
+      await openCreateDelegationRuleModal();
       return;
     }
 
@@ -13764,19 +13365,6 @@ function bindEvents() {
     applyToolPanelState();
   });
 
-  dom.addBundleBtn?.addEventListener("click", () => {
-    endSingleSubmit(dom.createBundleForm, { closeButton: dom.closeCreateBundleModal });
-    dom.createBundleModal?.classList.remove("hidden");
-    dom.createBundleModal?.setAttribute("aria-hidden", "false");
-    if (dom.createBundleMsg) {
-      dom.createBundleMsg.textContent = "";
-      setModalFeedback(dom.createBundleMsg, "", dom.createBundleMsg.textContent);
-    }
-  });
-  dom.refreshBundlesBtn?.addEventListener("click", async () => {
-    await refreshRequirementBundles({ showLoadingState: true, force: true, notifyOnSuccess: true });
-  });
-
   dom.addRuntimeProfileBtn?.addEventListener("click", () => {
     endSingleSubmit(dom.createRuntimeProfileForm, { closeButton: dom.closeCreateRuntimeProfileModal });
     dom.createRuntimeProfileModal?.classList.remove("hidden");
@@ -13822,11 +13410,6 @@ function bindEvents() {
     }
   });
 
-  dom.closeCreateBundleModal?.addEventListener("click", () => {
-    if (dom.createBundleForm?.dataset.submitting === "true") return;
-    dom.createBundleModal?.classList.add("hidden");
-    dom.createBundleModal?.setAttribute("aria-hidden", "true");
-  });
   dom.addAgentBtn?.addEventListener("click", async () => {
     const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
     const createForm = document.getElementById("create-form");
@@ -13954,56 +13537,6 @@ function bindEvents() {
       msgEl.textContent = err.message;
       setModalFeedback(msgEl, "error", msgEl.textContent);
       endSingleSubmit(form, { closeButton: document.getElementById("close-create-modal") });
-    }
-  });
-
-  dom.createBundleForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: dom.closeCreateBundleModal })) return;
-    const formData = new FormData(form);
-    const payload = {
-      title: String(formData.get("title") || ""),
-      domain: String(formData.get("domain") || ""),
-      slug: String(formData.get("slug") || "").trim() || null,
-      base_branch: String(formData.get("base_branch") || ""),
-    };
-
-    try {
-      if (dom.createBundleMsg) {
-        dom.createBundleMsg.textContent = "Creating...";
-        setModalFeedback(dom.createBundleMsg, "", dom.createBundleMsg.textContent);
-      }
-      const resp = await fetch("/api/requirement-bundles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!resp.ok) {
-        throw new Error(await handleErrorResponse(resp));
-      }
-      const detail = await resp.json();
-      if (dom.createBundleMsg) {
-        dom.createBundleMsg.textContent = "Bundle created!";
-        setModalFeedback(dom.createBundleMsg, "success", dom.createBundleMsg.textContent);
-      }
-
-      form.reset();
-      form.querySelector('[name="base_branch"]').value = payload.base_branch;
-      dom.createBundleModal?.classList.add("hidden");
-      dom.createBundleModal?.setAttribute("aria-hidden", "true");
-      endSingleSubmit(form, { closeButton: dom.closeCreateBundleModal });
-      upsertRequirementBundleListItem(bundleListItemFromDetail(detail));
-      await setActiveNavSection("bundles", { toggleIfSame: false });
-      state.selectedBundleKey = bundleKeyFromRef(detail.bundle_ref);
-      renderRequirementBundleList();
-      await openRequirementBundleInMain(detail.bundle_ref);
-    } catch (err) {
-      if (dom.createBundleMsg) {
-        dom.createBundleMsg.textContent = err.message;
-        setModalFeedback(dom.createBundleMsg, "error", dom.createBundleMsg.textContent);
-      }
-      endSingleSubmit(form, { closeButton: dom.closeCreateBundleModal });
     }
   });
 

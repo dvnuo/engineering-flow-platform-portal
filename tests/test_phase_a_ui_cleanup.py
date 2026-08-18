@@ -21,9 +21,9 @@ def test_app_template_contains_new_portal_shell():
     assert "portal-secondary-pane" in html
     assert "btn-sessions" in html
     assert "header-new-chat-btn" in html
-    assert "bundles-menu-btn" in html
-    assert "refresh-bundles-btn" in html
-    assert "home-open-bundles-btn" in html
+    assert "bundles-menu-btn" not in html
+    assert "dashboard-menu-btn" not in html
+    assert "home-open-delegations-btn" in html
     assert "runtime-profiles-menu-btn" in html
     assert 'id="top-settings"' not in html
     assert "runtime-profiles-nav-section" in html
@@ -154,7 +154,7 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "modal._keyHandler = null" not in js_source
     assert "button.dataset.defaultTitle" in js_source
     assert "portal-inline-state" in js_source
-    assert "portal-bundle-row" in js_source
+    assert "portal-list-row" in js_source
     assert "portal-file-browser" in js_source
     assert "portal-file-row" in js_source
     assert "portal-file-preview-header" in js_source
@@ -222,7 +222,7 @@ def test_frontend_assets_include_phase_b_fixups():
     assert ".portal-btn" in css_source
     assert ".portal-modal-titlebar" in css_source
     assert ".portal-editor-modal-card" in css_source
-    assert ".portal-bundle-row" in css_source
+    assert ".portal-list-row" in css_source
     assert ".portal-inline-state.is-success" in css_source
     assert ".portal-modal-copy" in css_source
     assert ".portal-modal-feedback" in css_source
@@ -304,10 +304,9 @@ def test_templates_portalized_for_panel_visual_consistency():
     task_detail_html = Path("app/templates/partials/task_detail_panel.html").read_text(encoding="utf-8")
     users_html = Path("app/templates/partials/users_panel.html").read_text(encoding="utf-8")
     skills_html = Path("app/templates/partials/skills_panel.html").read_text(encoding="utf-8")
-    bundles_html = Path("app/templates/partials/requirement_bundles_panel.html").read_text(encoding="utf-8")
+    delegations_html = Path("app/templates/partials/delegations_panel.html").read_text(encoding="utf-8")
     settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
-    bundles_page_html = Path("app/templates/requirement_bundles.html").read_text(encoding="utf-8")
     login_html = Path("app/templates/login.html").read_text(encoding="utf-8")
     register_html = Path("app/templates/register.html").read_text(encoding="utf-8")
 
@@ -323,7 +322,7 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in task_detail_html
     assert "portal-panel-stack" in users_html
     assert "portal-panel-stack" in skills_html
-    assert "portal-panel-stack" in bundles_html
+    assert "portal-panel-stack" in delegations_html
     assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)
     assert "portal-settings-section-head" in settings_html
     assert "portal-settings-instance-card" in settings_html
@@ -393,11 +392,8 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert '.portal-breadcrumb-link' in Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert '.portal-breadcrumb-sep' in Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert '.portal-auth-error' in Path("app/static/css/app.css").read_text(encoding="utf-8")
-    assert 'portal-standalone-page' in bundles_page_html
-    assert 'portal-standalone-page-back' in bundles_page_html
-    assert 'bg-slate-100' not in bundles_page_html
-    assert 'dark:bg-slate-950' not in bundles_page_html
-    assert 'border-slate-200' not in bundles_page_html
+    assert "portal-overview-health-card" in tasks_html
+    assert "portal-overview-health-card" in delegations_html
 
 
 def test_chat_ui_js_parses_when_node_available():

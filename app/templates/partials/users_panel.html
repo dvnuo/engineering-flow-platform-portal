@@ -10,7 +10,7 @@
         <div class="portal-panel-section">
           <div class="portal-panel-header">
             <div>
-              <div class="portal-bundle-title">{{ u.username }}</div>
+              <div class="portal-list-title">{{ u.username }}</div>
               <div class="portal-panel-note">{{ u.role }} · {% if u.is_active %}Active{% else %}Inactive{% endif %}</div>
             </div>
             <div class="portal-panel-subtitle">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '-' }}</div>

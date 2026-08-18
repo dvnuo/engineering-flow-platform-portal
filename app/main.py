@@ -11,12 +11,10 @@ from app.api.agent_tasks import router as agent_tasks_router
 from app.api.internal_session_metadata import router as internal_session_metadata_router
 from app.api.delegation_rules import router as delegation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
-from app.api.dashboard import router as dashboard_router
 from app.api.agents import router as agents_router
 from app.api.git_repos import router as git_repos_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
-from app.api.requirement_bundles import router as requirement_bundles_router
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, reset_log_context
@@ -137,9 +135,7 @@ app.include_router(runtime_profiles_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
 app.include_router(copilot_router)
-app.include_router(requirement_bundles_router)
 app.include_router(agent_tasks_router)
 app.include_router(delegation_rules_router)
-app.include_router(dashboard_router)
 app.include_router(runtime_capability_catalog_router)
 app.include_router(internal_session_metadata_router)
