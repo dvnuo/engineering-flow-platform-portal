@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.contracts.llm_catalog import coerce_to_provider_model, normalize_provider
+from app.services.ai_platform_config import profile_ai_platform_config
 
 HIDDEN_PORTAL_LLM_FIELDS: tuple[str, ...] = (
     "temperature",
@@ -36,11 +37,19 @@ def canonicalize_portal_runtime_profile_config(config: dict[str, Any] | None) ->
     # for that provider. Keeps the persisted canonical config — and everything
     # projected from it into the runtime Secret — on a supported provider/model
     # pair. Runs on every save and via sanitize_all_persisted_runtime_profiles.
-    if llm.get("provider") or llm.get("model"):
+    if llm.get("provider") or llm.get("model") or llm.get("ai_platform"):
         provider = normalize_provider(llm.get("provider"))
         llm["provider"] = provider
         if llm.get("model") is not None:
             llm["model"] = coerce_to_provider_model(provider, llm.get("model"))
+        if provider == "ai_platform":
+            profile_config = profile_ai_platform_config(llm.get("ai_platform"))
+            if profile_config:
+                llm["ai_platform"] = profile_config
+            else:
+                llm.pop("ai_platform", None)
+        else:
+            llm.pop("ai_platform", None)
 
     if llm:
         canonical["llm"] = llm

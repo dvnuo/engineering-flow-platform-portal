@@ -69,22 +69,14 @@
       </div>
       </div>
       {% set ap = raw_llm.get('ai_platform', {}) %}
-      {% set ap_chat = ap.get('chat', {}) %}
-      {% set ap_ib2b = ap.get('ib2b', {}) %}
       {% set ap_auth = ap.get('auth', {}) %}
       <div class="space-y-2 hidden" data-provider-fields="ai_platform">
-        <div class="grid grid-cols-2 gap-3">
-          <label class="portal-form-label"><span class="portal-form-label">Chat Host</span><input type="text" name="llm_ai_platform_chat_host" value="{{ ap_chat.get('host', '') }}" placeholder="https://chat.internal" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Chat URI</span><input type="text" name="llm_ai_platform_chat_uri" value="{{ ap_chat.get('uri', '') }}" placeholder="/v1/api/v1/chat/completions" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">iB2B Host</span><input type="text" name="llm_ai_platform_ib2b_host" value="{{ ap_ib2b.get('host', '') }}" placeholder="https://ib2b.internal" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">iB2B URI</span><input type="text" name="llm_ai_platform_ib2b_uri" value="{{ ap_ib2b.get('uri', '') }}" placeholder="/dsp/rest-sts/..." class="portal-form-input" /></label>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="llm_ai_platform_username" value="{{ ap_auth.get('username', '') }}" class="portal-form-input" /></label>
           <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="llm_ai_platform_password" value="{{ ap_auth.get('password', '') }}" placeholder="Password" class="portal-form-input" /></label>
           <label class="portal-form-label"><span class="portal-form-label">Usercase</span><input type="text" name="llm_ai_platform_usercase" value="{{ ap_auth.get('usercase', '') }}" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Trust Token Header</span><input type="text" name="llm_ai_platform_trust_token_header" value="{{ ap_auth.get('trust_token_header', '') }}" placeholder="X-...-E2E-Trust-Token" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Tracking Prefix</span><input type="text" name="llm_ai_platform_tracking_prefix" value="{{ ap_auth.get('tracking_prefix', '') }}" placeholder="EFP" class="portal-form-input" /></label>
         </div>
-        <div class="portal-inline-note">AI Platform exchanges username/password for a short-lived token via iB2B, then calls the chat endpoint. The password is stored encrypted.</div>
+        <div class="portal-inline-note">Connection endpoints and transport headers are managed centrally by the Portal configuration.</div>
       </div>
     </section>
 

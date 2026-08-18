@@ -1,9 +1,6 @@
-"""AI Platform as a second LLM provider (on top of the Copilot-only base).
+"""AI Platform provider credentials plus centrally managed connection config."""
+from types import SimpleNamespace
 
-Covers the provider whitelist, per-provider model coercion, and that the rich
-ai_platform block (endpoints + credentials) survives sanitize/canonicalize and
-projects to both runtimes.
-"""
 from app.contracts.llm_catalog import (
     coerce_to_provider_model,
     normalize_provider,
@@ -25,18 +22,25 @@ def _ai_profile(model="gpt-5.4"):
             "provider": "ai-platform",
             "model": model,
             "ai_platform": {
-                "chat": {"host": "https://chat.int", "uri": "/v1/api/v1/chat/completions"},
-                "ib2b": {"host": "https://ib2b.int", "uri": "/dsp/token"},
                 "auth": {
                     "username": "u",
                     "password": "pw",
                     "usercase": "uc",
-                    "trust_token_header": "X-Trust",
-                    "tracking_prefix": "EFP",
                 },
             },
         }
     }
+
+
+def _ai_settings():
+    return SimpleNamespace(
+        ai_platform_chat_host="https://chat.int",
+        ai_platform_chat_uri="/v1/api/v1/chat/completions",
+        ai_platform_ib2b_host="https://ib2b.int",
+        ai_platform_ib2b_uri="/dsp/token",
+        ai_platform_trust_token_header="X-Trust",
+        ai_platform_tracking_prefix="EFP",
+    )
 
 
 def test_normalize_provider_whitelist():
@@ -61,18 +65,30 @@ def test_managed_models_per_provider():
     assert RuntimeProfileService.normalize_managed_llm_provider("") == ""
 
 
-def test_canonicalize_keeps_ai_platform_and_coerces_model():
+def test_canonicalize_keeps_only_ai_platform_profile_credentials_and_coerces_model():
     c = canon(_ai_profile(model="gpt-9-bogus"))["llm"]
     assert c["provider"] == "ai_platform"
     assert c["model"] == "gpt-5.4"
-    assert c["ai_platform"]["chat"]["host"] == "https://chat.int"
-    assert c["ai_platform"]["auth"]["password"] == "pw"
+    assert c["ai_platform"] == {"auth": {"username": "u", "password": "pw", "usercase": "uc"}}
 
 
-def test_sanitize_keeps_ai_platform_block():
-    s = sanitize(_ai_profile())["llm"]
-    assert s["ai_platform"]["ib2b"]["uri"] == "/dsp/token"
+def test_sanitize_keeps_credentials_and_drops_profile_managed_connection_fields():
+    profile = _ai_profile()
+    profile["llm"]["ai_platform"].update(
+        {
+            "chat": {"host": "https://profile-chat.invalid"},
+            "ib2b": {"host": "https://profile-ib2b.invalid"},
+        }
+    )
+    profile["llm"]["ai_platform"]["auth"].update(
+        {"trust_token_header": "X-Profile-Trust", "tracking_prefix": "PROFILE"}
+    )
+    s = sanitize(profile)["llm"]
     assert s["ai_platform"]["auth"]["username"] == "u"
+    assert "chat" not in s["ai_platform"]
+    assert "ib2b" not in s["ai_platform"]
+    assert "trust_token_header" not in s["ai_platform"]["auth"]
+    assert "tracking_prefix" not in s["ai_platform"]["auth"]
     # a junk nested key is filtered out by the field tree
     junk = _ai_profile()
     junk["llm"]["ai_platform"]["auth"]["evil"] = "x"
@@ -80,11 +96,14 @@ def test_sanitize_keeps_ai_platform_block():
 
 
 def test_projection_maps_ai_platform_and_preserves_block():
-    canonical = build_canonical_profile_config(_ai_profile())
+    canonical = build_canonical_profile_config(_ai_profile(), settings=_ai_settings())
     nat = project_canonical_for_runtime(canonical, "native")["llm"]
     oc = project_canonical_for_runtime(canonical, "opencode")["llm"]
     assert nat["provider"] == "ai_platform" and nat["model"] == "gpt-5.4"
     assert oc["provider"] == "ai-platform" and oc["model"] == "ai-platform/gpt-5.4"
+    assert nat["ai_platform"]["chat"]["host"] == "https://chat.int"
+    assert nat["ai_platform"]["ib2b"]["uri"] == "/dsp/token"
+    assert nat["ai_platform"]["auth"]["trust_token_header"] == "X-Trust"
     assert nat["ai_platform"]["auth"]["password"] == "pw"
     assert oc["ai_platform"]["auth"]["password"] == "pw"
 

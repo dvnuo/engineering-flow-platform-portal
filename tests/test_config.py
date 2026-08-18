@@ -12,7 +12,7 @@ def clean_env(monkeypatch):
         'SECRET_', 'DATABASE_', 'DEBUG', 'AGENTS_', 'K8S_', 
         'GITHUB_', 'JIRA_', 'CONFLUENCE_', 'BOOTSTRAP_',
         'DEFAULT_', 'PORTAL_', 'RUNTIME_', 'ALLOW_INSECURE_', 'DELEGATION_', 'ASSETS_', 'GIT_',
-        'AGENT_TASK_', 'OPENCODE_'
+        'AGENT_TASK_', 'OPENCODE_', 'AI_PLATFORM_'
     )
     for key in list(os.environ.keys()):
         if any(key.startswith(p) for p in env_prefixes):
@@ -45,6 +45,34 @@ def test_settings_k8s_defaults():
     assert settings.k8s_pvc_access_modes == ["ReadWriteOnce"]
     assert settings.k8s_incluster is True
     assert settings.k8s_agent_service_type == "ClusterIP"
+
+
+def test_settings_ai_platform_defaults():
+    settings = Settings()
+    assert settings.ai_platform_chat_host == ""
+    assert settings.ai_platform_chat_uri == "/v1/api/v1/chat/completions"
+    assert settings.ai_platform_ib2b_host == ""
+    assert settings.ai_platform_ib2b_uri == ""
+    assert settings.ai_platform_trust_token_header == "X-XXXX-E2E-Trust-Token"
+    assert settings.ai_platform_tracking_prefix == "EFP"
+
+
+def test_settings_ai_platform_env_overrides(monkeypatch):
+    monkeypatch.setenv("AI_PLATFORM_CHAT_HOST", "https://chat.example")
+    monkeypatch.setenv("AI_PLATFORM_CHAT_URI", "/chat")
+    monkeypatch.setenv("AI_PLATFORM_IB2B_HOST", "https://ib2b.example")
+    monkeypatch.setenv("AI_PLATFORM_IB2B_URI", "/token")
+    monkeypatch.setenv("AI_PLATFORM_TRUST_TOKEN_HEADER", "X-Trust")
+    monkeypatch.setenv("AI_PLATFORM_TRACKING_PREFIX", "PORTAL")
+
+    settings = Settings()
+
+    assert settings.ai_platform_chat_host == "https://chat.example"
+    assert settings.ai_platform_chat_uri == "/chat"
+    assert settings.ai_platform_ib2b_host == "https://ib2b.example"
+    assert settings.ai_platform_ib2b_uri == "/token"
+    assert settings.ai_platform_trust_token_header == "X-Trust"
+    assert settings.ai_platform_tracking_prefix == "PORTAL"
 
 
 def test_settings_git_repo_auth_defaults():

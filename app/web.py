@@ -1124,8 +1124,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 except ValueError:
                     return config_payload, "Max tokens must be an integer."
 
-        # AI Platform rich config: persist the nested ai_platform block only when
-        # the selected provider is ai_platform; drop it otherwise.
+        # AI Platform profiles persist only user-specific credentials. Fixed
+        # endpoints and transport headers are injected from app/config.py when
+        # Portal tests, syncs, or otherwise materializes the runtime config.
         from app.contracts.llm_catalog import normalize_provider
 
         if normalize_provider(llm.get("provider")) == "ai_platform":
@@ -1138,22 +1139,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             def _apv(name):
                 return (form.get(name) or "").strip()
 
-            chat = {}
-            if _apv("llm_ai_platform_chat_host"):
-                chat["host"] = _apv("llm_ai_platform_chat_host")
-            if _apv("llm_ai_platform_chat_uri"):
-                chat["uri"] = _apv("llm_ai_platform_chat_uri")
-            ib2b = {}
-            if _apv("llm_ai_platform_ib2b_host"):
-                ib2b["host"] = _apv("llm_ai_platform_ib2b_host")
-            if _apv("llm_ai_platform_ib2b_uri"):
-                ib2b["uri"] = _apv("llm_ai_platform_ib2b_uri")
             auth = {}
             for field, key in (
                 ("llm_ai_platform_username", "username"),
                 ("llm_ai_platform_usercase", "usercase"),
-                ("llm_ai_platform_trust_token_header", "trust_token_header"),
-                ("llm_ai_platform_tracking_prefix", "tracking_prefix"),
             ):
                 if _apv(field):
                     auth[key] = _apv(field)
@@ -1167,15 +1156,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             elif str(existing_auth.get("password") or "").strip():
                 auth["password"] = existing_auth.get("password")
 
-            ai_platform: dict = {}
-            if chat:
-                ai_platform["chat"] = chat
-            if ib2b:
-                ai_platform["ib2b"] = ib2b
+            if not all(str(auth.get(key) or "").strip() for key in ("username", "password", "usercase")):
+                return config_payload, "AI Platform username, password, and usercase are required."
+
             if auth:
-                ai_platform["auth"] = auth
-            if ai_platform:
-                llm["ai_platform"] = ai_platform
+                llm["ai_platform"] = {"auth": auth}
             else:
                 llm.pop("ai_platform", None)
         else:

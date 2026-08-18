@@ -4,9 +4,13 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.ai_platform_config import materialize_ai_platform_llm_config
 
 
 class RuntimeProfileTestService:
+    def __init__(self, settings=None) -> None:
+        self.settings = settings
+
     @staticmethod
     def _llm_base_url(llm_cfg: dict, default: str) -> str:
         for key in ("base_url", "api_base", "baseURL", "endpoint"):
@@ -126,6 +130,7 @@ class RuntimeProfileTestService:
         from app.contracts.llm_catalog import normalize_provider
 
         llm_cfg = config.get("llm") if isinstance(config.get("llm"), dict) else {}
+        llm_cfg = materialize_ai_platform_llm_config(llm_cfg, settings=self.settings)
         provider = normalize_provider(llm_cfg.get("provider"))
         model = str(llm_cfg.get("model") or "").strip()
         _ = runtime_type
@@ -183,13 +188,15 @@ class RuntimeProfileTestService:
         token = str(auth.get("token") or "").strip()
 
         if not chat_host:
-            return False, "AI Platform chat host is required."
+            return False, "AI Platform chat host is not configured in Portal."
 
         # Exchange username/password for a short-lived JWT via iB2B unless a token
         # was supplied directly.
         if not token:
-            if not (username and password and ib2b_host and ib2b_uri):
-                return False, "AI Platform requires a token, or username/password plus iB2B host/uri."
+            if not (username and password and usercase):
+                return False, "AI Platform username, password, and usercase are required."
+            if not (ib2b_host and ib2b_uri):
+                return False, "AI Platform iB2B host/URI are not configured in Portal."
             ok, message, data = await self._http_json_request(
                 method="POST",
                 url=self._join_url(ib2b_host, ib2b_uri),

@@ -36,18 +36,14 @@ PROVIDER_DEFAULT_MODEL: dict[str, str] = {
     AI_PLATFORM_PROVIDER: DEFAULT_AI_PLATFORM_MODEL,
 }
 
-# The nested rich-config keys that AI Platform profiles persist under llm.ai_platform
-# (mirrors the tools inspect-image ai_platform config shape). Copilot needs none
-# of these — only provider/model (+ optional api_key/base_url).
+# Runtime Profiles persist only the user-specific AI Platform credentials.
+# Endpoints and transport headers are deployment-managed in app/config.py and
+# are injected only when Portal builds the effective runtime config.
 AI_PLATFORM_LLM_SUBTREE = {
-    "chat": {"host": True, "uri": True},
-    "ib2b": {"host": True, "uri": True},
     "auth": {
         "username": True,
         "password": True,
         "usercase": True,
-        "trust_token_header": True,
-        "tracking_prefix": True,
     },
 }
 

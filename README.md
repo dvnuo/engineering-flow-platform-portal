@@ -59,6 +59,12 @@ Access `http://localhost:8000/login`
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
+| `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |
+| `AI_PLATFORM_CHAT_URI` | Centrally managed AI Platform chat-completions path | `/v1/api/v1/chat/completions` |
+| `AI_PLATFORM_IB2B_HOST` | Centrally managed iB2B token service host | (empty) |
+| `AI_PLATFORM_IB2B_URI` | Centrally managed iB2B token exchange path | (empty) |
+| `AI_PLATFORM_TRUST_TOKEN_HEADER` | Header used to send the exchanged trust token | `X-XXXX-E2E-Trust-Token` |
+| `AI_PLATFORM_TRACKING_PREFIX` | Prefix for AI Platform correlation/session IDs | `EFP` |
 | `K8S_ENABLED` | Enable Kubernetes integration | `false` |
 | `K8S_INCLUSTER` | Use in-cluster config | `true` |
 | `K8S_KUBECONFIG` | Path to kubeconfig | `/etc/rancher/k3s/k3s.yaml` |

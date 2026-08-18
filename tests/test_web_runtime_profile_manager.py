@@ -84,6 +84,12 @@ def test_runtime_profile_panel_owner_only(monkeypatch):
         assert f'data-test-base=\"/app/runtime-profiles/{rp.id}/test\"' in ok.text
         assert "data-current-value=" in ok.text
         assert 'name="llm_temperature"' not in ok.text
+        assert 'name="llm_ai_platform_username"' in ok.text
+        assert 'name="llm_ai_platform_password"' in ok.text
+        assert 'name="llm_ai_platform_usercase"' in ok.text
+        assert 'name="llm_ai_platform_chat_host"' not in ok.text
+        assert 'name="llm_ai_platform_ib2b_host"' not in ok.text
+        assert 'name="llm_ai_platform_trust_token_header"' not in ok.text
 
         set_user(other)
         deny = client.get(f"/app/runtime-profiles/{rp.id}/panel")
