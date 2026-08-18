@@ -17,6 +17,7 @@ from app.schemas.agent_task import (
     CreateAgentTaskFollowupRequest,
 )
 from app.services.task_dispatcher import TaskDispatcherService
+from app.services.inference_settings_service import normalize_agent_inference_overrides
 from app.services.agent_execution_registry import (
     mark_task_execution_status_best_effort,
     upsert_task_execution_queued_best_effort,
@@ -145,6 +146,7 @@ def _agent_async_payload(
     previous_task_id: str | None = None,
     original_task: str | None = None,
     is_followup: bool = False,
+    inference: dict | None = None,
 ) -> dict:
     payload = {
         "schema": "agent_async_task.v1",
@@ -163,7 +165,24 @@ def _agent_async_payload(
             payload["original_task"] = original_task.strip()
     else:
         payload["user_task"] = task_content
+    if inference:
+        payload["inference"] = dict(inference)
     return payload
+
+
+def _request_inference_values(payload) -> dict:
+    return {
+        "model_override": getattr(payload, "model_override", None),
+        "reasoning_effort": getattr(payload, "reasoning_effort", None),
+        "max_context_tokens": getattr(payload, "max_context_tokens", None),
+    }
+
+
+def _normalize_task_inference_or_400(db: Session, agent, payload) -> dict:
+    try:
+        return normalize_agent_inference_overrides(db, agent, _request_inference_values(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def _root_id_for_task(task) -> str:
@@ -220,6 +239,7 @@ def create_agent_async_task(payload: CreateAgentAsyncTaskRequest, user=Depends(g
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_content is required")
 
     assignee_agent = _require_writable_assignee(db, payload.assignee_agent_id, user)
+    inference = _normalize_task_inference_or_400(db, assignee_agent, payload)
     task_id = str(uuid4())
     task_session_id = f"agent-task:{task_id}"
     task_input = _agent_async_payload(
@@ -228,6 +248,7 @@ def create_agent_async_task(payload: CreateAgentAsyncTaskRequest, user=Depends(g
         task_session_id=task_session_id,
         root_task_id=task_id,
         parent_task_id=None,
+        inference=inference,
     )
     task = AgentTaskRepository(db).create(
         id=task_id,
@@ -279,6 +300,9 @@ def create_agent_task_followup(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing a selected skill")
 
     existing_input = _input_payload_for_task(target_task)
+    assignee_agent = AgentRepository(db).get_by_id(target_task.assignee_agent_id)
+    requested_inference = _normalize_task_inference_or_400(db, assignee_agent, payload)
+    inference = requested_inference or (existing_input.get("inference") if isinstance(existing_input.get("inference"), dict) else {})
     original_task = str(existing_input.get("original_task") or existing_input.get("user_task") or "").strip()
     task_session_id = (target_task.task_session_id or f"agent-task:{root_task_id}").strip()
     task_input = _agent_async_payload(
@@ -289,12 +313,12 @@ def create_agent_task_followup(
         parent_task_id=target_task.parent_task_id,
         original_task=original_task,
         is_followup=True,
+        inference=inference,
     )
     target_task = _reset_task_for_dispatch(target_task, input_payload=task_input, task_session_id=task_session_id)
     target_task.skill_name = skill_name
     target_task.root_task_id = root_task_id
     target_task = AgentTaskRepository(db).save(target_task)
-    assignee_agent = AgentRepository(db).get_by_id(target_task.assignee_agent_id)
     upsert_task_execution_queued_best_effort(db, task=target_task, agent=assignee_agent, user=user)
     task_dispatcher_service.dispatch_task_in_background(target_task.id)
     return _task_response(db, target_task, user)
@@ -318,6 +342,7 @@ def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session =
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing a selected skill")
 
     existing_input = _input_payload_for_task(target_task)
+    inference = existing_input.get("inference") if isinstance(existing_input.get("inference"), dict) else {}
     followup_task = str(existing_input.get("followup_task") or "").strip()
     original_task = str(existing_input.get("original_task") or existing_input.get("user_task") or "").strip()
     task_content = followup_task or str(existing_input.get("user_task") or existing_input.get("original_task") or "").strip()
@@ -333,6 +358,7 @@ def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session =
         parent_task_id=target_task.parent_task_id,
         original_task=original_task,
         is_followup=bool(followup_task),
+        inference=inference,
     )
     target_task = _reset_task_for_dispatch(
         target_task,

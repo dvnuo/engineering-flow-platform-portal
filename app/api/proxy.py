@@ -22,8 +22,8 @@ from app.db import SessionLocal
 from app.deps import get_current_user
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, get_log_context, reset_log_context
 from app.repositories.agent_repo import AgentRepository
-from app.services.agent_activity import touch_agent_activity
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
+from app.services.agent_activity import touch_agent_activity
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import parse_session_token
 from app.services.proxy_service import (
@@ -39,9 +39,13 @@ from app.services.agent_execution_registry import (
     record_chat_started_best_effort,
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
-from app.services.runtime_profile_service import RuntimeProfileService
-from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.inference_settings_service import (
+    apply_inference_overrides_to_runtime_metadata,
+    normalize_agent_inference_overrides,
+)
 from app.redaction import sanitize_exception_message
+from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.runtime_profile_service import RuntimeProfileService
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
@@ -214,20 +218,44 @@ def _websocket_connect_header_kwargs(headers: dict[str, str]) -> dict[str, dict[
     return {"additional_headers": headers}
 
 
-def _enrich_chat_payload_with_runtime_metadata(payload: dict, runtime_metadata: dict, user, runtime_type: str = "") -> dict:
+def _enrich_chat_payload_with_runtime_metadata(
+    payload: dict,
+    runtime_metadata: dict,
+    user,
+    runtime_type: str = "",
+    inference_overrides: dict | None = None,
+) -> dict:
     enriched = dict(payload)
     _ = user
     enriched.pop("metadata", None)
     enriched.pop("portal_user_id", None)
     enriched.pop("portal_user_name", None)
 
-    enriched["metadata"] = runtime_metadata
-    model_override = enriched.get("model_override")
     provider = runtime_metadata.get("provider") if isinstance(runtime_metadata, dict) else None
+    if inference_overrides is None:
+        enriched["metadata"] = runtime_metadata
+        model_override = enriched.get("model_override")
+        if isinstance(model_override, str) and model_override.strip():
+            full_model = normalize_model_for_runtime(runtime_type, provider, model_override.strip())
+            if full_model:
+                enriched["metadata"]["model"] = full_model
+        return enriched
+    inferred = dict(inference_overrides or {})
+    model_override = enriched.get("model_override")
     if isinstance(model_override, str) and model_override.strip():
-        full_model = normalize_model_for_runtime(runtime_type, provider, model_override.strip())
-        if full_model:
-            enriched["metadata"]["model"] = full_model
+        inferred.setdefault("model", model_override.strip())
+    reasoning_effort = enriched.get("reasoning_effort")
+    if isinstance(reasoning_effort, str) and reasoning_effort.strip():
+        inferred.setdefault("reasoning_effort", reasoning_effort.strip().lower())
+    max_context_tokens = enriched.get("max_context_tokens")
+    if isinstance(max_context_tokens, int) and not isinstance(max_context_tokens, bool):
+        inferred.setdefault("max_context_tokens", max_context_tokens)
+    enriched["metadata"] = apply_inference_overrides_to_runtime_metadata(
+        runtime_metadata,
+        inferred,
+        runtime_type=runtime_type,
+        provider=provider,
+    )
     return enriched
 
 
@@ -240,19 +268,16 @@ def _normalize_and_validate_model_override_for_agent(
     normalized = dict(payload)
     if "model_override" not in normalized:
         return normalized
-
     override = normalized.get("model_override")
     if override is None:
         normalized.pop("model_override", None)
         return normalized
     if not isinstance(override, str):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="model_override must be a string")
-
     trimmed = override.strip()
     if not trimmed:
         normalized.pop("model_override", None)
         return normalized
-
     runtime_profile_id = str(getattr(agent, "runtime_profile_id", "") or "").strip()
     allowed = False
     if runtime_profile_id:
@@ -264,15 +289,45 @@ def _normalize_and_validate_model_override_for_agent(
                 llm = {}
             provider = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))
             allowed = RuntimeProfileService.is_managed_model_allowed(provider, trimmed)
-
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="model_override is not allowed for the agent's current runtime profile provider",
         )
-
     normalized["model_override"] = trimmed
     return normalized
+
+
+def _normalize_and_validate_inference_overrides_for_agent(
+    payload: dict,
+    *,
+    agent,
+    db: Session,
+) -> tuple[dict, dict]:
+    normalized = dict(payload)
+    raw_overrides = {
+        "model_override": normalized.get("model_override") if "model_override" in normalized else normalized.get("model"),
+        "reasoning_effort": normalized.get("reasoning_effort"),
+        "max_context_tokens": normalized.get("max_context_tokens"),
+    }
+    try:
+        overrides = normalize_agent_inference_overrides(db, agent, raw_overrides)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    if "model" in overrides:
+        normalized["model_override"] = overrides["model"]
+    else:
+        normalized.pop("model_override", None)
+    if "reasoning_effort" in overrides:
+        normalized["reasoning_effort"] = overrides["reasoning_effort"]
+    else:
+        normalized.pop("reasoning_effort", None)
+    if "max_context_tokens" in overrides:
+        normalized["max_context_tokens"] = overrides["max_context_tokens"]
+    else:
+        normalized.pop("max_context_tokens", None)
+    return normalized, overrides
 
 
 @router.api_route("/a/{agent_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -340,14 +395,18 @@ async def proxy_agent(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
             chat_session_id = _loggable_id(parsed_payload.get("session_id"), fallback=chat_session_id)
             chat_request_id = _loggable_id(parsed_payload.get("request_id"), fallback=chat_request_id)
-            parsed_payload = _normalize_and_validate_model_override_for_agent(
+            parsed_payload, inference_overrides = _normalize_and_validate_inference_overrides_for_agent(
                 parsed_payload,
                 agent=agent,
                 db=db,
             )
             runtime_metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
             parsed_payload = _enrich_chat_payload_with_runtime_metadata(
-                parsed_payload, runtime_metadata, user, runtime_type=getattr(agent, "runtime_type", None)
+                parsed_payload,
+                runtime_metadata,
+                user,
+                runtime_type=getattr(agent, "runtime_type", None),
+                inference_overrides=inference_overrides,
             )
             chat_execution = record_chat_started_best_effort(
                 db,

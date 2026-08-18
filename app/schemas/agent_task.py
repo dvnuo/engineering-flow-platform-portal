@@ -28,10 +28,16 @@ class CreateAgentAsyncTaskRequest(BaseModel):
     assignee_agent_id: str
     skill_name: str
     task_content: str
+    model_override: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    max_context_tokens: Optional[int] = None
 
 
 class CreateAgentTaskFollowupRequest(BaseModel):
     task_content: str
+    model_override: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    max_context_tokens: Optional[int] = None
 
 
 class AgentTaskResponse(BaseModel):

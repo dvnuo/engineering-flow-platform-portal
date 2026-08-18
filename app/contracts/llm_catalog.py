@@ -36,6 +36,26 @@ PROVIDER_DEFAULT_MODEL: dict[str, str] = {
     AI_PLATFORM_PROVIDER: DEFAULT_AI_PLATFORM_MODEL,
 }
 
+# Request-level inference controls. Context-size controls are currently
+# supported by the native runtime; the OpenCode adapter exposes reasoning as a
+# model variant but owns its context window internally.
+SUPPORTED_REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
+DEFAULT_REASONING_EFFORT = "high"
+
+MODEL_CONTEXT_WINDOWS: dict[str, dict[str, int]] = {
+    COPILOT_PROVIDER: {
+        "gpt-5.4": 400_000,
+        "gpt-5.5": 400_000,
+        "gpt-5.6-luna": 328_000,
+        "gpt-5.6-sol": 400_000,
+        "gpt-5.6-terra": 400_000,
+    },
+    AI_PLATFORM_PROVIDER: {
+        "gpt-5.4": 400_000,
+    },
+}
+CONTEXT_SIZE_PRESETS: tuple[int, ...] = (64_000, 128_000, 256_000)
+
 # Runtime Profiles persist only the user-specific AI Platform credentials.
 # Endpoints and transport headers are deployment-managed in app/config.py and
 # are injected only when Portal builds the effective runtime config.
@@ -72,6 +92,19 @@ def models_for_provider(provider: str | None) -> tuple[str, ...]:
 
 def default_model_for_provider(provider: str | None) -> str:
     return PROVIDER_DEFAULT_MODEL.get(normalize_provider(provider), DEFAULT_COPILOT_MODEL)
+
+
+def model_context_window(provider: str | None, model: str | None) -> int | None:
+    normalized_provider = normalize_provider(provider)
+    normalized_model = str(model or "").strip()
+    return MODEL_CONTEXT_WINDOWS.get(normalized_provider, {}).get(normalized_model)
+
+
+def context_size_options(provider: str | None, model: str | None) -> tuple[int, ...]:
+    window = model_context_window(provider, model)
+    if window is None:
+        return CONTEXT_SIZE_PRESETS
+    return tuple(dict.fromkeys((*[value for value in CONTEXT_SIZE_PRESETS if value < window], window)))
 
 
 def coerce_to_provider_model(provider: str | None, model: str | None) -> str:

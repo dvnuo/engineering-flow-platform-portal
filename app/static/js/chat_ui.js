@@ -74,6 +74,12 @@ const dom = {
   composerAttachBtn: document.getElementById("composer-attach-btn"),
   chatModelWrap: document.getElementById("composer-model-wrap"),
   chatModelSelect: document.getElementById("composer-model-select"),
+  chatInferenceSettings: document.getElementById("composer-inference-settings"),
+  chatInferenceSummary: document.getElementById("composer-inference-summary-text"),
+  chatReasoningField: document.getElementById("composer-reasoning-field"),
+  chatReasoningSelect: document.getElementById("composer-reasoning-select"),
+  chatContextField: document.getElementById("composer-context-field"),
+  chatContextSelect: document.getElementById("composer-context-select"),
   homeTitle: document.getElementById("home-title"),
   homeSubtitle: document.getElementById("home-subtitle"),
   homeAgentSummary: document.getElementById("home-agent-summary"),
@@ -408,6 +414,7 @@ const state = {
   activeUtilityPanel: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
   cachedSkills: [],
   cachedSkillsByAgent: new Map(),
+  cachedInferenceProfilesByAgent: new Map(),
   agentFilters: { query: "", scope: "all", status: "all" },
   selectedSuggestionIndex: -1,
   // UI-only state: portal stores current selected session id per agent.
@@ -751,7 +758,16 @@ function createDefaultChatState() {
     unreadCount: 0,
     profileProvider: "",
     profileDefaultModel: "",
+    profileDefaultReasoningEffort: "high",
+    profileDefaultMaxContextTokens: null,
+    profileAvailableModels: [],
+    profileReasoningEfforts: [],
+    profileContextSizes: [],
+    supportsReasoningEffort: false,
+    supportsContextSize: false,
     modelOverride: "",
+    reasoningEffortOverride: "",
+    maxContextTokensOverride: null,
   };
 }
 
@@ -4903,7 +4919,7 @@ async function syncSelectedAgentState() {
     updateChatInputPlaceholder();
     syncMainHeader();
     if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
-    dom.chatModelWrap?.classList.add("hidden");
+    (dom.chatInferenceSettings || dom.chatModelWrap)?.classList.add("hidden");
     return;
   }
 
@@ -5179,12 +5195,18 @@ async function submitChatForSelectedAgent() {
   maybeRequestNotificationPermission();
   const modelOverride = (chatState.modelOverride || dom.chatModelSelect?.value || "").trim();
   const defaultModel = (chatState.profileDefaultModel || "").trim();
+  const reasoningEffort = (chatState.reasoningEffortOverride || dom.chatReasoningSelect?.value || "").trim();
+  const defaultReasoningEffort = (chatState.profileDefaultReasoningEffort || "high").trim();
+  const contextValue = Number(chatState.maxContextTokensOverride || dom.chatContextSelect?.value || 0);
+  const defaultContextValue = Number(chatState.profileDefaultMaxContextTokens || 0);
   const requestBody = {
     message: requestMessage,
     session_id: sessionIdAtSend || undefined,
     attachments: attachmentsAtSend,
     request_id: clientRequestId,
     ...(modelOverride && modelOverride !== defaultModel ? { model_override: modelOverride } : {}),
+    ...(reasoningEffort && reasoningEffort !== defaultReasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    ...(contextValue > 0 && contextValue !== defaultContextValue ? { max_context_tokens: contextValue } : {}),
   };
   const slashInvocation = parseSkillSlashInput(messageAtSend);
   const matchedSkill = findCachedSkillForSlash(slashInvocation, agentIdAtSend);
@@ -9052,24 +9074,77 @@ const managedProviderModels = {
   ],
 };
 
+const managedReasoningEfforts = ["low", "medium", "high", "xhigh"];
+const managedModelContextWindows = {
+  "gpt-5.4": 400000,
+  "gpt-5.5": 400000,
+  "gpt-5.6-luna": 328000,
+  "gpt-5.6-sol": 400000,
+  "gpt-5.6-terra": 400000,
+};
+
+function inferenceModelLabel(value) {
+  const normalized = String(value || "").trim();
+  for (const models of Object.values(managedProviderModels)) {
+    const match = models.find((item) => item.value === normalized);
+    if (match) return match.label;
+  }
+  return normalized || "Model";
+}
+
+function inferenceReasoningLabel(value) {
+  const labels = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high" };
+  return labels[String(value || "").trim().toLowerCase()] || "Default";
+}
+
+function inferenceContextLabel(value, fallback = "Auto") {
+  const tokens = Number(value || 0);
+  if (!Number.isFinite(tokens) || tokens <= 0) return fallback;
+  return `${Math.round(tokens / 1000)}K`;
+}
+
+function contextSizeOptionsForModel(model, fallback = []) {
+  const windowSize = managedModelContextWindows[String(model || "").trim()] || 0;
+  const presets = [64000, 128000, 256000].filter((value) => !windowSize || value < windowSize);
+  if (windowSize) presets.push(windowSize);
+  const source = presets.length ? presets : fallback;
+  return Array.from(new Set((source || []).map(Number).filter((value) => Number.isFinite(value) && value > 0)));
+}
+
+function updateComposerInferenceSummary(chatState) {
+  if (!dom.chatInferenceSummary || !chatState) return;
+  const model = chatState.modelOverride || chatState.profileDefaultModel;
+  const reasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort;
+  const context = chatState.maxContextTokensOverride || chatState.profileDefaultMaxContextTokens;
+  const parts = [inferenceModelLabel(model)];
+  if (chatState.supportsReasoningEffort) parts.push(inferenceReasoningLabel(reasoning));
+  if (chatState.supportsContextSize) parts.push(inferenceContextLabel(context));
+  dom.chatInferenceSummary.textContent = parts.filter(Boolean).join(" · ");
+}
+
 function renderComposerModelSelectorForAgent(agentId) {
   const chatState = ensureChatState(agentId);
-  if (!dom.chatModelWrap || !dom.chatModelSelect) return;
+  const settingsRoot = dom.chatInferenceSettings || dom.chatModelWrap;
+  if (!settingsRoot || !dom.chatModelSelect) return;
   if (!chatState) {
     dom.chatModelSelect.innerHTML = "";
-    dom.chatModelWrap.classList.add("hidden");
+    settingsRoot.classList.add("hidden");
     return;
   }
 
   const provider = (chatState.profileProvider || "").trim();
   if (!provider || !Object.prototype.hasOwnProperty.call(managedProviderModels, provider)) {
     dom.chatModelSelect.innerHTML = "";
-    dom.chatModelWrap.classList.add("hidden");
+    settingsRoot.classList.add("hidden");
     return;
   }
 
   const currentModel = (chatState.profileDefaultModel || "").trim();
-  const models = managedProviderModels[provider] || [];
+  const profileModels = Array.isArray(chatState.profileAvailableModels) ? chatState.profileAvailableModels : [];
+  const catalogModels = managedProviderModels[provider] || [];
+  const models = profileModels.length
+    ? profileModels.map((value) => catalogModels.find((item) => item.value === value) || { value, label: value })
+    : catalogModels;
   dom.chatModelSelect.innerHTML = "";
 
   models.forEach((model) => {
@@ -9095,7 +9170,7 @@ function renderComposerModelSelectorForAgent(agentId) {
   const selectedValue = chatState.modelOverride || currentModel || models[0]?.value || "";
   if (!selectedValue) {
     dom.chatModelSelect.innerHTML = "";
-    dom.chatModelWrap.classList.add("hidden");
+    settingsRoot.classList.add("hidden");
     return;
   }
 
@@ -9104,13 +9179,54 @@ function renderComposerModelSelectorForAgent(agentId) {
     const fallbackValue = currentModel || models[0]?.value || "";
     dom.chatModelSelect.value = fallbackValue;
   }
-  dom.chatModelWrap.classList.remove("hidden");
+
+  if (dom.chatReasoningSelect && typeof inferenceReasoningLabel === "function") {
+    const reasoningEfforts = chatState.profileReasoningEfforts.length
+      ? chatState.profileReasoningEfforts
+      : (typeof managedReasoningEfforts !== "undefined" ? managedReasoningEfforts : []);
+    dom.chatReasoningSelect.innerHTML = "";
+    reasoningEfforts.forEach((effort) => {
+      const option = document.createElement("option");
+      option.value = effort;
+      option.textContent = inferenceReasoningLabel(effort);
+      dom.chatReasoningSelect.appendChild(option);
+    });
+    const selectedReasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort || "high";
+    dom.chatReasoningSelect.value = reasoningEfforts.includes(selectedReasoning) ? selectedReasoning : (reasoningEfforts[0] || "");
+    dom.chatReasoningField?.classList.toggle("hidden", !chatState.supportsReasoningEffort);
+  }
+
+  if (dom.chatContextSelect && typeof contextSizeOptionsForModel === "function") {
+    const contextSizes = contextSizeOptionsForModel(dom.chatModelSelect.value, chatState.profileContextSizes);
+    dom.chatContextSelect.innerHTML = "";
+    const automatic = document.createElement("option");
+    automatic.value = "";
+    automatic.textContent = chatState.profileDefaultMaxContextTokens
+      ? `Default (${inferenceContextLabel(chatState.profileDefaultMaxContextTokens)})`
+      : "Automatic";
+    dom.chatContextSelect.appendChild(automatic);
+    contextSizes.forEach((tokens, index) => {
+      const option = document.createElement("option");
+      option.value = String(tokens);
+      option.textContent = index === contextSizes.length - 1
+        ? `Model max (${inferenceContextLabel(tokens)})`
+        : inferenceContextLabel(tokens);
+      dom.chatContextSelect.appendChild(option);
+    });
+    const selectedContext = Number(chatState.maxContextTokensOverride || 0);
+    if (selectedContext && !contextSizes.includes(selectedContext)) chatState.maxContextTokensOverride = null;
+    dom.chatContextSelect.value = chatState.maxContextTokensOverride ? String(chatState.maxContextTokensOverride) : "";
+    dom.chatContextField?.classList.toggle("hidden", !chatState.supportsContextSize);
+  }
+
+  if (typeof updateComposerInferenceSummary === "function") updateComposerInferenceSummary(chatState);
+  settingsRoot.classList.remove("hidden");
 }
 
 async function refreshComposerModelProfile(agentId) {
   if (!agentId) {
     if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
-    dom.chatModelWrap?.classList.add("hidden");
+    dom.chatInferenceSettings?.classList.add("hidden");
     return;
   }
   const chatState = ensureChatState(agentId);
@@ -9120,15 +9236,24 @@ async function refreshComposerModelProfile(agentId) {
     const payload = await api(`/api/agents/${agentId}/chat-model-profile`);
     chatState.profileProvider = (payload?.provider || "").trim();
     chatState.profileDefaultModel = (payload?.current_model || "").trim();
+    chatState.profileDefaultReasoningEffort = (payload?.current_reasoning_effort || "high").trim();
+    chatState.profileDefaultMaxContextTokens = Number(payload?.current_max_context_tokens || 0) || null;
+    chatState.profileAvailableModels = Array.isArray(payload?.available_models) ? payload.available_models : [];
+    chatState.profileReasoningEfforts = Array.isArray(payload?.reasoning_efforts) ? payload.reasoning_efforts : [];
+    chatState.profileContextSizes = Array.isArray(payload?.context_sizes) ? payload.context_sizes : [];
+    chatState.supportsReasoningEffort = payload?.supports_reasoning_effort === true;
+    chatState.supportsContextSize = payload?.supports_context_size === true;
     if (agentId !== state.selectedAgentId) return;
     renderComposerModelSelectorForAgent(agentId);
   } catch (error) {
     console.warn("Failed to refresh composer chat model profile", error);
     chatState.profileProvider = "";
     chatState.profileDefaultModel = "";
+    chatState.supportsReasoningEffort = false;
+    chatState.supportsContextSize = false;
     if (agentId !== state.selectedAgentId) return;
     if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
-    dom.chatModelWrap?.classList.add("hidden");
+    dom.chatInferenceSettings?.classList.add("hidden");
   }
 }
 
@@ -11366,6 +11491,7 @@ async function openCreateDelegationRuleModal() {
           <section class="create-agent-step-panel" data-wizard-step-panel="basics">
             <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" required /></label>
             <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+            ${inferenceSettingsFieldsHtml()}
             <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
@@ -11393,6 +11519,7 @@ async function openCreateDelegationRuleModal() {
   if (form) {
     await setupDelegationSourceForm(form);
     await populateCreateTaskSkillSelect(form);
+    await populateInferenceSettingsForForm(form);
     initializeInlineWizard(form);
   }
 }
@@ -11454,6 +11581,12 @@ async function openEditDelegationRuleModal(ruleId) {
           data-original-interval-seconds="${escapeHtmlAttr(String(intervalSeconds))}"
           data-original-enabled="${detail.enabled ? "true" : "false"}"
           data-selected-skill-name="${escapeHtmlAttr(skillName)}"
+          data-original-model-override="${escapeHtmlAttr(detail.model_override || "")}"
+          data-original-reasoning-effort="${escapeHtmlAttr(detail.reasoning_effort || "")}"
+          data-original-max-context-tokens="${escapeHtmlAttr(String(detail.max_context_tokens || ""))}"
+          data-selected-model-override="${escapeHtmlAttr(detail.model_override || "")}"
+          data-selected-reasoning-effort="${escapeHtmlAttr(detail.reasoning_effort || "")}"
+          data-selected-max-context-tokens="${escapeHtmlAttr(String(detail.max_context_tokens || ""))}"
         >
           <ol class="create-agent-steps" aria-label="Edit delegation steps" style="--portal-step-count: 4">
             <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
@@ -11476,6 +11609,7 @@ async function openEditDelegationRuleModal(ruleId) {
           <section class="create-agent-step-panel" data-wizard-step-panel="basics">
             <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
             <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+            ${inferenceSettingsFieldsHtml()}
             <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
@@ -11504,6 +11638,11 @@ async function openEditDelegationRuleModal(ruleId) {
   if (form) {
     await setupDelegationSourceForm(form, sourceScope, sourceConditions, schedule, taskPrompt);
     await populateCreateTaskSkillSelect(form);
+    await populateInferenceSettingsForForm(form, {
+      model_override: String(detail.model_override || ""),
+      reasoning_effort: String(detail.reasoning_effort || ""),
+      max_context_tokens: Number(detail.max_context_tokens || 0) || null,
+    });
     initializeInlineWizard(form);
   }
   renderIcons();
@@ -11523,6 +11662,7 @@ async function submitCreateDelegationRule(formEl) {
     interval_seconds: schedule.type === "interval" ? schedule.interval_seconds : Number(fd.get("interval_seconds") || 60),
     schedule,
     enabled: fd.get("enabled") !== null,
+    ...collectInferenceSettings(formEl),
   };
   if (isDelegationTimerSource(source)) payload.task_prompt = collectDelegationTaskPrompt(formEl);
   const created = await api("/api/delegation-rules", { method: "POST", body: JSON.stringify(payload) });
@@ -11550,6 +11690,10 @@ async function submitEditDelegationRule(formEl) {
   const intervalSeconds = schedule.type === "interval" ? schedule.interval_seconds : Number(fd.get("interval_seconds") || 60);
   const taskPrompt = collectDelegationTaskPrompt(formEl);
   const enabled = fd.get("enabled") !== null;
+  const inference = collectInferenceSettings(formEl);
+  const modelOverride = String(inference.model_override || "");
+  const reasoningEffort = String(inference.reasoning_effort || "");
+  const maxContextTokens = Number(inference.max_context_tokens || 0) || null;
   if (name !== String(formEl.dataset.originalName || "")) payload.name = name;
   if (targetAgentId !== String(formEl.dataset.originalTargetAgentId || "")) payload.target_agent_id = targetAgentId;
   if (source !== String(formEl.dataset.originalSource || "")) {
@@ -11565,6 +11709,9 @@ async function submitEditDelegationRule(formEl) {
   if (schedule.type === "interval" && intervalSeconds !== Number(formEl.dataset.originalIntervalSeconds || 60)) payload.interval_seconds = intervalSeconds;
   if (isDelegationTimerSource(source) && taskPrompt !== originalTaskPrompt) payload.task_prompt = taskPrompt;
   if (enabled !== (formEl.dataset.originalEnabled === "true")) payload.enabled = enabled;
+  if (modelOverride !== String(formEl.dataset.originalModelOverride || "")) payload.model_override = modelOverride || null;
+  if (reasoningEffort !== String(formEl.dataset.originalReasoningEffort || "")) payload.reasoning_effort = reasoningEffort || null;
+  if (maxContextTokens !== (Number(formEl.dataset.originalMaxContextTokens || 0) || null)) payload.max_context_tokens = maxContextTokens;
   if (!Object.keys(payload).length) {
     showToast("No changes to save");
     await openDelegationRulePanel(ruleId);
@@ -11661,6 +11808,9 @@ function renderWizardReviewRows(container, rows) {
 function renderTaskCreateReview(formEl) {
   renderWizardReviewRows(document.getElementById("create-task-review"), [
     ["Agent", selectedOptionLabel(formEl, "assignee_agent_id") || "Not selected"],
+    ["Model", selectedOptionLabel(formEl, "model_override") || "Agent default"],
+    ["Thinking", selectedOptionLabel(formEl, "reasoning_effort") || "Agent default"],
+    ["Context", selectedOptionLabel(formEl, "max_context_tokens") || "Automatic"],
     ["Skill", selectedOptionLabel(formEl, "skill_name") || "Not selected"],
     ["Task Content", wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
     ["Mode", "Background task"],
@@ -11692,6 +11842,9 @@ function renderDelegationReview(formEl) {
   const rows = [
     ["Name", selectedOptionLabel(formEl, "name") || "Untitled delegation"],
     ["Agent", selectedOptionLabel(formEl, "target_agent_id") || "Not selected"],
+    ["Model", selectedOptionLabel(formEl, "model_override") || "Agent default"],
+    ["Thinking", selectedOptionLabel(formEl, "reasoning_effort") || "Agent default"],
+    ["Context", selectedOptionLabel(formEl, "max_context_tokens") || "Automatic"],
     ["Source", delegationSourceLabel(source) || "Not selected"],
     ["Source Filters", delegationConditionSummaryLabel(source, scope, conditions)],
     ["Skill", selectedOptionLabel(formEl, "skill_name") || "Not selected"],
@@ -11851,6 +12004,112 @@ async function openTaskCreatePanelInMain() {
   if (formEl) {
     initializeInlineWizard(formEl);
     await populateCreateTaskSkillSelect(formEl);
+    await populateInferenceSettingsForForm(formEl);
+  }
+}
+
+function inferenceSettingsFieldsHtml() {
+  return `
+    <details class="portal-inference-settings" data-inference-settings>
+      <summary><span>Run settings</span><small data-inference-summary>Agent defaults</small></summary>
+      <div class="portal-inference-settings-grid">
+        <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="model_override" class="portal-form-select" data-inference-model disabled><option value="">Agent default</option></select></label>
+        <label class="portal-form-label" data-inference-reasoning-field><span class="portal-form-label">Thinking level</span><select name="reasoning_effort" class="portal-form-select" data-inference-reasoning disabled><option value="">Agent default</option></select></label>
+        <label class="portal-form-label" data-inference-context-field><span class="portal-form-label">Context size</span><select name="max_context_tokens" class="portal-form-select" data-inference-context disabled><option value="">Automatic</option></select></label>
+      </div>
+    </details>
+  `;
+}
+
+async function loadInferenceProfileForAgent(agentId) {
+  if (!agentId) return null;
+  if (state.cachedInferenceProfilesByAgent.has(agentId)) return state.cachedInferenceProfilesByAgent.get(agentId);
+  const profile = await api(`/api/agents/${encodeURIComponent(agentId)}/chat-model-profile`);
+  state.cachedInferenceProfilesByAgent.set(agentId, profile || null);
+  return profile || null;
+}
+
+function appendSelectOption(selectEl, value, label, selected = false) {
+  const option = document.createElement("option");
+  option.value = String(value ?? "");
+  option.textContent = label;
+  option.selected = selected;
+  selectEl.appendChild(option);
+}
+
+function collectInferenceSettings(formEl) {
+  const model = String(formEl?.querySelector('[name="model_override"]')?.value || "").trim();
+  const reasoning = String(formEl?.querySelector('[name="reasoning_effort"]')?.value || "").trim();
+  const context = Number(formEl?.querySelector('[name="max_context_tokens"]')?.value || 0);
+  return {
+    ...(model ? { model_override: model } : {}),
+    ...(reasoning ? { reasoning_effort: reasoning } : {}),
+    ...(Number.isFinite(context) && context > 0 ? { max_context_tokens: context } : {}),
+  };
+}
+
+function updateFormInferenceSummary(formEl) {
+  const summary = formEl?.querySelector("[data-inference-summary]");
+  if (!summary) return;
+  const settings = collectInferenceSettings(formEl);
+  const parts = [];
+  if (settings.model_override) parts.push(inferenceModelLabel(settings.model_override));
+  if (settings.reasoning_effort) parts.push(inferenceReasoningLabel(settings.reasoning_effort));
+  if (settings.max_context_tokens) parts.push(inferenceContextLabel(settings.max_context_tokens));
+  summary.textContent = parts.length ? parts.join(" · ") : "Agent defaults";
+}
+
+async function populateInferenceSettingsForForm(formEl, initial = null) {
+  const root = formEl?.querySelector("[data-inference-settings]");
+  if (!root) return;
+  const agentId = String(formEl.querySelector('[name="assignee_agent_id"], [name="target_agent_id"]')?.value || "").trim();
+  const modelSelect = root.querySelector("[data-inference-model]");
+  const reasoningSelect = root.querySelector("[data-inference-reasoning]");
+  const contextSelect = root.querySelector("[data-inference-context]");
+  const initialSettings = initial || {
+    model_override: String(formEl.dataset.selectedModelOverride || modelSelect?.value || "").trim(),
+    reasoning_effort: String(formEl.dataset.selectedReasoningEffort || reasoningSelect?.value || "").trim(),
+    max_context_tokens: Number(formEl.dataset.selectedMaxContextTokens || contextSelect?.value || 0) || null,
+  };
+  if (!agentId) {
+    root.classList.add("hidden");
+    return;
+  }
+  root.classList.remove("hidden");
+  [modelSelect, reasoningSelect, contextSelect].forEach((select) => { if (select) select.disabled = true; });
+  try {
+    const profile = await loadInferenceProfileForAgent(agentId);
+    const models = Array.isArray(profile?.available_models) ? profile.available_models : [];
+    modelSelect.innerHTML = "";
+    appendSelectOption(modelSelect, "", `Agent default (${inferenceModelLabel(profile?.current_model)})`, !initialSettings.model_override);
+    models.forEach((model) => appendSelectOption(modelSelect, model, inferenceModelLabel(model), initialSettings.model_override === model));
+    modelSelect.disabled = models.length === 0;
+
+    const reasoningEfforts = Array.isArray(profile?.reasoning_efforts) ? profile.reasoning_efforts : [];
+    reasoningSelect.innerHTML = "";
+    appendSelectOption(reasoningSelect, "", `Agent default (${inferenceReasoningLabel(profile?.current_reasoning_effort)})`, !initialSettings.reasoning_effort);
+    reasoningEfforts.forEach((effort) => appendSelectOption(reasoningSelect, effort, inferenceReasoningLabel(effort), initialSettings.reasoning_effort === effort));
+    const supportsReasoning = profile?.supports_reasoning_effort === true;
+    reasoningSelect.disabled = !supportsReasoning;
+    root.querySelector("[data-inference-reasoning-field]")?.classList.toggle("hidden", !supportsReasoning);
+
+    const selectedModel = initialSettings.model_override || profile?.current_model;
+    const contextSizes = contextSizeOptionsForModel(selectedModel, profile?.context_sizes || []);
+    contextSelect.innerHTML = "";
+    appendSelectOption(contextSelect, "", profile?.current_max_context_tokens ? `Agent default (${inferenceContextLabel(profile.current_max_context_tokens)})` : "Automatic", !initialSettings.max_context_tokens);
+    contextSizes.forEach((tokens, index) => appendSelectOption(
+      contextSelect,
+      tokens,
+      index === contextSizes.length - 1 ? `Model max (${inferenceContextLabel(tokens)})` : inferenceContextLabel(tokens),
+      Number(initialSettings.max_context_tokens) === Number(tokens),
+    ));
+    const supportsContext = profile?.supports_context_size === true;
+    contextSelect.disabled = !supportsContext;
+    root.querySelector("[data-inference-context-field]")?.classList.toggle("hidden", !supportsContext);
+    updateFormInferenceSummary(formEl);
+  } catch (error) {
+    root.classList.add("hidden");
+    console.warn("Failed to load run settings", error);
   }
 }
 
@@ -11952,6 +12211,7 @@ async function submitCreateAgentAsyncTask(formEl) {
       assignee_agent_id: String(fd.get("assignee_agent_id") || "").trim(),
       skill_name: String(fd.get("skill_name") || "").trim(),
       task_content: String(fd.get("task_content") || "").trim(),
+      ...collectInferenceSettings(formEl),
     }),
   });
   await refreshMyTasks();
@@ -12722,6 +12982,11 @@ function bindEvents() {
     const modelOverride = String(chatState?.modelOverride || dom.chatModelSelect?.value || "").trim();
     const defaultModel = String(chatState?.profileDefaultModel || "").trim();
     if (modelOverride && modelOverride !== defaultModel) editBody.model = modelOverride;
+    const reasoningEffort = String(chatState?.reasoningEffortOverride || dom.chatReasoningSelect?.value || "").trim();
+    const defaultReasoningEffort = String(chatState?.profileDefaultReasoningEffort || "high").trim();
+    if (reasoningEffort && reasoningEffort !== defaultReasoningEffort) editBody.reasoning_effort = reasoningEffort;
+    const maxContextTokens = Number(chatState?.maxContextTokensOverride || dom.chatContextSelect?.value || 0);
+    if (maxContextTokens > 0) editBody.max_context_tokens = maxContextTokens;
     setChatStatus("Saving edited message...");
     let accepted = false;
 
@@ -12945,6 +13210,25 @@ function bindEvents() {
     const chatState = ensureChatState(selectedAgentId);
     if (!chatState) return;
     chatState.modelOverride = (dom.chatModelSelect?.value || "").trim();
+    renderComposerModelSelectorForAgent(selectedAgentId);
+  });
+  dom.chatReasoningSelect?.addEventListener("change", () => {
+    const chatState = ensureChatState(state.selectedAgentId);
+    if (!chatState) return;
+    const selected = String(dom.chatReasoningSelect?.value || "").trim();
+    chatState.reasoningEffortOverride = selected === chatState.profileDefaultReasoningEffort ? "" : selected;
+    updateComposerInferenceSummary(chatState);
+  });
+  dom.chatContextSelect?.addEventListener("change", () => {
+    const chatState = ensureChatState(state.selectedAgentId);
+    if (!chatState) return;
+    const selected = Number(dom.chatContextSelect?.value || 0);
+    chatState.maxContextTokensOverride = Number.isFinite(selected) && selected > 0 ? selected : null;
+    updateComposerInferenceSummary(chatState);
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (!dom.chatInferenceSettings?.open || dom.chatInferenceSettings.contains(event.target)) return;
+    dom.chatInferenceSettings.open = false;
   });
   dom.headerNewChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"));
@@ -13100,10 +13384,24 @@ function bindEvents() {
     if (!formEl) return;
     if (event.target.matches('[name="assignee_agent_id"], [name="target_agent_id"]')) {
       if (formEl.id === "edit-delegation-inline-form") formEl.dataset.selectedSkillName = "";
+      formEl.dataset.selectedModelOverride = "";
+      formEl.dataset.selectedReasoningEffort = "";
+      formEl.dataset.selectedMaxContextTokens = "";
       await populateCreateTaskSkillSelect(formEl);
+      await populateInferenceSettingsForForm(formEl, {});
       if (formEl.matches("#create-delegation-inline-form, #edit-delegation-inline-form")) {
         await refreshDelegationSourcePreview(formEl, { resetScope: true });
       }
+      renderInlineWizardReview(formEl);
+      return;
+    }
+    if (event.target.matches('[name="model_override"]')) {
+      await populateInferenceSettingsForForm(formEl, collectInferenceSettings(formEl));
+      renderInlineWizardReview(formEl);
+      return;
+    }
+    if (event.target.matches('[name="reasoning_effort"], [name="max_context_tokens"]')) {
+      updateFormInferenceSummary(formEl);
       renderInlineWizardReview(formEl);
       return;
     }

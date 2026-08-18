@@ -208,13 +208,27 @@
 
               <div class="portal-composer-toolbar">
                 <div class="portal-composer-toolbar-left">
-                  <div id="composer-model-wrap" class="composer-model-wrap hidden">
-                    <select
-                      id="composer-model-select"
-                      class="composer-model-select"
-                      aria-label="Select model for this request"
-                    ></select>
-                  </div>
+                  <details id="composer-inference-settings" class="composer-inference-settings hidden">
+                    <summary class="composer-inference-summary" aria-label="Configure model, thinking level, and context size">
+                      <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                      <span id="composer-inference-summary-text">Run settings</span>
+                    </summary>
+                    <div class="composer-inference-popover">
+                      <div class="composer-inference-title">Run settings</div>
+                      <label id="composer-model-wrap" class="composer-inference-field composer-model-wrap">
+                        <span>Model</span>
+                        <select id="composer-model-select" class="composer-model-select" aria-label="Select model for this request"></select>
+                      </label>
+                      <label id="composer-reasoning-field" class="composer-inference-field">
+                        <span>Thinking level</span>
+                        <select id="composer-reasoning-select" class="composer-model-select" aria-label="Select thinking level for this request"></select>
+                      </label>
+                      <label id="composer-context-field" class="composer-inference-field">
+                        <span>Context size</span>
+                        <select id="composer-context-select" class="composer-model-select" aria-label="Select context size for this request"></select>
+                      </label>
+                    </div>
+                  </details>
                 </div>
 
                 <div class="portal-composer-toolbar-right">

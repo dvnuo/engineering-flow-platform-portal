@@ -520,7 +520,7 @@ def test_agent_async_task_dispatch_does_not_infer_github_authorization_from_cred
     _assert_no_runtime_profile_authorization_metadata(metadata)
 
 
-def test_agent_async_task_dispatch_uses_single_runtime_profile_model(db_session, monkeypatch):
+def test_agent_async_task_dispatch_applies_request_inference_overrides(db_session, monkeypatch):
     db, agent = db_session
     runtime_profile = RuntimeProfile(
         owner_user_id=agent.owner_user_id,
@@ -565,6 +565,11 @@ def test_agent_async_task_dispatch_uses_single_runtime_profile_model(db_session,
                 "task_session_id": "agent-task:task-single-runtime-profile",
                 "root_task_id": "task-single-runtime-profile",
                 "parent_task_id": None,
+                "inference": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "xhigh",
+                    "max_context_tokens": 256000,
+                },
             }
         ),
         status="queued",
@@ -599,10 +604,14 @@ def test_agent_async_task_dispatch_uses_single_runtime_profile_model(db_session,
     assert captured["url"].endswith("/api/tasks/execute")
     metadata = captured["body"]["metadata"]
     assert metadata["provider"] == "github_copilot"
-    assert metadata["model"] == "gpt-5.4"
+    assert metadata["model"] == "gpt-5.6-sol"
+    assert metadata["reasoning_effort"] == "xhigh"
+    assert metadata["max_context_tokens"] == 256000
     assert metadata["runtime_profile"]["provider"] == "github_copilot"
-    assert metadata["runtime_profile"]["model"] == "gpt-5.4"
-    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.4"
+    assert metadata["runtime_profile"]["model"] == "gpt-5.6-sol"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.6-sol"
+    assert metadata["runtime_profile"]["config"]["llm"]["reasoning_effort"] == "xhigh"
+    assert metadata["runtime_profile"]["config"]["max_context_tokens"] == 256000
 
 
 def test_dispatcher_derives_summary_from_review_summary():

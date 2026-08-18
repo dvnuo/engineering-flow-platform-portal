@@ -545,8 +545,16 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
         assert body == {
             "runtime_profile_id": profile.id,
             "revision": 7,
+            "runtime_type": "native",
             "provider": "github_copilot",
             "current_model": "gpt-5.5",
+            "current_reasoning_effort": "high",
+            "current_max_context_tokens": None,
+            "available_models": ["gpt-5.4", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"],
+            "reasoning_efforts": ["low", "medium", "high", "xhigh"],
+            "context_sizes": [64000, 128000, 256000, 400000],
+            "supports_reasoning_effort": True,
+            "supports_context_size": True,
         }
         assert "config_json" not in body
         assert "token" not in body
@@ -579,8 +587,16 @@ def test_agent_chat_model_profile_endpoint_returns_empty_when_profile_missing(mo
         assert resp_none.json() == {
             "runtime_profile_id": None,
             "revision": None,
+            "runtime_type": "native",
             "provider": "",
             "current_model": "",
+            "current_reasoning_effort": "high",
+            "current_max_context_tokens": None,
+            "available_models": [],
+            "reasoning_efforts": [],
+            "context_sizes": [],
+            "supports_reasoning_effort": False,
+            "supports_context_size": False,
         }
 
         agent_row.runtime_profile_id = "missing-profile-id"
@@ -592,8 +608,16 @@ def test_agent_chat_model_profile_endpoint_returns_empty_when_profile_missing(mo
         assert resp_missing.json() == {
             "runtime_profile_id": None,
             "revision": None,
+            "runtime_type": "native",
             "provider": "",
             "current_model": "",
+            "current_reasoning_effort": "high",
+            "current_max_context_tokens": None,
+            "available_models": [],
+            "reasoning_efforts": [],
+            "context_sizes": [],
+            "supports_reasoning_effort": False,
+            "supports_context_size": False,
         }
     finally:
         cleanup()
@@ -628,8 +652,16 @@ def test_agent_chat_model_profile_does_not_infer_provider_model_from_defaults(mo
         assert resp.json() == {
             "runtime_profile_id": profile.id,
             "revision": 2,
+            "runtime_type": "native",
             "provider": "",
             "current_model": "",
+            "current_reasoning_effort": "high",
+            "current_max_context_tokens": None,
+            "available_models": [],
+            "reasoning_efforts": [],
+            "context_sizes": [],
+            "supports_reasoning_effort": False,
+            "supports_context_size": False,
         }
     finally:
         cleanup()
