@@ -1,0 +1,109 @@
+<div id="delegations-panel-root" class="portal-panel-stack portal-overview-workspace" data-delegation-overview-scope="{{ overview.scope }}">
+  <div class="portal-overview-hero">
+    <div class="portal-overview-title-block">
+      <div class="portal-overview-eyebrow">Delegation Operations</div>
+      <h2 class="portal-panel-title">Delegations</h2>
+      <p class="portal-panel-subtitle">{{ overview.health.headline }} · {{ overview.generated_at.strftime('%Y-%m-%d %H:%M') if overview.generated_at else '' }}</p>
+    </div>
+    <div class="portal-overview-actions" role="group" aria-label="Delegation overview scope">
+      <button class="portal-btn is-secondary{% if overview.scope == 'all' %} is-active{% endif %}" type="button" data-delegation-overview-scope="all">All Visible</button>
+      <button class="portal-btn is-secondary{% if overview.scope == 'mine' %} is-active{% endif %}" type="button" data-delegation-overview-scope="mine">Mine</button>
+      <button class="portal-btn is-secondary" type="button" data-refresh-delegation-overview><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
+      <button class="portal-btn is-primary" type="button" data-open-create-delegation-main><i data-lucide="plus" class="w-4 h-4"></i>Create Delegation</button>
+    </div>
+  </div>
+
+  <section class="portal-overview-overview-grid" aria-label="Delegation overview">
+    <article class="portal-overview-health-card is-{{ overview.health.tone }}">
+      <div class="portal-overview-health-main">
+        <div class="portal-overview-health-icon"><i data-lucide="activity" class="w-5 h-5"></i></div>
+        <div><span>Delegation Health</span><strong>{{ overview.health.label }}</strong></div>
+      </div>
+      <div class="portal-overview-health-score">
+        <span>{{ overview.health.score }}</span>
+        <div class="portal-overview-score-bar" aria-hidden="true"><i style="width: {{ overview.health.score }}%"></i></div>
+      </div>
+      <div class="portal-overview-health-foot">
+        <span>{{ overview.health.critical }} critical</span>
+        <span>{{ overview.health.warning }} warnings</span>
+      </div>
+    </article>
+    <article class="portal-overview-metric-card">
+      <div class="portal-overview-metric-head"><i data-lucide="git-branch" class="w-4 h-4"></i><span>Enabled</span></div>
+      <strong>{{ overview.enabled }}</strong>
+      <div>{{ overview.total }} total · {{ overview.disabled }} paused</div>
+    </article>
+    <article class="portal-overview-metric-card">
+      <div class="portal-overview-metric-head"><i data-lucide="clock" class="w-4 h-4"></i><span>Due</span></div>
+      <strong>{{ overview.due }}</strong>
+      <div>Scheduled runs due now</div>
+    </article>
+    <article class="portal-overview-metric-card">
+      <div class="portal-overview-metric-head"><i data-lucide="triangle-alert" class="w-4 h-4"></i><span>Failed Runs</span></div>
+      <strong>{{ overview.failed_runs }}</strong>
+      <div>{{ overview.missing_targets }} missing targets</div>
+    </article>
+  </section>
+
+  <section class="portal-overview-distribution-grid is-two-column" aria-label="Delegation operations">
+    <article class="portal-overview-distribution-card">
+      <div class="portal-overview-panel-head"><h3>Delegation Flow</h3><span>{{ overview.total }} rules</span></div>
+      <div class="portal-overview-segment-stack">
+        {% for segment in overview.segments %}
+        <div class="portal-overview-segment-row">
+          <span>{{ segment.label }}</span>
+          <div class="portal-overview-segment-track" aria-hidden="true"><i class="is-{{ segment.tone }}" style="width: {{ segment.percent }}%"></i></div>
+          <strong>{{ segment.count }}</strong>
+        </div>
+        {% else %}
+        <div class="portal-panel-empty">No delegations configured.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-overview-panel portal-overview-attention">
+      <div class="portal-overview-panel-head"><h3>Needs Attention</h3><span>{{ overview.priority_items|length }} items</span></div>
+      <div class="portal-overview-list">
+        {% for item in overview.priority_items %}
+        <button class="portal-overview-row is-{{ item.tone }}" type="button" data-open-delegation-rule="{{ item.target_id }}">
+          <span class="portal-row-status-dot is-{{ item.tone }}" aria-hidden="true"></span>
+          <span><strong>{{ item.title }}</strong><small>{{ item.meta }}</small></span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No delegations need attention right now.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="portal-overview-grid">
+    <article class="portal-overview-panel">
+      <div class="portal-overview-panel-head"><h3>Rule Health</h3><span>{{ overview.health_rows|length }} rules</span></div>
+      <div class="portal-overview-list">
+        {% for row in overview.health_rows %}
+        <button class="portal-overview-row is-{{ row.row_tone }}" type="button" data-open-delegation-rule="{{ row.rule_id }}">
+          <span class="portal-overview-kind-pill is-delegation">{{ row.source or 'rule' }}</span>
+          <span class="portal-row-status-dot is-{{ row.row_tone }}" aria-hidden="true"></span>
+          <span><strong>{{ row.name }}</strong><small>{{ row.agent_name }} · last {{ row.last_status }}{% if row.is_due %} · due now{% endif %}</small></span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No delegations configured.</div>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-overview-panel portal-overview-activity">
+      <div class="portal-overview-panel-head"><h3>Recent Runs</h3><span>{{ overview.recent_activity|length }} events</span></div>
+      <div class="portal-overview-timeline">
+        {% for item in overview.recent_activity %}
+        <button class="portal-overview-timeline-row is-{{ item.tone }}" type="button" data-open-delegation-rule="{{ item.target_id }}">
+          <span class="portal-row-status-dot is-{{ item.tone }}" aria-hidden="true"></span>
+          <span><strong>{{ item.title }}</strong><small>{{ item.meta }}</small></span>
+        </button>
+        {% else %}
+        <div class="portal-panel-empty">No recent delegation runs.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+</div>

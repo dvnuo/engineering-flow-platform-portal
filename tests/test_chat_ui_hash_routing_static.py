@@ -43,7 +43,7 @@ def test_initial_hash_route_section_is_applied_before_async_route_load():
     sync_selected = _extract_js_function(js, "syncSelectedAgentState")
 
     assert "const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();" in js
-    assert 'const DEFAULT_PORTAL_ROUTE_SECTION = "dashboard";' in js
+    assert 'const DEFAULT_PORTAL_ROUTE_SECTION = "assistants";' in js
     assert "applyInitialPortalRouteShell();" in js
     assert 'if (!raw || raw === "#") return DEFAULT_PORTAL_ROUTE_SECTION;' in js
     assert 'activeNavSection: INITIAL_PORTAL_ROUTE_SECTION' in state_block
@@ -52,12 +52,12 @@ def test_initial_hash_route_section_is_applied_before_async_route_load():
         'setMainView(running ? "chat" : "home")'
     )
 
-    assert 'id="rail-assistants-btn" class="portal-rail-btn is-active"' not in html
-    assert 'id="assistants-nav-section" class="portal-secondary-section hidden"' in html
+    assert 'id="rail-assistants-btn" class="portal-rail-btn is-active"' in html
+    assert 'id="assistants-nav-section" class="portal-secondary-section"' in html
     assert 'id="center-placeholder" class="portal-home hidden"' in html
 
 
-def test_empty_hash_defaults_to_dashboard_without_breaking_assistant_routes():
+def test_empty_hash_defaults_to_assistants_and_keeps_assistant_routes():
     js = _chat_ui_source()
     initial_route = _extract_js_function(js, "initialPortalRouteSectionFromHash")
     parse_route = _extract_js_function(js, "parsePortalHashRoute")
@@ -84,9 +84,7 @@ def test_portal_hash_route_sections_are_declared():
     js = _chat_ui_source()
 
     assert _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS") == {
-        "dashboard",
         "assistants",
-        "bundles",
         "tasks",
         "runtime-profiles",
         "delegations",
@@ -129,7 +127,6 @@ def test_user_actions_commit_hash_routes():
 
     select_agent = _extract_js_function(js, "selectAgentById")
     set_active_section = _extract_js_function(js, "setActiveNavSection")
-    open_bundle = _extract_js_function(js, "openRequirementBundleInMain")
     open_task = _extract_js_function(js, "openTaskDetailInMain")
     open_runtime_profile = _extract_js_function(js, "openRuntimeProfileInMain")
     open_delegation = _extract_js_function(js, "openDelegationRulePanel")
@@ -137,7 +134,6 @@ def test_user_actions_commit_hash_routes():
     assert 'commitPortalRoute({ section: "assistants", agentId })' in select_agent
     assert "commitPortalRoute(" in set_active_section
     assert "currentPortalRouteFromState()" in set_active_section
-    assert 'commitPortalRoute({ section: "bundles", bundleRef })' in open_bundle
     assert 'commitPortalRoute({ section: "tasks", taskId })' in open_task
     assert 'commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: profileId })' in open_runtime_profile
     assert 'commitPortalRoute({ section: "delegations", delegationRuleId: ruleId })' in open_delegation
@@ -148,12 +144,10 @@ def test_rail_clicks_use_section_only_navigation():
     bind_events = _extract_js_function(js, "bindEvents")
 
     assert 'dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"))' in bind_events
-    assert 'dom.bundlesMenuBtn?.addEventListener("click", () => openPortalSection("bundles"))' in bind_events
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => openPortalSection("tasks"))' in bind_events
     assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"))' in bind_events
     assert 'dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"))' in bind_events
 
-    assert 'dom.bundlesMenuBtn?.addEventListener("click", () => setActiveNavSection("bundles"))' not in bind_events
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"))' not in bind_events
     assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"))' not in bind_events
     assert 'dom.delegationsMenuBtn?.addEventListener("click", () => setActiveNavSection("delegations"))' not in bind_events
@@ -209,18 +203,13 @@ def test_assistant_rows_have_visible_hover_feedback():
     assert "transform: translateY(-1px)" in hover_block
 
 
-def test_detail_row_clicks_do_not_write_section_route_before_detail_open():
+def test_task_row_clicks_do_not_write_section_route_before_detail_open():
     js = _chat_ui_source()
-    render_bundles = _extract_js_function(js, "renderRequirementBundleList")
     render_tasks = _extract_js_function(js, "renderTaskNavList")
-    open_bundle = _extract_js_function(js, "openRequirementBundleInMain")
     open_task = _extract_js_function(js, "openTaskDetailInMain")
 
-    assert 'await setActiveNavSection("bundles", { toggleIfSame: false, updateRoute: false })' in render_bundles
-    assert "await openRequirementBundleInMain(item.bundle_ref)" in render_bundles
     assert "await openTaskDetailInMain(task.id)" in render_tasks
     assert 'await setActiveNavSection("tasks", { toggleIfSame: false })' not in render_tasks
-    assert 'commitPortalRoute({ section: "bundles", bundleRef })' in open_bundle
     assert 'commitPortalRoute({ section: "tasks", taskId })' in open_task
 
 

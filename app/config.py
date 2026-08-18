@@ -145,18 +145,6 @@ class Settings(BaseSettings):
     # wins.
     max_upload_mb: int = Field(default=25, validation_alias="EFP_MAX_UPLOAD_MB")
 
-    assets_github_token: str = Field(default="", validation_alias="ASSETS_GITHUB_TOKEN")
-    assets_github_api_base_url: str = Field(default="https://api.github.com", validation_alias="ASSETS_GITHUB_API_BASE_URL")
-    assets_repo_full_name: str = Field(
-        default="dvnuo/engineering-flow-platform-assets",
-        validation_alias="ASSETS_REPO_FULL_NAME",
-    )
-    assets_default_base_branch: str = Field(default="main", validation_alias="ASSETS_DEFAULT_BASE_BRANCH")
-    assets_bundle_root_dir: str = Field(default="requirement-bundles", validation_alias="ASSETS_BUNDLE_ROOT_DIR")
-    assets_bundle_list_cache_ttl_seconds: int = Field(
-        default=60,
-        validation_alias="ASSETS_BUNDLE_LIST_CACHE_TTL_SECONDS",
-    )
     delegation_rules_worker_enabled: bool = Field(default=True, validation_alias="DELEGATION_RULES_WORKER_ENABLED")
     delegation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="DELEGATION_RULES_WORKER_INTERVAL_SECONDS")
     delegation_rule_lock_lease_seconds: int = Field(default=120, validation_alias="DELEGATION_RULE_LOCK_LEASE_SECONDS")

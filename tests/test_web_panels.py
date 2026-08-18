@@ -26,8 +26,8 @@ class _FakeTaskListRepo:
     def __init__(self, _db, tasks):
         self._tasks = tasks
 
-    def list_visible_to_user(self, *, user_id, limit=None, offset=0):
-        _ = user_id
+    def list_visible_to_user(self, *, user_id, limit=None, offset=0, owner=None):
+        _ = (user_id, owner)
         window = self._tasks[offset:]
         if limit is not None:
             window = window[:limit]
@@ -320,16 +320,34 @@ def test_tasks_panel_uses_incremental_task_cards(monkeypatch):
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: user)
     monkeypatch.setattr(web_module, "AgentTaskRepository", lambda db: _FakeTaskListRepo(db, tasks))
+    monkeypatch.setattr(
+        web_module,
+        "WorkOverviewService",
+        lambda _db: SimpleNamespace(
+            build_tasks=lambda _user, scope: {
+                "scope": scope,
+                "health": {"tone": "success", "label": "Healthy", "headline": "Tasks are running smoothly", "score": 100, "critical": 0, "warning": 0},
+                "total": len(tasks),
+                "active": 0,
+                "done_24h": len(tasks),
+                "failed_24h": 0,
+                "segments": [{"status": "done", "label": "Done", "count": len(tasks), "percent": 100, "tone": "success"}],
+                "priority_items": [],
+                "workload": [],
+                "recent_activity": [],
+            }
+        ),
+    )
     client = TestClient(app)
 
     html = client.get("/app/tasks/panel?content_target=%23workspace-detail-content").text
     assert html.count('<article class="portal-task-card">') == 20
     assert "Task 00" in html
     assert "Task 20" not in html
-    assert 'hx-get="/app/tasks/list?offset=20&limit=20&content_target=%23workspace-detail-content"' in html
+    assert 'hx-get="/app/tasks/list?offset=20&limit=20&owner=all&content_target=%23workspace-detail-content"' in html
 
     next_html = client.get("/app/tasks/list?offset=20&limit=20&content_target=%23workspace-detail-content").text
     assert next_html.count('<article class="portal-task-card">') == 20
     assert "Task 20" in next_html
     assert "Task 40" not in next_html
-    assert 'hx-get="/app/tasks/list?offset=40&limit=20&content_target=%23workspace-detail-content"' in next_html
+    assert 'hx-get="/app/tasks/list?offset=40&limit=20&owner=all&content_target=%23workspace-detail-content"' in next_html
