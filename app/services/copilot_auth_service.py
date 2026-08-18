@@ -30,7 +30,7 @@ class CopilotAuthService:
     _HEADERS = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "GitHubCopilotChat/0.35.0",
+        "User-Agent": "GitHubCopilotChat/0.41.0",
     }
 
     def _utc_now(self) -> datetime:

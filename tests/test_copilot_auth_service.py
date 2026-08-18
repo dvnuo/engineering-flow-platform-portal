@@ -35,7 +35,7 @@ def test_normalize_github_oauth_base_url_cases():
 def test_start_uses_public_github_oauth_device_endpoint(monkeypatch):
     calls=[]
     monkeypatch.setattr(svc_module.httpx,"AsyncClient",lambda *a,**k:_Client(calls,lambda *_:_Resp(200,{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5})))
-    s,p=asyncio.run(CopilotAuthService().start_authorization("u","")); assert s==200; assert calls[0]["url"]=="https://github.com/login/device/code"; assert calls[0]["json"]["client_id"]==COPILOT_OAUTH_CLIENT_ID; assert calls[0]["headers"]["Accept"]=="application/json"; assert calls[0]["headers"]["Content-Type"]=="application/json"; assert calls[0]["headers"]["User-Agent"]=="GitHubCopilotChat/0.35.0"; assert p["auth_id"] and p["device_code"]
+    s,p=asyncio.run(CopilotAuthService().start_authorization("u","")); assert s==200; assert calls[0]["url"]=="https://github.com/login/device/code"; assert calls[0]["json"]["client_id"]==COPILOT_OAUTH_CLIENT_ID; assert calls[0]["headers"]["Accept"]=="application/json"; assert calls[0]["headers"]["Content-Type"]=="application/json"; assert calls[0]["headers"]["User-Agent"]=="GitHubCopilotChat/0.41.0"; assert p["auth_id"] and p["device_code"]
 
 def test_start_ignores_enterprise_base_url_for_copilot_oauth(monkeypatch):
     calls=[]
