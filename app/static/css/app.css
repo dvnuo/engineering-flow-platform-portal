@@ -3741,6 +3741,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-context-meter { width: 100%; height: 10px; border-radius: 999px; background: var(--portal-surface-muted); border: 1px solid var(--portal-border); overflow: hidden; }
 .portal-context-meter-fill { height: 100%; background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 25%); transition: width var(--portal-transition); }
+.portal-context-panel { display: grid; align-content: start; gap: 14px; }
 .portal-context-summary { display: grid; gap: 10px; }
 .portal-context-total-row { display: flex; justify-content: space-between; align-items: end; gap: 12px; }
 .portal-context-total { color: var(--portal-text); font-size: 24px; font-weight: 700; letter-spacing: -.02em; }

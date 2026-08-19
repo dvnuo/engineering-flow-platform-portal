@@ -7534,29 +7534,31 @@ function renderContextUsagePanel(snapshot) {
   const scopeLabel = snapshot?.scope === "last_request" ? "last model request" : "current session estimate";
 
   setToolPanel("Context", `
-    <div class="portal-context-summary">
-      <div class="portal-context-total-row">
-        <div>
-          <div class="portal-panel-title">Context window</div>
-          <div class="portal-context-total">${percent == null ? "Usage unavailable" : `≈${safe(String(percent))}% used`}</div>
+    <div class="portal-context-panel">
+      <div class="portal-context-summary">
+        <div class="portal-context-total-row">
+          <div>
+            <div class="portal-panel-title">Context window</div>
+            <div class="portal-context-total">${percent == null ? "Usage unavailable" : `≈${safe(String(percent))}% used`}</div>
+          </div>
+          <div class="portal-context-token-total">${usedTokens} / ${windowTokens} tokens</div>
         </div>
-        <div class="portal-context-token-total">${usedTokens} / ${windowTokens} tokens</div>
+        <div class="portal-context-meter"><div class="portal-context-meter-fill" style="width:${meterPercent}%"></div></div>
+        <div class="portal-panel-note">Model: ${safe(modelLabel)} · ${safe(scopeLabel)}</div>
       </div>
-      <div class="portal-context-meter"><div class="portal-context-meter-fill" style="width:${meterPercent}%"></div></div>
-      <div class="portal-panel-note">Model: ${safe(modelLabel)} · ${safe(scopeLabel)}</div>
-    </div>
-    <div class="portal-panel-section">
-      <div class="portal-panel-title">Coarse breakdown</div>
-      <div class="portal-context-categories">${categoryHtml || '<div class="portal-inline-state is-visible">No category data yet.</div>'}</div>
-      <div class="portal-panel-note">Approximate categories; they never expose or store raw prompt content.</div>
-    </div>
-    <div class="portal-panel-section portal-context-actions">
-      <button id="context-compact-btn" class="toolbar-primary-btn" type="button" ${compactDisabled ? "disabled" : ""}>
-        <i data-lucide="archive-restore" class="w-4 h-4"></i>
-        Compact conversation
-      </button>
-      ${compactReason ? `<div class="portal-panel-note">${safe(compactReason)}</div>` : ""}
-      <div class="portal-panel-note">Compact replaces older visible turns with a summary. Native sessions create a recovery checkpoint first; runtime support varies.</div>
+      <div class="portal-panel-section">
+        <div class="portal-panel-title">Coarse breakdown</div>
+        <div class="portal-context-categories">${categoryHtml || '<div class="portal-inline-state is-visible">No category data yet.</div>'}</div>
+        <div class="portal-panel-note">Approximate categories; they never expose or store raw prompt content.</div>
+      </div>
+      <div class="portal-panel-section portal-context-actions">
+        <button id="context-compact-btn" class="toolbar-primary-btn" type="button" ${compactDisabled ? "disabled" : ""}>
+          <i data-lucide="archive-restore" class="w-4 h-4"></i>
+          Compact conversation
+        </button>
+        ${compactReason ? `<div class="portal-panel-note">${safe(compactReason)}</div>` : ""}
+        <div class="portal-panel-note">Compact replaces older visible turns with a summary. Native sessions create a recovery checkpoint first; runtime support varies.</div>
+      </div>
     </div>
   `, "context");
   document.getElementById("context-compact-btn")?.addEventListener("click", compactCurrentConversation);

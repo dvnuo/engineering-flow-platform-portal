@@ -20,6 +20,7 @@ def test_context_usage_toolbar_panel_and_compact_contract_are_present():
     assert "Compact conversation" in source
     assert "category?.label" in source
     assert "Coarse breakdown" in source
+    assert 'class="portal-context-panel"' in source
     assert 'title: "Compact conversation"' in source
     assert "await showConfirm({" in source
     assert "window.confirm(" not in source
