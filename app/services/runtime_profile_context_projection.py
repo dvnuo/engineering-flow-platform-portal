@@ -114,7 +114,7 @@ def _with_default_llm_fields(llm: dict[str, Any], default_llm: dict[str, Any] | 
         return llm
 
     projected = deepcopy(llm)
-    for key in ("provider", "model"):
+    for key in ("provider", "model", "reasoning_effort", "max_context_tokens"):
         if not str(projected.get(key) or "").strip() and str(default_llm.get(key) or "").strip():
             projected[key] = default_llm.get(key)
     return projected
@@ -300,7 +300,11 @@ def project_canonical_for_runtime(
     projected = deepcopy(canonical) if isinstance(canonical, dict) else {}
     llm = projected.get("llm")
     if isinstance(llm, dict):
-        projected["llm"] = project_llm_for_runtime(llm, runtime_type)
+        projected_llm = project_llm_for_runtime(llm, runtime_type)
+        max_context_tokens = projected_llm.pop("max_context_tokens", None)
+        projected["llm"] = projected_llm
+        if not is_opencode_runtime_type(runtime_type) and isinstance(max_context_tokens, int):
+            projected["max_context_tokens"] = max_context_tokens
     projected = strip_opencode_runtime_restrictions(projected, runtime_type)
     return _with_native_cli_tool_instructions(projected, runtime_type)
 

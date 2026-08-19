@@ -59,6 +59,23 @@ def test_settings_merge_llm_tools_none_mode():
     assert "llm" not in merged
 
 
+def test_settings_merge_persists_runtime_profile_default_inference_controls():
+    merged, error = _settings_merge_payload(
+        {},
+        {
+            "__touch_llm": "1",
+            "llm_provider": "github_copilot",
+            "llm_model": "gpt-5.6-terra",
+            "llm_reasoning_effort": "max",
+            "llm_max_context_tokens": "1000000",
+        },
+    )
+
+    assert error is None
+    assert merged["llm"]["reasoning_effort"] == "max"
+    assert merged["llm"]["max_context_tokens"] == 1_000_000
+
+
 def test_settings_merge_llm_tools_custom_mode_dedupes_without_writing_llm_config():
     merged, error = _settings_merge_payload(
         {"llm": {"unexpected": {"enabled": True}}},

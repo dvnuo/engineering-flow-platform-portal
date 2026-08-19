@@ -5,7 +5,12 @@ from sqlalchemy.orm import Session
 from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
-from app.contracts.llm_catalog import PROVIDER_MODELS, normalize_provider
+from app.contracts.llm_catalog import (
+    DEFAULT_CONTEXT_SIZE,
+    DEFAULT_REASONING_EFFORT,
+    PROVIDER_MODELS,
+    normalize_provider,
+)
 from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 
@@ -45,6 +50,8 @@ class RuntimeProfileService:
                 "provider": "github_copilot",
                 "model": "gpt-5.6-terra",
                 "max_tokens": 64000,
+                "reasoning_effort": DEFAULT_REASONING_EFFORT,
+                "max_context_tokens": DEFAULT_CONTEXT_SIZE,
             },
             "proxy": {"enabled": False},
             "jira": {

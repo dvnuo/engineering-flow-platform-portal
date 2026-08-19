@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 
 from app.contracts.runtime_type import ALLOWED_RUNTIME_TYPES, normalize_runtime_type, normalize_runtime_type_or_default
@@ -126,8 +126,16 @@ class AgentStatusResponse(BaseModel):
 class AgentChatModelProfileResponse(BaseModel):
     runtime_profile_id: Optional[str] = None
     revision: Optional[int] = None
+    runtime_type: str = "native"
     provider: str = ""
     current_model: str = ""
+    current_reasoning_effort: str = "high"
+    current_max_context_tokens: Optional[int] = None
+    available_models: list[str] = Field(default_factory=list)
+    reasoning_efforts: list[str] = Field(default_factory=list)
+    context_sizes: list[int] = Field(default_factory=list)
+    supports_reasoning_effort: bool = False
+    supports_context_size: bool = False
 
 
 class AgentResponse(BaseModel):

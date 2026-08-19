@@ -16,6 +16,9 @@ class DelegationRuleCreate(BaseModel):
     task_prompt: str = ""
     source_scope: dict[str, Any] = Field(default_factory=dict)
     source_conditions: dict[str, Any] = Field(default_factory=dict)
+    model_override: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    max_context_tokens: Optional[int] = None
 
     @field_validator("name", "target_agent_id", "skill_name", "source")
     @classmethod
@@ -48,6 +51,9 @@ class DelegationRuleUpdate(BaseModel):
     task_prompt: Optional[str] = None
     source_scope: Optional[dict[str, Any]] = None
     source_conditions: Optional[dict[str, Any]] = None
+    model_override: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    max_context_tokens: Optional[int] = None
 
     @field_validator("name", "target_agent_id", "skill_name", "source")
     @classmethod
@@ -97,6 +103,9 @@ class DelegationRuleRead(BaseModel):
     schedule: dict[str, Any] = Field(default_factory=dict)
     schedule_summary: str = ""
     task_prompt: str = ""
+    model_override: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    max_context_tokens: Optional[int] = None
     scope_json: str
     trigger_config_json: str
     task_config_json: str
@@ -157,6 +166,10 @@ class DelegationRuleRead(BaseModel):
         data.setdefault("source", data.get("trigger_type"))
         data.setdefault("skill_name", task_config.get("skill_name") or "")
         data.setdefault("task_prompt", task_config.get("task_prompt") or "")
+        inference = task_config.get("inference") if isinstance(task_config.get("inference"), dict) else {}
+        data.setdefault("model_override", inference.get("model"))
+        data.setdefault("reasoning_effort", inference.get("reasoning_effort"))
+        data.setdefault("max_context_tokens", inference.get("max_context_tokens"))
         data.setdefault("interval_seconds", int(schedule.get("interval_seconds") or 60))
         data.setdefault("schedule", schedule)
         data.setdefault("source_scope", source_scope)

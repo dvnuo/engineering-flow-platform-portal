@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Agent, AgentExecution, AgentTask, User
+from app.models import Agent, AgentExecution, AgentTask, RuntimeProfile, User
 from app.services.auth_service import hash_password
 
 
@@ -127,6 +127,49 @@ def test_create_agent_async_task_rejects_blank_skill_and_content():
             json={"assignee_agent_id": agent.id, "skill_name": "build", "task_content": "   "},
         )
         assert blank_content.status_code == 400
+    finally:
+        cleanup()
+
+
+def test_create_agent_async_task_persists_request_inference_settings(monkeypatch):
+    client, db, agent, cleanup = _client()
+    monkeypatch.setattr("app.api.agent_tasks.task_dispatcher_service.dispatch_task_in_background", lambda _task_id: None)
+    try:
+        profile = RuntimeProfile(
+            owner_user_id=agent.owner_user_id,
+            name="Inference settings",
+            config_json=json.dumps(
+                {"llm": {"provider": "github_copilot", "model": "gpt-5.6-terra", "reasoning_effort": "high"}}
+            ),
+            is_default=True,
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+        agent.runtime_profile_id = profile.id
+        agent.runtime_type = "native"
+        db.add(agent)
+        db.commit()
+
+        response = client.post(
+            "/api/agent-tasks/async",
+            json={
+                "assignee_agent_id": agent.id,
+                "skill_name": "implement",
+                "task_content": "Build it.",
+                "model_override": "gpt-5.6-sol",
+                "reasoning_effort": "xhigh",
+                "max_context_tokens": 256_000,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = json.loads(db.get(AgentTask, response.json()["id"]).input_payload_json)
+        assert payload["inference"] == {
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "xhigh",
+            "max_context_tokens": 256_000,
+        }
     finally:
         cleanup()
 

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
+from app.contracts.llm_catalog import CONTEXT_SIZE_PRESETS, SUPPORTED_REASONING_EFFORTS
 from app.db import SessionLocal
 from app.repositories.agent_execution_repo import AgentExecutionRepository
 from app.repositories.agent_repo import AgentRepository
@@ -1023,6 +1024,8 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     if is_section_touched("llm"):
         provider_value = (form.get("llm_provider") or "").strip()
         model_value = (form.get("llm_model") or "").strip()
+        reasoning_effort_value = (form.get("llm_reasoning_effort") or "").strip().lower()
+        max_context_tokens_value = (form.get("llm_max_context_tokens") or "").strip()
         api_key_value = (form.get("llm_api_key") or "").strip()
         if "llm_provider" in form:
             if provider_value:
@@ -1034,6 +1037,18 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 llm["model"] = model_value
             else:
                 llm.pop("model", None)
+        if "llm_reasoning_effort" in form:
+            if reasoning_effort_value not in SUPPORTED_REASONING_EFFORTS:
+                return config_payload, "Thinking level must be a supported value."
+            llm["reasoning_effort"] = reasoning_effort_value
+        if "llm_max_context_tokens" in form:
+            try:
+                max_context_tokens = int(max_context_tokens_value)
+            except (TypeError, ValueError):
+                return config_payload, "Context size must be a supported value."
+            if max_context_tokens not in CONTEXT_SIZE_PRESETS:
+                return config_payload, "Context size must be 64K, 256K, or 1M."
+            llm["max_context_tokens"] = max_context_tokens
         if api_key_value:
             llm["api_key"] = api_key_value
         elif "llm_api_key" in form or is_clear("llm_api_key_clear"):

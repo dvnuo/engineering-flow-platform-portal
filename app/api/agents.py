@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.contracts.llm_catalog import SUPPORTED_REASONING_EFFORTS
 from app.contracts.runtime_type import InvalidRuntimeType, normalize_runtime_type, normalize_runtime_type_or_default
 from app.db import get_db
 from app.deps import get_current_user
@@ -25,6 +26,7 @@ from app.schemas.agent import (
 )
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.k8s_service import K8sService
+from app.services.inference_settings_service import resolve_agent_inference_profile
 from app.services.proxy_service import ProxyService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
@@ -507,27 +509,21 @@ def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), 
     if not _can_read(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    runtime_profile_id = str(agent.runtime_profile_id or "").strip()
-    if not runtime_profile_id:
-        return AgentChatModelProfileResponse()
-
-    profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
-    if not profile:
-        return AgentChatModelProfileResponse()
-
-    parsed = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-    llm = parsed.get("llm") if isinstance(parsed, dict) else {}
-    if not isinstance(llm, dict):
-        llm = {}
-    provider = RuntimeProfileService.normalize_managed_llm_provider(str(llm.get("provider") or ""))
-    current_model = str(llm.get("model") or "").strip()
-
-    return {
-        "runtime_profile_id": profile.id,
-        "revision": profile.revision,
-        "provider": provider,
-        "current_model": current_model,
-    }
+    profile = resolve_agent_inference_profile(db, agent)
+    return AgentChatModelProfileResponse(
+        runtime_profile_id=profile.runtime_profile_id or None,
+        revision=profile.revision,
+        runtime_type=profile.runtime_type,
+        provider=profile.provider,
+        current_model=profile.current_model,
+        current_reasoning_effort=profile.current_reasoning_effort,
+        current_max_context_tokens=profile.current_max_context_tokens,
+        available_models=list(profile.available_models),
+        reasoning_efforts=list(SUPPORTED_REASONING_EFFORTS) if profile.supports_reasoning_effort else [],
+        context_sizes=list(profile.context_sizes) if profile.supports_context_size else [],
+        supports_reasoning_effort=profile.supports_reasoning_effort,
+        supports_context_size=profile.supports_context_size,
+    )
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)

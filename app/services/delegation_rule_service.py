@@ -33,6 +33,7 @@ from app.services.provider_config_resolver import (
     resolve_jira_for_agent,
 )
 from app.services.task_dispatcher import TaskDispatcherService
+from app.services.inference_settings_service import normalize_agent_inference_overrides
 
 
 AGENT_ASYNC_TASK_TYPE = "agent_async_task"
@@ -144,6 +145,21 @@ class DelegationRuleService:
             interval_seconds=interval_seconds,
         )
         task_config = {"skill_name": skill_name}
+        agent = AgentRepository(self.db).get_by_id(payload.target_agent_id)
+        try:
+            inference = normalize_agent_inference_overrides(
+                self.db,
+                agent,
+                {
+                    "model_override": payload.model_override,
+                    "reasoning_effort": payload.reasoning_effort,
+                    "max_context_tokens": payload.max_context_tokens,
+                },
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if inference:
+            task_config["inference"] = inference
         if source == "timer":
             task_prompt = str(payload.task_prompt or "").strip()
             if not task_prompt:
@@ -224,6 +240,32 @@ class DelegationRuleService:
                 task_config["task_prompt"] = task_prompt
             else:
                 task_config.pop("task_prompt", None)
+            update_data["task_config_json"] = self._json(task_config)
+        inference_fields = {"model_override", "reasoning_effort", "max_context_tokens"}
+        if inference_fields.intersection(data) or "target_agent_id" in data:
+            raw_inference = task_config.get("inference") if isinstance(task_config.get("inference"), dict) else {}
+            raw_inference = dict(raw_inference)
+            if "model_override" in data:
+                if data.get("model_override"):
+                    raw_inference["model"] = data["model_override"]
+                else:
+                    raw_inference.pop("model", None)
+            for field in ("reasoning_effort", "max_context_tokens"):
+                if field not in data:
+                    continue
+                if data.get(field) is None or data.get(field) == "":
+                    raw_inference.pop(field, None)
+                else:
+                    raw_inference[field] = data[field]
+            target_agent = AgentRepository(self.db).get_by_id(target_agent_id)
+            try:
+                normalized_inference = normalize_agent_inference_overrides(self.db, target_agent, raw_inference)
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            if normalized_inference:
+                task_config["inference"] = normalized_inference
+            else:
+                task_config.pop("inference", None)
             update_data["task_config_json"] = self._json(task_config)
         if "interval_seconds" in data:
             interval = int(data["interval_seconds"] or 60)
@@ -499,6 +541,9 @@ class DelegationRuleService:
             "user_task": task_content,
             "delegation": delegation_payload,
         }
+        inference = task_config.get("inference")
+        if isinstance(inference, dict) and inference:
+            input_payload["inference"] = dict(inference)
         try:
             task = self.task_repo.create(
                 id=task_id,

@@ -28,6 +28,7 @@ from app.services.agent_execution_registry import (
     upsert_task_execution_queued_best_effort,
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
+from app.services.inference_settings_service import apply_inference_overrides_to_runtime_metadata
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
 
 logger = logging.getLogger(__name__)
@@ -857,6 +858,14 @@ class TaskDispatcherService:
                     "source_ref": task.id,
                 }
                 metadata = self.runtime_execution_context_service.build_runtime_metadata(db, agent, metadata)
+                inference = input_payload.get("inference")
+                if isinstance(inference, dict) and inference:
+                    metadata = apply_inference_overrides_to_runtime_metadata(
+                        metadata,
+                        inference,
+                        runtime_type=str(getattr(agent, "runtime_type", None) or "native"),
+                        provider=metadata.get("provider"),
+                    )
                 metadata["trace_id"] = trace_id
                 metadata["span_id"] = dispatch_span_id
                 metadata["parent_span_id"] = parent_span_id

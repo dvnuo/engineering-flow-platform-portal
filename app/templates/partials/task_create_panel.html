@@ -43,6 +43,14 @@
               <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
               {% endfor %}
             </select>
+            <details class="portal-inference-settings" data-inference-settings>
+              <summary><span>Run settings</span><small data-inference-summary>Agent defaults</small></summary>
+              <div class="portal-inference-settings-grid">
+                <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="model_override" class="portal-form-select" data-inference-model disabled><option value="">Agent default</option></select></label>
+                <label class="portal-form-label" data-inference-reasoning-field><span class="portal-form-label">Thinking level</span><select name="reasoning_effort" class="portal-form-select" data-inference-reasoning disabled><option value="">Agent default</option></select></label>
+                <label class="portal-form-label" data-inference-context-field><span class="portal-form-label">Context size</span><select name="max_context_tokens" class="portal-form-select" data-inference-context disabled><option value="">Automatic</option></select></label>
+              </div>
+            </details>
           </div>
         </section>
 

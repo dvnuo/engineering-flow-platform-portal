@@ -264,6 +264,10 @@ def test_runtime_profile_panel_renders_view_defaults_for_sparse_profiles(monkeyp
         assert 'name="jira_instance_count" value="0"' in resp.text
         assert 'name="confluence_instance_count" value="0"' in resp.text
         assert '<option value="github_copilot" selected>GitHub Copilot</option>' in resp.text
+        assert 'name="llm_reasoning_effort"' in resp.text
+        assert '<option value="high" selected>High</option>' in resp.text
+        assert 'name="llm_max_context_tokens"' in resp.text
+        assert '<option value="256000" selected>256K</option>' in resp.text
         assert 'name="llm_tools_mode"' not in resp.text
         assert 'data-current-value="" data-initial-value=""' in resp.text
         assert "PR review requests" not in resp.text

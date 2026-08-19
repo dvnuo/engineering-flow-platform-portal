@@ -119,6 +119,39 @@ def test_chat_payload_enrichment_applies_metadata_and_model_override():
     assert 'portal_user_id' not in enriched
 
 
+def test_chat_payload_enrichment_projects_all_request_inference_overrides():
+    metadata = {
+        "provider": "github_copilot",
+        "runtime_profile": {
+            "source": "portal.runtime_profile",
+            "config": {"llm": {"provider": "github_copilot", "model": "gpt-5.6-terra"}},
+        },
+    }
+    enriched = proxy._enrich_chat_payload_with_runtime_metadata(
+        {
+            "message": "hello",
+            "model_override": "gpt-5.6-sol",
+            "reasoning_effort": "xhigh",
+            "max_context_tokens": 256000,
+        },
+        metadata,
+        object(),
+        runtime_type="native",
+        inference_overrides={
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "xhigh",
+            "max_context_tokens": 256000,
+        },
+    )
+
+    projected = enriched["metadata"]
+    assert projected["model"] == "gpt-5.6-sol"
+    assert projected["reasoning_effort"] == "xhigh"
+    assert projected["max_context_tokens"] == 256000
+    assert projected["runtime_profile"]["config"]["llm"]["reasoning_effort"] == "xhigh"
+    assert projected["runtime_profile"]["config"]["max_context_tokens"] == 256000
+
+
 def test_runtime_metadata_carries_concise_runtime_profile_context(monkeypatch):
     import app.services.runtime_execution_context_service as module
     from app.services.runtime_execution_context_service import RuntimeExecutionContextService

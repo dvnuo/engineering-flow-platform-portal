@@ -5,6 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
+from app.contracts.llm_catalog import CONTEXT_SIZE_PRESETS, SUPPORTED_REASONING_EFFORTS
+
 ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "llm",
     "proxy",
@@ -30,6 +32,7 @@ PORTAL_MANAGED_FIELD_TREE = {
         "temperature": True,
         "max_tokens": True,
         "reasoning_effort": True,
+        "max_context_tokens": True,
         # Only per-user credentials are persisted. AI Platform endpoints and
         # transport headers come from app/config.py at runtime projection time.
         "ai_platform": {
@@ -574,6 +577,19 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy.pop("api_key", None)
         llm_copy.pop("oauth", None)
         llm_copy.pop("oauth_by_runtime", None)
+        reasoning_effort = str(llm_copy.get("reasoning_effort") or "").strip().lower()
+        if reasoning_effort in SUPPORTED_REASONING_EFFORTS:
+            llm_copy["reasoning_effort"] = reasoning_effort
+        else:
+            llm_copy.pop("reasoning_effort", None)
+        try:
+            max_context_tokens = int(llm_copy.get("max_context_tokens"))
+        except (TypeError, ValueError):
+            max_context_tokens = None
+        if max_context_tokens in CONTEXT_SIZE_PRESETS:
+            llm_copy["max_context_tokens"] = max_context_tokens
+        else:
+            llm_copy.pop("max_context_tokens", None)
         llm = llm_copy
 
     if isinstance(llm, dict):
