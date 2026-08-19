@@ -9074,14 +9074,8 @@ const managedProviderModels = {
   ],
 };
 
-const managedReasoningEfforts = ["low", "medium", "high", "xhigh"];
-const managedModelContextWindows = {
-  "gpt-5.4": 400000,
-  "gpt-5.5": 400000,
-  "gpt-5.6-luna": 328000,
-  "gpt-5.6-sol": 400000,
-  "gpt-5.6-terra": 400000,
-};
+const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
+const managedContextSizes = [64000, 256000, 1000000];
 
 function inferenceModelLabel(value) {
   const normalized = String(value || "").trim();
@@ -9093,21 +9087,19 @@ function inferenceModelLabel(value) {
 }
 
 function inferenceReasoningLabel(value) {
-  const labels = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high" };
+  const labels = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
   return labels[String(value || "").trim().toLowerCase()] || "Default";
 }
 
 function inferenceContextLabel(value, fallback = "Auto") {
   const tokens = Number(value || 0);
   if (!Number.isFinite(tokens) || tokens <= 0) return fallback;
-  return `${Math.round(tokens / 1000)}K`;
+  return tokens === 1000000 ? "1M" : `${Math.round(tokens / 1000)}K`;
 }
 
 function contextSizeOptionsForModel(model, fallback = []) {
-  const windowSize = managedModelContextWindows[String(model || "").trim()] || 0;
-  const presets = [64000, 128000, 256000].filter((value) => !windowSize || value < windowSize);
-  if (windowSize) presets.push(windowSize);
-  const source = presets.length ? presets : fallback;
+  void model;
+  const source = managedContextSizes.length ? managedContextSizes : fallback;
   return Array.from(new Set((source || []).map(Number).filter((value) => Number.isFinite(value) && value > 0)));
 }
 
@@ -9209,7 +9201,7 @@ function renderComposerModelSelectorForAgent(agentId) {
       const option = document.createElement("option");
       option.value = String(tokens);
       option.textContent = index === contextSizes.length - 1
-        ? `Model max (${inferenceContextLabel(tokens)})`
+        ? `Maximum (${inferenceContextLabel(tokens)})`
         : inferenceContextLabel(tokens);
       dom.chatContextSelect.appendChild(option);
     });
@@ -12100,7 +12092,7 @@ async function populateInferenceSettingsForForm(formEl, initial = null) {
     contextSizes.forEach((tokens, index) => appendSelectOption(
       contextSelect,
       tokens,
-      index === contextSizes.length - 1 ? `Model max (${inferenceContextLabel(tokens)})` : inferenceContextLabel(tokens),
+      index === contextSizes.length - 1 ? `Maximum (${inferenceContextLabel(tokens)})` : inferenceContextLabel(tokens),
       Number(initialSettings.max_context_tokens) === Number(tokens),
     ));
     const supportsContext = profile?.supports_context_size === true;

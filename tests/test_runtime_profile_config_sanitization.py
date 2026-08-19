@@ -21,6 +21,21 @@ def _assert_cli_instruction_texts(instruction_texts):
         assert expected in text
 
 
+def test_llm_default_inference_controls_are_sanitized_to_supported_values():
+    sanitized = sanitize_runtime_profile_config_dict(
+        {"llm": {"reasoning_effort": " MAX ", "max_context_tokens": "1000000"}}
+    )
+    assert sanitized["llm"] == {
+        "reasoning_effort": "max",
+        "max_context_tokens": 1_000_000,
+    }
+
+    unsupported = sanitize_runtime_profile_config_dict(
+        {"llm": {"reasoning_effort": "extreme", "max_context_tokens": 128_000}}
+    )
+    assert "llm" not in unsupported
+
+
 def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config():
     raw = {
         "jira": {"enabled": True, "instances": [{"name": "  J1 ", "url": " https://a.atlassian.net/ ", "username": " u ", "password": " p ", "token": " t ", "project": " PRJ ", "x": "bad"}, {"name": "", "url": "", "password": "drop"}]},

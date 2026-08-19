@@ -163,7 +163,7 @@ def test_api_create_and_update_delegation_inference_settings():
             {
                 "model_override": "gpt-5.6-sol",
                 "reasoning_effort": "xhigh",
-                "max_context_tokens": 128_000,
+                "max_context_tokens": 256_000,
             }
         )
         created = client.post("/api/delegation-rules", json=payload)
@@ -172,11 +172,11 @@ def test_api_create_and_update_delegation_inference_settings():
         body = created.json()
         assert body["model_override"] == "gpt-5.6-sol"
         assert body["reasoning_effort"] == "xhigh"
-        assert body["max_context_tokens"] == 128_000
+        assert body["max_context_tokens"] == 256_000
         assert json.loads(body["task_config_json"])["inference"] == {
             "model": "gpt-5.6-sol",
             "reasoning_effort": "xhigh",
-            "max_context_tokens": 128_000,
+            "max_context_tokens": 256_000,
         }
 
         updated = client.patch(

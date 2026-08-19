@@ -549,10 +549,10 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
             "provider": "github_copilot",
             "current_model": "gpt-5.5",
             "current_reasoning_effort": "high",
-            "current_max_context_tokens": None,
+            "current_max_context_tokens": 256000,
             "available_models": ["gpt-5.4", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"],
-            "reasoning_efforts": ["low", "medium", "high", "xhigh"],
-            "context_sizes": [64000, 128000, 256000, 400000],
+            "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"],
+            "context_sizes": [64000, 256000, 1000000],
             "supports_reasoning_effort": True,
             "supports_context_size": True,
         }

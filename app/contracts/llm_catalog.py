@@ -39,22 +39,11 @@ PROVIDER_DEFAULT_MODEL: dict[str, str] = {
 # Request-level inference controls. Context-size controls are currently
 # supported by the native runtime; the OpenCode adapter exposes reasoning as a
 # model variant but owns its context window internally.
-SUPPORTED_REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
+SUPPORTED_REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_REASONING_EFFORT = "high"
-
-MODEL_CONTEXT_WINDOWS: dict[str, dict[str, int]] = {
-    COPILOT_PROVIDER: {
-        "gpt-5.4": 400_000,
-        "gpt-5.5": 400_000,
-        "gpt-5.6-luna": 328_000,
-        "gpt-5.6-sol": 400_000,
-        "gpt-5.6-terra": 400_000,
-    },
-    AI_PLATFORM_PROVIDER: {
-        "gpt-5.4": 400_000,
-    },
-}
-CONTEXT_SIZE_PRESETS: tuple[int, ...] = (64_000, 128_000, 256_000)
+CONTEXT_SIZE_PRESETS: tuple[int, ...] = (64_000, 256_000, 1_000_000)
+DEFAULT_CONTEXT_SIZE = 256_000
+MAX_CONTEXT_SIZE = CONTEXT_SIZE_PRESETS[-1]
 
 # Runtime Profiles persist only the user-specific AI Platform credentials.
 # Endpoints and transport headers are deployment-managed in app/config.py and
@@ -97,14 +86,14 @@ def default_model_for_provider(provider: str | None) -> str:
 def model_context_window(provider: str | None, model: str | None) -> int | None:
     normalized_provider = normalize_provider(provider)
     normalized_model = str(model or "").strip()
-    return MODEL_CONTEXT_WINDOWS.get(normalized_provider, {}).get(normalized_model)
+    if normalized_model not in PROVIDER_MODELS.get(normalized_provider, ()):
+        return None
+    return MAX_CONTEXT_SIZE
 
 
 def context_size_options(provider: str | None, model: str | None) -> tuple[int, ...]:
-    window = model_context_window(provider, model)
-    if window is None:
-        return CONTEXT_SIZE_PRESETS
-    return tuple(dict.fromkeys((*[value for value in CONTEXT_SIZE_PRESETS if value < window], window)))
+    _ = provider, model
+    return CONTEXT_SIZE_PRESETS
 
 
 def coerce_to_provider_model(provider: str | None, model: str | None) -> str:

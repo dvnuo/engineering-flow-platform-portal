@@ -72,6 +72,8 @@ def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
     assert cfg["llm"]["model"] == "gpt-5.6-terra"
     assert cfg["llm"]["max_tokens"] == 64000
+    assert cfg["llm"]["reasoning_effort"] == "high"
+    assert cfg["llm"]["max_context_tokens"] == 256000
     assert "temperature" not in cfg["llm"]
     assert "max_retries" not in cfg["llm"]
     assert "retry_delay" not in cfg["llm"]

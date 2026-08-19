@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from sqlalchemy.orm import Session
 
 from app.contracts.llm_catalog import (
+    DEFAULT_CONTEXT_SIZE,
     DEFAULT_REASONING_EFFORT,
     SUPPORTED_REASONING_EFFORTS,
     context_size_options,
@@ -66,8 +67,16 @@ def resolve_agent_inference_profile(db: Session, agent) -> AgentInferenceProfile
     reasoning_effort = str(llm.get("reasoning_effort") or DEFAULT_REASONING_EFFORT).strip().lower()
     if reasoning_effort not in SUPPORTED_REASONING_EFFORTS:
         reasoning_effort = DEFAULT_REASONING_EFFORT
-    raw_context = parsed.get("max_context_tokens") if isinstance(parsed, dict) else None
-    current_context = raw_context if isinstance(raw_context, int) and not isinstance(raw_context, bool) and raw_context > 0 else None
+    raw_context = llm.get("max_context_tokens")
+    current_context = None
+    if (
+        isinstance(raw_context, int)
+        and not isinstance(raw_context, bool)
+        and raw_context in context_size_options(provider, current_model)
+    ):
+        current_context = raw_context
+    elif provider and runtime_type != "opencode":
+        current_context = DEFAULT_CONTEXT_SIZE
     return AgentInferenceProfile(
         runtime_profile_id=runtime_profile_id,
         revision=getattr(profile, "revision", None),
@@ -115,11 +124,13 @@ def normalize_agent_inference_overrides(
     if context_value is not None and context_value != "":
         if isinstance(context_value, bool) or not isinstance(context_value, int):
             raise ValueError("max_context_tokens must be an integer")
-        if context_value < 1:
-            raise ValueError("max_context_tokens must be greater than 0")
         if not profile.supports_context_size:
             raise ValueError("max_context_tokens is not supported by this agent runtime")
         selected_model = normalized.get("model") or profile.current_model or default_model_for_provider(profile.provider)
+        supported_context_sizes = context_size_options(profile.provider, selected_model)
+        if context_value not in supported_context_sizes:
+            supported = ", ".join(str(value) for value in supported_context_sizes)
+            raise ValueError(f"max_context_tokens must be one of: {supported}")
         max_window = model_context_window(profile.provider, selected_model)
         if max_window is not None and context_value > max_window:
             raise ValueError(f"max_context_tokens cannot exceed {max_window} for {selected_model}")
