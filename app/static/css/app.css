@@ -267,14 +267,12 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   align-items: center;
   gap: 3px;
   padding: 4px;
-  border: 1px solid var(--portal-border);
   border-radius: 16px;
   background: color-mix(in srgb, var(--portal-surface), transparent 8%);
-  box-shadow: 0 8px 24px rgba(2, 6, 23, .08);
 }
 .portal-header-action {
   min-width: 0;
-  height: 32px;
+  height: 36px;
   padding: 0 10px;
   border: 0;
   border-radius: 11px;
