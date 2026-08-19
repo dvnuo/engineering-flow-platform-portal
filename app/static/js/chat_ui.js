@@ -71,6 +71,8 @@ const dom = {
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addDelegationBtn: document.getElementById("add-delegation-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
+  contextUsageBtn: document.getElementById("btn-context"),
+  contextUsageLabel: document.getElementById("context-usage-label"),
   composerAttachBtn: document.getElementById("composer-attach-btn"),
   chatModelWrap: document.getElementById("composer-model-wrap"),
   chatModelSelect: document.getElementById("composer-model-select"),
@@ -128,6 +130,7 @@ const UI_LAYOUT_PREFS_STORAGE_KEY = "portal-ui-layout-prefs-v1";
 const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "details",
   "sessions",
+  "context",
   "server-files",
   "skills",
   "usage",
@@ -217,6 +220,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   const assistantOnlyControls = [
     document.getElementById("btn-sessions"),
     dom.headerNewChatBtn,
+    dom.contextUsageBtn,
     dom.detailToggle,
     document.getElementById("btn-files"),
   ];
@@ -768,6 +772,9 @@ function createDefaultChatState() {
     modelOverride: "",
     reasoningEffortOverride: "",
     maxContextTokensOverride: null,
+    contextUsage: null,
+    contextUsageLoading: false,
+    compactingContext: false,
   };
 }
 
@@ -819,9 +826,12 @@ function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this a
 function syncSelectedAgentChatActionControls() {
   const agentId = state.selectedAgentId;
   const sessionsBtn = document.getElementById("btn-sessions");
+  const contextBtn = dom.contextUsageBtn;
   if (!agentId) {
     setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
+    setButtonDisabled(contextBtn, true, "Select an assistant first");
+    if (dom.contextUsageLabel) dom.contextUsageLabel.textContent = "Context —";
     setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
     if (dom.abortChatRunBtn) {
@@ -851,6 +861,19 @@ function syncSelectedAgentChatActionControls() {
 
   setButtonDisabled(dom.headerNewChatBtn, disabled, disabled ? title : "");
   setButtonDisabled(sessionsBtn, disabled, disabled ? title : "");
+  const hasSession = Boolean(chatState?.sessionId);
+  const contextDisabled = disabled || !hasSession || chatState?.contextUsageLoading || chatState?.compactingContext;
+  const contextTitle = busy
+    ? title
+    : !hasSession
+      ? "Start a conversation to inspect context usage"
+      : chatState?.compactingContext
+        ? "Compacting conversation…"
+        : chatState?.contextUsageLoading
+          ? "Loading context usage…"
+          : "Context usage";
+  setButtonDisabled(contextBtn, contextDisabled, contextTitle);
+  syncContextUsageToolbar(chatState?.contextUsage);
   setButtonDisabled(dom.homeStartChatBtn, disabled, disabled ? title : "");
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = busy || needsStart;
 }
@@ -4088,6 +4111,18 @@ function applyToolPanelState() {
   dom.portalShell?.classList.toggle("is-tool-panel-pinned", pinned);
   dom.toolBackdrop?.classList.toggle("hidden", !open || pinned);
 
+  const utilityButtons = {
+    sessions: document.getElementById("btn-sessions"),
+    context: dom.contextUsageBtn,
+    "server-files": document.getElementById("btn-files"),
+    details: dom.detailToggle,
+  };
+  Object.entries(utilityButtons).forEach(([panelKey, button]) => {
+    const active = open && state.activeUtilityPanel === panelKey;
+    button?.classList.toggle("is-active", active);
+    button?.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+
   if (dom.pinToolPanel) {
     dom.pinToolPanel.classList.toggle("is-active", pinned);
     dom.pinToolPanel.setAttribute("aria-pressed", pinned ? "true" : "false");
@@ -4908,6 +4943,8 @@ async function syncSelectedAgentState() {
     setChatStatus("Ready");
     setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.contextUsageBtn, true, "Select an assistant first");
+    syncContextUsageToolbar(null);
     setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
     dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
     dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
@@ -6881,8 +6918,17 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   }
   chatState.currentRequest = null;
   chatState.inflightEventStream = null;
+  if (payload?.context_usage && typeof payload.context_usage === "object") {
+    chatState.contextUsage = payload.context_usage;
+  }
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (typeof syncSelectedAgentChatActionControls === "function") syncSelectedAgentChatActionControls();
+  if (finalSessionId) {
+    void refreshContextUsageForAgent(agentIdAtSend, finalSessionId, {
+      renderPanel: agentIdAtSend === state.selectedAgentId && state.activeUtilityPanel === "context",
+      silent: true,
+    });
+  }
   if (state.selectedAgentId !== agentIdAtSend) {
     chatState.needsReload = true;
     markAgentUnread(agentIdAtSend, "completed");
@@ -7303,6 +7349,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
     const requiresSelectedAssistant = new Set([
       "details",
       "sessions",
+      "context",
       "server-files",
       "skills",
       "usage",
@@ -7333,6 +7380,11 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
           persistPreference: false,
         });
       }
+      return;
+    }
+
+    if (panelKey === "context") {
+      await openContextUsagePanel();
       return;
     }
 
@@ -7424,6 +7476,176 @@ async function toggleSessionsDrawer() {
     return;
   }
   await openSessionsPanel();
+}
+
+function contextUsagePercent(snapshot) {
+  const value = Number(snapshot?.usage_percent);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function formatContextTokens(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return "—";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(number);
+}
+
+function syncContextUsageToolbar(snapshot = null) {
+  if (!dom.contextUsageLabel) return;
+  const percent = contextUsagePercent(snapshot);
+  dom.contextUsageLabel.textContent = percent == null
+    ? "Context —"
+    : `Context ≈${Math.round(percent)}%`;
+  if (dom.contextUsageBtn && !dom.contextUsageBtn.disabled) {
+    const detail = percent == null
+      ? "Context usage is not available yet"
+      : `Context usage: approximately ${percent}%`;
+    dom.contextUsageBtn.title = detail;
+    dom.contextUsageBtn.setAttribute("aria-label", detail);
+  }
+}
+
+function renderContextUsagePanel(snapshot) {
+  const percent = contextUsagePercent(snapshot);
+  const meterPercent = percent == null ? 0 : Math.max(0, Math.min(100, percent));
+  const usedTokens = formatContextTokens(snapshot?.used_tokens);
+  const windowTokens = formatContextTokens(snapshot?.context_window_tokens || snapshot?.model?.context_window_tokens);
+  const categories = Array.isArray(snapshot?.categories) ? snapshot.categories : [];
+  const categoryHtml = categories.map((category) => {
+    const categoryPercent = Number(category?.percent_of_used);
+    const normalizedPercent = Number.isFinite(categoryPercent)
+      ? Math.max(0, Math.min(100, categoryPercent))
+      : 0;
+    return `
+      <div class="portal-context-category">
+        <div class="portal-context-category-head">
+          <span>${safe(category?.label || category?.id || "Other")}</span>
+          <span>${formatContextTokens(category?.tokens)} · ${Number.isFinite(categoryPercent) ? `${categoryPercent}%` : "—"}</span>
+        </div>
+        <div class="portal-context-category-meter"><span style="width:${normalizedPercent}%"></span></div>
+      </div>`;
+  }).join("");
+  const compact = snapshot?.compact && typeof snapshot.compact === "object" ? snapshot.compact : {};
+  const canCompact = canWriteAgent(getSelectedAgent());
+  const compactDisabled = !canCompact || compact.supported === false || compact.eligible === false || Boolean(compact.in_progress);
+  const compactReason = !canCompact
+    ? "Only the assistant owner or an administrator can compact this conversation."
+    : compact?.reason || (compact.supported === false ? "Manual Compact is not supported by this runtime." : "");
+  const modelLabel = [snapshot?.model?.provider_id, snapshot?.model?.model_id].filter(Boolean).join(" / ") || "—";
+  const scopeLabel = snapshot?.scope === "last_request" ? "last model request" : "current session estimate";
+
+  setToolPanel("Context", `
+    <div class="portal-context-panel">
+      <div class="portal-context-summary">
+        <div class="portal-context-total-row">
+          <div>
+            <div class="portal-panel-title">Context window</div>
+            <div class="portal-context-total">${percent == null ? "Usage unavailable" : `≈${safe(String(percent))}% used`}</div>
+          </div>
+          <div class="portal-context-token-total">${usedTokens} / ${windowTokens} tokens</div>
+        </div>
+        <div class="portal-context-meter"><div class="portal-context-meter-fill" style="width:${meterPercent}%"></div></div>
+        <div class="portal-panel-note">Model: ${safe(modelLabel)} · ${safe(scopeLabel)}</div>
+      </div>
+      <div class="portal-panel-section">
+        <div class="portal-panel-title">Coarse breakdown</div>
+        <div class="portal-context-categories">${categoryHtml || '<div class="portal-inline-state is-visible">No category data yet.</div>'}</div>
+        <div class="portal-panel-note">Approximate categories; they never expose or store raw prompt content.</div>
+      </div>
+      <div class="portal-panel-section portal-context-actions">
+        <button id="context-compact-btn" class="toolbar-primary-btn" type="button" ${compactDisabled ? "disabled" : ""}>
+          <i data-lucide="archive-restore" class="w-4 h-4"></i>
+          Compact conversation
+        </button>
+        ${compactReason ? `<div class="portal-panel-note">${safe(compactReason)}</div>` : ""}
+        <div class="portal-panel-note">Compact replaces older visible turns with a summary. Native sessions create a recovery checkpoint first; runtime support varies.</div>
+      </div>
+    </div>
+  `, "context");
+  document.getElementById("context-compact-btn")?.addEventListener("click", compactCurrentConversation);
+  renderIcons();
+}
+
+async function refreshContextUsageForAgent(agentId, sessionId, { renderPanel = false, silent = true } = {}) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  const chatState = ensureChatState(agentId);
+  if (!agentId || !normalizedSessionId || !chatState) return null;
+  chatState.contextUsageLoading = true;
+  if (agentId === state.selectedAgentId) syncSelectedAgentChatActionControls();
+  try {
+    const snapshot = await agentApiFor(
+      agentId,
+      `/api/sessions/${encodeURIComponent(normalizedSessionId)}/context-usage`,
+    );
+    if (ensureChatState(agentId)?.sessionId !== normalizedSessionId) return snapshot;
+    chatState.contextUsage = snapshot;
+    if (agentId === state.selectedAgentId) syncContextUsageToolbar(snapshot);
+    if (renderPanel && agentId === state.selectedAgentId) renderContextUsagePanel(snapshot);
+    return snapshot;
+  } catch (error) {
+    if (renderPanel && agentId === state.selectedAgentId) {
+      setToolPanel("Context", `<div class="portal-inline-state is-error">Failed to load context usage: ${safe(error?.message || error)}</div>`, "context");
+    } else if (!silent) {
+      showToast("Failed to load context usage");
+    }
+    return null;
+  } finally {
+    chatState.contextUsageLoading = false;
+    if (agentId === state.selectedAgentId) syncSelectedAgentChatActionControls();
+  }
+}
+
+async function openContextUsagePanel() {
+  if (!ensureRunningSelectedAssistant("inspect context usage")) return;
+  const agentId = state.selectedAgentId;
+  const sessionId = currentSessionIdForSelectedAgent();
+  if (!sessionId) {
+    setToolPanel("Context", '<div class="portal-inline-state is-visible">Start a conversation to inspect context usage.</div>', "context");
+    return;
+  }
+  setToolPanel("Context", '<div class="portal-inline-state is-visible">Loading context usage…</div>', "context");
+  await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
+}
+
+async function compactCurrentConversation() {
+  const agentId = state.selectedAgentId;
+  const sessionId = currentSessionIdForSelectedAgent();
+  const chatState = ensureChatState(agentId);
+  if (!agentId || !sessionId || !chatState) return;
+  if (!guardNoActiveChatRequestForAgent(agentId, "compact this conversation")) return;
+  const confirmed = await showConfirm({
+    title: "Compact conversation",
+    message: "Older visible turns will be replaced by a summary. Native sessions create a recovery checkpoint first.",
+    confirmText: "Compact",
+    cancelText: "Cancel",
+  });
+  if (!confirmed) return;
+
+  chatState.compactingContext = true;
+  syncSelectedAgentChatActionControls();
+  setToolPanel("Context", '<div class="portal-inline-state is-visible"><span class="portal-running-spinner" aria-hidden="true"></span> Compacting conversation…</div>', "context");
+  try {
+    const result = await agentApiFor(
+      agentId,
+      `/api/sessions/${encodeURIComponent(sessionId)}/compact`,
+      { method: "POST", body: "{}" },
+    );
+    const beforePercent = contextUsagePercent(result?.before);
+    const afterSnapshot = result?.after && typeof result.after === "object" ? result.after : null;
+    if (afterSnapshot) chatState.contextUsage = afterSnapshot;
+    await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId });
+    const refreshed = await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
+    const afterPercent = contextUsagePercent(refreshed || afterSnapshot);
+    const reduction = beforePercent != null && afterPercent != null
+      ? ` (${beforePercent}% → ${afterPercent}%)`
+      : "";
+    showToast(`Conversation compacted${reduction}`);
+  } catch (error) {
+    setToolPanel("Context", `<div class="portal-inline-state is-error">Compact failed: ${safe(error?.message || error)}</div>`, "context");
+    showToast("Compact failed");
+  } finally {
+    chatState.compactingContext = false;
+    syncSelectedAgentChatActionControls();
+  }
 }
 
 function setMainView(view) {
@@ -7570,7 +7792,7 @@ function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.detailToggle, document.getElementById("btn-files")];
+  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.contextUsageBtn, dom.detailToggle, document.getElementById("btn-files")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -8422,6 +8644,10 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   if (recoverRunning) {
     await recoverInflightChatRunForAgent(agentId, normalized, normalizedPayload.metadata || {}, { render });
   }
+  void refreshContextUsageForAgent(agentId, normalized, {
+    renderPanel: agentId === state.selectedAgentId && state.activeUtilityPanel === "context",
+    silent: true,
+  });
 }
 
 async function loadSession(sessionId) {
@@ -9825,12 +10051,15 @@ async function startNewChatForSelectedAgent() {
     if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
     else chatState.inflightAgentTimeline = null;
     chatState.currentRequest = null;
+    chatState.contextUsage = null;
   }
   removeTemporaryAssistantRows({ forceAll: true });
   clearMessageListToWelcome();
   setChatSubmitting(false);
   resetChatInputHeight();
   setChatStatus("New chat started");
+  syncContextUsageToolbar(null);
+  syncSelectedAgentChatActionControls();
   dom.chatInput?.focus();
 }
 
@@ -13986,6 +14215,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openServerFiles();
+  });
+
+  // Context usage button in header
+  document.getElementById('btn-context')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an assistant first');
+      return;
+    }
+    openContextUsagePanel();
   });
 
   await loadAgentDefaults();

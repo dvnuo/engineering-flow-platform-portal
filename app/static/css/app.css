@@ -262,7 +262,72 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 }
 .portal-main-header { padding: 16px 24px; border-bottom: 1px solid var(--portal-border); height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 14px; background: var(--portal-workspace-secondary); }
 .portal-main-header-copy h1 { margin: 0; font-size: 1.15rem; }
-.portal-main-toolbar { display: flex; align-items: center; gap: 8px; }
+.portal-main-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--portal-surface), transparent 8%);
+}
+.portal-header-action {
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--portal-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.portal-header-action:hover {
+  background: var(--portal-surface-soft);
+  color: var(--portal-text);
+}
+.portal-header-action.is-primary {
+  padding-inline: 12px;
+  background: var(--portal-cta-bg);
+  color: var(--portal-cta-text);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--portal-cta-bg), transparent 72%);
+}
+.portal-header-action.is-primary:hover {
+  background: var(--portal-cta-hover);
+  color: var(--portal-cta-text);
+  transform: translateY(-1px);
+}
+.portal-header-action.is-active:not(.is-primary) {
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--portal-accent), transparent 68%);
+}
+.portal-header-action:disabled,
+.portal-header-action[aria-disabled="true"] {
+  opacity: .46;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+.portal-header-action:disabled:hover,
+.portal-header-action[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--portal-text-secondary);
+  transform: none;
+}
+.portal-header-action.is-primary:disabled:hover,
+.portal-header-action.is-primary[aria-disabled="true"]:hover {
+  background: var(--portal-cta-bg);
+  color: var(--portal-cta-text);
+}
+.portal-header-action svg { flex: 0 0 auto; }
+.portal-header-action-label { overflow: hidden; text-overflow: ellipsis; }
 .portal-eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--portal-text-muted); }
 .portal-statusline { font-size: 12px; color: var(--portal-text-muted); }
 .portal-statusline.is-error { color: var(--portal-danger); }
@@ -271,6 +336,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .toolbar-primary-btn:hover { background: var(--portal-cta-hover); transform: translateY(-1px); }
 .toolbar-secondary-btn { height: 40px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text-secondary); display: inline-flex; align-items: center; gap: 8px; transition: all 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .toolbar-secondary-btn:hover { border-color: var(--portal-border-strong); background: var(--portal-surface-soft); }
+.toolbar-context-btn { min-width: 104px; justify-content: flex-start; }
 .toolbar-icon-btn, .portal-rail-btn { width: 40px; height: 40px; border-radius: 14px; border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text-secondary); display: inline-flex; align-items: center; justify-content: center; transition: all 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .toolbar-icon-btn:hover { border-color: var(--portal-border-strong); background: var(--portal-surface-soft); transform: translateY(-1px); }
 .toolbar-primary-btn:disabled,
@@ -3673,6 +3739,21 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   transform: none !important;
 }
 
+.portal-context-meter { width: 100%; height: 10px; border-radius: 999px; background: var(--portal-surface-muted); border: 1px solid var(--portal-border); overflow: hidden; }
+.portal-context-meter-fill { height: 100%; background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 25%); transition: width var(--portal-transition); }
+.portal-context-panel { display: grid; align-content: start; gap: 14px; }
+.portal-context-summary { display: grid; gap: 10px; }
+.portal-context-total-row { display: flex; justify-content: space-between; align-items: end; gap: 12px; }
+.portal-context-total { color: var(--portal-text); font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
+.portal-context-token-total { color: var(--portal-text-muted); font-size: 12px; text-align: right; }
+.portal-context-categories { display: grid; gap: 12px; margin-top: 10px; }
+.portal-context-category { display: grid; gap: 5px; }
+.portal-context-category-head { display: flex; justify-content: space-between; gap: 12px; color: var(--portal-text-secondary); font-size: 12px; }
+.portal-context-category-meter { height: 6px; overflow: hidden; border-radius: 999px; background: var(--portal-surface-muted); }
+.portal-context-category-meter > span { display: block; height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 30%); }
+.portal-context-actions { display: grid; gap: 9px; }
+.portal-context-actions .toolbar-primary-btn { justify-content: center; width: 100%; }
+
 .sessions-panel { display: flex; flex-direction: column; gap: 12px; }
 .sessions-panel-head { display: flex; align-items: center; justify-content: space-between; }
 .sessions-panel-head h5 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--portal-text-muted); }
@@ -3761,6 +3842,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   .portal-agent-row,
   .portal-agent-health-card,
   .toolbar-icon-btn,
+  .portal-header-action,
   .portal-filter-chip,
   .toolbar-secondary-btn,
   .toolbar-primary-btn,
@@ -3771,6 +3853,15 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 }
 @media (max-width: 1024px) {
+  .portal-header-action {
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+  }
+  .portal-header-action.is-primary { padding: 0; }
+  .portal-header-action-label { display: none; }
+  .toolbar-context-btn { width: 34px; min-width: 34px; justify-content: center; }
+
   .portal-shell {
     min-width: 0;
     grid-template-columns: 68px 260px minmax(0, 1fr) 0px;

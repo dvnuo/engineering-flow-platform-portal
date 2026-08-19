@@ -123,15 +123,25 @@
           <div id="chat-status" class="portal-statusline">Ready</div>
         </div>
         <div class="portal-main-toolbar">
-          <button id="header-new-chat-btn" class="toolbar-primary-btn" type="button">New Chat</button>
-          <button id="btn-sessions" class="toolbar-icon-btn" type="button" title="Sessions" aria-label="Sessions">
-            <i data-lucide="clock" class="w-5 h-5"></i>
+          <button id="header-new-chat-btn" class="portal-header-action is-primary" type="button" title="New chat" aria-label="New chat">
+            <i data-lucide="message-square-plus" class="w-4 h-4"></i>
+            <span class="portal-header-action-label">New chat</span>
           </button>
-          <button id="btn-files" class="toolbar-icon-btn" type="button" title="Server Files" data-owner-only="true">
-            <i data-lucide="folder" class="w-5 h-5"></i>
+          <button id="btn-sessions" class="portal-header-action" type="button" title="Sessions" aria-label="Sessions">
+            <i data-lucide="clock" class="w-4 h-4"></i>
+            <span class="portal-header-action-label">Sessions</span>
           </button>
-          <button id="detail-toggle" class="toolbar-icon-btn" type="button" title="Assistant details">
-            <i data-lucide="panel-right" class="w-5 h-5"></i>
+          <button id="btn-context" class="portal-header-action toolbar-context-btn" type="button" title="Context usage" aria-label="Context usage">
+            <i data-lucide="gauge" class="w-4 h-4"></i>
+            <span id="context-usage-label" class="portal-header-action-label">Context —</span>
+          </button>
+          <button id="btn-files" class="portal-header-action" type="button" title="Server files" aria-label="Server files" data-owner-only="true">
+            <i data-lucide="folder" class="w-4 h-4"></i>
+            <span class="portal-header-action-label">Files</span>
+          </button>
+          <button id="detail-toggle" class="portal-header-action" type="button" title="Assistant details" aria-label="Assistant details">
+            <i data-lucide="panel-right" class="w-4 h-4"></i>
+            <span class="portal-header-action-label">Details</span>
           </button>
         </div>
       </header>
