@@ -4111,6 +4111,18 @@ function applyToolPanelState() {
   dom.portalShell?.classList.toggle("is-tool-panel-pinned", pinned);
   dom.toolBackdrop?.classList.toggle("hidden", !open || pinned);
 
+  const utilityButtons = {
+    sessions: document.getElementById("btn-sessions"),
+    context: dom.contextUsageBtn,
+    "server-files": document.getElementById("btn-files"),
+    details: dom.detailToggle,
+  };
+  Object.entries(utilityButtons).forEach(([panelKey, button]) => {
+    const active = open && state.activeUtilityPanel === panelKey;
+    button?.classList.toggle("is-active", active);
+    button?.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+
   if (dom.pinToolPanel) {
     dom.pinToolPanel.classList.toggle("is-active", pinned);
     dom.pinToolPanel.setAttribute("aria-pressed", pinned ? "true" : "false");
@@ -7598,9 +7610,12 @@ async function compactCurrentConversation() {
   const chatState = ensureChatState(agentId);
   if (!agentId || !sessionId || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentId, "compact this conversation")) return;
-  const confirmed = window.confirm(
-    "Compact this conversation? Older visible turns will be replaced by a summary. Native sessions create a recovery checkpoint first."
-  );
+  const confirmed = await showConfirm({
+    title: "Compact conversation",
+    message: "Older visible turns will be replaced by a summary. Native sessions create a recovery checkpoint first.",
+    confirmText: "Compact",
+    cancelText: "Cancel",
+  });
   if (!confirmed) return;
 
   chatState.compactingContext = true;
