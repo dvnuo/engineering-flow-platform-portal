@@ -63,7 +63,7 @@ k8s_service = K8sService()
 runtime_profile_secret_service = RuntimeProfileSecretService(k8s_service=k8s_service)
 runtime_profile_test_service = RuntimeProfileTestService()
 base_uri = settings.base_uri
-ACCESS_DENIED_REASONS = frozenset({"inactive", "not_allowlisted"})
+ACCESS_DENIED_REASONS = frozenset({"not_allowlisted"})
 
 
 def _session_user_access(request: Request):
@@ -79,8 +79,6 @@ def _session_user_access(request: Request):
         user = UserRepository(db).get_by_id(user_id)
         if not user:
             return None, "invalid_session"
-        if not user.is_active:
-            return user, "inactive"
         if not UserAllowlistRepository(db).get_active_by_username(user.username):
             return user, "not_allowlisted"
         return user, None
@@ -1402,18 +1400,13 @@ def unauthorized_page(request: Request):
     if not user or access_reason not in ACCESS_DENIED_REASONS:
         return _redirect_to_login()
 
-    message = (
-        "Your account is currently inactive. Contact an administrator to reactivate it."
-        if access_reason == "inactive"
-        else "Your account is not on the active allowlist. Contact an administrator to request access."
-    )
     return templates.TemplateResponse(
         "unauthorized.html",
         {
             "request": request,
             "title": "Authorization Required",
             "username": user.nickname or user.username,
-            "access_message": message,
+            "access_message": "Your account is not on the allowlist. Contact an administrator to request access.",
         },
         status_code=403,
     )

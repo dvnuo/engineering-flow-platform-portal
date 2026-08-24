@@ -40,11 +40,9 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
-    def update_access(self, user: User, *, role: Optional[str] = None, is_active: Optional[bool] = None) -> User:
+    def update_access(self, user: User, *, role: Optional[str] = None) -> User:
         if role is not None:
             user.role = role
-        if is_active is not None:
-            user.is_active = is_active
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)

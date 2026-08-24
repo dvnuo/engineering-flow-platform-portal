@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 UserRole = Literal["admin", "user", "viewer"]
@@ -14,8 +14,9 @@ class UserCreateRequest(BaseModel):
 
 
 class UserAdminUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     role: Optional[UserRole] = None
-    is_active: Optional[bool] = None
 
 
 class AllowlistCreateRequest(BaseModel):
@@ -27,7 +28,6 @@ class UserResponse(BaseModel):
     id: int
     username: str
     role: str
-    is_active: bool
     nickname: Optional[str] = None
     last_login_at: Optional[datetime] = None
     created_at: datetime
@@ -53,7 +53,6 @@ class MemberUsageResponse(BaseModel):
     username: str
     nickname: Optional[str] = None
     role: str
-    is_active: bool
     is_allowlisted: bool
     allowlist_entry_id: Optional[int] = None
     created_at: datetime

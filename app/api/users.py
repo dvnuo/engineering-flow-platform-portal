@@ -124,7 +124,7 @@ def remove_from_allowlist(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You cannot remove your own access")
     access = AccessControlService(db)
     if target_user and access.is_effective_admin(target_user) and access.count_effective_admins() <= 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="At least one active administrator is required")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="At least one allowlisted administrator is required")
 
     audit_details = {"username": entry.username}
     allowlist.delete(entry)
@@ -147,42 +147,40 @@ def update_user(
 ):
     repo = UserRepository(db)
     user = _get_user_or_404(repo, user_id)
-    if payload.role is None and payload.is_active is None:
+    if payload.role is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No changes supplied")
-    if normalize_username(user.username) == normalize_username(settings.bootstrap_admin_username) and (
-        payload.role not in (None, "admin") or payload.is_active is False
+    if (
+        normalize_username(user.username) == normalize_username(settings.bootstrap_admin_username)
+        and payload.role != "admin"
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="The configured bootstrap administrator must remain active with the administrator role",
+            detail="The configured bootstrap administrator must keep the administrator role",
         )
-    if user.id == admin.id and (payload.role not in (None, "admin") or payload.is_active is False):
+    if user.id == admin.id and payload.role != "admin":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You cannot remove your own administrator access")
 
     access = AccessControlService(db)
-    loses_admin = (
-        access.is_effective_admin(user)
-        and (payload.role not in (None, "admin") or payload.is_active is False)
-    )
+    loses_admin = access.is_effective_admin(user) and payload.role != "admin"
     if loses_admin and access.count_effective_admins() <= 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="At least one active administrator is required")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="At least one allowlisted administrator is required")
 
-    updated = repo.update_access(user, role=payload.role, is_active=payload.is_active)
+    updated = repo.update_access(user, role=payload.role)
     entry = UserAllowlistRepository(db).get_by_username(updated.username)
     if entry and payload.role is not None:
         UserAllowlistRepository(db).update_role(entry, payload.role)
     AuditRepository(db).create(
-        action="update_user_access",
+        action="update_user_role",
         target_type="user",
         target_id=str(updated.id),
         user_id=admin.id,
-        details={"role": updated.role, "is_active": updated.is_active},
+        details={"role": updated.role},
     )
     return UserResponse.model_validate(updated)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
-def replace_user_access(
+def replace_user_role(
     user_id: int,
     payload: UserAdminUpdateRequest,
     admin=Depends(require_admin),
@@ -191,10 +189,14 @@ def replace_user_access(
     return update_user(user_id, payload, admin, db)
 
 
-@router.delete("/{user_id}", response_model=UserResponse)
-def deactivate_user(
+@router.delete("/{user_id}")
+def revoke_user_access(
     user_id: int,
     admin=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return update_user(user_id, UserAdminUpdateRequest(is_active=False), admin, db)
+    user = _get_user_or_404(UserRepository(db), user_id)
+    entry = UserAllowlistRepository(db).get_by_username(user.username)
+    if not entry or not entry.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User is not allowlisted")
+    return remove_from_allowlist(entry.id, admin, db)

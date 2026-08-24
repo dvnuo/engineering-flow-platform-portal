@@ -2268,7 +2268,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 }
 
 .portal-workspace-detail-content .portal-admin-summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .portal-workspace-detail-content .portal-admin-usage-grid {
@@ -2351,10 +2351,6 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   background: color-mix(in srgb, #ef4444 9%, transparent);
 }
 
-.portal-admin-status-badge.is-muted {
-  opacity: 0.75;
-}
-
 .portal-admin-usage-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2389,15 +2385,9 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 }
 
 .portal-admin-member-form {
-  grid-template-columns: 150px minmax(150px, 1fr) auto auto;
+  grid-template-columns: 150px auto auto;
   padding-top: 12px;
   border-top: 1px solid var(--portal-border);
-}
-
-.portal-admin-active-toggle {
-  align-self: center;
-  grid-template-columns: auto 1fr !important;
-  align-items: center;
 }
 
 .portal-modal-feedback.is-error {

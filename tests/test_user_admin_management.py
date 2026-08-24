@@ -142,8 +142,9 @@ def test_login_page_clears_invalid_cookie_without_redirect():
     assert "Max-Age=0" in set_cookie
 
 
-def test_inactive_session_uses_unauthorized_page(monkeypatch):
+def test_legacy_inactive_flag_does_not_override_allowlist_access(monkeypatch):
     from app.main import app
+    import app.api.auth as auth_api
     import app.web as web_module
     from app.services.auth_service import issue_session_token
 
@@ -155,21 +156,27 @@ def test_inactive_session_uses_unauthorized_page(monkeypatch):
     db.add(UserAllowlistEntry(username=user.username, role="user", is_active=True))
     db.commit()
     monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
+    monkeypatch.setattr(auth_api, "verify_password", lambda _raw, _hashed: True)
+    app.dependency_overrides[auth_api.get_db] = _override_db(db)
     client = TestClient(app)
     client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
 
     try:
-        denied = client.get("/app", follow_redirects=False)
-        assert denied.status_code == 302
-        assert denied.headers["location"] == "/unauthorized"
-        page = client.get("/unauthorized", follow_redirects=False)
-        assert page.status_code == 403
-        assert "currently inactive" in page.text
+        allowed = client.get("/app", follow_redirects=False)
+        assert allowed.status_code == 200
+        me = client.get("/api/auth/me")
+        assert me.status_code == 200
+        login = client.post("/api/auth/login", json={"username": user.username, "password": "secret"})
+        assert login.status_code == 200
+        unauthorized = client.get("/unauthorized", follow_redirects=False)
+        assert unauthorized.status_code == 302
+        assert unauthorized.headers["location"] == "/app"
     finally:
+        app.dependency_overrides.clear()
         db.close()
 
 
-def test_admin_can_manage_allowlist_role_and_status(monkeypatch):
+def test_admin_can_manage_allowlist_and_role(monkeypatch):
     from app.main import app
     import app.api.users as users_api
     import app.deps as deps_module
@@ -187,7 +194,6 @@ def test_admin_can_manage_allowlist_role_and_status(monkeypatch):
         username=admin.username,
         nickname=admin.username,
         role=admin.role,
-        is_active=True,
     )
     app.dependency_overrides[users_api.get_db] = _override_db(db)
     app.dependency_overrides[deps_module.require_admin] = lambda: current
@@ -205,15 +211,22 @@ def test_admin_can_manage_allowlist_role_and_status(monkeypatch):
 
         update = client.patch(
             f"/api/users/{member.id}",
-            json={"role": "admin", "is_active": False},
+            json={"role": "admin"},
         )
         assert update.status_code == 200
         assert update.json()["role"] == "admin"
-        assert update.json()["is_active"] is False
+        assert "is_active" not in update.json()
+
+        removed_field = client.patch(
+            f"/api/users/{member.id}",
+            json={"is_active": False},
+        )
+        assert removed_field.status_code == 422
 
         overview = client.get("/api/users/admin-overview")
         assert overview.status_code == 200
         assert overview.json()["summary"]["total_users"] == 2
+        assert "active_users" not in overview.json()["summary"]
 
         self_lockout = client.patch(
             f"/api/users/{admin.id}",
@@ -224,6 +237,12 @@ def test_admin_can_manage_allowlist_role_and_status(monkeypatch):
         admin_entry = db.query(UserAllowlistEntry).filter_by(username="admin").one()
         protected = client.delete(f"/api/users/allowlist/{admin_entry.id}")
         assert protected.status_code == 409
+
+        revoked = client.delete(f"/api/users/{member.id}")
+        assert revoked.status_code == 200
+        db.refresh(member)
+        assert member.is_active is True
+        assert db.query(UserAllowlistEntry).filter_by(username="member").one_or_none() is None
     finally:
         app.dependency_overrides.clear()
         db.close()
@@ -290,6 +309,8 @@ def test_member_overview_aggregates_portal_usage():
         assert row["chat_count"] == 1
         assert row["delegation_count"] == 1
         assert row["last_activity_at"] is not None
+        assert "is_active" not in row
+        assert "active_users" not in overview["summary"]
     finally:
         db.close()
 
@@ -309,7 +330,6 @@ def test_configured_access_creates_first_admin_and_seeds_allowlist(monkeypatch):
         admin = access_module.AccessControlService(db).ensure_configured_access(settings)
         assert admin.username == "root-admin"
         assert admin.role == "admin"
-        assert admin.is_active is True
         entries = {row.username: row.role for row in db.query(UserAllowlistEntry).all()}
         assert entries == {"alice": "user", "bob": "user", "root-admin": "admin"}
     finally:
@@ -359,6 +379,9 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert "data-admin-allowlist-form" in response.text
         assert "Executions" in response.text
         assert "data-admin-member-form" in response.text
+        assert "Account active" not in response.text
+        assert 'name="is_active"' not in response.text
+        assert ">Active</span>" not in response.text
         assert "Reset password" not in response.text
         assert "data-admin-password-form" not in response.text
         assert not any(
@@ -367,5 +390,6 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         )
         admin_js = Path("app/static/js/admin_users.js").read_text(encoding="utf-8")
         assert "/password" not in admin_js
+        assert "is_active" not in admin_js
     finally:
         db.close()

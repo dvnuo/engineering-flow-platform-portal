@@ -78,8 +78,6 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     user = repo.get_by_username_case_insensitive(payload.username)
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
     if not UserAllowlistRepository(db).get_active_by_username(user.username):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

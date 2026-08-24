@@ -59,10 +59,7 @@
         await request("/api/users/" + encodeURIComponent(userId), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            role: data.get("role"),
-            is_active: memberForm.querySelector('[name="is_active"]').checked,
-          }),
+          body: JSON.stringify({ role: data.get("role") }),
         });
       }
       await reloadPanel();

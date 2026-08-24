@@ -658,8 +658,8 @@ async def proxy_agent_events(agent_id: str, websocket: WebSocket):
                 return
 
             user = UserRepository(db).get_by_id(user_id)
-            if not user or not user.is_active:
-                await websocket.close(code=4401, reason="Inactive user")
+            if not user:
+                await websocket.close(code=4401, reason="User not found")
                 return
             if not UserAllowlistRepository(db).get_active_by_username(user.username):
                 await websocket.close(code=4401, reason="User is not allowlisted")

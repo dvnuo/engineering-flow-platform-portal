@@ -55,9 +55,7 @@ class AccessControlService:
             # If a non-admin account already claimed the configured name,
             # rotate it to the deployment-controlled password before promotion.
             self.users.update_password(admin_user, hash_password(settings.bootstrap_admin_password))
-            admin_user = self.users.update_access(admin_user, role="admin", is_active=True)
-        elif not admin_user.is_active:
-            admin_user = self.users.update_access(admin_user, is_active=True)
+            admin_user = self.users.update_access(admin_user, role="admin")
         self.allowlist.ensure(admin_username, role="admin", reactivate=True)
         return admin_user
 
@@ -65,7 +63,6 @@ class AccessControlService:
         return bool(
             user
             and user.role == "admin"
-            and user.is_active
             and self.is_username_allowed(user.username)
         )
 

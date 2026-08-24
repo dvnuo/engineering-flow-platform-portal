@@ -2,14 +2,13 @@
   <div class="portal-panel-header">
     <div>
       <h5 class="portal-panel-title">Member administration</h5>
-      <p class="portal-panel-note">Only allowlisted, active members can register, sign in, or keep using an existing session.</p>
+      <p class="portal-panel-note">Only allowlisted members can register, sign in, or keep using an existing session.</p>
     </div>
     <span class="portal-panel-subtitle">{{ summary.total_users }} members</span>
   </div>
 
   <div class="portal-admin-summary-grid" aria-label="Member summary">
     <div class="portal-usage-card"><span class="portal-usage-k">Members</span><strong class="portal-usage-v">{{ summary.total_users }}</strong></div>
-    <div class="portal-usage-card"><span class="portal-usage-k">Active</span><strong class="portal-usage-v">{{ summary.active_users }}</strong></div>
     <div class="portal-usage-card"><span class="portal-usage-k">Allowed</span><strong class="portal-usage-v">{{ summary.allowed_users }}</strong></div>
     <div class="portal-usage-card"><span class="portal-usage-k">Administrators</span><strong class="portal-usage-v">{{ summary.admin_users }}</strong></div>
   </div>
@@ -83,9 +82,6 @@
               <span class="portal-admin-status-badge {% if u.is_allowlisted %}is-success{% else %}is-danger{% endif %}">
                 {% if u.is_allowlisted %}Allowlisted{% else %}Blocked by allowlist{% endif %}
               </span>
-              <span class="portal-admin-status-badge {% if u.is_active %}is-success{% else %}is-muted{% endif %}">
-                {% if u.is_active %}Active{% else %}Inactive{% endif %}
-              </span>
             </div>
           </div>
 
@@ -112,14 +108,7 @@
                 <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator</option>
               </select>
             </label>
-            <label class="portal-checkbox-row portal-admin-active-toggle">
-              <span class="toggle-switch">
-                <input type="checkbox" name="is_active" {% if u.is_active %}checked{% endif %} {% if u.id == current_user.id %}disabled{% endif %} />
-                <span class="toggle-slider"></span>
-              </span>
-              <span>Account active</span>
-            </label>
-            <button class="portal-btn is-primary" type="submit" {% if u.id == current_user.id %}disabled{% endif %}>Save access</button>
+            <button class="portal-btn is-primary" type="submit" {% if u.id == current_user.id %}disabled{% endif %}>Save role</button>
             {% if u.allowlist_entry_id and u.id != current_user.id %}
             <button
               class="portal-btn is-secondary"

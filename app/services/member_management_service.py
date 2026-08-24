@@ -72,7 +72,6 @@ class MemberManagementService:
                     "username": user.username,
                     "nickname": user.nickname,
                     "role": user.role,
-                    "is_active": user.is_active,
                     "is_allowlisted": bool(allowlist_entry and allowlist_entry.is_active),
                     "allowlist_entry_id": allowlist_entry.id if allowlist_entry else None,
                     "created_at": user.created_at,
@@ -101,12 +100,11 @@ class MemberManagementService:
             "pending_allowlist_entries": pending_entries,
             "summary": {
                 "total_users": len(member_rows),
-                "active_users": sum(1 for row in member_rows if row["is_active"]),
                 "allowed_users": sum(1 for row in member_rows if row["is_allowlisted"]),
                 "admin_users": sum(
                     1
                     for row in member_rows
-                    if row["role"] == "admin" and row["is_active"] and row["is_allowlisted"]
+                    if row["role"] == "admin" and row["is_allowlisted"]
                 ),
                 "pending_invitations": len(pending_entries),
             },
