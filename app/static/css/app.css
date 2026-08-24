@@ -2282,8 +2282,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 }
 
 .portal-admin-inline-form,
-.portal-admin-member-form,
-.portal-admin-password-form {
+.portal-admin-member-form {
   display: grid;
   gap: 10px;
   align-items: end;
@@ -2401,29 +2400,13 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   align-items: center;
 }
 
-.portal-admin-password-reset {
-  margin-top: 12px;
-  color: var(--portal-text-muted);
-  font-size: 12px;
-}
-
-.portal-admin-password-reset summary {
-  cursor: pointer;
-}
-
-.portal-admin-password-form {
-  grid-template-columns: minmax(0, 1fr) auto;
-  margin-top: 10px;
-}
-
 .portal-modal-feedback.is-error {
   color: #dc2626;
 }
 
 @media (max-width: 760px) {
   .portal-admin-inline-form,
-  .portal-admin-member-form,
-  .portal-admin-password-form {
+  .portal-admin-member-form {
     grid-template-columns: 1fr;
   }
 

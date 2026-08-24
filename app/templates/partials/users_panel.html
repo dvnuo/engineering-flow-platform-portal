@@ -130,13 +130,6 @@
             {% endif %}
           </form>
 
-          <details class="portal-admin-password-reset">
-            <summary>Reset password</summary>
-            <form class="portal-admin-password-form" data-admin-password-form data-user-id="{{ u.id }}">
-              <input class="portal-form-input" name="password" type="password" minlength="6" autocomplete="new-password" required placeholder="New password (6+ characters)" />
-              <button class="portal-btn is-secondary" type="submit">Set password</button>
-            </form>
-          </details>
         </section>
       {% endfor %}
     </div>

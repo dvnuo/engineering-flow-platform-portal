@@ -13,10 +13,6 @@ class UserCreateRequest(BaseModel):
     role: UserRole = "user"
 
 
-class PasswordUpdateRequest(BaseModel):
-    password: str = Field(..., min_length=6)
-
-
 class UserAdminUpdateRequest(BaseModel):
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None

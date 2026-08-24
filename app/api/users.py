@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.deps import get_current_user, require_admin
+from app.deps import require_admin
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository, normalize_username
 from app.repositories.user_repo import UserRepository
@@ -11,7 +11,6 @@ from app.schemas.user import (
     AllowlistCreateRequest,
     AllowlistResponse,
     MemberOverviewResponse,
-    PasswordUpdateRequest,
     UserAdminUpdateRequest,
     UserCreateRequest,
     UserResponse,
@@ -199,25 +198,3 @@ def deactivate_user(
     db: Session = Depends(get_db),
 ):
     return update_user(user_id, UserAdminUpdateRequest(is_active=False), admin, db)
-
-
-@router.patch("/{user_id}/password")
-def update_password(
-    user_id: int,
-    payload: PasswordUpdateRequest,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    repo = UserRepository(db)
-    user = _get_user_or_404(repo, user_id)
-    if current_user.role != "admin" and current_user.id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-
-    repo.update_password(user, hash_password(payload.password))
-    AuditRepository(db).create(
-        action="change_password",
-        target_type="user",
-        target_id=str(user.id),
-        user_id=current_user.id,
-    )
-    return {"ok": True}

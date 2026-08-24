@@ -37,11 +37,10 @@
   document.addEventListener("submit", async function (event) {
     var allowlistForm = event.target.closest("[data-admin-allowlist-form]");
     var memberForm = event.target.closest("[data-admin-member-form]");
-    var passwordForm = event.target.closest("[data-admin-password-form]");
-    if (!allowlistForm && !memberForm && !passwordForm) return;
+    if (!allowlistForm && !memberForm) return;
     event.preventDefault();
 
-    var form = allowlistForm || memberForm || passwordForm;
+    var form = allowlistForm || memberForm;
     var root = panelRoot(form);
     var submit = form.querySelector('button[type="submit"]');
     if (submit) submit.disabled = true;
@@ -55,7 +54,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: data.get("username"), role: data.get("role") }),
         });
-      } else if (memberForm) {
+      } else {
         var userId = memberForm.dataset.userId;
         await request("/api/users/" + encodeURIComponent(userId), {
           method: "PATCH",
@@ -64,13 +63,6 @@
             role: data.get("role"),
             is_active: memberForm.querySelector('[name="is_active"]').checked,
           }),
-        });
-      } else {
-        var passwordUserId = passwordForm.dataset.userId;
-        await request("/api/users/" + encodeURIComponent(passwordUserId) + "/password", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: data.get("password") }),
         });
       }
       await reloadPanel();

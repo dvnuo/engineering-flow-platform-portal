@@ -359,5 +359,13 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert "data-admin-allowlist-form" in response.text
         assert "Executions" in response.text
         assert "data-admin-member-form" in response.text
+        assert "Reset password" not in response.text
+        assert "data-admin-password-form" not in response.text
+        assert not any(
+            getattr(route, "path", "") == "/api/users/{user_id}/password"
+            for route in app.routes
+        )
+        admin_js = Path("app/static/js/admin_users.js").read_text(encoding="utf-8")
+        assert "/password" not in admin_js
     finally:
         db.close()
