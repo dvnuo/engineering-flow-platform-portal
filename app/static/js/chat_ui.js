@@ -8002,8 +8002,8 @@ async function setActiveNavSection(section, {
     }
   }
 
-  if (section === "users" && (didSwitchSection || preferSectionLanding)) {
-    renderWorkspaceDetailPlaceholder("Select User Management from the left sidebar.", "users-placeholder");
+  if (state.activeNavSection === "users" && preferSectionLanding) {
+    await openUsersInMain({ ensureSection: false, updateRoute: false });
   }
 
   if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {

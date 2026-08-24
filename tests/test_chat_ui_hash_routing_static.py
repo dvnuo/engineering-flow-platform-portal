@@ -161,6 +161,7 @@ def test_user_management_uses_secondary_navigation_and_main_workspace():
     admin_js = Path("app/static/js/admin_users.js").read_text(encoding="utf-8")
     bind_events = _extract_js_function(js, "bindEvents")
     open_users = _extract_js_function(js, "openUsersInMain")
+    set_active_section = _extract_js_function(js, "setActiveNavSection")
 
     assert 'id="users-menu-btn" class="portal-rail-btn"' in html
     assert 'id="users-nav-section" class="portal-secondary-section hidden"' in html
@@ -169,6 +170,9 @@ def test_user_management_uses_secondary_navigation_and_main_workspace():
     assert 'target: "#workspace-detail-content"' in open_users
     assert 'commitPortalRoute({ section: "users", userManagementView: "members" })' in open_users
     assert 'target: "#tool-panel-body"' not in open_users
+    assert 'state.activeNavSection === "users" && preferSectionLanding' in set_active_section
+    assert 'await openUsersInMain({ ensureSection: false, updateRoute: false });' in set_active_section
+    assert 'renderWorkspaceDetailPlaceholder("Select User Management from the left sidebar."' not in set_active_section
     assert "users" not in _extract_js_set_values(js, "ALLOWED_UTILITY_PANEL_KEYS")
     assert 'target: "#workspace-detail-content"' in admin_js
     assert 'target: "#tool-panel-body"' not in admin_js
