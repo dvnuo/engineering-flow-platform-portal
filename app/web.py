@@ -19,6 +19,7 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     JENKINS_DEFAULT_INSTANCE_NAME,
@@ -38,6 +39,7 @@ from app.services.runtime_capability_catalog import build_runtime_capability_cat
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.work_overview import WorkOverviewService
+from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
@@ -61,24 +63,67 @@ k8s_service = K8sService()
 runtime_profile_secret_service = RuntimeProfileSecretService(k8s_service=k8s_service)
 runtime_profile_test_service = RuntimeProfileTestService()
 base_uri = settings.base_uri
+ACCESS_DENIED_REASONS = frozenset({"not_allowlisted"})
 
 
-def _current_user_from_cookie(request: Request):
+def _session_user_access(request: Request):
     token = request.cookies.get(settings.session_cookie_name)
     if not token:
-        return None
+        return None, "missing_session"
     user_id = parse_session_token(token)
     if not user_id:
-        return None
+        return None, "invalid_session"
 
     db = SessionLocal()
     try:
         user = UserRepository(db).get_by_id(user_id)
-        if not user or not user.is_active:
-            return None
-        return user
+        if not user:
+            return None, "invalid_session"
+        if not UserAllowlistRepository(db).get_active_by_username(user.username):
+            return user, "not_allowlisted"
+        return user, None
     finally:
         db.close()
+
+
+def _current_user_from_cookie(request: Request):
+    user, access_reason = _session_user_access(request)
+    return user if access_reason is None else None
+
+
+def _clear_session_cookie(response: Response) -> Response:
+    response.delete_cookie(settings.session_cookie_name, path="/")
+    return response
+
+
+def _redirect_to_login() -> RedirectResponse:
+    response = RedirectResponse(url="/login", status_code=302)
+    _clear_session_cookie(response)
+    return response
+
+
+def _redirect_to_unauthorized() -> RedirectResponse:
+    return RedirectResponse(url="/unauthorized", status_code=302)
+
+
+def _redirect_for_access_reason(access_reason: str | None) -> RedirectResponse:
+    if access_reason in ACCESS_DENIED_REASONS:
+        return _redirect_to_unauthorized()
+    return _redirect_to_login()
+
+
+def _authorized_web_user(request: Request):
+    user, access_reason = _session_user_access(request)
+    if access_reason is None:
+        return user, None
+    return None, _redirect_for_access_reason(access_reason)
+
+
+def _anonymous_auth_page(request: Request, template_name: str, title: str) -> Response:
+    response = templates.TemplateResponse(template_name, {"request": request, "title": title})
+    if request.cookies.get(settings.session_cookie_name):
+        _clear_session_cookie(response)
+    return response
 
 
 def _can_access(agent, user) -> bool:
@@ -1321,29 +1366,57 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
 
 @router.get("/")
 def index(request: Request) -> RedirectResponse:
-    user = _current_user_from_cookie(request)
-    return RedirectResponse(url="/app" if user else "/login", status_code=302)
+    user, access_reason = _session_user_access(request)
+    if user and access_reason is None:
+        return RedirectResponse(url="/app", status_code=302)
+    return _redirect_for_access_reason(access_reason)
 
 
 @router.get("/login")
 def login_page(request: Request):
-    if _current_user_from_cookie(request):
+    user, access_reason = _session_user_access(request)
+    if user and access_reason is None:
         return RedirectResponse(url="/app", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
+    if access_reason in ACCESS_DENIED_REASONS:
+        return _redirect_to_unauthorized()
+    return _anonymous_auth_page(request, "login.html", "Portal Login")
 
 
 @router.get("/register")
 def register_page(request: Request):
-    if _current_user_from_cookie(request):
+    user, access_reason = _session_user_access(request)
+    if user and access_reason is None:
         return RedirectResponse(url="/app", status_code=302)
-    return templates.TemplateResponse("register.html", {"request": request, "title": "Create Account"})
+    if access_reason in ACCESS_DENIED_REASONS:
+        return _redirect_to_unauthorized()
+    return _anonymous_auth_page(request, "register.html", "Create Account")
+
+
+@router.get("/unauthorized")
+def unauthorized_page(request: Request):
+    user, access_reason = _session_user_access(request)
+    if user and access_reason is None:
+        return RedirectResponse(url="/app", status_code=302)
+    if not user or access_reason not in ACCESS_DENIED_REASONS:
+        return _redirect_to_login()
+
+    return templates.TemplateResponse(
+        "unauthorized.html",
+        {
+            "request": request,
+            "title": "Authorization Required",
+            "username": user.nickname or user.username,
+            "access_message": "Your account is not on the allowlist. Contact an administrator to request access.",
+        },
+        status_code=403,
+    )
 
 
 @router.get("/app")
 def app_page(request: Request):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+    user, access_response = _authorized_web_user(request)
+    if access_response is not None:
+        return access_response
 
     return templates.TemplateResponse(
         "app.html",
@@ -1373,9 +1446,9 @@ def _content_target_from_request(request: Request, default: str = "#tool-panel-b
 
 @router.get("/app/tasks/panel")
 def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+    user, access_response = _authorized_web_user(request)
+    if access_response is not None:
+        return access_response
 
     db = SessionLocal()
     try:
@@ -1420,9 +1493,9 @@ def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="
 
 @router.get("/app/delegations/panel")
 def delegations_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+    user, access_response = _authorized_web_user(request)
+    if access_response is not None:
+        return access_response
 
     db = SessionLocal()
     try:
@@ -1442,9 +1515,9 @@ def my_tasks_list(
     offset: int = Query(default=0, ge=0),
     owner: str = Query(default="all", pattern="^(all|mine)$"),
 ):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+    user, access_response = _authorized_web_user(request)
+    if access_response is not None:
+        return access_response
 
     db = SessionLocal()
     try:
@@ -1477,9 +1550,9 @@ def my_tasks_list(
 
 @router.get("/app/tasks/create/panel")
 def task_create_panel(request: Request):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+    user, access_response = _authorized_web_user(request)
+    if access_response is not None:
+        return access_response
 
     db = SessionLocal()
     try:
@@ -1496,9 +1569,9 @@ def task_create_panel(request: Request):
 
 @router.get("/app/tasks/{task_id}/result.json")
 async def task_result_json_download(request: Request, task_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+    user, access_response = _authorized_web_user(request)
+    if access_response is not None:
+        return access_response
 
     db = SessionLocal()
     try:
@@ -1546,9 +1619,9 @@ async def task_result_json_download(request: Request, task_id: str):
 
 @router.get("/app/tasks/{task_id}/panel")
 def task_detail_panel(request: Request, task_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+    user, access_response = _authorized_web_user(request)
+    if access_response is not None:
+        return access_response
 
     db = SessionLocal()
     try:
@@ -1578,12 +1651,13 @@ async def app_users_panel(request: Request):
 
     db = SessionLocal()
     try:
-        users = UserRepository(db).list_all()[:100]  # Limit to 100 users
+        overview = MemberManagementService(db).build_overview()
         return templates.TemplateResponse(
             "partials/users_panel.html",
             {
                 "request": request,
-                "users": [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at} for u in users],
+                "current_user": user,
+                **overview,
             },
         )
     finally:

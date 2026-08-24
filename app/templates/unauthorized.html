@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="portal-access-shell">
+  <main class="portal-access-card" aria-labelledby="access-title">
+    <div class="portal-access-visual" aria-hidden="true">
+      <span class="portal-access-orbit"></span>
+      <span class="portal-access-pulse"></span>
+      <span class="portal-access-shield">
+        <i data-lucide="shield-alert" class="w-10 h-10"></i>
+      </span>
+    </div>
+
+    <div class="portal-access-eyebrow">Access pending</div>
+    <h1 id="access-title">Authorization required</h1>
+    <p class="portal-access-copy">
+      You are signed in as <strong>{{ username }}</strong>, but this account does not currently have access to the Portal.
+    </p>
+
+    <div class="portal-access-notice">
+      <i data-lucide="info" class="w-5 h-5" aria-hidden="true"></i>
+      <span>{{ access_message }}</span>
+    </div>
+
+    <p class="portal-access-help">After an administrator grants access, refresh this page to continue.</p>
+
+    <div class="portal-access-actions">
+      <button id="refresh-access-btn" class="portal-btn is-primary" type="button">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        <span>Refresh access</span>
+      </button>
+      <button id="unauthorized-logout-btn" class="portal-btn" type="button">
+        <i data-lucide="log-out" class="w-4 h-4"></i>
+        <span>Sign out</span>
+      </button>
+    </div>
+    <p id="access-action-status" class="portal-access-status" role="status" aria-live="polite"></p>
+  </main>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  window.lucide?.createIcons();
+
+  const refreshButton = document.getElementById("refresh-access-btn");
+  const logoutButton = document.getElementById("unauthorized-logout-btn");
+  const status = document.getElementById("access-action-status");
+
+  refreshButton?.addEventListener("click", () => {
+    refreshButton.disabled = true;
+    refreshButton.setAttribute("aria-busy", "true");
+    status.textContent = "Checking your access…";
+    window.location.reload();
+  });
+
+  logoutButton?.addEventListener("click", async () => {
+    logoutButton.disabled = true;
+    logoutButton.setAttribute("aria-busy", "true");
+    status.textContent = "Signing out…";
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error("Sign-out request failed");
+      window.location.replace("/login");
+    } catch (_error) {
+      status.textContent = "Unable to sign out. Please try again.";
+      logoutButton.disabled = false;
+      logoutButton.removeAttribute("aria-busy");
+    }
+  });
+});
+</script>
+{% endblock %}

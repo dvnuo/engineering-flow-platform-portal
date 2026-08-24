@@ -72,6 +72,10 @@ spec:
                   name: efp-portal-secret
                   key: BOOTSTRAP_ADMIN_PASSWORD
                   optional: true
+            - name: BOOTSTRAP_ADMIN_USERNAME
+              value: "admin"
+            - name: PORTAL_USER_ALLOWLIST
+              value: ""
             - name: GIT_REPO_AUTH_PAT
               valueFrom:
                 secretKeyRef:

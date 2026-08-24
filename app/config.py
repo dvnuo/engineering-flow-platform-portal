@@ -36,8 +36,12 @@ class Settings(BaseSettings):
     )
     ai_platform_tracking_prefix: str = Field(default="EFP", validation_alias="AI_PLATFORM_TRACKING_PREFIX")
 
-    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_username: str = Field(default="admin", validation_alias="BOOTSTRAP_ADMIN_USERNAME")
     bootstrap_admin_password: str = Field(default="", validation_alias="BOOTSTRAP_ADMIN_PASSWORD")
+    portal_user_allowlist: str = Field(
+        default="",
+        validation_alias=AliasChoices("PORTAL_USER_ALLOWLIST", "REGISTRATION_ALLOWLIST"),
+    )
 
     agents_namespace: str = "efp-agents"
     agents_volume_sub_path_prefix: str = "efp-agents"

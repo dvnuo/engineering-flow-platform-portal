@@ -299,6 +299,7 @@ def test_select_controls_have_visible_dropdown_affordance_styles():
 
 def test_templates_portalized_for_panel_visual_consistency():
     js_source = _chat_ui_js_source()
+    css_source = Path("app/static/css/app.css").read_text(encoding="utf-8")
     app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
     tasks_html = Path("app/templates/partials/my_tasks_panel.html").read_text(encoding="utf-8")
     task_detail_html = Path("app/templates/partials/task_detail_panel.html").read_text(encoding="utf-8")
@@ -321,6 +322,12 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in tasks_html
     assert "portal-panel-stack" in task_detail_html
     assert "portal-panel-stack" in users_html
+    assert "portal-admin-member-actions" in users_html
+    assert 'class="portal-btn is-danger"' in users_html
+    assert ">Save role</button>" not in users_html
+    assert ">Revoke allowlist</button>" not in users_html
+    assert ".portal-admin-member-actions .portal-btn" in css_source
+    assert "grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);" in css_source
     assert "portal-panel-stack" in skills_html
     assert "portal-panel-stack" in delegations_html
     assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)

@@ -15,6 +15,7 @@ REQUIRED_RUNTIME_PROFILE_COLUMNS = (
 REQUIRED_PORTAL_TABLES = (
     "alembic_version",
     "users",
+    "user_allowlist",
     "agents",
     "audit_logs",
     "agent_session_metadata",
@@ -28,6 +29,9 @@ REQUIRED_PORTAL_TABLES = (
 )
 REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
     "updated_at",
+)
+REQUIRED_USER_COLUMNS = (
+    "last_login_at",
 )
 
 
@@ -49,6 +53,15 @@ def assert_portal_schema_ready(engine: Engine) -> None:
         missing_columns_joined = ", ".join(missing_columns)
         raise RuntimeError(
             "Database schema is incompatible with this Portal build. Missing columns on 'delegation_rule_events': "
+            f"{missing_columns_joined}. Run `alembic upgrade head` before starting Portal."
+        )
+
+    existing_user_columns = {column["name"] for column in inspector.get_columns("users")}
+    missing_user_columns = [column for column in REQUIRED_USER_COLUMNS if column not in existing_user_columns]
+    if missing_user_columns:
+        missing_columns_joined = ", ".join(missing_user_columns)
+        raise RuntimeError(
+            "Database schema is incompatible with this Portal build. Missing columns on 'users': "
             f"{missing_columns_joined}. Run `alembic upgrade head` before starting Portal."
         )
 

@@ -33,8 +33,8 @@ def test_main_calls_setup_logging_on_startup_not_import(monkeypatch):
     monkeypatch.setattr(app_main, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(
         app_main,
-        "UserRepository",
-        lambda db: SimpleNamespace(get_by_username=lambda username: object(), create=lambda *args, **kwargs: None),
+        "AccessControlService",
+        lambda db: SimpleNamespace(ensure_configured_access=lambda _settings: object()),
     )
     monkeypatch.setattr(
         app_main,
@@ -64,8 +64,8 @@ def test_main_startup_does_not_call_create_all(monkeypatch):
     monkeypatch.setattr(app_main, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(
         app_main,
-        "UserRepository",
-        lambda db: SimpleNamespace(get_by_username=lambda username: object(), create=lambda *args, **kwargs: None),
+        "AccessControlService",
+        lambda db: SimpleNamespace(ensure_configured_access=lambda _settings: object()),
     )
     monkeypatch.setattr(
         app_main,
@@ -99,8 +99,8 @@ def test_main_startup_starts_worker_after_runtime_profile_defaults(monkeypatch):
     monkeypatch.setattr(app_main.worker_singleton, "start", lambda: call_order.append("worker_start"))
     monkeypatch.setattr(
         app_main,
-        "UserRepository",
-        lambda db: SimpleNamespace(get_by_username=lambda _username: object(), create=lambda *args, **kwargs: None),
+        "AccessControlService",
+        lambda db: SimpleNamespace(ensure_configured_access=lambda _settings: object()),
     )
 
     class DummyRuntimeProfileService:
@@ -138,8 +138,8 @@ def test_main_startup_does_not_start_worker_when_default_setup_raises(monkeypatc
     monkeypatch.setattr(app_main.worker_singleton, "start", lambda: call_order.append("worker_start"))
     monkeypatch.setattr(
         app_main,
-        "UserRepository",
-        lambda db: SimpleNamespace(get_by_username=lambda _username: object(), create=lambda *args, **kwargs: None),
+        "AccessControlService",
+        lambda db: SimpleNamespace(ensure_configured_access=lambda _settings: object()),
     )
 
     class DummyRuntimeProfileService:

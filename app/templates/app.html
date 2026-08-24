@@ -14,8 +14,8 @@
           <i data-lucide="zap" class="w-5 h-5"></i>
         </button>
         {% if role == "admin" %}
-        <button id="users-menu-btn" class="portal-rail-btn" type="button" title="Users">
-          <i data-lucide="users" class="w-5 h-5"></i>
+        <button id="users-menu-btn" class="portal-rail-btn" type="button" title="Administration">
+          <i data-lucide="shield" class="w-5 h-5"></i>
         </button>
         {% endif %}
       </div>
@@ -113,6 +113,20 @@
           </div>
           <div id="delegation-rule-nav-list" class="portal-secondary-list-body"></div>
         </section>
+        {% if role == "admin" %}
+        <section id="users-nav-section" class="portal-secondary-section hidden">
+          <div class="portal-secondary-list-body">
+            <button id="user-management-nav-item" class="portal-list-row portal-admin-nav-row" type="button">
+              <i data-lucide="users" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>User Management</strong>
+                <small>Members, roles, access, and usage</small>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+            </button>
+          </div>
+        </section>
+        {% endif %}
       </div>
     </aside>
 
@@ -594,4 +608,5 @@
 </div>
 
 <script src="/static/js/chat_ui.js"></script>
+<script src="/static/js/admin_users.js"></script>
 {% endblock %}

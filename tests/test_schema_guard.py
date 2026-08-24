@@ -5,6 +5,7 @@ from app.services.schema_guard import assert_phase5_schema_compatibility, assert
 REQUIRED_PORTAL_TABLES = (
     "alembic_version",
     "users",
+    "user_allowlist",
     "agents",
     "audit_logs",
     "agent_session_metadata",
@@ -85,7 +86,12 @@ def test_portal_schema_ready_passes_with_all_required_tables():
         if table_name == "alembic_version":
             Table(table_name, metadata, Column("version_num", String(32), primary_key=True))
         elif table_name == "users":
-            Table(table_name, metadata, Column("id", Integer, primary_key=True))
+            Table(
+                table_name,
+                metadata,
+                Column("id", Integer, primary_key=True),
+                Column("last_login_at", String(32)),
+            )
         elif table_name == "delegation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
         else:
