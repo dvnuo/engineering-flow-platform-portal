@@ -47,7 +47,7 @@ Access `http://localhost:8000/login`
 - Username: Set `BOOTSTRAP_ADMIN_USERNAME=admin` (defaults to `admin`)
 - Password: Set `BOOTSTRAP_ADMIN_PASSWORD` to a strong initial password
 
-The configured bootstrap administrator is created as the first administrator and automatically added to the allowlist. Additional initial usernames can be seeded with `PORTAL_USER_ALLOWLIST=alice,bob`; administrators can then manage the allowlist, roles, account status, passwords, and member usage from the Users panel. Registration and every authenticated request require both an active account and an active allowlist entry, so removing a member from the allowlist revokes existing sessions immediately.
+The configured bootstrap administrator is created as the first administrator and automatically added to the allowlist. Additional initial usernames can be seeded with `PORTAL_USER_ALLOWLIST=alice,bob`; administrators can then manage the allowlist, roles, and member usage from **Administration → User Management**. Registration and every authenticated request require an allowlist entry, so removing a member from the allowlist revokes existing sessions immediately.
 
 ## Configuration
 

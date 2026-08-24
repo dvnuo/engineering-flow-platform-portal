@@ -43,15 +43,21 @@ def test_registration_requires_allowlist_and_uses_preassigned_role(monkeypatch):
         )
         assert denied.status_code == 403
 
+        invalid = client.post(
+            "/api/auth/register",
+            json={"username": "  a  ", "password": "pass123"},
+        )
+        assert invalid.status_code == 422
+
         db.add(UserAllowlistEntry(username="alice", role="viewer", is_active=True))
         db.commit()
         allowed = client.post(
             "/api/auth/register",
-            json={"username": "Alice", "password": "pass123"},
+            json={"username": " Alice ", "password": "pass123"},
         )
         assert allowed.status_code == 200
         assert allowed.json()["role"] == "viewer"
-        user = db.query(User).filter_by(username="Alice").one()
+        user = db.query(User).filter_by(username="alice").one()
         assert user.last_login_at is not None
     finally:
         app.dependency_overrides.clear()
@@ -203,9 +209,10 @@ def test_admin_can_manage_allowlist_and_role(monkeypatch):
     try:
         allow = client.post(
             "/api/users/allowlist",
-            json={"username": "member", "role": "viewer"},
+            json={"username": " MEMBER ", "role": "viewer"},
         )
         assert allow.status_code == 200
+        assert allow.json()["username"] == "member"
         db.refresh(member)
         assert member.role == "viewer"
 

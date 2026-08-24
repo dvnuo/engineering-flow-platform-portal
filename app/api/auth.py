@@ -22,7 +22,7 @@ settings = get_settings()
 @router.post("/register")
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     repo = UserRepository(db)
-    username = payload.username.strip()
+    username = payload.username
     allowlist_entry = UserAllowlistRepository(db).get_active_by_username(username)
     if not allowlist_entry:
         raise HTTPException(

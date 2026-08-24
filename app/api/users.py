@@ -34,7 +34,7 @@ def _get_user_or_404(repo: UserRepository, user_id: int):
 @router.post("", response_model=UserResponse)
 def create_user(payload: UserCreateRequest, admin=Depends(require_admin), db: Session = Depends(get_db)):
     repo = UserRepository(db)
-    username = payload.username.strip()
+    username = payload.username
     if repo.get_by_username_case_insensitive(username):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
 

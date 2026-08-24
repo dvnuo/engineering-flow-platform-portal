@@ -14,7 +14,6 @@ def test_login_api_valid_credentials():
         mock_user.id = 1
         mock_user.username = "admin"
         mock_user.password_hash = "hashed"
-        mock_user.is_active = True
         
         mock_repo_instance = MagicMock()
         mock_repo_instance.get_by_username_case_insensitive.return_value = mock_user

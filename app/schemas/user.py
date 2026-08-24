@@ -1,16 +1,21 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 UserRole = Literal["admin", "user", "viewer"]
 
 
 class UserCreateRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=32)
+    username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=6)
     role: UserRole = "user"
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value):
+        return str(value or "").strip().lower()
 
 
 class UserAdminUpdateRequest(BaseModel):
@@ -22,6 +27,11 @@ class UserAdminUpdateRequest(BaseModel):
 class AllowlistCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     role: UserRole = "user"
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value):
+        return str(value or "").strip().lower()
 
 
 class UserResponse(BaseModel):

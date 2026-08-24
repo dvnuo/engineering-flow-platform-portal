@@ -162,7 +162,7 @@ def test_admin_create_user_creates_default_runtime_profile(monkeypatch):
     app.dependency_overrides[deps_module.require_admin] = _override_admin
     client = TestClient(app)
     try:
-        resp = client.post("/api/users", json={"username": "new-api-user", "password": "pass123", "role": "user"})
+        resp = client.post("/api/users", json={"username": " New-API-User ", "password": "pass123", "role": "user"})
         assert resp.status_code == 200
         created = db.query(User).filter(User.username == "new-api-user").one()
         profiles = db.query(RuntimeProfile).filter(RuntimeProfile.owner_user_id == created.id).all()
