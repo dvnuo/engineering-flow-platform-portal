@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -89,7 +90,7 @@ def test_existing_non_allowlisted_user_cannot_login_or_keep_session(monkeypatch)
         db.close()
 
 
-def test_revoked_session_redirects_once_and_clears_cookie(monkeypatch):
+def test_revoked_session_stays_on_unauthorized_page_until_access_is_restored(monkeypatch):
     from app.main import app
     import app.web as web_module
     from app.services.auth_service import issue_session_token
@@ -106,15 +107,22 @@ def test_revoked_session_redirects_once_and_clears_cookie(monkeypatch):
     try:
         denied = client.get("/app", follow_redirects=False)
         assert denied.status_code == 302
-        assert denied.headers["location"] == "/login"
-        set_cookie = denied.headers.get("set-cookie", "")
-        assert f'{web_module.settings.session_cookie_name}=""' in set_cookie
-        assert "Max-Age=0" in set_cookie
+        assert denied.headers["location"] == "/unauthorized"
+        assert "Max-Age=0" not in denied.headers.get("set-cookie", "")
 
-        login = client.get(denied.headers["location"], follow_redirects=False)
-        assert login.status_code == 200
-        assert "location" not in login.headers
-        assert "Sign in with an active, allowlisted account." in login.text
+        unauthorized = client.get(denied.headers["location"], follow_redirects=False)
+        assert unauthorized.status_code == 403
+        assert "Authorization required" in unauthorized.text
+        assert "Contact an administrator" in unauthorized.text
+        assert 'id="refresh-access-btn"' in unauthorized.text
+        assert 'id="unauthorized-logout-btn"' in unauthorized.text
+        assert "@keyframes portal-access" in Path("app/static/css/app.css").read_text(encoding="utf-8")
+
+        db.add(UserAllowlistEntry(username=user.username, role="user", is_active=True))
+        db.commit()
+        refreshed = client.get("/unauthorized", follow_redirects=False)
+        assert refreshed.status_code == 302
+        assert refreshed.headers["location"] == "/app"
     finally:
         db.close()
 
@@ -132,6 +140,33 @@ def test_login_page_clears_invalid_cookie_without_redirect():
     set_cookie = response.headers.get("set-cookie", "")
     assert f'{web_module.settings.session_cookie_name}=""' in set_cookie
     assert "Max-Age=0" in set_cookie
+
+
+def test_inactive_session_uses_unauthorized_page(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    from app.services.auth_service import issue_session_token
+
+    db = _database()
+    user = User(username="inactive-member", password_hash="hash", role="user", is_active=False)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    db.add(UserAllowlistEntry(username=user.username, role="user", is_active=True))
+    db.commit()
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
+    client = TestClient(app)
+    client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
+
+    try:
+        denied = client.get("/app", follow_redirects=False)
+        assert denied.status_code == 302
+        assert denied.headers["location"] == "/unauthorized"
+        page = client.get("/unauthorized", follow_redirects=False)
+        assert page.status_code == 403
+        assert "currently inactive" in page.text
+    finally:
+        db.close()
 
 
 def test_admin_can_manage_allowlist_role_and_status(monkeypatch):

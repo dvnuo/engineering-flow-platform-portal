@@ -4054,6 +4054,200 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .login-card { width: min(440px, 100%); border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); background: var(--portal-surface); padding: 1.1rem; color: var(--portal-text); display: grid; gap: .75rem; }
 .error { min-height: 1.1rem; margin: 0; color: var(--portal-danger); font-size: .85rem; }
 
+.portal-access-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 18%, var(--portal-accent-soft), transparent 32%),
+    radial-gradient(circle at 82% 78%, color-mix(in srgb, var(--portal-warning) 14%, transparent), transparent 30%),
+    var(--portal-app-bg);
+}
+
+.portal-access-card {
+  position: relative;
+  isolation: isolate;
+  width: min(580px, 100%);
+  padding: 42px;
+  overflow: hidden;
+  border: 1px solid var(--portal-border);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--portal-surface) 94%, transparent);
+  box-shadow: var(--portal-shadow-lg);
+  text-align: center;
+  animation: portal-access-card-in 520ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.portal-access-card::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 260px;
+  height: 260px;
+  top: -170px;
+  right: -105px;
+  border-radius: 999px;
+  background: var(--portal-accent-soft);
+  filter: blur(2px);
+}
+
+.portal-access-visual {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 22px;
+}
+
+.portal-access-orbit,
+.portal-access-pulse {
+  position: absolute;
+  inset: 8px;
+  border-radius: 999px;
+}
+
+.portal-access-orbit {
+  border: 1px dashed color-mix(in srgb, var(--portal-accent) 65%, var(--portal-border));
+  animation: portal-access-orbit 9s linear infinite;
+}
+
+.portal-access-orbit::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--portal-accent);
+  box-shadow: 0 0 0 7px var(--portal-accent-soft);
+}
+
+.portal-access-pulse {
+  inset: 24px;
+  background: var(--portal-accent-soft);
+  animation: portal-access-pulse 2.4s ease-out infinite;
+}
+
+.portal-access-shield {
+  position: relative;
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
+  border-radius: 24px;
+  background: var(--portal-surface);
+  color: var(--portal-accent-strong);
+  box-shadow: 0 18px 38px color-mix(in srgb, var(--portal-accent) 20%, transparent);
+  animation: portal-access-float 3.2s ease-in-out infinite;
+}
+
+.portal-access-eyebrow {
+  margin-bottom: 8px;
+  color: var(--portal-accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.portal-access-card h1 {
+  margin: 0;
+  color: var(--portal-text);
+  font-size: clamp(28px, 5vw, 38px);
+  letter-spacing: -.035em;
+}
+
+.portal-access-copy {
+  max-width: 470px;
+  margin: 14px auto 0;
+  color: var(--portal-text-secondary);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.portal-access-copy strong {
+  color: var(--portal-text);
+}
+
+.portal-access-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--portal-warning) 34%, var(--portal-border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--portal-warning) 8%, var(--portal-surface));
+  color: var(--portal-text-secondary);
+  text-align: left;
+  line-height: 1.5;
+}
+
+.portal-access-notice svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--portal-warning);
+}
+
+.portal-access-help {
+  margin: 16px 0 0;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.portal-access-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.portal-access-actions .portal-btn {
+  min-width: 150px;
+  height: 42px;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.portal-access-status {
+  min-height: 18px;
+  margin: 12px 0 0;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+@keyframes portal-access-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes portal-access-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes portal-access-pulse {
+  0% { opacity: .65; transform: scale(.82); }
+  70%, 100% { opacity: 0; transform: scale(1.28); }
+}
+
+@keyframes portal-access-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+@media (max-width: 560px) {
+  .portal-access-shell { padding: 14px; }
+  .portal-access-card { padding: 30px 20px; }
+  .portal-access-actions { display: grid; }
+  .portal-access-actions .portal-btn { width: 100%; }
+}
+
 @keyframes portal-message-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -4077,7 +4271,11 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   .toolbar-secondary-btn,
   .toolbar-primary-btn,
   .portal-tool-panel,
-  .portal-tool-panel-resize {
+  .portal-tool-panel-resize,
+  .portal-access-card,
+  .portal-access-orbit,
+  .portal-access-pulse,
+  .portal-access-shield {
     animation: none !important;
     transition: none !important;
   }
