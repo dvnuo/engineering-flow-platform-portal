@@ -108,15 +108,17 @@
                 <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator</option>
               </select>
             </label>
-            <button class="portal-btn is-primary" type="submit" {% if u.id == current_user.id %}disabled{% endif %}>Save role</button>
-            {% if u.allowlist_entry_id and u.id != current_user.id %}
-            <button
-              class="portal-btn is-secondary"
-              type="button"
-              data-remove-allowlist="{{ u.allowlist_entry_id }}"
-              data-allowlist-username="{{ u.username|data_attr }}"
-            >Revoke allowlist</button>
-            {% endif %}
+            <div class="portal-admin-member-actions">
+              <button class="portal-btn is-primary" type="submit" {% if u.id == current_user.id %}disabled{% endif %}>Save</button>
+              {% if u.allowlist_entry_id and u.id != current_user.id %}
+              <button
+                class="portal-btn is-danger"
+                type="button"
+                data-remove-allowlist="{{ u.allowlist_entry_id }}"
+                data-allowlist-username="{{ u.username|data_attr }}"
+              >Revoke</button>
+              {% endif %}
+            </div>
           </form>
 
         </section>

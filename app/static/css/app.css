@@ -2385,9 +2385,26 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 }
 
 .portal-admin-member-form {
-  grid-template-columns: 150px auto auto;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
   padding-top: 12px;
   border-top: 1px solid var(--portal-border);
+}
+
+.portal-admin-member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.portal-admin-member-actions .portal-btn {
+  width: auto;
+  min-width: 0;
+  height: 32px;
+  padding-inline: 10px;
+  border-radius: 10px;
+  white-space: nowrap;
 }
 
 .portal-modal-feedback.is-error {
