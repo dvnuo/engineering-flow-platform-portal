@@ -8,7 +8,9 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.schemas.auth import LoginRequest, MeResponse, RegisterRequest
+from app.services.access_control_service import ALLOWED_USER_ROLES
 from app.services.auth_service import hash_password, issue_session_token, verify_password
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.redaction import sanitize_exception_message
@@ -20,16 +22,25 @@ settings = get_settings()
 @router.post("/register")
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     repo = UserRepository(db)
-    
+    username = payload.username.strip()
+    allowlist_entry = UserAllowlistRepository(db).get_active_by_username(username)
+    if not allowlist_entry:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This username is not on the registration allowlist",
+        )
+
     # Check if username exists
-    existing = repo.get_by_username(payload.username)
+    existing = repo.get_by_username_case_insensitive(username)
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
     
     # Create new user (default role: user)
     # Use transaction to prevent race condition
     try:
-        user = repo.create(payload.username, hash_password(payload.password), "user", payload.nickname)
+        role = allowlist_entry.role if allowlist_entry.role in ALLOWED_USER_ROLES else "user"
+        user = repo.create(username, hash_password(payload.password), role, payload.nickname)
+        repo.mark_login(user)
         RuntimeProfileService(db).ensure_user_has_default_profile(user)
     except Exception as e:
         logger.exception("Auth error")
@@ -64,9 +75,18 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
 @router.post("/login")
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     repo = UserRepository(db)
-    user = repo.get_by_username(payload.username)
+    user = repo.get_by_username_case_insensitive(payload.username)
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
+    if not UserAllowlistRepository(db).get_active_by_username(user.username):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not on the active allowlist",
+        )
+
+    repo.mark_login(user)
 
     token = issue_session_token(user.id)
     response.set_cookie(

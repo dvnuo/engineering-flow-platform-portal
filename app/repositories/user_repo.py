@@ -1,4 +1,6 @@
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -11,6 +13,12 @@ class UserRepository:
 
     def get_by_username(self, username: str) -> Optional[User]:
         return self.db.scalar(select(User).where(User.username == username))
+
+    def get_by_username_case_insensitive(self, username: str) -> Optional[User]:
+        normalized = str(username or "").strip().lower()
+        if not normalized:
+            return None
+        return self.db.scalar(select(User).where(func.lower(User.username) == normalized))
 
     def get_by_id(self, user_id: int) -> Optional[User]:
         return self.db.get(User, user_id)
@@ -27,6 +35,23 @@ class UserRepository:
 
     def update_password(self, user: User, password_hash: str) -> User:
         user.password_hash = password_hash
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def update_access(self, user: User, *, role: Optional[str] = None, is_active: Optional[bool] = None) -> User:
+        if role is not None:
+            user.role = role
+        if is_active is not None:
+            user.is_active = is_active
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def mark_login(self, user: User) -> User:
+        user.last_login_at = datetime.utcnow()
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)

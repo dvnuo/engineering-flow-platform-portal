@@ -2216,6 +2216,172 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   color: var(--portal-text);
 }
 
+/* Administrator member management */
+.portal-admin-users {
+  gap: 16px;
+}
+
+.portal-admin-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.portal-admin-inline-form,
+.portal-admin-member-form,
+.portal-admin-password-form {
+  display: grid;
+  gap: 10px;
+  align-items: end;
+}
+
+.portal-admin-inline-form {
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  margin-top: 12px;
+}
+
+.portal-admin-inline-form label,
+.portal-admin-member-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.portal-admin-pending-list,
+.portal-admin-member-list {
+  display: grid;
+  gap: 10px;
+}
+
+.portal-admin-pending-row,
+.portal-admin-activity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.portal-admin-pending-row + .portal-admin-pending-row {
+  border-top: 1px solid var(--portal-border);
+  padding-top: 10px;
+}
+
+.portal-admin-role-badge,
+.portal-admin-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--portal-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--portal-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.portal-admin-status-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.portal-admin-status-badge.is-success {
+  border-color: color-mix(in srgb, #22c55e 40%, var(--portal-border));
+  color: #16a34a;
+  background: color-mix(in srgb, #22c55e 9%, transparent);
+}
+
+.portal-admin-status-badge.is-danger {
+  border-color: color-mix(in srgb, #ef4444 40%, var(--portal-border));
+  color: #dc2626;
+  background: color-mix(in srgb, #ef4444 9%, transparent);
+}
+
+.portal-admin-status-badge.is-muted {
+  opacity: 0.75;
+}
+
+.portal-admin-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.portal-admin-usage-grid > div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--portal-border);
+  border-radius: 10px;
+  padding: 9px;
+  background: color-mix(in srgb, var(--portal-surface) 88%, var(--portal-app-bg));
+}
+
+.portal-admin-usage-grid span,
+.portal-admin-activity-row {
+  color: var(--portal-text-muted);
+  font-size: 11px;
+}
+
+.portal-admin-usage-grid strong {
+  color: var(--portal-text);
+  font-size: 16px;
+}
+
+.portal-admin-activity-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-bottom: 14px;
+}
+
+.portal-admin-member-form {
+  grid-template-columns: 150px minmax(150px, 1fr) auto auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-admin-active-toggle {
+  align-self: center;
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+}
+
+.portal-admin-password-reset {
+  margin-top: 12px;
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.portal-admin-password-reset summary {
+  cursor: pointer;
+}
+
+.portal-admin-password-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 10px;
+}
+
+.portal-modal-feedback.is-error {
+  color: #dc2626;
+}
+
+@media (max-width: 760px) {
+  .portal-admin-inline-form,
+  .portal-admin-member-form,
+  .portal-admin-password-form {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-admin-member-heading {
+    align-items: flex-start;
+  }
+
+  .portal-admin-status-badges {
+    justify-content: flex-start;
+  }
+}
+
 .portal-form-row-inline {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

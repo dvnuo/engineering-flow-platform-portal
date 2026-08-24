@@ -12,7 +12,7 @@ def clean_env(monkeypatch):
         'SECRET_', 'DATABASE_', 'DEBUG', 'AGENTS_', 'K8S_', 
         'GITHUB_', 'JIRA_', 'CONFLUENCE_', 'BOOTSTRAP_',
         'DEFAULT_', 'PORTAL_', 'RUNTIME_', 'ALLOW_INSECURE_', 'DELEGATION_', 'ASSETS_', 'GIT_',
-        'AGENT_TASK_', 'OPENCODE_', 'AI_PLATFORM_'
+        'AGENT_TASK_', 'OPENCODE_', 'AI_PLATFORM_', 'REGISTRATION_'
     )
     for key in list(os.environ.keys()):
         if any(key.startswith(p) for p in env_prefixes):
@@ -36,6 +36,16 @@ def test_settings_bootstrap_defaults():
     settings = Settings()
     assert settings.bootstrap_admin_username == "admin"
     assert settings.bootstrap_admin_password == ""
+    assert settings.portal_user_allowlist == ""
+
+
+def test_settings_user_allowlist_env_aliases(monkeypatch):
+    monkeypatch.setenv("PORTAL_USER_ALLOWLIST", "alice,bob")
+    assert Settings().portal_user_allowlist == "alice,bob"
+
+    monkeypatch.delenv("PORTAL_USER_ALLOWLIST")
+    monkeypatch.setenv("REGISTRATION_ALLOWLIST", "carol")
+    assert Settings().portal_user_allowlist == "carol"
 
 
 def test_settings_k8s_defaults():

@@ -44,8 +44,10 @@ For local Python development, migrations are still a manual prerequisite (`alemb
 Access `http://localhost:8000/login`
 
 **Admin account** (first startup - requires env vars):
-- Username: `admin`
-- Password: Set `BOOTSTRAP_ADMIN_PASSWORD=admin123` env var
+- Username: Set `BOOTSTRAP_ADMIN_USERNAME=admin` (defaults to `admin`)
+- Password: Set `BOOTSTRAP_ADMIN_PASSWORD` to a strong initial password
+
+The configured bootstrap administrator is created as the first administrator and automatically added to the allowlist. Additional initial usernames can be seeded with `PORTAL_USER_ALLOWLIST=alice,bob`; administrators can then manage the allowlist, roles, account status, passwords, and member usage from the Users panel. Registration and every authenticated request require both an active account and an active allowlist entry, so removing a member from the allowlist revokes existing sessions immediately.
 
 ## Configuration
 
@@ -57,6 +59,7 @@ Access `http://localhost:8000/login`
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
+| `PORTAL_USER_ALLOWLIST` | Comma, semicolon, or newline-separated usernames seeded into the registration allowlist on startup (`REGISTRATION_ALLOWLIST` is accepted as an alias) | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |

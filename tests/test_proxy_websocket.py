@@ -2,7 +2,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlsplit
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 
 def _proxy_source() -> str:
@@ -30,6 +32,7 @@ def test_proxy_websocket_auth_contract_cookie_or_query_token():
     assert "token = websocket.cookies.get(settings.session_cookie_name)" in source
     assert 'token = websocket.query_params.get("token")' in source
     assert 'await websocket.close(code=4401, reason="Not authenticated")' in source
+    assert 'await websocket.close(code=4401, reason="User is not allowlisted")' in source
 
 
 def test_filter_proxy_query_items_strips_token_but_keeps_session_id():
@@ -79,6 +82,31 @@ def test_proxy_websocket_runtime_url_failure_closes_1011():
 
     assert "base = proxy_service.build_agent_base_url(agent).rstrip(\"/\")" in source
     assert 'await websocket.close(code=1011, reason="Runtime URL unavailable")' in source
+
+
+def test_proxy_websocket_rejects_revoked_allowlist_access(monkeypatch):
+    from app.main import app
+    import app.api.proxy as proxy_module
+
+    fake_user = SimpleNamespace(id=77, username="revoked-user", role="user", is_active=True)
+    monkeypatch.setattr(proxy_module, "parse_session_token", lambda _token: 77)
+    monkeypatch.setattr(
+        proxy_module,
+        "UserRepository",
+        lambda _db: SimpleNamespace(get_by_id=lambda _user_id: fake_user),
+    )
+    monkeypatch.setattr(
+        proxy_module,
+        "UserAllowlistRepository",
+        lambda _db: SimpleNamespace(get_active_by_username=lambda _username: None),
+    )
+    monkeypatch.setattr(proxy_module, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
+
+    client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/a/agent-1/api/events?token=secret"):
+            pass
+    assert exc_info.value.code == 4401
 
 
 def test_proxy_websocket_error_fallback_closes_1011():
@@ -136,6 +164,7 @@ def test_proxy_websocket_forwards_filtered_query_params_to_runtime(monkeypatch):
 
     monkeypatch.setattr(proxy_module, "parse_session_token", lambda token: "user-77")
     monkeypatch.setattr(proxy_module, "UserRepository", lambda _db: SimpleNamespace(get_by_id=lambda _user_id: fake_user))
+    monkeypatch.setattr(proxy_module, "UserAllowlistRepository", lambda _db: SimpleNamespace(get_active_by_username=lambda _username: object()))
     monkeypatch.setattr(proxy_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
     monkeypatch.setattr(proxy_module, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")
@@ -191,6 +220,7 @@ def test_events_ws_proxy_forwards_query_string_including_last_event_at(monkeypat
 
     monkeypatch.setattr(proxy_module, "parse_session_token", lambda token: "user-77")
     monkeypatch.setattr(proxy_module, "UserRepository", lambda _db: SimpleNamespace(get_by_id=lambda _user_id: fake_user))
+    monkeypatch.setattr(proxy_module, "UserAllowlistRepository", lambda _db: SimpleNamespace(get_active_by_username=lambda _username: object()))
     monkeypatch.setattr(proxy_module, "AgentRepository", lambda _db: SimpleNamespace(get_by_id=lambda _agent_id: fake_agent))
     monkeypatch.setattr(proxy_module, "SessionLocal", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(proxy_module.proxy_service, "build_agent_base_url", lambda _agent: "http://runtime.local:8000")

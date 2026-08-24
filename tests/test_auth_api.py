@@ -14,12 +14,16 @@ def test_login_api_valid_credentials():
         mock_user.id = 1
         mock_user.username = "admin"
         mock_user.password_hash = "hashed"
+        mock_user.is_active = True
         
         mock_repo_instance = MagicMock()
-        mock_repo_instance.get_by_username.return_value = mock_user
+        mock_repo_instance.get_by_username_case_insensitive.return_value = mock_user
         mock_repo.return_value = mock_repo_instance
         
-        with patch("app.api.auth.verify_password", return_value=True):
+        with patch("app.api.auth.verify_password", return_value=True), patch(
+            "app.api.auth.UserAllowlistRepository"
+        ) as mock_allowlist:
+            mock_allowlist.return_value.get_active_by_username.return_value = object()
             response = client.post("/api/auth/login", json={
                 "username": "admin",
                 "password": "admin123"
@@ -54,7 +58,7 @@ def test_register_api():
             "username": "newuser",
             "password": "password123"
         })
-        assert response.status_code in [200, 201, 400, 409]
+        assert response.status_code in [200, 201, 400, 403, 409]
     except Exception:
         assert True
 
@@ -85,7 +89,7 @@ def test_register_creates_default_runtime_profile(monkeypatch):
     from app.main import app
     import app.api.auth as auth_api
     from app.db import Base
-    from app.models import RuntimeProfile, User
+    from app.models import RuntimeProfile, User, UserAllowlistEntry
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.pool import StaticPool
@@ -94,6 +98,8 @@ def test_register_creates_default_runtime_profile(monkeypatch):
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
+    db.add(UserAllowlistEntry(username="new-u", role="user", is_active=True))
+    db.commit()
 
     def _override_db():
         yield db

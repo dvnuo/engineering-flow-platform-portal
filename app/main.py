@@ -18,9 +18,8 @@ from app.api.copilot import router as copilot_router
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, reset_log_context
-from app.repositories.user_repo import UserRepository
 from app.logger import setup_logging
-from app.services.auth_service import hash_password
+from app.services.access_control_service import AccessControlService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.schema_guard import (
     assert_phase5_schema_compatibility,
@@ -80,18 +79,12 @@ def on_startup() -> None:
 
     db = SessionLocal()
     try:
-        repo = UserRepository(db)
         runtime_profile_service = RuntimeProfileService(db)
-        # Validate admin password is set
-        if not settings.bootstrap_admin_password:
-            print("WARNING: BOOTSTRAP_ADMIN_PASSWORD not set! Admin account will not be created.")
-        elif not repo.get_by_username(settings.bootstrap_admin_username):
-            admin_user = repo.create(
-                settings.bootstrap_admin_username,
-                hash_password(settings.bootstrap_admin_password),
-                role="admin",
-            )
+        admin_user = AccessControlService(db).ensure_configured_access(settings)
+        if admin_user:
             runtime_profile_service.ensure_user_has_default_profile(admin_user)
+        elif not settings.bootstrap_admin_password:
+            logger.warning("BOOTSTRAP_ADMIN_PASSWORD not set; a missing bootstrap admin will not be created")
 
         runtime_profile_service.ensure_defaults_for_all_users(db)
         # Migrate any persisted profile still on a legacy (non-Copilot) provider:

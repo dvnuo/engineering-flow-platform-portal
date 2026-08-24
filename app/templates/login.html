@@ -3,7 +3,7 @@
 <div class="login-shell">
   <div class="login-card">
     <h1>Engineering Portal</h1>
-    <p class="portal-auth-copy">Sign in to manage your agent runtimes.</p>
+    <p class="portal-auth-copy">Sign in with an active, allowlisted account.</p>
 
     <form id="login-form" class="stack">
       <label>
@@ -42,7 +42,12 @@ form.addEventListener("submit", async (e) => {
   });
 
   if (!resp.ok) {
-    err.textContent = "Sign-in failed. Please verify your username and password.";
+    let msg = "Sign-in failed. Please verify your username and password.";
+    try {
+      const data = await resp.json();
+      msg = data.detail || msg;
+    } catch {}
+    err.textContent = msg;
     return;
   }
   location.href = "/app";

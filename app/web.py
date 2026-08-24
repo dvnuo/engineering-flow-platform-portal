@@ -19,6 +19,7 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     JENKINS_DEFAULT_INSTANCE_NAME,
@@ -38,6 +39,7 @@ from app.services.runtime_capability_catalog import build_runtime_capability_cat
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.work_overview import WorkOverviewService
+from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
@@ -75,6 +77,8 @@ def _current_user_from_cookie(request: Request):
     try:
         user = UserRepository(db).get_by_id(user_id)
         if not user or not user.is_active:
+            return None
+        if not UserAllowlistRepository(db).get_active_by_username(user.username):
             return None
         return user
     finally:
@@ -1578,12 +1582,13 @@ async def app_users_panel(request: Request):
 
     db = SessionLocal()
     try:
-        users = UserRepository(db).list_all()[:100]  # Limit to 100 users
+        overview = MemberManagementService(db).build_overview()
         return templates.TemplateResponse(
             "partials/users_panel.html",
             {
                 "request": request,
-                "users": [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at} for u in users],
+                "current_user": user,
+                **overview,
             },
         )
     finally:

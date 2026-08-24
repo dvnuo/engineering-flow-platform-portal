@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.repositories.user_repo import UserRepository
+from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.services.auth_service import parse_session_token
 
 settings = get_settings()
@@ -21,6 +22,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     user = UserRepository(db).get_by_id(user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
+    if not UserAllowlistRepository(db).get_active_by_username(user.username):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not allowlisted")
     return user
 
 
