@@ -24,11 +24,11 @@
     <form class="portal-admin-inline-form" data-admin-allowlist-form>
       <label>
         <span>Username</span>
-        <input name="username" type="text" minlength="3" maxlength="64" autocomplete="off" required placeholder="member-name" />
+        <input class="portal-form-input" name="username" type="text" minlength="3" maxlength="64" autocomplete="off" required placeholder="member-name" />
       </label>
       <label>
         <span>Initial role</span>
-        <select name="role">
+        <select class="portal-form-select" name="role">
           <option value="user">User</option>
           <option value="viewer">Viewer</option>
           <option value="admin">Administrator</option>
@@ -106,7 +106,7 @@
           <form class="portal-admin-member-form" data-admin-member-form data-user-id="{{ u.id }}">
             <label>
               <span>Role</span>
-              <select name="role" {% if u.id == current_user.id %}disabled{% endif %}>
+              <select class="portal-form-select" name="role" {% if u.id == current_user.id %}disabled{% endif %}>
                 <option value="user" {% if u.role == 'user' %}selected{% endif %}>User</option>
                 <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer</option>
                 <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator</option>
@@ -133,7 +133,7 @@
           <details class="portal-admin-password-reset">
             <summary>Reset password</summary>
             <form class="portal-admin-password-form" data-admin-password-form data-user-id="{{ u.id }}">
-              <input name="password" type="password" minlength="6" autocomplete="new-password" required placeholder="New password (6+ characters)" />
+              <input class="portal-form-input" name="password" type="password" minlength="6" autocomplete="new-password" required placeholder="New password (6+ characters)" />
               <button class="portal-btn is-secondary" type="submit">Set password</button>
             </form>
           </details>

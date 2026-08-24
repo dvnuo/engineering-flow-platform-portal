@@ -56,6 +56,8 @@ const dom = {
   tasksNavSection: document.getElementById("tasks-nav-section"),
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
+  usersNavSection: document.getElementById("users-nav-section"),
+  userManagementNavItem: document.getElementById("user-management-nav-item"),
   agentSearchInput: document.getElementById("agent-search-input"),
   agentFilterSummary: document.getElementById("agent-filter-summary"),
   taskOwnerFilter: document.getElementById("task-owner-filter"),
@@ -134,7 +136,6 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
-  "users",
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
@@ -142,8 +143,13 @@ const PORTAL_ROUTE_SECTIONS = new Set([
   "tasks",
   "runtime-profiles",
   "delegations",
+  "users",
 ]);
 const DEFAULT_PORTAL_ROUTE_SECTION = "assistants";
+
+function isPortalRouteSectionAvailable(section) {
+  return PORTAL_ROUTE_SECTIONS.has(section) && (section !== "users" || Boolean(dom.usersMenuBtn));
+}
 
 function initialPortalRouteSectionFromHash(hash = window.location.hash) {
   const raw = typeof hash === "string" ? hash : "";
@@ -156,7 +162,7 @@ function initialPortalRouteSectionFromHash(hash = window.location.hash) {
   const encodedSection = pathPart.split("/")[0] || "";
   try {
     const section = decodeURIComponent(encodedSection);
-    return PORTAL_ROUTE_SECTIONS.has(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
+    return isPortalRouteSectionAvailable(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   } catch (_error) {
     return DEFAULT_PORTAL_ROUTE_SECTION;
   }
@@ -168,6 +174,7 @@ function initialPortalSectionTitle(section) {
   if (section === "tasks") return "Tasks";
   if (section === "runtime-profiles") return "Runtime Profiles";
   if (section === "delegations") return "Delegations";
+  if (section === "users") return "Administration";
   return "Assistants";
 }
 
@@ -175,22 +182,25 @@ function initialPortalStatusText(section) {
   if (section === "tasks") return "Task health, workload, and recent activity";
   if (section === "runtime-profiles") return "Browse and manage your runtime profiles";
   if (section === "delegations") return "Manage delegations";
+  if (section === "users") return "Manage members, roles, access, and usage";
   return "Ready";
 }
 
 function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
-  const normalized = PORTAL_ROUTE_SECTIONS.has(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
+  const normalized = isPortalRouteSectionAvailable(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   const railButtons = {
     assistants: dom.railAssistantsBtn,
     tasks: dom.tasksMenuBtn,
     "runtime-profiles": dom.runtimeProfilesMenuBtn,
     delegations: dom.delegationsMenuBtn,
+    users: dom.usersMenuBtn,
   };
   const navSections = {
     assistants: dom.assistantsNavSection,
     tasks: dom.tasksNavSection,
     "runtime-profiles": dom.runtimeProfilesNavSection,
     delegations: dom.delegationsNavSection,
+    users: dom.usersNavSection,
   };
   Object.entries(railButtons).forEach(([key, element]) => {
     element?.classList.toggle("is-active", key === normalized);
@@ -213,7 +223,9 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
 
   const title = initialPortalSectionTitle(normalized);
   if (dom.secondaryPaneEyebrow) {
-    dom.secondaryPaneEyebrow.textContent = normalized === "assistants" ? "My Space" : "Workspace";
+    dom.secondaryPaneEyebrow.textContent = normalized === "users"
+      ? "Portal"
+      : (normalized === "assistants" ? "My Space" : "Workspace");
   }
   if (dom.secondaryPaneTitle) dom.secondaryPaneTitle.textContent = title;
 
@@ -457,6 +469,7 @@ const state = {
   delegations: [],
   delegationFilters: { owner: "all", source: "all" },
   selectedDelegationRuleId: null,
+  selectedUserManagementView: "",
   agentDefaults: null,
   gitRepoBranches: new Map(),
   createAgentStep: "runtime",
@@ -483,6 +496,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
     taskId: "",
     runtimeProfileId: "",
     delegationRuleId: "",
+    userManagementView: "",
     hadHash,
     raw,
   };
@@ -497,7 +511,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
   const queryString = queryIndex >= 0 ? routeText.slice(queryIndex + 1) : "";
   const encodedParts = pathPart.split("/");
   const section = safeDecodeRouteComponent(encodedParts[0]);
-  if (!section || !PORTAL_ROUTE_SECTIONS.has(section)) return fallback;
+  if (!section || !isPortalRouteSectionAvailable(section)) return fallback;
 
   const parsed = {
     ...fallback,
@@ -519,6 +533,9 @@ function parsePortalHashRoute(hash = window.location.hash) {
     parsed.runtimeProfileId = decodedId;
   } else if (section === "delegations") {
     parsed.delegationRuleId = decodedId;
+  } else if (section === "users") {
+    if (decodedId && decodedId !== "members") return fallback;
+    parsed.userManagementView = decodedId;
   }
   return parsed;
 }
@@ -546,6 +563,10 @@ function portalHashForRoute(route = {}) {
     return delegationRuleId ? `#/delegations/${encodeURIComponent(delegationRuleId)}` : "#/delegations";
   }
 
+  if (section === "users") {
+    return route.userManagementView === "members" ? "#/users/members" : "#/users";
+  }
+
   return "#/assistants";
 }
 
@@ -566,6 +587,10 @@ function currentPortalRouteFromState() {
 
   if (section === "delegations") {
     return { section, delegationRuleId: state.selectedDelegationRuleId || "" };
+  }
+
+  if (section === "users") {
+    return { section, userManagementView: state.selectedUserManagementView || "" };
   }
 
   return portalSectionRoute(DEFAULT_PORTAL_ROUTE_SECTION);
@@ -595,6 +620,8 @@ function clearPortalSectionDetailSelection(section) {
     state.selectedRuntimeProfileId = null;
   } else if (section === "delegations") {
     state.selectedDelegationRuleId = null;
+  } else if (section === "users") {
+    state.selectedUserManagementView = "";
   }
 }
 
@@ -610,12 +637,13 @@ async function openPortalSection(section, {
   toggleIfSame = true,
   replace = false,
 } = {}) {
-  if (!PORTAL_ROUTE_SECTIONS.has(section)) return;
+  if (!isPortalRouteSectionAvailable(section)) return;
 
   const hadDetailSelection = (
     (section === "tasks" && !!state.selectedTaskId) ||
     (section === "runtime-profiles" && !!state.selectedRuntimeProfileId) ||
-    (section === "delegations" && !!state.selectedDelegationRuleId)
+    (section === "delegations" && !!state.selectedDelegationRuleId) ||
+    (section === "users" && !!state.selectedUserManagementView)
   );
 
   // Section-only navigation means the user clicked the rail/menu to open the column page,
@@ -676,7 +704,7 @@ async function applyPortalRouteFromHash({ replaceInvalid = false } = {}) {
 }
 
 async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
-  if (!route || !PORTAL_ROUTE_SECTIONS.has(route.section)) {
+  if (!route || !isPortalRouteSectionAvailable(route.section)) {
     await setActiveNavSection(DEFAULT_PORTAL_ROUTE_SECTION, { toggleIfSame: false, updateRoute: false });
     return;
   }
@@ -744,6 +772,18 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
         updateRoute: false,
         preferSectionLanding: true,
       });
+    }
+    return;
+  }
+
+  if (route.section === "users") {
+    await setActiveNavSection("users", {
+      toggleIfSame: false,
+      updateRoute: false,
+      preferSectionLanding: !route.userManagementView,
+    });
+    if (route.userManagementView === "members") {
+      await openUsersInMain({ ensureSection: false, updateRoute: false });
     }
   }
 }
@@ -7309,15 +7349,34 @@ function toggleAssistantDetailsPanel() {
   openAssistantDetailsPanel();
 }
 
-async function openUsersPanel() {
-  setToolPanel("Users", '<div class="portal-inline-state">Loading users…</div>', "users");
+async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}) {
+  if (!dom.usersMenuBtn || !dom.workspaceDetailContent) return;
+  if (ensureSection && state.activeNavSection !== "users") {
+    await setActiveNavSection("users", { toggleIfSame: false, updateRoute: false });
+  }
+
+  state.selectedUserManagementView = "members";
+  dom.userManagementNavItem?.classList.add("is-active");
+  dom.userManagementNavItem?.setAttribute("aria-current", "page");
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "users-loading";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading users…</div>';
+  syncMainHeader();
+
+  if (updateRoute && !isApplyingPortalRoute) {
+    commitPortalRoute({ section: "users", userManagementView: "members" });
+  }
+
   try {
     await htmx.ajax("GET", "/app/users/panel", {
-      target: "#tool-panel-body",
+      target: "#workspace-detail-content",
       swap: "innerHTML",
     });
+    dom.workspaceDetailContent.dataset.workspaceState = "users-members";
+    renderIcons();
   } catch (error) {
-    setToolPanel("Users", `Failed: ${safe(error.message)}`, "users");
+    dom.workspaceDetailContent.dataset.workspaceState = "users-error";
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load users: ${safe(error.message)}</div>`;
   }
 }
 
@@ -7400,11 +7459,6 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       await openUsagePanel();
       return;
     }
-    if (panelKey === "users") {
-      await openUsersPanel();
-      return;
-    }
-
     showPinnedPanelRestorePlaceholder();
   } catch (_error) {
     showPinnedPanelRestorePlaceholder("Unable to restore the saved panel.");
@@ -7726,6 +7780,7 @@ function getSecondaryPaneLabel() {
   if (state.activeNavSection === "tasks") return "Tasks";
   if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
   if (state.activeNavSection === "delegations") return "Delegations";
+  if (state.activeNavSection === "users") return "Administration";
   return "Assistants";
 }
 
@@ -7781,10 +7836,13 @@ function renderSecondaryPaneHeader() {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Delegations";
     if (addDelegationBtn) addDelegationBtn.classList.remove("hidden");
-  } else {
+  } else if (state.activeNavSection === "runtime-profiles") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Runtime Profiles";
     if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.remove("hidden");
+  } else {
+    dom.secondaryPaneEyebrow.textContent = "Portal";
+    dom.secondaryPaneTitle.textContent = "Administration";
   }
 }
 
@@ -7807,6 +7865,9 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "delegations") {
       dom.embedTitle.textContent = "Delegations";
       setChatStatus("Manage delegations");
+    } else if (state.activeNavSection === "users") {
+      dom.embedTitle.textContent = "User Management";
+      setChatStatus("Manage members, roles, access, and usage");
     } else {
       dom.embedTitle.textContent = "Runtime Profiles";
       setChatStatus("Browse and manage your runtime profiles");
@@ -7846,6 +7907,10 @@ function syncDefaultMainViewForSection(section) {
   }
   if (section === "delegations") {
     loadDelegationOverviewPanel();
+    return;
+  }
+  if (section === "users") {
+    renderWorkspaceDetailPlaceholder("Select User Management from the left sidebar.", "users-placeholder");
   }
 }
 
@@ -7859,8 +7924,9 @@ async function setActiveNavSection(section, {
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = typeof PORTAL_ROUTE_SECTIONS !== "undefined"
     ? PORTAL_ROUTE_SECTIONS
-    : new Set(["assistants", "tasks", "runtime-profiles", "delegations"]);
+    : new Set(["assistants", "tasks", "runtime-profiles", "delegations", "users"]);
   if (!validSections.has(section)) return;
+  if (section === "users" && !dom.usersMenuBtn) return;
 
   if (preferSectionLanding) {
     clearPortalSectionDetailSelection(section);
@@ -7879,11 +7945,20 @@ async function setActiveNavSection(section, {
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
+  dom.usersMenuBtn?.classList.toggle("is-active", state.activeNavSection === "users");
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
   dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
   dom.delegationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "delegations");
+  dom.usersNavSection?.classList.toggle("hidden", state.activeNavSection !== "users");
+  const userManagementActive = state.activeNavSection === "users" && state.selectedUserManagementView === "members";
+  dom.userManagementNavItem?.classList.toggle("is-active", userManagementActive);
+  if (userManagementActive) {
+    dom.userManagementNavItem?.setAttribute("aria-current", "page");
+  } else {
+    dom.userManagementNavItem?.removeAttribute("aria-current");
+  }
 
   applySecondaryPaneState();
   renderSecondaryPaneHeader();
@@ -7925,6 +8000,10 @@ async function setActiveNavSection(section, {
     } else if (section === "delegations") {
       renderWorkspaceDetailPlaceholder("Loading delegations…", "delegations-loading");
     }
+  }
+
+  if (section === "users" && (didSwitchSection || preferSectionLanding)) {
+    renderWorkspaceDetailPlaceholder("Select User Management from the left sidebar.", "users-placeholder");
   }
 
   if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
@@ -13861,7 +13940,8 @@ function bindEvents() {
 
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
-  dom.usersMenuBtn?.addEventListener("click", openUsersPanel);
+  dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"));
+  dom.userManagementNavItem?.addEventListener("click", () => openUsersInMain());
 
   dom.tasksMenuBtn?.addEventListener("click", () => openPortalSection("tasks"));
 

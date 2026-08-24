@@ -29,7 +29,7 @@
 
   async function reloadPanel() {
     await htmx.ajax("GET", "/app/users/panel", {
-      target: "#tool-panel-body",
+      target: "#workspace-detail-content",
       swap: "innerHTML",
     });
   }

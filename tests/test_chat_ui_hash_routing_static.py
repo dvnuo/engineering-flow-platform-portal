@@ -88,6 +88,7 @@ def test_portal_hash_route_sections_are_declared():
         "tasks",
         "runtime-profiles",
         "delegations",
+        "users",
     }
     assert "automations" not in _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS")
 
@@ -147,10 +148,30 @@ def test_rail_clicks_use_section_only_navigation():
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => openPortalSection("tasks"))' in bind_events
     assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"))' in bind_events
     assert 'dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"))' in bind_events
+    assert 'dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"))' in bind_events
 
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"))' not in bind_events
     assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"))' not in bind_events
     assert 'dom.delegationsMenuBtn?.addEventListener("click", () => setActiveNavSection("delegations"))' not in bind_events
+
+
+def test_user_management_uses_secondary_navigation_and_main_workspace():
+    js = _chat_ui_source()
+    html = APP_HTML.read_text(encoding="utf-8")
+    admin_js = Path("app/static/js/admin_users.js").read_text(encoding="utf-8")
+    bind_events = _extract_js_function(js, "bindEvents")
+    open_users = _extract_js_function(js, "openUsersInMain")
+
+    assert 'id="users-menu-btn" class="portal-rail-btn"' in html
+    assert 'id="users-nav-section" class="portal-secondary-section hidden"' in html
+    assert 'id="user-management-nav-item"' in html
+    assert 'dom.userManagementNavItem?.addEventListener("click", () => openUsersInMain())' in bind_events
+    assert 'target: "#workspace-detail-content"' in open_users
+    assert 'commitPortalRoute({ section: "users", userManagementView: "members" })' in open_users
+    assert 'target: "#tool-panel-body"' not in open_users
+    assert "users" not in _extract_js_set_values(js, "ALLOWED_UTILITY_PANEL_KEYS")
+    assert 'target: "#workspace-detail-content"' in admin_js
+    assert 'target: "#tool-panel-body"' not in admin_js
 
 
 def test_return_from_task_detail_routes_back_to_tasks_section():

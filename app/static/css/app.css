@@ -2221,6 +2221,60 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 16px;
 }
 
+.portal-admin-nav-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--portal-text-secondary);
+}
+
+.portal-admin-nav-row > svg:first-child {
+  color: var(--portal-accent);
+}
+
+.portal-admin-nav-row.is-active {
+  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 60%);
+  background: var(--portal-accent-soft);
+  color: var(--portal-text);
+}
+
+.portal-admin-nav-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.portal-admin-nav-copy strong,
+.portal-admin-nav-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-admin-nav-copy strong {
+  font-size: 13px;
+}
+
+.portal-admin-nav-copy small,
+.portal-admin-nav-chevron {
+  color: var(--portal-text-muted);
+}
+
+.portal-workspace-detail-content .portal-admin-users {
+  width: min(100%, 1200px);
+  margin-inline: auto;
+}
+
+.portal-workspace-detail-content .portal-admin-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.portal-workspace-detail-content .portal-admin-usage-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .portal-admin-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2379,6 +2433,16 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
   .portal-admin-status-badges {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1100px) {
+  .portal-workspace-detail-content .portal-admin-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portal-workspace-detail-content .portal-admin-usage-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
