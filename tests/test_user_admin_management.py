@@ -89,6 +89,51 @@ def test_existing_non_allowlisted_user_cannot_login_or_keep_session(monkeypatch)
         db.close()
 
 
+def test_revoked_session_redirects_once_and_clears_cookie(monkeypatch):
+    from app.main import app
+    import app.web as web_module
+    from app.services.auth_service import issue_session_token
+
+    db = _database()
+    user = User(username="revoked-member", password_hash="hash", role="user", is_active=True)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
+    client = TestClient(app)
+    client.cookies.set(web_module.settings.session_cookie_name, issue_session_token(user.id))
+
+    try:
+        denied = client.get("/app", follow_redirects=False)
+        assert denied.status_code == 302
+        assert denied.headers["location"] == "/login"
+        set_cookie = denied.headers.get("set-cookie", "")
+        assert f'{web_module.settings.session_cookie_name}=""' in set_cookie
+        assert "Max-Age=0" in set_cookie
+
+        login = client.get(denied.headers["location"], follow_redirects=False)
+        assert login.status_code == 200
+        assert "location" not in login.headers
+        assert "Sign in with an active, allowlisted account." in login.text
+    finally:
+        db.close()
+
+
+def test_login_page_clears_invalid_cookie_without_redirect():
+    from app.main import app
+    import app.web as web_module
+
+    client = TestClient(app)
+    client.cookies.set(web_module.settings.session_cookie_name, "invalid-session")
+
+    response = client.get("/login", follow_redirects=False)
+    assert response.status_code == 200
+    assert "location" not in response.headers
+    set_cookie = response.headers.get("set-cookie", "")
+    assert f'{web_module.settings.session_cookie_name}=""' in set_cookie
+    assert "Max-Age=0" in set_cookie
+
+
 def test_admin_can_manage_allowlist_role_and_status(monkeypatch):
     from app.main import app
     import app.api.users as users_api

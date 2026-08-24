@@ -85,6 +85,24 @@ def _current_user_from_cookie(request: Request):
         db.close()
 
 
+def _clear_session_cookie(response: Response) -> Response:
+    response.delete_cookie(settings.session_cookie_name, path="/")
+    return response
+
+
+def _redirect_to_login() -> RedirectResponse:
+    response = RedirectResponse(url="/login", status_code=302)
+    _clear_session_cookie(response)
+    return response
+
+
+def _anonymous_auth_page(request: Request, template_name: str, title: str) -> Response:
+    response = templates.TemplateResponse(template_name, {"request": request, "title": title})
+    if request.cookies.get(settings.session_cookie_name):
+        _clear_session_cookie(response)
+    return response
+
+
 def _can_access(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id or agent.visibility == "public"
 
@@ -1326,28 +1344,30 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
 @router.get("/")
 def index(request: Request) -> RedirectResponse:
     user = _current_user_from_cookie(request)
-    return RedirectResponse(url="/app" if user else "/login", status_code=302)
+    if user:
+        return RedirectResponse(url="/app", status_code=302)
+    return _redirect_to_login()
 
 
 @router.get("/login")
 def login_page(request: Request):
     if _current_user_from_cookie(request):
         return RedirectResponse(url="/app", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
+    return _anonymous_auth_page(request, "login.html", "Portal Login")
 
 
 @router.get("/register")
 def register_page(request: Request):
     if _current_user_from_cookie(request):
         return RedirectResponse(url="/app", status_code=302)
-    return templates.TemplateResponse("register.html", {"request": request, "title": "Create Account"})
+    return _anonymous_auth_page(request, "register.html", "Create Account")
 
 
 @router.get("/app")
 def app_page(request: Request):
     user = _current_user_from_cookie(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return _redirect_to_login()
 
     return templates.TemplateResponse(
         "app.html",
@@ -1379,7 +1399,7 @@ def _content_target_from_request(request: Request, default: str = "#tool-panel-b
 def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
     user = _current_user_from_cookie(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return _redirect_to_login()
 
     db = SessionLocal()
     try:
@@ -1426,7 +1446,7 @@ def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="
 def delegations_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
     user = _current_user_from_cookie(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return _redirect_to_login()
 
     db = SessionLocal()
     try:
@@ -1448,7 +1468,7 @@ def my_tasks_list(
 ):
     user = _current_user_from_cookie(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return _redirect_to_login()
 
     db = SessionLocal()
     try:
@@ -1483,7 +1503,7 @@ def my_tasks_list(
 def task_create_panel(request: Request):
     user = _current_user_from_cookie(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return _redirect_to_login()
 
     db = SessionLocal()
     try:
@@ -1502,7 +1522,7 @@ def task_create_panel(request: Request):
 async def task_result_json_download(request: Request, task_id: str):
     user = _current_user_from_cookie(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return _redirect_to_login()
 
     db = SessionLocal()
     try:
@@ -1552,7 +1572,7 @@ async def task_result_json_download(request: Request, task_id: str):
 def task_detail_panel(request: Request, task_id: str):
     user = _current_user_from_cookie(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return _redirect_to_login()
 
     db = SessionLocal()
     try:
