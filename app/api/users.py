@@ -8,6 +8,8 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository, normalize_username
 from app.repositories.user_repo import UserRepository
 from app.schemas.user import (
+    AllowlistBulkCreateRequest,
+    AllowlistBulkResponse,
     AllowlistCreateRequest,
     AllowlistResponse,
     MemberOverviewResponse,
@@ -29,6 +31,25 @@ def _get_user_or_404(repo: UserRepository, user_id: int):
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
+
+
+def _ensure_allowlist_access(
+    username: str,
+    role: str,
+    *,
+    admin_id: int,
+    db: Session,
+):
+    entry = UserAllowlistRepository(db).ensure(
+        username,
+        role=role,
+        added_by_user_id=admin_id,
+        reactivate=True,
+    )
+    existing_user = UserRepository(db).get_by_username_case_insensitive(username)
+    if existing_user and existing_user.role != role:
+        UserRepository(db).update_access(existing_user, role=role)
+    return entry
 
 
 @router.post("", response_model=UserResponse)
@@ -83,15 +104,12 @@ def add_to_allowlist(
     if existing and existing.is_active:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username is already allowlisted")
 
-    entry = allowlist.ensure(
+    entry = _ensure_allowlist_access(
         payload.username,
-        role=payload.role,
-        added_by_user_id=admin.id,
-        reactivate=True,
+        payload.role,
+        admin_id=admin.id,
+        db=db,
     )
-    existing_user = UserRepository(db).get_by_username_case_insensitive(payload.username)
-    if existing_user and existing_user.role != payload.role:
-        UserRepository(db).update_access(existing_user, role=payload.role)
     AuditRepository(db).create(
         action="allowlist_user",
         target_type="user_allowlist",
@@ -100,6 +118,43 @@ def add_to_allowlist(
         details={"username": entry.username, "role": entry.role},
     )
     return AllowlistResponse.model_validate(entry)
+
+
+@router.post("/allowlist/bulk", response_model=AllowlistBulkResponse)
+def add_bulk_to_allowlist(
+    payload: AllowlistBulkCreateRequest,
+    admin=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    allowlist = UserAllowlistRepository(db)
+    added: list[str] = []
+    already_allowlisted: list[str] = []
+
+    for username in payload.usernames:
+        existing = allowlist.get_by_username(username)
+        if existing and existing.is_active:
+            already_allowlisted.append(username)
+            continue
+        entry = _ensure_allowlist_access(
+            username,
+            payload.role,
+            admin_id=admin.id,
+            db=db,
+        )
+        added.append(entry.username)
+
+    AuditRepository(db).create(
+        action="bulk_allowlist_users",
+        target_type="user_allowlist",
+        target_id="bulk",
+        user_id=admin.id,
+        details={
+            "role": payload.role,
+            "added": added,
+            "already_allowlisted": already_allowlisted,
+        },
+    )
+    return AllowlistBulkResponse(added=added, already_allowlisted=already_allowlisted)
 
 
 @router.delete("/allowlist/{entry_id}")

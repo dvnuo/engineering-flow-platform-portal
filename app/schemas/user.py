@@ -34,6 +34,37 @@ class AllowlistCreateRequest(BaseModel):
         return str(value or "").strip().lower()
 
 
+class AllowlistBulkCreateRequest(BaseModel):
+    usernames: list[str] = Field(..., min_length=1, max_length=200)
+    role: UserRole = "user"
+
+    @field_validator("usernames", mode="before")
+    @classmethod
+    def normalize_usernames(cls, value):
+        if isinstance(value, str):
+            value = value.splitlines()
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("Usernames must be a list or newline-separated text")
+
+        usernames = []
+        seen = set()
+        for raw_username in value:
+            username = str(raw_username or "").strip().lower()
+            if not username:
+                continue
+            if not 3 <= len(username) <= 64:
+                raise ValueError("Each username must be between 3 and 64 characters")
+            if username not in seen:
+                seen.add(username)
+                usernames.append(username)
+        return usernames
+
+
+class AllowlistBulkResponse(BaseModel):
+    added: list[str]
+    already_allowlisted: list[str]
+
+
 class UserResponse(BaseModel):
     id: int
     username: str

@@ -216,6 +216,23 @@ def test_admin_can_manage_allowlist_and_role(monkeypatch):
         db.refresh(member)
         assert member.role == "viewer"
 
+        bulk_allow = client.post(
+            "/api/users/allowlist/bulk",
+            json={
+                "usernames": [" Alice ", "bob", "ALICE", "admin"],
+                "role": "user",
+            },
+        )
+        assert bulk_allow.status_code == 200
+        assert bulk_allow.json() == {
+            "added": ["alice", "bob"],
+            "already_allowlisted": ["admin"],
+        }
+        assert {
+            row.username
+            for row in db.query(UserAllowlistEntry).filter(UserAllowlistEntry.is_active.is_(True)).all()
+        } == {"admin", "member", "alice", "bob"}
+
         update = client.patch(
             f"/api/users/{member.id}",
             json={"role": "admin"},
@@ -371,10 +388,16 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
 
     db = _database()
     admin = User(username="admin", password_hash="hash", role="admin", is_active=True)
-    db.add(admin)
+    blocked_member = User(username="blocked-member", password_hash="hash", role="viewer", is_active=True)
+    db.add_all([admin, blocked_member])
     db.commit()
     db.refresh(admin)
-    db.add(UserAllowlistEntry(username="admin", role="admin", is_active=True))
+    db.add_all(
+        [
+            UserAllowlistEntry(username="admin", role="admin", is_active=True),
+            UserAllowlistEntry(username="invited-member", role="user", is_active=True),
+        ]
+    )
     db.commit()
     monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: admin)
@@ -384,8 +407,15 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert response.status_code == 200
         assert "Member administration" in response.text
         assert "data-admin-allowlist-form" in response.text
+        assert 'textarea class="portal-form-input" name="usernames"' in response.text
+        assert "data-admin-member-search" in response.text
+        assert "data-admin-member-access-filter" in response.text
         assert "Executions" in response.text
-        assert "data-admin-member-form" in response.text
+        assert "data-admin-member-form" not in response.text
+        assert "data-admin-role-select" in response.text
+        assert "data-allow-member" in response.text
+        assert "<details" in response.text
+        assert response.text.index("Registered members") < response.text.index("Pending registration")
         assert "Account active" not in response.text
         assert 'name="is_active"' not in response.text
         assert ">Active</span>" not in response.text
@@ -396,6 +426,8 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
             for route in app.routes
         )
         admin_js = Path("app/static/js/admin_users.js").read_text(encoding="utf-8")
+        assert "/api/users/allowlist/bulk" in admin_js
+        assert 'document.addEventListener("change"' in admin_js
         assert "/password" not in admin_js
         assert "is_active" not in admin_js
     finally:
