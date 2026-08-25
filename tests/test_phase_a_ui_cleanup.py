@@ -327,7 +327,8 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert ">Save role</button>" not in users_html
     assert ">Revoke allowlist</button>" not in users_html
     assert ".portal-admin-member-actions .portal-btn" in css_source
-    assert "grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);" in css_source
+    assert "repeat(auto-fill, minmax(min(100%, 380px), 1fr))" in css_source
+    assert "grid-template-columns: minmax(140px, 200px) minmax(64px, 1fr) auto;" in css_source
     assert "portal-panel-stack" in skills_html
     assert "portal-panel-stack" in delegations_html
     assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)

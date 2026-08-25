@@ -72,6 +72,7 @@ const dom = {
   addTaskBtn: document.getElementById("add-task-btn"),
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addDelegationBtn: document.getElementById("add-delegation-btn"),
+  headerAddAllowlistBtn: document.getElementById("header-add-allowlist-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   contextUsageBtn: document.getElementById("btn-context"),
   contextUsageLabel: document.getElementById("context-usage-label"),
@@ -239,6 +240,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   assistantOnlyControls.forEach((element) => {
     element?.classList.toggle("hidden", normalized !== "assistants");
   });
+  dom.headerAddAllowlistBtn?.classList.toggle("hidden", normalized !== "users");
 
   if (normalized === "assistants") {
     dom.centerPlaceholder?.classList.remove("hidden");
@@ -7848,6 +7850,7 @@ function renderSecondaryPaneHeader() {
 
 function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
+  const userManagementMode = state.activeNavSection === "users";
 
   const sessionsBtn = document.getElementById("btn-sessions");
   const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.contextUsageBtn, dom.detailToggle, document.getElementById("btn-files")];
@@ -7855,6 +7858,7 @@ function syncMainHeader() {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
   });
+  dom.headerAddAllowlistBtn?.classList.toggle("hidden", !userManagementMode);
 
   if (assistantMode) {
     restoreAssistantHeaderState();

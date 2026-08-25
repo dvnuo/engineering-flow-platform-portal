@@ -10,66 +10,40 @@
   <div class="portal-admin-summary-grid" aria-label="Member summary">
     <div class="portal-usage-card"><span class="portal-usage-k">Members</span><strong class="portal-usage-v">{{ summary.total_users }}</strong></div>
     <div class="portal-usage-card"><span class="portal-usage-k">Allowed</span><strong class="portal-usage-v">{{ summary.allowed_users }}</strong></div>
-    <div class="portal-usage-card"><span class="portal-usage-k">Administrators</span><strong class="portal-usage-v">{{ summary.admin_users }}</strong></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">Administrators</span><strong class="portal-usage-v" data-admin-summary-admins>{{ summary.admin_users }}</strong></div>
   </div>
 
-  <section class="portal-panel-section portal-admin-allowlist-section">
+  <section class="portal-admin-members-section" aria-labelledby="registered-members-title">
     <div class="portal-panel-header">
       <div>
-        <div class="portal-list-title">Add to allowlist</div>
-        <div class="portal-panel-note">Add a username before the member registers.</div>
+        <div class="portal-list-title" id="registered-members-title">Registered members</div>
+        <div class="portal-panel-note">Search members, review usage, and manage access where the work happens.</div>
       </div>
+      <span class="portal-panel-subtitle" data-admin-member-result-count>{{ users|length }} shown</span>
     </div>
-    <form class="portal-admin-inline-form" data-admin-allowlist-form>
-      <label>
-        <span>Username</span>
-        <input class="portal-form-input" name="username" type="text" minlength="3" maxlength="64" autocomplete="off" required placeholder="member-name" />
+    <div class="portal-admin-member-toolbar">
+      <label aria-label="Search registered members">
+        <input class="portal-form-input" type="search" aria-label="Search registered members" placeholder="Search members" autocomplete="off" data-admin-member-search />
       </label>
-      <label>
-        <span>Initial role</span>
-        <select class="portal-form-select" name="role">
-          <option value="user">User</option>
-          <option value="viewer">Viewer</option>
-          <option value="admin">Administrator</option>
+      <label aria-label="Filter members by access">
+        <select class="portal-form-select" aria-label="Filter members by access" data-admin-member-access-filter>
+          <option value="all">All access</option>
+          <option value="allowed">Allowed</option>
+          <option value="blocked">Needs access</option>
         </select>
       </label>
-      <button class="portal-btn is-primary" type="submit">Allow member</button>
-    </form>
-    <p class="portal-modal-feedback" data-admin-users-feedback aria-live="polite"></p>
-  </section>
-
-  {% if pending_allowlist_entries %}
-  <section class="portal-panel-section">
-    <div class="portal-panel-header">
-      <div>
-        <div class="portal-list-title">Pending registration</div>
-        <div class="portal-panel-note">Allowlisted usernames that have not created an account.</div>
-      </div>
-      <span class="portal-panel-subtitle">{{ pending_allowlist_entries|length }}</span>
     </div>
-    <div class="portal-admin-pending-list">
-      {% for entry in pending_allowlist_entries %}
-      <div class="portal-admin-pending-row">
-        <div>
-          <strong>{{ entry.username }}</strong>
-          <span class="portal-admin-role-badge">{{ entry.role }}</span>
-        </div>
-        <button
-          class="portal-btn is-secondary"
-          type="button"
-          data-remove-allowlist="{{ entry.id }}"
-          data-allowlist-username="{{ entry.username|data_attr }}"
-        >Remove</button>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
 
-  {% if users %}
+    {% if users %}
     <div class="portal-panel-stack portal-admin-member-list">
       {% for u in users %}
-        <section class="portal-panel-section portal-admin-member-card" data-member-id="{{ u.id }}">
+        <article
+          class="portal-panel-section portal-admin-member-card"
+          data-member-id="{{ u.id }}"
+          data-member-username="{{ u.username|data_attr }}"
+          data-member-name="{{ (u.nickname or u.username)|data_attr }}"
+          data-member-access="{% if u.is_allowlisted %}allowed{% else %}blocked{% endif %}"
+        >
           <div class="portal-panel-header portal-admin-member-heading">
             <div>
               <div class="portal-list-title">
@@ -99,17 +73,24 @@
             <span>Last activity: {{ u.last_activity_at.strftime('%Y-%m-%d %H:%M') if u.last_activity_at else 'No activity' }}</span>
           </div>
 
-          <form class="portal-admin-member-form" data-admin-member-form data-user-id="{{ u.id }}">
-            <label>
+          <div class="portal-admin-member-controls">
+            <label class="portal-admin-role-control">
               <span>Role</span>
-              <select class="portal-form-select" name="role" {% if u.id == current_user.id %}disabled{% endif %}>
+              <select
+                class="portal-form-select"
+                name="role"
+                data-admin-role-select
+                data-user-id="{{ u.id }}"
+                data-original-role="{{ u.role }}"
+                {% if u.id == current_user.id %}disabled{% endif %}
+              >
                 <option value="user" {% if u.role == 'user' %}selected{% endif %}>User</option>
                 <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer</option>
                 <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator</option>
               </select>
             </label>
+            <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}Current account{% endif %}</span>
             <div class="portal-admin-member-actions">
-              <button class="portal-btn is-primary" type="submit" {% if u.id == current_user.id %}disabled{% endif %}>Save</button>
               {% if u.allowlist_entry_id and u.id != current_user.id %}
               <button
                 class="portal-btn is-danger"
@@ -117,14 +98,84 @@
                 data-remove-allowlist="{{ u.allowlist_entry_id }}"
                 data-allowlist-username="{{ u.username|data_attr }}"
               >Revoke</button>
+              {% elif not u.is_allowlisted %}
+              <button
+                class="portal-btn is-secondary"
+                type="button"
+                data-allow-member
+                data-username="{{ u.username|data_attr }}"
+              >Allow</button>
               {% endif %}
             </div>
-          </form>
+          </div>
 
-        </section>
+        </article>
       {% endfor %}
     </div>
-  {% else %}
+    <div class="portal-panel-empty" data-admin-member-filter-empty hidden>No members match this search.</div>
+    {% else %}
     <div class="portal-panel-empty">No users found.</div>
+    {% endif %}
+  </section>
+
+  {% if pending_allowlist_entries %}
+  <details class="portal-panel-section portal-admin-pending-section">
+    <summary class="portal-admin-pending-summary">
+      <div>
+        <div class="portal-list-title">Pending registration</div>
+        <div class="portal-panel-note">Allowlisted usernames that have not created an account.</div>
+      </div>
+      <span class="portal-panel-subtitle">{{ pending_allowlist_entries|length }}</span>
+      <span class="portal-admin-pending-chevron" aria-hidden="true">⌄</span>
+    </summary>
+    <div class="portal-admin-pending-list">
+      {% for entry in pending_allowlist_entries %}
+      <div class="portal-admin-pending-row">
+        <div>
+          <strong>{{ entry.username }}</strong>
+          <span class="portal-admin-role-badge">{{ entry.role }}</span>
+        </div>
+        <button
+          class="portal-btn is-secondary"
+          type="button"
+          data-remove-allowlist="{{ entry.id }}"
+          data-allowlist-username="{{ entry.username|data_attr }}"
+        >Remove</button>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
   {% endif %}
+
+  <div id="admin-allowlist-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="admin-allowlist-modal-title" aria-hidden="true" data-admin-allowlist-modal>
+    <div class="modal-card panel portal-admin-allowlist-modal-card">
+      <div class="portal-modal-titlebar">
+        <div>
+          <h3 id="admin-allowlist-modal-title">Add to allowlist</h3>
+          <p class="portal-modal-copy">Enter one username per line and assign the same initial role.</p>
+        </div>
+        <button type="button" class="portal-modal-close" title="Close" aria-label="Close" data-close-admin-allowlist-modal>✕</button>
+      </div>
+      <form class="stack portal-admin-allowlist-form" data-admin-allowlist-form>
+        <label class="portal-admin-username-list-field">
+          <span>Usernames</span>
+          <textarea class="portal-form-input" name="usernames" rows="5" autocomplete="off" spellcheck="false" required placeholder="alex&#10;jamie&#10;taylor"></textarea>
+          <small>One username per line · <span data-admin-allowlist-count>0</span> ready</small>
+        </label>
+        <label>
+          <span>Initial role</span>
+          <select class="portal-form-select" name="role">
+            <option value="user">User</option>
+            <option value="viewer">Viewer</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </label>
+        <p class="portal-modal-feedback" data-admin-users-feedback aria-live="polite"></p>
+        <div class="portal-modal-actions">
+          <button class="portal-btn is-secondary" type="button" data-close-admin-allowlist-modal>Cancel</button>
+          <button class="portal-btn is-primary" type="submit">Allow users</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>

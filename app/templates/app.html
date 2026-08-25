@@ -137,6 +137,12 @@
           <div id="chat-status" class="portal-statusline">Ready</div>
         </div>
         <div class="portal-main-toolbar">
+          {% if role == "admin" %}
+          <button id="header-add-allowlist-btn" class="portal-header-action is-primary hidden" type="button" title="Add to allowlist" aria-label="Add to allowlist" data-open-admin-allowlist-modal>
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+            <span class="portal-header-action-label">Add to allowlist</span>
+          </button>
+          {% endif %}
           <button id="header-new-chat-btn" class="portal-header-action is-primary" type="button" title="New chat" aria-label="New chat">
             <i data-lucide="message-square-plus" class="w-4 h-4"></i>
             <span class="portal-header-action-label">New chat</span>
