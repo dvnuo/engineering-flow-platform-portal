@@ -34,12 +34,17 @@
     <script src="/static/lib/lucide.min.js"></script>
 
     <script>
+      // Runs before first paint so the resolved theme is already on <html>.
+      // Preference is light | dark | system; anything else (including never
+      // having chosen) means system, so a dark-mode OS gets a dark Portal.
       (function () {
-        const key = "portal-theme";
-        const saved = localStorage.getItem(key);
-        const normalized = saved === "dark" ? "dark" : "light";
-        document.documentElement.setAttribute("data-theme", normalized);
-        document.documentElement.classList.toggle("dark", normalized === "dark");
+        const saved = localStorage.getItem("portal-theme");
+        const preference = ["light", "dark", "system"].indexOf(saved) >= 0 ? saved : "system";
+        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const effective = preference === "system" ? (prefersDark ? "dark" : "light") : preference;
+        document.documentElement.setAttribute("data-theme", effective);
+        document.documentElement.setAttribute("data-theme-preference", preference);
+        document.documentElement.classList.toggle("dark", effective === "dark");
       })();
     </script>
   </head>

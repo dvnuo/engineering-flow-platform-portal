@@ -89,6 +89,7 @@ const dom = {
   homeSubtitle: document.getElementById("home-subtitle"),
   homeAgentSummary: document.getElementById("home-agent-summary"),
   homeStartChatBtn: document.getElementById("home-start-chat-btn"),
+  homeCreateAgentBtn: document.getElementById("home-create-agent-btn"),
   homeOpenTasksBtn: document.getElementById("home-open-tasks-btn"),
   homeOpenDelegationsBtn: document.getElementById("home-open-delegations-btn"),
   createRuntimeProfileModal: document.getElementById("create-runtime-profile-modal"),
@@ -873,6 +874,8 @@ function syncSelectedAgentChatActionControls() {
     setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
     setButtonDisabled(contextBtn, true, "Select an assistant first");
+    // Details was the one header control left enabled with nothing to show.
+    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
     if (dom.contextUsageLabel) dom.contextUsageLabel.textContent = "Context —";
     setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
@@ -903,6 +906,8 @@ function syncSelectedAgentChatActionControls() {
 
   setButtonDisabled(dom.headerNewChatBtn, disabled, disabled ? title : "");
   setButtonDisabled(sessionsBtn, disabled, disabled ? title : "");
+  // Details stays available for a stopped assistant — that panel is where Start lives.
+  setButtonDisabled(dom.detailToggle, false);
   const hasSession = Boolean(chatState?.sessionId);
   const contextDisabled = disabled || !hasSession || chatState?.contextUsageLoading || chatState?.compactingContext;
   const contextTitle = busy
@@ -3681,20 +3686,58 @@ function renderRuntimeStateNotes(uiState = {}) {
   `;
 }
 
+// Theme is a three-way preference: light, dark, or system. "system" is the
+// default for anyone who has never picked, so a dark-mode OS no longer lands on
+// a light Portal.
+const THEME_PREFERENCE_KEY = "portal-theme";
+const THEME_ORDER = ["system", "light", "dark"];
+const THEME_META = {
+  system: { icon: "monitor", label: "Theme: follow system" },
+  light: { icon: "sun", label: "Theme: light" },
+  dark: { icon: "moon", label: "Theme: dark" },
+};
+
+function prefersDarkScheme() {
+  return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}
+
+function normalizeThemePreference(value) {
+  return THEME_ORDER.includes(value) ? value : "system";
+}
+
+function resolveInitialTheme() {
+  return normalizeThemePreference(localStorage.getItem(THEME_PREFERENCE_KEY));
+}
+
 function applyTheme(theme) {
-  const normalized = theme === "light" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", normalized);
-  document.documentElement.classList.toggle("dark", normalized === "dark");
-  localStorage.setItem("portal-theme", normalized);
-  if (dom.themeToggle) dom.themeToggle.innerHTML = normalized === "light"
-    ? '<i data-lucide="sun"></i>'
-    : '<i data-lucide="moon"></i>';
+  const preference = normalizeThemePreference(theme);
+  const effective = preference === "system" ? (prefersDarkScheme() ? "dark" : "light") : preference;
+  document.documentElement.setAttribute("data-theme", effective);
+  document.documentElement.setAttribute("data-theme-preference", preference);
+  document.documentElement.classList.toggle("dark", effective === "dark");
+  localStorage.setItem(THEME_PREFERENCE_KEY, preference);
+  const meta = THEME_META[preference];
+  if (dom.themeToggle) {
+    dom.themeToggle.innerHTML = `<i data-lucide="${meta.icon}" class="w-5 h-5"></i>`;
+    dom.themeToggle.title = meta.label;
+    dom.themeToggle.setAttribute("aria-label", meta.label);
+  }
   renderIcons();
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme") || "dark";
-  applyTheme(current === "dark" ? "light" : "dark");
+  const current = normalizeThemePreference(localStorage.getItem(THEME_PREFERENCE_KEY));
+  applyTheme(THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length]);
+}
+
+// Follow the OS live while the preference is "system".
+if (window.matchMedia) {
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSchemeChange = () => {
+    if (normalizeThemePreference(localStorage.getItem(THEME_PREFERENCE_KEY)) === "system") applyTheme("system");
+  };
+  if (typeof darkQuery.addEventListener === "function") darkQuery.addEventListener("change", onSchemeChange);
+  else if (typeof darkQuery.addListener === "function") darkQuery.addListener(onSchemeChange);
 }
 
 function setChatStatus(text, isError = false) {
@@ -4921,8 +4964,8 @@ function renderAgentActions(agent, status) {
     { label: "Restart", icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
     { label: "Edit", icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
     { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
-    { label: "Destroy", icon: "flame", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent, "delete") },
+    { label: "Destroy", icon: "flame", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent, "destroy") },
   ];
   actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
 
@@ -4975,6 +5018,33 @@ function setSelectedStatusText(status = "idle") {
   dom.selectedStatus.textContent = status || "idle";
 }
 
+// With no assistant selected there are two very different situations, and the
+// home screen used to show the same copy for both. Telling someone with zero
+// assistants to "choose an assistant from the left" is a dead end — the list is
+// empty and the only way forward was an unlabelled + icon.
+function applyHomeEmptyState() {
+  const hasAnyAgent = Array.isArray(state.mineAgents) && state.mineAgents.length > 0;
+
+  if (dom.homeTitle) {
+    dom.homeTitle.textContent = hasAnyAgent ? "Select an assistant" : "Create your first assistant";
+  }
+  if (dom.homeSubtitle) {
+    dom.homeSubtitle.textContent = hasAnyAgent
+      ? "Choose an assistant from the left to start chatting."
+      : "An assistant is a running workspace you chat with. A default runtime profile is already set up, so you can create one now.";
+  }
+  if (dom.homeAgentSummary) {
+    dom.homeAgentSummary.textContent = hasAnyAgent ? "No assistant selected." : "No assistants yet.";
+  }
+  if (dom.homeCreateAgentBtn) {
+    dom.homeCreateAgentBtn.classList.toggle("hidden", hasAnyAgent);
+  }
+  // With nothing to chat with, New Chat is noise next to the real next step.
+  if (dom.homeStartChatBtn) {
+    dom.homeStartChatBtn.classList.toggle("hidden", !hasAnyAgent);
+  }
+}
+
 async function syncSelectedAgentState() {
   const agent = getSelectedAgent();
   const sessionsBtn = document.getElementById("btn-sessions");
@@ -4986,11 +5056,10 @@ async function syncSelectedAgentState() {
     setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
     setButtonDisabled(dom.contextUsageBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
     syncContextUsageToolbar(null);
     setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
-    dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
-    dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
-    dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
+    applyHomeEmptyState();
     if (state.activeNavSection === "assistants") {
       setMainView("home");
     }
@@ -5009,6 +5078,8 @@ async function syncSelectedAgentState() {
   setSelectedStatusText(status);
   setChatStatus("Ready");
   syncSelectedAgentChatActionControls();
+  dom.homeCreateAgentBtn?.classList.add("hidden");
+  dom.homeStartChatBtn?.classList.remove("hidden");
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
   dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
   if (dom.homeAgentSummary) {
@@ -10303,6 +10374,22 @@ function resetLocalChatSubmissionForAgent(agentId) {
   setChatSubmittingForAgent(agentId, false, { suppressSync: true });
 }
 
+// Human-readable label for the agent lifecycle endpoint being called, used when
+// an action fails and we have to tell the user which one it was.
+function agentActionLabel(path = "") {
+  const tail = String(path || "").split("/").filter(Boolean).pop() || "";
+  const labels = {
+    start: "Start",
+    stop: "Stop",
+    restart: "Restart",
+    share: "Share",
+    unshare: "Unshare",
+    "delete-runtime": "Delete",
+    destroy: "Destroy",
+  };
+  return labels[tail] || "Action";
+}
+
 async function action(path, method = "POST", needsConfirm = false) {
   if (needsConfirm && !(await showConfirm({ title: "Confirm action", message: "Please confirm this action.", confirmText: "Continue" }))) return;
   const lifecycle = parseAgentLifecycleAction(path);
@@ -10329,6 +10416,10 @@ async function action(path, method = "POST", needsConfirm = false) {
       }
       return;
     }
+    // Every other lifecycle action used to rethrow into a discarded promise, so
+    // failures were completely invisible. Surface it before propagating.
+    const message = agentRestartErrorMessage(error, "Request failed.");
+    showToast(`${agentActionLabel(path)} failed: ${message}`, { variant: "error" });
     throw error;
   }
 
@@ -10373,6 +10464,37 @@ async function action(path, method = "POST", needsConfirm = false) {
     }
   }
   await refreshAll();
+}
+
+// Delete/Destroy previously shared the generic "Please confirm this action."
+// prompt, which named neither the assistant nor what was about to happen.
+// Note: destroy_data is not yet implemented cluster-side (k8s_service leaves the
+// shared workspace volume untouched), so neither variant claims to erase files.
+async function removeAgent(agent, mode) {
+  if (!agent?.id) return;
+  const name = agent.name || "this assistant";
+  const isDestroy = mode === "destroy";
+  const confirmed = await showConfirm({
+    title: isDestroy ? `Destroy ${name}?` : `Delete ${name}?`,
+    message: isDestroy
+      ? `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are left on the cluster — workspace cleanup is not implemented yet. This can't be undone.`
+      : `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept. This can't be undone.`,
+    confirmText: isDestroy ? "Destroy assistant" : "Delete assistant",
+    cancelText: "Cancel",
+    danger: true,
+  });
+  if (!confirmed) return;
+
+  // Both endpoints are POST; the client used to send DELETE to delete-runtime,
+  // which the router answered with 405.
+  const path = isDestroy ? `/api/agents/${agent.id}/destroy` : `/api/agents/${agent.id}/delete-runtime`;
+  try {
+    await action(path, "POST");
+    showToast(isDestroy ? `${name} destroyed.` : `${name} deleted.`);
+  } catch (error) {
+    // action() already surfaced the failure toast.
+    console.warn("Agent removal failed", error);
+  }
 }
 
 async function loadRuntimeProfiles(force = false) {
@@ -13152,20 +13274,89 @@ function simpleHash(str) {
   return Math.abs(hash).toString(36);
 }
 
-// Global toast notification
+// Global toast notification.
+//
+// Toasts stack instead of overwriting a single slot, and errors stay long enough
+// to read and can be dismissed or copied — a 2s error that a later toast could
+// wipe out was the app's only report channel for ~26 failure paths.
+const TOAST_DEFAULT_DURATION_MS = 2600;
+const TOAST_ERROR_DURATION_MS = 8000;
+const TOAST_MAX_VISIBLE = 4;
+
+function dismissToast(node) {
+  if (!node || node.dataset.leaving === '1') return;
+  node.dataset.leaving = '1';
+  clearTimeout(Number(node.dataset.timerId) || 0);
+  node.classList.add('is-leaving');
+  const remove = () => {
+    node.remove();
+    const stack = document.getElementById('global-toast');
+    if (stack && !stack.childElementCount) stack.classList.add('hidden');
+  };
+  node.addEventListener('transitionend', remove, { once: true });
+  setTimeout(remove, 400);
+}
+
 function showToast(message, opts = {}) {
-  const toast = document.getElementById('global-toast');
-  if (!toast) return;
+  const stack = document.getElementById('global-toast');
+  if (!stack) return null;
   const o = typeof opts === 'number' ? { duration: opts } : (opts || {});
-  const duration = o.duration || 2000;
-  const inner = toast.querySelector('div');
-  inner.textContent = message;
-  inner.classList.remove('is-error', 'is-info');
-  if (o.variant === 'error') inner.classList.add('is-error');
-  else if (o.variant === 'info') inner.classList.add('is-info');
-  toast.classList.remove('hidden');
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => toast.classList.add('hidden'), duration);
+  const isError = o.variant === 'error';
+  const duration = o.duration || (isError ? TOAST_ERROR_DURATION_MS : TOAST_DEFAULT_DURATION_MS);
+  const text = String(message ?? '');
+
+  // Errors are announced immediately; routine confirmations wait their turn.
+  stack.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+
+  const node = document.createElement('div');
+  node.className = 'portal-toast-inner';
+  if (isError) node.classList.add('is-error');
+  else if (o.variant === 'info') node.classList.add('is-info');
+
+  const body = document.createElement('span');
+  body.className = 'portal-toast-text';
+  body.textContent = text;
+  node.append(body);
+
+  if (isError) {
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'portal-toast-action';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        copy.textContent = 'Copied';
+      } catch {
+        copy.textContent = 'Copy failed';
+      }
+    });
+    node.append(copy);
+  }
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'portal-toast-close';
+  close.title = 'Dismiss';
+  close.setAttribute('aria-label', 'Dismiss notification');
+  close.textContent = '✕';
+  close.addEventListener('click', () => dismissToast(node));
+  node.append(close);
+
+  stack.classList.remove('hidden');
+  stack.append(node);
+  while (stack.childElementCount > TOAST_MAX_VISIBLE) dismissToast(stack.firstElementChild);
+  // Force reflow so the enter transition runs.
+  void node.offsetWidth;
+  node.classList.add('is-visible');
+
+  node.dataset.timerId = String(setTimeout(() => dismissToast(node), duration));
+  // Reading a long error shouldn't race the timer.
+  node.addEventListener('mouseenter', () => clearTimeout(Number(node.dataset.timerId) || 0));
+  node.addEventListener('mouseleave', () => {
+    node.dataset.timerId = String(setTimeout(() => dismissToast(node), 1500));
+  });
+  return node;
 }
 
 // ===== wiring =====
@@ -13573,6 +13764,8 @@ function bindEvents() {
     }
   });
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  // First-run path: the empty home screen now offers the real next step directly.
+  dom.homeCreateAgentBtn?.addEventListener("click", () => dom.addAgentBtn?.click());
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
     await openPortalSection("tasks");
   });
@@ -14149,9 +14342,18 @@ function bindEvents() {
   });
 }
 
+// Last-resort net so a rejected promise from a click handler can never leave the
+// user staring at a button that silently did nothing.
+window.addEventListener("unhandledrejection", (event) => {
+  const message = agentRestartErrorMessage(event?.reason, "Something went wrong.");
+  console.error("Unhandled rejection", event?.reason);
+  if (typeof showToast === "function") {
+    showToast(message, { variant: "error" });
+  }
+});
+
 document.addEventListener("DOMContentLoaded", async () => {
-  const initialTheme = localStorage.getItem("portal-theme") || (document.documentElement.getAttribute("data-theme") || "dark");
-  applyTheme(initialTheme);
+  applyTheme(resolveInitialTheme());
 
   // Tool panel resize from left edge
   const resizeHandle = document.getElementById('tool-panel-resize');

@@ -128,7 +128,11 @@ def test_frontend_assets_include_phase_b_fixups():
     assert "getLatestOptimisticUserArticle" in js_source
     assert "portal-statusline" in js_source
     assert "state.detailOpen = false" in js_source
-    assert 'document.documentElement.getAttribute("data-theme")' in js_source
+    # Theme is a light|dark|system preference now: <html data-theme> carries the
+    # resolved value while the stored preference drives the toggle.
+    assert 'document.documentElement.setAttribute("data-theme", effective)' in js_source
+    assert 'document.documentElement.setAttribute("data-theme-preference", preference)' in js_source
+    assert '(prefers-color-scheme: dark)' in js_source
     assert 'toolPanelTitle?.textContent === "Sessions"' not in js_source
     assert ".assistant-header" not in js_source
     assert ".flex.flex-col" not in js_source
@@ -316,7 +320,10 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "class=\"close-btn\"" not in app_html
     assert "portal-btn is-primary" in app_html
     assert "portal-modal-close" in app_html
-    assert "portal-toast-inner" in app_html
+    # Toast bodies are built in JS now (they stack), so app.html only carries the
+    # live-region container; .portal-toast-inner is still asserted in the CSS above.
+    assert 'id="global-toast"' in app_html
+    assert 'role="status"' in app_html
     assert "text-xs text-slate-500" not in app_html
 
     assert "portal-panel-stack" in tasks_html

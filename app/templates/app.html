@@ -184,6 +184,7 @@
           <article class="portal-card">
             <div class="portal-card-title">Quick Actions</div>
             <div class="portal-home-actions">
+              <button id="home-create-agent-btn" type="button" class="toolbar-primary-btn hidden">Create Assistant</button>
               <button id="home-start-chat-btn" type="button" class="toolbar-primary-btn">New Chat</button>
               <button id="home-open-tasks-btn" type="button" class="toolbar-secondary-btn">Tasks</button>
               <button id="home-open-delegations-btn" type="button" class="toolbar-secondary-btn">Delegations</button>
@@ -310,9 +311,7 @@
 
   <div id="tool-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
 
-  <div id="global-toast" class="portal-toast hidden">
-    <div class="portal-toast-inner"></div>
-  </div>
+  <div id="global-toast" class="portal-toast hidden" role="status" aria-live="polite" aria-atomic="false"></div>
 
 </div>
 
