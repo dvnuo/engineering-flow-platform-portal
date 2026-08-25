@@ -4590,6 +4590,28 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 }
 
+/* Only ever visible while the mobile drawer is open. */
+.portal-secondary-drawer-backdrop {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 39;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--portal-transition);
+}
+
+.portal-shell.is-secondary-drawer-open .portal-secondary-drawer-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-secondary-pane,
+  .portal-secondary-drawer-backdrop { transition: none; }
+}
+
 @media (max-width: 768px) {
   .portal-shell,
   .portal-shell.is-secondary-collapsed,
@@ -4599,9 +4621,49 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
     grid-template-columns: 68px minmax(0, 1fr) 0px 0px;
   }
 
-  .portal-secondary-pane,
+  /* The list of assistants/tasks/delegations used to be display:none here with
+     no way to reach it, which made every rail section unusable below 768px.
+     It becomes a drawer over the main column instead.
+     Selector is doubled up to outrank .portal-shell.is-secondary-collapsed
+     .portal-secondary-pane, which otherwise zeroes the width and transform. */
+  .portal-shell .portal-secondary-pane,
+  .portal-shell.is-secondary-collapsed .portal-secondary-pane {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 68px;
+    /* Percentage resolves against .portal-shell, which is inset from the
+       viewport — 100vw here would push the drawer past the right edge. */
+    width: min(320px, calc(100% - 68px));
+    min-width: 0;
+    padding: 16px;
+    z-index: 40;
+    display: flex;
+    transform: translateX(-102%);
+    opacity: 1;
+    border-right-width: 1px;
+    pointer-events: auto;
+    box-shadow: var(--portal-shadow);
+    visibility: hidden;
+    /* Deliberately not transitioned. The pane inherits a transform/opacity
+       transition from the desktop rule, and on an element that starts out
+       visibility:hidden that transition can fail to start, leaving the drawer
+       parked off-screen — i.e. exactly the bug this drawer exists to fix.
+       The backdrop still fades, so the open still reads as a transition. */
+    transition: none;
+  }
+
+  .portal-shell.is-secondary-drawer-open .portal-secondary-pane {
+    transform: translateX(0);
+    visibility: visible;
+  }
+
   .portal-secondary-restore {
     display: none !important;
+  }
+
+  .portal-secondary-drawer-backdrop {
+    display: block;
   }
 
   .portal-tool-panel {

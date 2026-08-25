@@ -47,6 +47,7 @@ const dom = {
   delegationsMenuBtn: document.getElementById("delegations-menu-btn"),
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
+  secondaryDrawerBackdrop: document.getElementById("secondary-drawer-backdrop"),
   portalSecondaryPane: document.getElementById("portal-secondary-pane"),
   secondaryPaneToggle: document.getElementById("secondary-pane-toggle"),
   secondaryPaneRestore: document.getElementById("secondary-pane-restore"),
@@ -455,7 +456,12 @@ const state = {
   suggestRequestSeq: 0,
   suggestBlurHideTimer: null,
   activeNavSection: INITIAL_PORTAL_ROUTE_SECTION,
-  secondaryPaneCollapsed: !!initialUiLayoutPrefs.secondaryPaneCollapsed,
+  // On a phone the pane is an overlay drawer, so it always starts closed —
+  // opening over the conversation on load would be the wrong first impression.
+  secondaryPaneCollapsed:
+    (window.matchMedia && window.matchMedia("(max-width: 768px)").matches)
+      ? true
+      : !!initialUiLayoutPrefs.secondaryPaneCollapsed,
   toolPanelOpen: !!initialUiLayoutPrefs.toolPanelPinned,
   toolPanelPinned: !!initialUiLayoutPrefs.toolPanelPinned,
   pendingToolPanelRestoreKey: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
@@ -7941,11 +7947,32 @@ function getSecondaryPaneLabel() {
   return "Assistants";
 }
 
+// Below this width the secondary pane is an overlay drawer rather than a column.
+const SECONDARY_DRAWER_BREAKPOINT_PX = 768;
+
+function isSecondaryDrawerViewport() {
+  return Boolean(window.matchMedia && window.matchMedia(`(max-width: ${SECONDARY_DRAWER_BREAKPOINT_PX}px)`).matches);
+}
+
+function applySecondaryDrawerState() {
+  const drawerViewport = isSecondaryDrawerViewport();
+  const open = drawerViewport && !state.secondaryPaneCollapsed;
+  dom.portalShell?.classList.toggle("is-secondary-drawer-open", open);
+  dom.secondaryDrawerBackdrop?.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function closeSecondaryDrawer() {
+  if (!isSecondaryDrawerViewport() || state.secondaryPaneCollapsed) return;
+  state.secondaryPaneCollapsed = true;
+  applySecondaryPaneState();
+}
+
 function applySecondaryPaneState() {
   const collapsed = !!state.secondaryPaneCollapsed;
   const label = getSecondaryPaneLabel();
 
   dom.portalShell?.classList.toggle("is-secondary-collapsed", collapsed);
+  applySecondaryDrawerState();
   dom.portalSecondaryPane?.classList.toggle("is-hidden", collapsed);
   dom.portalSecondaryPane?.setAttribute("aria-hidden", collapsed ? "true" : "false");
 
@@ -8095,7 +8122,10 @@ async function setActiveNavSection(section, {
     state.secondaryPaneCollapsed = !state.secondaryPaneCollapsed;
   } else {
     state.activeNavSection = section;
-    if (!preserveCollapsed) {
+    // Restoring a route on load must not pop the mobile drawer open over the
+    // conversation; only a deliberate rail tap does that.
+    const routeDrivenOnMobile = isApplyingPortalRoute && isSecondaryDrawerViewport();
+    if (!preserveCollapsed && !routeDrivenOnMobile) {
       state.secondaryPaneCollapsed = false;
     }
   }
@@ -13853,6 +13883,22 @@ function bindEvents() {
 
   dom.messageScroll?.addEventListener("scroll", handleMessageScroll, { passive: true });
   dom.jumpToLatestBtn?.addEventListener("click", () => scrollToBottom({ force: true }));
+
+  // Mobile drawer: dismiss it the way people expect an overlay to dismiss.
+  dom.secondaryDrawerBackdrop?.addEventListener("click", closeSecondaryDrawer);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!dom.portalShell?.classList.contains("is-secondary-drawer-open")) return;
+    closeSecondaryDrawer();
+  });
+  // Picking something from the drawer should reveal it, not leave the list on top.
+  dom.portalSecondaryPane?.addEventListener("click", (event) => {
+    if (!isSecondaryDrawerViewport()) return;
+    if (!event.target.closest(".portal-agent-row, .portal-list-row, [data-task-id], [data-delegation-rule-id], [data-runtime-profile-id]")) return;
+    closeSecondaryDrawer();
+  });
+  // Crossing the breakpoint must not strand the pane in the wrong mode.
+  window.addEventListener("resize", applySecondaryDrawerState);
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
     await openPortalSection("tasks");
   });
