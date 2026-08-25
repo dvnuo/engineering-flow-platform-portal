@@ -3,7 +3,7 @@
     <div class="portal-overview-title-block">
       <div class="portal-overview-eyebrow">Delegation Operations</div>
       <h2 class="portal-panel-title">Delegations</h2>
-      <p class="portal-panel-subtitle">{{ overview.health.headline }} · {{ overview.generated_at.strftime('%Y-%m-%d %H:%M') if overview.generated_at else '' }}</p>
+      <p class="portal-panel-subtitle">{{ overview.health.headline }} · {{ local_datetime(overview.generated_at, empty='') }}</p>
     </div>
     <div class="portal-overview-actions" role="group" aria-label="Delegation overview scope">
       <button class="portal-btn is-secondary{% if overview.scope == 'all' %} is-active{% endif %}" type="button" data-delegation-overview-scope="all">All Visible</button>
@@ -20,8 +20,8 @@
         <div><span>Delegation Health</span><strong>{{ overview.health.label }}</strong></div>
       </div>
       <div class="portal-overview-health-score">
-        <span>{{ overview.health.score }}</span>
-        <div class="portal-overview-score-bar" aria-hidden="true"><i style="width: {{ overview.health.score }}%"></i></div>
+        <span>{% if overview.health.empty %}&mdash;{% else %}{{ overview.health.score }}{% endif %}</span>
+        <div class="portal-overview-score-bar" aria-hidden="true"><i style="width: {% if overview.health.empty %}0{% else %}{{ overview.health.score }}{% endif %}%"></i></div>
       </div>
       <div class="portal-overview-health-foot">
         <span>{{ overview.health.critical }} critical</span>

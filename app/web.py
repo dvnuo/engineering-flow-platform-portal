@@ -55,7 +55,29 @@ def escape_data_attr(s):
         return ''
     return markupsafe.escape(str(s))
 
+
+def local_datetime(value, style: str = "datetime", empty: str = "-"):
+    """Render a server timestamp for display in the reader's own time zone.
+
+    Portal stores naive UTC (``datetime.utcnow()``). Rendering that straight into
+    the page showed, for example, "2026-08-25 05:16" to someone who had just
+    signed in at 22:16 local — off by a whole day west of UTC. Emit an ISO-8601
+    instant instead and let ``formatLocalTimestamps`` in the browser localize it;
+    the element text stays a readable UTC fallback if scripting is unavailable.
+    """
+    if value is None:
+        return markupsafe.Markup(f"<span>{markupsafe.escape(empty)}</span>")
+    fmt = "%Y-%m-%d" if style == "date" else "%Y-%m-%d %H:%M"
+    iso = value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    fallback = f"{value.strftime(fmt)} UTC"
+    return markupsafe.Markup(
+        f'<time datetime="{markupsafe.escape(iso)}" '
+        f'data-local-datetime="{markupsafe.escape(style)}">{markupsafe.escape(fallback)}</time>'
+    )
+
+
 templates.env.filters['data_attr'] = escape_data_attr
+templates.env.globals['local_datetime'] = local_datetime
 settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()

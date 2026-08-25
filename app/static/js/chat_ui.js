@@ -4140,6 +4140,26 @@ function decorateToolMessages(scope = document) {
 // Unscoped createIcons() rescans the whole document and rebuilds every icon in
 // the shell. That is fine after a panel swap, but ruinous inside the streaming
 // loop, so hot paths pass the article they actually touched.
+// Server-rendered timestamps arrive as UTC instants inside <time
+// data-local-datetime>. Rewrite them into the reader's own zone; the markup's
+// text is a "… UTC"-suffixed fallback for when this never runs.
+function formatLocalTimestamps(scope = document) {
+  const nodes = scope.querySelectorAll?.("[data-local-datetime]");
+  if (!nodes || !nodes.length) return;
+  nodes.forEach((node) => {
+    const iso = node.getAttribute("datetime");
+    if (!iso) return;
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return;
+    const dateOnly = node.getAttribute("data-local-datetime") === "date";
+    const options = dateOnly
+      ? { year: "numeric", month: "2-digit", day: "2-digit" }
+      : { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" };
+    node.textContent = parsed.toLocaleString([], options);
+    node.title = parsed.toString();
+  });
+}
+
 function renderIcons(scope = null) {
   if (!window.lucide) return;
   if (scope && scope !== document) window.lucide.createIcons({ root: scope });
@@ -7363,6 +7383,8 @@ function decorateChatMessageRegion(target) {
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
     const target = event.target;
+    // Panels swapped in by htmx carry freshly server-rendered UTC timestamps.
+    formatLocalTimestamps(target || document);
     if (target?.id === "tool-panel-body" || target?.id === "workspace-detail-content") {
       initializeManagedSettingsPanels();
     }
@@ -7372,6 +7394,7 @@ function initializeRenderLifecycle() {
     }
     renderIcons();
   });
+  formatLocalTimestamps(document);
 }
 
 // ===== suggestion popup hooks =====

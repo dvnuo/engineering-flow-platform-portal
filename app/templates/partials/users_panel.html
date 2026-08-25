@@ -50,7 +50,7 @@
                 {{ u.nickname or u.username }}
                 {% if u.id == current_user.id %}<span class="portal-admin-role-badge">You</span>{% endif %}
               </div>
-              <div class="portal-panel-note">@{{ u.username }} · Joined {{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '-' }}</div>
+              <div class="portal-panel-note">@{{ u.username }} · Joined {{ local_datetime(u.created_at, style='date') }}</div>
             </div>
             <div class="portal-admin-status-badges">
               <span class="portal-admin-status-badge {% if u.is_allowlisted %}is-success{% else %}is-danger{% endif %}">
@@ -69,8 +69,8 @@
           </div>
 
           <div class="portal-admin-activity-row">
-            <span>Last sign-in: {{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'Never' }}</span>
-            <span>Last activity: {{ u.last_activity_at.strftime('%Y-%m-%d %H:%M') if u.last_activity_at else 'No activity' }}</span>
+            <span>Last sign-in: {{ local_datetime(u.last_login_at, empty='Never') }}</span>
+            <span>Last activity: {{ local_datetime(u.last_activity_at, empty='No activity') }}</span>
           </div>
 
           <div class="portal-admin-member-controls">
