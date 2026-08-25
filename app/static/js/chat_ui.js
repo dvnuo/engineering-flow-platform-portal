@@ -7448,6 +7448,9 @@ function initializeRenderLifecycle() {
     const target = event.target;
     // Panels swapped in by htmx carry freshly server-rendered UTC timestamps.
     formatLocalTimestamps(target || document);
+    if (target?.querySelector?.("[data-overview-headline]") || target?.matches?.("[data-overview-headline]")) {
+      applyOverviewStatusLine();
+    }
     if (target?.id === "tool-panel-body" || target?.id === "workspace-detail-content") {
       initializeManagedSettingsPanels();
     }
@@ -8155,6 +8158,49 @@ function renderSecondaryPaneHeader() {
   }
 }
 
+// Tasks and Delegations keep their actions in the main toolbar like every other
+// section, so their visibility and scope state are synced with the header.
+function syncOverviewToolbars() {
+  const section = state.activeNavSection;
+  const taskGroup = document.getElementById("header-task-actions");
+  const delegationGroup = document.getElementById("header-delegation-actions");
+  taskGroup?.classList.toggle("hidden", section !== "tasks");
+  delegationGroup?.classList.toggle("hidden", section !== "delegations");
+
+  const taskScope = state.taskFilters?.owner === "mine" ? "mine" : "all";
+  const delegationScope = state.delegationFilters?.owner === "mine" ? "mine" : "all";
+  document.querySelectorAll("#header-task-actions [data-task-overview-scope]").forEach((btn) => {
+    const active = btn.dataset.taskOverviewScope === taskScope;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  document.querySelectorAll("#header-delegation-actions [data-delegation-overview-scope]").forEach((btn) => {
+    const active = btn.dataset.delegationOverviewScope === delegationScope;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+// The overview hero used to carry a health headline and a timestamp that nothing
+// else showed. With the hero gone they belong on the status line, which is what
+// it is for.
+function applyOverviewStatusLine() {
+  const root = document.querySelector("[data-overview-headline]");
+  if (!root) return false;
+  const headline = root.getAttribute("data-overview-headline") || "";
+  const iso = root.getAttribute("data-overview-generated-at") || "";
+  let stamp = "";
+  if (iso) {
+    const parsed = new Date(iso);
+    if (!Number.isNaN(parsed.getTime())) {
+      stamp = parsed.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+  }
+  if (!headline && !stamp) return false;
+  setChatStatus([headline, stamp].filter(Boolean).join(" · "));
+  return true;
+}
+
 function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
   const userManagementMode = state.activeNavSection === "users";
@@ -8166,16 +8212,18 @@ function syncMainHeader() {
     el.classList.toggle("hidden", !assistantMode);
   });
   dom.headerAddAllowlistBtn?.classList.toggle("hidden", !userManagementMode);
+  syncOverviewToolbars();
 
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
     if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "Tasks";
-      setChatStatus("Task health, workload, and recent activity");
+      // Falls back until the panel with the real numbers has swapped in.
+      if (!applyOverviewStatusLine()) setChatStatus("Task health, workload, and recent activity");
     } else if (state.activeNavSection === "delegations") {
       dom.embedTitle.textContent = "Delegations";
-      setChatStatus("Manage delegations");
+      if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");
     } else if (state.activeNavSection === "users") {
       dom.embedTitle.textContent = "User Management";
       setChatStatus("Manage members, roles, access, and usage");
@@ -14318,11 +14366,14 @@ function bindEvents() {
       refreshDelegationSchedulePreview(formEl, { debounce: true }).catch(() => {});
     }
   });
-  dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+  // Bound to the document rather than the panel: these controls sit in the main
+  // header now, so a listener scoped to #workspace-detail-content would miss them.
+  document.addEventListener("click", async (event) => {
     const taskScopeBtn = event.target.closest("button[data-task-overview-scope]");
     if (taskScopeBtn) {
       event.preventDefault();
       state.taskFilters.owner = taskScopeBtn.dataset.taskOverviewScope === "mine" ? "mine" : "all";
+      syncOverviewToolbars();
       await refreshMyTasks({ reset: true });
       await loadTaskOverviewPanel();
       return;
@@ -14332,39 +14383,44 @@ function bindEvents() {
     if (delegationScopeBtn) {
       event.preventDefault();
       state.delegationFilters.owner = delegationScopeBtn.dataset.delegationOverviewScope === "mine" ? "mine" : "all";
+      syncOverviewToolbars();
       renderDelegationRuleNavList();
       await loadDelegationOverviewPanel();
       return;
     }
 
-    const taskOverviewRefreshBtn = event.target.closest("[data-refresh-task-overview]");
-    if (taskOverviewRefreshBtn) {
+    if (event.target.closest("[data-refresh-task-overview]")) {
       event.preventDefault();
       await refreshMyTasks({ reset: true });
       await loadTaskOverviewPanel();
       return;
     }
 
-    const delegationOverviewRefreshBtn = event.target.closest("[data-refresh-delegation-overview]");
-    if (delegationOverviewRefreshBtn) {
+    if (event.target.closest("[data-refresh-delegation-overview]")) {
       event.preventDefault();
       await loadDelegationRules();
       await loadDelegationOverviewPanel();
       return;
     }
 
+    if (event.target.closest("[data-open-create-task-main]")) {
+      event.preventDefault();
+      await openTaskCreatePanelInMain();
+      return;
+    }
+
+    if (event.target.closest("[data-open-create-delegation-main]")) {
+      event.preventDefault();
+      if (!state.mineAgents || !state.mineAgents.length) await loadMineAgents();
+      await openCreateDelegationRuleModal();
+    }
+  });
+
+  dom.workspaceDetailContent?.addEventListener("click", async (event) => {
     const overviewAgentBtn = event.target.closest("[data-open-overview-agent]");
     if (overviewAgentBtn) {
       event.preventDefault();
       await openOverviewAgent(overviewAgentBtn.dataset.openOverviewAgent || "");
-      return;
-    }
-
-    const createDelegationMainBtn = event.target.closest("[data-open-create-delegation-main]");
-    if (createDelegationMainBtn) {
-      event.preventDefault();
-      if (!state.mineAgents || !state.mineAgents.length) await loadMineAgents();
-      await openCreateDelegationRuleModal();
       return;
     }
 
@@ -14450,13 +14506,6 @@ function bindEvents() {
     if (closeTaskFollowupBtn) {
       event.preventDefault();
       closeWorkspaceWizardModal(closeTaskFollowupBtn.closest(".modal"));
-      return;
-    }
-
-    const openCreateTaskBtn = event.target.closest("[data-open-create-task-main]");
-    if (openCreateTaskBtn) {
-      event.preventDefault();
-      await openTaskCreatePanelInMain();
       return;
     }
 

@@ -120,6 +120,8 @@
     // --- overview screens ---
     ['[data-task-overview-scope="all"]', "Include tasks from every assistant you can see"],
     ['[data-task-overview-scope="mine"]', "Only tasks on assistants you own"],
+    ["#header-task-refresh", "Reload task health, workload, and recent activity"],
+    ["#header-delegation-refresh", "Reload delegation health and recent runs"],
     ["[data-refresh-task-overview]", "Reload the numbers on this page"],
     ["[data-open-create-task-main]", "Hand a piece of work to an assistant to run on its own"],
     ['[data-delegation-overview-scope="all"]', "Include delegations from every assistant you can see"],

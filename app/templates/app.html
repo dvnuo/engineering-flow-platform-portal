@@ -168,6 +168,40 @@
             <i data-lucide="panel-right" class="w-4 h-4"></i>
             <span class="portal-header-action-label">Details</span>
           </button>
+
+          <!-- Tasks and Delegations used to keep these inside the panel body,
+               which put them in a different place from every other section's
+               actions. They live in the main toolbar now, like Assistants and
+               Administration. -->
+          <div id="header-task-actions" class="portal-header-group hidden">
+            <div class="portal-header-scope" role="group" aria-label="Task scope">
+              <button id="header-task-scope-all" class="portal-header-scope-btn" type="button" data-task-overview-scope="all">All</button>
+              <button id="header-task-scope-mine" class="portal-header-scope-btn" type="button" data-task-overview-scope="mine">Mine</button>
+            </div>
+            <button id="header-task-refresh" class="portal-header-action" type="button" aria-label="Refresh tasks" data-refresh-task-overview>
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Refresh</span>
+            </button>
+            <button id="header-create-task" class="portal-header-action is-primary" type="button" aria-label="Create task" data-open-create-task-main="1">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Create Task</span>
+            </button>
+          </div>
+
+          <div id="header-delegation-actions" class="portal-header-group hidden">
+            <div class="portal-header-scope" role="group" aria-label="Delegation scope">
+              <button id="header-delegation-scope-all" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="all">All</button>
+              <button id="header-delegation-scope-mine" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="mine">Mine</button>
+            </div>
+            <button id="header-delegation-refresh" class="portal-header-action" type="button" aria-label="Refresh delegations" data-refresh-delegation-overview>
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Refresh</span>
+            </button>
+            <button id="header-create-delegation" class="portal-header-action is-primary" type="button" aria-label="Create delegation" data-open-create-delegation-main>
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Create Delegation</span>
+            </button>
+          </div>
         </div>
       </header>
 

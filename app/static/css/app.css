@@ -262,6 +262,23 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 }
 .portal-main-header { padding: 16px 24px; border-bottom: 1px solid var(--portal-border); height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 14px; background: var(--portal-workspace-secondary); }
 .portal-main-header-copy h1 { margin: 0; font-size: 1.15rem; }
+
+/* The title block defaulted to min-width:auto, so a long title ("Delegations",
+   or a long assistant name) refused to shrink and pushed the toolbar past the
+   header's right edge. Let the copy shrink and truncate; keep the actions whole. */
+.portal-main-header-copy {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
+.portal-main-header-copy h1,
+.portal-main-header-copy .portal-statusline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .portal-main-toolbar {
   display: flex;
   align-items: center;
@@ -269,6 +286,8 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   padding: 4px;
   border-radius: 16px;
   background: color-mix(in srgb, var(--portal-surface), transparent 8%);
+  flex: 0 0 auto;
+  min-width: 0;
 }
 .portal-header-action {
   min-width: 0;
@@ -3404,43 +3423,52 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 14px;
 }
 
-.portal-overview-hero {
+/* Tasks and Delegations put their actions in the main toolbar like every other
+   section, so the in-panel hero that used to hold them is gone. */
+.portal-header-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  border: 1px solid var(--portal-border);
-  border-left: 4px solid var(--portal-accent);
-  border-radius: var(--portal-radius-sm);
-  background: var(--portal-surface);
-  padding: 14px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
 }
 
-.portal-overview-title-block {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
+/* Two-state scope switch, matching the member role toggle. */
+.portal-header-scope {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--portal-surface-muted);
 }
 
-.portal-overview-eyebrow {
-  color: var(--portal-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
+.portal-header-scope-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--portal-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
 }
 
-.portal-overview-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
+.portal-header-scope-btn:hover { color: var(--portal-text); }
 
-.portal-overview-actions .portal-btn.is-active {
-  border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
+.portal-header-scope-btn.is-active {
   background: var(--portal-accent-soft);
   color: var(--portal-accent);
+}
+
+.portal-header-scope-btn:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-header-scope-btn { transition: none; }
 }
 
 .portal-overview-summary-grid,
@@ -4631,11 +4659,6 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .portal-overview-hero {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
   .portal-overview-health-card {
     grid-column: 1 / -1;
   }
@@ -4677,7 +4700,6 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 
   .portal-task-actions,
-  .portal-overview-actions,
   .portal-task-form-actions {
     justify-content: flex-start;
   }

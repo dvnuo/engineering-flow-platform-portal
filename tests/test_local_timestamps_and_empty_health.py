@@ -9,6 +9,7 @@ Two display bugs this locks down:
    "Tasks are running smoothly", which reads as real data rather than no data.
 """
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -20,8 +21,16 @@ JS = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
 
 def test_no_panel_renders_a_bare_server_side_timestamp():
+    """Server-side strftime may only emit an ISO instant for JS to localize.
+
+    A display format like '%Y-%m-%d %H:%M' rendered straight into the page is
+    the original bug. An ISO instant parked in a data attribute is not: it
+    carries its zone and the browser formats it.
+    """
     for template in TEMPLATES.glob("*.html"):
-        assert "strftime" not in template.read_text(encoding="utf-8"), template.name
+        source = template.read_text(encoding="utf-8")
+        for call in re.findall(r"strftime\(\s*'([^']+)'", source):
+            assert call.endswith("Z") and "T" in call, f"{template.name}: {call}"
 
 
 def test_local_datetime_emits_an_iso_instant_and_a_utc_labelled_fallback():

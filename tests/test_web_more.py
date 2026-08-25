@@ -345,10 +345,13 @@ def test_task_and_delegation_overviews_replace_dashboard_navigation():
     assert "/app/tasks/panel" in js
     assert "/app/delegations/panel" in js
 
-    assert "portal-overview-hero" in task_template
+    # Actions moved to the main toolbar; the in-panel hero is gone.
+    assert "portal-overview-hero" not in task_template
+    assert "data-overview-headline" in task_template
     assert "portal-overview-health-card" in task_template
     assert "portal-overview-workload-row" in task_template
-    assert "portal-overview-hero" in delegation_template
+    assert "portal-overview-hero" not in delegation_template
+    assert "data-overview-headline" in delegation_template
     assert "portal-overview-health-card" in delegation_template
     assert "portal-overview-timeline-row" in delegation_template
     assert ".portal-overview-overview-grid" in css
