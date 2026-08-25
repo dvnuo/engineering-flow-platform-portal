@@ -85,7 +85,6 @@
                 {% if u.id == current_user.id %}disabled{% endif %}
               >
                 <option value="user" {% if u.role == 'user' %}selected{% endif %}>User — owns and runs their own assistants</option>
-                <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer — same access as User (not yet restricted)</option>
                 <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator — full access to every assistant, plus member management</option>
               </select>
             </label>
@@ -167,7 +166,6 @@
           <span>Initial role</span>
           <select class="portal-form-select" name="role">
             <option value="user">User</option>
-            <option value="viewer">Viewer</option>
             <option value="admin">Administrator</option>
           </select>
         </label>

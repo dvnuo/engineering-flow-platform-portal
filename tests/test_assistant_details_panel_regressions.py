@@ -15,7 +15,10 @@ def test_render_agent_actions_has_no_settings_button_and_keeps_core_actions():
     assert 'label: "Restart"' in render_agent_actions
     assert 'label: "Edit"' in render_agent_actions
     assert 'label: "Delete"' in render_agent_actions
-    assert 'label: "Destroy"' in render_agent_actions
+    # Destroy was merged into Delete: destroy_data was never implemented
+    # cluster-side, so the two buttons did the same thing.
+    assert 'label: "Destroy"' not in render_agent_actions
+    assert "removeAgent(agent)" in render_agent_actions
     assert "action(`/api/agents/${agent.id}/restart`)" in render_agent_actions
     assert ":4096" not in render_agent_actions
     assert "/api/tasks" not in render_agent_actions

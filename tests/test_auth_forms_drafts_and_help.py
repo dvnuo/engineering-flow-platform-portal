@@ -88,11 +88,24 @@ def test_help_surface_is_reachable_and_explains_portal_vocabulary():
 
 
 def test_role_options_describe_what_they_actually_grant():
-    # Permission checks are only ever `role == "admin" or owner`, so viewer is
-    # not restricted anywhere. The copy must not claim read-only.
-    assert "Viewer — same access as User (not yet restricted)" in USERS_HTML
-    assert "read-only" not in USERS_HTML.lower()
+    assert "User — owns and runs their own assistants" in USERS_HTML
     assert "Administrator — full access to every assistant, plus member management" in USERS_HTML
+
+
+def test_viewer_role_is_gone_everywhere():
+    # It was assignable but never enforced — every permission check is
+    # `role == "admin" or owner` — so it promised a read-only account that did
+    # not exist.
+    from app.services.access_control_service import ALLOWED_USER_ROLES
+
+    assert ALLOWED_USER_ROLES == {"admin", "user"}
+    assert "viewer" not in USERS_HTML.lower()
+    # The explanatory comment in user.py names the removed role, so assert the
+    # Literal itself rather than the whole file.
+    from app.schemas.user import UserRole
+    from typing import get_args
+
+    assert set(get_args(UserRole)) == {"admin", "user"}
 
 
 def test_member_count_is_pluralised():
@@ -130,3 +143,19 @@ def test_unauthorized_page_omits_the_contact_line_when_none_is_configured():
     )
     assert "Request access from" not in html
     assert "Copy my username" in html
+
+
+def test_assistant_removal_is_a_single_action():
+    # Delete and Destroy were two danger buttons for one behaviour: destroy_data
+    # was never implemented cluster-side, so both removed the deployment and
+    # left the shared workspace volume alone.
+    assert CHAT_JS.count('variantClass: "is-danger"') == 1
+    assert 'label: "Destroy"' not in CHAT_JS
+    assert "async function removeAgent(agent) {" in CHAT_JS
+    assert "/destroy`" not in CHAT_JS
+
+
+def test_delete_confirmation_states_what_survives():
+    assert "Files already written to the shared workspace volume are kept on the cluster." in CHAT_JS
+    assert 'confirmText: "Delete assistant"' in CHAT_JS
+    assert "danger: true" in CHAT_JS

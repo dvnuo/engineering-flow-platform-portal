@@ -426,7 +426,7 @@ def test_non_owner_can_view_delegation_but_not_manage():
         assert create_resp.status_code == 200
         created = create_resp.json()
 
-        other = User(username="viewer", password_hash="pw", role="viewer", is_active=True)
+        other = User(username="viewer", password_hash="pw", role="user", is_active=True)
         db.add(other)
         db.commit()
         db.refresh(other)

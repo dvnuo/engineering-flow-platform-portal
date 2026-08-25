@@ -564,19 +564,20 @@ class K8sService:
             message=f"Restart requested: {restart_request_id}",
         )
 
-    def delete_agent_runtime(self, agent, destroy_data: bool = False) -> RuntimeStatus:
+    def delete_agent_runtime(self, agent) -> RuntimeStatus:
         if not self.enabled:
             return RuntimeStatus(status="deleted")
 
         try:
             self.apps_api.delete_namespaced_deployment(name=agent.deployment_name, namespace=agent.namespace)
             self.core_api.delete_namespaced_service(name=agent.service_name, namespace=agent.namespace)
-            # Note: With shared PVC, we cannot delete the PVC as it contains all agents' data.
-            # Agent data is stored in subPath efp-agents/{agent.id}.
-            # For NFS/EFS, implement file-based cleanup if needed.
-            # For local-path storage, data persists until PVC is manually deleted.
-            if destroy_data:
-                pass  # TODO: Implement subPath cleanup for shared PVC
+            # Workspace data is deliberately left in place. The PVC is shared by
+            # every agent, so it cannot be deleted here; agent data lives under
+            # subPath efp-agents/{agent.id} and needs file-level cleanup (NFS/EFS)
+            # or manual PVC removal (local-path). There used to be a destroy_data
+            # flag and a separate "Destroy" action for this, but it was never
+            # implemented, so the two paths behaved identically and the UI
+            # promised something that did not happen.
             return RuntimeStatus(status="deleted")
         except Exception as exc:
             return RuntimeStatus(status="failed", message=sanitize_exception_message(exc))

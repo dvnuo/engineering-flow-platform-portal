@@ -5082,8 +5082,7 @@ function renderAgentActions(agent, status) {
     { label: "Restart", icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
     { label: "Edit", icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
     { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent, "delete") },
-    { label: "Destroy", icon: "flame", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent, "destroy") },
+    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent) },
   ];
   actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
 
@@ -10620,7 +10619,6 @@ function agentActionLabel(path = "") {
     share: "Share",
     unshare: "Unshare",
     "delete-runtime": "Delete",
-    destroy: "Destroy",
   };
   return labels[tail] || "Action";
 }
@@ -10701,31 +10699,30 @@ async function action(path, method = "POST", needsConfirm = false) {
   await refreshAll();
 }
 
-// Delete/Destroy previously shared the generic "Please confirm this action."
-// prompt, which named neither the assistant nor what was about to happen.
-// Note: destroy_data is not yet implemented cluster-side (k8s_service leaves the
-// shared workspace volume untouched), so neither variant claims to erase files.
-async function removeAgent(agent, mode) {
+// There used to be two danger buttons here, Delete and Destroy, implying Destroy
+// went further. It did not: destroy_data was never implemented cluster-side, so
+// both removed the deployment and left the shared workspace volume untouched.
+// One action, and the confirmation says exactly what happens.
+//
+// The generic "Please confirm this action." prompt this replaces named neither
+// the assistant nor the consequence.
+async function removeAgent(agent) {
   if (!agent?.id) return;
   const name = agent.name || "this assistant";
-  const isDestroy = mode === "destroy";
   const confirmed = await showConfirm({
-    title: isDestroy ? `Destroy ${name}?` : `Delete ${name}?`,
-    message: isDestroy
-      ? `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are left on the cluster — workspace cleanup is not implemented yet. This can't be undone.`
-      : `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept. This can't be undone.`,
-    confirmText: isDestroy ? "Destroy assistant" : "Delete assistant",
+    title: `Delete ${name}?`,
+    message: `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept on the cluster. This can't be undone.`,
+    confirmText: "Delete assistant",
     cancelText: "Cancel",
     danger: true,
   });
   if (!confirmed) return;
 
-  // Both endpoints are POST; the client used to send DELETE to delete-runtime,
-  // which the router answered with 405.
-  const path = isDestroy ? `/api/agents/${agent.id}/destroy` : `/api/agents/${agent.id}/delete-runtime`;
+  // POST, not DELETE — the client used to send DELETE to this path and the
+  // router answered 405.
   try {
-    await action(path, "POST");
-    showToast(isDestroy ? `${name} destroyed.` : `${name} deleted.`);
+    await action(`/api/agents/${agent.id}/delete-runtime`, "POST");
+    showToast(`${name} deleted.`);
   } catch (error) {
     // action() already surfaced the failure toast.
     console.warn("Agent removal failed", error);

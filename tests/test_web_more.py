@@ -110,14 +110,6 @@ def test_proxy_agent_events():
     assert response.status_code in [400, 401, 403, 404]
 
 
-def test_agent_runtime_destroy():
-    """Test agent runtime destroy."""
-    from app.main import app
-    client = TestClient(app)
-    response = client.post("/api/agents/agent-123/destroy")
-    assert response.status_code in [200, 401, 403, 404]
-
-
 def test_agent_runtime_delete():
     """Test agent runtime delete."""
     from app.main import app
