@@ -140,6 +140,7 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
+  "help",
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
@@ -1423,6 +1424,12 @@ function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
     return false;
   }
   return true;
+}
+
+// "1 members" / "1 assistants" showed up wherever a count was interpolated
+// straight into a hardcoded plural.
+function pluralize(count, singular, plural = null) {
+  return Number(count) === 1 ? singular : (plural || `${singular}s`);
 }
 
 function setButtonDisabled(button, disabled, disabledTitle = "") {
@@ -4393,6 +4400,13 @@ async function agentApiFor(agentId, path, options = {}) {
   return api(`/a/${agentId}${path}`, options);
 }
 
+function focusComposer() {
+  if (!dom.chatInput || dom.chatInput.offsetParent === null) return;
+  dom.chatInput.focus();
+  const length = dom.chatInput.value.length;
+  try { dom.chatInput.setSelectionRange(length, length); } catch { /* noop */ }
+}
+
 function defaultWelcomeMessage() {
   const welcomeAgentName = getSelectedAssistantDisplayName();
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
@@ -4465,15 +4479,47 @@ function updateSelectedAgentSession(sessionId) {
   updateAgentSession(state.selectedAgentId, sessionId);
 }
 
+// Drafts survived switching assistants but lived only in memory, so a refresh,
+// an accidental tab close, or a session expiry threw away a half-written prompt.
+function getDraftKey(agentId) {
+  return `portal-draft-${agentId}`;
+}
+
+function persistDraftToStorage(agentId, text) {
+  if (!agentId) return;
+  try {
+    if (text) localStorage.setItem(getDraftKey(agentId), text);
+    else localStorage.removeItem(getDraftKey(agentId));
+  } catch (_error) { /* quota or private mode — the in-memory draft still works */ }
+}
+
+function readDraftFromStorage(agentId) {
+  if (!agentId) return "";
+  try {
+    return localStorage.getItem(getDraftKey(agentId)) || "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function clearDraftForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (chatState) chatState.draftText = "";
+  persistDraftToStorage(agentId, "");
+}
+
 function persistComposerForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.draftText = dom.chatInput?.value || "";
+  persistDraftToStorage(agentId, chatState.draftText);
 }
 
 function restoreComposerForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
+  // Memory wins when it holds something; storage covers the reload case.
+  if (!chatState.draftText) chatState.draftText = readDraftFromStorage(agentId);
   if (dom.chatInput) dom.chatInput.value = chatState.draftText || "";
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
@@ -4612,7 +4658,7 @@ function syncAgentFilterControls(visibleCount = null) {
     const shown = visibleCount === null ? visibleAgents().length : visibleCount;
     const parts = [];
     if (filters.query) parts.push(`"${filters.query}"`);
-    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} assistants`;
+    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "assistant")}`;
   }
 }
 
@@ -5501,6 +5547,8 @@ async function submitChatForSelectedAgent() {
   chatState.pendingFiles = [];
   renderInputPreview();
   if (dom.chatInput) dom.chatInput.value = "";
+  // The message is on its way, so the saved draft is no longer wanted.
+  clearDraftForAgent(agentIdAtSend);
   resetChatInputHeight();
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
@@ -7663,6 +7711,45 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
 }
 
 // ===== toolbar actions =====
+// Portal has a lot of vocabulary — runtime profiles, delegations, native vs
+// opencode runtimes, skill repos — and had no in-app explanation of any of it,
+// nor any discoverable list of the keyboard shortcuts.
+function openHelpPanel() {
+  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl";
+  setToolPanel("Help", `
+    <div class="portal-panel-stack portal-help-panel">
+      <section class="portal-panel-section">
+        <h5>Concepts</h5>
+        <dl class="portal-help-list">
+          <dt>Assistant</dt>
+          <dd>A running workspace you chat with. Each one has its own conversation history, files, and runtime pod.</dd>
+          <dt>Runtime profile</dt>
+          <dd>The credentials and integration settings an assistant boots with — LLM provider, Jira, Confluence, GitHub, git identity. One profile can be shared by several assistants.</dd>
+          <dt>Runtime type</dt>
+          <dd>Which engine runs the assistant. <strong>EFP Native</strong> is the Python runtime; <strong>OpenCode</strong> is the opencode adapter. This is fixed once an assistant is created.</dd>
+          <dt>Instructions &amp; skill repositories</dt>
+          <dd>Git repositories cloned into the assistant at startup. Instructions shape how it behaves; skills add packaged capabilities. Leave them empty to use the configured defaults.</dd>
+          <dt>Task</dt>
+          <dd>Work handed to an assistant to run on its own, tracked to completion instead of held in a chat.</dd>
+          <dt>Delegation</dt>
+          <dd>A rule that starts work automatically — on a GitHub review request, a Jira assignment, or a timer.</dd>
+        </dl>
+      </section>
+      <section class="portal-panel-section">
+        <h5>Keyboard shortcuts</h5>
+        <dl class="portal-help-list portal-help-keys">
+          <dt><kbd>${modifier}</kbd> + <kbd>K</kbd></dt><dd>Focus the message box</dd>
+          <dt><kbd>/</kbd></dt><dd>Focus the message box</dd>
+          <dt><kbd>${modifier}</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></dt><dd>Start a new chat</dd>
+          <dt><kbd>Enter</kbd></dt><dd>Send</dd>
+          <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>New line</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Stop the current run, or close the open dialog</dd>
+        </dl>
+      </section>
+    </div>
+  `, "help");
+}
+
 function setToolPanel(title, contentHtml, panelKey = null, { persistPreference = true } = {}) {
   if (!dom.toolPanel) return;
   state.detailOpen = panelKey === "details";
@@ -8372,7 +8459,7 @@ function syncTaskFilterControls() {
     if (filters.owner === "mine") parts.push("owned by you");
     const filterLabel = parts.length ? `Filtered by ${parts.join(", ")}` : "All visible tasks";
     const countLabel = state.taskListHasMore ? `${state.myTasks.length}+ loaded` : `${state.myTasks.length} shown`;
-    dom.taskFilterSummary.textContent = `${filterLabel} - ${countLabel}`;
+    dom.taskFilterSummary.textContent = `${filterLabel} · ${countLabel}`;
   }
 }
 
@@ -11276,7 +11363,7 @@ function syncDelegationFilterControls(visibleCount = null) {
     const parts = [];
     if (filters.owner === "mine") parts.push("owned by you");
     if (filters.source !== "all") parts.push(delegationSourceLabel(filters.source));
-    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} delegations`;
+    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "delegation")}`;
   }
 }
 
@@ -13876,6 +13963,9 @@ function bindEvents() {
     maybeShowSuggest();
     // Auto-expand textarea
     syncChatInputHeight();
+    // Debounced so a long prompt isn't written to storage on every keystroke.
+    clearTimeout(state.draftPersistTimer);
+    state.draftPersistTimer = setTimeout(() => persistComposerForAgent(state.selectedAgentId), 300);
   });
   dom.chatInput?.addEventListener("compositionstart", () => {
     state.isComposingInput = true;
@@ -14013,6 +14103,41 @@ function bindEvents() {
 
   dom.messageScroll?.addEventListener("scroll", handleMessageScroll, { passive: true });
   dom.jumpToLatestBtn?.addEventListener("click", () => scrollToBottom({ force: true }));
+
+  // A minimal shortcut set for a tool people keep open all day. Everything here
+  // previously required the mouse.
+  document.addEventListener("keydown", (event) => {
+    // Never steal keys from a modal, a text field, or an IME composition.
+    if (topmostOpenManagedModal()) return;
+    if (state.isComposingInput) return;
+    const active = document.activeElement;
+    const inField = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+
+    const mod = event.ctrlKey || event.metaKey;
+
+    if (mod && event.shiftKey && event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      if (!dom.headerNewChatBtn?.disabled) dom.headerNewChatBtn?.click();
+      return;
+    }
+
+    if (mod && !event.shiftKey && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      focusComposer();
+      return;
+    }
+
+    if (event.key === "/" && !inField && !mod) {
+      event.preventDefault();
+      focusComposer();
+      return;
+    }
+
+    if (event.key === "Escape" && dom.abortChatRunBtn && !dom.abortChatRunBtn.classList.contains("hidden")) {
+      event.preventDefault();
+      dom.abortChatRunBtn.click();
+    }
+  });
 
   // Mobile drawer: dismiss it the way people expect an overlay to dismiss.
   dom.secondaryDrawerBackdrop?.addEventListener("click", closeSecondaryDrawer);
@@ -14398,6 +14523,7 @@ function bindEvents() {
     }
   });
 
+  document.getElementById("help-btn")?.addEventListener("click", openHelpPanel);
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"));

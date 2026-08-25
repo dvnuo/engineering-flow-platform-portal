@@ -60,6 +60,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_USER_ALLOWLIST` | Comma, semicolon, or newline-separated usernames seeded into the registration allowlist on startup (`REGISTRATION_ALLOWLIST` is accepted as an alias) | (empty) |
+| `PORTAL_SUPPORT_CONTACT` | Shown on the "not on the allowlist" page so a blocked user knows who can grant access (a name, team channel, or `mailto:`/`https:` link) | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |

@@ -1428,7 +1428,11 @@ def unauthorized_page(request: Request):
             "request": request,
             "title": "Authorization Required",
             "username": user.nickname or user.username,
+            # The exact string an administrator has to allowlist, which is not
+            # necessarily the display name above.
+            "allowlist_username": user.username,
             "access_message": "Your account is not on the allowlist. Contact an administrator to request access.",
+            "support_contact": settings.portal_support_contact,
         },
         status_code=403,
     )

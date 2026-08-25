@@ -42,6 +42,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("PORTAL_USER_ALLOWLIST", "REGISTRATION_ALLOWLIST"),
     )
+    # Shown on the "not on the allowlist" page so a blocked user knows who can
+    # grant access instead of only being told to refresh. Free-form: a name, a
+    # team channel, or a mailto:/https: link.
+    portal_support_contact: str = Field(default="", validation_alias="PORTAL_SUPPORT_CONTACT")
 
     agents_namespace: str = "efp-agents"
     agents_volume_sub_path_prefix: str = "efp-agents"

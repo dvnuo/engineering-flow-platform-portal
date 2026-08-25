@@ -4,7 +4,7 @@
       <h5 class="portal-panel-title">Member administration</h5>
       <p class="portal-panel-note">Only allowlisted members can register, sign in, or keep using an existing session.</p>
     </div>
-    <span class="portal-panel-subtitle">{{ summary.total_users }} members</span>
+    <span class="portal-panel-subtitle">{{ summary.total_users }} member{{ "" if summary.total_users == 1 else "s" }}</span>
   </div>
 
   <div class="portal-admin-summary-grid" aria-label="Member summary">
@@ -84,11 +84,12 @@
                 data-original-role="{{ u.role }}"
                 {% if u.id == current_user.id %}disabled{% endif %}
               >
-                <option value="user" {% if u.role == 'user' %}selected{% endif %}>User</option>
-                <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer</option>
-                <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator</option>
+                <option value="user" {% if u.role == 'user' %}selected{% endif %}>User — owns and runs their own assistants</option>
+                <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer — same access as User (not yet restricted)</option>
+                <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator — full access to every assistant, plus member management</option>
               </select>
             </label>
+            <p class="portal-panel-note portal-admin-role-hint">Administrators can open, edit, and delete every member's assistants.</p>
             <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}Current account{% endif %}</span>
             <div class="portal-admin-member-actions">
               {% if u.allowlist_entry_id and u.id != current_user.id %}
