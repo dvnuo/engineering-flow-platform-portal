@@ -1,7 +1,10 @@
 import logging
 import time
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -117,7 +120,32 @@ def health() -> dict[str, str]:
 def actuator_health() -> dict[str, str]:
     return {"status": "ok"}
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+class CachedStaticFiles(StaticFiles):
+    """Static assets with an explicit revalidation window.
+
+    Responses carried only ETag/Last-Modified, so every navigation issued a
+    conditional request for all ~20 assets before rendering. Filenames are not
+    content-hashed, so this stays a short max-age plus must-revalidate rather
+    than the year-long immutable caching a hashed build would allow.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", "public, max-age=300, must-revalidate")
+        return response
+
+
+# Serve the ~640KB chat bundle and ~1.3MB of vendored libs compressed; without
+# this they went out as raw bytes even when the client offered gzip.
+#
+# Compression is scoped to /static rather than added app-wide on purpose: the
+# chat proxy streams text/event-stream, and running those responses through gzip
+# risks buffering tokens behind the compressor. Static assets are where
+# essentially all of the transfer weight is anyway.
+static_app = Starlette(routes=[Mount("/", app=CachedStaticFiles(directory="app/static"))])
+static_app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+app.mount("/static", static_app, name="static")
 
 app.include_router(web_router)
 app.include_router(auth_router)

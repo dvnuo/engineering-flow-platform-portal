@@ -26,12 +26,19 @@
     <link rel="stylesheet" href="/static/css/app.css" />
 
 
-    <script src="/static/lib/htmx.min.js"></script>
+    <!-- htmx, highlight.js and lucide are ~570KB together and were all
+         render-blocking, but nothing needs them while the document parses:
+         chat_ui.js touches them only from inside functions, and deferred
+         scripts run before DOMContentLoaded. markdown-it stays blocking
+         because chat_ui.js constructs its renderer at top level, and
+         chat_ui.js itself must stay non-deferred so chatApp() is defined
+         before the deferred Alpine bootstraps. -->
+    <script defer src="/static/lib/htmx.min.js"></script>
     <script src="/static/js/dialogs.js"></script>
     <script defer src="/static/lib/alpine.min.js"></script>
     <script src="/static/lib/markdown-it.min.js"></script>
-    <script src="/static/lib/highlight.min.js"></script>
-    <script src="/static/lib/lucide.min.js"></script>
+    <script defer src="/static/lib/highlight.min.js"></script>
+    <script defer src="/static/lib/lucide.min.js"></script>
 
     <script>
       // Runs before first paint so the resolved theme is already on <html>.
