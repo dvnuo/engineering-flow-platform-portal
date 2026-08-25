@@ -4629,6 +4629,85 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 }
 
+/* Tooltips. Replaces the native title bubble, which could not be themed, never
+   appeared for keyboard users, and took about a second to show up. */
+.portal-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  max-width: 288px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  box-shadow: var(--portal-shadow);
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: opacity 110ms ease, transform 110ms ease, visibility 110ms;
+}
+
+.portal-tooltip.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Measured before it is painted, so the first frame never flashes at 0,0. */
+.portal-tooltip.is-measuring {
+  transition: none;
+  opacity: 0;
+}
+
+.portal-tooltip-text { display: block; white-space: pre-line; overflow-wrap: anywhere; }
+
+.portal-tooltip-arrow {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--portal-surface);
+  border: 1px solid var(--portal-border);
+  transform: rotate(45deg);
+}
+
+.portal-tooltip[data-placement="top"] .portal-tooltip-arrow {
+  bottom: -5px;
+  margin-left: -4px;
+  border-top: 0;
+  border-left: 0;
+}
+
+.portal-tooltip[data-placement="bottom"] .portal-tooltip-arrow {
+  top: -5px;
+  margin-left: -4px;
+  border-bottom: 0;
+  border-right: 0;
+}
+
+.portal-tooltip[data-placement="left"] .portal-tooltip-arrow {
+  right: -5px;
+  margin-top: -4px;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.portal-tooltip[data-placement="right"] .portal-tooltip-arrow {
+  left: -5px;
+  margin-top: -4px;
+  border-top: 0;
+  border-right: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-tooltip { transition: none; }
+}
+
 .portal-help-list {
   margin: 0;
   display: grid;

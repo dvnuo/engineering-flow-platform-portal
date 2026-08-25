@@ -121,17 +121,22 @@ def actuator_health() -> dict[str, str]:
     return {"status": "ok"}
 
 class CachedStaticFiles(StaticFiles):
-    """Static assets with an explicit revalidation window.
+    """Static assets that always revalidate but rarely re-download.
 
-    Responses carried only ETag/Last-Modified, so every navigation issued a
-    conditional request for all ~20 assets before rendering. Filenames are not
-    content-hashed, so this stays a short max-age plus must-revalidate rather
-    than the year-long immutable caching a hashed build would allow.
+    Filenames are not content-hashed, so any max-age at all means a deploy can
+    serve stale JS until it expires — observed in practice: a browser kept
+    running a five-minute-old chat_ui.js after a change shipped. "no-cache" is
+    not "no store": the browser still caches the bytes and revalidates with the
+    ETag, so an unchanged asset costs a 304 instead of a full transfer.
+
+    Content-hashed filenames from a build step would allow immutable year-long
+    caching and drop the revalidation entirely; until then, correctness after a
+    deploy is worth more than the conditional requests.
     """
 
     def file_response(self, *args, **kwargs):
         response = super().file_response(*args, **kwargs)
-        response.headers.setdefault("Cache-Control", "public, max-age=300, must-revalidate")
+        response.headers.setdefault("Cache-Control", "no-cache, must-revalidate")
         return response
 
 

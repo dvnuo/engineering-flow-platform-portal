@@ -1434,18 +1434,23 @@ function pluralize(count, singular, plural = null) {
 
 function setButtonDisabled(button, disabled, disabledTitle = "") {
   if (!button) return;
+  // Hints live in data-tooltip; tooltips.js migrates any legacy title on first
+  // hover, so read whichever is present when caching the element's own hint.
   const hasDefaultTitle = Object.prototype.hasOwnProperty.call(button.dataset, "defaultTitle");
   if (!hasDefaultTitle) {
-    button.dataset.defaultTitle = button.getAttribute("title") || "";
+    button.dataset.defaultTitle = button.getAttribute("data-tooltip") || button.getAttribute("title") || "";
   }
   button.disabled = !!disabled;
   button.setAttribute("aria-disabled", disabled ? "true" : "false");
-  if (disabled) {
-    if (disabledTitle) button.setAttribute("title", disabledTitle);
+  const nextHint = disabled ? (disabledTitle || button.dataset.defaultTitle || "") : (button.dataset.defaultTitle || "");
+  // Explaining why a control is unavailable is the single most useful hint in
+  // the app, and disabled buttons are exactly where the native title failed.
+  if (typeof setTooltip === "function") {
+    setTooltip(button, nextHint);
+  } else if (nextHint) {
+    button.setAttribute("title", nextHint);
   } else {
-    const original = button.dataset.defaultTitle || "";
-    if (original) button.setAttribute("title", original);
-    else button.removeAttribute("title");
+    button.removeAttribute("title");
   }
 }
 

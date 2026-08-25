@@ -3,6 +3,7 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
 from typing import List, Optional
 
@@ -76,8 +77,36 @@ def local_datetime(value, style: str = "datetime", empty: str = "-"):
     )
 
 
+_STATIC_ROOT = Path("app/static")
+_static_version_cache: dict[str, str] = {}
+
+
+def static_url(path: str) -> str:
+    """Static URL carrying a content version, so a deploy is picked up at once.
+
+    Filenames are not content-hashed, so a browser that cached an asset keeps
+    using it until its own copy expires — a stale chat_ui.js survived a shipped
+    change during testing. Appending the file's mtime changes the URL whenever
+    the file does, which no cache can ignore.
+
+    Missing files fall back to the bare path rather than raising: a template
+    typo should not take a page down.
+    """
+    relative = path.lstrip("/")
+    cached = _static_version_cache.get(relative)
+    if cached is None:
+        try:
+            cached = str(int((_STATIC_ROOT / relative).stat().st_mtime))
+        except OSError:
+            cached = ""
+        if not settings.debug:
+            _static_version_cache[relative] = cached
+    return f"/static/{relative}?v={cached}" if cached else f"/static/{relative}"
+
+
 templates.env.filters['data_attr'] = escape_data_attr
 templates.env.globals['local_datetime'] = local_datetime
+templates.env.globals['static_url'] = static_url
 settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()

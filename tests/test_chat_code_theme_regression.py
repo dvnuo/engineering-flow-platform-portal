@@ -11,8 +11,11 @@ def _read(relative_path: str) -> str:
 
 def test_base_template_does_not_apply_dark_highlight_css_after_app_css():
     base_html = _read("app/templates/base.html")
-    app_css = '/static/css/app.css'
-    dark_hl = '/static/lib/github-dark.min.css'
+    # Static hrefs go through static_url() for cache versioning, so match the
+    # path fragment rather than a literal /static/... URL. The ordering below is
+    # what this test actually guards.
+    app_css = 'css/app.css'
+    dark_hl = 'lib/github-dark.min.css'
 
     assert app_css in base_html
     if dark_hl in base_html:

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{ title }}</title>
 
-    <script src="/static/lib/tailwind.min.js"></script>
+    <script src="{{ static_url('lib/tailwind.min.js') }}"></script>
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -22,8 +22,8 @@
       }
     </script>
 
-    <link rel="stylesheet" href="/static/lib/typography.min.css" />
-    <link rel="stylesheet" href="/static/css/app.css" />
+    <link rel="stylesheet" href="{{ static_url('lib/typography.min.css') }}" />
+    <link rel="stylesheet" href="{{ static_url('css/app.css') }}" />
 
 
     <!-- htmx, highlight.js and lucide are ~570KB together and were all
@@ -33,12 +33,13 @@
          because chat_ui.js constructs its renderer at top level, and
          chat_ui.js itself must stay non-deferred so chatApp() is defined
          before the deferred Alpine bootstraps. -->
-    <script defer src="/static/lib/htmx.min.js"></script>
-    <script src="/static/js/dialogs.js"></script>
-    <script defer src="/static/lib/alpine.min.js"></script>
-    <script src="/static/lib/markdown-it.min.js"></script>
-    <script defer src="/static/lib/highlight.min.js"></script>
-    <script defer src="/static/lib/lucide.min.js"></script>
+    <script defer src="{{ static_url('lib/htmx.min.js') }}"></script>
+    <script src="{{ static_url('js/dialogs.js') }}"></script>
+    <script defer src="{{ static_url('js/tooltips.js') }}"></script>
+    <script defer src="{{ static_url('lib/alpine.min.js') }}"></script>
+    <script src="{{ static_url('lib/markdown-it.min.js') }}"></script>
+    <script defer src="{{ static_url('lib/highlight.min.js') }}"></script>
+    <script defer src="{{ static_url('lib/lucide.min.js') }}"></script>
 
     <script>
       // Runs before first paint so the resolved theme is already on <html>.

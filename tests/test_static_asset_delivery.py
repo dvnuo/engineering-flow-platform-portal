@@ -31,12 +31,20 @@ def test_large_static_assets_are_served_compressed(client):
     assert "accept-encoding" in gzipped.headers.get("vary", "").lower()
 
 
-def test_static_assets_carry_an_explicit_cache_control(client):
+def test_static_assets_always_revalidate_but_keep_a_validator(client):
+    # Filenames are not content-hashed, so any max-age lets a deploy serve stale
+    # JS until it expires. no-cache still caches the bytes; it just checks the
+    # ETag first, so an unchanged asset costs a 304 rather than a full transfer.
     response = client.get("/static/css/app.css")
     assert response.status_code == 200
-    assert response.headers.get("cache-control") == "public, max-age=300, must-revalidate"
-    # Revalidation still needs a validator.
+    assert response.headers.get("cache-control") == "no-cache, must-revalidate"
     assert response.headers.get("etag")
+
+
+def test_unchanged_assets_revalidate_to_304(client):
+    first = client.get("/static/css/app.css")
+    again = client.get("/static/css/app.css", headers={"If-None-Match": first.headers["etag"]})
+    assert again.status_code == 304
 
 
 def test_compression_threshold_is_set_so_tiny_responses_stay_raw(client):
@@ -56,14 +64,15 @@ def test_streaming_routes_are_not_wrapped_in_gzip():
 
 @pytest.mark.parametrize("asset", ["htmx.min.js", "highlight.min.js", "lucide.min.js"])
 def test_heavy_libraries_are_deferred(asset):
-    assert f'<script defer src="/static/lib/{asset}"></script>' in BASE_HTML
+    # Paths go through static_url() for cache versioning, so match the tag shape.
+    assert f"""<script defer src="{{{{ static_url('lib/{asset}') }}}}"></script>""" in BASE_HTML
 
 
 def test_markdown_it_stays_blocking_because_chat_ui_uses_it_at_top_level():
     # chat_ui.js builds its renderer at module scope, and chat_ui.js itself must
     # stay non-deferred so chatApp() exists before the deferred Alpine boots.
-    assert '<script src="/static/lib/markdown-it.min.js"></script>' in BASE_HTML
+    assert """<script src="{{ static_url('lib/markdown-it.min.js') }}"></script>""" in BASE_HTML
     chat_ui = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert "const md = window.markdownit({" in chat_ui
     app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
-    assert '<script src="/static/js/chat_ui.js"></script>' in app_html
+    assert """<script src="{{ static_url('js/chat_ui.js') }}"></script>""" in app_html
