@@ -4590,6 +4590,20 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   }
 }
 
+/* Defined locally rather than relying on the Tailwind runtime build, since the
+   chat live region depends on it to stay visually hidden but announced. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 /* Only ever visible while the mobile drawer is open. */
 .portal-secondary-drawer-backdrop {
   display: none;

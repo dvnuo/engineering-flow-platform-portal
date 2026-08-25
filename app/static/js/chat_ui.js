@@ -6987,7 +6987,18 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   return 'unsupported';
 }
 
+// Streaming text is not announced token by token — that would be unusable. A
+// short completion notice tells a screen reader user the turn is over and the
+// answer is available to read.
+function announceToChat(message) {
+  const region = document.getElementById("chat-live-region");
+  if (!region) return;
+  region.textContent = "";
+  window.setTimeout(() => { region.textContent = String(message || ""); }, 50);
+}
+
 async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, options = {}) {
+  if (agentIdAtSend === state.selectedAgentId) announceToChat("Assistant response ready.");
   const localHasRenderableAssistantPayload = (typeof hasRenderableAssistantPayload === "function")
     ? hasRenderableAssistantPayload
     : (candidate) => {
@@ -12850,6 +12861,117 @@ async function openEditDialog(agent) {
   ]);
 }
 
+// ===== shared modal behaviour =====
+//
+// The four big modals were opened and closed from ~20 scattered call sites and
+// had picked up four different behaviours: Create Assistant, Edit Assistant and
+// Create Runtime Profile answered neither Escape nor a backdrop click and never
+// focused a field, while Edit Message did all three (and leaked a keydown
+// listener every time it was closed any other way).
+//
+// Rather than rewrite every call site, attach the behaviour to the modals
+// themselves and drive closing through each one's existing close button, so the
+// guards those handlers carry (in-flight submit, teardown) still apply.
+const MANAGED_MODALS = [
+  { modalId: "create-modal", closeId: "close-create-modal" },
+  { modalId: "edit-modal", closeId: "close-edit-modal" },
+  { modalId: "create-runtime-profile-modal", closeId: "close-create-runtime-profile-modal" },
+  { modalId: "message-edit-modal", closeId: "close-message-edit-modal" },
+];
+const MODAL_FOCUSABLE = 'a[href], button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const modalReturnFocus = new WeakMap();
+
+function isModalOpen(modal) {
+  return Boolean(modal) && !modal.classList.contains("hidden");
+}
+
+function topmostOpenManagedModal() {
+  // Later in the list wins, matching paint order for the rare stacked case.
+  let found = null;
+  MANAGED_MODALS.forEach(({ modalId }) => {
+    const modal = document.getElementById(modalId);
+    if (isModalOpen(modal)) found = modal;
+  });
+  return found;
+}
+
+function requestManagedModalClose(modal) {
+  if (!modal) return;
+  const entry = MANAGED_MODALS.find((item) => item.modalId === modal.id);
+  const closeButton = entry ? document.getElementById(entry.closeId) : null;
+  // The close button owns the real teardown, including the submitting guard.
+  if (closeButton) closeButton.click();
+  else {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function focusFirstFieldInModal(modal) {
+  const candidates = [...modal.querySelectorAll(MODAL_FOCUSABLE)].filter(
+    (el) => el.offsetParent !== null && !el.classList.contains("portal-modal-close")
+  );
+  (candidates[0] || modal.querySelector(".portal-modal-close"))?.focus?.();
+}
+
+function initManagedModals() {
+  MANAGED_MODALS.forEach(({ modalId }) => {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+
+    // Backdrop click: the modal element is the full-viewport overlay, so a
+    // click landing on it (not on the card) means "outside".
+    modal.addEventListener("click", (event) => {
+      if (event.target !== modal) return;
+      requestManagedModalClose(modal);
+    });
+
+    // Focus on open, hand focus back on close.
+    const observer = new MutationObserver(() => {
+      if (isModalOpen(modal)) {
+        if (!modalReturnFocus.has(modal)) modalReturnFocus.set(modal, document.activeElement);
+        window.setTimeout(() => focusFirstFieldInModal(modal), 0);
+      } else {
+        const previous = modalReturnFocus.get(modal);
+        modalReturnFocus.delete(modal);
+        if (previous && document.contains(previous)) {
+          try { previous.focus(); } catch { /* noop */ }
+        }
+      }
+    });
+    observer.observe(modal, { attributes: true, attributeFilter: ["class"] });
+  });
+
+  // One listener for all of them — the per-modal handlers this replaces were
+  // registered on every open and only removed on some closes.
+  document.addEventListener("keydown", (event) => {
+    const modal = topmostOpenManagedModal();
+    if (!modal) return;
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      requestManagedModalClose(modal);
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+    const focusable = [...modal.querySelectorAll(MODAL_FOCUSABLE)].filter((el) => el.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    } else if (!modal.contains(document.activeElement)) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 // Open message edit modal
 function openEditMessageModal(messageId, currentContent) {
   document.getElementById("edit-message-id").value = messageId;
@@ -12857,25 +12979,10 @@ function openEditMessageModal(messageId, currentContent) {
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
   document.getElementById("edit-message-content")?.focus();
-  
-  // Close modal when clicking outside (on backdrop)
-  const modal = document.getElementById("message-edit-modal");
-  const handleOutsideClick = (e) => {
-    if (e.target === modal) {
-      closeEditMessageModal();
-      modal.removeEventListener("click", handleOutsideClick);
-    }
-  };
-  modal?.addEventListener("click", handleOutsideClick);
-  
-  // Close modal on ESC key
-  const handleEsc = (e) => {
-    if (e.key === "Escape") {
-      closeEditMessageModal();
-      document.removeEventListener("keydown", handleEsc);
-    }
-  };
-  document.addEventListener("keydown", handleEsc);
+  // Escape, backdrop click and the focus trap come from initManagedModals().
+  // The listeners that used to be registered here were only detached when the
+  // user actually pressed Escape, so closing via ✕ or the backdrop left one
+  // behind on every open.
 }
 
 function closeEditMessageModal() {
@@ -14570,6 +14677,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applySecondaryPaneState();
   applyToolPanelState();
   initializeRenderLifecycle();
+  initManagedModals();
   updateChatInputPlaceholder();
 
   // Event delegation for remove buttons (replace inline onclick)

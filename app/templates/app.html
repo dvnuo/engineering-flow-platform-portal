@@ -136,7 +136,7 @@
       <header class="portal-main-header">
         <div class="portal-main-header-copy">
           <h1 id="embed-title">Select an assistant</h1>
-          <div id="chat-status" class="portal-statusline">Ready</div>
+          <div id="chat-status" class="portal-statusline" role="status" aria-live="polite">Ready</div>
         </div>
         <div class="portal-main-toolbar">
           {% if role == "admin" %}
@@ -214,6 +214,7 @@
           </button>
           <div id="message-scroll" class="portal-message-scroll">
             <div id="message-list" class="portal-message-list">
+              <p id="chat-live-region" class="sr-only" role="status" aria-live="polite"></p>
               <div class="message-row message-row-assistant" data-welcome="1">
                 <div class="message-meta">
                   <span class="message-author">Assistant</span>
