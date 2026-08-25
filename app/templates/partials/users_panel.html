@@ -76,19 +76,38 @@
           <div class="portal-admin-member-controls">
             <label class="portal-admin-role-control">
               <span>Role</span>
-              <select
-                class="portal-form-select"
-                name="role"
-                data-admin-role-select
+              <div
+                class="portal-role-toggle"
+                role="radiogroup"
+                aria-label="Role for {{ u.username }}"
+                data-admin-role-group
                 data-user-id="{{ u.id }}"
                 data-original-role="{{ u.role }}"
-                {% if u.id == current_user.id %}disabled{% endif %}
               >
-                <option value="user" {% if u.role == 'user' %}selected{% endif %}>User — owns and runs their own assistants</option>
-                <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator — full access to every assistant, plus member management</option>
-              </select>
+                <label class="portal-role-option">
+                  <input
+                    type="radio"
+                    name="role-{{ u.id }}"
+                    value="user"
+                    data-admin-role-option
+                    {% if u.role != 'admin' %}checked{% endif %}
+                    {% if u.id == current_user.id %}disabled{% endif %}
+                  />
+                  <span>User</span>
+                </label>
+                <label class="portal-role-option">
+                  <input
+                    type="radio"
+                    name="role-{{ u.id }}"
+                    value="admin"
+                    data-admin-role-option
+                    {% if u.role == 'admin' %}checked{% endif %}
+                    {% if u.id == current_user.id %}disabled{% endif %}
+                  />
+                  <span>Admin</span>
+                </label>
+              </div>
             </label>
-            <p class="portal-panel-note portal-admin-role-hint">Administrators can open, edit, and delete every member's assistants.</p>
             <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}Current account{% endif %}</span>
             <div class="portal-admin-member-actions">
               {% if u.allowlist_entry_id and u.id != current_user.id %}

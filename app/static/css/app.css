@@ -2414,6 +2414,83 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 6px;
   color: var(--portal-text-muted);
   font-size: 12px;
+  min-width: 0;
+}
+
+/* Role is a two-way choice shown as a segmented control rather than a dropdown.
+   Member cards are ~380px wide, so a <select> carrying descriptive option text
+   truncated it to uselessness ("User — owns and runs their own assis…"). Two
+   pills always fit, show the current and the alternative at once, and change
+   the role in one click instead of two. The explanation lives in each pill's
+   tooltip, so nothing needs a permanent line of helper text. */
+.portal-role-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--portal-border);
+  border-radius: 8px;
+  background: var(--portal-surface-muted);
+  width: max-content;
+  max-width: 100%;
+}
+
+.portal-role-option {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.portal-role-option input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.portal-role-option > span {
+  display: block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--portal-text-muted);
+  transition: background var(--portal-transition), color var(--portal-transition);
+}
+
+.portal-role-option input:checked + span {
+  background: var(--portal-accent);
+  color: var(--portal-surface);
+  font-weight: 600;
+}
+
+.portal-role-option input:not(:disabled):not(:checked):hover + span {
+  background: var(--portal-accent-soft);
+  color: var(--portal-text);
+}
+
+.portal-role-option input:focus-visible + span {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 1px;
+}
+
+.portal-role-option input:disabled {
+  cursor: not-allowed;
+}
+
+.portal-role-option input:disabled + span {
+  opacity: 0.65;
+}
+
+/* Held while the change is in flight, so a slow save cannot be double-submitted. */
+.portal-role-toggle.is-saving {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-role-option > span { transition: none; }
 }
 
 .portal-admin-member-list {

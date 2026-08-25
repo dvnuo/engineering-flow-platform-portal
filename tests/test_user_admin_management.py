@@ -415,7 +415,8 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert "data-admin-member-access-filter" in response.text
         assert "Executions" in response.text
         assert "data-admin-member-form" not in response.text
-        assert "data-admin-role-select" in response.text
+        assert "data-admin-role-group" in response.text
+        assert "data-admin-role-option" in response.text
         assert "data-allow-member" in response.text
         assert "<details" in response.text
         assert response.text.index("Registered members") < response.text.index("Pending registration")

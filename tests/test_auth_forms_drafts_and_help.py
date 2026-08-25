@@ -88,8 +88,12 @@ def test_help_surface_is_reachable_and_explains_portal_vocabulary():
 
 
 def test_role_options_describe_what_they_actually_grant():
-    assert "User — owns and runs their own assistants" in USERS_HTML
-    assert "Administrator — full access to every assistant, plus member management" in USERS_HTML
+    # The descriptions moved out of <option> text and into per-pill tooltips:
+    # member cards are ~380px wide, so a select carrying them truncated to
+    # "User — owns and runs their own assis…".
+    tooltips = Path("app/static/js/tooltips.js").read_text(encoding="utf-8")
+    assert "Owns and runs their own assistants" in tooltips
+    assert "Full access to every member's assistants, plus member management" in tooltips
 
 
 def test_viewer_role_is_gone_everywhere():

@@ -128,7 +128,11 @@
     ["[data-open-create-delegation-main]", "Create a rule that starts work automatically from GitHub, Jira, or a timer"],
 
     // --- user management ---
-    ["[data-admin-role-select]", "What this member can do. Administrators can open and edit everyone's assistants."],
+    // Each pill explains what it grants, replacing the permanent line of helper
+    // text that used to sit under the control and break the row's grid.
+    ['[data-admin-role-option][value="user"]', "Owns and runs their own assistants"],
+    ['[data-admin-role-option][value="admin"]', "Full access to every member's assistants, plus member management"],
+    ["[data-admin-role-group]", "What this member can do"],
     ["[data-remove-allowlist]", "Revoke access. They lose sign-in immediately and existing sessions end."],
     ["[data-allow-member]", "Put this member back on the allowlist so they can sign in again"],
     ["[data-admin-member-search]", "Filter by name or username"],
