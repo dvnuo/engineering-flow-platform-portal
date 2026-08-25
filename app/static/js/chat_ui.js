@@ -21,6 +21,7 @@ const dom = {
   workspaceDetailContent: document.getElementById("workspace-detail-content"),
   messageList: document.getElementById("message-list"),
   messageScroll: document.getElementById("message-scroll"),
+  jumpToLatestBtn: document.getElementById("jump-to-latest-btn"),
   chatInput: document.getElementById("chat-input"),
   chatSuggest: document.getElementById("chat-suggest"),
   chatAgentId: document.getElementById("chat-agent-id"),
@@ -3768,9 +3769,45 @@ function setChatStatus(text, isError = false) {
   dom.chatStatus.setAttribute("aria-label", `${visibleStatusText}. ${statusDetail.join(". ")}`);
 }
 
-function scrollToBottom() {
-  const scrollContainer = dom.messageScroll || dom.messageList;
-  if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
+// Auto-scroll used to be unconditional, so scrolling up to re-read part of a
+// long answer fought the stream on every chunk. Now we only follow the tail
+// while the reader is already at it.
+const SCROLL_STICK_THRESHOLD_PX = 80;
+let stickToBottom = true;
+
+function messageScrollContainer() {
+  return dom.messageScroll || dom.messageList;
+}
+
+function distanceFromBottom(el) {
+  if (!el) return 0;
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
+function syncJumpToLatestButton() {
+  const btn = dom.jumpToLatestBtn;
+  if (!btn) return;
+  btn.classList.toggle("is-visible", !stickToBottom);
+  btn.setAttribute("aria-hidden", stickToBottom ? "true" : "false");
+  btn.tabIndex = stickToBottom ? -1 : 0;
+}
+
+function handleMessageScroll() {
+  const el = messageScrollContainer();
+  if (!el) return;
+  stickToBottom = distanceFromBottom(el) <= SCROLL_STICK_THRESHOLD_PX;
+  syncJumpToLatestButton();
+}
+
+// force: user asked for it (new message sent, "Jump to latest" clicked), so
+// re-attach to the tail regardless of where they had scrolled.
+function scrollToBottom({ force = false } = {}) {
+  const scrollContainer = messageScrollContainer();
+  if (!scrollContainer) return;
+  if (force) stickToBottom = true;
+  else if (!stickToBottom) return;
+  scrollContainer.scrollTop = scrollContainer.scrollHeight;
+  syncJumpToLatestButton();
 }
 
 function normalizeMarkdownText(text) {
@@ -4066,12 +4103,16 @@ function enhanceMarkdownBlock(root) {
   });
 }
 
-function renderMarkdown(scope = document) {
+function renderMarkdown(scope = document, { highlight = true } = {}) {
   scope.querySelectorAll(".md-render").forEach((el) => {
     const markdown = normalizeMarkdownText(el.dataset.md || "");
     const blocks = parseDisplayBlocks(el.dataset.displayBlocks || "");
     el.innerHTML = renderDisplayBlocksToHtml(blocks, markdown);
     enhanceMarkdownBlock(el);
+    // innerHTML above discards the previous pass, so the data-highlighted guard
+    // never spares a re-render mid-stream. Callers streaming partial text opt out
+    // and highlight once at the end instead.
+    if (!highlight) return;
     el.querySelectorAll("pre code").forEach((code) => {
       if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
       hljs.highlightElement(code);
@@ -4090,8 +4131,13 @@ function decorateToolMessages(scope = document) {
   });
 }
 
-function renderIcons() {
-  if (window.lucide) window.lucide.createIcons();
+// Unscoped createIcons() rescans the whole document and rebuilds every icon in
+// the shell. That is fine after a panel swap, but ruinous inside the streaming
+// loop, so hot paths pass the article they actually touched.
+function renderIcons(scope = null) {
+  if (!window.lucide) return;
+  if (scope && scope !== document) window.lucide.createIcons({ root: scope });
+  else window.lucide.createIcons();
 }
 
 function setDetailOpen(open) {
@@ -4330,7 +4376,7 @@ function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
-  scrollToBottom();
+  scrollToBottom({ force: true });
 }
 
 
@@ -5424,7 +5470,7 @@ async function submitChatForSelectedAgent() {
       });
     }
     ensureEventSocketForAgent(agentIdAtSend, sessionIdAtSend, clientRequestId);
-    scrollToBottom();
+    scrollToBottom({ force: true });
   }
   chatState.pendingFiles = [];
   renderInputPreview();
@@ -6162,7 +6208,45 @@ function updatePendingAssistantStreamContent(agentId, markdownText, options = {}
   } else if (cursor) {
     cursor.remove();
   }
-  renderMarkdown(article); decorateToolMessages(article); renderIcons(); scrollToBottom();
+  // The typewriter ticks every 24ms (~42fps). Re-parsing markdown, re-running
+  // hljs and rebuilding every icon in the document at that rate pinned the CPU,
+  // so coalesce the expensive half onto one animation frame. The final chunk
+  // (streaming === false) renders synchronously so callers can read the result.
+  if (options.streaming === false) flushStreamRender(article);
+  else scheduleStreamRender(article);
+}
+
+// ~12 repaints/second still reads as smooth typing but costs a third of what
+// one-repaint-per-typewriter-tick did.
+const STREAM_RENDER_INTERVAL_MS = 80;
+let streamRenderTimer = 0;
+let streamRenderLastAt = 0;
+let pendingStreamRenderArticle = null;
+
+function flushStreamRender(article, { highlight = true } = {}) {
+  if (!article || !article.isConnected) return;
+  clearTimeout(streamRenderTimer);
+  streamRenderTimer = 0;
+  pendingStreamRenderArticle = null;
+  streamRenderLastAt = Date.now();
+  renderMarkdown(article, { highlight });
+  decorateToolMessages(article);
+  renderIcons(article);
+  scrollToBottom();
+}
+
+function scheduleStreamRender(article) {
+  pendingStreamRenderArticle = article;
+  if (streamRenderTimer) return;
+  const wait = Math.max(0, STREAM_RENDER_INTERVAL_MS - (Date.now() - streamRenderLastAt));
+  streamRenderTimer = setTimeout(() => {
+    streamRenderTimer = 0;
+    const target = pendingStreamRenderArticle;
+    pendingStreamRenderArticle = null;
+    // Highlighting is deferred to the final render: renderMarkdown replaces
+    // innerHTML each pass, so mid-stream hljs work is thrown away immediately.
+    if (target) flushStreamRender(target, { highlight: false });
+  }, wait);
 }
 
 function finalizePendingAssistantRow(agentId, requestCtx, payload) {
@@ -8441,7 +8525,7 @@ function renderChatHistory(messages, metadata = {}) {
   });
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
-  scrollToBottom();
+  scrollToBottom({ force: true });
 }
 
 function deriveSessionRecoveryNotice(metadata = {}) {
@@ -13766,6 +13850,9 @@ function bindEvents() {
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
   // First-run path: the empty home screen now offers the real next step directly.
   dom.homeCreateAgentBtn?.addEventListener("click", () => dom.addAgentBtn?.click());
+
+  dom.messageScroll?.addEventListener("scroll", handleMessageScroll, { passive: true });
+  dom.jumpToLatestBtn?.addEventListener("click", () => scrollToBottom({ force: true }));
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
     await openPortalSection("tasks");
   });
