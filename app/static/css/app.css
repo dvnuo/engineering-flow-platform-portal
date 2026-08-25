@@ -2277,18 +2277,6 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 10px;
 }
 
-.portal-admin-inline-form {
-  display: grid;
-  gap: 10px;
-  align-items: end;
-}
-
-.portal-admin-inline-form {
-  grid-template-columns: minmax(0, 1fr) 150px auto;
-  margin-top: 12px;
-}
-
-.portal-admin-inline-form label,
 .portal-admin-role-control {
   display: grid;
   gap: 6px;
@@ -2310,7 +2298,37 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 }
 
 .portal-admin-username-list-field small {
+  display: block;
+  margin-top: 6px;
   color: var(--portal-text-muted);
+}
+
+.portal-admin-allowlist-modal-card {
+  width: min(560px, calc(100vw - 2rem));
+  max-height: min(88vh, 680px);
+  overflow: auto;
+}
+
+.portal-admin-allowlist-modal-card .portal-modal-titlebar h3,
+.portal-admin-allowlist-modal-card .portal-modal-titlebar p {
+  margin: 0;
+}
+
+.portal-admin-allowlist-modal-card .portal-modal-titlebar p {
+  margin-top: 4px;
+}
+
+.portal-admin-allowlist-form .portal-form-select {
+  width: 100%;
+}
+
+.portal-admin-allowlist-form .portal-modal-feedback {
+  min-height: 18px;
+  margin: 0;
+}
+
+.portal-admin-allowlist-form .portal-modal-actions {
+  margin-top: 0;
 }
 
 .portal-admin-members-section {
@@ -2501,7 +2519,6 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 }
 
 @media (max-width: 760px) {
-  .portal-admin-inline-form,
   .portal-admin-member-toolbar,
   .portal-admin-member-controls {
     grid-template-columns: 1fr;

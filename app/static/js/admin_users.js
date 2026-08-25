@@ -12,6 +12,28 @@
     node.classList.toggle("is-error", !!isError);
   }
 
+  function openAllowlistModal() {
+    var root = document.getElementById("admin-users-panel");
+    var modal = root && root.querySelector("[data-admin-allowlist-modal]");
+    if (!modal) return;
+    feedback(root, "", false);
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    window.setTimeout(function () {
+      var textarea = modal.querySelector('textarea[name="usernames"]');
+      if (textarea) textarea.focus();
+    }, 0);
+  }
+
+  function closeAllowlistModal() {
+    var modal = document.querySelector("[data-admin-allowlist-modal]");
+    if (!modal || modal.classList.contains("hidden")) return;
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    var trigger = document.getElementById("header-add-allowlist-btn");
+    if (trigger && !trigger.classList.contains("hidden")) trigger.focus();
+  }
+
   function parseUsernames(value) {
     var seen = Object.create(null);
     return String(value || "")
@@ -111,7 +133,10 @@
       var messages = [];
       if (result.added.length) messages.push("Allowed " + result.added.length + ".");
       if (result.already_allowlisted.length) messages.push("Skipped " + result.already_allowlisted.length + " already allowed.");
-      await reloadPanel(messages.join(" ") || "No changes were needed.", false);
+      var successMessage = messages.join(" ") || "No changes were needed.";
+      closeAllowlistModal();
+      await reloadPanel(successMessage, false);
+      if (window.showToast) window.showToast(successMessage, { variant: "success" });
     } catch (error) {
       feedback(root, error.message, true);
       if (window.showAlert) {
@@ -173,6 +198,26 @@
   });
 
   document.addEventListener("click", async function (event) {
+    var openButton = event.target.closest("[data-open-admin-allowlist-modal]");
+    if (openButton) {
+      event.preventDefault();
+      openAllowlistModal();
+      return;
+    }
+
+    var closeButton = event.target.closest("[data-close-admin-allowlist-modal]");
+    if (closeButton) {
+      event.preventDefault();
+      closeAllowlistModal();
+      return;
+    }
+
+    var modalBackdrop = event.target.closest("[data-admin-allowlist-modal]");
+    if (modalBackdrop && event.target === modalBackdrop) {
+      closeAllowlistModal();
+      return;
+    }
+
     var allowButton = event.target.closest("[data-allow-member]");
     if (allowButton) {
       event.preventDefault();
@@ -226,5 +271,13 @@
       }
       button.disabled = false;
     }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    var modal = document.querySelector("[data-admin-allowlist-modal]");
+    if (!modal || modal.classList.contains("hidden")) return;
+    event.preventDefault();
+    closeAllowlistModal();
   });
 })();

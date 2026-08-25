@@ -407,6 +407,9 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert response.status_code == 200
         assert "Member administration" in response.text
         assert "data-admin-allowlist-form" in response.text
+        assert 'id="admin-allowlist-modal" class="modal hidden"' in response.text
+        assert "data-close-admin-allowlist-modal" in response.text
+        assert "portal-admin-allowlist-section" not in response.text
         assert 'textarea class="portal-form-input" name="usernames"' in response.text
         assert "data-admin-member-search" in response.text
         assert "data-admin-member-access-filter" in response.text
@@ -426,6 +429,15 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
             for route in app.routes
         )
         admin_js = Path("app/static/js/admin_users.js").read_text(encoding="utf-8")
+        app_template = Path("app/templates/app.html").read_text(encoding="utf-8")
+        chat_ui_js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+        assert 'id="header-add-allowlist-btn"' in app_template
+        assert "data-open-admin-allowlist-modal" in app_template
+        assert "headerAddAllowlistBtn" in chat_ui_js
+        assert 'classList.toggle("hidden", !userManagementMode)' in chat_ui_js
+        assert "openAllowlistModal" in admin_js
+        assert "closeAllowlistModal" in admin_js
+        assert "window.showToast(successMessage" in admin_js
         assert "/api/users/allowlist/bulk" in admin_js
         assert 'document.addEventListener("change"' in admin_js
         assert "/password" not in admin_js
