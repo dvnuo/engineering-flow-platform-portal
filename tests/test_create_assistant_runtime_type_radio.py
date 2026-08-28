@@ -18,7 +18,8 @@ def test_create_assistant_has_runtime_type_control():
     assert 'name="runtime_type"' in block
     assert "create-runtime-type-select" in block
     assert "runtime-type-radio" in block
-    assert "Runtime Type" in block
+    # Labelled "Engine" for members; the field name stays runtime_type.
+    assert "<legend>Engine</legend>" in block
     assert 'value="native"' in block
     assert 'value="opencode"' in block
 
@@ -28,8 +29,8 @@ def test_edit_assistant_shows_runtime_type_as_readonly_wizard_field():
     assert 'name="runtime_type"' not in block
     assert "edit-runtime-type-select" not in block
     assert "edit-runtime-type-display" in block
-    assert "Runtime Type" in block
-    assert "Runtime type is fixed after creation." in block
+    assert "<label>Engine</label>" in block
+    assert "The engine is fixed after creation." in block
     assert 'data-edit-step-panel="runtime"' in block
     assert 'data-edit-step-panel="profile"' in block
     assert 'data-edit-step-panel="instructions"' in block

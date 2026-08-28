@@ -15,7 +15,9 @@ from app.config import get_settings
 from app.contracts.llm_catalog import CONTEXT_SIZE_PRESETS, SUPPORTED_REASONING_EFFORTS
 from app.db import SessionLocal
 from app.repositories.agent_execution_repo import AgentExecutionRepository
+from app.contracts.runtime_type import ALLOWED_RUNTIME_TYPES
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.assistant_type_repo import AssistantTypeRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
@@ -34,6 +36,8 @@ from app.services.proxy_service import ProxyService, build_portal_agent_headers,
 from app.services.k8s_service import K8sService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
+from app.services.connection_guidance import all_guidance, connection_checklist
+from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider_from_settings, RuntimeCapabilityCatalogProvider
@@ -966,8 +970,11 @@ def _runtime_profile_panel_context(
     raw_config_data = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
     config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
     view_data = _settings_view_payload(raw_config_data, config_data)
+    checklist = connection_checklist(config_data)
     return {
         "request": request,
+        "connection_guidance": all_guidance(),
+        "connection_checklist": checklist,
         "profile_id": profile.id,
         "status_type": status_type,
         "status_message": status_message,
@@ -1718,6 +1725,61 @@ async def app_users_panel(request: Request):
     finally:
         db.close()
 
+
+
+@router.get("/app/admin/assistant-types/panel")
+async def app_assistant_types_panel(request: Request):
+    """Administration view for the presets offered in simple create mode."""
+
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    db = SessionLocal()
+    try:
+        return templates.TemplateResponse(
+            "partials/assistant_types_panel.html",
+            {
+                "request": request,
+                "assistant_types": AssistantTypeRepository(db).list_all(),
+                "runtime_types": sorted(ALLOWED_RUNTIME_TYPES),
+                "default_agent_settings_repo_url": settings.default_agent_settings_repo_url or "",
+                "default_skill_repo_url": settings.default_skill_repo_url or "",
+                "default_agent_settings_branch": settings.default_agent_settings_branch or "",
+                "default_skill_branch": settings.default_skill_branch or "",
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/app/admin/default-connections/panel")
+async def app_default_connections_panel(request: Request):
+    """Administration view for the non-secret shape new members inherit."""
+
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    db = SessionLocal()
+    try:
+        service = RuntimeProfileSeedService(db)
+        seed = service.get_seed()
+        return templates.TemplateResponse(
+            "partials/default_connections_panel.html",
+            {
+                "request": request,
+                "seed_json": json.dumps(seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
+                "seed_summary": service.seed_summary(),
+                "guidance": all_guidance(),
+            },
+        )
+    finally:
+        db.close()
 
 
 @router.delete("/app/agents/{agent_id}/sessions/{session_id}")

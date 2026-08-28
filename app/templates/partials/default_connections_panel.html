@@ -1,0 +1,91 @@
+<div id="default-connections-panel" class="portal-panel-stack" data-default-connections-panel>
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">Default connections</h5>
+      <p class="portal-panel-note">
+        The connection shape every new member's profile starts from &mdash; instance URLs, API
+        versions, project and space keys. Members then supply only their own credentials.
+      </p>
+    </div>
+  </div>
+
+  <div class="portal-callout is-warning">
+    <strong>Credentials are rejected here.</strong>
+    This seed is shared with every member, so it must never carry a token, password, API key,
+    or access key. A save containing one is refused rather than stored.
+  </div>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Current seed</h6>
+    </div>
+    <div class="portal-panel-stack">
+      {% for row in seed_summary %}
+      <div class="portal-panel-note">
+        <span class="portal-status-badge {{ 'is-success' if row.configured else 'is-warning' }}">{{ row.section }}</span>
+        {{ row.detail }}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Edit</h6>
+    </div>
+    <form class="portal-panel-stack" data-seed-form>
+      <label class="portal-form-label">
+        <span class="portal-form-label">Seed JSON</span>
+        <textarea name="seed" class="portal-form-textarea" rows="18" spellcheck="false">{{ seed_json }}</textarea>
+      </label>
+      <details class="portal-collapsible">
+        <summary class="portal-collapsible-summary"><strong>Example</strong></summary>
+        <pre class="portal-panel-pre">{
+  "jira": {
+    "enabled": true,
+    "instances": [
+      { "name": "Production",
+        "url": "https://company.atlassian.net",
+        "api_version": "3",
+        "project": "ABC" }
+    ]
+  },
+  "confluence": {
+    "enabled": true,
+    "instances": [
+      { "name": "Wiki",
+        "url": "https://company.atlassian.net/wiki",
+        "space": "ENG" }
+    ]
+  },
+  "github": { "enabled": true, "base_url": "https://api.github.com" }
+}</pre>
+      </details>
+      <div class="flex items-center gap-2">
+        <button type="submit" class="portal-btn is-primary">Save seed</button>
+        <div class="portal-inline-state" data-seed-msg></div>
+      </div>
+      <p class="portal-inline-note">
+        Saving affects members who join from now on. Existing profiles are left alone so nobody's
+        working configuration changes underneath them.
+      </p>
+    </form>
+  </section>
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>What members are asked for</h6>
+    </div>
+    <div class="portal-panel-stack">
+      {% for section, item in guidance.items() %}
+      <div class="portal-panel-note">
+        <strong>{{ item.title }}</strong>
+        &mdash; {{ item.user_fields|join(", ") if item.user_fields else "no credential needed" }}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>

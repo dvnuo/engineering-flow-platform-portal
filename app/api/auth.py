@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 import logging
 logger = logging.getLogger(__name__)
@@ -105,4 +107,32 @@ def logout(response: Response):
 
 @router.get("/me", response_model=MeResponse)
 def me(user=Depends(get_current_user)):
-    return MeResponse(id=user.id, username=user.username, nickname=user.nickname, role=user.role)
+    return MeResponse(
+        id=user.id,
+        username=user.username,
+        nickname=user.nickname,
+        role=user.role,
+        onboarding_completed=getattr(user, "onboarding_completed_at", None) is not None,
+    )
+
+
+@router.post("/me/onboarding-complete", response_model=MeResponse)
+def complete_onboarding(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Mark the first-run tour as seen.
+
+    Recorded per member rather than inferred from "owns zero assistants" so
+    someone who deletes their first assistant is not walked through the tour
+    again.
+    """
+    if getattr(user, "onboarding_completed_at", None) is None:
+        user.onboarding_completed_at = datetime.utcnow()
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return MeResponse(
+        id=user.id,
+        username=user.username,
+        nickname=user.nickname,
+        role=user.role,
+        onboarding_completed=True,
+    )

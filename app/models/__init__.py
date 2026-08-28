@@ -7,6 +7,8 @@ from app.models.runtime_profile import RuntimeProfile
 from app.models.user import User
 from app.models.user_allowlist import UserAllowlistEntry
 from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCatalogSnapshot
+from app.models.assistant_type import AssistantType
+from app.models.platform_setting import PlatformSetting
 from app.models.delegation_rule import DelegationRule, DelegationRuleRun, DelegationRuleEvent
 
 __all__ = [
@@ -22,4 +24,6 @@ __all__ = [
     "DelegationRule",
     "DelegationRuleRun",
     "DelegationRuleEvent",
+    "AssistantType",
+    "PlatformSetting",
 ]

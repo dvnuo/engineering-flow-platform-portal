@@ -3305,6 +3305,13 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
+  try {
+    document.dispatchEvent(new CustomEvent("portal:runtime-event", {
+      detail: { event: entry, agentId: currentAgentId, sessionId: currentSessionId },
+    }));
+  } catch (error) {
+    /* a listener throwing must never stop the transcript from updating */
+  }
   const currentRequestIds = new Set([
     chatState.currentRequest?.clientRequestId,
     chatState.currentRequest?.requestId,
@@ -5132,6 +5139,13 @@ async function selectAgentById(agentId, { updateRoute = true } = {}) {
   await syncSelectedAgentState();
   if (updateRoute && !isApplyingPortalRoute) {
     commitPortalRoute({ section: "assistants", agentId });
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("portal:agent-selected", {
+      detail: { agentId, agent: getSelectedAgent() },
+    }));
+  } catch (error) {
+    /* listeners are decoration; selection has already succeeded */
   }
 }
 
@@ -10018,6 +10032,13 @@ function sectionNameForElement(element) {
   return section?.dataset?.managedSection || "";
 }
 
+window.showToast = showToast;
+window.refreshPortalAll = refreshAll;
+window.selectPortalAgentById = selectAgentById;
+window.currentPortalSessionId = currentSessionIdForSelectedAgent;
+window.currentPortalAgentId = () => state.selectedAgentId;
+window.renderPortalMarkdown = renderMarkdown;
+
 window.initPasswordToggles = function(root = document) {
   root.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach((input) => {
     input.classList.add("pr-6", "password-toggle-initialized");
@@ -14646,7 +14667,12 @@ function bindEvents() {
     }
   });
 
-  dom.addAgentBtn?.addEventListener("click", async () => {
+  // Simple mode is the default door: name plus a type, everything else filled
+  // in from the admin-curated preset. Advanced mode is the same five-step
+  // wizard as before, reachable from inside the simple dialog. If simple mode
+  // cannot open -- no assistant types configured -- fall through to advanced so
+  // creation is never blocked.
+  async function openAdvancedCreateModal() {
     const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
     const createForm = document.getElementById("create-form");
     if (createForm) {
@@ -14671,6 +14697,18 @@ function bindEvents() {
       refreshCreateRepoBranches("agent-settings"),
       refreshCreateRepoBranches("skills"),
     ]);
+  }
+  window.openAdvancedCreateModal = openAdvancedCreateModal;
+
+  dom.addAgentBtn?.addEventListener("click", async () => {
+    if (typeof window.openSimpleCreateModal === "function") {
+      try {
+        if (await window.openSimpleCreateModal()) return;
+      } catch (error) {
+        console.warn("Simple create unavailable, falling back to advanced setup", error);
+      }
+    }
+    await openAdvancedCreateModal();
   });
 
   document.getElementById("close-create-modal")?.addEventListener("click", () => {

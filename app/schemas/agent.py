@@ -120,6 +120,10 @@ class AgentStatusResponse(BaseModel):
     last_error: Optional[str] = None
     desired_profile_revision: Optional[int] = None
     applied_profile_revision: Optional[int] = None
+    # Member-facing reading of the same state: what phase startup is in, and
+    # what to do when it fails. Raw `status`/`last_error` stay untouched so
+    # existing consumers are unaffected.
+    startup: Optional[dict] = None
 
 
 class AgentChatModelProfileResponse(BaseModel):
