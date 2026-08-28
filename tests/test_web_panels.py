@@ -47,6 +47,10 @@ def _setup_task_client(monkeypatch, task, chain=None, can_manage_task=True):
     user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: user)
+    # Panel routes go through _authorized_web_user -> _session_user_access,
+    # which also enforces the allowlist. Without this the response is the
+    # login page, not the panel.
+    monkeypatch.setattr(web_module, "_session_user_access", lambda _r: (user, None))
     monkeypatch.setattr(web_module, "_can_manage_task_for_user", lambda _db, _task, _user: can_manage_task)
     monkeypatch.setattr(web_module, "AgentTaskRepository", lambda db: _FakeTaskRepo(db, task, chain=chain))
 
@@ -60,6 +64,10 @@ def _setup_create_panel_client(monkeypatch, agents):
     user = SimpleNamespace(id=11, username="portal", nickname="Portal", role="user")
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: user)
+    # Panel routes go through _authorized_web_user -> _session_user_access,
+    # which also enforces the allowlist. Without this the response is the
+    # login page, not the panel.
+    monkeypatch.setattr(web_module, "_session_user_access", lambda _r: (user, None))
     monkeypatch.setattr(web_module, "_list_writable_agents", lambda _db, _user: agents)
     return TestClient(app)
 
@@ -319,6 +327,10 @@ def test_tasks_panel_uses_incremental_task_cards(monkeypatch):
 
     monkeypatch.setattr(web_module, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _r: user)
+    # Panel routes go through _authorized_web_user -> _session_user_access,
+    # which also enforces the allowlist. Without this the response is the
+    # login page, not the panel.
+    monkeypatch.setattr(web_module, "_session_user_access", lambda _r: (user, None))
     monkeypatch.setattr(web_module, "AgentTaskRepository", lambda db: _FakeTaskListRepo(db, tasks))
     monkeypatch.setattr(
         web_module,

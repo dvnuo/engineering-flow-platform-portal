@@ -254,10 +254,14 @@ def test_message_mutation_failure_uses_friendly_runtime_error_helper():
     retry_block = js_source[retry_start:js_source.find("function getAssistantCopyText", retry_start)]
     edit_block = js_source[edit_start:js_source.find("if (closeBtn)", edit_start)]
 
-    assert "showToast(getRuntimeMutationErrorMessage(response, result, \"Failed to delete message\"));" in retry_block
-    assert "getRuntimeMutationErrorMessage(response, result, \"Failed to edit message\")" in edit_block
-    assert "showToast(message);" in edit_block
-    assert js_source.count('showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"));') >= 1
+    # Assert the helper is used with the right fallback, not the exact call text:
+    # these pinned the pre-{ variant: 'error' } signature and broke on a cosmetic
+    # argument, while the behaviour they guard never changed.
+    assert 'getRuntimeMutationErrorMessage(response, result, "Failed to delete message")' in retry_block
+    assert "showToast(getRuntimeMutationErrorMessage(response, result" in retry_block
+    assert 'getRuntimeMutationErrorMessage(response, result, "Failed to edit message")' in edit_block
+    assert "showToast(message" in edit_block
+    assert js_source.count('getRuntimeMutationErrorMessage(response, {}, "Failed to delete message")') >= 1
 
 
 def test_chat_stream_final_payload_preserves_assistant_message_id():
