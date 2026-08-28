@@ -17,8 +17,9 @@ BASE_HTML = Path("app/templates/base.html").read_text(encoding="utf-8")
 
 @pytest.fixture(scope="module")
 def client():
-    with TestClient(app) as test_client:
-        yield test_client
+    # Plain constructor: the `with` form runs startup, whose schema guard
+    # requires a migrated database that CI does not have.
+    yield TestClient(app)
 
 
 def test_large_static_assets_are_served_compressed(client):

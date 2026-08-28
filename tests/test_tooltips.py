@@ -141,5 +141,7 @@ def test_static_url_falls_back_rather_than_raising_on_a_typo():
 
 
 def test_versioned_asset_is_served():
-    with TestClient(app) as client:
-        assert client.get("/static/js/tooltips.js", params={"v": "123"}).status_code == 200
+    # Plain constructor: the `with` form runs startup, whose schema guard
+    # requires a migrated database that CI does not have.
+    client = TestClient(app)
+    assert client.get("/static/js/tooltips.js", params={"v": "123"}).status_code == 200
