@@ -21,6 +21,7 @@ const dom = {
   workspaceDetailContent: document.getElementById("workspace-detail-content"),
   messageList: document.getElementById("message-list"),
   messageScroll: document.getElementById("message-scroll"),
+  jumpToLatestBtn: document.getElementById("jump-to-latest-btn"),
   chatInput: document.getElementById("chat-input"),
   chatSuggest: document.getElementById("chat-suggest"),
   chatAgentId: document.getElementById("chat-agent-id"),
@@ -46,6 +47,7 @@ const dom = {
   delegationsMenuBtn: document.getElementById("delegations-menu-btn"),
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
+  secondaryDrawerBackdrop: document.getElementById("secondary-drawer-backdrop"),
   portalSecondaryPane: document.getElementById("portal-secondary-pane"),
   secondaryPaneToggle: document.getElementById("secondary-pane-toggle"),
   secondaryPaneRestore: document.getElementById("secondary-pane-restore"),
@@ -89,6 +91,7 @@ const dom = {
   homeSubtitle: document.getElementById("home-subtitle"),
   homeAgentSummary: document.getElementById("home-agent-summary"),
   homeStartChatBtn: document.getElementById("home-start-chat-btn"),
+  homeCreateAgentBtn: document.getElementById("home-create-agent-btn"),
   homeOpenTasksBtn: document.getElementById("home-open-tasks-btn"),
   homeOpenDelegationsBtn: document.getElementById("home-open-delegations-btn"),
   createRuntimeProfileModal: document.getElementById("create-runtime-profile-modal"),
@@ -137,6 +140,7 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
+  "help",
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
@@ -453,7 +457,12 @@ const state = {
   suggestRequestSeq: 0,
   suggestBlurHideTimer: null,
   activeNavSection: INITIAL_PORTAL_ROUTE_SECTION,
-  secondaryPaneCollapsed: !!initialUiLayoutPrefs.secondaryPaneCollapsed,
+  // On a phone the pane is an overlay drawer, so it always starts closed —
+  // opening over the conversation on load would be the wrong first impression.
+  secondaryPaneCollapsed:
+    (window.matchMedia && window.matchMedia("(max-width: 768px)").matches)
+      ? true
+      : !!initialUiLayoutPrefs.secondaryPaneCollapsed,
   toolPanelOpen: !!initialUiLayoutPrefs.toolPanelPinned,
   toolPanelPinned: !!initialUiLayoutPrefs.toolPanelPinned,
   pendingToolPanelRestoreKey: normalizeUtilityPanelKey(initialUiLayoutPrefs.activeUtilityPanel),
@@ -873,6 +882,8 @@ function syncSelectedAgentChatActionControls() {
     setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
     setButtonDisabled(contextBtn, true, "Select an assistant first");
+    // Details was the one header control left enabled with nothing to show.
+    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
     if (dom.contextUsageLabel) dom.contextUsageLabel.textContent = "Context —";
     setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
@@ -903,6 +914,8 @@ function syncSelectedAgentChatActionControls() {
 
   setButtonDisabled(dom.headerNewChatBtn, disabled, disabled ? title : "");
   setButtonDisabled(sessionsBtn, disabled, disabled ? title : "");
+  // Details stays available for a stopped assistant — that panel is where Start lives.
+  setButtonDisabled(dom.detailToggle, false);
   const hasSession = Boolean(chatState?.sessionId);
   const contextDisabled = disabled || !hasSession || chatState?.contextUsageLoading || chatState?.compactingContext;
   const contextTitle = busy
@@ -1413,20 +1426,31 @@ function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
   return true;
 }
 
+// "1 members" / "1 assistants" showed up wherever a count was interpolated
+// straight into a hardcoded plural.
+function pluralize(count, singular, plural = null) {
+  return Number(count) === 1 ? singular : (plural || `${singular}s`);
+}
+
 function setButtonDisabled(button, disabled, disabledTitle = "") {
   if (!button) return;
+  // Hints live in data-tooltip; tooltips.js migrates any legacy title on first
+  // hover, so read whichever is present when caching the element's own hint.
   const hasDefaultTitle = Object.prototype.hasOwnProperty.call(button.dataset, "defaultTitle");
   if (!hasDefaultTitle) {
-    button.dataset.defaultTitle = button.getAttribute("title") || "";
+    button.dataset.defaultTitle = button.getAttribute("data-tooltip") || button.getAttribute("title") || "";
   }
   button.disabled = !!disabled;
   button.setAttribute("aria-disabled", disabled ? "true" : "false");
-  if (disabled) {
-    if (disabledTitle) button.setAttribute("title", disabledTitle);
+  const nextHint = disabled ? (disabledTitle || button.dataset.defaultTitle || "") : (button.dataset.defaultTitle || "");
+  // Explaining why a control is unavailable is the single most useful hint in
+  // the app, and disabled buttons are exactly where the native title failed.
+  if (typeof setTooltip === "function") {
+    setTooltip(button, nextHint);
+  } else if (nextHint) {
+    button.setAttribute("title", nextHint);
   } else {
-    const original = button.dataset.defaultTitle || "";
-    if (original) button.setAttribute("title", original);
-    else button.removeAttribute("title");
+    button.removeAttribute("title");
   }
 }
 
@@ -3681,20 +3705,58 @@ function renderRuntimeStateNotes(uiState = {}) {
   `;
 }
 
+// Theme is a three-way preference: light, dark, or system. "system" is the
+// default for anyone who has never picked, so a dark-mode OS no longer lands on
+// a light Portal.
+const THEME_PREFERENCE_KEY = "portal-theme";
+const THEME_ORDER = ["system", "light", "dark"];
+const THEME_META = {
+  system: { icon: "monitor", label: "Theme: follow system" },
+  light: { icon: "sun", label: "Theme: light" },
+  dark: { icon: "moon", label: "Theme: dark" },
+};
+
+function prefersDarkScheme() {
+  return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}
+
+function normalizeThemePreference(value) {
+  return THEME_ORDER.includes(value) ? value : "system";
+}
+
+function resolveInitialTheme() {
+  return normalizeThemePreference(localStorage.getItem(THEME_PREFERENCE_KEY));
+}
+
 function applyTheme(theme) {
-  const normalized = theme === "light" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", normalized);
-  document.documentElement.classList.toggle("dark", normalized === "dark");
-  localStorage.setItem("portal-theme", normalized);
-  if (dom.themeToggle) dom.themeToggle.innerHTML = normalized === "light"
-    ? '<i data-lucide="sun"></i>'
-    : '<i data-lucide="moon"></i>';
+  const preference = normalizeThemePreference(theme);
+  const effective = preference === "system" ? (prefersDarkScheme() ? "dark" : "light") : preference;
+  document.documentElement.setAttribute("data-theme", effective);
+  document.documentElement.setAttribute("data-theme-preference", preference);
+  document.documentElement.classList.toggle("dark", effective === "dark");
+  localStorage.setItem(THEME_PREFERENCE_KEY, preference);
+  const meta = THEME_META[preference];
+  if (dom.themeToggle) {
+    dom.themeToggle.innerHTML = `<i data-lucide="${meta.icon}" class="w-5 h-5"></i>`;
+    dom.themeToggle.title = meta.label;
+    dom.themeToggle.setAttribute("aria-label", meta.label);
+  }
   renderIcons();
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme") || "dark";
-  applyTheme(current === "dark" ? "light" : "dark");
+  const current = normalizeThemePreference(localStorage.getItem(THEME_PREFERENCE_KEY));
+  applyTheme(THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length]);
+}
+
+// Follow the OS live while the preference is "system".
+if (window.matchMedia) {
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSchemeChange = () => {
+    if (normalizeThemePreference(localStorage.getItem(THEME_PREFERENCE_KEY)) === "system") applyTheme("system");
+  };
+  if (typeof darkQuery.addEventListener === "function") darkQuery.addEventListener("change", onSchemeChange);
+  else if (typeof darkQuery.addListener === "function") darkQuery.addListener(onSchemeChange);
 }
 
 function setChatStatus(text, isError = false) {
@@ -3725,9 +3787,45 @@ function setChatStatus(text, isError = false) {
   dom.chatStatus.setAttribute("aria-label", `${visibleStatusText}. ${statusDetail.join(". ")}`);
 }
 
-function scrollToBottom() {
-  const scrollContainer = dom.messageScroll || dom.messageList;
-  if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
+// Auto-scroll used to be unconditional, so scrolling up to re-read part of a
+// long answer fought the stream on every chunk. Now we only follow the tail
+// while the reader is already at it.
+const SCROLL_STICK_THRESHOLD_PX = 80;
+let stickToBottom = true;
+
+function messageScrollContainer() {
+  return dom.messageScroll || dom.messageList;
+}
+
+function distanceFromBottom(el) {
+  if (!el) return 0;
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
+function syncJumpToLatestButton() {
+  const btn = dom.jumpToLatestBtn;
+  if (!btn) return;
+  btn.classList.toggle("is-visible", !stickToBottom);
+  btn.setAttribute("aria-hidden", stickToBottom ? "true" : "false");
+  btn.tabIndex = stickToBottom ? -1 : 0;
+}
+
+function handleMessageScroll() {
+  const el = messageScrollContainer();
+  if (!el) return;
+  stickToBottom = distanceFromBottom(el) <= SCROLL_STICK_THRESHOLD_PX;
+  syncJumpToLatestButton();
+}
+
+// force: user asked for it (new message sent, "Jump to latest" clicked), so
+// re-attach to the tail regardless of where they had scrolled.
+function scrollToBottom({ force = false } = {}) {
+  const scrollContainer = messageScrollContainer();
+  if (!scrollContainer) return;
+  if (force) stickToBottom = true;
+  else if (!stickToBottom) return;
+  scrollContainer.scrollTop = scrollContainer.scrollHeight;
+  syncJumpToLatestButton();
 }
 
 function normalizeMarkdownText(text) {
@@ -4023,12 +4121,16 @@ function enhanceMarkdownBlock(root) {
   });
 }
 
-function renderMarkdown(scope = document) {
+function renderMarkdown(scope = document, { highlight = true } = {}) {
   scope.querySelectorAll(".md-render").forEach((el) => {
     const markdown = normalizeMarkdownText(el.dataset.md || "");
     const blocks = parseDisplayBlocks(el.dataset.displayBlocks || "");
     el.innerHTML = renderDisplayBlocksToHtml(blocks, markdown);
     enhanceMarkdownBlock(el);
+    // innerHTML above discards the previous pass, so the data-highlighted guard
+    // never spares a re-render mid-stream. Callers streaming partial text opt out
+    // and highlight once at the end instead.
+    if (!highlight) return;
     el.querySelectorAll("pre code").forEach((code) => {
       if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
       hljs.highlightElement(code);
@@ -4047,8 +4149,33 @@ function decorateToolMessages(scope = document) {
   });
 }
 
-function renderIcons() {
-  if (window.lucide) window.lucide.createIcons();
+// Unscoped createIcons() rescans the whole document and rebuilds every icon in
+// the shell. That is fine after a panel swap, but ruinous inside the streaming
+// loop, so hot paths pass the article they actually touched.
+// Server-rendered timestamps arrive as UTC instants inside <time
+// data-local-datetime>. Rewrite them into the reader's own zone; the markup's
+// text is a "… UTC"-suffixed fallback for when this never runs.
+function formatLocalTimestamps(scope = document) {
+  const nodes = scope.querySelectorAll?.("[data-local-datetime]");
+  if (!nodes || !nodes.length) return;
+  nodes.forEach((node) => {
+    const iso = node.getAttribute("datetime");
+    if (!iso) return;
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return;
+    const dateOnly = node.getAttribute("data-local-datetime") === "date";
+    const options = dateOnly
+      ? { year: "numeric", month: "2-digit", day: "2-digit" }
+      : { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" };
+    node.textContent = parsed.toLocaleString([], options);
+    node.title = parsed.toString();
+  });
+}
+
+function renderIcons(scope = null) {
+  if (!window.lucide) return;
+  if (scope && scope !== document) window.lucide.createIcons({ root: scope });
+  else window.lucide.createIcons();
 }
 
 function setDetailOpen(open) {
@@ -4278,6 +4405,13 @@ async function agentApiFor(agentId, path, options = {}) {
   return api(`/a/${agentId}${path}`, options);
 }
 
+function focusComposer() {
+  if (!dom.chatInput || dom.chatInput.offsetParent === null) return;
+  dom.chatInput.focus();
+  const length = dom.chatInput.value.length;
+  try { dom.chatInput.setSelectionRange(length, length); } catch { /* noop */ }
+}
+
 function defaultWelcomeMessage() {
   const welcomeAgentName = getSelectedAssistantDisplayName();
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
@@ -4287,7 +4421,7 @@ function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
-  scrollToBottom();
+  scrollToBottom({ force: true });
 }
 
 
@@ -4350,15 +4484,47 @@ function updateSelectedAgentSession(sessionId) {
   updateAgentSession(state.selectedAgentId, sessionId);
 }
 
+// Drafts survived switching assistants but lived only in memory, so a refresh,
+// an accidental tab close, or a session expiry threw away a half-written prompt.
+function getDraftKey(agentId) {
+  return `portal-draft-${agentId}`;
+}
+
+function persistDraftToStorage(agentId, text) {
+  if (!agentId) return;
+  try {
+    if (text) localStorage.setItem(getDraftKey(agentId), text);
+    else localStorage.removeItem(getDraftKey(agentId));
+  } catch (_error) { /* quota or private mode — the in-memory draft still works */ }
+}
+
+function readDraftFromStorage(agentId) {
+  if (!agentId) return "";
+  try {
+    return localStorage.getItem(getDraftKey(agentId)) || "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function clearDraftForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (chatState) chatState.draftText = "";
+  persistDraftToStorage(agentId, "");
+}
+
 function persistComposerForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   chatState.draftText = dom.chatInput?.value || "";
+  persistDraftToStorage(agentId, chatState.draftText);
 }
 
 function restoreComposerForAgent(agentId) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
+  // Memory wins when it holds something; storage covers the reload case.
+  if (!chatState.draftText) chatState.draftText = readDraftFromStorage(agentId);
   if (dom.chatInput) dom.chatInput.value = chatState.draftText || "";
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
@@ -4497,7 +4663,7 @@ function syncAgentFilterControls(visibleCount = null) {
     const shown = visibleCount === null ? visibleAgents().length : visibleCount;
     const parts = [];
     if (filters.query) parts.push(`"${filters.query}"`);
-    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} assistants`;
+    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "assistant")}`;
   }
 }
 
@@ -4921,8 +5087,7 @@ function renderAgentActions(agent, status) {
     { label: "Restart", icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
     { label: "Edit", icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
     { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/delete-runtime`, "DELETE", true) },
-    { label: "Destroy", icon: "flame", variantClass: "is-danger", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/destroy`, "POST", true) },
+    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent) },
   ];
   actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
 
@@ -4975,6 +5140,33 @@ function setSelectedStatusText(status = "idle") {
   dom.selectedStatus.textContent = status || "idle";
 }
 
+// With no assistant selected there are two very different situations, and the
+// home screen used to show the same copy for both. Telling someone with zero
+// assistants to "choose an assistant from the left" is a dead end — the list is
+// empty and the only way forward was an unlabelled + icon.
+function applyHomeEmptyState() {
+  const hasAnyAgent = Array.isArray(state.mineAgents) && state.mineAgents.length > 0;
+
+  if (dom.homeTitle) {
+    dom.homeTitle.textContent = hasAnyAgent ? "Select an assistant" : "Create your first assistant";
+  }
+  if (dom.homeSubtitle) {
+    dom.homeSubtitle.textContent = hasAnyAgent
+      ? "Choose an assistant from the left to start chatting."
+      : "An assistant is a running workspace you chat with. A default runtime profile is already set up, so you can create one now.";
+  }
+  if (dom.homeAgentSummary) {
+    dom.homeAgentSummary.textContent = hasAnyAgent ? "No assistant selected." : "No assistants yet.";
+  }
+  if (dom.homeCreateAgentBtn) {
+    dom.homeCreateAgentBtn.classList.toggle("hidden", hasAnyAgent);
+  }
+  // With nothing to chat with, New Chat is noise next to the real next step.
+  if (dom.homeStartChatBtn) {
+    dom.homeStartChatBtn.classList.toggle("hidden", !hasAnyAgent);
+  }
+}
+
 async function syncSelectedAgentState() {
   const agent = getSelectedAgent();
   const sessionsBtn = document.getElementById("btn-sessions");
@@ -4986,11 +5178,10 @@ async function syncSelectedAgentState() {
     setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
     setButtonDisabled(sessionsBtn, true, "Select an assistant first");
     setButtonDisabled(dom.contextUsageBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
     syncContextUsageToolbar(null);
     setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
-    dom.homeTitle && (dom.homeTitle.textContent = "Select an assistant");
-    dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
-    dom.homeAgentSummary && (dom.homeAgentSummary.textContent = "No assistant selected.");
+    applyHomeEmptyState();
     if (state.activeNavSection === "assistants") {
       setMainView("home");
     }
@@ -5009,6 +5200,8 @@ async function syncSelectedAgentState() {
   setSelectedStatusText(status);
   setChatStatus("Ready");
   syncSelectedAgentChatActionControls();
+  dom.homeCreateAgentBtn?.classList.add("hidden");
+  dom.homeStartChatBtn?.classList.remove("hidden");
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
   dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
   if (dom.homeAgentSummary) {
@@ -5353,11 +5546,13 @@ async function submitChatForSelectedAgent() {
       });
     }
     ensureEventSocketForAgent(agentIdAtSend, sessionIdAtSend, clientRequestId);
-    scrollToBottom();
+    scrollToBottom({ force: true });
   }
   chatState.pendingFiles = [];
   renderInputPreview();
   if (dom.chatInput) dom.chatInput.value = "";
+  // The message is on its way, so the saved draft is no longer wanted.
+  clearDraftForAgent(agentIdAtSend);
   resetChatInputHeight();
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
@@ -6091,7 +6286,45 @@ function updatePendingAssistantStreamContent(agentId, markdownText, options = {}
   } else if (cursor) {
     cursor.remove();
   }
-  renderMarkdown(article); decorateToolMessages(article); renderIcons(); scrollToBottom();
+  // The typewriter ticks every 24ms (~42fps). Re-parsing markdown, re-running
+  // hljs and rebuilding every icon in the document at that rate pinned the CPU,
+  // so coalesce the expensive half onto one animation frame. The final chunk
+  // (streaming === false) renders synchronously so callers can read the result.
+  if (options.streaming === false) flushStreamRender(article);
+  else scheduleStreamRender(article);
+}
+
+// ~12 repaints/second still reads as smooth typing but costs a third of what
+// one-repaint-per-typewriter-tick did.
+const STREAM_RENDER_INTERVAL_MS = 80;
+let streamRenderTimer = 0;
+let streamRenderLastAt = 0;
+let pendingStreamRenderArticle = null;
+
+function flushStreamRender(article, { highlight = true } = {}) {
+  if (!article || !article.isConnected) return;
+  clearTimeout(streamRenderTimer);
+  streamRenderTimer = 0;
+  pendingStreamRenderArticle = null;
+  streamRenderLastAt = Date.now();
+  renderMarkdown(article, { highlight });
+  decorateToolMessages(article);
+  renderIcons(article);
+  scrollToBottom();
+}
+
+function scheduleStreamRender(article) {
+  pendingStreamRenderArticle = article;
+  if (streamRenderTimer) return;
+  const wait = Math.max(0, STREAM_RENDER_INTERVAL_MS - (Date.now() - streamRenderLastAt));
+  streamRenderTimer = setTimeout(() => {
+    streamRenderTimer = 0;
+    const target = pendingStreamRenderArticle;
+    pendingStreamRenderArticle = null;
+    // Highlighting is deferred to the final render: renderMarkdown replaces
+    // innerHTML each pass, so mid-stream hljs work is thrown away immediately.
+    if (target) flushStreamRender(target, { highlight: false });
+  }, wait);
 }
 
 function finalizePendingAssistantRow(agentId, requestCtx, payload) {
@@ -6806,7 +7039,18 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   return 'unsupported';
 }
 
+// Streaming text is not announced token by token — that would be unusable. A
+// short completion notice tells a screen reader user the turn is over and the
+// answer is available to read.
+function announceToChat(message) {
+  const region = document.getElementById("chat-live-region");
+  if (!region) return;
+  region.textContent = "";
+  window.setTimeout(() => { region.textContent = String(message || ""); }, 50);
+}
+
 async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, options = {}) {
+  if (agentIdAtSend === state.selectedAgentId) announceToChat("Assistant response ready.");
   const localHasRenderableAssistantPayload = (typeof hasRenderableAssistantPayload === "function")
     ? hasRenderableAssistantPayload
     : (candidate) => {
@@ -7202,6 +7446,11 @@ function decorateChatMessageRegion(target) {
 function initializeRenderLifecycle() {
   document.addEventListener("htmx:afterSwap", (event) => {
     const target = event.target;
+    // Panels swapped in by htmx carry freshly server-rendered UTC timestamps.
+    formatLocalTimestamps(target || document);
+    if (target?.querySelector?.("[data-overview-headline]") || target?.matches?.("[data-overview-headline]")) {
+      applyOverviewStatusLine();
+    }
     if (target?.id === "tool-panel-body" || target?.id === "workspace-detail-content") {
       initializeManagedSettingsPanels();
     }
@@ -7211,6 +7460,7 @@ function initializeRenderLifecycle() {
     }
     renderIcons();
   });
+  formatLocalTimestamps(document);
 }
 
 // ===== suggestion popup hooks =====
@@ -7468,6 +7718,45 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
 }
 
 // ===== toolbar actions =====
+// Portal has a lot of vocabulary — runtime profiles, delegations, native vs
+// opencode runtimes, skill repos — and had no in-app explanation of any of it,
+// nor any discoverable list of the keyboard shortcuts.
+function openHelpPanel() {
+  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl";
+  setToolPanel("Help", `
+    <div class="portal-panel-stack portal-help-panel">
+      <section class="portal-panel-section">
+        <h5>Concepts</h5>
+        <dl class="portal-help-list">
+          <dt>Assistant</dt>
+          <dd>A running workspace you chat with. Each one has its own conversation history, files, and runtime pod.</dd>
+          <dt>Runtime profile</dt>
+          <dd>The credentials and integration settings an assistant boots with — LLM provider, Jira, Confluence, GitHub, git identity. One profile can be shared by several assistants.</dd>
+          <dt>Runtime type</dt>
+          <dd>Which engine runs the assistant. <strong>EFP Native</strong> is the Python runtime; <strong>OpenCode</strong> is the opencode adapter. This is fixed once an assistant is created.</dd>
+          <dt>Instructions &amp; skill repositories</dt>
+          <dd>Git repositories cloned into the assistant at startup. Instructions shape how it behaves; skills add packaged capabilities. Leave them empty to use the configured defaults.</dd>
+          <dt>Task</dt>
+          <dd>Work handed to an assistant to run on its own, tracked to completion instead of held in a chat.</dd>
+          <dt>Delegation</dt>
+          <dd>A rule that starts work automatically — on a GitHub review request, a Jira assignment, or a timer.</dd>
+        </dl>
+      </section>
+      <section class="portal-panel-section">
+        <h5>Keyboard shortcuts</h5>
+        <dl class="portal-help-list portal-help-keys">
+          <dt><kbd>${modifier}</kbd> + <kbd>K</kbd></dt><dd>Focus the message box</dd>
+          <dt><kbd>/</kbd></dt><dd>Focus the message box</dd>
+          <dt><kbd>${modifier}</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></dt><dd>Start a new chat</dd>
+          <dt><kbd>Enter</kbd></dt><dd>Send</dd>
+          <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>New line</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Stop the current run, or close the open dialog</dd>
+        </dl>
+      </section>
+    </div>
+  `, "help");
+}
+
 function setToolPanel(title, contentHtml, panelKey = null, { persistPreference = true } = {}) {
   if (!dom.toolPanel) return;
   state.detailOpen = panelKey === "details";
@@ -7786,11 +8075,32 @@ function getSecondaryPaneLabel() {
   return "Assistants";
 }
 
+// Below this width the secondary pane is an overlay drawer rather than a column.
+const SECONDARY_DRAWER_BREAKPOINT_PX = 768;
+
+function isSecondaryDrawerViewport() {
+  return Boolean(window.matchMedia && window.matchMedia(`(max-width: ${SECONDARY_DRAWER_BREAKPOINT_PX}px)`).matches);
+}
+
+function applySecondaryDrawerState() {
+  const drawerViewport = isSecondaryDrawerViewport();
+  const open = drawerViewport && !state.secondaryPaneCollapsed;
+  dom.portalShell?.classList.toggle("is-secondary-drawer-open", open);
+  dom.secondaryDrawerBackdrop?.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function closeSecondaryDrawer() {
+  if (!isSecondaryDrawerViewport() || state.secondaryPaneCollapsed) return;
+  state.secondaryPaneCollapsed = true;
+  applySecondaryPaneState();
+}
+
 function applySecondaryPaneState() {
   const collapsed = !!state.secondaryPaneCollapsed;
   const label = getSecondaryPaneLabel();
 
   dom.portalShell?.classList.toggle("is-secondary-collapsed", collapsed);
+  applySecondaryDrawerState();
   dom.portalSecondaryPane?.classList.toggle("is-hidden", collapsed);
   dom.portalSecondaryPane?.setAttribute("aria-hidden", collapsed ? "true" : "false");
 
@@ -7848,6 +8158,49 @@ function renderSecondaryPaneHeader() {
   }
 }
 
+// Tasks and Delegations keep their actions in the main toolbar like every other
+// section, so their visibility and scope state are synced with the header.
+function syncOverviewToolbars() {
+  const section = state.activeNavSection;
+  const taskGroup = document.getElementById("header-task-actions");
+  const delegationGroup = document.getElementById("header-delegation-actions");
+  taskGroup?.classList.toggle("hidden", section !== "tasks");
+  delegationGroup?.classList.toggle("hidden", section !== "delegations");
+
+  const taskScope = state.taskFilters?.owner === "mine" ? "mine" : "all";
+  const delegationScope = state.delegationFilters?.owner === "mine" ? "mine" : "all";
+  document.querySelectorAll("#header-task-actions [data-task-overview-scope]").forEach((btn) => {
+    const active = btn.dataset.taskOverviewScope === taskScope;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  document.querySelectorAll("#header-delegation-actions [data-delegation-overview-scope]").forEach((btn) => {
+    const active = btn.dataset.delegationOverviewScope === delegationScope;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+// The overview hero used to carry a health headline and a timestamp that nothing
+// else showed. With the hero gone they belong on the status line, which is what
+// it is for.
+function applyOverviewStatusLine() {
+  const root = document.querySelector("[data-overview-headline]");
+  if (!root) return false;
+  const headline = root.getAttribute("data-overview-headline") || "";
+  const iso = root.getAttribute("data-overview-generated-at") || "";
+  let stamp = "";
+  if (iso) {
+    const parsed = new Date(iso);
+    if (!Number.isNaN(parsed.getTime())) {
+      stamp = parsed.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+  }
+  if (!headline && !stamp) return false;
+  setChatStatus([headline, stamp].filter(Boolean).join(" · "));
+  return true;
+}
+
 function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
   const userManagementMode = state.activeNavSection === "users";
@@ -7859,16 +8212,18 @@ function syncMainHeader() {
     el.classList.toggle("hidden", !assistantMode);
   });
   dom.headerAddAllowlistBtn?.classList.toggle("hidden", !userManagementMode);
+  syncOverviewToolbars();
 
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
     if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "Tasks";
-      setChatStatus("Task health, workload, and recent activity");
+      // Falls back until the panel with the real numbers has swapped in.
+      if (!applyOverviewStatusLine()) setChatStatus("Task health, workload, and recent activity");
     } else if (state.activeNavSection === "delegations") {
       dom.embedTitle.textContent = "Delegations";
-      setChatStatus("Manage delegations");
+      if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");
     } else if (state.activeNavSection === "users") {
       dom.embedTitle.textContent = "User Management";
       setChatStatus("Manage members, roles, access, and usage");
@@ -7940,7 +8295,10 @@ async function setActiveNavSection(section, {
     state.secondaryPaneCollapsed = !state.secondaryPaneCollapsed;
   } else {
     state.activeNavSection = section;
-    if (!preserveCollapsed) {
+    // Restoring a route on load must not pop the mobile drawer open over the
+    // conversation; only a deliberate rail tap does that.
+    const routeDrivenOnMobile = isApplyingPortalRoute && isSecondaryDrawerViewport();
+    if (!preserveCollapsed && !routeDrivenOnMobile) {
       state.secondaryPaneCollapsed = false;
     }
   }
@@ -8153,7 +8511,7 @@ function syncTaskFilterControls() {
     if (filters.owner === "mine") parts.push("owned by you");
     const filterLabel = parts.length ? `Filtered by ${parts.join(", ")}` : "All visible tasks";
     const countLabel = state.taskListHasMore ? `${state.myTasks.length}+ loaded` : `${state.myTasks.length} shown`;
-    dom.taskFilterSummary.textContent = `${filterLabel} - ${countLabel}`;
+    dom.taskFilterSummary.textContent = `${filterLabel} · ${countLabel}`;
   }
 }
 
@@ -8370,7 +8728,7 @@ function renderChatHistory(messages, metadata = {}) {
   });
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
-  scrollToBottom();
+  scrollToBottom({ force: true });
 }
 
 function deriveSessionRecoveryNotice(metadata = {}) {
@@ -10303,6 +10661,21 @@ function resetLocalChatSubmissionForAgent(agentId) {
   setChatSubmittingForAgent(agentId, false, { suppressSync: true });
 }
 
+// Human-readable label for the agent lifecycle endpoint being called, used when
+// an action fails and we have to tell the user which one it was.
+function agentActionLabel(path = "") {
+  const tail = String(path || "").split("/").filter(Boolean).pop() || "";
+  const labels = {
+    start: "Start",
+    stop: "Stop",
+    restart: "Restart",
+    share: "Share",
+    unshare: "Unshare",
+    "delete-runtime": "Delete",
+  };
+  return labels[tail] || "Action";
+}
+
 async function action(path, method = "POST", needsConfirm = false) {
   if (needsConfirm && !(await showConfirm({ title: "Confirm action", message: "Please confirm this action.", confirmText: "Continue" }))) return;
   const lifecycle = parseAgentLifecycleAction(path);
@@ -10329,6 +10702,10 @@ async function action(path, method = "POST", needsConfirm = false) {
       }
       return;
     }
+    // Every other lifecycle action used to rethrow into a discarded promise, so
+    // failures were completely invisible. Surface it before propagating.
+    const message = agentRestartErrorMessage(error, "Request failed.");
+    showToast(`${agentActionLabel(path)} failed: ${message}`, { variant: "error" });
     throw error;
   }
 
@@ -10373,6 +10750,36 @@ async function action(path, method = "POST", needsConfirm = false) {
     }
   }
   await refreshAll();
+}
+
+// There used to be two danger buttons here, Delete and Destroy, implying Destroy
+// went further. It did not: destroy_data was never implemented cluster-side, so
+// both removed the deployment and left the shared workspace volume untouched.
+// One action, and the confirmation says exactly what happens.
+//
+// The generic "Please confirm this action." prompt this replaces named neither
+// the assistant nor the consequence.
+async function removeAgent(agent) {
+  if (!agent?.id) return;
+  const name = agent.name || "this assistant";
+  const confirmed = await showConfirm({
+    title: `Delete ${name}?`,
+    message: `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept on the cluster. This can't be undone.`,
+    confirmText: "Delete assistant",
+    cancelText: "Cancel",
+    danger: true,
+  });
+  if (!confirmed) return;
+
+  // POST, not DELETE — the client used to send DELETE to this path and the
+  // router answered 405.
+  try {
+    await action(`/api/agents/${agent.id}/delete-runtime`, "POST");
+    showToast(`${name} deleted.`);
+  } catch (error) {
+    // action() already surfaced the failure toast.
+    console.warn("Agent removal failed", error);
+  }
 }
 
 async function loadRuntimeProfiles(force = false) {
@@ -11006,7 +11413,7 @@ function syncDelegationFilterControls(visibleCount = null) {
     const parts = [];
     if (filters.owner === "mine") parts.push("owned by you");
     if (filters.source !== "all") parts.push(delegationSourceLabel(filters.source));
-    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown - ${parts.join(", ")}` : `${total} delegations`;
+    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "delegation")}`;
   }
 }
 
@@ -12591,6 +12998,117 @@ async function openEditDialog(agent) {
   ]);
 }
 
+// ===== shared modal behaviour =====
+//
+// The four big modals were opened and closed from ~20 scattered call sites and
+// had picked up four different behaviours: Create Assistant, Edit Assistant and
+// Create Runtime Profile answered neither Escape nor a backdrop click and never
+// focused a field, while Edit Message did all three (and leaked a keydown
+// listener every time it was closed any other way).
+//
+// Rather than rewrite every call site, attach the behaviour to the modals
+// themselves and drive closing through each one's existing close button, so the
+// guards those handlers carry (in-flight submit, teardown) still apply.
+const MANAGED_MODALS = [
+  { modalId: "create-modal", closeId: "close-create-modal" },
+  { modalId: "edit-modal", closeId: "close-edit-modal" },
+  { modalId: "create-runtime-profile-modal", closeId: "close-create-runtime-profile-modal" },
+  { modalId: "message-edit-modal", closeId: "close-message-edit-modal" },
+];
+const MODAL_FOCUSABLE = 'a[href], button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const modalReturnFocus = new WeakMap();
+
+function isModalOpen(modal) {
+  return Boolean(modal) && !modal.classList.contains("hidden");
+}
+
+function topmostOpenManagedModal() {
+  // Later in the list wins, matching paint order for the rare stacked case.
+  let found = null;
+  MANAGED_MODALS.forEach(({ modalId }) => {
+    const modal = document.getElementById(modalId);
+    if (isModalOpen(modal)) found = modal;
+  });
+  return found;
+}
+
+function requestManagedModalClose(modal) {
+  if (!modal) return;
+  const entry = MANAGED_MODALS.find((item) => item.modalId === modal.id);
+  const closeButton = entry ? document.getElementById(entry.closeId) : null;
+  // The close button owns the real teardown, including the submitting guard.
+  if (closeButton) closeButton.click();
+  else {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function focusFirstFieldInModal(modal) {
+  const candidates = [...modal.querySelectorAll(MODAL_FOCUSABLE)].filter(
+    (el) => el.offsetParent !== null && !el.classList.contains("portal-modal-close")
+  );
+  (candidates[0] || modal.querySelector(".portal-modal-close"))?.focus?.();
+}
+
+function initManagedModals() {
+  MANAGED_MODALS.forEach(({ modalId }) => {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+
+    // Backdrop click: the modal element is the full-viewport overlay, so a
+    // click landing on it (not on the card) means "outside".
+    modal.addEventListener("click", (event) => {
+      if (event.target !== modal) return;
+      requestManagedModalClose(modal);
+    });
+
+    // Focus on open, hand focus back on close.
+    const observer = new MutationObserver(() => {
+      if (isModalOpen(modal)) {
+        if (!modalReturnFocus.has(modal)) modalReturnFocus.set(modal, document.activeElement);
+        window.setTimeout(() => focusFirstFieldInModal(modal), 0);
+      } else {
+        const previous = modalReturnFocus.get(modal);
+        modalReturnFocus.delete(modal);
+        if (previous && document.contains(previous)) {
+          try { previous.focus(); } catch { /* noop */ }
+        }
+      }
+    });
+    observer.observe(modal, { attributes: true, attributeFilter: ["class"] });
+  });
+
+  // One listener for all of them — the per-modal handlers this replaces were
+  // registered on every open and only removed on some closes.
+  document.addEventListener("keydown", (event) => {
+    const modal = topmostOpenManagedModal();
+    if (!modal) return;
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      requestManagedModalClose(modal);
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+    const focusable = [...modal.querySelectorAll(MODAL_FOCUSABLE)].filter((el) => el.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    } else if (!modal.contains(document.activeElement)) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 // Open message edit modal
 function openEditMessageModal(messageId, currentContent) {
   document.getElementById("edit-message-id").value = messageId;
@@ -12598,25 +13116,10 @@ function openEditMessageModal(messageId, currentContent) {
   document.getElementById("message-edit-modal")?.classList.remove("hidden");
   document.getElementById("message-edit-modal")?.setAttribute("aria-hidden", "false");
   document.getElementById("edit-message-content")?.focus();
-  
-  // Close modal when clicking outside (on backdrop)
-  const modal = document.getElementById("message-edit-modal");
-  const handleOutsideClick = (e) => {
-    if (e.target === modal) {
-      closeEditMessageModal();
-      modal.removeEventListener("click", handleOutsideClick);
-    }
-  };
-  modal?.addEventListener("click", handleOutsideClick);
-  
-  // Close modal on ESC key
-  const handleEsc = (e) => {
-    if (e.key === "Escape") {
-      closeEditMessageModal();
-      document.removeEventListener("keydown", handleEsc);
-    }
-  };
-  document.addEventListener("keydown", handleEsc);
+  // Escape, backdrop click and the focus trap come from initManagedModals().
+  // The listeners that used to be registered here were only detached when the
+  // user actually pressed Escape, so closing via ✕ or the backdrop left one
+  // behind on every open.
 }
 
 function closeEditMessageModal() {
@@ -13152,20 +13655,89 @@ function simpleHash(str) {
   return Math.abs(hash).toString(36);
 }
 
-// Global toast notification
+// Global toast notification.
+//
+// Toasts stack instead of overwriting a single slot, and errors stay long enough
+// to read and can be dismissed or copied — a 2s error that a later toast could
+// wipe out was the app's only report channel for ~26 failure paths.
+const TOAST_DEFAULT_DURATION_MS = 2600;
+const TOAST_ERROR_DURATION_MS = 8000;
+const TOAST_MAX_VISIBLE = 4;
+
+function dismissToast(node) {
+  if (!node || node.dataset.leaving === '1') return;
+  node.dataset.leaving = '1';
+  clearTimeout(Number(node.dataset.timerId) || 0);
+  node.classList.add('is-leaving');
+  const remove = () => {
+    node.remove();
+    const stack = document.getElementById('global-toast');
+    if (stack && !stack.childElementCount) stack.classList.add('hidden');
+  };
+  node.addEventListener('transitionend', remove, { once: true });
+  setTimeout(remove, 400);
+}
+
 function showToast(message, opts = {}) {
-  const toast = document.getElementById('global-toast');
-  if (!toast) return;
+  const stack = document.getElementById('global-toast');
+  if (!stack) return null;
   const o = typeof opts === 'number' ? { duration: opts } : (opts || {});
-  const duration = o.duration || 2000;
-  const inner = toast.querySelector('div');
-  inner.textContent = message;
-  inner.classList.remove('is-error', 'is-info');
-  if (o.variant === 'error') inner.classList.add('is-error');
-  else if (o.variant === 'info') inner.classList.add('is-info');
-  toast.classList.remove('hidden');
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => toast.classList.add('hidden'), duration);
+  const isError = o.variant === 'error';
+  const duration = o.duration || (isError ? TOAST_ERROR_DURATION_MS : TOAST_DEFAULT_DURATION_MS);
+  const text = String(message ?? '');
+
+  // Errors are announced immediately; routine confirmations wait their turn.
+  stack.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+
+  const node = document.createElement('div');
+  node.className = 'portal-toast-inner';
+  if (isError) node.classList.add('is-error');
+  else if (o.variant === 'info') node.classList.add('is-info');
+
+  const body = document.createElement('span');
+  body.className = 'portal-toast-text';
+  body.textContent = text;
+  node.append(body);
+
+  if (isError) {
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'portal-toast-action';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        copy.textContent = 'Copied';
+      } catch {
+        copy.textContent = 'Copy failed';
+      }
+    });
+    node.append(copy);
+  }
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'portal-toast-close';
+  close.title = 'Dismiss';
+  close.setAttribute('aria-label', 'Dismiss notification');
+  close.textContent = '✕';
+  close.addEventListener('click', () => dismissToast(node));
+  node.append(close);
+
+  stack.classList.remove('hidden');
+  stack.append(node);
+  while (stack.childElementCount > TOAST_MAX_VISIBLE) dismissToast(stack.firstElementChild);
+  // Force reflow so the enter transition runs.
+  void node.offsetWidth;
+  node.classList.add('is-visible');
+
+  node.dataset.timerId = String(setTimeout(() => dismissToast(node), duration));
+  // Reading a long error shouldn't race the timer.
+  node.addEventListener('mouseenter', () => clearTimeout(Number(node.dataset.timerId) || 0));
+  node.addEventListener('mouseleave', () => {
+    node.dataset.timerId = String(setTimeout(() => dismissToast(node), 1500));
+  });
+  return node;
 }
 
 // ===== wiring =====
@@ -13441,6 +14013,9 @@ function bindEvents() {
     maybeShowSuggest();
     // Auto-expand textarea
     syncChatInputHeight();
+    // Debounced so a long prompt isn't written to storage on every keystroke.
+    clearTimeout(state.draftPersistTimer);
+    state.draftPersistTimer = setTimeout(() => persistComposerForAgent(state.selectedAgentId), 300);
   });
   dom.chatInput?.addEventListener("compositionstart", () => {
     state.isComposingInput = true;
@@ -13573,6 +14148,62 @@ function bindEvents() {
     }
   });
   dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  // First-run path: the empty home screen now offers the real next step directly.
+  dom.homeCreateAgentBtn?.addEventListener("click", () => dom.addAgentBtn?.click());
+
+  dom.messageScroll?.addEventListener("scroll", handleMessageScroll, { passive: true });
+  dom.jumpToLatestBtn?.addEventListener("click", () => scrollToBottom({ force: true }));
+
+  // A minimal shortcut set for a tool people keep open all day. Everything here
+  // previously required the mouse.
+  document.addEventListener("keydown", (event) => {
+    // Never steal keys from a modal, a text field, or an IME composition.
+    if (topmostOpenManagedModal()) return;
+    if (state.isComposingInput) return;
+    const active = document.activeElement;
+    const inField = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+
+    const mod = event.ctrlKey || event.metaKey;
+
+    if (mod && event.shiftKey && event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      if (!dom.headerNewChatBtn?.disabled) dom.headerNewChatBtn?.click();
+      return;
+    }
+
+    if (mod && !event.shiftKey && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      focusComposer();
+      return;
+    }
+
+    if (event.key === "/" && !inField && !mod) {
+      event.preventDefault();
+      focusComposer();
+      return;
+    }
+
+    if (event.key === "Escape" && dom.abortChatRunBtn && !dom.abortChatRunBtn.classList.contains("hidden")) {
+      event.preventDefault();
+      dom.abortChatRunBtn.click();
+    }
+  });
+
+  // Mobile drawer: dismiss it the way people expect an overlay to dismiss.
+  dom.secondaryDrawerBackdrop?.addEventListener("click", closeSecondaryDrawer);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!dom.portalShell?.classList.contains("is-secondary-drawer-open")) return;
+    closeSecondaryDrawer();
+  });
+  // Picking something from the drawer should reveal it, not leave the list on top.
+  dom.portalSecondaryPane?.addEventListener("click", (event) => {
+    if (!isSecondaryDrawerViewport()) return;
+    if (!event.target.closest(".portal-agent-row, .portal-list-row, [data-task-id], [data-delegation-rule-id], [data-runtime-profile-id]")) return;
+    closeSecondaryDrawer();
+  });
+  // Crossing the breakpoint must not strand the pane in the wrong mode.
+  window.addEventListener("resize", applySecondaryDrawerState);
   dom.homeOpenTasksBtn?.addEventListener("click", async () => {
     await openPortalSection("tasks");
   });
@@ -13735,11 +14366,14 @@ function bindEvents() {
       refreshDelegationSchedulePreview(formEl, { debounce: true }).catch(() => {});
     }
   });
-  dom.workspaceDetailContent?.addEventListener("click", async (event) => {
+  // Bound to the document rather than the panel: these controls sit in the main
+  // header now, so a listener scoped to #workspace-detail-content would miss them.
+  document.addEventListener("click", async (event) => {
     const taskScopeBtn = event.target.closest("button[data-task-overview-scope]");
     if (taskScopeBtn) {
       event.preventDefault();
       state.taskFilters.owner = taskScopeBtn.dataset.taskOverviewScope === "mine" ? "mine" : "all";
+      syncOverviewToolbars();
       await refreshMyTasks({ reset: true });
       await loadTaskOverviewPanel();
       return;
@@ -13749,39 +14383,44 @@ function bindEvents() {
     if (delegationScopeBtn) {
       event.preventDefault();
       state.delegationFilters.owner = delegationScopeBtn.dataset.delegationOverviewScope === "mine" ? "mine" : "all";
+      syncOverviewToolbars();
       renderDelegationRuleNavList();
       await loadDelegationOverviewPanel();
       return;
     }
 
-    const taskOverviewRefreshBtn = event.target.closest("[data-refresh-task-overview]");
-    if (taskOverviewRefreshBtn) {
+    if (event.target.closest("[data-refresh-task-overview]")) {
       event.preventDefault();
       await refreshMyTasks({ reset: true });
       await loadTaskOverviewPanel();
       return;
     }
 
-    const delegationOverviewRefreshBtn = event.target.closest("[data-refresh-delegation-overview]");
-    if (delegationOverviewRefreshBtn) {
+    if (event.target.closest("[data-refresh-delegation-overview]")) {
       event.preventDefault();
       await loadDelegationRules();
       await loadDelegationOverviewPanel();
       return;
     }
 
+    if (event.target.closest("[data-open-create-task-main]")) {
+      event.preventDefault();
+      await openTaskCreatePanelInMain();
+      return;
+    }
+
+    if (event.target.closest("[data-open-create-delegation-main]")) {
+      event.preventDefault();
+      if (!state.mineAgents || !state.mineAgents.length) await loadMineAgents();
+      await openCreateDelegationRuleModal();
+    }
+  });
+
+  dom.workspaceDetailContent?.addEventListener("click", async (event) => {
     const overviewAgentBtn = event.target.closest("[data-open-overview-agent]");
     if (overviewAgentBtn) {
       event.preventDefault();
       await openOverviewAgent(overviewAgentBtn.dataset.openOverviewAgent || "");
-      return;
-    }
-
-    const createDelegationMainBtn = event.target.closest("[data-open-create-delegation-main]");
-    if (createDelegationMainBtn) {
-      event.preventDefault();
-      if (!state.mineAgents || !state.mineAgents.length) await loadMineAgents();
-      await openCreateDelegationRuleModal();
       return;
     }
 
@@ -13870,13 +14509,6 @@ function bindEvents() {
       return;
     }
 
-    const openCreateTaskBtn = event.target.closest("[data-open-create-task-main]");
-    if (openCreateTaskBtn) {
-      event.preventDefault();
-      await openTaskCreatePanelInMain();
-      return;
-    }
-
     const openTaskMainBtn = event.target.closest("[data-open-task-main]");
     if (openTaskMainBtn) {
       event.preventDefault();
@@ -13942,6 +14574,7 @@ function bindEvents() {
     }
   });
 
+  document.getElementById("help-btn")?.addEventListener("click", openHelpPanel);
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"));
@@ -14149,9 +14782,18 @@ function bindEvents() {
   });
 }
 
+// Last-resort net so a rejected promise from a click handler can never leave the
+// user staring at a button that silently did nothing.
+window.addEventListener("unhandledrejection", (event) => {
+  const message = agentRestartErrorMessage(event?.reason, "Something went wrong.");
+  console.error("Unhandled rejection", event?.reason);
+  if (typeof showToast === "function") {
+    showToast(message, { variant: "error" });
+  }
+});
+
 document.addEventListener("DOMContentLoaded", async () => {
-  const initialTheme = localStorage.getItem("portal-theme") || (document.documentElement.getAttribute("data-theme") || "dark");
-  applyTheme(initialTheme);
+  applyTheme(resolveInitialTheme());
 
   // Tool panel resize from left edge
   const resizeHandle = document.getElementById('tool-panel-resize');
@@ -14212,6 +14854,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applySecondaryPaneState();
   applyToolPanelState();
   initializeRenderLifecycle();
+  initManagedModals();
   updateChatInputPlaceholder();
 
   // Event delegation for remove buttons (replace inline onclick)

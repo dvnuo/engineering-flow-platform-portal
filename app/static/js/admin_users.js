@@ -34,6 +34,18 @@
     if (trigger && !trigger.classList.contains("hidden")) trigger.focus();
   }
 
+  function checkRoleOption(group, role) {
+    var options = group ? group.querySelectorAll("[data-admin-role-option]") : [];
+    Array.prototype.forEach.call(options, function (input) {
+      input.checked = input.value === role;
+    });
+  }
+
+  function selectedRole(scope) {
+    var checked = scope && scope.querySelector("[data-admin-role-option]:checked");
+    return checked ? checked.value : "user";
+  }
+
   function parseUsernames(value) {
     var seen = Object.create(null);
     return String(value || "")
@@ -152,28 +164,31 @@
       return;
     }
 
-    var select = event.target.closest("[data-admin-role-select]");
-    if (!select) return;
-    var previousRole = select.dataset.originalRole;
-    var nextRole = select.value;
+    var option = event.target.closest("[data-admin-role-option]");
+    if (!option) return;
+    var group = option.closest("[data-admin-role-group]");
+    if (!group) return;
+    var previousRole = group.dataset.originalRole;
+    var nextRole = option.value;
     if (previousRole === nextRole) return;
 
-    var card = select.closest("[data-member-id]");
+    var card = group.closest("[data-member-id]");
     var statusNode = card && card.querySelector("[data-admin-role-status]");
-    select.disabled = true;
+    group.classList.add("is-saving");
     if (statusNode) {
       statusNode.textContent = "Saving…";
       statusNode.classList.remove("is-error", "is-success");
     }
 
     try {
-      var updated = await request("/api/users/" + encodeURIComponent(select.dataset.userId), {
+      var updated = await request("/api/users/" + encodeURIComponent(group.dataset.userId), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: nextRole }),
       });
-      select.dataset.originalRole = updated.role;
-      var adminSummary = panelRoot(select).querySelector("[data-admin-summary-admins]");
+      group.dataset.originalRole = updated.role;
+      checkRoleOption(group, updated.role);
+      var adminSummary = panelRoot(group).querySelector("[data-admin-summary-admins]");
       var isAllowedMember = card && card.dataset.memberAccess === "allowed";
       if (adminSummary && isAllowedMember && (previousRole === "admin") !== (updated.role === "admin")) {
         var adminCount = Number(adminSummary.textContent) || 0;
@@ -184,7 +199,9 @@
         statusNode.classList.add("is-success");
       }
     } catch (error) {
-      select.value = previousRole;
+      // Put the pill back where it was so the control never shows a role the
+      // server did not accept.
+      checkRoleOption(group, previousRole);
       if (statusNode) {
         statusNode.textContent = "Not saved";
         statusNode.classList.add("is-error");
@@ -193,7 +210,7 @@
         await window.showAlert({ title: "Unable to change role", message: error.message });
       }
     } finally {
-      select.disabled = false;
+      group.classList.remove("is-saving");
     }
   });
 
@@ -223,14 +240,13 @@
       event.preventDefault();
       var allowRoot = panelRoot(allowButton);
       var allowCard = allowButton.closest("[data-member-id]");
-      var roleSelect = allowCard && allowCard.querySelector("[data-admin-role-select]");
       var username = allowButton.dataset.username;
       allowButton.disabled = true;
       try {
         await request("/api/users/allowlist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: username, role: roleSelect ? roleSelect.value : "user" }),
+          body: JSON.stringify({ username: username, role: selectedRole(allowCard) }),
         });
         await reloadPanel(username + " is now allowed.", false);
       } catch (error) {

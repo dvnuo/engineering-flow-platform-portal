@@ -20,8 +20,8 @@ def _build_client_with_overrides():
 
     db = TestingSessionLocal()
     admin_user = User(username="admin", password_hash=hash_password("pw"), role="admin", is_active=True)
-    owner_user = User(username="owner", password_hash=hash_password("pw"), role="viewer", is_active=True)
-    other_user = User(username="other", password_hash=hash_password("pw"), role="viewer", is_active=True)
+    owner_user = User(username="owner", password_hash=hash_password("pw"), role="user", is_active=True)
+    other_user = User(username="other", password_hash=hash_password("pw"), role="user", is_active=True)
     db.add_all([admin_user, owner_user, other_user])
     db.commit()
     for user in [admin_user, owner_user, other_user]:

@@ -23,6 +23,9 @@
         <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Runtime Profiles">
           <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
         </button>
+        <button id="help-btn" class="portal-rail-btn" type="button" title="Help &amp; shortcuts" aria-label="Help and shortcuts">
+          <i data-lucide="circle-help" class="w-5 h-5"></i>
+        </button>
         <button id="theme-toggle" class="portal-rail-btn" type="button" title="Toggle theme">
           <i data-lucide="moon" class="w-5 h-5"></i>
         </button>
@@ -31,6 +34,8 @@
         </button>
       </div>
     </nav>
+
+    <div id="secondary-drawer-backdrop" class="portal-secondary-drawer-backdrop" aria-hidden="true"></div>
 
     <aside id="portal-secondary-pane" class="portal-secondary-pane">
       <div class="portal-pane-header">
@@ -134,7 +139,7 @@
       <header class="portal-main-header">
         <div class="portal-main-header-copy">
           <h1 id="embed-title">Select an assistant</h1>
-          <div id="chat-status" class="portal-statusline">Ready</div>
+          <div id="chat-status" class="portal-statusline" role="status" aria-live="polite">Ready</div>
         </div>
         <div class="portal-main-toolbar">
           {% if role == "admin" %}
@@ -163,6 +168,40 @@
             <i data-lucide="panel-right" class="w-4 h-4"></i>
             <span class="portal-header-action-label">Details</span>
           </button>
+
+          <!-- Tasks and Delegations used to keep these inside the panel body,
+               which put them in a different place from every other section's
+               actions. They live in the main toolbar now, like Assistants and
+               Administration. -->
+          <div id="header-task-actions" class="portal-header-group hidden">
+            <div class="portal-header-scope" role="group" aria-label="Task scope">
+              <button id="header-task-scope-all" class="portal-header-scope-btn" type="button" data-task-overview-scope="all">All</button>
+              <button id="header-task-scope-mine" class="portal-header-scope-btn" type="button" data-task-overview-scope="mine">Mine</button>
+            </div>
+            <button id="header-task-refresh" class="portal-header-action" type="button" aria-label="Refresh tasks" data-refresh-task-overview>
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Refresh</span>
+            </button>
+            <button id="header-create-task" class="portal-header-action is-primary" type="button" aria-label="Create task" data-open-create-task-main="1">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Create Task</span>
+            </button>
+          </div>
+
+          <div id="header-delegation-actions" class="portal-header-group hidden">
+            <div class="portal-header-scope" role="group" aria-label="Delegation scope">
+              <button id="header-delegation-scope-all" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="all">All</button>
+              <button id="header-delegation-scope-mine" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="mine">Mine</button>
+            </div>
+            <button id="header-delegation-refresh" class="portal-header-action" type="button" aria-label="Refresh delegations" data-refresh-delegation-overview>
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Refresh</span>
+            </button>
+            <button id="header-create-delegation" class="portal-header-action is-primary" type="button" aria-label="Create delegation" data-open-create-delegation-main>
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span class="portal-header-action-label">Create Delegation</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -184,6 +223,7 @@
           <article class="portal-card">
             <div class="portal-card-title">Quick Actions</div>
             <div class="portal-home-actions">
+              <button id="home-create-agent-btn" type="button" class="toolbar-primary-btn hidden">Create Assistant</button>
               <button id="home-start-chat-btn" type="button" class="toolbar-primary-btn">New Chat</button>
               <button id="home-open-tasks-btn" type="button" class="toolbar-secondary-btn">Tasks</button>
               <button id="home-open-delegations-btn" type="button" class="toolbar-secondary-btn">Delegations</button>
@@ -205,8 +245,13 @@
 
       <section id="agent-chat-app" class="portal-conversation hidden" aria-label="Assistant chat workspace">
         <div class="portal-conversation-main">
+          <button id="jump-to-latest-btn" class="portal-jump-latest" type="button" aria-hidden="true" tabindex="-1">
+            <i data-lucide="arrow-down" class="w-4 h-4"></i>
+            <span>Jump to latest</span>
+          </button>
           <div id="message-scroll" class="portal-message-scroll">
             <div id="message-list" class="portal-message-list">
+              <p id="chat-live-region" class="sr-only" role="status" aria-live="polite"></p>
               <div class="message-row message-row-assistant" data-welcome="1">
                 <div class="message-meta">
                   <span class="message-author">Assistant</span>
@@ -310,9 +355,7 @@
 
   <div id="tool-backdrop" class="hidden fixed inset-0 bg-black/40 z-30"></div>
 
-  <div id="global-toast" class="portal-toast hidden">
-    <div class="portal-toast-inner"></div>
-  </div>
+  <div id="global-toast" class="portal-toast hidden" role="status" aria-live="polite" aria-atomic="false"></div>
 
 </div>
 
@@ -613,6 +656,6 @@
   </div>
 </div>
 
-<script src="/static/js/chat_ui.js"></script>
-<script src="/static/js/admin_users.js"></script>
+<script src="{{ static_url('js/chat_ui.js') }}"></script>
+<script src="{{ static_url('js/admin_users.js') }}"></script>
 {% endblock %}

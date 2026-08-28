@@ -21,9 +21,17 @@
       <span>{{ access_message }}</span>
     </div>
 
-    <p class="portal-access-help">After an administrator grants access, refresh this page to continue.</p>
+    <p class="portal-access-help">
+      Ask an administrator to add <code class="portal-access-username">{{ allowlist_username }}</code> to the allowlist,
+      then refresh this page.
+      {% if support_contact %}Request access from <strong>{{ support_contact }}</strong>.{% endif %}
+    </p>
 
     <div class="portal-access-actions">
+      <button id="copy-username-btn" class="portal-btn" type="button" data-username="{{ allowlist_username }}">
+        <i data-lucide="copy" class="w-4 h-4"></i>
+        <span>Copy my username</span>
+      </button>
       <button id="refresh-access-btn" class="portal-btn is-primary" type="button">
         <i data-lucide="refresh-cw" class="w-4 h-4"></i>
         <span>Refresh access</span>
@@ -40,6 +48,17 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   window.lucide?.createIcons();
+
+  const copyButton = document.getElementById("copy-username-btn");
+  copyButton?.addEventListener("click", async () => {
+    const username = copyButton.dataset.username || "";
+    try {
+      await navigator.clipboard.writeText(username);
+      status.textContent = `Copied "${username}" — send it to an administrator.`;
+    } catch (_error) {
+      status.textContent = `Your username is "${username}".`;
+    }
+  });
 
   const refreshButton = document.getElementById("refresh-access-btn");
   const logoutButton = document.getElementById("unauthorized-logout-btn");

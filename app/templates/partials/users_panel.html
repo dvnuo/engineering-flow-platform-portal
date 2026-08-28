@@ -4,7 +4,7 @@
       <h5 class="portal-panel-title">Member administration</h5>
       <p class="portal-panel-note">Only allowlisted members can register, sign in, or keep using an existing session.</p>
     </div>
-    <span class="portal-panel-subtitle">{{ summary.total_users }} members</span>
+    <span class="portal-panel-subtitle">{{ summary.total_users }} member{{ "" if summary.total_users == 1 else "s" }}</span>
   </div>
 
   <div class="portal-admin-summary-grid" aria-label="Member summary">
@@ -50,7 +50,7 @@
                 {{ u.nickname or u.username }}
                 {% if u.id == current_user.id %}<span class="portal-admin-role-badge">You</span>{% endif %}
               </div>
-              <div class="portal-panel-note">@{{ u.username }} · Joined {{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '-' }}</div>
+              <div class="portal-panel-note">@{{ u.username }} · Joined {{ local_datetime(u.created_at, style='date') }}</div>
             </div>
             <div class="portal-admin-status-badges">
               <span class="portal-admin-status-badge {% if u.is_allowlisted %}is-success{% else %}is-danger{% endif %}">
@@ -69,25 +69,44 @@
           </div>
 
           <div class="portal-admin-activity-row">
-            <span>Last sign-in: {{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'Never' }}</span>
-            <span>Last activity: {{ u.last_activity_at.strftime('%Y-%m-%d %H:%M') if u.last_activity_at else 'No activity' }}</span>
+            <span>Last sign-in: {{ local_datetime(u.last_login_at, empty='Never') }}</span>
+            <span>Last activity: {{ local_datetime(u.last_activity_at, empty='No activity') }}</span>
           </div>
 
           <div class="portal-admin-member-controls">
             <label class="portal-admin-role-control">
               <span>Role</span>
-              <select
-                class="portal-form-select"
-                name="role"
-                data-admin-role-select
+              <div
+                class="portal-role-toggle"
+                role="radiogroup"
+                aria-label="Role for {{ u.username }}"
+                data-admin-role-group
                 data-user-id="{{ u.id }}"
                 data-original-role="{{ u.role }}"
-                {% if u.id == current_user.id %}disabled{% endif %}
               >
-                <option value="user" {% if u.role == 'user' %}selected{% endif %}>User</option>
-                <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer</option>
-                <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Administrator</option>
-              </select>
+                <label class="portal-role-option">
+                  <input
+                    type="radio"
+                    name="role-{{ u.id }}"
+                    value="user"
+                    data-admin-role-option
+                    {% if u.role != 'admin' %}checked{% endif %}
+                    {% if u.id == current_user.id %}disabled{% endif %}
+                  />
+                  <span>User</span>
+                </label>
+                <label class="portal-role-option">
+                  <input
+                    type="radio"
+                    name="role-{{ u.id }}"
+                    value="admin"
+                    data-admin-role-option
+                    {% if u.role == 'admin' %}checked{% endif %}
+                    {% if u.id == current_user.id %}disabled{% endif %}
+                  />
+                  <span>Admin</span>
+                </label>
+              </div>
             </label>
             <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}Current account{% endif %}</span>
             <div class="portal-admin-member-actions">
@@ -166,7 +185,6 @@
           <span>Initial role</span>
           <select class="portal-form-select" name="role">
             <option value="user">User</option>
-            <option value="viewer">Viewer</option>
             <option value="admin">Administrator</option>
           </select>
         </label>

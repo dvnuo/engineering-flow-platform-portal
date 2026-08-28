@@ -1,7 +1,10 @@
 import logging
 import time
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
@@ -117,7 +120,37 @@ def health() -> dict[str, str]:
 def actuator_health() -> dict[str, str]:
     return {"status": "ok"}
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+class CachedStaticFiles(StaticFiles):
+    """Static assets that always revalidate but rarely re-download.
+
+    Filenames are not content-hashed, so any max-age at all means a deploy can
+    serve stale JS until it expires — observed in practice: a browser kept
+    running a five-minute-old chat_ui.js after a change shipped. "no-cache" is
+    not "no store": the browser still caches the bytes and revalidates with the
+    ETag, so an unchanged asset costs a 304 instead of a full transfer.
+
+    Content-hashed filenames from a build step would allow immutable year-long
+    caching and drop the revalidation entirely; until then, correctness after a
+    deploy is worth more than the conditional requests.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", "no-cache, must-revalidate")
+        return response
+
+
+# Serve the ~640KB chat bundle and ~1.3MB of vendored libs compressed; without
+# this they went out as raw bytes even when the client offered gzip.
+#
+# Compression is scoped to /static rather than added app-wide on purpose: the
+# chat proxy streams text/event-stream, and running those responses through gzip
+# risks buffering tokens behind the compressor. Static assets are where
+# essentially all of the transfer weight is anyway.
+static_app = Starlette(routes=[Mount("/", app=CachedStaticFiles(directory="app/static"))])
+static_app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+app.mount("/static", static_app, name="static")
 
 app.include_router(web_router)
 app.include_router(auth_router)

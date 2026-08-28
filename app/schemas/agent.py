@@ -110,7 +110,6 @@ class AgentUpdateRequest(BaseModel):
 
 class AgentDeleteResponse(BaseModel):
     ok: bool
-    destroy_data: bool
 
 
 class AgentStatusResponse(BaseModel):

@@ -8,49 +8,36 @@
     <form id="login-form" class="stack">
       <label>
         Username
-        <input name="username" type="text" placeholder="admin" required />
+        <input name="username" type="text" placeholder="Your username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required />
       </label>
       <label>
         Password
-        <input name="password" type="password" placeholder="••••••••" required />
+        <span class="portal-auth-password">
+          <input name="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+          <button type="button" class="portal-auth-reveal" data-toggle-password aria-pressed="false" aria-label="Show password">Show</button>
+        </span>
       </label>
       <button type="submit">Sign In</button>
     </form>
 
-    <p id="login-error" class="portal-auth-error"></p>
-    
+    <p id="login-error" class="portal-auth-error" role="alert" aria-live="assertive"></p>
+
     <p class="portal-auth-footnote">
       Don't have an account? <a class="portal-auth-link" href="/register">Create one</a>
     </p>
   </div>
 </div>
 
+<script src="{{ static_url('js/auth_form.js') }}"></script>
 <script>
-const form = document.getElementById("login-form");
-const err = document.getElementById("login-error");
-
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  err.textContent = "";
-  const fd = new FormData(form);
-  const payload = Object.fromEntries(fd.entries());
-
-  const resp = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!resp.ok) {
-    let msg = "Sign-in failed. Please verify your username and password.";
-    try {
-      const data = await resp.json();
-      msg = data.detail || msg;
-    } catch {}
-    err.textContent = msg;
-    return;
-  }
-  location.href = "/app";
+initAuthForm({
+  formId: "login-form",
+  errorId: "login-error",
+  endpoint: "/api/auth/login",
+  pendingText: "Signing in…",
+  submitText: "Sign In",
+  fallbackError: "Sign-in failed. Please verify your username and password.",
+  buildPayload: (data) => ({ username: data.username, password: data.password }),
 });
 </script>
 {% endblock %}

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -103,11 +103,11 @@ def _load_writable_agent(agent_id: str, user, db: Session):
     return repo, agent
 
 
-def _delete_agent_with_mode(repo: AgentRepository, agent, user, db: Session, destroy_data: bool):
+def _delete_agent(repo: AgentRepository, agent, user, db: Session):
     agent.status = "deleting"
     repo.save(agent)
 
-    runtime = k8s_service.delete_agent_runtime(agent, destroy_data=destroy_data)
+    runtime = k8s_service.delete_agent_runtime(agent)
     if runtime.status == "failed":
         agent.status = "failed"
         agent.last_error = runtime.message
@@ -120,9 +120,8 @@ def _delete_agent_with_mode(repo: AgentRepository, agent, user, db: Session, des
         target_type="agent",
         target_id=agent.id,
         user_id=user.id,
-        details={"destroy_data": destroy_data},
     )
-    return {"ok": True, "destroy_data": destroy_data}
+    return {"ok": True}
 
 
 def _validate_runtime_profile_reference(
@@ -612,26 +611,15 @@ def unshare_agent(agent_id: str, user=Depends(get_current_user), db: Session = D
 
 
 @router.delete("/{agent_id}", response_model=AgentDeleteResponse)
-def delete_agent(
-    agent_id: str,
-    destroy_data: bool = Query(False, description="If true, also destroy PVC/data"),
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def delete_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
-    return _delete_agent_with_mode(repo, agent, user, db, destroy_data=destroy_data)
+    return _delete_agent(repo, agent, user, db)
 
 
 @router.post("/{agent_id}/delete-runtime", response_model=AgentDeleteResponse)
 def delete_agent_runtime(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     repo, agent = _load_writable_agent(agent_id, user, db)
-    return _delete_agent_with_mode(repo, agent, user, db, destroy_data=False)
-
-
-@router.post("/{agent_id}/destroy", response_model=AgentDeleteResponse)
-def destroy_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    repo, agent = _load_writable_agent(agent_id, user, db)
-    return _delete_agent_with_mode(repo, agent, user, db, destroy_data=True)
+    return _delete_agent(repo, agent, user, db)
 
 
 async def _fetch_applied_profile_revision(agent) -> int | None:

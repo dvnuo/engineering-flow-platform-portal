@@ -3,6 +3,7 @@ import app.logger  # Ensure logging is configured (intentional side-effect impor
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
 from typing import List, Optional
 
@@ -55,7 +56,57 @@ def escape_data_attr(s):
         return ''
     return markupsafe.escape(str(s))
 
+
+def local_datetime(value, style: str = "datetime", empty: str = "-"):
+    """Render a server timestamp for display in the reader's own time zone.
+
+    Portal stores naive UTC (``datetime.utcnow()``). Rendering that straight into
+    the page showed, for example, "2026-08-25 05:16" to someone who had just
+    signed in at 22:16 local — off by a whole day west of UTC. Emit an ISO-8601
+    instant instead and let ``formatLocalTimestamps`` in the browser localize it;
+    the element text stays a readable UTC fallback if scripting is unavailable.
+    """
+    if value is None:
+        return markupsafe.Markup(f"<span>{markupsafe.escape(empty)}</span>")
+    fmt = "%Y-%m-%d" if style == "date" else "%Y-%m-%d %H:%M"
+    iso = value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    fallback = f"{value.strftime(fmt)} UTC"
+    return markupsafe.Markup(
+        f'<time datetime="{markupsafe.escape(iso)}" '
+        f'data-local-datetime="{markupsafe.escape(style)}">{markupsafe.escape(fallback)}</time>'
+    )
+
+
+_STATIC_ROOT = Path("app/static")
+_static_version_cache: dict[str, str] = {}
+
+
+def static_url(path: str) -> str:
+    """Static URL carrying a content version, so a deploy is picked up at once.
+
+    Filenames are not content-hashed, so a browser that cached an asset keeps
+    using it until its own copy expires — a stale chat_ui.js survived a shipped
+    change during testing. Appending the file's mtime changes the URL whenever
+    the file does, which no cache can ignore.
+
+    Missing files fall back to the bare path rather than raising: a template
+    typo should not take a page down.
+    """
+    relative = path.lstrip("/")
+    cached = _static_version_cache.get(relative)
+    if cached is None:
+        try:
+            cached = str(int((_STATIC_ROOT / relative).stat().st_mtime))
+        except OSError:
+            cached = ""
+        if not settings.debug:
+            _static_version_cache[relative] = cached
+    return f"/static/{relative}?v={cached}" if cached else f"/static/{relative}"
+
+
 templates.env.filters['data_attr'] = escape_data_attr
+templates.env.globals['local_datetime'] = local_datetime
+templates.env.globals['static_url'] = static_url
 settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
@@ -1406,7 +1457,11 @@ def unauthorized_page(request: Request):
             "request": request,
             "title": "Authorization Required",
             "username": user.nickname or user.username,
+            # The exact string an administrator has to allowlist, which is not
+            # necessarily the display name above.
+            "allowlist_username": user.username,
             "access_message": "Your account is not on the allowlist. Contact an administrator to request access.",
+            "support_contact": settings.portal_support_contact,
         },
         status_code=403,
     )

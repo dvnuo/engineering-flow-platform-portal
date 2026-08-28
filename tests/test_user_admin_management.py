@@ -49,14 +49,14 @@ def test_registration_requires_allowlist_and_uses_preassigned_role(monkeypatch):
         )
         assert invalid.status_code == 422
 
-        db.add(UserAllowlistEntry(username="alice", role="viewer", is_active=True))
+        db.add(UserAllowlistEntry(username="alice", role="admin", is_active=True))
         db.commit()
         allowed = client.post(
             "/api/auth/register",
             json={"username": " Alice ", "password": "pass123"},
         )
         assert allowed.status_code == 200
-        assert allowed.json()["role"] == "viewer"
+        assert allowed.json()["role"] == "admin"
         user = db.query(User).filter_by(username="alice").one()
         assert user.last_login_at is not None
     finally:
@@ -189,7 +189,7 @@ def test_admin_can_manage_allowlist_and_role(monkeypatch):
 
     db = _database()
     admin = User(username="admin", password_hash="hash", role="admin", is_active=True)
-    member = User(username="member", password_hash="hash", role="user", is_active=True)
+    member = User(username="member", password_hash="hash", role="admin", is_active=True)
     db.add_all([admin, member])
     db.commit()
     db.add(UserAllowlistEntry(username="admin", role="admin", is_active=True))
@@ -209,12 +209,12 @@ def test_admin_can_manage_allowlist_and_role(monkeypatch):
     try:
         allow = client.post(
             "/api/users/allowlist",
-            json={"username": " MEMBER ", "role": "viewer"},
+            json={"username": " MEMBER ", "role": "user"},
         )
         assert allow.status_code == 200
         assert allow.json()["username"] == "member"
         db.refresh(member)
-        assert member.role == "viewer"
+        assert member.role == "user"
 
         bulk_allow = client.post(
             "/api/users/allowlist/bulk",
@@ -388,7 +388,7 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
 
     db = _database()
     admin = User(username="admin", password_hash="hash", role="admin", is_active=True)
-    blocked_member = User(username="blocked-member", password_hash="hash", role="viewer", is_active=True)
+    blocked_member = User(username="blocked-member", password_hash="hash", role="user", is_active=True)
     db.add_all([admin, blocked_member])
     db.commit()
     db.refresh(admin)
@@ -415,7 +415,8 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert "data-admin-member-access-filter" in response.text
         assert "Executions" in response.text
         assert "data-admin-member-form" not in response.text
-        assert "data-admin-role-select" in response.text
+        assert "data-admin-role-group" in response.text
+        assert "data-admin-role-option" in response.text
         assert "data-allow-member" in response.text
         assert "<details" in response.text
         assert response.text.index("Registered members") < response.text.index("Pending registration")

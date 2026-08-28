@@ -110,14 +110,6 @@ def test_proxy_agent_events():
     assert response.status_code in [400, 401, 403, 404]
 
 
-def test_agent_runtime_destroy():
-    """Test agent runtime destroy."""
-    from app.main import app
-    client = TestClient(app)
-    response = client.post("/api/agents/agent-123/destroy")
-    assert response.status_code in [200, 401, 403, 404]
-
-
 def test_agent_runtime_delete():
     """Test agent runtime delete."""
     from app.main import app
@@ -353,10 +345,13 @@ def test_task_and_delegation_overviews_replace_dashboard_navigation():
     assert "/app/tasks/panel" in js
     assert "/app/delegations/panel" in js
 
-    assert "portal-overview-hero" in task_template
+    # Actions moved to the main toolbar; the in-panel hero is gone.
+    assert "portal-overview-hero" not in task_template
+    assert "data-overview-headline" in task_template
     assert "portal-overview-health-card" in task_template
     assert "portal-overview-workload-row" in task_template
-    assert "portal-overview-hero" in delegation_template
+    assert "portal-overview-hero" not in delegation_template
+    assert "data-overview-headline" in delegation_template
     assert "portal-overview-health-card" in delegation_template
     assert "portal-overview-timeline-row" in delegation_template
     assert ".portal-overview-overview-grid" in css

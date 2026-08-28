@@ -69,7 +69,22 @@ def _tone_for_agent_status(status: str | None) -> str:
     return "neutral"
 
 
-def _health_summary(*, critical: int, warning: int, subject: str) -> dict[str, Any]:
+def _health_summary(*, critical: int, warning: int, subject: str, total: int) -> dict[str, Any]:
+    # An empty system is not a healthy system. Scoring 100/100 and "running
+    # smoothly" with nothing to report reads as real data and hides the fact
+    # that there is nothing here yet.
+    if total <= 0:
+        lowered = subject.lower()
+        return {
+            "score": None,
+            "label": "No data",
+            "tone": "neutral",
+            "headline": f"No {lowered} yet",
+            "critical": 0,
+            "warning": 0,
+            "empty": True,
+        }
+
     score = max(0, min(100, 100 - critical * 14 - warning * 6))
     if critical > 0:
         label = "Needs attention"
@@ -90,6 +105,7 @@ def _health_summary(*, critical: int, warning: int, subject: str) -> dict[str, A
         "headline": headline,
         "critical": critical,
         "warning": warning,
+        "empty": False,
     }
 
 
@@ -117,7 +133,7 @@ class WorkOverviewService:
         return {
             "scope": normalized_scope,
             "generated_at": generated_at,
-            "health": _health_summary(critical=critical, warning=warning, subject="Tasks"),
+            "health": _health_summary(critical=critical, warning=warning, subject="Tasks", total=len(tasks)),
             "total": len(tasks),
             "active": len(active_tasks),
             "attention": len(attention_tasks),
@@ -163,6 +179,7 @@ class WorkOverviewService:
                 critical=len(failed_runs),
                 warning=len(due_rules) + len(missing_target_rules),
                 subject="Delegations",
+                total=len(rules),
             ),
             "total": len(rules),
             "enabled": enabled,

@@ -47,7 +47,7 @@ Access `http://localhost:8000/login`
 - Username: Set `BOOTSTRAP_ADMIN_USERNAME=admin` (defaults to `admin`)
 - Password: Set `BOOTSTRAP_ADMIN_PASSWORD` to a strong initial password
 
-The configured bootstrap administrator is created as the first administrator and automatically added to the allowlist. Additional initial usernames can be seeded with `PORTAL_USER_ALLOWLIST=alice,bob`; administrators can then manage the allowlist, roles, and member usage from **Administration → User Management**. Registration and every authenticated request require an allowlist entry, so removing a member from the allowlist revokes existing sessions immediately.
+The configured bootstrap administrator is created as the first administrator and automatically added to the allowlist. Additional initial usernames can be seeded with `PORTAL_USER_ALLOWLIST=alice,bob`; administrators can then manage the allowlist, roles, and member usage from **Administration → User Management**. There are two roles: `user` (owns and runs their own assistants) and `admin` (full access to every assistant, plus member management). A `viewer` role previously existed but was never enforced, so it was removed; migration `20260825_0033` folds any remaining viewers into `user`. Registration and every authenticated request require an allowlist entry, so removing a member from the allowlist revokes existing sessions immediately.
 
 ## Configuration
 
@@ -60,6 +60,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_USER_ALLOWLIST` | Comma, semicolon, or newline-separated usernames seeded into the registration allowlist on startup (`REGISTRATION_ALLOWLIST` is accepted as an alias) | (empty) |
+| `PORTAL_SUPPORT_CONTACT` | Shown on the "not on the allowlist" page so a blocked user knows who can grant access (a name, team channel, or `mailto:`/`https:` link) | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |
@@ -336,7 +337,7 @@ Access `http://localhost:8000/app`
 | `/api/agents/{id}/share` | POST | Share agent |
 | `/api/agents/{id}/unshare` | POST | Unshare agent |
 | `/api/agents/{id}/status` | GET | Get agent status |
-| `/api/agents/{id}/destroy` | POST | Destroy agent |
+| `/api/agents/{id}/delete-runtime` | POST | Delete the agent and its runtime. Workspace files on the shared volume are kept. |
 
 ### Agent Proxy
 

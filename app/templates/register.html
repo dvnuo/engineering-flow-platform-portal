@@ -8,65 +8,42 @@
     <form id="register-form" class="stack">
       <label>
         Username
-        <input name="username" type="text" placeholder="username" required minlength="3" maxlength="32" />
+        <input name="username" type="text" placeholder="Your username" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required minlength="3" maxlength="32" />
       </label>
       <label>
         Password
-        <input name="password" type="password" placeholder="••••••••" required minlength="6" />
+        <span class="portal-auth-password">
+          <input name="password" type="password" placeholder="••••••••" autocomplete="new-password" required minlength="6" />
+          <button type="button" class="portal-auth-reveal" data-toggle-password aria-pressed="false" aria-label="Show password">Show</button>
+        </span>
+        <small class="portal-auth-hint">At least 6 characters.</small>
       </label>
       <label>
         Confirm Password
-        <input name="confirm_password" type="password" placeholder="••••••••" required minlength="6" />
+        <input name="confirm_password" type="password" placeholder="••••••••" autocomplete="new-password" required minlength="6" />
       </label>
       <button type="submit">Create Account</button>
     </form>
 
-    <p id="register-error" class="portal-auth-error"></p>
-    
+    <p id="register-error" class="portal-auth-error" role="alert" aria-live="assertive"></p>
+
     <p class="portal-auth-footnote">
       Already have an account? <a class="portal-auth-link" href="/login">Sign in</a>
     </p>
   </div>
 </div>
 
+<script src="{{ static_url('js/auth_form.js') }}"></script>
 <script>
-const form = document.getElementById("register-form");
-const err = document.getElementById("register-error");
-
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  err.textContent = "";
-  
-  const fd = new FormData(form);
-  const password = fd.get("password");
-  const confirm = fd.get("confirm_password");
-  
-  if (password !== confirm) {
-    err.textContent = "Passwords do not match.";
-    return;
-  }
-  
-  const payload = {
-    username: fd.get("username"),
-    password: password
-  };
-
-  const resp = await fetch("/api/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!resp.ok) {
-    let msg = "Registration failed. Please try a different username.";
-    try {
-      const data = await resp.json();
-      msg = data.detail || msg;
-    } catch {}
-    err.textContent = msg;
-    return;
-  }
-  location.href = "/app";
+initAuthForm({
+  formId: "register-form",
+  errorId: "register-error",
+  endpoint: "/api/auth/register",
+  pendingText: "Creating account…",
+  submitText: "Create Account",
+  fallbackError: "Registration failed. Please try a different username.",
+  validate: (data) => (data.password !== data.confirm_password ? "Passwords do not match." : null),
+  buildPayload: (data) => ({ username: data.username, password: data.password }),
 });
 </script>
 {% endblock %}

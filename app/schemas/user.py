@@ -4,7 +4,10 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-UserRole = Literal["admin", "user", "viewer"]
+# "viewer" was removed: no permission check ever distinguished it from "user"
+# (every check is `role == "admin" or owner`), so assigning it promised a
+# read-only account that did not exist.
+UserRole = Literal["admin", "user"]
 
 
 class UserCreateRequest(BaseModel):

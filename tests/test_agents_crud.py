@@ -100,12 +100,15 @@ def test_agents_git_info_endpoint():
     assert response.status_code in [401, 403, 404, 409, 502]
 
 
-def test_agents_destroy_endpoint():
-    """Test POST /api/agents/{id}/destroy endpoint."""
+def test_agents_destroy_endpoint_is_gone():
+    """Destroy was merged into Delete; the separate endpoint must not come back.
+
+    destroy_data was never implemented cluster-side, so /destroy and
+    /delete-runtime did exactly the same thing while the UI implied otherwise.
+    """
     from app.main import app
     client = TestClient(app)
-    response = client.post("/api/agents/test-id/destroy")
-    assert response.status_code in [200, 401, 403, 404]
+    assert client.post("/api/agents/test-id/destroy").status_code == 404
 
 
 def test_agents_delete_runtime_endpoint():

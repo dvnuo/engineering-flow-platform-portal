@@ -1,17 +1,6 @@
-<div id="delegations-panel-root" class="portal-panel-stack portal-overview-workspace" data-delegation-overview-scope="{{ overview.scope }}">
-  <div class="portal-overview-hero">
-    <div class="portal-overview-title-block">
-      <div class="portal-overview-eyebrow">Delegation Operations</div>
-      <h2 class="portal-panel-title">Delegations</h2>
-      <p class="portal-panel-subtitle">{{ overview.health.headline }} · {{ overview.generated_at.strftime('%Y-%m-%d %H:%M') if overview.generated_at else '' }}</p>
-    </div>
-    <div class="portal-overview-actions" role="group" aria-label="Delegation overview scope">
-      <button class="portal-btn is-secondary{% if overview.scope == 'all' %} is-active{% endif %}" type="button" data-delegation-overview-scope="all">All Visible</button>
-      <button class="portal-btn is-secondary{% if overview.scope == 'mine' %} is-active{% endif %}" type="button" data-delegation-overview-scope="mine">Mine</button>
-      <button class="portal-btn is-secondary" type="button" data-refresh-delegation-overview><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
-      <button class="portal-btn is-primary" type="button" data-open-create-delegation-main><i data-lucide="plus" class="w-4 h-4"></i>Create Delegation</button>
-    </div>
-  </div>
+<div id="delegations-panel-root" class="portal-panel-stack portal-overview-workspace" data-delegation-overview-scope="{{ overview.scope }}"
+  data-overview-headline="{{ overview.health.headline }}"
+  data-overview-generated-at="{{ overview.generated_at.strftime('%Y-%m-%dT%H:%M:%SZ') if overview.generated_at else '' }}">
 
   <section class="portal-overview-overview-grid" aria-label="Delegation overview">
     <article class="portal-overview-health-card is-{{ overview.health.tone }}">
@@ -20,8 +9,8 @@
         <div><span>Delegation Health</span><strong>{{ overview.health.label }}</strong></div>
       </div>
       <div class="portal-overview-health-score">
-        <span>{{ overview.health.score }}</span>
-        <div class="portal-overview-score-bar" aria-hidden="true"><i style="width: {{ overview.health.score }}%"></i></div>
+        <span>{% if overview.health.empty %}&mdash;{% else %}{{ overview.health.score }}{% endif %}</span>
+        <div class="portal-overview-score-bar" aria-hidden="true"><i style="width: {% if overview.health.empty %}0{% else %}{{ overview.health.score }}{% endif %}%"></i></div>
       </div>
       <div class="portal-overview-health-foot">
         <span>{{ overview.health.critical }} critical</span>
