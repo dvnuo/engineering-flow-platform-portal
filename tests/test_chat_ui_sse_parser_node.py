@@ -1,11 +1,22 @@
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
+
+import pytest
 
 from tests._js_extract_helpers import _extract_js_function
 
 
 SRC = Path("app/static/js/chat_ui.js")
+
+
+def _node_bin() -> str:
+    """Skip rather than error where node is absent, like the other node tests."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping SSE parser behaviour test")
+    return node_bin
 
 
 def test_sse_parser_handles_split_multiline_malformed_and_heartbeat():
@@ -59,7 +70,7 @@ def test_sse_parser_handles_split_multiline_malformed_and_heartbeat():
     )
 
     result = subprocess.run(
-        ["node", "-e", script],
+        [_node_bin(), "-e", script],
         check=False,
         text=True,
         capture_output=True,
@@ -120,7 +131,7 @@ def test_canonical_snapshot_conversion_node_smoke():
         )
     )
 
-    result = subprocess.run(["node", "-e", script], check=False, text=True, capture_output=True)
+    result = subprocess.run([_node_bin(), "-e", script], check=False, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
 
 
@@ -132,7 +143,9 @@ def test_opencode_long_task_sse_recovery_markers_are_removed():
         "reconcileChatRun" + "Once",
         "stream" + "Detached",
         "/active" + "-run",
-        "/api/chat/" + "runs",
+        # "/api/chat/runs" is deliberately absent from this list: #350 removed the
+        # OpenCode reconnect flow, then #373 reintroduced the path for resumable
+        # chat run recovery, which is a different mechanism.
         "Previous message" + " still running",
         "Still running. Reconnecting",
     ]

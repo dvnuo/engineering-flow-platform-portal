@@ -164,7 +164,9 @@ def rendered_panel(monkeypatch):
     db.commit()
     monkeypatch.setattr(web_module, "SessionLocal", lambda: db)
     monkeypatch.setattr(web_module, "_current_user_from_cookie", lambda _request: admin)
-    with TestClient(app) as client:
-        response = client.get("/app/users/panel")
+    # Not the `with` form: it fires startup, whose schema guard needs a
+    # migrated database this test does not have (and CI never has).
+    client = TestClient(app)
+    response = client.get("/app/users/panel")
     assert response.status_code == 200
     return response.text

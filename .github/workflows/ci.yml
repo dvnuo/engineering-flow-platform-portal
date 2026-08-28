@@ -22,32 +22,10 @@ jobs:
         with:
           node-version: "20"
       - run: node --check app/static/js/chat_ui.js
-      - run: |
-          pytest tests/test_config.py \
-                 tests/test_auth_api.py \
-                 tests/test_user_admin_management.py \
-                 tests/test_schema_guard.py \
-                 tests/test_main.py \
-                 tests/test_logger.py \
-                 tests/test_agent_runtime_type_schema.py \
-                 tests/test_agent_defaults_source_regression.py \
-                 tests/test_k8s_service.py \
-                 tests/test_proxy_api.py \
-                 tests/test_proxy_service.py \
-                 tests/test_web_chat_send.py \
-                 tests/test_legacy_master_db_upgrade.py \
-                 tests/test_trace_context.py \
-                 tests/test_proxy_identity_headers.py \
-                 tests/test_proxy_websocket.py \
-                 tests/test_web_runtime_proxy_headers.py \
-                 tests/test_alembic_runtime_type_server_default.py \
-                 tests/test_portal_runtime_contract_docs.py \
-                 tests/test_t13_portal_runtime_matrix.py \
-                 tests/test_chat_ui_contract.py \
-                 tests/test_chat_ui_hash_routing_static.py \
-                 tests/test_assistant_details_panel_regressions.py \
-                 tests/test_phase_a_ui_cleanup.py \
-                 tests/test_proxy_system_prompt_permissions.py
+      # Runs the whole suite. CI used to name 25 of the repo's 145 test files,
+      # so anything outside that list could rot unnoticed: four files had been
+      # failing on master for several PRs before anyone ran pytest locally.
+      - run: pytest tests/
 
   portal-docker-smoke:
     runs-on: ubuntu-latest
