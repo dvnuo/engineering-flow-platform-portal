@@ -1,0 +1,170 @@
+/**
+ * Per-assistant greeting and starter cards.
+ *
+ * Content comes from the behavior-pack branch the assistant actually booted
+ * with, served by the runtime at /api/personalization. Portal does not clone
+ * that repository itself, so what a member sees can never drift from what the
+ * assistant is running.
+ *
+ * Clicking a card fills the composer but deliberately does not send. Someone
+ * who has never prompted an assistant needs to see the wording before it runs,
+ * and to be able to change it.
+ */
+(function () {
+  "use strict";
+
+  const cache = new Map();
+  let activeAgentId = null;
+
+  function esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function renderIcons() {
+    if (window.lucide && typeof window.lucide.createIcons === "function") {
+      try {
+        window.lucide.createIcons();
+      } catch (error) {
+        /* icons are cosmetic */
+      }
+    }
+  }
+
+  async function loadPersonalization(agentId) {
+    if (cache.has(agentId)) return cache.get(agentId);
+    let payload = { welcome: null, cards: [] };
+    try {
+      const response = await fetch(`/a/${encodeURIComponent(agentId)}/api/personalization`);
+      if (response.ok) {
+        const parsed = await response.json();
+        if (parsed && typeof parsed === "object") {
+          payload = {
+            welcome: typeof parsed.welcome === "string" ? parsed.welcome : null,
+            cards: Array.isArray(parsed.cards) ? parsed.cards : [],
+          };
+        }
+      }
+    } catch (error) {
+      // An assistant that is still starting, or a behavior pack without a
+      // portal/ directory, simply has no personalization. Keep the generic
+      // welcome rather than showing an error where a greeting belongs.
+    }
+    cache.set(agentId, payload);
+    return payload;
+  }
+
+  function cardsMarkup(cards) {
+    return cards
+      .map(
+        (card, index) => `
+      <button type="button" class="portal-starter-card" data-starter-card="${index}">
+        <span class="portal-starter-card-icon"><i data-lucide="${esc(card.icon || "sparkles")}" class="w-4 h-4"></i></span>
+        <span class="portal-starter-card-copy">
+          <strong>${esc(card.title)}</strong>
+          ${card.description ? `<small>${esc(card.description)}</small>` : ""}
+        </span>
+      </button>`
+      )
+      .join("");
+  }
+
+  function applyToWelcome(payload) {
+    const list = document.getElementById("message-list");
+    const welcome = list ? list.querySelector('[data-welcome="1"]') : null;
+    if (!welcome) return;
+
+    if (payload.welcome) {
+      const markdown = welcome.querySelector("[data-md]");
+      if (markdown) {
+        markdown.setAttribute("data-md", payload.welcome);
+        // Re-run the shared markdown pass so the greeting renders the same way
+        // an assistant message would.
+        if (typeof window.renderPortalMarkdown === "function") {
+          window.renderPortalMarkdown(welcome);
+        } else {
+          markdown.textContent = payload.welcome;
+        }
+      }
+    }
+
+    welcome.querySelector(".portal-starter-cards")?.remove();
+    if (!payload.cards.length) return;
+
+    const container = document.createElement("div");
+    container.className = "portal-starter-cards";
+    container.innerHTML = cardsMarkup(payload.cards);
+    welcome.querySelector(".message-surface")?.append(container);
+    renderIcons();
+  }
+
+  function composer() {
+    return document.getElementById("chat-input");
+  }
+
+  function fillComposer(text) {
+    const input = composer();
+    if (!input) return;
+    input.value = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+    // Land the caret at the end so the member types where they expect to.
+    try {
+      input.setSelectionRange(input.value.length, input.value.length);
+    } catch (error) {
+      /* not all inputs support selection ranges */
+    }
+  }
+
+  function promptFromCard(card, value) {
+    const prompt = String(card.prompt || "");
+    if (!card.input) return prompt.trim();
+    return prompt.split("{{input}}").join(value).trim();
+  }
+
+  function askForCardInput(card) {
+    const label = (card.input && card.input.label) || "Details";
+    const placeholder = (card.input && card.input.placeholder) || "";
+    const answer = window.prompt(placeholder ? `${label} (e.g. ${placeholder})` : label, "");
+    if (answer === null) return null;
+    return String(answer).trim();
+  }
+
+  function bind() {
+    document.addEventListener("portal:agent-selected", async (browserEvent) => {
+      const agentId = browserEvent.detail?.agentId;
+      activeAgentId = agentId || null;
+      if (!agentId) return;
+      const payload = await loadPersonalization(agentId);
+      // The member may have moved on while this was in flight.
+      if (activeAgentId !== agentId) return;
+      applyToWelcome(payload);
+    });
+
+    document.getElementById("message-list")?.addEventListener("click", (browserEvent) => {
+      const button = browserEvent.target.closest("[data-starter-card]");
+      if (!button || !activeAgentId) return;
+      const cards = (cache.get(activeAgentId) || {}).cards || [];
+      const card = cards[Number(button.dataset.starterCard)];
+      if (!card) return;
+
+      let value = "";
+      if (card.input) {
+        const answer = askForCardInput(card);
+        if (answer === null) return;
+        value = answer;
+      }
+      fillComposer(promptFromCard(card, value));
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
+})();
