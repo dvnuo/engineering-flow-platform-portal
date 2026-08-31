@@ -10034,8 +10034,15 @@ function addInstanceRow(root, group) {
   const urlPlaceholder = placeholders.url;
   const usernamePlaceholder = placeholders.username;
   const label = instanceGroupLabel(group);
+  // Default Connections seeds where a service lives and never a credential, so
+  // its containers opt out of the username/password/token block. Offering those
+  // fields there would invite a save the server then refuses.
+  const withCredentials = container.dataset.instanceCredentials !== "none";
+  const credentialFieldsHtml = withCredentials
+    ? `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>`
+    : (scopedFieldHtml.trim() === "<div></div>" ? "" : `<div class="grid grid-cols-2 gap-2">${scopedFieldHtml}<div></div></div>`);
 
-  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>${apiVersionHtml}</div>`;
+  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>${credentialFieldsHtml}${apiVersionHtml}</div>`;
   container.append(div);
   normalizeInstanceInputs(root, group);
 
@@ -10059,6 +10066,7 @@ window.selectPortalAgentById = selectAgentById;
 window.currentPortalSessionId = currentSessionIdForSelectedAgent;
 window.currentPortalAgentId = () => state.selectedAgentId;
 window.renderPortalMarkdown = renderMarkdown;
+window.initializeManagedSettingsPanels = initializeManagedSettingsPanels;
 
 window.initPasswordToggles = function(root = document) {
   root.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach((input) => {
@@ -10460,6 +10468,9 @@ function initializeManagedSettingsRoot(root) {
 function initializeManagedSettingsPanels() {
   initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
   initializeManagedSettingsRoot(document.getElementById("runtime-profile-panel-root"));
+  // Default Connections reuses the same instance add/remove and model-select
+  // machinery; it just has no credential fields.
+  initializeManagedSettingsRoot(document.getElementById("default-connections-panel-root"));
 }
 
 function initializeSettingsPanel() {

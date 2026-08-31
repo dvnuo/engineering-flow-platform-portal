@@ -645,13 +645,27 @@ def _js_card_html(group):
         else ""
     )
 
+    # Default Connections reuses this builder without credential fields, so the
+    # block is now a slot. This test covers the credential-carrying branch,
+    # which is what the runtime-profile and settings panels render.
+    credential_fields = (
+        '<div class="grid grid-cols-2 gap-2">'
+        f'<input type="text" data-field="username" value="" placeholder="{placeholders["username"]}" class="portal-form-input" />'
+        '<input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div>'
+        '<div class="grid grid-cols-2 gap-2">'
+        '<input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />'
+        f'{scoped_field}</div>'
+    )
+
     # Guard the substitutions against the JS drifting away from them.
     assert scoped_field in _branch("scopedFieldHtml")
     if group == "jira":
         assert 'data-field="api_version"' in _branch("apiVersionHtml")
+    assert 'data-field="token"' in _branch("credentialFieldsHtml")
 
     rendered = (
-        literal.replace("${scopedFieldHtml}", scoped_field)
+        literal.replace("${credentialFieldsHtml}", credential_fields)
+        .replace("${scopedFieldHtml}", scoped_field)
         .replace("${apiVersionHtml}", api_version)
         .replace("${urlPlaceholder}", placeholders["url"])
         .replace("${usernamePlaceholder}", placeholders["username"])

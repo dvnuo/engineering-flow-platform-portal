@@ -353,11 +353,13 @@
 
     target.innerHTML = '<div class="portal-inline-state">Loading…</div>';
     try {
-      const response = await fetch(url, { headers: { "HX-Request": "true" } });
-      if (!response.ok) throw new Error(`Failed to load (${response.status})`);
-      target.innerHTML = await response.text();
+      await window.htmx.ajax("GET", url, { target: "#workspace-detail-content", swap: "innerHTML" });
       target.dataset.workspaceState = `admin-${button.dataset.adminPanel}`;
       renderIcons(target);
+      // Binds the instance add/remove controls and populates the model select.
+      if (typeof window.initializeManagedSettingsPanels === "function") {
+        window.initializeManagedSettingsPanels();
+      }
     } catch (error) {
       target.innerHTML = `<div class="portal-inline-state is-error">${esc(error.message)}</div>`;
     }
@@ -425,11 +427,6 @@
         event.preventDefault();
         await submitAssistantTypeEdit(editForm);
         return;
-      }
-      const seedForm = event.target.closest("[data-seed-form]");
-      if (seedForm) {
-        event.preventDefault();
-        await submitSeed(seedForm);
       }
     });
 
@@ -604,30 +601,6 @@
       state.assistantTypes = null;
       toast("Assistant type updated.");
       await reloadAdminPanel("assistant-types");
-    } catch (error) {
-      setFeedback(msg, "error", error.message);
-    }
-  }
-
-  async function submitSeed(form) {
-    const msg = form.querySelector("[data-seed-msg]");
-    const raw = form.querySelector('textarea[name="seed"]').value || "{}";
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (error) {
-      return setFeedback(msg, "error", "That is not valid JSON.");
-    }
-    setFeedback(msg, "", "Saving…");
-    try {
-      await requestJson("/api/admin/runtime-profile-seed", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seed: parsed }),
-      });
-      setFeedback(msg, "success", "Saved. New members will inherit this shape.");
-      toast("Default connections saved.");
-      await reloadAdminPanel("default-connections");
     } catch (error) {
       setFeedback(msg, "error", error.message);
     }

@@ -12,11 +12,16 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
-from app.contracts.llm_catalog import CONTEXT_SIZE_PRESETS, SUPPORTED_REASONING_EFFORTS
+from app.contracts.llm_catalog import (
+    CONTEXT_SIZE_PRESETS,
+    PROVIDER_MODELS,
+    SUPPORTED_REASONING_EFFORTS,
+)
 from app.db import SessionLocal
 from app.repositories.agent_execution_repo import AgentExecutionRepository
 from app.contracts.runtime_type import ALLOWED_RUNTIME_TYPES
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.audit_repo import AuditRepository
 from app.repositories.assistant_type_repo import AssistantTypeRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
@@ -39,7 +44,10 @@ from app.services.runtime_profile_secret_service import RuntimeProfileSecretServ
 from app.services.assistant_type_icons import ASSISTANT_TYPE_ICONS, DEFAULT_ASSISTANT_TYPE_ICON
 from app.services.connection_guidance import all_guidance, connection_checklist
 from app.services.git_branch_cache import cached_branches_for
-from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
+from app.services.runtime_profile_seed_service import (
+    RuntimeProfileSeedService,
+    SeedContainsSecretError,
+)
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_capability_catalog import build_runtime_capability_catalog_provider_from_settings, RuntimeCapabilityCatalogProvider
@@ -990,6 +998,98 @@ def _runtime_profile_panel_context(
     }
 
 
+def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
+    """Read instance rows from the Default Connections form.
+
+    Deliberately not _settings_parse_instances: that one exists to preserve
+    credentials a member left blank, and the seed has no credentials to
+    preserve. Here blank simply means blank.
+    """
+    try:
+        count = max(0, int((form.get(f"{prefix}_instance_count") or "0").strip()))
+    except ValueError:
+        count = 0
+
+    instances: list[dict] = []
+    for index in range(count):
+        row: dict = {}
+        for field in fields:
+            name = f"{prefix}_instances_{index}_{field}"
+            if field == "enabled":
+                row[field] = str(form.get(name) or "").lower() in {"1", "true", "on", "yes"}
+                continue
+            row[field] = (form.get(name) or "").strip()
+        # A row with neither a name nor a URL is an empty card the admin added
+        # and left alone; dropping it keeps the stored value clean.
+        if row.get("name") or row.get("url"):
+            instances.append(row)
+    return instances
+
+
+def _seed_config_from_form(form) -> dict:
+    """Build the seed from the form, carrying only non-secret fields.
+
+    Nothing here reads a credential field. The service still re-checks on save,
+    so the guarantee does not rest on this function alone.
+    """
+    def flag(name: str) -> bool:
+        return str(form.get(name) or "").lower() in {"1", "true", "on", "yes"}
+
+    def text(name: str) -> str:
+        return (form.get(name) or "").strip()
+
+    seed: dict = {}
+
+    llm: dict = {}
+    for key, form_key in (("provider", "llm_provider"), ("model", "llm_model"), ("reasoning_effort", "llm_reasoning_effort")):
+        value = text(form_key)
+        if value:
+            llm[key] = value
+    context_tokens = text("llm_max_context_tokens")
+    if context_tokens.isdigit():
+        llm["max_context_tokens"] = int(context_tokens)
+    if llm:
+        seed["llm"] = llm
+
+    jira_instances = _seed_parse_instances(form, "jira", ["enabled", "name", "url", "project", "api_version"])
+    if flag("jira_enabled") or jira_instances:
+        seed["jira"] = {"enabled": flag("jira_enabled"), "instances": jira_instances}
+
+    confluence_instances = _seed_parse_instances(form, "confluence", ["enabled", "name", "url", "space"])
+    if flag("confluence_enabled") or confluence_instances:
+        seed["confluence"] = {"enabled": flag("confluence_enabled"), "instances": confluence_instances}
+
+    github_base_url = text("github_base_url")
+    if flag("github_enabled") or github_base_url:
+        github: dict = {"enabled": flag("github_enabled")}
+        if github_base_url:
+            github["base_url"] = github_base_url
+        seed["github"] = github
+
+    jenkins_instances = _seed_parse_instances(form, "jenkins", ["enabled", "name", "url"])
+    if flag("jenkins_enabled") or jenkins_instances:
+        seed["jenkins"] = {"enabled": flag("jenkins_enabled"), "instances": jenkins_instances}
+
+    proxy_url = text("proxy_url")
+    if flag("proxy_enabled") or proxy_url:
+        proxy: dict = {"enabled": flag("proxy_enabled")}
+        if proxy_url:
+            proxy["url"] = proxy_url
+        seed["proxy"] = proxy
+
+    aws_domain = text("aws_domain")
+    if flag("aws_enabled") or aws_domain:
+        aws: dict = {"enabled": flag("aws_enabled")}
+        if aws_domain:
+            aws["domain"] = aws_domain
+        seed["aws"] = aws
+
+    if flag("mobile_enabled"):
+        seed["mobile-auto"] = {"enabled": True}
+
+    return seed
+
+
 def _settings_parse_instances(
     form,
     prefix: str,
@@ -1729,6 +1829,35 @@ async def app_users_panel(request: Request):
 
 
 
+# The catalog carries provider ids, not display names; the runtime-profile panel
+# hardcodes these two literals. One copy here beats a second set in the template.
+SEED_PROVIDER_LABELS = {"github_copilot": "GitHub Copilot", "ai_platform": "AI Platform"}
+
+
+def _default_connections_context(
+    request: Request,
+    db,
+    *,
+    status_type: str = "",
+    status_message: str = "",
+    seed_override: dict | None = None,
+) -> dict:
+    service = RuntimeProfileSeedService(db)
+    seed = seed_override if seed_override is not None else service.get_seed()
+    return {
+        "request": request,
+        "seed": seed,
+        "seed_json": json.dumps(seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
+        "seed_summary": service.seed_summary(),
+        "guidance": all_guidance(),
+        "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
+        "reasoning_efforts": list(SUPPORTED_REASONING_EFFORTS),
+        "context_sizes": [(size, f"{size // 1000}K" if size < 1_000_000 else "1M") for size in CONTEXT_SIZE_PRESETS],
+        "status_type": status_type,
+        "status_message": status_message,
+    }
+
+
 @router.get("/app/admin/assistant-types/panel")
 async def app_assistant_types_panel(request: Request):
     """Administration view for the presets offered in simple create mode."""
@@ -1782,16 +1911,59 @@ async def app_default_connections_panel(request: Request):
 
     db = SessionLocal()
     try:
-        service = RuntimeProfileSeedService(db)
-        seed = service.get_seed()
         return templates.TemplateResponse(
             "partials/default_connections_panel.html",
-            {
-                "request": request,
-                "seed_json": json.dumps(seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
-                "seed_summary": service.seed_summary(),
-                "guidance": all_guidance(),
-            },
+            _default_connections_context(request, db),
+        )
+    finally:
+        db.close()
+
+
+@router.post("/app/admin/default-connections/save")
+async def app_default_connections_save(request: Request):
+    """Persist the Default Connections form."""
+
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    form = await request.form()
+    db = SessionLocal()
+    try:
+        service = RuntimeProfileSeedService(db)
+        try:
+            service.save_seed(_seed_config_from_form(form), updated_by_user_id=user.id)
+        except (SeedContainsSecretError, ValueError) as exc:
+            # Re-render from the submitted values rather than from storage, so a
+            # rejected save does not silently discard the admin's edits.
+            return templates.TemplateResponse(
+                "partials/default_connections_panel.html",
+                _default_connections_context(
+                    request,
+                    db,
+                    status_type="error",
+                    status_message=str(exc),
+                    seed_override=_seed_config_from_form(form),
+                ),
+            )
+
+        AuditRepository(db).create(
+            action="update_runtime_profile_seed",
+            target_type="platform_setting",
+            target_id="runtime_profile_seed",
+            user_id=user.id,
+            details={"sections": sorted(service.get_seed().keys())},
+        )
+        return templates.TemplateResponse(
+            "partials/default_connections_panel.html",
+            _default_connections_context(
+                request,
+                db,
+                status_type="success",
+                status_message="Default connections saved. New members inherit these.",
+            ),
         )
     finally:
         db.close()
