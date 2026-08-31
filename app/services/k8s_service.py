@@ -1199,6 +1199,15 @@ class K8sService:
                 f'mkdir -p "{workspace_dir}/.efp/instructions"',
                 f'find "{workspace_dir}/.efp/instructions" -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +',
                 f'cp -a "${{SOURCE_DIR}}/instructions"/. "{workspace_dir}/.efp/instructions"/',
+                # portal/ carries the greeting and starter cards the runtime
+                # serves at /api/personalization. Optional, unlike AGENTS.md and
+                # instructions/: a behavior pack branch predating it must still
+                # boot, and Portal falls back to its generic welcome.
+                f'rm -rf "{workspace_dir}/portal"',
+                f'if [ -d "${{SOURCE_DIR}}/portal" ]; then',
+                f'  mkdir -p "{workspace_dir}/portal"',
+                f'  cp -a "${{SOURCE_DIR}}/portal"/. "{workspace_dir}/portal"/',
+                "fi",
                 "rm -f /tmp/git-askpass.sh",
             ]
         )
