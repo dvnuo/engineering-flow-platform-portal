@@ -379,6 +379,12 @@
         await submitAssistantTypeCreate(createForm);
         return;
       }
+      const editForm = event.target.closest("[data-assistant-type-edit-form]");
+      if (editForm) {
+        event.preventDefault();
+        await submitAssistantTypeEdit(editForm);
+        return;
+      }
       const seedForm = event.target.closest("[data-seed-form]");
       if (seedForm) {
         event.preventDefault();
@@ -387,15 +393,25 @@
     });
 
     root.addEventListener("click", async (event) => {
-      const deleteButton = event.target.closest("[data-assistant-type-delete]");
-      if (deleteButton) {
-        const row = deleteButton.closest("[data-assistant-type-row]");
-        await deleteAssistantType(row);
+      const iconChoice = event.target.closest("[data-icon-choice]");
+      if (iconChoice) {
+        selectIcon(iconChoice);
         return;
       }
-      const branchButton = event.target.closest("[data-load-type-branches]");
-      if (branchButton) {
-        await loadTypeBranches(branchButton);
+      const editToggle = event.target.closest("[data-assistant-type-toggle-edit]");
+      if (editToggle) {
+        toggleEdit(editToggle.closest("[data-assistant-type-row]"), editToggle);
+        return;
+      }
+      const cancelEdit = event.target.closest("[data-assistant-type-cancel-edit]");
+      if (cancelEdit) {
+        const row = cancelEdit.closest("[data-assistant-type-row]");
+        toggleEdit(row, row.querySelector("[data-assistant-type-toggle-edit]"), { open: false });
+        return;
+      }
+      const deleteButton = event.target.closest("[data-assistant-type-delete]");
+      if (deleteButton) {
+        await deleteAssistantType(deleteButton.closest("[data-assistant-type-row]"));
       }
     });
 
@@ -410,17 +426,7 @@
 
   async function submitAssistantTypeCreate(form) {
     const msg = form.querySelector("[data-assistant-type-create-msg]");
-    const data = new FormData(form);
-    const body = {
-      name: (data.get("name") || "").toString().trim(),
-      description: (data.get("description") || "").toString().trim() || null,
-      icon: (data.get("icon") || "").toString().trim() || "bot",
-      runtime_type: (data.get("runtime_type") || "native").toString(),
-      agent_settings_branch: (data.get("agent_settings_branch") || "").toString().trim() || null,
-      skill_branch: (data.get("skill_branch") || "").toString().trim() || null,
-      sort_order: Number(data.get("sort_order") || 0),
-      is_active: true,
-    };
+    const body = { ...assistantTypeFormPayload(form), is_active: true };
     if (!body.name) return setFeedback(msg, "error", "Give the type a name.");
 
     setFeedback(msg, "", "Saving…");
@@ -474,40 +480,86 @@
     }
   }
 
-  async function loadTypeBranches(button) {
-    const kind = button.dataset.loadTypeBranches;
-    const panel = button.closest("[data-assistant-types-panel]");
-    const select = button.parentElement?.querySelector(`[data-branch-select="${kind}"]`);
-    if (!select || !panel) return;
+  /**
+   * Show or hide a type's edit form.
+   *
+   * Editing happens inline rather than in a modal: the summary stays visible
+   * above the form, so an admin can see what they are changing from.
+   */
+  function toggleEdit(row, button, { open } = {}) {
+    if (!row) return;
+    const form = row.querySelector("[data-assistant-type-edit-form]");
+    const summary = row.querySelector("[data-assistant-type-summary]");
+    if (!form) return;
+    const shouldOpen = open === undefined ? form.classList.contains("hidden") : open;
+    form.classList.toggle("hidden", !shouldOpen);
+    summary?.classList.toggle("hidden", shouldOpen);
+    if (button) {
+      button.textContent = shouldOpen ? "Close" : "Edit";
+      button.setAttribute("aria-expanded", String(shouldOpen));
+    }
+    if (shouldOpen) form.querySelector('input[name="name"]')?.focus();
+  }
 
-    // Branch lists come from the repository Portal is already configured with,
-    // so an admin picks a real branch instead of typing one from memory.
-    const repoUrl =
-      kind === "skills"
-        ? panel.querySelector("[data-skill-repo-url]")?.value
-        : panel.querySelector("[data-agent-settings-repo-url]")?.value;
+  /** Point the picker's hidden input at the clicked icon and reflect it. */
+  function selectIcon(choice) {
+    const picker = choice.closest("[data-icon-picker]");
+    if (!picker) return;
+    const value = choice.dataset.iconChoice;
+    picker.querySelectorAll("[data-icon-choice]").forEach((option) => {
+      const isSelected = option === choice;
+      option.classList.toggle("is-selected", isSelected);
+      option.setAttribute("aria-checked", String(isSelected));
+    });
+    const input = picker.querySelector("[data-icon-value]");
+    if (input) input.value = value;
 
-    button.disabled = true;
-    const originalLabel = button.textContent;
-    button.textContent = "Loading…";
+    // Keep the row header in step so the choice is visible without saving.
+    const row = picker.closest("[data-assistant-type-row]");
+    const preview = row?.querySelector("[data-type-icon-preview]");
+    if (preview) {
+      const replacement = document.createElement("i");
+      replacement.setAttribute("data-lucide", value);
+      replacement.className = "w-5 h-5";
+      replacement.setAttribute("data-type-icon-preview", "");
+      preview.replaceWith(replacement);
+      renderIcons();
+    }
+  }
+
+  function assistantTypeFormPayload(form) {
+    const data = new FormData(form);
+    const text = (key) => (data.get(key) || "").toString().trim();
+    return {
+      name: text("name"),
+      description: text("description") || null,
+      icon: text("icon") || "bot",
+      runtime_type: text("runtime_type") || "native",
+      // Empty means "use the configured default", which the API stores as null.
+      agent_settings_branch: text("agent_settings_branch") || null,
+      skill_branch: text("skill_branch") || null,
+      sort_order: Number(data.get("sort_order") || 0),
+    };
+  }
+
+  async function submitAssistantTypeEdit(form) {
+    const row = form.closest("[data-assistant-type-row]");
+    const msg = form.querySelector("[data-assistant-type-edit-msg]");
+    const body = assistantTypeFormPayload(form);
+    if (!body.name) return setFeedback(msg, "error", "Give the type a name.");
+
+    setFeedback(msg, "", "Saving…");
     try {
-      const query = repoUrl ? `?repo_url=${encodeURIComponent(repoUrl)}` : "";
-      const payload = await requestJson(`/api/git-repos/branches${query}`);
-      const branches = Array.isArray(payload?.branches) ? payload.branches : [];
-      const current = select.value;
-      select.innerHTML =
-        '<option value="">Configured default branch</option>' +
-        branches.map((branch) => `<option value="${esc(branch)}">${esc(branch)}</option>`).join("");
-      if (current) select.value = current;
-      button.textContent = branches.length ? `${branches.length} branches` : "No branches";
+      await requestJson(`/api/assistant-types/${encodeURIComponent(row.dataset.assistantTypeRow)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      state.assistantTypes = null;
+      toast("Assistant type updated.");
+      await reloadAdminPanel("assistant-types");
     } catch (error) {
-      button.textContent = "Load failed";
-      toast(error.message, "error");
-    } finally {
-      button.disabled = false;
-      window.setTimeout(() => {
-        button.textContent = originalLabel;
-      }, 2500);
+      setFeedback(msg, "error", error.message);
     }
   }
 

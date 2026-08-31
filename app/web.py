@@ -36,7 +36,9 @@ from app.services.proxy_service import ProxyService, build_portal_agent_headers,
 from app.services.k8s_service import K8sService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
+from app.services.assistant_type_icons import ASSISTANT_TYPE_ICONS, DEFAULT_ASSISTANT_TYPE_ICON
 from app.services.connection_guidance import all_guidance, connection_checklist
+from app.services.git_branch_cache import cached_branches_for
 from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
@@ -1739,16 +1741,29 @@ async def app_assistant_types_panel(request: Request):
 
     db = SessionLocal()
     try:
+        # Prefilled so an admin picks a real branch per type instead of pressing
+        # "load" on every row before the selects have anything in them. A repo
+        # that cannot be reached degrades to a free-text field rather than
+        # failing the panel.
+        (agent_branches, agent_branch_error), (skill_branches, skill_branch_error) = cached_branches_for(
+            [settings.default_agent_settings_repo_url, settings.default_skill_repo_url]
+        )
         return templates.TemplateResponse(
             "partials/assistant_types_panel.html",
             {
                 "request": request,
                 "assistant_types": AssistantTypeRepository(db).list_all(),
                 "runtime_types": sorted(ALLOWED_RUNTIME_TYPES),
+                "icon_choices": ASSISTANT_TYPE_ICONS,
+                "default_icon": DEFAULT_ASSISTANT_TYPE_ICON,
                 "default_agent_settings_repo_url": settings.default_agent_settings_repo_url or "",
                 "default_skill_repo_url": settings.default_skill_repo_url or "",
                 "default_agent_settings_branch": settings.default_agent_settings_branch or "",
                 "default_skill_branch": settings.default_skill_branch or "",
+                "agent_branches": agent_branches,
+                "skill_branches": skill_branches,
+                "agent_branch_error": agent_branch_error,
+                "skill_branch_error": skill_branch_error,
             },
         )
     finally:

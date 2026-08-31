@@ -1,3 +1,46 @@
+{% macro icon_picker(field_id, selected) -%}
+<div class="portal-icon-picker" data-icon-picker>
+  <input type="hidden" name="icon" value="{{ selected or default_icon }}" data-icon-value />
+  <div class="portal-icon-grid" role="radiogroup" aria-label="Icon">
+    {% for name in icon_choices %}
+    <button type="button"
+            class="portal-icon-option{{ ' is-selected' if name == (selected or default_icon) else '' }}"
+            role="radio"
+            aria-checked="{{ 'true' if name == (selected or default_icon) else 'false' }}"
+            aria-label="{{ name.replace('-', ' ') }}"
+            title="{{ name }}"
+            data-icon-choice="{{ name }}">
+      <i data-lucide="{{ name }}" class="w-4 h-4"></i>
+    </button>
+    {% endfor %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro branch_field(label, field_name, selected, branches, error, configured_default) -%}
+<label class="portal-form-label">
+  <span class="portal-form-label">{{ label }}</span>
+  {% if branches %}
+  <select name="{{ field_name }}" class="portal-form-select">
+    <option value="">Configured default{{ " (" ~ configured_default ~ ")" if configured_default else "" }}</option>
+    {% for branch in branches %}
+    <option value="{{ branch }}" {{ "selected" if branch == selected else "" }}>{{ branch }}</option>
+    {% endfor %}
+    {% if selected and selected not in branches %}
+    <option value="{{ selected }}" selected>{{ selected }} (not on the remote)</option>
+    {% endif %}
+  </select>
+  {% else %}
+  <input type="text" name="{{ field_name }}" class="portal-form-input" value="{{ selected or '' }}"
+         placeholder="Configured default{{ ' (' ~ configured_default ~ ')' if configured_default else '' }}" />
+  <span class="portal-form-hint">
+    {% if error %}Branches could not be loaded ({{ error }}). Type a branch name.
+    {% else %}No repository configured. Type a branch name if you need one.{% endif %}
+  </span>
+  {% endif %}
+</label>
+{%- endmacro %}
+
 <div id="assistant-types-panel" class="portal-panel-stack portal-assistant-types" data-assistant-types-panel>
   <div class="portal-panel-header">
     <div>
@@ -10,76 +53,11 @@
     <span class="portal-panel-subtitle">{{ assistant_types|length }} type{{ "" if assistant_types|length == 1 else "s" }}</span>
   </div>
 
-  <input type="hidden" data-agent-settings-repo-url value="{{ default_agent_settings_repo_url }}" />
-  <input type="hidden" data-skill-repo-url value="{{ default_skill_repo_url }}" />
-
   <div class="portal-inline-state">
     Behavior packs come from <strong>{{ default_agent_settings_repo_url or "the configured default repository" }}</strong>,
     skill packs from <strong>{{ default_skill_repo_url or "the configured default repository" }}</strong>.
-    Leave a branch empty to use the configured default
-    ({{ default_agent_settings_branch or "default branch" }} / {{ default_skill_branch or "default branch" }}).
+    Each type can point at a different branch of those repositories.
   </div>
-
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title">
-      <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>Add a type</h6>
-    </div>
-    <form class="portal-panel-stack" data-assistant-type-create-form>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Name</span>
-          <input type="text" name="name" class="portal-form-input" placeholder="Business Assistant" required />
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">Icon</span>
-          <input type="text" name="icon" class="portal-form-input" placeholder="clipboard-list" />
-          <span class="portal-form-hint">A Lucide icon name. Defaults to <code>bot</code>.</span>
-        </label>
-      </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">Description</span>
-        <input type="text" name="description" class="portal-form-input" placeholder="Requirements, tickets, and documentation." />
-        <span class="portal-form-hint">Shown under the name on the create card.</span>
-      </label>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Engine</span>
-          <select name="runtime_type" class="portal-form-select">
-            {% for value in runtime_types %}
-            <option value="{{ value }}" {{ "selected" if value == "native" else "" }}>{{ value }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="portal-form-label">
-          <span class="portal-form-label">Order</span>
-          <input type="number" name="sort_order" class="portal-form-input" value="0" />
-        </label>
-      </div>
-      <div class="portal-form-row-inline">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Behavior pack branch</span>
-          <select name="agent_settings_branch" class="portal-form-select" data-branch-select="agent-settings">
-            <option value="">Configured default branch</option>
-          </select>
-        </label>
-        <button type="button" class="portal-btn is-secondary" data-load-type-branches="agent-settings">Load branches</button>
-      </div>
-      <div class="portal-form-row-inline">
-        <label class="portal-form-label">
-          <span class="portal-form-label">Skill pack branch</span>
-          <select name="skill_branch" class="portal-form-select" data-branch-select="skills">
-            <option value="">Configured default branch</option>
-          </select>
-        </label>
-        <button type="button" class="portal-btn is-secondary" data-load-type-branches="skills">Load branches</button>
-      </div>
-      <div class="flex items-center gap-2">
-        <button type="submit" class="portal-btn is-primary">Add type</button>
-        <div class="portal-inline-state" data-assistant-type-create-msg></div>
-      </div>
-    </form>
-  </section>
 
   {% if assistant_types %}
   <div class="portal-panel-stack" data-assistant-type-list>
@@ -88,35 +66,87 @@
              data-assistant-type-row="{{ assistant_type.id }}">
       <div class="portal-settings-instance-head">
         <div class="portal-settings-instance-head-main">
-          <i data-lucide="{{ assistant_type.icon or 'bot' }}" class="w-5 h-5"></i>
-          <span class="portal-settings-instance-title">{{ assistant_type.name }}</span>
+          <i data-lucide="{{ assistant_type.icon or default_icon }}" class="w-5 h-5" data-type-icon-preview></i>
+          <span class="portal-settings-instance-title" data-type-name-preview>{{ assistant_type.name }}</span>
           <label class="toggle-switch" title="Offer this type to members">
             <input type="checkbox" data-assistant-type-active {{ "checked" if assistant_type.is_active else "" }} />
             <span class="toggle-slider"></span>
           </label>
           <span class="portal-instance-state">{{ "Offered" if assistant_type.is_active else "Hidden" }}</span>
         </div>
-        <button type="button" class="portal-instance-remove" data-assistant-type-delete>Delete</button>
+        <div class="portal-assistant-type-head-actions">
+          <button type="button" class="portal-btn is-secondary" data-assistant-type-toggle-edit
+                  aria-expanded="false">Edit</button>
+          <button type="button" class="portal-instance-remove" data-assistant-type-delete>Delete</button>
+        </div>
       </div>
+
       <div class="portal-settings-instance-body">
-        {% if assistant_type.description %}
-        <p class="portal-panel-note">{{ assistant_type.description }}</p>
-        {% endif %}
-        <div class="portal-kv-grid">
-          <div class="portal-kv-item"><span class="portal-usage-k">Engine</span><span class="portal-usage-v">{{ assistant_type.runtime_type }}</span></div>
+        <div class="portal-kv-grid" data-assistant-type-summary>
           <div class="portal-kv-item">
-            <span class="portal-usage-k">Behavior pack</span>
+            <span class="portal-usage-k">Engine</span>
+            <span class="portal-usage-v">{{ assistant_type.runtime_type }}</span>
+          </div>
+          <div class="portal-kv-item">
+            <span class="portal-usage-k">Behavior pack branch</span>
             <span class="portal-usage-v">{{ assistant_type.agent_settings_branch or "configured default" }}</span>
           </div>
           <div class="portal-kv-item">
-            <span class="portal-usage-k">Skill pack</span>
+            <span class="portal-usage-k">Skill pack branch</span>
             <span class="portal-usage-v">{{ assistant_type.skill_branch or "configured default" }}</span>
           </div>
-          <div class="portal-kv-item"><span class="portal-usage-k">Order</span><span class="portal-usage-v">{{ assistant_type.sort_order }}</span></div>
+          <div class="portal-kv-item">
+            <span class="portal-usage-k">Order</span>
+            <span class="portal-usage-v">{{ assistant_type.sort_order }}</span>
+          </div>
         </div>
+
+        <form class="portal-panel-stack portal-assistant-type-edit hidden" data-assistant-type-edit-form>
+          <label class="portal-form-label">
+            <span class="portal-form-label">Icon</span>
+            {{ icon_picker("edit-icon-" ~ assistant_type.id, assistant_type.icon) }}
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="portal-form-label">
+              <span class="portal-form-label">Name</span>
+              <input type="text" name="name" class="portal-form-input" value="{{ assistant_type.name }}" required />
+            </label>
+            <label class="portal-form-label">
+              <span class="portal-form-label">Order</span>
+              <input type="number" name="sort_order" class="portal-form-input" value="{{ assistant_type.sort_order }}" />
+            </label>
+          </div>
+          <label class="portal-form-label">
+            <span class="portal-form-label">Description</span>
+            <input type="text" name="description" class="portal-form-input"
+                   value="{{ assistant_type.description or '' }}"
+                   placeholder="Shown under the name on the create card." />
+          </label>
+          <label class="portal-form-label">
+            <span class="portal-form-label">Engine</span>
+            <select name="runtime_type" class="portal-form-select">
+              {% for value in runtime_types %}
+              <option value="{{ value }}" {{ "selected" if value == assistant_type.runtime_type else "" }}>{{ value }}</option>
+              {% endfor %}
+            </select>
+            <span class="portal-form-hint">Fixed on an assistant once it is created.</span>
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            {{ branch_field("Behavior pack branch", "agent_settings_branch", assistant_type.agent_settings_branch,
+                            agent_branches, agent_branch_error, default_agent_settings_branch) }}
+            {{ branch_field("Skill pack branch", "skill_branch", assistant_type.skill_branch,
+                            skill_branches, skill_branch_error, default_skill_branch) }}
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="submit" class="portal-btn is-primary">Save changes</button>
+            <button type="button" class="portal-btn" data-assistant-type-cancel-edit>Cancel</button>
+            <div class="portal-inline-state" data-assistant-type-edit-msg></div>
+          </div>
+        </form>
+
         <p class="portal-inline-note">
-          Deleting a type does not affect assistants already created from it &mdash; creation copies these
-          values onto the assistant.
+          Editing a type changes what new assistants inherit. Assistants already created from it keep
+          the values they were created with.
         </p>
       </div>
     </section>
@@ -127,4 +157,50 @@
     No assistant types yet. Members cannot use simple mode until at least one exists.
   </div>
   {% endif %}
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Add a type</h6>
+    </div>
+    <form class="portal-panel-stack" data-assistant-type-create-form>
+      <label class="portal-form-label">
+        <span class="portal-form-label">Icon</span>
+        {{ icon_picker("create-icon", default_icon) }}
+      </label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Name</span>
+          <input type="text" name="name" class="portal-form-input" placeholder="Business Assistant" required />
+        </label>
+        <label class="portal-form-label">
+          <span class="portal-form-label">Order</span>
+          <input type="number" name="sort_order" class="portal-form-input" value="0" />
+        </label>
+      </div>
+      <label class="portal-form-label">
+        <span class="portal-form-label">Description</span>
+        <input type="text" name="description" class="portal-form-input"
+               placeholder="Requirements, tickets, and documentation." />
+      </label>
+      <label class="portal-form-label">
+        <span class="portal-form-label">Engine</span>
+        <select name="runtime_type" class="portal-form-select">
+          {% for value in runtime_types %}
+          <option value="{{ value }}" {{ "selected" if value == "native" else "" }}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="grid grid-cols-2 gap-3">
+        {{ branch_field("Behavior pack branch", "agent_settings_branch", "",
+                        agent_branches, agent_branch_error, default_agent_settings_branch) }}
+        {{ branch_field("Skill pack branch", "skill_branch", "",
+                        skill_branches, skill_branch_error, default_skill_branch) }}
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="submit" class="portal-btn is-primary">Add type</button>
+        <div class="portal-inline-state" data-assistant-type-create-msg></div>
+      </div>
+    </form>
+  </section>
 </div>

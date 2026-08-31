@@ -90,6 +90,70 @@ def _sanitize_git_ls_remote_message(value) -> str:
     return message
 
 
+class GitBranchLookupError(RuntimeError):
+    """Raised when a repository's branches could not be listed."""
+
+    def __init__(self, message: str, *, timeout: bool = False) -> None:
+        super().__init__(message)
+        self.timeout = timeout
+
+
+def fetch_repo_branches(repo_url: str) -> list[str]:
+    """List a remote's branch names.
+
+    Shared by the HTTP endpoint and by server-rendered panels that want their
+    branch selects already populated. Raises GitBranchLookupError so each caller
+    can decide whether that is fatal.
+    """
+    normalized_repo_url = normalize_git_repo_url(repo_url)
+    if not normalized_repo_url:
+        raise GitBranchLookupError("repo_url is required")
+
+    try:
+        with _temporary_git_askpass() as askpass_path:
+            result = subprocess.run(
+                ["git", "ls-remote", "--heads", normalized_repo_url],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=_git_ls_remote_timeout_seconds(),
+                env=_build_git_ls_remote_env(askpass_path),
+            )
+    except subprocess.TimeoutExpired as exc:
+        raise GitBranchLookupError("Timed out while loading repository branches", timeout=True) from exc
+    except Exception as exc:
+        raise GitBranchLookupError(_sanitize_git_ls_remote_message(exc)) from exc
+
+    if result.returncode != 0:
+        detail = _sanitize_git_ls_remote_message(result.stderr or result.stdout or "git ls-remote failed").strip()
+        raise GitBranchLookupError(detail[:300])
+
+    branches: list[str] = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split()
+        if len(parts) != 2:
+            continue
+        ref = parts[1]
+        prefix = "refs/heads/"
+        if ref.startswith(prefix):
+            branches.append(ref[len(prefix):])
+    return sorted(set(branches))
+
+
+def safe_fetch_repo_branches(repo_url: str | None) -> tuple[list[str], str]:
+    """Branch names plus an error string, for callers that must not fail.
+
+    A panel that cannot reach the repository should still render with a
+    free-text fallback rather than returning an error page.
+    """
+    if not repo_url:
+        return [], ""
+    try:
+        return fetch_repo_branches(repo_url), ""
+    except GitBranchLookupError as exc:
+        return [], str(exc)
+
+
 @router.get("/branches")
 def list_git_repo_branches(
     repo_url: str = Query(..., min_length=1),
