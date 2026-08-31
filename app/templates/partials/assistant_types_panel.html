@@ -154,16 +154,24 @@
   </div>
   {% else %}
   <div class="portal-panel-empty">
-    No assistant types yet. Members cannot use simple mode until at least one exists.
+    No assistant types yet. Members cannot use simple mode until at least one exists &mdash;
+    use <strong>Add type</strong> above to create one.
   </div>
   {% endif %}
 
-  <section class="portal-panel-section">
-    <div class="portal-settings-section-title">
-      <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>Add a type</h6>
-    </div>
-    <form class="portal-panel-stack" data-assistant-type-create-form>
+  <div id="assistant-type-create-modal" class="modal hidden" role="dialog" aria-modal="true"
+       aria-labelledby="assistant-type-create-title" aria-hidden="true"
+       data-assistant-type-create-modal>
+    <div class="modal-card panel assistant-type-modal-card">
+      <div class="portal-modal-titlebar">
+        <div>
+          <h3 id="assistant-type-create-title">Add assistant type</h3>
+          <p class="portal-modal-copy">A preset members can choose in simple mode.</p>
+        </div>
+        <button type="button" class="portal-modal-close" title="Close" aria-label="Close"
+                data-close-assistant-type-modal>&#10005;</button>
+      </div>
+      <form class="portal-panel-stack" data-assistant-type-create-form>
       <label class="portal-form-label">
         <span class="portal-form-label">Icon</span>
         {{ icon_picker("create-icon", default_icon) }}
@@ -197,10 +205,13 @@
         {{ branch_field("Skill pack branch", "skill_branch", "",
                         skill_branches, skill_branch_error, default_skill_branch) }}
       </div>
-      <div class="flex items-center gap-2">
-        <button type="submit" class="portal-btn is-primary">Add type</button>
-        <div class="portal-inline-state" data-assistant-type-create-msg></div>
-      </div>
-    </form>
-  </section>
+      <div class="portal-modal-actions">
+          <button type="button" class="portal-btn" data-close-assistant-type-modal>Cancel</button>
+          <span class="portal-onboarding-spacer"></span>
+          <button type="submit" class="portal-btn is-primary">Add type</button>
+        </div>
+        <p class="portal-modal-feedback" data-assistant-type-create-msg></p>
+      </form>
+    </div>
+  </div>
 </div>

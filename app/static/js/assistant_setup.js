@@ -347,6 +347,9 @@
       .querySelectorAll("[data-admin-panel]")
       .forEach((item) => item.classList.toggle("is-active", item === button));
     document.getElementById("user-management-nav-item")?.classList.remove("is-active");
+    if (typeof window.setPortalAdminPanel === "function") {
+      window.setPortalAdminPanel(button.dataset.adminPanel);
+    }
 
     target.innerHTML = '<div class="portal-inline-state">Loading…</div>';
     try {
@@ -360,9 +363,47 @@
     }
   }
 
+  function assistantTypeCreateModal() {
+    return document.getElementById("assistant-type-create-modal");
+  }
+
+  function setAssistantTypeModalOpen(open) {
+    const modal = assistantTypeCreateModal();
+    if (!modal) return;
+    modal.classList.toggle("hidden", !open);
+    modal.setAttribute("aria-hidden", String(!open));
+    if (open) {
+      const form = modal.querySelector("[data-assistant-type-create-form]");
+      form?.reset();
+      // reset() restores the input's markup value but not the picker's
+      // highlight, so re-sync the selection from the value that survived.
+      const picker = modal.querySelector("[data-icon-picker]");
+      const current = picker?.querySelector("[data-icon-value]")?.value;
+      picker?.querySelectorAll("[data-icon-choice]").forEach((option) => {
+        const isSelected = option.dataset.iconChoice === current;
+        option.classList.toggle("is-selected", isSelected);
+        option.setAttribute("aria-checked", String(isSelected));
+      });
+      setFeedback(modal.querySelector("[data-assistant-type-create-msg]"), "", "");
+      window.setTimeout(() => modal.querySelector('input[name="name"]')?.focus(), 30);
+    }
+  }
+
   function bindAdminNav() {
     document.querySelectorAll("[data-admin-panel]").forEach((button) => {
       button.addEventListener("click", () => openAdminPanel(button));
+    });
+
+    // The header button lives outside the swapped-in panel, so it is bound once
+    // here rather than through the panel's delegation.
+    document
+      .querySelector("[data-open-assistant-type-modal]")
+      ?.addEventListener("click", () => setAssistantTypeModalOpen(true));
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      const modal = assistantTypeCreateModal();
+      if (modal && !modal.classList.contains("hidden")) setAssistantTypeModalOpen(false);
     });
   }
 
@@ -393,6 +434,10 @@
     });
 
     root.addEventListener("click", async (event) => {
+      if (event.target.closest("[data-close-assistant-type-modal]")) {
+        setAssistantTypeModalOpen(false);
+        return;
+      }
       const iconChoice = event.target.closest("[data-icon-choice]");
       if (iconChoice) {
         selectIcon(iconChoice);
@@ -437,6 +482,7 @@
         body: JSON.stringify(body),
       });
       state.assistantTypes = null;
+      setAssistantTypeModalOpen(false);
       toast("Assistant type added.");
       await reloadAdminPanel("assistant-types");
     } catch (error) {

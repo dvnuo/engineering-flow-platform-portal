@@ -75,6 +75,7 @@ const dom = {
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addDelegationBtn: document.getElementById("add-delegation-btn"),
   headerAddAllowlistBtn: document.getElementById("header-add-allowlist-btn"),
+  headerAddAssistantTypeBtn: document.getElementById("header-add-assistant-type-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   contextUsageBtn: document.getElementById("btn-context"),
   contextUsageLabel: document.getElementById("context-usage-label"),
@@ -244,7 +245,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   assistantOnlyControls.forEach((element) => {
     element?.classList.toggle("hidden", normalized !== "assistants");
   });
-  dom.headerAddAllowlistBtn?.classList.toggle("hidden", normalized !== "users");
+  syncAdminHeaderActions(normalized);
 
   if (normalized === "assistants") {
     dom.centerPlaceholder?.classList.remove("hidden");
@@ -263,6 +264,10 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   if (dom.embedTitle) dom.embedTitle.textContent = title;
   if (dom.chatStatus) dom.chatStatus.textContent = initialPortalStatusText(normalized);
 }
+
+// Declared here rather than on `state`: applyInitialPortalRouteShell() runs
+// before `state` is initialized, and reading it from there is a TDZ error.
+let activeAdminPanel = "users";
 
 applyInitialPortalRouteShell();
 
@@ -7622,6 +7627,8 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
   }
 
   state.selectedUserManagementView = "members";
+  activeAdminPanel = "users";
+  document.querySelectorAll("[data-admin-panel]").forEach((item) => item.classList.remove("is-active"));
   dom.userManagementNavItem?.classList.add("is-active");
   dom.userManagementNavItem?.setAttribute("aria-current", "page");
   setMainView("detail");
@@ -8215,6 +8222,20 @@ function applyOverviewStatusLine() {
   return true;
 }
 
+// Each Administration panel owns its primary action, so the header has to track
+// which panel is open rather than only which section is active.
+function syncAdminHeaderActions(section) {
+  const inAdmin = String(section || "") === "users";
+  const panel = inAdmin ? (activeAdminPanel || "users") : "";
+  dom.headerAddAllowlistBtn?.classList.toggle("hidden", panel !== "users");
+  dom.headerAddAssistantTypeBtn?.classList.toggle("hidden", panel !== "assistant-types");
+}
+
+window.setPortalAdminPanel = function setPortalAdminPanel(name) {
+  activeAdminPanel = String(name || "users");
+  syncAdminHeaderActions(state.activeNavSection);
+};
+
 function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
   const userManagementMode = state.activeNavSection === "users";
@@ -8225,7 +8246,7 @@ function syncMainHeader() {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
   });
-  dom.headerAddAllowlistBtn?.classList.toggle("hidden", !userManagementMode);
+  syncAdminHeaderActions(state.activeNavSection);
   syncOverviewToolbars();
 
   if (assistantMode) {

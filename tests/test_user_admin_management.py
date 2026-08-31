@@ -435,7 +435,10 @@ def test_users_panel_contains_management_and_usage_controls(monkeypatch):
         assert 'id="header-add-allowlist-btn"' in app_template
         assert "data-open-admin-allowlist-modal" in app_template
         assert "headerAddAllowlistBtn" in chat_ui_js
-        assert 'classList.toggle("hidden", !userManagementMode)' in chat_ui_js
+        # Gated per Administration panel rather than per section, so the other
+        # admin panels do not inherit this action. See
+        # tests/test_admin_panel_header_actions.py.
+        assert 'headerAddAllowlistBtn?.classList.toggle("hidden", panel !== "users")' in chat_ui_js
         assert "openAllowlistModal" in admin_js
         assert "closeAllowlistModal" in admin_js
         assert "window.showToast(successMessage" in admin_js

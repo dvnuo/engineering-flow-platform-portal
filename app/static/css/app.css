@@ -5604,3 +5604,11 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
 @media (prefers-reduced-motion: reduce) {
   .portal-icon-option { transition: none; }
 }
+
+/* The icon grid plus six fields overflows a short viewport, which put the
+   submit button out of reach. Same constraint the create-assistant wizard
+   uses. */
+.modal-card.assistant-type-modal-card {
+  max-height: min(88vh, 760px);
+  overflow-y: auto;
+}
