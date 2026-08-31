@@ -17,6 +17,11 @@ branch_labels = None
 depends_on = None
 
 
+# Behavior and skill packs are distributed on per-role branches of the two
+# configured repositories, so each type names the branch carrying its persona
+# and its skill subset. An admin can repoint these in Administration; a type
+# naming a branch that does not exist produces an assistant that fails to start
+# with "connection settings aren't ready", which the startup card surfaces.
 DEFAULT_ASSISTANT_TYPES = (
     (
         "business",
@@ -24,6 +29,8 @@ DEFAULT_ASSISTANT_TYPES = (
         "Requirements, tickets, and documentation. Asks before it acts.",
         "clipboard-list",
         10,
+        "business",
+        "business",
     ),
     (
         "dev",
@@ -31,6 +38,8 @@ DEFAULT_ASSISTANT_TYPES = (
         "Code, pull requests, and reviews across your repositories.",
         "code",
         20,
+        "dev",
+        "dev",
     ),
     (
         "ops",
@@ -38,6 +47,8 @@ DEFAULT_ASSISTANT_TYPES = (
         "Deployments, monitoring, and runbooks for live systems.",
         "server-cog",
         30,
+        "ops",
+        "ops",
     ),
 )
 
@@ -76,9 +87,6 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
         )
 
-        # Seed the three roles the platform is being opened to. Branches stay
-        # NULL so a fresh install falls back to the configured defaults and the
-        # simple create flow works before an admin has customized anything.
         now = datetime.utcnow()
         op.bulk_insert(
             sa.table(
@@ -102,14 +110,22 @@ def upgrade() -> None:
                     "description": description,
                     "icon": icon,
                     "runtime_type": "native",
-                    "agent_settings_branch": None,
-                    "skill_branch": None,
+                    "agent_settings_branch": agent_branch,
+                    "skill_branch": skill_branch,
                     "sort_order": sort_order,
                     "is_active": True,
                     "created_at": now,
                     "updated_at": now,
                 }
-                for type_id, name, description, icon, sort_order in DEFAULT_ASSISTANT_TYPES
+                for (
+                    type_id,
+                    name,
+                    description,
+                    icon,
+                    sort_order,
+                    agent_branch,
+                    skill_branch,
+                ) in DEFAULT_ASSISTANT_TYPES
             ],
         )
 
