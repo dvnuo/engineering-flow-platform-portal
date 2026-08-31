@@ -5612,3 +5612,30 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
   max-height: min(88vh, 760px);
   overflow-y: auto;
 }
+
+/* -- failed run summary --------------------------------------------------- */
+
+.chat-completion-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--portal-warning);
+  border-radius: 0 var(--portal-radius-sm) var(--portal-radius-sm) 0;
+  background: var(--portal-surface-muted);
+  margin-bottom: 8px;
+}
+
+.chat-completion-hint strong { color: var(--portal-text); font-size: 0.94rem; }
+.chat-completion-hint p { margin: 0; color: var(--portal-text-secondary); font-size: 0.88rem; }
+
+.chat-completion-raw .portal-collapsible-summary {
+  font-size: 0.82rem;
+  color: var(--portal-text-muted);
+}
+
+.chat-completion-raw > div {
+  font-size: 0.82rem;
+  color: var(--portal-text-secondary);
+  word-break: break-word;
+}

@@ -6394,6 +6394,51 @@ function renderCompletionStateWarning(payload = {}) {
     + `${incompleteReason ? `<div><strong>incomplete_reason:</strong> ${incompleteReason}</div>` : ""}`
     + `${progressPreview ? `<div><strong>progress_preview:</strong> ${progressPreview}</div>` : ""}</div>`;
 }
+// A failed run used to read as three lines of raw field dump, the last two of
+// them the same provider string twice. Lead with what happened and what to do;
+// keep the raw fields for whoever is debugging.
+const COMPLETION_FAILURE_HINTS = [
+  {
+    match: /transport failed with status (5\d\d)|\b(502|503|504)\b|internal server error/i,
+    headline: "The model provider had a temporary failure",
+    detail: "Nothing is wrong with your request. Send it again — this usually clears on its own.",
+  },
+  {
+    match: /\b429\b|rate.?limit/i,
+    headline: "The model provider is rate limiting",
+    detail: "Wait a few moments before sending again.",
+  },
+  {
+    match: /\b401\b|unauthorized|token is required|token exchange failed/i,
+    headline: "The model provider rejected your credentials",
+    detail: "Your access may have expired. Reconnect the provider in Connections.",
+  },
+  {
+    match: /timed out|timeout/i,
+    headline: "The model provider took too long to respond",
+    detail: "Send your message again, or shorten it if it was very long.",
+  },
+  {
+    match: /context.{0,20}(overflow|too long|exceed)/i,
+    headline: "The conversation got too long for the model",
+    detail: "Start a new chat, or ask for a summary before continuing.",
+  },
+  {
+    match: /max.?iterations/i,
+    headline: "The assistant hit its step limit",
+    detail: "Ask it to continue, or narrow the request into smaller steps.",
+  },
+];
+
+function completionFailureHint(reason) {
+  const text = String(reason || "").trim();
+  if (!text) return null;
+  for (const hint of COMPLETION_FAILURE_HINTS) {
+    if (hint.match.test(text)) return hint;
+  }
+  return null;
+}
+
 function renderCompletionDiagnosticFields(finalPayload = {}) {
   const contextState = finalPayload?.context_state && typeof finalPayload.context_state === "object"
     ? finalPayload.context_state
@@ -6411,10 +6456,25 @@ function renderCompletionDiagnosticFields(finalPayload = {}) {
     ["progress_preview", progressPreview],
     ["context_state", contextSummary],
   ];
-  return fields
+  const rawFields = fields
     .filter(([, value]) => String(value ?? "").trim())
     .map(([label, value]) => `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(String(value))}</div>`)
     .join("");
+  if (!rawFields) return "";
+
+  const hint = completionFailureHint(
+    finalPayload?.incomplete_reason || finalPayload?.incompleteReason || ""
+  );
+  if (!hint) return rawFields;
+
+  return `<div class="chat-completion-hint">`
+    + `<strong>${escapeHtml(hint.headline)}</strong>`
+    + `<p>${escapeHtml(hint.detail)}</p>`
+    + `</div>`
+    + `<details class="portal-collapsible chat-completion-raw">`
+    + `<summary class="portal-collapsible-summary">Technical details</summary>`
+    + `${rawFields}`
+    + `</details>`;
 }
 function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) {
   if (state.selectedAgentId !== agentId || !dom.messageList) return false;
@@ -6438,11 +6498,19 @@ function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) 
   warningBlock.className = "chat-completion-warning-block";
   warningBlock.innerHTML = renderCompletionDiagnosticFields(finalPayload);
   markdownEl.appendChild(warningBlock);
-  const responseEl = document.createElement("div");
-  responseEl.className = "chat-incomplete-response md-render";
-  responseEl.dataset.md = responseText || "No final assistant response was returned.";
-  responseEl.dataset.displayBlocks = "[]";
-  markdownEl.appendChild(responseEl);
+  const reasonText = String(
+    finalPayload?.incomplete_reason || finalPayload?.incompleteReason || ""
+  ).trim();
+  // When the run failed before producing anything, the "response" is just the
+  // error restated. The block above already says it, better.
+  const responseIsJustTheReason = Boolean(responseText) && responseText === reasonText;
+  if (!responseIsJustTheReason) {
+    const responseEl = document.createElement("div");
+    responseEl.className = "chat-incomplete-response md-render";
+    responseEl.dataset.md = responseText || "No final assistant response was returned.";
+    responseEl.dataset.displayBlocks = "[]";
+    markdownEl.appendChild(responseEl);
+  }
   article.querySelector('.assistant-stream-cursor')?.remove();
   article.querySelector('.assistant-waiting-indicator')?.remove();
   renderMarkdown(responseEl.parentElement); decorateToolMessages(article); renderIcons();
