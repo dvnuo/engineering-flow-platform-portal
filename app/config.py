@@ -138,12 +138,15 @@ class Settings(BaseSettings):
         validation_alias="OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS",
     )
     default_agent_disk_size_gi: int = 20
-    default_agent_cpu: str = "250m"
-    default_agent_memory: str = "512Mi"
+    # Resource requests for a new agent pod. Kubernetes quantities; an empty
+    # value leaves that request unset (the pod then only carries the limits
+    # below). Configurable via DEFAULT_AGENT_CPU / DEFAULT_AGENT_MEMORY.
+    default_agent_cpu: str = Field(default="250m", validation_alias="DEFAULT_AGENT_CPU")
+    default_agent_memory: str = Field(default="512Mi", validation_alias="DEFAULT_AGENT_MEMORY")
     # Hard ceilings on agent pod resources. Without limits, a runaway pod can
     # consume a whole node's CPU and hoard memory (never OOMKilled). Set as
     # Kubernetes quantities; empty string disables that limit.
-    default_agent_cpu_limit: str = Field(default="10", validation_alias="DEFAULT_AGENT_CPU_LIMIT")
+    default_agent_cpu_limit: str = Field(default="1", validation_alias="DEFAULT_AGENT_CPU_LIMIT")
     default_agent_memory_limit: str = Field(default="2Gi", validation_alias="DEFAULT_AGENT_MEMORY_LIMIT")
     default_agent_mount_path: str = "/workspace"
 

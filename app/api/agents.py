@@ -264,6 +264,18 @@ def _resolve_create_mount_path(payload: AgentCreateRequest, runtime_type: str) -
     return _default_mount_path_for_runtime(runtime_type)
 
 
+# An explicit "" carries the same meaning here as it does in the settings: no
+# request for that resource. Only an omitted (or null) field takes the default.
+def _resolve_create_cpu(payload: AgentCreateRequest) -> str | None:
+    if payload.cpu is not None:
+        return payload.cpu.strip() or None
+    return (settings.default_agent_cpu or "").strip() or None
+
+
+def _resolve_create_memory(payload: AgentCreateRequest) -> str | None:
+    if payload.memory is not None:
+        return payload.memory.strip() or None
+    return (settings.default_agent_memory or "").strip() or None
 
 
 def _normalize_runtime_type_update_change(agent, changes: dict) -> bool:
@@ -391,8 +403,8 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         agent_settings_subdir=effective_agent_settings_subdir,
         skill_repo_url=effective_skill_repo_url,
         skill_branch=effective_skill_branch,
-        cpu=payload.cpu,
-        memory=payload.memory,
+        cpu=_resolve_create_cpu(payload),
+        memory=_resolve_create_memory(payload),
         agent_type=payload.agent_type,
         runtime_profile_id=runtime_profile_id,
         disk_size_gi=payload.disk_size_gi,

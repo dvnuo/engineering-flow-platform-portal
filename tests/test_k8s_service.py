@@ -803,14 +803,14 @@ class K8sServiceNoopTest(unittest.TestCase):
         resources = self.service._build_agent_container_resources(agent)
         self.assertIsNotNone(resources)
         self.assertEqual(resources.requests, {"cpu": "250m", "memory": "512Mi"})
-        self.assertEqual(resources.limits, {"cpu": "10", "memory": "2Gi"})
+        self.assertEqual(resources.limits, {"cpu": "1", "memory": "2Gi"})
 
     def test_agent_container_resources_set_limits_even_without_requests(self):
         agent = SimpleNamespace(id="a1", cpu=None, memory=None)
         resources = self.service._build_agent_container_resources(agent)
         self.assertIsNotNone(resources)
         self.assertIsNone(resources.requests)
-        self.assertEqual(resources.limits, {"cpu": "10", "memory": "2Gi"})
+        self.assertEqual(resources.limits, {"cpu": "1", "memory": "2Gi"})
 
     def test_agent_container_resource_limits_are_configurable_and_optional(self):
         s = self.service.settings
