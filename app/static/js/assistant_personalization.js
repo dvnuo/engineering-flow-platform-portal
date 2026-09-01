@@ -134,15 +134,29 @@
     return String(answer).trim();
   }
 
+  /** Fetch if needed, then paint -- unless the member moved on meanwhile. */
+  async function applyForAgent(agentId) {
+    if (!agentId) return;
+    const payload = await loadPersonalization(agentId);
+    if (activeAgentId !== agentId) return;
+    applyToWelcome(payload);
+  }
+
   function bind() {
-    document.addEventListener("portal:agent-selected", async (browserEvent) => {
+    document.addEventListener("portal:agent-selected", (browserEvent) => {
       const agentId = browserEvent.detail?.agentId;
       activeAgentId = agentId || null;
+      applyForAgent(activeAgentId);
+    });
+
+    // Starting a new chat, switching sessions, or loading an empty one rebuilds
+    // the welcome row from a hardcoded default without changing the selected
+    // assistant, so the greeting and cards have to be painted back on.
+    document.addEventListener("portal:welcome-rendered", (browserEvent) => {
+      const agentId = browserEvent.detail?.agentId || activeAgentId;
       if (!agentId) return;
-      const payload = await loadPersonalization(agentId);
-      // The member may have moved on while this was in flight.
-      if (activeAgentId !== agentId) return;
-      applyToWelcome(payload);
+      activeAgentId = agentId;
+      applyForAgent(agentId);
     });
 
     document.getElementById("message-list")?.addEventListener("click", (browserEvent) => {

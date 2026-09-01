@@ -4434,6 +4434,17 @@ function clearMessageListToWelcome() {
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
   scrollToBottom({ force: true });
+  // The welcome row is rebuilt from a hardcoded default here, which discards
+  // anything the assistant's behavior pack put there. Announce it so the
+  // personalization can be re-applied -- starting a new chat does not change
+  // the selected assistant, so portal:agent-selected never fires.
+  try {
+    document.dispatchEvent(new CustomEvent("portal:welcome-rendered", {
+      detail: { agentId: state.selectedAgentId },
+    }));
+  } catch (error) {
+    /* a listener throwing must not break clearing the transcript */
+  }
 }
 
 
@@ -8292,6 +8303,23 @@ function applyOverviewStatusLine() {
 
 // Each Administration panel owns its primary action, so the header has to track
 // which panel is open rather than only which section is active.
+// The header names the panel, not the section. Keyed by the same identifier the
+// nav buttons carry so a new panel cannot be added without a heading.
+const ADMIN_PANEL_HEADINGS = {
+  "users": {
+    title: "User Management",
+    status: "Manage members, roles, access, and usage",
+  },
+  "assistant-types": {
+    title: "Assistant Types",
+    status: "Presets members choose from when creating an assistant",
+  },
+  "default-connections": {
+    title: "Default Connections",
+    status: "The connection shape every new member inherits",
+  },
+};
+
 function syncAdminHeaderActions(section) {
   const inAdmin = String(section || "") === "users";
   const panel = inAdmin ? (activeAdminPanel || "users") : "";
@@ -8302,6 +8330,7 @@ function syncAdminHeaderActions(section) {
 window.setPortalAdminPanel = function setPortalAdminPanel(name) {
   activeAdminPanel = String(name || "users");
   syncAdminHeaderActions(state.activeNavSection);
+  syncMainHeader();
 };
 
 function syncMainHeader() {
@@ -8328,11 +8357,12 @@ function syncMainHeader() {
       dom.embedTitle.textContent = "Delegations";
       if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");
     } else if (state.activeNavSection === "users") {
-      dom.embedTitle.textContent = "User Management";
-      setChatStatus("Manage members, roles, access, and usage");
+      const heading = ADMIN_PANEL_HEADINGS[activeAdminPanel] || ADMIN_PANEL_HEADINGS.users;
+      dom.embedTitle.textContent = heading.title;
+      setChatStatus(heading.status);
     } else {
-      dom.embedTitle.textContent = "Runtime Profiles";
-      setChatStatus("Browse and manage your runtime profiles");
+      dom.embedTitle.textContent = "Connections";
+      setChatStatus("Browse and manage your connection profiles");
     }
   }
 }

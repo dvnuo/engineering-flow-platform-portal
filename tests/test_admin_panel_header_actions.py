@@ -91,6 +91,57 @@ def test_both_header_actions_exist_and_start_hidden():
         assert "hidden" in opening_tag, f"{button_id} must not flash before gating runs"
 
 
+# ------------------------------------------------------------- header title
+
+
+def test_each_panel_has_its_own_title_and_status():
+    # Same bug as the header action: a section-wide title left every
+    # Administration panel reading "User Management".
+    js = _chat_ui()
+    block = js[js.index("const ADMIN_PANEL_HEADINGS = {") :]
+    block = block[: block.index("\n};")]
+
+    for panel in ("users", "assistant-types", "default-connections"):
+        assert f'"{panel}"' in block, panel
+    assert block.count("title:") == block.count("status:") == 3
+
+
+def test_the_title_is_keyed_on_the_panel_not_the_section():
+    body = _extract_js_function(_chat_ui(), "syncMainHeader")
+
+    assert "ADMIN_PANEL_HEADINGS[activeAdminPanel]" in body
+    assert 'dom.embedTitle.textContent = "User Management"' not in body
+
+
+def test_switching_panel_refreshes_the_title():
+    # setPortalAdminPanel only synced the actions before, so the title kept
+    # whichever panel Administration opened with.
+    js = _chat_ui()
+    setter = js[js.index("window.setPortalAdminPanel = ") :]
+    setter = setter[: setter.index("};")]
+
+    assert "syncMainHeader()" in setter
+
+
+def test_the_panel_keys_match_the_nav_buttons():
+    # A heading keyed on a name no button carries would never be used.
+    js = _chat_ui()
+    html = _app_html()
+    block = js[js.index("const ADMIN_PANEL_HEADINGS = {") :]
+    block = block[: block.index("\n};")]
+
+    for panel in ("assistant-types", "default-connections"):
+        assert f'data-admin-panel="{panel}"' in html, panel
+        assert f'"{panel}"' in block, panel
+
+
+def test_the_fallback_title_uses_the_renamed_term():
+    body = _extract_js_function(_chat_ui(), "syncMainHeader")
+
+    assert '"Runtime Profiles"' not in body
+    assert '"Connections"' in body
+
+
 # -------------------------------------------------------------- create modal
 
 
