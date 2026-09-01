@@ -227,6 +227,20 @@ def test_settings_agent_resource_defaults():
     assert settings.default_agent_memory_limit == "2Gi"
 
 
+def test_settings_agent_resource_env_accepts_empty_to_unset(monkeypatch):
+    # An empty value is the documented way to ship a pod without that
+    # request/limit, so it must survive as "" rather than falling back.
+    monkeypatch.setenv("DEFAULT_AGENT_CPU", "")
+    monkeypatch.setenv("DEFAULT_AGENT_MEMORY", "")
+    monkeypatch.setenv("DEFAULT_AGENT_CPU_LIMIT", "")
+    monkeypatch.setenv("DEFAULT_AGENT_MEMORY_LIMIT", "")
+    settings = Settings()
+    assert settings.default_agent_cpu == ""
+    assert settings.default_agent_memory == ""
+    assert settings.default_agent_cpu_limit == ""
+    assert settings.default_agent_memory_limit == ""
+
+
 def test_settings_agent_resource_env_overrides(monkeypatch):
     monkeypatch.setenv("DEFAULT_AGENT_CPU", "500m")
     monkeypatch.setenv("DEFAULT_AGENT_MEMORY", "1Gi")
