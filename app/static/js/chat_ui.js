@@ -1398,6 +1398,10 @@ function toSkillSuggestion(item) {
     runtime_name: skill?.runtime_name || skill?.opencode_name || "",
     efp_name: skill?.efp_name || "",
     name: skill?.name || normalizedName,
+    // `desc` above is the dropdown line, with status and blocked reason folded
+    // in. The composer chip wants the skill's own words and nothing else.
+    description: typeof item === "string" ? "" : (skill?.description || ""),
+    repo_path: skill?.repo_path || "",
   };
 }
 
@@ -1420,6 +1424,65 @@ function findCachedSkillForSlash(invocation, agentId = state.selectedAgentId) {
     ].filter(Boolean).map((x) => String(x).trim().toLowerCase().replaceAll("_", "-"));
     return names.includes(target);
   }) || null;
+}
+
+/**
+ * Turn a skills remote into a browsable link to one file on one branch.
+ *
+ * Returns "" rather than a guess whenever any part is missing or the remote is
+ * not something a browser can open, so the caller can fall back to a chip with
+ * no link instead of one that 404s.
+ */
+function skillSourceUrl(repoUrl, branch, repoPath) {
+  const path = String(repoPath || "").replace(/^\/+/, "");
+  const ref = String(branch || "").trim();
+  const remote = String(repoUrl || "").trim();
+  if (!path || !ref || !remote) return "";
+
+  let parsed;
+  try {
+    // git@host:org/repo is a valid remote and not a valid URL.
+    parsed = new URL(remote.replace(/^[^/@:]+@([^:/]+):/, "https://$1/"));
+  } catch (error) {
+    return "";
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+
+  const repo = parsed.pathname.replace(/\.git$/, "").replace(/\/+$/, "");
+  if (!repo || repo === "/") return "";
+  // A branch may contain slashes, so encode segments rather than the whole
+  // string. `parsed.origin` drops any token or username the remote carried,
+  // which must never end up in a link on screen.
+  const encodeSegments = (value) => value.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return `${parsed.origin}${repo}/blob/${encodeSegments(ref)}/${encodeSegments(path)}`;
+}
+
+/**
+ * What the composer should say about a typed slash command.
+ *
+ * Matches the same rule the send path uses, so a chip appears exactly when the
+ * message will in fact run as a skill -- never as a hint that turns out to be
+ * wrong at send time.
+ */
+function resolvePortalSkillCommand(text, agentId = state.selectedAgentId) {
+  const invocation = parseSkillSlashInput(text);
+  if (!invocation) return null;
+  const skill = findCachedSkillForSlash(invocation, agentId);
+  if (!skill) return null;
+
+  const agent = state.mineAgents.find((item) => item.id === agentId) || null;
+  const repoUrl = agent?.effective_skill_repo_url || agent?.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
+  const branch = agent?.effective_skill_branch || agent?.skill_branch || state.agentDefaults?.default_skill_branch || "";
+
+  return {
+    command: invocation.command,
+    name: skill.name || invocation.name,
+    description: skill.description || "",
+    callable: skill.callable !== false,
+    blockedReason: skill.blocked_reason || "",
+    branch,
+    url: skillSourceUrl(repoUrl, branch, skill.repo_path),
+  };
 }
 
 function canWriteAgent(agent) {
@@ -5600,7 +5663,13 @@ async function submitChatForSelectedAgent() {
   }
   chatState.pendingFiles = [];
   renderInputPreview();
-  if (dom.chatInput) dom.chatInput.value = "";
+  if (dom.chatInput) {
+    dom.chatInput.value = "";
+    // Clearing the value fires nothing, so anything drawn from what was typed
+    // -- the skill chip above the field -- would survive the message it
+    // described and sit there next to an empty composer.
+    dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
   // The message is on its way, so the saved draft is no longer wanted.
   clearDraftForAgent(agentIdAtSend);
   resetChatInputHeight();
@@ -7684,6 +7753,9 @@ async function maybeShowSuggest() {
       // Replace from the start of "/" token to cursor while preserving preceding whitespace.
       const start = pickSlash.index + pickSlash[1].length;
       dom.chatInput.setRangeText(`${command} `, start, pickCursor, "end");
+      // setRangeText fires no event, so the composer chip, the autosize, and
+      // the draft save would all miss a command picked with the mouse.
+      dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
       hideSuggest();
     });
     return;
@@ -10224,6 +10296,8 @@ window.selectPortalAgentById = selectAgentById;
 window.currentPortalSessionId = currentSessionIdForSelectedAgent;
 window.currentPortalAgentId = () => state.selectedAgentId;
 window.renderPortalMarkdown = renderMarkdown;
+window.resolvePortalSkillCommand = resolvePortalSkillCommand;
+window.ensurePortalSkillsLoaded = loadTaskSkillsForAgent;
 window.initializeManagedSettingsPanels = initializeManagedSettingsPanels;
 
 window.initPasswordToggles = function(root = document) {

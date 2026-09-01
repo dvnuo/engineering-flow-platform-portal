@@ -481,6 +481,53 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 #chat-input::placeholder { color: var(--portal-text-muted); }
 #chat-input:focus { border: 0; outline: none; box-shadow: none; }
 
+/* -- composer skill chip -------------------------------------------------- */
+
+.portal-skill-chip-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 0; }
+
+.portal-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 1px solid var(--portal-accent);
+  border-radius: 999px;
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-decoration: none;
+  transition: border-color var(--portal-transition), color var(--portal-transition);
+}
+
+.portal-skill-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portal-skill-chip-icon { width: 14px; height: 14px; flex: 0 0 auto; }
+.portal-skill-chip-open { width: 12px; height: 12px; flex: 0 0 auto; opacity: 0.65; }
+
+.portal-skill-chip.is-linked { cursor: pointer; }
+.portal-skill-chip.is-linked:hover { border-color: var(--portal-accent-strong); }
+.portal-skill-chip.is-linked:hover .portal-skill-chip-name { text-decoration: underline; }
+.portal-skill-chip.is-linked:hover .portal-skill-chip-open { opacity: 1; }
+
+.portal-skill-chip.is-linked:focus-visible {
+  outline: 2px solid var(--portal-accent-strong);
+  outline-offset: 2px;
+}
+
+.portal-skill-chip.is-blocked {
+  border-color: var(--portal-danger);
+  background: transparent;
+  color: var(--portal-danger);
+}
+
+.portal-skill-chip.is-blocked.is-linked:hover { border-color: var(--portal-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-skill-chip { transition: none; }
+}
+
 .portal-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 4px; }
 .portal-composer-toolbar-left,
 .portal-composer-toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
