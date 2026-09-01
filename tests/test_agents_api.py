@@ -1245,6 +1245,13 @@ def test_create_resource_requests_follow_configured_defaults(monkeypatch):
         agent2 = db.get(Agent, explicit["id"])
         assert agent2.cpu == "100m"
         assert agent2.memory == "256Mi"
+
+        # An explicit "" asks for no request at all, the same thing an empty
+        # DEFAULT_AGENT_CPU means, so the default must not fill it back in.
+        unset = client.post("/api/agents", json={"name": "agent3", "cpu": "", "memory": ""}).json()
+        agent3 = db.get(Agent, unset["id"])
+        assert agent3.cpu is None
+        assert agent3.memory is None
     finally:
         cleanup()
 
