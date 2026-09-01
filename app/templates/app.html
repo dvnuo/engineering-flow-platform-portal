@@ -23,7 +23,7 @@
         <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Connections">
           <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
         </button>
-        <button id="help-btn" class="portal-rail-btn" type="button" title="Help &amp; shortcuts" aria-label="Help and shortcuts">
+        <button id="help-btn" class="portal-rail-btn" type="button" title="Help" aria-label="Help">
           <i data-lucide="circle-help" class="w-5 h-5"></i>
         </button>
         <button id="theme-toggle" class="portal-rail-btn" type="button" title="Toggle theme">
@@ -117,6 +117,26 @@
             <div id="delegation-filter-summary" class="portal-filter-summary"></div>
           </div>
           <div id="delegation-rule-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+        <section id="help-nav-section" class="portal-secondary-section hidden">
+          <div class="portal-secondary-list-body">
+            {% for group_name, topics in help_groups %}
+            <div class="portal-help-nav-group">
+              <h4 class="portal-help-nav-heading">{{ group_name }}</h4>
+              {% for topic in topics %}
+              <button class="portal-list-row portal-help-nav-row" type="button"
+                      data-help-topic-nav="{{ topic.id }}">
+                <i data-lucide="{{ topic.icon }}" class="w-5 h-5"></i>
+                <span class="portal-admin-nav-copy">
+                  <strong>{{ topic.title }}</strong>
+                  <small>{{ topic.summary }}</small>
+                </span>
+                <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+              </button>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
         </section>
         {% if role == "admin" %}
         <section id="users-nav-section" class="portal-secondary-section hidden">

@@ -1,0 +1,64 @@
+<div id="help-topic-panel" class="portal-panel-stack portal-help-topic" data-help-topic="{{ topic.id }}">
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">{{ topic.title }}</h5>
+      <p class="portal-panel-note">{{ topic.summary }}</p>
+    </div>
+  </div>
+
+  {% if topic.steps %}
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>{{ "Steps" if topic.connection_section else "How to start" }}</h6>
+    </div>
+    <ol class="portal-help-steps">
+      {% for step in topic.steps %}<li>{{ step }}</li>{% endfor %}
+    </ol>
+    {% if topic.help_url %}
+    <a class="portal-btn is-secondary portal-help-external" href="{{ topic.help_url }}"
+       target="_blank" rel="noopener noreferrer">
+      <i data-lucide="external-link" class="w-4 h-4"></i>
+      {{ topic.help_label or "Open the setup page" }}
+    </a>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% for heading, paragraphs in topic.body %}
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>{{ heading }}</h6>
+    </div>
+    {% for paragraph in paragraphs %}
+    <p class="portal-help-paragraph">{{ paragraph }}</p>
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  {% if topic.shortcuts %}
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Shortcuts</h6>
+    </div>
+    <dl class="portal-help-shortcuts">
+      {% for keys, description in topic.shortcuts %}
+      <dt data-help-shortcut>{{ keys }}</dt>
+      <dd>{{ description }}</dd>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endif %}
+
+  {% if topic.connection_section %}
+  <div class="portal-help-footer">
+    <button type="button" class="portal-btn is-primary" data-help-open-connections>
+      <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+      Open Connections
+    </button>
+    <span class="portal-panel-note">Fill this in on your own connection profile.</span>
+  </div>
+  {% endif %}
+</div>

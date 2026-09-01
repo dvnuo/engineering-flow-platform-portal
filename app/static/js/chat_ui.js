@@ -59,6 +59,8 @@ const dom = {
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
   usersNavSection: document.getElementById("users-nav-section"),
+  helpNavSection: document.getElementById("help-nav-section"),
+  helpBtn: document.getElementById("help-btn"),
   userManagementNavItem: document.getElementById("user-management-nav-item"),
   agentSearchInput: document.getElementById("agent-search-input"),
   agentFilterSummary: document.getElementById("agent-filter-summary"),
@@ -141,12 +143,12 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
-  "help",
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
   "assistants",
   "tasks",
+  "help",
   "runtime-profiles",
   "delegations",
   "users",
@@ -200,6 +202,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     "runtime-profiles": dom.runtimeProfilesMenuBtn,
     delegations: dom.delegationsMenuBtn,
     users: dom.usersMenuBtn,
+    help: dom.helpBtn,
   };
   const navSections = {
     assistants: dom.assistantsNavSection,
@@ -207,6 +210,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     "runtime-profiles": dom.runtimeProfilesNavSection,
     delegations: dom.delegationsNavSection,
     users: dom.usersNavSection,
+    help: dom.helpNavSection,
   };
   Object.entries(railButtons).forEach(([key, element]) => {
     element?.classList.toggle("is-active", key === normalized);
@@ -513,6 +517,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
     runtimeProfileId: "",
     delegationRuleId: "",
     userManagementView: "",
+    helpTopicId: "",
     hadHash,
     raw,
   };
@@ -552,6 +557,8 @@ function parsePortalHashRoute(hash = window.location.hash) {
   } else if (section === "users") {
     if (decodedId && decodedId !== "members") return fallback;
     parsed.userManagementView = decodedId;
+  } else if (section === "help") {
+    parsed.helpTopicId = decodedId;
   }
   return parsed;
 }
@@ -577,6 +584,11 @@ function portalHashForRoute(route = {}) {
   if (section === "delegations") {
     const delegationRuleId = route.delegationRuleId ? String(route.delegationRuleId) : "";
     return delegationRuleId ? `#/delegations/${encodeURIComponent(delegationRuleId)}` : "#/delegations";
+  }
+
+  if (section === "help") {
+    const topicId = route.helpTopicId ? String(route.helpTopicId) : "";
+    return topicId ? `#/help/${encodeURIComponent(topicId)}` : "#/help";
   }
 
   if (section === "users") {
@@ -774,6 +786,14 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
         preferSectionLanding: true,
       });
     }
+    return;
+  }
+
+  if (route.section === "help") {
+    await setActiveNavSection("help", { toggleIfSame: false, updateRoute: false });
+    // An unknown topic id falls back to the default server-side rather than
+    // erroring, so a stale bookmark still opens something useful.
+    await openHelpTopic(route.helpTopicId || "", { updateRoute: false, ensureSection: false });
     return;
   }
 
@@ -7821,41 +7841,76 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
 // Portal has a lot of vocabulary — runtime profiles, delegations, native vs
 // opencode runtimes, skill repos — and had no in-app explanation of any of it,
 // nor any discoverable list of the keyboard shortcuts.
-function openHelpPanel() {
-  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl";
-  setToolPanel("Help", `
-    <div class="portal-panel-stack portal-help-panel">
-      <section class="portal-panel-section">
-        <h5>Concepts</h5>
-        <dl class="portal-help-list">
-          <dt>Assistant</dt>
-          <dd>A running workspace you chat with. Each one has its own conversation history, files, and runtime pod.</dd>
-          <dt>Runtime profile</dt>
-          <dd>The credentials and integration settings an assistant boots with — LLM provider, Jira, Confluence, GitHub, git identity. One profile can be shared by several assistants.</dd>
-          <dt>Runtime type</dt>
-          <dd>Which engine runs the assistant. <strong>EFP Native</strong> is the Python runtime; <strong>OpenCode</strong> is the opencode adapter. This is fixed once an assistant is created.</dd>
-          <dt>Instructions &amp; skill repositories</dt>
-          <dd>Git repositories cloned into the assistant at startup. Instructions shape how it behaves; skills add packaged capabilities. Leave them empty to use the configured defaults.</dd>
-          <dt>Task</dt>
-          <dd>Work handed to an assistant to run on its own, tracked to completion instead of held in a chat.</dd>
-          <dt>Delegation</dt>
-          <dd>A rule that starts work automatically — on a GitHub review request, a Jira assignment, or a timer.</dd>
-        </dl>
-      </section>
-      <section class="portal-panel-section">
-        <h5>Keyboard shortcuts</h5>
-        <dl class="portal-help-list portal-help-keys">
-          <dt><kbd>${modifier}</kbd> + <kbd>K</kbd></dt><dd>Focus the message box</dd>
-          <dt><kbd>/</kbd></dt><dd>Focus the message box</dd>
-          <dt><kbd>${modifier}</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></dt><dd>Start a new chat</dd>
-          <dt><kbd>Enter</kbd></dt><dd>Send</dd>
-          <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>New line</dd>
-          <dt><kbd>Esc</kbd></dt><dd>Stop the current run, or close the open dialog</dd>
-        </dl>
-      </section>
-    </div>
-  `, "help");
+// Help used to be one panel in the right-hand drawer, which left no room for
+// more than a glossary. It is a section now, with a topic list beside it, so a
+// Connections field can link to a full guide and that link survives a reload or
+// being opened in a new tab.
+let activeHelpTopicId = "";
+
+async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true } = {}) {
+  if (!dom.workspaceDetailContent) return;
+  if (ensureSection && state.activeNavSection !== "help") {
+    await setActiveNavSection("help", { toggleIfSame: false, updateRoute: false });
+  }
+
+  activeHelpTopicId = String(topicId || "");
+  document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.helpTopicNav === activeHelpTopicId);
+  });
+
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "help-loading";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading…</div>';
+  syncMainHeader();
+
+  if (updateRoute && !isApplyingPortalRoute) {
+    commitPortalRoute({ section: "help", helpTopicId: activeHelpTopicId });
+  }
+
+  try {
+    const query = activeHelpTopicId ? `?topic=${encodeURIComponent(activeHelpTopicId)}` : "";
+    await htmx.ajax("GET", `/app/help/panel${query}`, {
+      target: "#workspace-detail-content",
+      swap: "innerHTML",
+    });
+    dom.workspaceDetailContent.dataset.workspaceState = "help-topic";
+    // The rendered topic is the authority on which one loaded, since an unknown
+    // id falls back to the default server-side.
+    const rendered = dom.workspaceDetailContent.querySelector("[data-help-topic]");
+    if (rendered) {
+      activeHelpTopicId = rendered.dataset.helpTopic || activeHelpTopicId;
+      document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
+        item.classList.toggle("is-active", item.dataset.helpTopicNav === activeHelpTopicId);
+      });
+    }
+    applyPlatformShortcutLabels(dom.workspaceDetailContent);
+    syncMainHeader();
+    renderIcons();
+  } catch (error) {
+    dom.workspaceDetailContent.dataset.workspaceState = "help-error";
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load help: ${safe(error.message)}</div>`;
+  }
 }
+
+// The shortcut table ships with a {mod} placeholder so the server does not have
+// to guess the reader's platform.
+function applyPlatformShortcutLabels(root) {
+  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "\u2318" : "Ctrl";
+  root?.querySelectorAll("[data-help-shortcut]").forEach((element) => {
+    const text = element.textContent || "";
+    element.innerHTML = text
+      .replace(/\{mod\}/g, modifier)
+      .split("+")
+      .map((part) => `<kbd>${safe(part.trim())}</kbd>`)
+      .join(" + ");
+  });
+}
+
+function currentHelpTopicTitle() {
+  const active = document.querySelector(`[data-help-topic-nav="${CSS.escape(activeHelpTopicId)}"]`);
+  return active?.querySelector("strong")?.textContent?.trim() || "Help";
+}
+
 
 function setToolPanel(title, contentHtml, panelKey = null, { persistPreference = true } = {}) {
   if (!dom.toolPanel) return;
@@ -8356,6 +8411,9 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "delegations") {
       dom.embedTitle.textContent = "Delegations";
       if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");
+    } else if (state.activeNavSection === "help") {
+      dom.embedTitle.textContent = currentHelpTopicTitle();
+      setChatStatus("Guides for setting up and working with assistants");
     } else if (state.activeNavSection === "users") {
       const heading = ADMIN_PANEL_HEADINGS[activeAdminPanel] || ADMIN_PANEL_HEADINGS.users;
       dom.embedTitle.textContent = heading.title;
@@ -8441,12 +8499,14 @@ async function setActiveNavSection(section, {
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
   dom.usersMenuBtn?.classList.toggle("is-active", state.activeNavSection === "users");
+  dom.helpBtn?.classList.toggle("is-active", state.activeNavSection === "help");
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
   dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
   dom.delegationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "delegations");
   dom.usersNavSection?.classList.toggle("hidden", state.activeNavSection !== "users");
+  dom.helpNavSection?.classList.toggle("hidden", state.activeNavSection !== "help");
   const userManagementActive = state.activeNavSection === "users" && state.selectedUserManagementView === "members";
   dom.userManagementNavItem?.classList.toggle("is-active", userManagementActive);
   if (userManagementActive) {
@@ -10536,6 +10596,18 @@ function initializeManagedSettingsRoot(root) {
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(root, group);
       markManagedSectionTouched(root, group);
+      return;
+    }
+    const scrollBtn = event.target.closest("[data-scroll-to-section]");
+    if (scrollBtn) {
+      event.preventDefault();
+      // Deliberately not an anchor href: the app owns location.hash for its
+      // own routing, so "#profile-section-jira" would be parsed as a route,
+      // rejected, and bounce the member to Assistants.
+      const target = document.getElementById(scrollBtn.dataset.scrollToSection);
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.classList.add("is-scroll-target");
+      window.setTimeout(() => target?.classList.remove("is-scroll-target"), 1400);
       return;
     }
     const testBtn = event.target.closest("[data-test-target]");
@@ -14725,7 +14797,17 @@ function bindEvents() {
     }
   });
 
-  document.getElementById("help-btn")?.addEventListener("click", openHelpPanel);
+  dom.helpBtn?.addEventListener("click", () => openPortalSection("help"));
+  // A connection guide ends with the action it describes, so the reader does
+  // not have to find their way back to Connections on their own.
+  dom.workspaceDetailContent?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-help-open-connections]")) {
+      openPortalSection("runtime-profiles");
+    }
+  });
+  document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
+    item.addEventListener("click", () => openHelpTopic(item.dataset.helpTopicNav));
+  });
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"));

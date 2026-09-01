@@ -11,11 +11,16 @@
     <ol class="portal-setup-guide-steps">
       {% for step in guide.steps %}<li>{{ step }}</li>{% endfor %}
     </ol>
-    {% if guide.help_url %}
-    <a class="portal-link-inline" href="{{ guide.help_url }}" target="_blank" rel="noopener noreferrer">
-      {{ guide.help_label or "Open the setup page" }} &rarr;
-    </a>
-    {% endif %}
+    <div class="portal-setup-guide-links">
+      {% if guide.help_url %}
+      <a class="portal-link-inline" href="{{ guide.help_url }}" target="_blank" rel="noopener noreferrer">
+        {{ guide.help_label or "Open the setup page" }} &rarr;
+      </a>
+      {% endif %}
+      <a class="portal-link-inline" href="#/help/connect-{{ section }}">
+        Full guide for this connection &rarr;
+      </a>
+    </div>
   </div>
 </details>
 {%- endif %}
@@ -53,11 +58,12 @@
       </div>
       <div class="portal-connection-checklist-items">
         {% for item in connection_checklist.sections %}
-        <a class="portal-connection-checklist-item{{ ' is-connected' if item.connected else '' }}"
-           href="#profile-section-{{ item.section }}">
+        <button type="button"
+                class="portal-connection-checklist-item{{ ' is-connected' if item.connected else '' }}"
+                data-scroll-to-section="profile-section-{{ item.section }}">
           <i data-lucide="{{ 'circle-check' if item.connected else 'circle-dashed' }}" class="w-4 h-4"></i>
           <span>{{ item.label }}</span>
-        </a>
+        </button>
         {% endfor %}
       </div>
       {% if not connection_checklist.complete %}

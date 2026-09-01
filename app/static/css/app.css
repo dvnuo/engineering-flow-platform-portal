@@ -5639,3 +5639,78 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
   color: var(--portal-text-secondary);
   word-break: break-word;
 }
+
+/* -- help centre ---------------------------------------------------------- */
+
+.portal-help-nav-group { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; }
+
+.portal-help-nav-heading {
+  margin: 10px 12px 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--portal-text-muted);
+}
+
+.portal-help-nav-row.is-active {
+  background: var(--portal-accent-soft);
+  color: var(--portal-text);
+}
+
+.portal-help-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--portal-text-secondary);
+  max-width: 68ch;
+}
+
+.portal-help-paragraph {
+  margin: 0 0 8px;
+  color: var(--portal-text-secondary);
+  line-height: 1.65;
+  max-width: 68ch;
+}
+
+.portal-help-paragraph:last-child { margin-bottom: 0; }
+
+.portal-help-external { align-self: flex-start; margin-top: 4px; }
+
+.portal-help-shortcuts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 20px;
+  align-items: baseline;
+}
+
+.portal-help-shortcuts dt { white-space: nowrap; }
+.portal-help-shortcuts dd { margin: 0; color: var(--portal-text-secondary); font-size: 0.9rem; }
+
+.portal-help-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-setup-guide-links { display: flex; flex-wrap: wrap; gap: 14px; }
+
+/* Brief highlight so a jump from the checklist lands somewhere visible. */
+.is-scroll-target {
+  animation: portal-scroll-target 1.4s ease-out;
+}
+
+@keyframes portal-scroll-target {
+  0% { background: var(--portal-accent-soft); }
+  100% { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-scroll-target { animation: none; outline: 2px solid var(--portal-accent); outline-offset: 4px; }
+}

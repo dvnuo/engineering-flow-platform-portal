@@ -43,6 +43,12 @@ from app.services.runtime_execution_context_service import RuntimeExecutionConte
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.assistant_type_icons import ASSISTANT_TYPE_ICONS, DEFAULT_ASSISTANT_TYPE_ICON
 from app.services.connection_guidance import all_guidance, connection_checklist
+from app.services.help_center import (
+    default_topic as default_help_topic,
+    get_topic as get_help_topic,
+    topic_id_for_connection,
+    topics_by_group as help_topics_by_group,
+)
 from app.services.git_branch_cache import cached_branches_for
 from app.services.runtime_profile_seed_service import (
     RuntimeProfileSeedService,
@@ -1591,6 +1597,9 @@ def app_page(request: Request):
             "nickname": user.nickname or user.username,
             "user_id": user.id,
             "role": user.role,
+            # The help sub-menu is part of the shell, like the other nav lists,
+            # so it renders with the page rather than on first open.
+            "help_groups": help_topics_by_group(),
         },
     )
 
@@ -1856,6 +1865,21 @@ def _default_connections_context(
         "status_type": status_type,
         "status_message": status_message,
     }
+
+
+@router.get("/app/help/panel")
+async def app_help_topic_panel(request: Request, topic: str = Query(default="")):
+    """Render one help topic. Available to any signed-in member."""
+
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    resolved = get_help_topic(topic) or default_help_topic()
+    return templates.TemplateResponse(
+        "partials/help_topic_panel.html",
+        {"request": request, "topic": resolved},
+    )
 
 
 @router.get("/app/admin/assistant-types/panel")
