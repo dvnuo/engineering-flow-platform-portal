@@ -264,6 +264,14 @@ def _resolve_create_mount_path(payload: AgentCreateRequest, runtime_type: str) -
     return _default_mount_path_for_runtime(runtime_type)
 
 
+def _resolve_create_cpu(payload: AgentCreateRequest) -> str | None:
+    cpu = (payload.cpu or "").strip()
+    return cpu or (settings.default_agent_cpu or "").strip() or None
+
+
+def _resolve_create_memory(payload: AgentCreateRequest) -> str | None:
+    memory = (payload.memory or "").strip()
+    return memory or (settings.default_agent_memory or "").strip() or None
 
 
 def _normalize_runtime_type_update_change(agent, changes: dict) -> bool:
@@ -391,8 +399,8 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
         agent_settings_subdir=effective_agent_settings_subdir,
         skill_repo_url=effective_skill_repo_url,
         skill_branch=effective_skill_branch,
-        cpu=payload.cpu,
-        memory=payload.memory,
+        cpu=_resolve_create_cpu(payload),
+        memory=_resolve_create_memory(payload),
         agent_type=payload.agent_type,
         runtime_profile_id=runtime_profile_id,
         disk_size_gi=payload.disk_size_gi,

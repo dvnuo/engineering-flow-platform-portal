@@ -83,6 +83,10 @@ The configured bootstrap administrator is created as the first administrator and
 | `K8S_PVC_ACCESS_MODES` | PVC access modes | `["ReadWriteOnce"]` |
 | `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
+| `DEFAULT_AGENT_CPU` | CPU request for a new agent pod (empty leaves the request unset) | `250m` |
+| `DEFAULT_AGENT_MEMORY` | Memory request for a new agent pod (empty leaves the request unset) | `512Mi` |
+| `DEFAULT_AGENT_CPU_LIMIT` | CPU limit for agent pods (empty disables the limit) | `1` |
+| `DEFAULT_AGENT_MEMORY_LIMIT` | Memory limit for agent pods (empty disables the limit) | `2Gi` |
 | `DEFAULT_RUNTIME_TYPE` | Default runtime marker for new agents when `runtime_type` is omitted; supported values are `native` and `opencode` | `native` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | Default OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | Default OpenCode runtime image tag | `1.14.39` |

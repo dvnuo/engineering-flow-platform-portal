@@ -1225,3 +1225,47 @@ def test_agents_api_runtime_overlay_no_default_agent_repo_fallback_source_marker
     src = Path('app/api/agents.py').read_text(encoding='utf-8')
     assert 'default_agent_runtime_repo_url' not in src
     assert 'enable_runtime_source_overlay' not in src
+
+
+def test_create_without_resources_applies_configured_requests(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        created = client.post("/api/agents", json={"name": "agent"}).json()
+        agent = db.get(Agent, created["id"])
+        assert agent.cpu == "250m"
+        assert agent.memory == "512Mi"
+    finally:
+        cleanup()
+
+
+def test_create_resource_requests_follow_configured_defaults(monkeypatch):
+    client, db, cleanup = _build_agents_client_with_overrides()
+    try:
+        import app.api.agents as agents_api
+
+        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
+        monkeypatch.setattr(agents_api.settings, "default_agent_cpu", "500m")
+        monkeypatch.setattr(agents_api.settings, "default_agent_memory", "1Gi")
+        created = client.post("/api/agents", json={"name": "agent"}).json()
+        agent = db.get(Agent, created["id"])
+        assert agent.cpu == "500m"
+        assert agent.memory == "1Gi"
+
+        # An explicit request in the payload still wins over the default.
+        explicit = client.post("/api/agents", json={"name": "agent2", "cpu": "100m", "memory": "256Mi"}).json()
+        agent2 = db.get(Agent, explicit["id"])
+        assert agent2.cpu == "100m"
+        assert agent2.memory == "256Mi"
+    finally:
+        cleanup()
+
+
+def test_agent_defaults_endpoint_exposes_configured_resource_requests(monkeypatch):
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        payload = client.get("/api/agents/defaults").json()
+        assert payload["cpu"] == "250m"
+        assert payload["memory"] == "512Mi"
+    finally:
+        cleanup()

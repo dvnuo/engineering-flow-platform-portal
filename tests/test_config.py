@@ -217,3 +217,23 @@ def test_settings_agent_task_timeout_env_overrides(monkeypatch):
     assert settings.agent_task_runtime_status_max_bytes == 12345
     assert settings.agent_task_runtime_missing_stale_after_seconds == 42
     assert settings.agent_task_runtime_unreachable_stale_after_seconds == 43
+
+
+def test_settings_agent_resource_defaults():
+    settings = Settings()
+    assert settings.default_agent_cpu == "250m"
+    assert settings.default_agent_memory == "512Mi"
+    assert settings.default_agent_cpu_limit == "1"
+    assert settings.default_agent_memory_limit == "2Gi"
+
+
+def test_settings_agent_resource_env_overrides(monkeypatch):
+    monkeypatch.setenv("DEFAULT_AGENT_CPU", "500m")
+    monkeypatch.setenv("DEFAULT_AGENT_MEMORY", "1Gi")
+    monkeypatch.setenv("DEFAULT_AGENT_CPU_LIMIT", "2")
+    monkeypatch.setenv("DEFAULT_AGENT_MEMORY_LIMIT", "4Gi")
+    settings = Settings()
+    assert settings.default_agent_cpu == "500m"
+    assert settings.default_agent_memory == "1Gi"
+    assert settings.default_agent_cpu_limit == "2"
+    assert settings.default_agent_memory_limit == "4Gi"
