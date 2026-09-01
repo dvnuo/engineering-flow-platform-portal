@@ -123,13 +123,8 @@
         question.custom
           ? `
       <div class="portal-question-custom${customAlways ? "" : " hidden"}" data-question-custom>
-        ${
-          customAlways
-            ? ""
-            : `<button type="button" class="portal-question-other-btn" data-question-other>Something else…</button>`
-        }
         <input type="text" class="portal-form-input" data-question-custom-input
-               placeholder="Type your answer" ${customAlways ? "" : 'disabled'} />
+               placeholder="Type your answer" ${customAlways ? "" : "disabled"} />
       </div>
       ${
         customAlways
@@ -417,7 +412,7 @@
     });
 
     list.addEventListener("click", (browserEvent) => {
-      const otherButton = browserEvent.target.closest("[data-question-other-toggle], [data-question-other]");
+      const otherButton = browserEvent.target.closest("[data-question-other-toggle]");
       if (otherButton) {
         const fieldset = otherButton.closest("[data-question-index]");
         const wrap = fieldset?.querySelector("[data-question-custom]");

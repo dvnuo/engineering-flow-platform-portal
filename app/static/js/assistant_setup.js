@@ -103,12 +103,18 @@
 
     // Selection is styling only; the radio inputs remain the source of truth so
     // keyboard navigation and form semantics keep working.
-    container.addEventListener("change", () => {
-      container.querySelectorAll(".portal-assistant-type-option").forEach((option) => {
-        const input = option.querySelector("input");
-        option.classList.toggle("is-selected", Boolean(input && input.checked));
+    //
+    // Bound once per container: this renders again every time the modal opens,
+    // and re-adding the listener each time stacks them.
+    if (container.dataset.selectionBound !== "1") {
+      container.dataset.selectionBound = "1";
+      container.addEventListener("change", () => {
+        container.querySelectorAll(".portal-assistant-type-option").forEach((option) => {
+          const input = option.querySelector("input");
+          option.classList.toggle("is-selected", Boolean(input && input.checked));
+        });
       });
-    });
+    }
     renderIcons(container);
   }
 
