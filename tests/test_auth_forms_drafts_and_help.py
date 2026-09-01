@@ -79,12 +79,20 @@ def test_global_shortcuts_exist_and_yield_to_fields_modals_and_ime():
 
 
 def test_help_surface_is_reachable_and_explains_portal_vocabulary():
+    # Help moved from a single drawer panel to a browsable section, so the
+    # vocabulary now lives in help_center rather than a JS template literal.
+    # See tests/test_help_center.py for the topic registry itself.
+    from app.services.help_center import get_topic
+
     assert 'id="help-btn"' in APP_HTML
-    assert "function openHelpPanel()" in CHAT_JS
-    for concept in ("Runtime profile", "Runtime type", "Delegation", "Task", "Assistant"):
-        assert f"<dt>{concept}</dt>" in CHAT_JS, concept
-    assert "Keyboard shortcuts" in CHAT_JS
-    assert '"help",' in CHAT_JS  # registered as an allowed utility panel key
+    assert "function openHelpTopic(" in CHAT_JS
+
+    concepts = get_topic("concepts")
+    headings = {heading for heading, _ in concepts.body}
+    for concept in ("Assistant", "Task", "Delegation", "Connections"):
+        assert concept in headings, concept
+
+    assert get_topic("shortcuts") is not None
 
 
 def test_role_options_describe_what_they_actually_grant():

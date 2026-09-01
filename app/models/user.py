@@ -17,5 +17,6 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    onboarding_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

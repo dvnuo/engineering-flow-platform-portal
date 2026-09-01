@@ -15,6 +15,7 @@ from app.api.internal_session_metadata import router as internal_session_metadat
 from app.api.delegation_rules import router as delegation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
+from app.api.assistant_types import router as assistant_types_router
 from app.api.git_repos import router as git_repos_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
@@ -156,6 +157,7 @@ app.include_router(web_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(agents_router)
+app.include_router(assistant_types_router)
 app.include_router(git_repos_router)
 app.include_router(runtime_profiles_router)
 app.include_router(admin_router)

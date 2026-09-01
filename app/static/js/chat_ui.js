@@ -59,6 +59,8 @@ const dom = {
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
   usersNavSection: document.getElementById("users-nav-section"),
+  helpNavSection: document.getElementById("help-nav-section"),
+  helpBtn: document.getElementById("help-btn"),
   userManagementNavItem: document.getElementById("user-management-nav-item"),
   agentSearchInput: document.getElementById("agent-search-input"),
   agentFilterSummary: document.getElementById("agent-filter-summary"),
@@ -75,6 +77,7 @@ const dom = {
   addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addDelegationBtn: document.getElementById("add-delegation-btn"),
   headerAddAllowlistBtn: document.getElementById("header-add-allowlist-btn"),
+  headerAddAssistantTypeBtn: document.getElementById("header-add-assistant-type-btn"),
   headerNewChatBtn: document.getElementById("header-new-chat-btn"),
   contextUsageBtn: document.getElementById("btn-context"),
   contextUsageLabel: document.getElementById("context-usage-label"),
@@ -140,12 +143,12 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
-  "help",
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
   "assistants",
   "tasks",
+  "help",
   "runtime-profiles",
   "delegations",
   "users",
@@ -199,6 +202,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     "runtime-profiles": dom.runtimeProfilesMenuBtn,
     delegations: dom.delegationsMenuBtn,
     users: dom.usersMenuBtn,
+    help: dom.helpBtn,
   };
   const navSections = {
     assistants: dom.assistantsNavSection,
@@ -206,6 +210,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     "runtime-profiles": dom.runtimeProfilesNavSection,
     delegations: dom.delegationsNavSection,
     users: dom.usersNavSection,
+    help: dom.helpNavSection,
   };
   Object.entries(railButtons).forEach(([key, element]) => {
     element?.classList.toggle("is-active", key === normalized);
@@ -244,7 +249,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   assistantOnlyControls.forEach((element) => {
     element?.classList.toggle("hidden", normalized !== "assistants");
   });
-  dom.headerAddAllowlistBtn?.classList.toggle("hidden", normalized !== "users");
+  syncAdminHeaderActions(normalized);
 
   if (normalized === "assistants") {
     dom.centerPlaceholder?.classList.remove("hidden");
@@ -263,6 +268,10 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   if (dom.embedTitle) dom.embedTitle.textContent = title;
   if (dom.chatStatus) dom.chatStatus.textContent = initialPortalStatusText(normalized);
 }
+
+// Declared here rather than on `state`: applyInitialPortalRouteShell() runs
+// before `state` is initialized, and reading it from there is a TDZ error.
+let activeAdminPanel = "users";
 
 applyInitialPortalRouteShell();
 
@@ -508,6 +517,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
     runtimeProfileId: "",
     delegationRuleId: "",
     userManagementView: "",
+    helpTopicId: "",
     hadHash,
     raw,
   };
@@ -547,6 +557,8 @@ function parsePortalHashRoute(hash = window.location.hash) {
   } else if (section === "users") {
     if (decodedId && decodedId !== "members") return fallback;
     parsed.userManagementView = decodedId;
+  } else if (section === "help") {
+    parsed.helpTopicId = decodedId;
   }
   return parsed;
 }
@@ -572,6 +584,11 @@ function portalHashForRoute(route = {}) {
   if (section === "delegations") {
     const delegationRuleId = route.delegationRuleId ? String(route.delegationRuleId) : "";
     return delegationRuleId ? `#/delegations/${encodeURIComponent(delegationRuleId)}` : "#/delegations";
+  }
+
+  if (section === "help") {
+    const topicId = route.helpTopicId ? String(route.helpTopicId) : "";
+    return topicId ? `#/help/${encodeURIComponent(topicId)}` : "#/help";
   }
 
   if (section === "users") {
@@ -769,6 +786,14 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
         preferSectionLanding: true,
       });
     }
+    return;
+  }
+
+  if (route.section === "help") {
+    await setActiveNavSection("help", { toggleIfSame: false, updateRoute: false });
+    // An unknown topic id falls back to the default server-side rather than
+    // erroring, so a stale bookmark still opens something useful.
+    await openHelpTopic(route.helpTopicId || "", { updateRoute: false, ensureSection: false });
     return;
   }
 
@@ -3305,6 +3330,13 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
+  try {
+    document.dispatchEvent(new CustomEvent("portal:runtime-event", {
+      detail: { event: entry, agentId: currentAgentId, sessionId: currentSessionId },
+    }));
+  } catch (error) {
+    /* a listener throwing must never stop the transcript from updating */
+  }
   const currentRequestIds = new Set([
     chatState.currentRequest?.clientRequestId,
     chatState.currentRequest?.requestId,
@@ -4422,6 +4454,17 @@ function clearMessageListToWelcome() {
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
   scrollToBottom({ force: true });
+  // The welcome row is rebuilt from a hardcoded default here, which discards
+  // anything the assistant's behavior pack put there. Announce it so the
+  // personalization can be re-applied -- starting a new chat does not change
+  // the selected assistant, so portal:agent-selected never fires.
+  try {
+    document.dispatchEvent(new CustomEvent("portal:welcome-rendered", {
+      detail: { agentId: state.selectedAgentId },
+    }));
+  } catch (error) {
+    /* a listener throwing must not break clearing the transcript */
+  }
 }
 
 
@@ -5132,6 +5175,13 @@ async function selectAgentById(agentId, { updateRoute = true } = {}) {
   await syncSelectedAgentState();
   if (updateRoute && !isApplyingPortalRoute) {
     commitPortalRoute({ section: "assistants", agentId });
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("portal:agent-selected", {
+      detail: { agentId, agent: getSelectedAgent() },
+    }));
+  } catch (error) {
+    /* listeners are decoration; selection has already succeeded */
   }
 }
 
@@ -6375,6 +6425,51 @@ function renderCompletionStateWarning(payload = {}) {
     + `${incompleteReason ? `<div><strong>incomplete_reason:</strong> ${incompleteReason}</div>` : ""}`
     + `${progressPreview ? `<div><strong>progress_preview:</strong> ${progressPreview}</div>` : ""}</div>`;
 }
+// A failed run used to read as three lines of raw field dump, the last two of
+// them the same provider string twice. Lead with what happened and what to do;
+// keep the raw fields for whoever is debugging.
+const COMPLETION_FAILURE_HINTS = [
+  {
+    match: /transport failed with status (5\d\d)|\b(502|503|504)\b|internal server error/i,
+    headline: "The model provider had a temporary failure",
+    detail: "Nothing is wrong with your request. Send it again — this usually clears on its own.",
+  },
+  {
+    match: /\b429\b|rate.?limit/i,
+    headline: "The model provider is rate limiting",
+    detail: "Wait a few moments before sending again.",
+  },
+  {
+    match: /\b401\b|unauthorized|token is required|token exchange failed/i,
+    headline: "The model provider rejected your credentials",
+    detail: "Your access may have expired. Reconnect the provider in Connections.",
+  },
+  {
+    match: /timed out|timeout/i,
+    headline: "The model provider took too long to respond",
+    detail: "Send your message again, or shorten it if it was very long.",
+  },
+  {
+    match: /context.{0,20}(overflow|too long|exceed)/i,
+    headline: "The conversation got too long for the model",
+    detail: "Start a new chat, or ask for a summary before continuing.",
+  },
+  {
+    match: /max.?iterations/i,
+    headline: "The assistant hit its step limit",
+    detail: "Ask it to continue, or narrow the request into smaller steps.",
+  },
+];
+
+function completionFailureHint(reason) {
+  const text = String(reason || "").trim();
+  if (!text) return null;
+  for (const hint of COMPLETION_FAILURE_HINTS) {
+    if (hint.match.test(text)) return hint;
+  }
+  return null;
+}
+
 function renderCompletionDiagnosticFields(finalPayload = {}) {
   const contextState = finalPayload?.context_state && typeof finalPayload.context_state === "object"
     ? finalPayload.context_state
@@ -6392,10 +6487,25 @@ function renderCompletionDiagnosticFields(finalPayload = {}) {
     ["progress_preview", progressPreview],
     ["context_state", contextSummary],
   ];
-  return fields
+  const rawFields = fields
     .filter(([, value]) => String(value ?? "").trim())
     .map(([label, value]) => `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(String(value))}</div>`)
     .join("");
+  if (!rawFields) return "";
+
+  const hint = completionFailureHint(
+    finalPayload?.incomplete_reason || finalPayload?.incompleteReason || ""
+  );
+  if (!hint) return rawFields;
+
+  return `<div class="chat-completion-hint">`
+    + `<strong>${escapeHtml(hint.headline)}</strong>`
+    + `<p>${escapeHtml(hint.detail)}</p>`
+    + `</div>`
+    + `<details class="portal-collapsible chat-completion-raw">`
+    + `<summary class="portal-collapsible-summary">Technical details</summary>`
+    + `${rawFields}`
+    + `</details>`;
 }
 function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) {
   if (state.selectedAgentId !== agentId || !dom.messageList) return false;
@@ -6419,11 +6529,19 @@ function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) 
   warningBlock.className = "chat-completion-warning-block";
   warningBlock.innerHTML = renderCompletionDiagnosticFields(finalPayload);
   markdownEl.appendChild(warningBlock);
-  const responseEl = document.createElement("div");
-  responseEl.className = "chat-incomplete-response md-render";
-  responseEl.dataset.md = responseText || "No final assistant response was returned.";
-  responseEl.dataset.displayBlocks = "[]";
-  markdownEl.appendChild(responseEl);
+  const reasonText = String(
+    finalPayload?.incomplete_reason || finalPayload?.incompleteReason || ""
+  ).trim();
+  // When the run failed before producing anything, the "response" is just the
+  // error restated. The block above already says it, better.
+  const responseIsJustTheReason = Boolean(responseText) && responseText === reasonText;
+  if (!responseIsJustTheReason) {
+    const responseEl = document.createElement("div");
+    responseEl.className = "chat-incomplete-response md-render";
+    responseEl.dataset.md = responseText || "No final assistant response was returned.";
+    responseEl.dataset.displayBlocks = "[]";
+    markdownEl.appendChild(responseEl);
+  }
   article.querySelector('.assistant-stream-cursor')?.remove();
   article.querySelector('.assistant-waiting-indicator')?.remove();
   renderMarkdown(responseEl.parentElement); decorateToolMessages(article); renderIcons();
@@ -7608,6 +7726,8 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
   }
 
   state.selectedUserManagementView = "members";
+  activeAdminPanel = "users";
+  document.querySelectorAll("[data-admin-panel]").forEach((item) => item.classList.remove("is-active"));
   dom.userManagementNavItem?.classList.add("is-active");
   dom.userManagementNavItem?.setAttribute("aria-current", "page");
   setMainView("detail");
@@ -7721,41 +7841,76 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
 // Portal has a lot of vocabulary — runtime profiles, delegations, native vs
 // opencode runtimes, skill repos — and had no in-app explanation of any of it,
 // nor any discoverable list of the keyboard shortcuts.
-function openHelpPanel() {
-  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl";
-  setToolPanel("Help", `
-    <div class="portal-panel-stack portal-help-panel">
-      <section class="portal-panel-section">
-        <h5>Concepts</h5>
-        <dl class="portal-help-list">
-          <dt>Assistant</dt>
-          <dd>A running workspace you chat with. Each one has its own conversation history, files, and runtime pod.</dd>
-          <dt>Runtime profile</dt>
-          <dd>The credentials and integration settings an assistant boots with — LLM provider, Jira, Confluence, GitHub, git identity. One profile can be shared by several assistants.</dd>
-          <dt>Runtime type</dt>
-          <dd>Which engine runs the assistant. <strong>EFP Native</strong> is the Python runtime; <strong>OpenCode</strong> is the opencode adapter. This is fixed once an assistant is created.</dd>
-          <dt>Instructions &amp; skill repositories</dt>
-          <dd>Git repositories cloned into the assistant at startup. Instructions shape how it behaves; skills add packaged capabilities. Leave them empty to use the configured defaults.</dd>
-          <dt>Task</dt>
-          <dd>Work handed to an assistant to run on its own, tracked to completion instead of held in a chat.</dd>
-          <dt>Delegation</dt>
-          <dd>A rule that starts work automatically — on a GitHub review request, a Jira assignment, or a timer.</dd>
-        </dl>
-      </section>
-      <section class="portal-panel-section">
-        <h5>Keyboard shortcuts</h5>
-        <dl class="portal-help-list portal-help-keys">
-          <dt><kbd>${modifier}</kbd> + <kbd>K</kbd></dt><dd>Focus the message box</dd>
-          <dt><kbd>/</kbd></dt><dd>Focus the message box</dd>
-          <dt><kbd>${modifier}</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></dt><dd>Start a new chat</dd>
-          <dt><kbd>Enter</kbd></dt><dd>Send</dd>
-          <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>New line</dd>
-          <dt><kbd>Esc</kbd></dt><dd>Stop the current run, or close the open dialog</dd>
-        </dl>
-      </section>
-    </div>
-  `, "help");
+// Help used to be one panel in the right-hand drawer, which left no room for
+// more than a glossary. It is a section now, with a topic list beside it, so a
+// Connections field can link to a full guide and that link survives a reload or
+// being opened in a new tab.
+let activeHelpTopicId = "";
+
+async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true } = {}) {
+  if (!dom.workspaceDetailContent) return;
+  if (ensureSection && state.activeNavSection !== "help") {
+    await setActiveNavSection("help", { toggleIfSame: false, updateRoute: false });
+  }
+
+  activeHelpTopicId = String(topicId || "");
+  document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.helpTopicNav === activeHelpTopicId);
+  });
+
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "help-loading";
+  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading…</div>';
+  syncMainHeader();
+
+  if (updateRoute && !isApplyingPortalRoute) {
+    commitPortalRoute({ section: "help", helpTopicId: activeHelpTopicId });
+  }
+
+  try {
+    const query = activeHelpTopicId ? `?topic=${encodeURIComponent(activeHelpTopicId)}` : "";
+    await htmx.ajax("GET", `/app/help/panel${query}`, {
+      target: "#workspace-detail-content",
+      swap: "innerHTML",
+    });
+    dom.workspaceDetailContent.dataset.workspaceState = "help-topic";
+    // The rendered topic is the authority on which one loaded, since an unknown
+    // id falls back to the default server-side.
+    const rendered = dom.workspaceDetailContent.querySelector("[data-help-topic]");
+    if (rendered) {
+      activeHelpTopicId = rendered.dataset.helpTopic || activeHelpTopicId;
+      document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
+        item.classList.toggle("is-active", item.dataset.helpTopicNav === activeHelpTopicId);
+      });
+    }
+    applyPlatformShortcutLabels(dom.workspaceDetailContent);
+    syncMainHeader();
+    renderIcons();
+  } catch (error) {
+    dom.workspaceDetailContent.dataset.workspaceState = "help-error";
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load help: ${safe(error.message)}</div>`;
+  }
 }
+
+// The shortcut table ships with a {mod} placeholder so the server does not have
+// to guess the reader's platform.
+function applyPlatformShortcutLabels(root) {
+  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "\u2318" : "Ctrl";
+  root?.querySelectorAll("[data-help-shortcut]").forEach((element) => {
+    const text = element.textContent || "";
+    element.innerHTML = text
+      .replace(/\{mod\}/g, modifier)
+      .split("+")
+      .map((part) => `<kbd>${safe(part.trim())}</kbd>`)
+      .join(" + ");
+  });
+}
+
+function currentHelpTopicTitle() {
+  const active = document.querySelector(`[data-help-topic-nav="${CSS.escape(activeHelpTopicId)}"]`);
+  return active?.querySelector("strong")?.textContent?.trim() || "Help";
+}
+
 
 function setToolPanel(title, contentHtml, panelKey = null, { persistPreference = true } = {}) {
   if (!dom.toolPanel) return;
@@ -8201,6 +8356,38 @@ function applyOverviewStatusLine() {
   return true;
 }
 
+// Each Administration panel owns its primary action, so the header has to track
+// which panel is open rather than only which section is active.
+// The header names the panel, not the section. Keyed by the same identifier the
+// nav buttons carry so a new panel cannot be added without a heading.
+const ADMIN_PANEL_HEADINGS = {
+  "users": {
+    title: "User Management",
+    status: "Manage members, roles, access, and usage",
+  },
+  "assistant-types": {
+    title: "Assistant Types",
+    status: "Presets members choose from when creating an assistant",
+  },
+  "default-connections": {
+    title: "Default Connections",
+    status: "The connection shape every new member inherits",
+  },
+};
+
+function syncAdminHeaderActions(section) {
+  const inAdmin = String(section || "") === "users";
+  const panel = inAdmin ? (activeAdminPanel || "users") : "";
+  dom.headerAddAllowlistBtn?.classList.toggle("hidden", panel !== "users");
+  dom.headerAddAssistantTypeBtn?.classList.toggle("hidden", panel !== "assistant-types");
+}
+
+window.setPortalAdminPanel = function setPortalAdminPanel(name) {
+  activeAdminPanel = String(name || "users");
+  syncAdminHeaderActions(state.activeNavSection);
+  syncMainHeader();
+};
+
 function syncMainHeader() {
   const assistantMode = state.activeNavSection === "assistants";
   const userManagementMode = state.activeNavSection === "users";
@@ -8211,7 +8398,7 @@ function syncMainHeader() {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
   });
-  dom.headerAddAllowlistBtn?.classList.toggle("hidden", !userManagementMode);
+  syncAdminHeaderActions(state.activeNavSection);
   syncOverviewToolbars();
 
   if (assistantMode) {
@@ -8224,12 +8411,16 @@ function syncMainHeader() {
     } else if (state.activeNavSection === "delegations") {
       dom.embedTitle.textContent = "Delegations";
       if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");
+    } else if (state.activeNavSection === "help") {
+      dom.embedTitle.textContent = currentHelpTopicTitle();
+      setChatStatus("Guides for setting up and working with assistants");
     } else if (state.activeNavSection === "users") {
-      dom.embedTitle.textContent = "User Management";
-      setChatStatus("Manage members, roles, access, and usage");
+      const heading = ADMIN_PANEL_HEADINGS[activeAdminPanel] || ADMIN_PANEL_HEADINGS.users;
+      dom.embedTitle.textContent = heading.title;
+      setChatStatus(heading.status);
     } else {
-      dom.embedTitle.textContent = "Runtime Profiles";
-      setChatStatus("Browse and manage your runtime profiles");
+      dom.embedTitle.textContent = "Connections";
+      setChatStatus("Browse and manage your connection profiles");
     }
   }
 }
@@ -8308,12 +8499,14 @@ async function setActiveNavSection(section, {
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
   dom.usersMenuBtn?.classList.toggle("is-active", state.activeNavSection === "users");
+  dom.helpBtn?.classList.toggle("is-active", state.activeNavSection === "help");
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
   dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
   dom.delegationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "delegations");
   dom.usersNavSection?.classList.toggle("hidden", state.activeNavSection !== "users");
+  dom.helpNavSection?.classList.toggle("hidden", state.activeNavSection !== "help");
   const userManagementActive = state.activeNavSection === "users" && state.selectedUserManagementView === "members";
   dom.userManagementNavItem?.classList.toggle("is-active", userManagementActive);
   if (userManagementActive) {
@@ -9999,8 +10192,15 @@ function addInstanceRow(root, group) {
   const urlPlaceholder = placeholders.url;
   const usernamePlaceholder = placeholders.username;
   const label = instanceGroupLabel(group);
+  // Default Connections seeds where a service lives and never a credential, so
+  // its containers opt out of the username/password/token block. Offering those
+  // fields there would invite a save the server then refuses.
+  const withCredentials = container.dataset.instanceCredentials !== "none";
+  const credentialFieldsHtml = withCredentials
+    ? `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>`
+    : (scopedFieldHtml.trim() === "<div></div>" ? "" : `<div class="grid grid-cols-2 gap-2">${scopedFieldHtml}<div></div></div>`);
 
-  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>${apiVersionHtml}</div>`;
+  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>${credentialFieldsHtml}${apiVersionHtml}</div>`;
   container.append(div);
   normalizeInstanceInputs(root, group);
 
@@ -10017,6 +10217,14 @@ function sectionNameForElement(element) {
   const section = element?.closest?.("[data-managed-section]");
   return section?.dataset?.managedSection || "";
 }
+
+window.showToast = showToast;
+window.refreshPortalAll = refreshAll;
+window.selectPortalAgentById = selectAgentById;
+window.currentPortalSessionId = currentSessionIdForSelectedAgent;
+window.currentPortalAgentId = () => state.selectedAgentId;
+window.renderPortalMarkdown = renderMarkdown;
+window.initializeManagedSettingsPanels = initializeManagedSettingsPanels;
 
 window.initPasswordToggles = function(root = document) {
   root.querySelectorAll('input[type="password"]:not(.password-toggle-initialized)').forEach((input) => {
@@ -10390,6 +10598,18 @@ function initializeManagedSettingsRoot(root) {
       markManagedSectionTouched(root, group);
       return;
     }
+    const scrollBtn = event.target.closest("[data-scroll-to-section]");
+    if (scrollBtn) {
+      event.preventDefault();
+      // Deliberately not an anchor href: the app owns location.hash for its
+      // own routing, so "#profile-section-jira" would be parsed as a route,
+      // rejected, and bounce the member to Assistants.
+      const target = document.getElementById(scrollBtn.dataset.scrollToSection);
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.classList.add("is-scroll-target");
+      window.setTimeout(() => target?.classList.remove("is-scroll-target"), 1400);
+      return;
+    }
     const testBtn = event.target.closest("[data-test-target]");
     if (testBtn) {
       event.preventDefault();
@@ -10418,6 +10638,9 @@ function initializeManagedSettingsRoot(root) {
 function initializeManagedSettingsPanels() {
   initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
   initializeManagedSettingsRoot(document.getElementById("runtime-profile-panel-root"));
+  // Default Connections reuses the same instance add/remove and model-select
+  // machinery; it just has no credential fields.
+  initializeManagedSettingsRoot(document.getElementById("default-connections-panel-root"));
 }
 
 function initializeSettingsPanel() {
@@ -14574,7 +14797,17 @@ function bindEvents() {
     }
   });
 
-  document.getElementById("help-btn")?.addEventListener("click", openHelpPanel);
+  dom.helpBtn?.addEventListener("click", () => openPortalSection("help"));
+  // A connection guide ends with the action it describes, so the reader does
+  // not have to find their way back to Connections on their own.
+  dom.workspaceDetailContent?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-help-open-connections]")) {
+      openPortalSection("runtime-profiles");
+    }
+  });
+  document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
+    item.addEventListener("click", () => openHelpTopic(item.dataset.helpTopicNav));
+  });
   dom.themeToggle?.addEventListener("click", toggleTheme);
 
   dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"));
@@ -14646,7 +14879,12 @@ function bindEvents() {
     }
   });
 
-  dom.addAgentBtn?.addEventListener("click", async () => {
+  // Simple mode is the default door: name plus a type, everything else filled
+  // in from the admin-curated preset. Advanced mode is the same five-step
+  // wizard as before, reachable from inside the simple dialog. If simple mode
+  // cannot open -- no assistant types configured -- fall through to advanced so
+  // creation is never blocked.
+  async function openAdvancedCreateModal() {
     const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
     const createForm = document.getElementById("create-form");
     if (createForm) {
@@ -14671,6 +14909,18 @@ function bindEvents() {
       refreshCreateRepoBranches("agent-settings"),
       refreshCreateRepoBranches("skills"),
     ]);
+  }
+  window.openAdvancedCreateModal = openAdvancedCreateModal;
+
+  dom.addAgentBtn?.addEventListener("click", async () => {
+    if (typeof window.openSimpleCreateModal === "function") {
+      try {
+        if (await window.openSimpleCreateModal()) return;
+      } catch (error) {
+        console.warn("Simple create unavailable, falling back to advanced setup", error);
+      }
+    }
+    await openAdvancedCreateModal();
   });
 
   document.getElementById("close-create-modal")?.addEventListener("click", () => {

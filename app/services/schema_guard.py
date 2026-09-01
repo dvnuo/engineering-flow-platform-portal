@@ -26,12 +26,15 @@ REQUIRED_PORTAL_TABLES = (
     "delegation_rules",
     "delegation_rule_runs",
     "delegation_rule_events",
+    "assistant_types",
+    "platform_settings",
 )
 REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
     "updated_at",
 )
 REQUIRED_USER_COLUMNS = (
     "last_login_at",
+    "onboarding_completed_at",
 )
 
 

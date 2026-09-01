@@ -43,26 +43,30 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert 'data-create-step-indicator="instructions"' in html
     assert "create-agent-step-index" in html
     assert "Personalization" not in html
-    assert "Instructions" in html
+    # The step is labelled "Behavior" and its fields "Behavior pack"; the
+    # underlying step key stays "instructions".
+    assert "Behavior pack repository" in html
     assert 'name="agent_settings_repo_url"' in html
     assert 'name="agent_settings_branch"' in html
     assert 'name="agent_settings_subdir"' not in html
     assert 'name="skill_repo_url"' in html
     assert 'name="skill_branch"' in html
-    assert "Instructions Repository" in html
-    assert "Instructions Branch" in html
+    assert "Behavior pack repository" in html
+    assert "Behavior pack branch" in html
     assert "Agent Settings Repository" not in html
     assert "Agent Settings Subdirectory" not in html
-    assert "Skill Repository" in html
-    assert "Skill Branch" in html
+    assert "Skill pack repository" in html
+    assert "Skill pack branch" in html
     assert "Open Runtime Profiles" not in html
     assert 'id="create-runtime-profile-open"' not in html
-    assert "Manage runtime profiles from the Runtime Profiles section" in html
+    assert "Manage connection profiles from the Connections section" in html
     assert 'id="create-agent-settings-branch-select"' in html
     assert 'id="create-skill-branch-select"' in html
     assert "create-agent-settings-branch-list" not in html
     assert "create-skill-branch-list" not in html
-    assert "Runtime Type" in html
+    # Labelled "Engine" for members; the form field name stays runtime_type.
+    assert "Engine" in html
+    assert 'name="runtime_type"' in html
     assert "Tools Repository" not in html
     assert "Tools Branch" not in html
 

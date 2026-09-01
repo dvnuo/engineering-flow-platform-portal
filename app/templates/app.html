@@ -20,10 +20,10 @@
         {% endif %}
       </div>
       <div class="portal-rail-bottom">
-        <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Runtime Profiles">
+        <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Connections">
           <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
         </button>
-        <button id="help-btn" class="portal-rail-btn" type="button" title="Help &amp; shortcuts" aria-label="Help and shortcuts">
+        <button id="help-btn" class="portal-rail-btn" type="button" title="Help" aria-label="Help">
           <i data-lucide="circle-help" class="w-5 h-5"></i>
         </button>
         <button id="theme-toggle" class="portal-rail-btn" type="button" title="Toggle theme">
@@ -51,7 +51,7 @@
             <button id="add-task-btn" class="toolbar-icon-btn hidden" type="button" title="Create Task">
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
-            <button id="add-runtime-profile-btn" class="toolbar-icon-btn hidden" type="button" title="Create Runtime Profile">
+            <button id="add-runtime-profile-btn" class="toolbar-icon-btn hidden" type="button" title="Create connection profile">
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
             <button id="add-delegation-btn" class="toolbar-icon-btn hidden" type="button" title="Create Delegation">
@@ -118,6 +118,26 @@
           </div>
           <div id="delegation-rule-nav-list" class="portal-secondary-list-body"></div>
         </section>
+        <section id="help-nav-section" class="portal-secondary-section hidden">
+          <div class="portal-secondary-list-body">
+            {% for group_name, topics in help_groups %}
+            <div class="portal-help-nav-group">
+              <h4 class="portal-help-nav-heading">{{ group_name }}</h4>
+              {% for topic in topics %}
+              <button class="portal-list-row portal-help-nav-row" type="button"
+                      data-help-topic-nav="{{ topic.id }}">
+                <i data-lucide="{{ topic.icon }}" class="w-5 h-5"></i>
+                <span class="portal-admin-nav-copy">
+                  <strong>{{ topic.title }}</strong>
+                  <small>{{ topic.summary }}</small>
+                </span>
+                <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+              </button>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+        </section>
         {% if role == "admin" %}
         <section id="users-nav-section" class="portal-secondary-section hidden">
           <div class="portal-secondary-list-body">
@@ -126,6 +146,28 @@
               <span class="portal-admin-nav-copy">
                 <strong>User Management</strong>
                 <small>Members, roles, access, and usage</small>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+            </button>
+            <button id="assistant-types-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
+                    data-admin-panel="assistant-types"
+                    data-admin-panel-url="/app/admin/assistant-types/panel"
+                    data-admin-panel-title="Assistant types">
+              <i data-lucide="layout-grid" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>Assistant Types</strong>
+                <small>Presets members pick from in simple mode</small>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+            </button>
+            <button id="default-connections-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
+                    data-admin-panel="default-connections"
+                    data-admin-panel-url="/app/admin/default-connections/panel"
+                    data-admin-panel-title="Default connections">
+              <i data-lucide="plug" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>Default Connections</strong>
+                <small>Connection shape new members inherit</small>
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
@@ -146,6 +188,10 @@
           <button id="header-add-allowlist-btn" class="portal-header-action is-primary hidden" type="button" title="Add to allowlist" aria-label="Add to allowlist" data-open-admin-allowlist-modal>
             <i data-lucide="user-plus" class="w-4 h-4"></i>
             <span class="portal-header-action-label">Add to allowlist</span>
+          </button>
+          <button id="header-add-assistant-type-btn" class="portal-header-action is-primary hidden" type="button" title="Add assistant type" aria-label="Add assistant type" data-open-assistant-type-modal>
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span class="portal-header-action-label">Add type</span>
           </button>
           {% endif %}
           <button id="header-new-chat-btn" class="portal-header-action is-primary" type="button" title="New chat" aria-label="New chat">
@@ -362,7 +408,7 @@
 <div id="create-runtime-profile-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel">
     <div class="portal-modal-titlebar">
-      <h3>Create Runtime Profile</h3>
+      <h3>Create connection profile</h3>
       <button id="close-create-runtime-profile-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
     </div>
     <form id="create-runtime-profile-form" class="stack">
@@ -400,15 +446,15 @@
       <ol class="create-agent-steps" aria-label="Create assistant steps">
         <li class="create-agent-step is-active" data-create-step-indicator="runtime">
           <span class="create-agent-step-index">1</span>
-          <span class="create-agent-step-label">Runtime</span>
+          <span class="create-agent-step-label">Engine</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="profile">
           <span class="create-agent-step-index">2</span>
-          <span class="create-agent-step-label">Profile</span>
+          <span class="create-agent-step-label">Connections</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="instructions">
           <span class="create-agent-step-index">3</span>
-          <span class="create-agent-step-label">Instructions</span>
+          <span class="create-agent-step-label">Behavior</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="skills">
           <span class="create-agent-step-index">4</span>
@@ -426,7 +472,7 @@
           <input name="name" placeholder="MyAgent" value="MyAgent" required />
         </div>
         <fieldset class="runtime-type-fieldset">
-          <legend>Runtime Type</legend>
+          <legend>Engine</legend>
           <div
             id="create-runtime-type-select"
             class="runtime-type-radio-group"
@@ -472,21 +518,21 @@
 
       <section class="create-agent-step-panel hidden" data-create-step-panel="profile">
         <div>
-          <label>Runtime Profile</label>
+          <label>Connections profile</label>
           <select name="runtime_profile_id" id="create-runtime-profile-select"></select>
         </div>
-        <p id="create-runtime-profile-empty" class="portal-inline-state is-warning hidden">No runtime profiles available. Create one from Runtime Profiles before creating an assistant.</p>
-        <p class="portal-modal-copy">Manage runtime profiles from the Runtime Profiles section before creating an assistant.</p>
+        <p id="create-runtime-profile-empty" class="portal-inline-state is-warning hidden">No connection profiles available. Create one from Connections before creating an assistant.</p>
+        <p class="portal-modal-copy">Manage connection profiles from the Connections section before creating an assistant.</p>
       </section>
 
       <section class="create-agent-step-panel hidden" data-create-step-panel="instructions">
         <div>
-          <label>Instructions Repository</label>
+          <label>Behavior pack repository</label>
           <input name="agent_settings_repo_url" placeholder="https://github.com/org/engineering-flow-platform-agents" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Instructions Branch</label>
+            <label>Behavior pack branch</label>
             <select name="agent_settings_branch" id="create-agent-settings-branch-select" data-branch-placeholder="Configured default branch">
               <option value="">Configured default branch</option>
             </select>
@@ -498,12 +544,12 @@
 
       <section class="create-agent-step-panel hidden" data-create-step-panel="skills">
         <div>
-          <label>Skill Repository</label>
+          <label>Skill pack repository</label>
           <input name="skill_repo_url" placeholder="https://github.com/org/engineering-flow-platform-skills" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Skill Branch</label>
+            <label>Skill pack branch</label>
             <select name="skill_branch" id="create-skill-branch-select" data-branch-placeholder="Configured default branch">
               <option value="">Configured default branch</option>
             </select>
@@ -539,15 +585,15 @@
       <ol class="create-agent-steps" aria-label="Edit assistant steps">
         <li class="create-agent-step is-active" data-edit-step-indicator="runtime">
           <span class="create-agent-step-index">1</span>
-          <span class="create-agent-step-label">Runtime</span>
+          <span class="create-agent-step-label">Engine</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="profile">
           <span class="create-agent-step-index">2</span>
-          <span class="create-agent-step-label">Profile</span>
+          <span class="create-agent-step-label">Connections</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="instructions">
           <span class="create-agent-step-index">3</span>
-          <span class="create-agent-step-label">Instructions</span>
+          <span class="create-agent-step-label">Behavior</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="skills">
           <span class="create-agent-step-index">4</span>
@@ -565,29 +611,29 @@
           <input name="name" placeholder="MyAgent" required />
         </div>
         <div>
-          <label>Runtime Type</label>
+          <label>Engine</label>
           <div id="edit-runtime-type-display" class="portal-readonly-field">native</div>
-          <p class="portal-modal-copy">Runtime type is fixed after creation.</p>
+          <p class="portal-modal-copy">The engine is fixed after creation.</p>
         </div>
       </section>
 
       <section class="create-agent-step-panel hidden" data-edit-step-panel="profile">
         <div>
-          <label>Runtime Profile</label>
+          <label>Connections profile</label>
           <select name="runtime_profile_id" id="edit-runtime-profile-select"></select>
         </div>
-        <p id="edit-runtime-profile-empty" class="portal-inline-state is-warning hidden">No runtime profiles available. Create one from Runtime Profiles before saving this assistant.</p>
-        <p class="portal-modal-copy">Manage runtime profiles from the Runtime Profiles section before updating an assistant.</p>
+        <p id="edit-runtime-profile-empty" class="portal-inline-state is-warning hidden">No connection profiles available. Create one from Connections before saving this assistant.</p>
+        <p class="portal-modal-copy">Manage connection profiles from the Connections section before updating an assistant.</p>
       </section>
 
       <section class="create-agent-step-panel hidden" data-edit-step-panel="instructions">
         <div>
-          <label>Instructions Repository</label>
+          <label>Behavior pack repository</label>
           <input name="agent_settings_repo_url" placeholder="https://github.com/user/agents (leave empty to use configured default)" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Instructions Branch</label>
+            <label>Behavior pack branch</label>
             <select name="agent_settings_branch" id="edit-agent-settings-branch-select" data-branch-placeholder="Configured default branch">
               <option value="">Configured default branch</option>
             </select>
@@ -599,12 +645,12 @@
 
       <section class="create-agent-step-panel hidden" data-edit-step-panel="skills">
         <div>
-          <label>Skill Repository</label>
+          <label>Skill pack repository</label>
           <input name="skill_repo_url" placeholder="https://github.com/user/repo (leave empty to use configured default)" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Skill Branch</label>
+            <label>Skill pack branch</label>
             <select name="skill_branch" id="edit-skill-branch-select" data-branch-placeholder="Configured default branch">
               <option value="">Configured default branch</option>
             </select>
@@ -656,6 +702,99 @@
   </div>
 </div>
 
+
+<div id="onboarding-overlay" class="portal-onboarding hidden" role="dialog" aria-modal="true"
+     aria-labelledby="onboarding-title" aria-hidden="true">
+  <div class="portal-onboarding-card">
+    <ol class="portal-onboarding-dots" aria-hidden="true">
+      <li class="is-active" data-onboarding-dot="0"></li>
+      <li data-onboarding-dot="1"></li>
+      <li data-onboarding-dot="2"></li>
+    </ol>
+
+    <section class="portal-onboarding-step" data-onboarding-step="0">
+      <div class="portal-onboarding-art" aria-hidden="true"><i data-lucide="sparkles" class="w-7 h-7"></i></div>
+      <h2 id="onboarding-title">Welcome to Engineering Flow Platform</h2>
+      <p>
+        Assistants do real work across Jira, Confluence, GitHub, and your repositories &mdash;
+        drafting test cases, summarizing requirements, reviewing pull requests, diagnosing builds.
+      </p>
+      <p class="portal-onboarding-muted">You describe the outcome. The assistant does the steps.</p>
+    </section>
+
+    <section class="portal-onboarding-step hidden" data-onboarding-step="1">
+      <div class="portal-onboarding-art" aria-hidden="true"><i data-lucide="compass" class="w-7 h-7"></i></div>
+      <h2>Three things worth knowing</h2>
+      <dl class="portal-onboarding-concepts">
+        <dt>Assistant</dt>
+        <dd>Your own workspace to chat with. It keeps its history and files.</dd>
+        <dt>Task</dt>
+        <dd>Work you hand over to run on its own while you do something else.</dd>
+        <dt>Connections</dt>
+        <dd>Your Jira, Confluence, and GitHub accounts. You supply your own credentials.</dd>
+      </dl>
+    </section>
+
+    <section class="portal-onboarding-step hidden" data-onboarding-step="2">
+      <div class="portal-onboarding-art" aria-hidden="true"><i data-lucide="bot" class="w-7 h-7"></i></div>
+      <h2>Create your first assistant</h2>
+      <p class="portal-onboarding-muted">Pick the kind of work you do. You can create more later.</p>
+      <form id="onboarding-create-form" class="portal-onboarding-form">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Name</span>
+          <input type="text" name="name" class="portal-form-input" placeholder="My Assistant" required />
+        </label>
+        <div class="portal-assistant-type-grid" data-assistant-type-choices data-onboarding-type-choices>
+          <div class="portal-inline-state">Loading assistant types&hellip;</div>
+        </div>
+        <p class="portal-modal-feedback" data-onboarding-msg></p>
+      </form>
+    </section>
+
+    <div class="portal-onboarding-actions">
+      <button type="button" class="portal-btn" data-onboarding-skip>Skip</button>
+      <span class="portal-onboarding-spacer"></span>
+      <button type="button" class="portal-btn is-secondary hidden" data-onboarding-back>Back</button>
+      <button type="button" class="portal-btn is-primary" data-onboarding-next>Next</button>
+      <button type="submit" form="onboarding-create-form" class="portal-btn is-primary hidden" data-onboarding-create>
+        Create assistant
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="create-simple-modal" class="modal hidden" role="dialog" aria-modal="true"
+     aria-labelledby="create-simple-title" aria-hidden="true">
+  <div class="modal-card panel">
+    <div class="portal-modal-titlebar">
+      <div>
+        <h3 id="create-simple-title">Create assistant</h3>
+        <p class="portal-modal-copy">Pick a name and the kind of work you do.</p>
+      </div>
+      <button id="close-create-simple-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">&#10005;</button>
+    </div>
+    <form id="create-simple-form" class="stack">
+      <label class="portal-form-label">
+        <span class="portal-form-label">Name</span>
+        <input type="text" name="name" class="portal-form-input" placeholder="My Assistant" required />
+      </label>
+      <div class="portal-assistant-type-grid" data-assistant-type-choices data-simple-type-choices>
+        <div class="portal-inline-state">Loading assistant types&hellip;</div>
+      </div>
+      <div class="portal-modal-actions">
+        <button type="button" class="portal-btn is-secondary" data-open-advanced-create>Advanced setup</button>
+        <span class="portal-onboarding-spacer"></span>
+        <button type="submit" class="portal-btn is-primary">Create assistant</button>
+      </div>
+      <p id="create-simple-msg" class="portal-modal-feedback"></p>
+    </form>
+  </div>
+</div>
+
 <script src="{{ static_url('js/chat_ui.js') }}"></script>
 <script src="{{ static_url('js/admin_users.js') }}"></script>
+<script src="{{ static_url('js/assistant_setup.js') }}"></script>
+<script src="{{ static_url('js/interactive_input.js') }}"></script>
+<script src="{{ static_url('js/assistant_personalization.js') }}"></script>
+<script src="{{ static_url('js/assistant_startup.js') }}"></script>
 {% endblock %}

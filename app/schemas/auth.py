@@ -28,3 +28,4 @@ class MeResponse(BaseModel):
     username: str
     nickname: Optional[str] = None
     role: str
+    onboarding_completed: bool = False

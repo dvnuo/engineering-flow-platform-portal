@@ -86,6 +86,9 @@ def test_portal_hash_route_sections_are_declared():
     assert _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS") == {
         "assistants",
         "tasks",
+        # Help is routable so a connection guide can be deep-linked from
+        # Connections and survive a reload or a new tab.
+        "help",
         "runtime-profiles",
         "delegations",
         "users",

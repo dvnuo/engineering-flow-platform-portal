@@ -1,3 +1,31 @@
+{% macro setup_guide(section) -%}
+{% set guide = (connection_guidance or {}).get(section) %}
+{%- if guide %}
+<details class="portal-collapsible portal-setup-guide">
+  <summary class="portal-collapsible-summary">
+    <i data-lucide="circle-help" class="w-4 h-4"></i>
+    <span>How to set this up</span>
+  </summary>
+  <div class="portal-setup-guide-body">
+    <p class="portal-panel-note">{{ guide.summary }}</p>
+    <ol class="portal-setup-guide-steps">
+      {% for step in guide.steps %}<li>{{ step }}</li>{% endfor %}
+    </ol>
+    <div class="portal-setup-guide-links">
+      {% if guide.help_url %}
+      <a class="portal-link-inline" href="{{ guide.help_url }}" target="_blank" rel="noopener noreferrer">
+        {{ guide.help_label or "Open the setup page" }} &rarr;
+      </a>
+      {% endif %}
+      <a class="portal-link-inline" href="#/help/connect-{{ section }}">
+        Full guide for this connection &rarr;
+      </a>
+    </div>
+  </div>
+</details>
+{%- endif %}
+{%- endmacro %}
+
 <div class="portal-panel-stack" id="runtime-profile-panel-root" data-runtime-profile-id="{{ profile_id }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/runtime-profiles/{{ profile_id }}/test">
   <form id="runtime-profile-form" hx-post="/app/runtime-profiles/{{ profile_id }}/save" hx-target="#workspace-detail-content" hx-swap="innerHTML" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running agent(s); in-flight tasks will be interrupted."{% endif %} class="portal-panel-stack">
     <input type="hidden" name="__touch_llm" value="0" data-touch-flag="llm" />
@@ -14,6 +42,39 @@
       <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'warning' %}is-warning{% elif status_type == 'success' %}is-success{% endif %}" data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
     {% endif %}
 
+    {% if connection_checklist and connection_checklist.total %}
+    <section class="portal-panel-section portal-connection-checklist{{ ' is-complete' if connection_checklist.complete else '' }}">
+      <div class="portal-connection-checklist-head">
+        <div class="portal-settings-section-title">
+          <span class="portal-section-accent" aria-hidden="true"></span>
+          <h6>Setup progress</h6>
+        </div>
+        <span class="portal-connection-checklist-count">
+          {{ connection_checklist.connected }} of {{ connection_checklist.total }} connected
+        </span>
+      </div>
+      <div class="portal-connection-checklist-track" aria-hidden="true">
+        <i style="width: {{ (connection_checklist.connected / connection_checklist.total * 100)|round|int }}%"></i>
+      </div>
+      <div class="portal-connection-checklist-items">
+        {% for item in connection_checklist.sections %}
+        <button type="button"
+                class="portal-connection-checklist-item{{ ' is-connected' if item.connected else '' }}"
+                data-scroll-to-section="profile-section-{{ item.section }}">
+          <i data-lucide="{{ 'circle-check' if item.connected else 'circle-dashed' }}" class="w-4 h-4"></i>
+          <span>{{ item.label }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      {% if not connection_checklist.complete %}
+      <p class="portal-inline-note">
+        Anything not connected simply will not be available to the assistant. You can fill these in
+        as you need them.
+      </p>
+      {% endif %}
+    </section>
+    {% endif %}
+
     <section class="portal-panel-section">
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Runtime Profile Metadata</h6></div>
       <div class="grid grid-cols-2 gap-3">
@@ -25,13 +86,14 @@
       <div class="portal-inline-note">Changes here update a shared Runtime Profile and affect all bound agents. Saving restarts running bound agents to apply the new revision.</div>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="proxy">
+    <section class="portal-panel-section" id="profile-section-proxy" data-managed-section="proxy">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Proxy</h6>
           </div>
       </div>
+      {{ setup_guide('proxy') }}
       <div class="portal-checkbox-row">
           <label class="toggle-switch" aria-label="Enable Proxy">
               <input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} />
@@ -44,8 +106,9 @@
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy">Test Proxy</button><div class="portal-inline-state" data-test-result="proxy"></div></div>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="llm">
+    <section class="portal-panel-section" id="profile-section-llm" data-managed-section="llm">
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>LLM Model</h6></div>
+      {{ setup_guide('llm') }}
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="llm_provider" id="llm_provider" class="portal-form-select"><option value="github_copilot" {{ 'selected' if raw_llm.get('provider') != 'ai_platform' else '' }}>GitHub Copilot</option><option value="ai_platform" {{ 'selected' if raw_llm.get('provider') == 'ai_platform' else '' }}>AI Platform</option></select></label>
         <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ raw_llm.get('model', '') }}" data-initial-value="{{ raw_llm.get('model', '') }}"></select></label>
@@ -84,13 +147,14 @@
       </div>
     </section>
 
-    <section class="portal-panel-section" data-instance-group="jira" data-managed-section="jira">
+    <section class="portal-panel-section" data-instance-group="jira" id="profile-section-jira" data-managed-section="jira">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Jira</h6>
           </div>
       </div>
+      {{ setup_guide('jira') }}
       <div class="portal-checkbox-row">
           <label class="toggle-switch" aria-label="Enable Jira">
               <input type="checkbox" name="jira_enabled" {% if jira.get('enabled') %}checked{% endif %} />
@@ -104,13 +168,14 @@
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="jira">Test Jira</button><div class="portal-inline-state" data-test-result="jira"></div></div>
     </section>
 
-    <section class="portal-panel-section" data-instance-group="confluence" data-managed-section="confluence">
+    <section class="portal-panel-section" data-instance-group="confluence" id="profile-section-confluence" data-managed-section="confluence">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Confluence</h6>
           </div>
       </div>
+      {{ setup_guide('confluence') }}
       <div class="portal-checkbox-row">
           <label class="toggle-switch" aria-label="Enable Confluence">
               <input type="checkbox" name="confluence_enabled" {% if confluence.get('enabled') %}checked{% endif %} />
@@ -124,13 +189,14 @@
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="confluence">Test Confluence</button><div class="portal-inline-state" data-test-result="confluence"></div></div>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="github">
+    <section class="portal-panel-section" id="profile-section-github" data-managed-section="github">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>GitHub</h6>
           </div>
       </div>
+      {{ setup_guide('github') }}
       <div class="portal-checkbox-row">
           <label class="toggle-switch" aria-label="Enable GitHub">
               <input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} />
@@ -142,13 +208,14 @@
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="github">Test GitHub</button><div class="portal-inline-state" data-test-result="github"></div></div>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="mobile">
+    <section class="portal-panel-section" id="profile-section-mobile" data-managed-section="mobile">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>BrowserStack Mobile</h6>
           </div>
       </div>
+      {{ setup_guide('mobile') }}
       <div class="portal-checkbox-row">
           <label class="toggle-switch" aria-label="Enable BrowserStack Mobile">
               <input type="checkbox" name="mobile_enabled" {% if mobile.get('enabled') %}checked{% endif %} />
@@ -162,13 +229,14 @@
       </div>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="aws">
+    <section class="portal-panel-section" id="profile-section-aws" data-managed-section="aws">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>AWS</h6>
           </div>
       </div>
+      {{ setup_guide('aws') }}
       <div class="portal-checkbox-row">
           <label class="toggle-switch" aria-label="Enable AWS">
               <input type="checkbox" name="aws_enabled" {% if aws.get('enabled') %}checked{% endif %} />
@@ -179,13 +247,14 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3"><label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ raw_aws.get('domain', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="aws_username" value="{{ raw_aws.get('username', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="aws_password" value="{{ raw_aws.get('password', '') }}" class="portal-form-input" /></label></div>
     </section>
 
-    <section class="portal-panel-section" data-instance-group="jenkins" data-managed-section="jenkins">
+    <section class="portal-panel-section" data-instance-group="jenkins" id="profile-section-jenkins" data-managed-section="jenkins">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
             <h6>Jenkins</h6>
           </div>
       </div>
+      {{ setup_guide('jenkins') }}
       <div class="portal-checkbox-row">
           <label class="toggle-switch" aria-label="Enable Jenkins">
               <input type="checkbox" name="jenkins_enabled" {% if jenkins.get('enabled') %}checked{% endif %} />
@@ -198,9 +267,10 @@
       <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="jenkins">+ Add Jenkins Instance</button>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="git"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Git</h6></div><div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">User Name</span><input type="text" name="git_user_name" value="{{ raw_git.get('user', {}).get('name', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">User Email</span><input type="text" name="git_user_email" value="{{ raw_git.get('user', {}).get('email', '') }}" class="portal-form-input" /></label></div></section>
+    <section class="portal-panel-section" id="profile-section-git" data-managed-section="git"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Git</h6></div>
+      {{ setup_guide('git') }}<div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">User Name</span><input type="text" name="git_user_name" value="{{ raw_git.get('user', {}).get('name', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">User Email</span><input type="text" name="git_user_email" value="{{ raw_git.get('user', {}).get('email', '') }}" class="portal-form-input" /></label></div></section>
 
-    <section class="portal-panel-section" data-managed-section="debug">
+    <section class="portal-panel-section" id="profile-section-debug" data-managed-section="debug">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>

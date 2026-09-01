@@ -4969,3 +4969,748 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   .assistant-waiting-dots::after,
   .assistant-stream-cursor { animation: none; }
 }
+
+
+/* ============================================================================
+   Role expansion: first-run tour, simple create, connection setup guidance,
+   interactive input, and starter prompt cards.
+   ========================================================================= */
+
+/* -- first-run tour ------------------------------------------------------- */
+
+.portal-onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.portal-onboarding.hidden { display: none; }
+
+.portal-onboarding-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--portal-surface);
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-lg);
+  box-shadow: var(--portal-shadow-lg);
+  padding: 28px 30px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.portal-onboarding-dots {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.portal-onboarding-dots li {
+  width: 26px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--portal-border);
+  transition: background var(--portal-transition);
+}
+
+.portal-onboarding-dots li.is-active { background: var(--portal-accent); }
+
+.portal-onboarding-step { display: flex; flex-direction: column; gap: 12px; }
+.portal-onboarding-step.hidden { display: none; }
+
+.portal-onboarding-step h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 650;
+  color: var(--portal-text);
+  line-height: 1.25;
+}
+
+.portal-onboarding-step p {
+  margin: 0;
+  color: var(--portal-text-secondary);
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
+
+.portal-onboarding-muted { color: var(--portal-text-muted); }
+
+.portal-onboarding-art {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--portal-radius-md);
+  display: grid;
+  place-items: center;
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+}
+
+.portal-onboarding-concepts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  align-items: baseline;
+}
+
+.portal-onboarding-concepts dt {
+  font-weight: 650;
+  color: var(--portal-text);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.portal-onboarding-concepts dd {
+  margin: 0;
+  color: var(--portal-text-secondary);
+  font-size: 0.9rem;
+}
+
+.portal-onboarding-form { display: flex; flex-direction: column; gap: 14px; }
+
+.portal-onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-onboarding-spacer { flex: 1 1 auto; }
+
+/* -- assistant type picker ------------------------------------------------ */
+
+.portal-assistant-type-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+@media (min-width: 620px) {
+  .portal-assistant-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.portal-assistant-type-option { display: block; cursor: pointer; }
+
+/* The radio keeps its place in the accessibility tree and its keyboard
+   behaviour; only the default presentation is replaced by the card. */
+.portal-assistant-type-option input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.portal-assistant-type-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface);
+  transition: border-color var(--portal-transition), background var(--portal-transition);
+  height: 100%;
+}
+
+.portal-assistant-type-option:hover .portal-assistant-type-card {
+  border-color: var(--portal-border-strong);
+}
+
+.portal-assistant-type-option.is-selected .portal-assistant-type-card,
+.portal-assistant-type-option input:checked + .portal-assistant-type-card {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent-soft);
+}
+
+.portal-assistant-type-option input:focus-visible + .portal-assistant-type-card {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 2px;
+}
+
+.portal-assistant-type-icon {
+  flex: 0 0 auto;
+  color: var(--portal-accent-strong);
+  display: grid;
+  place-items: center;
+  padding-top: 1px;
+}
+
+.portal-assistant-type-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.portal-assistant-type-copy strong { font-size: 0.92rem; color: var(--portal-text); }
+
+.portal-assistant-type-copy small {
+  font-size: 0.82rem;
+  color: var(--portal-text-muted);
+  line-height: 1.45;
+}
+
+/* -- connections checklist and setup guides ------------------------------- */
+
+.portal-connection-checklist { display: flex; flex-direction: column; gap: 10px; }
+
+.portal-connection-checklist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portal-connection-checklist-count {
+  font-size: 0.82rem;
+  color: var(--portal-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-connection-checklist-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--portal-surface-soft);
+  overflow: hidden;
+}
+
+.portal-connection-checklist-track i {
+  display: block;
+  height: 100%;
+  background: var(--portal-accent);
+  transition: width var(--portal-transition);
+}
+
+.portal-connection-checklist.is-complete .portal-connection-checklist-track i {
+  background: var(--portal-success);
+}
+
+.portal-connection-checklist-items { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.portal-connection-checklist-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--portal-border);
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
+  font-size: 0.82rem;
+  text-decoration: none;
+  transition: border-color var(--portal-transition), color var(--portal-transition);
+}
+
+.portal-connection-checklist-item:hover {
+  border-color: var(--portal-accent);
+  color: var(--portal-text);
+}
+
+.portal-connection-checklist-item.is-connected {
+  color: var(--portal-success);
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+.portal-setup-guide { margin-top: 2px; }
+
+.portal-setup-guide .portal-collapsible-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  color: var(--portal-text-muted);
+}
+
+.portal-setup-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface-muted);
+  border: 1px solid var(--portal-border);
+}
+
+.portal-setup-guide-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.86rem;
+  color: var(--portal-text-secondary);
+}
+
+/* -- interactive input (questions and approvals) -------------------------- */
+
+.portal-interactive-row { width: 100%; }
+
+.portal-interactive-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--portal-accent);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface);
+  box-shadow: var(--portal-shadow);
+}
+
+.portal-interactive-card.is-permission { border-color: var(--portal-warning); }
+
+.portal-interactive-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--portal-accent-strong);
+}
+
+.portal-interactive-card.is-permission .portal-interactive-head { color: var(--portal-warning); }
+
+.portal-interactive-body { display: flex; flex-direction: column; gap: 16px; }
+
+.portal-question-item {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.portal-question-header {
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--portal-text-muted);
+}
+
+.portal-question-text {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--portal-text);
+  line-height: 1.5;
+}
+
+.portal-question-options { display: flex; flex-direction: column; gap: 6px; }
+
+.portal-question-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-sm);
+  cursor: pointer;
+  transition: border-color var(--portal-transition), background var(--portal-transition);
+}
+
+.portal-question-option:hover { border-color: var(--portal-border-strong); }
+
+.portal-question-option:has(input:checked) {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent-soft);
+}
+
+.portal-question-option:has(input:focus-visible) {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 2px;
+}
+
+.portal-question-option input { margin-top: 3px; flex: 0 0 auto; }
+
+.portal-question-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.portal-question-option-body strong {
+  font-size: 0.9rem;
+  color: var(--portal-text);
+  font-weight: 600;
+}
+
+.portal-question-option-body small {
+  font-size: 0.82rem;
+  color: var(--portal-text-muted);
+  line-height: 1.45;
+}
+
+.portal-question-custom { display: flex; flex-direction: column; gap: 6px; }
+.portal-question-custom.hidden { display: none; }
+
+.portal-question-other-btn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.84rem;
+  color: var(--portal-accent-strong);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.portal-interactive-preview {
+  max-height: 220px;
+  overflow: auto;
+  font-size: 0.78rem;
+}
+
+.portal-interactive-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-interactive-hint {
+  flex: 1 1 auto;
+  font-size: 0.8rem;
+  color: var(--portal-text-muted);
+}
+
+.portal-interactive-msg { margin: 0; font-size: 0.84rem; color: var(--portal-text-muted); }
+.portal-interactive-msg.is-error { color: var(--portal-danger); }
+.portal-interactive-msg.is-success { color: var(--portal-success); }
+
+/* -- starter prompt cards ------------------------------------------------- */
+
+.portal-starter-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+@media (min-width: 700px) {
+  .portal-starter-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.portal-starter-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 11px 13px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface);
+  cursor: pointer;
+  transition: border-color var(--portal-transition), background var(--portal-transition);
+}
+
+.portal-starter-card:hover {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent-soft);
+}
+
+.portal-starter-card:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 2px;
+}
+
+.portal-starter-card-icon {
+  flex: 0 0 auto;
+  color: var(--portal-accent-strong);
+  padding-top: 2px;
+}
+
+.portal-starter-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.portal-starter-card-copy strong {
+  font-size: 0.88rem;
+  color: var(--portal-text);
+  font-weight: 600;
+}
+
+.portal-starter-card-copy small {
+  font-size: 0.8rem;
+  color: var(--portal-text-muted);
+  line-height: 1.45;
+}
+
+/* -- assistant startup progress ------------------------------------------ */
+
+.portal-startup-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-md);
+  background: var(--portal-surface-muted);
+}
+
+.portal-startup-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  color: var(--portal-text);
+  font-weight: 600;
+}
+
+.portal-startup-progress-note { margin: 0; font-size: 0.84rem; color: var(--portal-text-muted); }
+
+.portal-startup-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.portal-startup-phases li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--portal-border);
+  font-size: 0.8rem;
+  color: var(--portal-text-muted);
+}
+
+.portal-startup-phases li.is-active {
+  border-color: var(--portal-accent);
+  color: var(--portal-accent-strong);
+  background: var(--portal-accent-soft);
+}
+
+.portal-startup-phases li.is-done { color: var(--portal-success); border-color: rgba(22, 163, 74, 0.35); }
+
+.portal-startup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* -- dark theme corrections ---------------------------------------------- */
+
+html[data-theme="dark"] .portal-onboarding { background: rgba(2, 6, 23, 0.62); }
+
+html[data-theme="dark"] .portal-interactive-card,
+html[data-theme="dark"] .portal-starter-card,
+html[data-theme="dark"] .portal-assistant-type-card,
+html[data-theme="dark"] .portal-connection-checklist-item {
+  background: var(--portal-surface-muted);
+}
+
+html[data-theme="dark"] .portal-connection-checklist-item.is-connected,
+html[data-theme="dark"] .portal-startup-phases li.is-done {
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-onboarding-dots li,
+  .portal-connection-checklist-track i,
+  .portal-connection-checklist-item,
+  .portal-assistant-type-card,
+  .portal-question-option,
+  .portal-starter-card {
+    transition: none;
+  }
+}
+
+
+/* -- assistant type icon picker ------------------------------------------ */
+
+.portal-icon-picker { display: flex; flex-direction: column; gap: 6px; }
+
+.portal-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--portal-border);
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface-muted);
+}
+
+.portal-icon-option {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface);
+  color: var(--portal-text-secondary);
+  cursor: pointer;
+  transition: border-color var(--portal-transition), background var(--portal-transition), color var(--portal-transition);
+}
+
+.portal-icon-option:hover {
+  border-color: var(--portal-border-strong);
+  color: var(--portal-text);
+}
+
+.portal-icon-option.is-selected {
+  border-color: var(--portal-accent);
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+}
+
+.portal-icon-option:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 2px;
+}
+
+/* -- assistant type rows -------------------------------------------------- */
+
+.portal-assistant-type-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.portal-assistant-type-edit {
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-assistant-type-edit.hidden { display: none; }
+
+html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-icon-option { transition: none; }
+}
+
+/* The icon grid plus six fields overflows a short viewport, which put the
+   submit button out of reach. Same constraint the create-assistant wizard
+   uses. */
+.modal-card.assistant-type-modal-card {
+  max-height: min(88vh, 760px);
+  overflow-y: auto;
+}
+
+/* -- failed run summary --------------------------------------------------- */
+
+.chat-completion-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--portal-warning);
+  border-radius: 0 var(--portal-radius-sm) var(--portal-radius-sm) 0;
+  background: var(--portal-surface-muted);
+  margin-bottom: 8px;
+}
+
+.chat-completion-hint strong { color: var(--portal-text); font-size: 0.94rem; }
+.chat-completion-hint p { margin: 0; color: var(--portal-text-secondary); font-size: 0.88rem; }
+
+.chat-completion-raw .portal-collapsible-summary {
+  font-size: 0.82rem;
+  color: var(--portal-text-muted);
+}
+
+.chat-completion-raw > div {
+  font-size: 0.82rem;
+  color: var(--portal-text-secondary);
+  word-break: break-word;
+}
+
+/* -- help centre ---------------------------------------------------------- */
+
+.portal-help-nav-group { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; }
+
+.portal-help-nav-heading {
+  margin: 10px 12px 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--portal-text-muted);
+}
+
+.portal-help-nav-row.is-active {
+  background: var(--portal-accent-soft);
+  color: var(--portal-text);
+}
+
+.portal-help-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--portal-text-secondary);
+  max-width: 68ch;
+}
+
+.portal-help-paragraph {
+  margin: 0 0 8px;
+  color: var(--portal-text-secondary);
+  line-height: 1.65;
+  max-width: 68ch;
+}
+
+.portal-help-paragraph:last-child { margin-bottom: 0; }
+
+.portal-help-external { align-self: flex-start; margin-top: 4px; }
+
+.portal-help-shortcuts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 20px;
+  align-items: baseline;
+}
+
+.portal-help-shortcuts dt { white-space: nowrap; }
+.portal-help-shortcuts dd { margin: 0; color: var(--portal-text-secondary); font-size: 0.9rem; }
+
+.portal-help-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--portal-border);
+}
+
+.portal-setup-guide-links { display: flex; flex-wrap: wrap; gap: 14px; }
+
+/* Brief highlight so a jump from the checklist lands somewhere visible. */
+.is-scroll-target {
+  animation: portal-scroll-target 1.4s ease-out;
+}
+
+@keyframes portal-scroll-target {
+  0% { background: var(--portal-accent-soft); }
+  100% { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-scroll-target { animation: none; outline: 2px solid var(--portal-accent); outline-offset: 4px; }
+}

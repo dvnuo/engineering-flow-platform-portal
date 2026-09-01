@@ -16,6 +16,8 @@ REQUIRED_PORTAL_TABLES = (
     "delegation_rules",
     "delegation_rule_runs",
     "delegation_rule_events",
+    "assistant_types",
+    "platform_settings",
 )
 
 
@@ -91,7 +93,10 @@ def test_portal_schema_ready_passes_with_all_required_tables():
                 metadata,
                 Column("id", Integer, primary_key=True),
                 Column("last_login_at", String(32)),
+                Column("onboarding_completed_at", String(32)),
             )
+        elif table_name == "platform_settings":
+            Table(table_name, metadata, Column("key", String(64), primary_key=True))
         elif table_name == "delegation_rule_events":
             Table(table_name, metadata, Column("id", String(36), primary_key=True), Column("updated_at", String(32)))
         else:

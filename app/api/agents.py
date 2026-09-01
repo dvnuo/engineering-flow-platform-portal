@@ -14,6 +14,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.agent_repo import AgentRepository
+from app.repositories.assistant_type_repo import AssistantTypeRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.agent import (
     ALLOWED_AGENT_TYPES,
@@ -24,7 +25,9 @@ from app.schemas.agent import (
     AgentStatusResponse,
     AgentUpdateRequest,
 )
+from app.schemas.assistant_type import SimpleAgentCreateRequest
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.agent_startup_status import startup_view
 from app.services.k8s_service import K8sService
 from app.services.inference_settings_service import resolve_agent_inference_profile
 from app.services.proxy_service import ProxyService
@@ -313,6 +316,40 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
     agents = AgentRepository(db).list_public()
     return [build_agent_response(r) for r in agents]
+
+
+@router.post("/simple", response_model=AgentResponse)
+async def create_agent_simple(
+    payload: SimpleAgentCreateRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create an assistant from an admin-curated type.
+
+    Simple mode asks for a name and a type; everything the runtime needs comes
+    from the type (engine, behavior branch, skill branch) or from Portal
+    configuration (repository URLs) or from the member's own default profile.
+    That is the whole point: someone who has never seen a branch name can still
+    end up with a working assistant.
+    """
+    assistant_type = AssistantTypeRepository(db).get_by_id(payload.assistant_type_id)
+    if not assistant_type or not assistant_type.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assistant type not found or no longer offered",
+        )
+
+    create_payload = AgentCreateRequest(
+        name=payload.name,
+        description=assistant_type.description,
+        runtime_type=assistant_type.runtime_type,
+        # Branch-only from the type; leaving the URLs unset makes the existing
+        # resolvers fall back to the configured defaults.
+        agent_settings_branch=assistant_type.agent_settings_branch,
+        skill_branch=assistant_type.skill_branch,
+        runtime_profile_id=RuntimeProfileService(db).ensure_user_has_default_profile(user).id,
+    )
+    return await create_agent(create_payload, user=user, db=db)
 
 
 @router.post("", response_model=AgentResponse)
@@ -674,6 +711,7 @@ async def agent_status(agent_id: str, user=Depends(get_current_user), db: Sessio
         cpu_usage=runtime.cpu_usage,
         memory_usage=runtime.memory_usage,
         last_error=agent.last_error,
+        startup=startup_view(agent.status, agent.last_error),
         desired_profile_revision=desired_profile_revision,
         applied_profile_revision=applied_profile_revision,
     )

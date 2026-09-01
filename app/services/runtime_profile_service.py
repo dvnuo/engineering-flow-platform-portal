@@ -1,3 +1,6 @@
+import json
+import logging
+
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,6 +16,8 @@ from app.contracts.llm_catalog import (
 )
 from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeProfileService:
@@ -138,6 +143,26 @@ class RuntimeProfileService:
             self.db.add(profile)
         self.db.commit()
 
+    def _seeded_default_config_json(self) -> str:
+        """Build a new member's first profile from the admin-maintained seed.
+
+        The seed carries connection shape only (URLs, API versions, project
+        keys) and is validated to hold no credentials, so a new member lands on
+        a profile that already points at the right Jira/Confluence and only
+        needs their own account and token. A missing or unreadable seed falls
+        back to the empty default rather than blocking sign-in.
+        """
+        try:
+            from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
+
+            seed = RuntimeProfileSeedService(self.db).get_seed()
+        except Exception:  # pragma: no cover - seed must never block onboarding
+            logger.warning("Falling back to an empty default profile; seed could not be read", exc_info=True)
+            seed = {}
+        if not seed:
+            return self.normalize_persisted_config_json(None)
+        return self.normalize_persisted_config_json(json.dumps(seed))
+
     def ensure_user_has_default_profile(self, user: User) -> RuntimeProfile:
         profiles = self.repo.list_by_owner(user.id)
         if not profiles:
@@ -145,7 +170,7 @@ class RuntimeProfileService:
                 owner_user_id=user.id,
                 name="Default",
                 description="Auto-created default runtime profile",
-                config_json=self.normalize_persisted_config_json(None),
+                config_json=self._seeded_default_config_json(),
                 is_default=True,
             )
 

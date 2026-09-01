@@ -1,0 +1,248 @@
+{% macro instance_group(group, label, fields) -%}
+<input type="hidden" name="{{ group }}_instance_count" value="{{ (seed.get(group, {}).get('instances') or [])|length }}" data-instance-count="{{ group }}" />
+<div class="space-y-2" data-instance-container="{{ group }}" data-instance-credentials="none">
+  {% for inst in (seed.get(group, {}).get('instances') or []) %}
+  <div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="{{ group }}">
+    <div class="portal-settings-instance-head">
+      <div class="portal-settings-instance-head-main">
+        <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
+        <label class="toggle-switch">
+          <input type="checkbox" data-field="enabled" value="1" aria-label="Enable {{ label }} instance {{ loop.index }}" {% if inst.get('enabled', True) %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="portal-instance-state" data-instance-state>{{ "Enabled" if inst.get('enabled', True) else "Disabled" }}</span>
+      </div>
+      <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="{{ group }}">Remove</button>
+    </div>
+    <div class="portal-settings-instance-body">
+      <div class="grid grid-cols-2 gap-2">
+        {% for field in fields %}
+        {% if field.type == 'select' %}
+        <label class="portal-form-label">
+          <span class="portal-form-label">{{ field.label }}</span>
+          <select data-field="{{ field.key }}" class="portal-form-select">
+            {% for option in field.options %}
+            <option value="{{ option.value }}" {% if (inst.get(field.key) or '') == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        {% else %}
+        <label class="portal-form-label">
+          <span class="portal-form-label">{{ field.label }}</span>
+          <input type="text" data-field="{{ field.key }}" value="{{ inst.get(field.key, '') }}" placeholder="{{ field.placeholder }}" class="portal-form-input" />
+        </label>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="{{ group }}">+ Add {{ label }} instance</button>
+{%- endmacro %}
+
+<div id="default-connections-panel-root" class="portal-panel-stack" data-default-connections-panel>
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">Default connections</h5>
+      <p class="portal-panel-note">
+        The connection shape every new member's profile starts from. They open Connections to
+        find these already filled in and supply only their own credentials.
+      </p>
+    </div>
+  </div>
+
+  {% if status_message %}
+  <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'success' %}is-success{% endif %}"
+       data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
+  {% endif %}
+
+  <div class="portal-callout is-warning">
+    <strong>No credentials here.</strong>
+    This seed is shared with every member, so it carries only where a service lives &mdash; never a
+    token, password, API key, or access key. Those fields are deliberately absent below, and a save
+    containing one is refused.
+  </div>
+
+  <form id="default-connections-form" class="portal-panel-stack"
+        hx-post="/app/admin/default-connections/save"
+        hx-target="#workspace-detail-content"
+        hx-swap="innerHTML">
+
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>LLM model</h6></div>
+      <p class="portal-panel-note">Which provider and model a new member starts on. They authorize their own access.</p>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Provider</span>
+          <select name="llm_provider" id="llm_provider" class="portal-form-select">
+            <option value="">No default &mdash; members choose</option>
+            {% for value, label in llm_providers %}
+            <option value="{{ value }}" {% if seed.get('llm', {}).get('provider') == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="portal-form-label">
+          <span class="portal-form-label">Model</span>
+          <select name="llm_model" id="llm_model" class="portal-form-select"
+                  data-current-value="{{ seed.get('llm', {}).get('model', '') }}"
+                  data-initial-value="{{ seed.get('llm', {}).get('model', '') }}"></select>
+        </label>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Default thinking level</span>
+          <select name="llm_reasoning_effort" class="portal-form-select">
+            <option value="">Runtime default</option>
+            {% for value in reasoning_efforts %}
+            <option value="{{ value }}" {% if seed.get('llm', {}).get('reasoning_effort') == value %}selected{% endif %}>{{ value|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="portal-form-label">
+          <span class="portal-form-label">Default context size</span>
+          <select name="llm_max_context_tokens" class="portal-form-select">
+            <option value="">Runtime default</option>
+            {% for value, label in context_sizes %}
+            <option value="{{ value }}" {% if seed.get('llm', {}).get('max_context_tokens') == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="jira">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Jira</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer Jira">
+          <input type="checkbox" name="jira_enabled" {% if seed.get('jira', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer Jira to members</span>
+      </div>
+      {{ instance_group('jira', 'Jira', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'Production'},
+          {'key': 'url', 'label': 'URL', 'placeholder': 'https://yourcompany.atlassian.net'},
+          {'key': 'project', 'label': 'Default project', 'placeholder': 'ABC'},
+          {'key': 'api_version', 'label': 'API version', 'type': 'select', 'options': [
+              {'value': '', 'label': 'Auto'}, {'value': '2', 'label': 'REST API v2'}, {'value': '3', 'label': 'REST API v3'}]}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="confluence">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Confluence</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer Confluence">
+          <input type="checkbox" name="confluence_enabled" {% if seed.get('confluence', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer Confluence to members</span>
+      </div>
+      {{ instance_group('confluence', 'Confluence', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'Wiki'},
+          {'key': 'url', 'label': 'URL', 'placeholder': 'https://yourcompany.atlassian.net/wiki'},
+          {'key': 'space', 'label': 'Default space key', 'placeholder': 'ENG'}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>GitHub</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer GitHub">
+          <input type="checkbox" name="github_enabled" {% if seed.get('github', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer GitHub to members</span>
+      </div>
+      <label class="portal-form-label">
+        <span class="portal-form-label">API base URL</span>
+        <input type="text" name="github_base_url" value="{{ seed.get('github', {}).get('base_url', '') }}"
+               placeholder="https://api.github.com" class="portal-form-input" />
+        <span class="portal-form-hint">Set this for GitHub Enterprise. Leave blank for public GitHub.</span>
+      </label>
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="jenkins">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Jenkins</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer Jenkins">
+          <input type="checkbox" name="jenkins_enabled" {% if seed.get('jenkins', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer Jenkins to members</span>
+      </div>
+      {{ instance_group('jenkins', 'Jenkins', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'CI'},
+          {'key': 'url', 'label': 'URL', 'placeholder': 'https://jenkins.example.com'}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Network proxy</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Enable proxy by default">
+          <input type="checkbox" name="proxy_enabled" {% if seed.get('proxy', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Route member traffic through a proxy</span>
+      </div>
+      <label class="portal-form-label">
+        <span class="portal-form-label">Proxy URL</span>
+        <input type="text" name="proxy_url" value="{{ seed.get('proxy', {}).get('url', '') }}"
+               placeholder="http://proxy.example.com:8080" class="portal-form-input" />
+        <span class="portal-form-hint">Any proxy credentials stay with the member.</span>
+      </label>
+    </section>
+
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>AWS</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer AWS">
+          <input type="checkbox" name="aws_enabled" {% if seed.get('aws', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer AWS to members</span>
+      </div>
+      <label class="portal-form-label">
+        <span class="portal-form-label">Domain</span>
+        <input type="text" name="aws_domain" value="{{ seed.get('aws', {}).get('domain', '') }}" class="portal-form-input" />
+      </label>
+    </section>
+
+    <section class="portal-panel-section">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>BrowserStack</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer BrowserStack">
+          <input type="checkbox" name="mobile_enabled" {% if seed.get('mobile-auto', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer BrowserStack to members</span>
+      </div>
+      <p class="portal-panel-note">BrowserStack needs only a username and access key, both of which are the member's own, so there is nothing else to seed here.</p>
+    </section>
+
+    <div class="flex items-center gap-2">
+      <button type="submit" class="portal-btn is-primary">Save defaults</button>
+      <span class="portal-panel-note">Applies to members who join from now on. Existing profiles are left alone.</span>
+    </div>
+  </form>
+
+  <details class="portal-collapsible">
+    <summary class="portal-collapsible-summary"><strong>Stored value</strong></summary>
+    <pre class="portal-panel-pre">{{ seed_json }}</pre>
+  </details>
+</div>
