@@ -126,12 +126,33 @@
     return prompt.split("{{input}}").join(value).trim();
   }
 
-  function askForCardInput(card) {
+  /**
+   * Ask for the one value a card needs.
+   *
+   * Uses the app's own dialog rather than window.prompt: the native one is
+   * unstyled, ignores the theme, and its cramped single line has nowhere to put
+   * the card's title, so the question arrives without the context that makes it
+   * answerable. Falls back to the native prompt only if dialogs.js is missing.
+   */
+  async function askForCardInput(card) {
     const label = (card.input && card.input.label) || "Details";
     const placeholder = (card.input && card.input.placeholder) || "";
+
+    if (typeof window.showPrompt === "function") {
+      const answer = await window.showPrompt({
+        title: card.title || "Start this",
+        message: label,
+        placeholder,
+        confirmText: "Continue",
+        // The prompt is only shown for cards that need the value, so an empty
+        // answer would compose a prompt with a hole in it.
+        required: true,
+      });
+      return answer === null ? null : String(answer).trim();
+    }
+
     const answer = window.prompt(placeholder ? `${label} (e.g. ${placeholder})` : label, "");
-    if (answer === null) return null;
-    return String(answer).trim();
+    return answer === null ? null : String(answer).trim();
   }
 
   /** Fetch if needed, then paint -- unless the member moved on meanwhile. */
@@ -159,7 +180,7 @@
       applyForAgent(agentId);
     });
 
-    document.getElementById("message-list")?.addEventListener("click", (browserEvent) => {
+    document.getElementById("message-list")?.addEventListener("click", async (browserEvent) => {
       const button = browserEvent.target.closest("[data-starter-card]");
       if (!button || !activeAgentId) return;
       const cards = (cache.get(activeAgentId) || {}).cards || [];
@@ -168,7 +189,9 @@
 
       let value = "";
       if (card.input) {
-        const answer = askForCardInput(card);
+        const answer = await askForCardInput(card);
+        // Cancelled: leave the composer alone rather than filling it with a
+        // half-formed prompt the member did not ask for.
         if (answer === null) return;
         value = answer;
       }

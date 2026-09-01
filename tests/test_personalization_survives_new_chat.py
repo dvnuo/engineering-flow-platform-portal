@@ -84,3 +84,61 @@ def test_every_welcome_rebuild_goes_through_the_one_function():
         "the default welcome should be built in exactly one place, "
         "otherwise a rebuild can skip the announcement"
     )
+
+
+# ------------------------------------------------------------- card input
+
+
+def test_a_card_asks_through_the_app_dialog_not_window_prompt():
+    # window.prompt is unstyled, ignores the theme, and has nowhere to put the
+    # card's title -- so the question arrives without the context that makes it
+    # answerable. dialogs.js exists precisely to replace it.
+    js = _personalization()
+    body = _extract_js_function(js, "askForCardInput")
+
+    assert "window.showPrompt" in body
+    assert body.index("window.showPrompt") < body.index("window.prompt("), (
+        "the app dialog must be tried before the native fallback"
+    )
+
+
+def test_the_dialog_carries_the_card_title_and_its_own_label():
+    body = _extract_js_function(_personalization(), "askForCardInput")
+
+    assert "title: card.title" in body
+    assert "message: label" in body
+    assert "placeholder," in body
+
+
+def test_the_value_is_required():
+    # The prompt only appears for cards that need it, so an empty answer would
+    # compose a prompt with a hole where the ticket key should be.
+    body = _extract_js_function(_personalization(), "askForCardInput")
+
+    assert "required: true" in body
+
+
+def test_it_falls_back_when_the_dialog_module_is_absent():
+    body = _extract_js_function(_personalization(), "askForCardInput")
+
+    assert 'typeof window.showPrompt === "function"' in body
+    assert "window.prompt(" in body
+
+
+def test_cancelling_leaves_the_composer_alone():
+    # showPrompt resolves null on cancel; treating that as an empty string
+    # would drop a half-formed prompt into the box.
+    js = _personalization()
+    handler = js[js.index('document.getElementById("message-list")?.addEventListener("click"') :]
+    handler = handler[: handler.index("\n    });")]
+
+    assert "await askForCardInput(card)" in handler, "the dialog is async now"
+    assert "if (answer === null) return;" in handler
+
+
+def test_the_dialog_module_loads_before_this_script():
+    base = Path("app/templates/base.html").read_text(encoding="utf-8")
+    app_html = Path("app/templates/app.html").read_text(encoding="utf-8")
+
+    assert "js/dialogs.js" in base
+    assert "js/assistant_personalization.js" in app_html
