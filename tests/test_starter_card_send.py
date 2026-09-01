@@ -78,14 +78,18 @@ def _run_node(script: str):
     return json.loads(result.stdout.strip())
 
 
-def _click(card: dict, *, answer="ABC-1", drop_form=False):
+def _click(card: dict, *, answer="ABC-1", drop_form=False, native_prompt=False):
     """Select an assistant, let its cards load, then click the first one."""
+    dialog = (
+        f"globalThis.window.prompt = () => {{ calls.prompts.push({{}}); return {json.dumps(answer)}; }};"
+        if native_prompt
+        else f"globalThis.window.showPrompt = (options) => {{ calls.prompts.push(options); return Promise.resolve({json.dumps(answer)}); }};"
+    )
     script = f"""
 {DOM_SHIM}
 {"delete elements['chat-form'];" if drop_form else ""}
-globalThis.window = {{
-  showPrompt: (options) => {{ calls.prompts.push(options); return Promise.resolve({json.dumps(answer)}); }},
-}};
+globalThis.window = {{}};
+{dialog}
 globalThis.fetch = () => Promise.resolve({{
   ok: true,
   json: () => Promise.resolve({{ welcome: null, cards: [{json.dumps(card)}] }}),
@@ -142,6 +146,24 @@ def test_the_placeholder_is_substituted_everywhere_it_appears():
     card = {"title": "Two holes", "prompt": "Link {{input}} and close {{input}}.", "input": {"label": "Ticket"}}
 
     assert _click(card, answer="EFP-9")["fills"] == ["Link EFP-9 and close EFP-9."]
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_answer_is_a_cancel_and_not_a_prompt_with_a_hole_in_it(blank):
+    # `showPrompt` refuses to close on an empty required field, but the native
+    # prompt fallback has no such notion -- and since the click now sends, a
+    # blank would fire "Design test cases for ." rather than leave it on screen.
+    result = _click(INPUT_CARD, answer=blank, native_prompt=True)
+
+    assert result["fills"] == []
+    assert result["submits"] == 0
+
+
+def test_the_native_prompt_fallback_still_works_when_it_gets_an_answer():
+    result = _click(INPUT_CARD, answer="EFP-7", native_prompt=True)
+
+    assert result["fills"] == ["Design test cases for EFP-7."]
+    assert result["submits"] == 1
 
 
 def test_the_prompt_still_lands_in_the_composer_when_there_is_no_form_to_submit():

@@ -171,7 +171,11 @@
     }
 
     const answer = window.prompt(placeholder ? `${label} (e.g. ${placeholder})` : label, "");
-    return answer === null ? null : String(answer).trim();
+    // Blank is a cancel, not an answer. showPrompt refuses to close on an empty
+    // required field, but the native prompt has no such notion -- and since the
+    // click now sends, a blank here would fire a prompt with a hole in it
+    // instead of leaving one on screen to notice.
+    return answer === null || !String(answer).trim() ? null : String(answer).trim();
   }
 
   /** Fetch if needed, then paint -- unless the member moved on meanwhile. */
