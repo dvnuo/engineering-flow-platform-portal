@@ -4557,6 +4557,32 @@ function defaultWelcomeMessage() {
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
+/**
+ * Hold the transcript still while the pieces of a conversation are fetched.
+ *
+ * A load needs three answers -- the history, the assistant's greeting and
+ * cards, and whatever input the run is blocked on -- and each used to paint the
+ * moment it arrived. On a fast connection they land close enough together to
+ * look like one step; throttle the network and the same load walks visibly
+ * through welcome, cards, question card, history, in whatever order the
+ * responses happened to return. A placeholder says "not yet" once, instead.
+ */
+function showConversationLoading() {
+  if (!dom.messageList) return;
+  dom.messageList.innerHTML = `
+    <div class="message-row message-row-assistant" data-conversation-loading="1" aria-busy="true">
+      <div class="message-meta"><span class="message-author">${escapeHtml(getSelectedAssistantDisplayName())}</span></div>
+      <article class="message-surface message-surface-assistant assistant-message portal-conversation-skeleton">
+        <span class="portal-skeleton-line"></span>
+        <span class="portal-skeleton-line is-short"></span>
+      </article>
+    </div>`;
+}
+
+function conversationIsLoading() {
+  return Boolean(dom.messageList?.querySelector('[data-conversation-loading="1"]'));
+}
+
 function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
@@ -5295,11 +5321,18 @@ async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   syncHiddenSessionInputFromState();
   restoreComposerForAgent(agentId);
   clearAgentUnread(agentId);
-  clearMessageListToWelcome();
+  // A placeholder rather than the welcome: the welcome is one of the possible
+  // outcomes of this load, and showing it up front means showing it and then
+  // taking it away again for every assistant that has a conversation.
+  showConversationLoading();
 
   await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
   syncAgentListSelection(previousAgentId, agentId);
   await syncSelectedAgentState();
+  // Not every path through the selection ends in a transcript -- a stopped
+  // assistant shows the home view, for one. The placeholder must never be
+  // what is left on screen.
+  if (conversationIsLoading()) clearMessageListToWelcome();
   if (updateRoute && !isApplyingPortalRoute) {
     commitPortalRoute({ section: "assistants", agentId });
   }
@@ -9476,6 +9509,23 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     }
   }
 
+  if (render) showConversationLoading();
+
+  // The three answers a drawn conversation needs, asked for together. Each one
+  // used to paint the moment it arrived, so the same load looked different at
+  // every connection speed. Fetching them in parallel and painting once makes
+  // the order they return in stop mattering.
+  const companions = render
+    ? Promise.allSettled([
+      typeof window.portalPrefetchPersonalization === "function"
+        ? window.portalPrefetchPersonalization(agentId)
+        : null,
+      typeof window.portalPrefetchPendingInput === "function"
+        ? window.portalPrefetchPendingInput()
+        : null,
+    ])
+    : Promise.resolve([]);
+
   let data;
   try {
     data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(normalized)}`);
@@ -9525,6 +9575,9 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   if (latestChatState && canonicalMessages.length) {
     applyCanonicalMessagesToChatState(agentId, normalized, latestChatState, canonicalMessages, normalizedPayload.metadata || {});
   }
+  // Both are already in flight; this is the join, not the start.
+  await companions;
+
   if (render && !sessionRenderTicketIsCurrent(agentId, renderTicket)) {
     // A newer load started while this one was in flight. Its answer is the
     // fresher one, so this reply is only good for the state it already updated.

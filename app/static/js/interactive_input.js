@@ -20,6 +20,9 @@
   // session metadata, short enough that a genuinely finished run does not leave
   // a dead card on screen.
   const RECHECK_DELAY_MS = 250;
+  // A prefetched answer is only good for the paint it was fetched for; past
+  // that, ask again rather than show something the run has moved on from.
+  const PREFETCH_MAX_AGE_MS = 5000;
   const state = {
     pending: null,
     kind: null,
@@ -27,6 +30,7 @@
     checking: false,
     recheckTimer: 0,
     draft: null,
+    prefetched: null,
   };
 
   function esc(value) {
@@ -442,26 +446,63 @@
    * session metadata, so it can be recovered long after the event that
    * announced it has gone.
    */
+  function applyPendingInput(payload) {
+    if (payload && payload.question_request) {
+      showQuestion(payload.question_request);
+    } else if (payload && payload.permission_request) {
+      showPermission(payload.permission_request);
+    } else {
+      clearCard();
+    }
+  }
+
+  /**
+   * Ask the runtime what this session is blocked on, and keep the answer.
+   *
+   * The transcript is drawn from several fetches. If this one only started when
+   * the others had finished, the card would land a round trip after the
+   * conversation it belongs to -- which on a throttled connection is a visible
+   * second step. Prefetching lets the caller run it alongside the rest and
+   * apply the result in the same frame as the history.
+   */
+  async function fetchPendingInput() {
+    const agent = agentId();
+    const session = sessionId();
+    if (!agent || !session) return null;
+    try {
+      const payload = await requestJson(
+        `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/pending-input`
+      );
+      state.prefetched = { session, payload, at: Date.now() };
+      return payload;
+    } catch (error) {
+      // The session may not exist yet; nothing to show either way.
+      return null;
+    }
+  }
+
+  function takeFreshPrefetch() {
+    const held = state.prefetched;
+    state.prefetched = null;
+    if (!held || held.session !== sessionId()) return null;
+    return Date.now() - held.at <= PREFETCH_MAX_AGE_MS ? held : null;
+  }
+
   async function checkPendingInput() {
     if (state.checking || state.submitting) return;
     const agent = agentId();
     const session = sessionId();
     if (!agent || !session) return;
 
+    const held = takeFreshPrefetch();
+    if (held) {
+      applyPendingInput(held.payload);
+      return;
+    }
+
     state.checking = true;
     try {
-      const payload = await requestJson(
-        `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/pending-input`
-      );
-      if (payload && payload.question_request) {
-        showQuestion(payload.question_request);
-      } else if (payload && payload.permission_request) {
-        showPermission(payload.permission_request);
-      } else {
-        clearCard();
-      }
-    } catch (error) {
-      /* the session may not exist yet; nothing to show either way */
+      applyPendingInput(await fetchPendingInput());
     } finally {
       state.checking = false;
     }
@@ -497,6 +538,10 @@
       checkPendingInput();
     }, RECHECK_DELAY_MS);
   }
+
+  // Fetched ahead of the paint, so the card is mounted in the same frame as
+  // the transcript instead of appearing a round trip later.
+  window.portalPrefetchPendingInput = () => fetchPendingInput();
 
   // -------------------------------------------------------------- listeners
 

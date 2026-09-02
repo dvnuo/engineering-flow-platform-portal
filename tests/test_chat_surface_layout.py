@@ -224,3 +224,69 @@ console.log(JSON.stringify({{ finalScrollTop: scrollTop }}));
 """
 
     assert _run_node(script)["finalScrollTop"] == 5000
+
+
+# ------------------------------------ one load, one paint, at any speed
+
+
+def test_the_transcript_is_held_still_while_a_conversation_is_fetched():
+    """The welcome is an outcome of the load, not a step on the way to it.
+
+    Showing it up front meant showing it and taking it away again for every
+    assistant that has a conversation -- and on a throttled connection the gap
+    between the two is long enough to read.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    selection = _extract_js_function(js, "performAgentSelection")
+
+    assert "showConversationLoading();" in selection
+    assert "clearMessageListToWelcome();\n\n  await setActiveNavSection" not in js
+    # Not every path through a selection ends in a transcript.
+    assert "if (conversationIsLoading()) clearMessageListToWelcome();" in selection
+
+
+def test_the_three_fetches_a_conversation_needs_run_together():
+    # Sequentially, each paints as it lands and the order depends on the
+    # network, which is why the same load looked different at every speed.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    body = js.split("async function loadSessionForAgent(", 1)[1]
+    body = body[: body.index("\nasync function ", 10)]
+
+    prefetch = body.index("Promise.allSettled(")
+    session_fetch = body.index("await agentApiFor(")
+    join = body.index("await companions;")
+    paint = body.index("renderChatHistory(")
+
+    assert prefetch < session_fetch, "the companions must be in flight before we wait on the session"
+    assert session_fetch < join < paint, "and joined before anything is drawn"
+    assert "portalPrefetchPersonalization" in body
+    assert "portalPrefetchPendingInput" in body
+
+
+def test_a_prefetched_answer_is_applied_rather_than_refetched():
+    js = INTERACTIVE.read_text(encoding="utf-8")
+    check = _extract_js_function(js, "checkPendingInput")
+
+    assert "takeFreshPrefetch()" in check, "otherwise the card lands a round trip after the history"
+    assert "applyPendingInput(" in check
+
+
+def test_a_stale_prefetch_is_not_trusted():
+    # Held across a session switch or a long pause, it would show something the
+    # run has moved on from.
+    js = INTERACTIVE.read_text(encoding="utf-8")
+    take = _extract_js_function(js, "takeFreshPrefetch")
+
+    assert "held.session !== sessionId()" in take
+    assert "PREFETCH_MAX_AGE_MS" in take
+    assert "state.prefetched = null;" in take, "a prefetch is good for one paint"
+
+
+def test_the_placeholder_is_visibly_a_placeholder():
+    css = CSS.read_text(encoding="utf-8")
+
+    assert ".portal-conversation-skeleton {" in css
+    base = _rules(".portal-skeleton-line")[0]
+    assert "animation:" in base
+    assert "var(--portal-" in base and "#" not in base
+    assert ".portal-skeleton-line { animation: none; }" in css, "respect prefers-reduced-motion"

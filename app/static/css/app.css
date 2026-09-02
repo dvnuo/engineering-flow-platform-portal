@@ -485,6 +485,39 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 #chat-input::placeholder { color: var(--portal-text-muted); }
 #chat-input:focus { border: 0; outline: none; box-shadow: none; }
 
+/* -- conversation loading placeholder ------------------------------------- */
+
+.portal-conversation-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: min(100%, 320px);
+}
+
+.portal-skeleton-line {
+  height: 11px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--portal-surface-soft) 25%,
+    var(--portal-surface-muted) 37%,
+    var(--portal-surface-soft) 63%
+  );
+  background-size: 400% 100%;
+  animation: portal-skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+.portal-skeleton-line.is-short { width: 62%; }
+
+@keyframes portal-skeleton-sweep {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-skeleton-line { animation: none; }
+}
+
 /* -- composer skill chip -------------------------------------------------- */
 
 .portal-skill-chip-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 0; }

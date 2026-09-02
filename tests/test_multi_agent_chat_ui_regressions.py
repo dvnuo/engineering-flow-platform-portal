@@ -2142,7 +2142,8 @@ def test_load_session_uses_recovery_notice_only_when_not_locally_active():
     assert "function deriveSessionRecoveryNotice(" in js_source
     load_start = js_source.find("async function loadSessionForAgent(")
     assert load_start >= 0
-    load_slice = js_source[load_start: load_start + 2200]
+    load_body = js_source[load_start:]
+    load_slice = load_body[: load_body.index("\nasync function ", 10)]
     assert "!hasActiveChatRequestForAgent(agentId)" in load_slice
     assert "setChatStatus(recoveryNotice.message, recoveryNotice.level === \"error\")" in load_slice
 

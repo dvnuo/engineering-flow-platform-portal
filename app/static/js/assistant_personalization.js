@@ -186,6 +186,12 @@
     applyToWelcome(payload);
   }
 
+  // Fetched ahead of the paint so the greeting and the cards are already in
+  // hand when the transcript is drawn, rather than arriving after it and
+  // rewriting the welcome row a second time.
+  window.portalPrefetchPersonalization = (agentId) =>
+    (agentId ? loadPersonalization(agentId) : Promise.resolve(null));
+
   function bind() {
     document.addEventListener("portal:agent-selected", (browserEvent) => {
       const agentId = browserEvent.detail?.agentId;
