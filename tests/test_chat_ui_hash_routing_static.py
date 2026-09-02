@@ -129,7 +129,7 @@ def test_dom_content_loaded_applies_hash_route_instead_of_forcing_assistants():
 def test_user_actions_commit_hash_routes():
     js = _chat_ui_source()
 
-    select_agent = _extract_js_function(js, "selectAgentById")
+    select_agent = _extract_js_function(js, "performAgentSelection")
     set_active_section = _extract_js_function(js, "setActiveNavSection")
     open_task = _extract_js_function(js, "openTaskDetailInMain")
     open_runtime_profile = _extract_js_function(js, "openRuntimeProfileInMain")

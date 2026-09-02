@@ -98,7 +98,7 @@ def test_agent_list_keeps_search_and_compact_hover_status():
 def test_agent_switch_updates_existing_rows_without_rerendering_list():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     render_agent_list = _extract_js_function(js, "renderAgentList")
-    select_agent = _extract_js_function(js, "selectAgentById")
+    select_agent = _extract_js_function(js, "performAgentSelection")
     sync_selection = _extract_js_function(js, "syncAgentListSelection")
 
     assert "row.dataset.agentId = agent.id" in render_agent_list

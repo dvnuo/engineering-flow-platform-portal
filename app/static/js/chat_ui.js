@@ -5253,7 +5253,26 @@ function renderAgentActions(agent, status) {
   renderIcons();
 }
 
-async function selectAgentById(agentId, { updateRoute = true } = {}) {
+// Startup selects the assistant from more than one place -- the saved last
+// agent and the route being applied -- and each pass clears the transcript to
+// the welcome message before loading the session again. Twice through that is
+// the welcome flashing between two history loads.
+let inFlightAgentSelection = null;
+
+async function selectAgentById(agentId, options = {}) {
+  if (inFlightAgentSelection && inFlightAgentSelection.agentId === agentId) {
+    return inFlightAgentSelection.promise;
+  }
+  const promise = performAgentSelection(agentId, options);
+  inFlightAgentSelection = { agentId, promise };
+  try {
+    return await promise;
+  } finally {
+    if (inFlightAgentSelection?.promise === promise) inFlightAgentSelection = null;
+  }
+}
+
+async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   const previousAgentId = state.selectedAgentId;
   if (previousAgentId) persistComposerForAgent(previousAgentId);
   state.selectedAgentId = agentId;
@@ -5753,7 +5772,12 @@ async function submitChatForSelectedAgent() {
       return;
     }
     if (!isCompletedFinalPayload(payload) || !responseText) {
-      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", payload);
+      await handleIncompleteChatStream(
+        agentIdAtSend,
+        requestCtx,
+        isWaitingForUserInputPayload(payload) ? WAITING_FOR_USER_INPUT_REASON : "runtime_incomplete",
+        payload,
+      );
       return;
     }
     await handleAgentChatSuccess(agentIdAtSend, requestCtx, {
@@ -6031,6 +6055,21 @@ function hasChatStreamFinalPayload(data, streamedText = "") {
 function getCompletionState(payload) {
   const state = String(payload?.completion_state || payload?.completionState || "").trim().toLowerCase();
   return state || "";
+}
+
+const WAITING_FOR_USER_INPUT_REASON = "waiting_for_user_input";
+
+/**
+ * The run stopped to ask, which is not the same as stopping short.
+ *
+ * A parked run has no response text and no `completion_state`, so every test
+ * for "did this finish" said no and the turn was finalized as incomplete --
+ * with a `runtime_incomplete` toast for what is ordinary behaviour. The runtime
+ * says so plainly in the payload's `status`; nothing was reading it.
+ */
+function isWaitingForUserInputPayload(payload) {
+  const status = String(payload?.status || payload?.runtime_status || "").trim().toLowerCase();
+  return status === "waiting_for_question" || status === "waiting_for_permission";
 }
 
 function isCompletedFinalPayload(payload) {
@@ -7134,7 +7173,11 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.streamCompleted || requestCtx.streamFailed) return;
   clearWaitingForRuntimeEventsTimer(requestCtx);
   cancelAssistantTypewriter(requestCtx);
-  const fallbackCompletionState = reason === "runtime_error" ? "error" : "incomplete";
+  const fallbackCompletionState = reason === "runtime_error"
+    ? "error"
+    : reason === WAITING_FOR_USER_INPUT_REASON
+      ? "blocked"
+      : "incomplete";
   const finalPayload = {
     ...payload,
     completion_state: getCompletionState(payload) || fallbackCompletionState,
@@ -7144,7 +7187,9 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   };
   if (state.selectedAgentId === agentIdAtSend) {
     finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, reason);
-    showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
+    if (reason !== WAITING_FOR_USER_INPUT_REASON) {
+      showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
+    }
     addEditButtonsToMessages();
     renderIcons();
     scrollToBottom();
@@ -7247,8 +7292,13 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
       });
       return "handled";
     }
-    if (candidateText) {
-      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", candidate);
+    if (candidateText || isWaitingForUserInputPayload(candidate)) {
+      await handleIncompleteChatStream(
+        agentIdAtSend,
+        requestCtx,
+        isWaitingForUserInputPayload(candidate) ? WAITING_FOR_USER_INPUT_REASON : "runtime_incomplete",
+        candidate,
+      );
       return "handled";
     }
   }
@@ -7256,7 +7306,11 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     await handleIncompleteChatStream(
       agentIdAtSend,
       requestCtx,
-      sawError ? "runtime_error" : "runtime_incomplete",
+      sawError
+        ? "runtime_error"
+        : isWaitingForUserInputPayload(requestCtx.streamFinalPayload)
+          ? WAITING_FOR_USER_INPUT_REASON
+          : "runtime_incomplete",
       requestCtx.streamFinalPayload,
     );
     return "handled";

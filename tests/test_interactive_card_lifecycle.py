@@ -366,3 +366,85 @@ def test_the_rebuild_announces_itself():
 
     assert 'dom.messageList.innerHTML = ""' in tail, "this is the wipe the event exists for"
     assert "portal:history-rendered" in tail
+
+
+# ------------------------------ a run that stopped to ask has not stopped short
+
+
+def test_a_parked_run_is_recognised_from_the_status_the_runtime_reports():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "isWaitingForUserInputPayload")
+    script = f"""
+{fn}
+const cases = [
+  {{ status: "waiting_for_question" }},
+  {{ status: "waiting_for_permission" }},
+  {{ status: "WAITING_FOR_QUESTION" }},
+  {{ status: "completed" }},
+  {{ status: "max_iterations" }},
+  {{ response: "" }},
+  {{}},
+];
+console.log(JSON.stringify(cases.map(isWaitingForUserInputPayload)));
+"""
+
+    assert _run_node(script) == [True, True, True, False, False, False, False]
+
+
+def test_a_parked_run_is_not_finalised_as_incomplete():
+    # It has no response text and no completion_state, so every "did this
+    # finish" test said no and the turn was labelled incomplete -- with a
+    # `runtime_incomplete` toast for ordinary behaviour.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    handler = _extract_js_function(js, "handleIncompleteChatStream")
+
+    assert '"blocked"' in handler, "a parked run is blocked, not incomplete"
+    assert "if (reason !== WAITING_FOR_USER_INPUT_REASON)" in handler, (
+        "the toast reports a problem; being asked a question is not one"
+    )
+
+
+def test_every_incomplete_branch_checks_for_a_parked_run_first():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    calls = js.count("await handleIncompleteChatStream(")
+    guarded = js.count("WAITING_FOR_USER_INPUT_REASON")
+
+    # One definition, one toast guard, one completion-state branch, and one
+    # choice at each call site that can see a final payload.
+    assert calls >= 3
+    assert guarded >= calls, "a call site that cannot tell parked from incomplete will mislabel it"
+
+
+# ------------------------------------------- one selection, one welcome, once
+
+
+def test_selecting_the_same_assistant_twice_at_once_only_runs_once():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    wrapper = _extract_js_function(js, "selectAgentById")
+    script = f"""
+let runs = 0;
+let resolveIt;
+const gate = new Promise((r) => {{ resolveIt = r; }});
+async function performAgentSelection(agentId) {{ runs += 1; await gate; return agentId; }}
+let inFlightAgentSelection = null;
+{wrapper}
+const a = selectAgentById("agent-1");
+const b = selectAgentById("agent-1");
+const c = selectAgentById("agent-2");
+resolveIt();
+Promise.all([a, b, c]).then(() => console.log(JSON.stringify({{ runs, sameSelection: a === b }})));
+"""
+    result = _run_node(script)
+
+    # Startup selects from the saved last agent and from the route being
+    # applied; each pass clears the transcript to the welcome message.
+    assert result["runs"] == 2, "the repeat for the same assistant should join the first"
+    assert result["sameSelection"] is True
+
+
+def test_the_work_still_happens_where_the_route_expects_it():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    work = _extract_js_function(js, "performAgentSelection")
+
+    assert "clearMessageListToWelcome();" in work
+    assert 'commitPortalRoute({ section: "assistants", agentId })' in work

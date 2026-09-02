@@ -94,6 +94,10 @@
       .filter((item) => item.question);
   }
 
+  function hasLabel(option) {
+    return Boolean(String(option && option.label ? option.label : "").trim());
+  }
+
   function optionMarkup(question, questionIndex) {
     const options = question.options
       .map((option, optionIndex) => {
@@ -117,9 +121,12 @@
 
   function questionMarkup(question, index) {
     const options = optionMarkup(question, index);
-    // With no options the free-text box is the only way to answer, so it is
-    // shown outright instead of behind an "Other" toggle.
-    const customAlways = !options;
+    // One option is not a choice. Models reach for it to label a free-text
+    // answer -- "Provide ticket details" with the real instructions in the
+    // description -- and a radio group of one turns that into a control that
+    // does nothing while the actual answer hides behind "Something else...".
+    // Fewer than two options means the box is the answer, so show it.
+    const customAlways = !options || question.options.filter(hasLabel).length < 2;
     return `
     <fieldset class="portal-question-item" data-question-index="${index}">
       ${question.header ? `<legend class="portal-question-header">${esc(question.header)}</legend>` : ""}
