@@ -5398,8 +5398,10 @@ async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   clearAgentUnread(agentId);
   // A placeholder rather than the welcome: the welcome is one of the possible
   // outcomes of this load, and showing it up front means showing it and then
-  // taking it away again for every assistant that has a conversation.
-  showConversationLoading();
+  // taking it away again for every assistant that has a conversation. Skipped
+  // when this assistant is already the one on screen, since then there may be
+  // nothing to load and nothing to replace it with.
+  if (!transcriptShowsConversation(agentId, "")) showConversationLoading();
 
   await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
   syncAgentListSelection(previousAgentId, agentId);
@@ -7504,7 +7506,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     setChatSubmittingForAgent(agentIdAtSend, false);
     setChatStatus("Completed without a visible assistant response. Reloading session...");
     if (finalSessionId) {
-      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
+      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
     if (typeof syncSelectedAgentChatActionControls === "function") syncSelectedAgentChatActionControls();
     return;
@@ -7621,7 +7623,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   const optimisticUserArticle = getLatestOptimisticUserArticle();
   if (!optimisticUserArticle) {
     if (finalSessionId) {
-      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
+      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
     addEditButtonsToMessages();
     setChatStatus("Ready");
@@ -8411,7 +8413,7 @@ async function compactCurrentConversation() {
     const beforePercent = contextUsagePercent(result?.before);
     const afterSnapshot = result?.after && typeof result.after === "object" ? result.after : null;
     if (afterSnapshot) chatState.contextUsage = afterSnapshot;
-    await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId });
+    await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId, force: true });
     const refreshed = await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
     const afterPercent = contextUsagePercent(refreshed || afterSnapshot);
     const reduction = beforePercent != null && afterPercent != null
@@ -9358,7 +9360,7 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
   if (state.selectedAgentId === agentId) {
     setChatSubmittingForAgent(agentId, false);
     setChatStatus(isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready");
-    await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false });
+    await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false, force: true });
   } else if (chatState) {
     chatState.needsReload = true;
   }
@@ -9554,9 +9556,25 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   return true;
 }
 
-async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true } = {}) {
+async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true, force = false } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
+
+  // Asking for the conversation already on screen is not a request to draw it
+  // again. Startup asks twice -- once from the restored last assistant, once
+  // from the route being applied -- and the two are sequential, so no amount of
+  // guarding against overlap catches them. Callers that changed the
+  // conversation say `force`; callers that just want it shown do not.
+  if (
+    render
+    && !force
+    && transcript.phase === "ready"
+    && transcript.agentId === agentId
+    && transcript.sessionId === normalized
+    && !ensureChatState(agentId)?.needsReload
+  ) {
+    return;
+  }
   // Claimed before anything is fetched, so a load that is overtaken while
   // waiting finds out rather than painting a conversation nobody is looking at.
   const token = render ? beginTranscript(agentId, normalized) : null;
@@ -9655,6 +9673,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       state.selectedAgentName = agent?.name || null;
     }
     renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
+    markTranscriptReady(token);
     addEditButtonsToMessages();
     if (!ensureChatState(agentId)?.currentRequest) setChatStatus(`Loaded session ${normalized}`);
     applyRecoveryNotice();
@@ -11211,7 +11230,7 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
         const chatState = ensureChatState(agentId);
         if (chatState?.sessionId) {
           try {
-            await loadSessionForAgent(agentId, chatState.sessionId, { render: true });
+            await loadSessionForAgent(agentId, chatState.sessionId, { render: true, force: true });
           } catch (error) {
             console.warn("Failed to reload session after restart completed", error);
           }

@@ -395,3 +395,42 @@ def test_the_prefetch_is_told_which_conversation_it_is_for():
 
     assert "window.portalPrefetchPendingInput(agentId, normalized)" in body
     assert body.index("portalPrefetchPendingInput(") < body.index("updateAgentSession(agentId, normalized)")
+
+
+def test_asking_for_the_conversation_already_shown_draws_nothing():
+    """Startup asks twice and the two asks are sequential.
+
+    `refreshAll` restores the last assistant and loads its session; the route
+    is then applied and selects the same assistant again. Nothing overlaps, so
+    no amount of guarding against concurrency catches it -- which is why the
+    skeleton appeared three times before anything was drawn.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    body = js.split("async function loadSessionForAgent(", 1)[1]
+    body = body[: body.index("\nasync function ", 10)]
+    guard = body[: body.index("await agentApiFor(")]
+
+    assert 'transcript.phase === "ready"' in guard
+    assert "transcript.agentId === agentId" in guard
+    assert "transcript.sessionId === normalized" in guard
+    assert "!force" in guard
+    assert "needsReload" in guard, "a conversation marked stale must reload"
+
+
+def test_a_caller_that_changed_the_conversation_says_so():
+    # Showing a conversation and redrawing one are different requests. Only the
+    # second may skip the guard, and only these four changed anything.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    forced = js.count("force: true }")
+
+    assert forced >= 5, "message landed (x2), compaction, recovered run, restart"
+
+
+def test_the_placeholder_is_only_shown_when_something_will_replace_it():
+    # Re-selecting the assistant already on screen loads nothing, so a skeleton
+    # painted first would be left there -- or wiped to the welcome, taking the
+    # conversation with it.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    selection = _extract_js_function(js, "performAgentSelection")
+
+    assert 'if (!transcriptShowsConversation(agentId, "")) showConversationLoading();' in selection

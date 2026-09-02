@@ -98,6 +98,8 @@ def test_current_empty_success_keeps_reload_fallback_contract():
     assert fn_start != -1
     fn_snippet = src[fn_start:fn_start + 5200]
     assert "Completed without a visible assistant response. Reloading session" in fn_snippet
-    assert "loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true })" in fn_snippet
+    assert "loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true })" in fn_snippet, (
+        "reloading after an empty success must repaint even though the session is unchanged"
+    )
     assert "chatState.needsReload = true" in fn_snippet
     assert "removeTemporaryAssistantRows({ requestId: requestCtx.clientRequestId, onlyEmpty: true })" in fn_snippet
