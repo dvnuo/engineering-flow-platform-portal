@@ -9324,15 +9324,45 @@ async function reconnectRecoveredChatStreamForAgent(agentId, requestCtx) {
   }
 }
 
-async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {}, { render = agentId === state.selectedAgentId } = {}) {
+/**
+ * Follow the run the runtime starts when an answer to a card is sent.
+ *
+ * `question/respond` and `permission/respond` return `202` with the request id
+ * of the resumed run, and Portal used to drop it: the card vanished, a toast
+ * said "Continuing...", and nothing else happened until the page was reloaded,
+ * at which point the work turned out to have been done all along.
+ *
+ * The record is written first so the recovery path -- which already knows how
+ * to build the request context, open the socket and follow the run to its end
+ * -- has something to find.
+ */
+async function adoptResumedChatRunForAgent(agentId, sessionId, requestId) {
+  if (!agentId || !sessionId || !requestId) return false;
+  const chatState = ensureChatState(agentId);
+  if (!chatState || chatState.currentRequest) return false;
+  persistInflightChatRun(agentId, {
+    session_id: sessionId,
+    request_id: requestId,
+    message_preview: "",
+    started_at: new Date().toISOString(),
+  });
+  return recoverInflightChatRunForAgent(
+    agentId,
+    sessionId,
+    {},
+    { render: agentId === state.selectedAgentId, pendingText: "Working" },
+  );
+}
+
+async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {}, { render = agentId === state.selectedAgentId, pendingText = "Reconnecting" } = {}) {
   const chatState = ensureChatState(agentId);
   if (!agentId || !sessionId || !chatState || chatState.currentRequest) return false;
   const candidate = inflightChatRunCandidate(agentId, sessionId, metadata);
   if (!candidate?.request_id) return false;
   const metadataSaysRunning = metadataIndicatesRunningChatRun(metadata);
-  const insertedRecoveryPending = render ? renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, "Reconnecting") : false;
+  const insertedRecoveryPending = render ? renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText) : false;
   if (insertedRecoveryPending && state.selectedAgentId === agentId) {
-    setChatStatus("Reconnecting to running response...");
+    setChatStatus(pendingText === "Reconnecting" ? "Reconnecting to running response..." : "Working...");
   }
 
   let statusPayload = null;
@@ -9399,9 +9429,9 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
     chatState.inflightAgentTimeline = createAgentTimelineState({ requestId: candidate.request_id, sessionId });
   }
   setChatSubmittingForAgent(agentId, true);
-  if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, "Reconnecting");
+  if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText);
   if (state.selectedAgentId === agentId) {
-    setChatStatus("Reconnected to running response.");
+    setChatStatus(pendingText === "Reconnecting" ? "Reconnected to running response." : "Working...");
   }
   ensureEventSocketForAgent(agentId, sessionId, candidate.request_id);
   startWaitingForRuntimeEventsTimer(agentId, requestCtx);
@@ -10460,6 +10490,7 @@ window.selectPortalAgentById = selectAgentById;
 window.currentPortalSessionId = currentSessionIdForSelectedAgent;
 window.currentPortalAgentId = () => state.selectedAgentId;
 window.renderPortalMarkdown = renderMarkdown;
+window.adoptPortalResumedChatRun = adoptResumedChatRunForAgent;
 window.resolvePortalSkillCommand = resolvePortalSkillCommand;
 window.ensurePortalSkillsLoaded = loadTaskSkillsForAgent;
 window.initializeManagedSettingsPanels = initializeManagedSettingsPanels;

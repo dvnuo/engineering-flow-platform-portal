@@ -451,3 +451,74 @@ def test_the_work_still_happens_where_the_route_expects_it():
 
     assert "clearMessageListToWelcome();" in work
     assert 'commitPortalRoute({ section: "assistants", agentId })' in work
+
+
+# ------------------------------------- the answer starts a run worth watching
+
+
+def test_answering_follows_the_run_the_runtime_just_started():
+    """Both respond endpoints reply 202 with the resumed run's request id.
+
+    Dropping it left the card gone, a toast saying "Continuing...", and a
+    conversation that did not move again until the page was reloaded -- by
+    which point the work had already happened.
+    """
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const adopted = [];
+window.adoptPortalResumedChatRun = (agent, session, requestId) => {
+  adopted.push({ agent, session, requestId });
+  return Promise.resolve(true);
+};
+globalThis.fetch = () => Promise.resolve({
+  ok: true, status: 202,
+  text: () => Promise.resolve(JSON.stringify({ ok: true, session_id: "s1", request_id: "chat-resume-1", state: "running" })),
+});
+const form = {
+  dataset: { requestId: "q-1" },
+  querySelector: (s) => (s === "[data-interactive-msg]" ? { textContent: "", classList: { remove() {}, add() {} } } : null),
+  querySelectorAll: (s) => (s === "[data-question-index]"
+    ? [{ querySelector: (q) => (q === "[data-question-custom-input]" ? { value: "yes", disabled: false } : null) }]
+    : []),
+};
+await submitQuestion(form);
+console.log(JSON.stringify({ adopted, cardGone: !shown() }));
+""")
+
+    assert result["cardGone"] is True
+    assert result["adopted"] == [{"agent": "a1", "session": "s1", "requestId": "chat-resume-1"}]
+
+
+def test_a_reply_without_a_request_id_is_survivable():
+    # An older runtime, or a permission answer that resolved without resuming.
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+let called = 0;
+window.adoptPortalResumedChatRun = () => { called += 1; return Promise.resolve(true); };
+globalThis.fetch = () => Promise.resolve({
+  ok: true, status: 202, text: () => Promise.resolve(JSON.stringify({ ok: true })),
+});
+const form = {
+  dataset: { requestId: "q-1" },
+  querySelector: (s) => (s === "[data-interactive-msg]" ? { textContent: "", classList: { remove() {}, add() {} } } : null),
+  querySelectorAll: () => [{ querySelector: () => ({ value: "yes", disabled: false }) }],
+};
+await submitQuestion(form);
+console.log(JSON.stringify({ called, cardGone: !shown() }));
+""")
+
+    assert result == {"called": 0, "cardGone": True}
+
+
+def test_the_adoption_writes_the_record_the_recovery_path_looks_for():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "adoptResumedChatRunForAgent")
+
+    # The recovery path already knows how to build the request context, open
+    # the socket and follow the run to its end; it just needs something to find.
+    assert "persistInflightChatRun(" in fn
+    assert "recoverInflightChatRunForAgent(" in fn
+    assert 'pendingText: "Working"' in fn, "this run is starting, not reconnecting"
+    assert "chatState.currentRequest" in fn, "never adopt over a run already being followed"

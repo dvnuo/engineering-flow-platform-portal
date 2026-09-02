@@ -341,6 +341,27 @@
     return { answers };
   }
 
+  /**
+   * Follow the run the answer just started.
+   *
+   * Both respond endpoints reply 202 with the request id of the resumed run.
+   * Dropping it left the card gone, a toast saying "Continuing...", and a
+   * conversation that did not move again until the page was reloaded -- by
+   * which point the work had already happened.
+   */
+  function followResumedRun(result) {
+    const requestId = result && (result.request_id || result.requestId);
+    const agent = agentId();
+    const session = sessionId();
+    if (!requestId || !agent || !session) return;
+    if (typeof window.adoptPortalResumedChatRun !== "function") return;
+    try {
+      Promise.resolve(window.adoptPortalResumedChatRun(agent, session, String(requestId))).catch(() => {});
+    } catch (error) {
+      /* the answer is already sent; following it is a courtesy */
+    }
+  }
+
   function setMessage(form, variant, text) {
     const target = form.querySelector("[data-interactive-msg]");
     if (!target) return;
@@ -367,7 +388,7 @@
     setBusy(form, true);
     setMessage(form, "", "Sending…");
     try {
-      await requestJson(
+      const result = await requestJson(
         `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/question/respond`,
         {
           method: "POST",
@@ -376,6 +397,7 @@
         }
       );
       clearCard();
+      followResumedRun(result);
       if (typeof window.showToast === "function") window.showToast("Answer sent. Continuing…");
     } catch (error) {
       setBusy(form, false);
@@ -392,7 +414,7 @@
     setBusy(form, true);
     setMessage(form, "", decision === "approve" ? "Approving…" : "Rejecting…");
     try {
-      await requestJson(
+      const result = await requestJson(
         `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/permission/respond`,
         {
           method: "POST",
@@ -401,6 +423,7 @@
         }
       );
       clearCard();
+      followResumedRun(result);
       if (typeof window.showToast === "function") {
         window.showToast(decision === "approve" ? "Approved. Continuing…" : "Rejected.");
       }
