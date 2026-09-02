@@ -184,6 +184,7 @@ globalThis.document = {{
 }};
 globalThis.window = {{ setTimeout: () => {{}} }};
 function renderIcons() {{}}
+function announcePendingChange() {{}}
 const CARD_ID = "portal-interactive-input";
 {mount}
 mountCard("<form></form>");
@@ -217,6 +218,7 @@ globalThis.document = {{
 }};
 globalThis.window = {{ setTimeout: () => {{}} }};
 function renderIcons() {{}}
+function announcePendingChange() {{}}
 const CARD_ID = "portal-interactive-input";
 {mount}
 mountCard("<form></form>");
