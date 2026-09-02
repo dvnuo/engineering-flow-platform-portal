@@ -456,7 +456,11 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   .portal-jump-latest { transition: none; }
 }
 .portal-message-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: 200px; min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
+/* The composer floats over the foot of the scroll area, so the list holds
+   empty space the height of the composer plus a gap. chat_ui.js keeps the
+   variable in step with the real composer; 200px is the one-line fallback
+   for before the first measurement lands. */
+.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: calc(var(--portal-composer-height, 200px) + 24px); min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
 .portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; justify-content: center; background: transparent; pointer-events: none; }
 .portal-composer {
   display: flex;
@@ -804,7 +808,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   }
 
   .portal-message-list {
-    padding: 24px 16px 152px;
+    padding: 24px 16px calc(var(--portal-composer-height, 200px) + 24px);
     max-width: 100%;
     min-width: 0;
   }
@@ -5330,7 +5334,18 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-interactive-card.is-permission .portal-interactive-head { color: var(--portal-warning); }
 
-.portal-interactive-body { display: flex; flex-direction: column; gap: 16px; }
+/* The questions scroll inside the card so the heading and the buttons never
+   do. Four questions with options are taller than the space above the
+   composer, and a card whose "Send answer" has scrolled out of reach is a run
+   the member cannot unblock. 160px covers the card's own head, actions,
+   padding and gaps -- measured at 147, rounded up. */
+.portal-interactive-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: max(140px, calc(var(--portal-chat-viewport-height, 70vh) - var(--portal-composer-height, 200px) - 160px));
+  overflow-y: auto;
+}
 
 .portal-question-item {
   border: none;
