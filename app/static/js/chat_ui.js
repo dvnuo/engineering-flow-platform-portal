@@ -1584,15 +1584,14 @@ function trackChatSurfaceSizes() {
   };
 
   apply();
-  if (typeof ResizeObserver === "function") {
-    const observer = new ResizeObserver(apply);
-    observer.observe(composer);
-    observer.observe(scroll);
-  } else {
-    // Older engines still get the common cases: typing, and resizing the window.
-    dom.chatInput?.addEventListener("input", apply);
-    window.addEventListener("resize", apply);
-  }
+  // ResizeObserver rather than a set of events, because it also fires when the
+  // chat view goes from `display: none` to visible -- which is when the first
+  // real measurement is available and every event-based substitute misses it.
+  // The stylesheet already requires color-mix(), so nothing that can render
+  // this page lacks it.
+  const observer = new ResizeObserver(apply);
+  observer.observe(composer);
+  observer.observe(scroll);
 }
 
 function getCurrentUserDisplayName() {
