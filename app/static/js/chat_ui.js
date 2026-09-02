@@ -9117,7 +9117,39 @@ function isTerminalChatRunState(stateValue) {
   return ["completed", "success", "failed", "error", "cancelled", "canceled", "blocked", "incomplete"].includes(String(stateValue || "").trim().toLowerCase());
 }
 
+/**
+ * A run parked on a question or an approval is not a run to reconnect to.
+ *
+ * There is no stream left to follow and no work in flight: it is waiting for
+ * the member, and the answer card is how it resumes. Treating it as inflight
+ * drew a "Reconnecting" placeholder, started a poll, read back `blocked` --
+ * which counts as terminal -- and reloaded the session, which rebuilt the
+ * transcript and re-armed the recovery that started it. That cycle is the
+ * conversation flashing between welcome, history and the card after a refresh.
+ */
+function metadataSaysWaitingForUserInput(metadata = {}) {
+  const sessionStatus = metadata?.session_status && typeof metadata.session_status === "object"
+    ? metadata.session_status
+    : {};
+  if (metadata.pending_question_request || metadata.pending_permission_request) return true;
+  if (sessionStatus.pending_question_request || sessionStatus.pending_permission_request) return true;
+  return [
+    metadata.last_runtime_status,
+    sessionStatus.last_runtime_status,
+    sessionStatus.state,
+  ]
+    .map(normalizeChatRunState)
+    .some((value) => value === "waiting_for_question" || value === "waiting_for_permission");
+}
+
 function inflightChatRunCandidate(agentId, sessionId, metadata = {}) {
+  if (metadataSaysWaitingForUserInput(metadata)) {
+    // The record was written when the message was sent and never cleared,
+    // because the run stopped to ask rather than finishing. Left alone it
+    // proposes the same phantom recovery on every load.
+    clearPersistedInflightChatRun(agentId);
+    return null;
+  }
   const persisted = getPersistedInflightChatRun(agentId);
   if (persisted && String(persisted.session_id || "") === String(sessionId || "")) {
     return persisted;

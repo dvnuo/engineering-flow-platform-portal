@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from _js_extract_helpers import _extract_js_function
+
 
 MODULE = Path("app/static/js/interactive_input.js")
 CHAT_UI = Path("app/static/js/chat_ui.js")
@@ -281,6 +283,81 @@ def test_only_the_newest_session_load_is_allowed_to_paint():
 
     assert claim < first_await, "the ticket must be claimed before the request goes out"
     assert first_await < check < render, "and checked after it returns, before painting"
+
+
+# ------------------------------------- not every parked run is a lost one
+
+
+def _candidate(metadata: dict, persisted=None):
+    """`inflightChatRunCandidate`, over a fake localStorage record."""
+    js = CHAT_UI.read_text(encoding="utf-8")
+    parts = "\n".join(
+        _extract_js_function(js, name)
+        for name in (
+            "normalizeChatRunState",
+            "chatRunRequestIdFromMetadata",
+            "metadataIndicatesRunningChatRun",
+            "metadataSaysWaitingForUserInput",
+            "inflightChatRunCandidate",
+        )
+    )
+    script = f"""
+const RUNNING_CHAT_RUN_STATES = new Set(["running", "accepted", "queued", "in_progress"]);
+let stored = {json.dumps(persisted)};
+let cleared = false;
+function getPersistedInflightChatRun() {{ return stored; }}
+function clearPersistedInflightChatRun() {{ cleared = true; stored = null; }}
+{parts}
+const candidate = inflightChatRunCandidate("a1", "s1", {json.dumps(metadata)});
+console.log(JSON.stringify({{ candidate, cleared }}));
+"""
+    return _run_node(script)
+
+
+RUNNING_METADATA = {"last_execution_id": "req-1", "latest_event_state": "running"}
+STALE_RECORD = {"agent_id": "a1", "session_id": "s1", "request_id": "req-1"}
+
+
+def test_a_run_parked_on_a_question_is_not_something_to_reconnect_to():
+    # It has no stream left to follow and no work in flight. Treating it as
+    # inflight drew "Reconnecting", polled, read back `blocked` -- which counts
+    # as terminal -- and reloaded the session, re-arming the same recovery.
+    result = _candidate({"pending_question_request": {"request_id": "q-1"}}, STALE_RECORD)
+
+    assert result["candidate"] is None
+    assert result["cleared"] is True, "the record was written on send and never cleared"
+
+
+def test_a_run_parked_on_an_approval_is_treated_the_same():
+    assert _candidate({"pending_permission_request": {"id": "p-1"}}, STALE_RECORD)["candidate"] is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"last_runtime_status": "waiting_for_question"},
+        {"session_status": {"last_runtime_status": "waiting_for_permission"}},
+        {"session_status": {"state": "waiting_for_question"}},
+    ],
+    ids=["top-level", "nested-status", "nested-state"],
+)
+def test_the_waiting_status_is_recognised_wherever_it_is_reported(metadata):
+    # The runtime writes `last_runtime_status` on the session; Portal surfaces
+    # it in more than one shape depending on the caller.
+    assert _candidate(dict(metadata, last_execution_id="req-1"), STALE_RECORD)["candidate"] is None
+
+
+def test_a_genuinely_running_run_is_still_recovered():
+    result = _candidate(RUNNING_METADATA, None)
+
+    assert result["candidate"]["request_id"] == "req-1"
+    assert result["cleared"] is False
+
+
+def test_a_persisted_record_still_wins_for_a_run_that_is_not_parked():
+    result = _candidate({}, STALE_RECORD)
+
+    assert result["candidate"]["request_id"] == "req-1"
 
 
 def test_the_rebuild_announces_itself():
