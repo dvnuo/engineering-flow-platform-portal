@@ -4557,6 +4557,81 @@ function defaultWelcomeMessage() {
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
+/* ===== transcript ownership =================================================
+ *
+ * `#message-list` had nineteen writers across three files, each painting on its
+ * own async schedule. Nothing was wrong with any one of them; what was missing
+ * was an owner. A load could paint over a streaming row, a personalization
+ * response could rewrite a welcome the history had already replaced, and the
+ * order it all happened in came down to which fetch returned first -- which is
+ * why the same load looked different at every connection speed.
+ *
+ * Everything that writes to the transcript now says which conversation it is
+ * writing for, and writes for a conversation that is no longer on screen are
+ * dropped. Two modes share that rule:
+ *
+ *   compose  - a load has every answer it needs and paints once.
+ *   patch    - a live run edits rows it owns, found by key.
+ *
+ * Patching is not a compromise here. The typewriter rewrites text at animation
+ * rate; re-rendering the list for each delta would cost the reader their scroll
+ * position and their selection. Keyed edits are the right shape for that phase.
+ * What they were missing is the same thing the load was: a way to know they are
+ * still relevant.
+ */
+const transcript = {
+  agentId: null,
+  sessionId: null,
+  generation: 0,
+  phase: "idle",
+};
+
+/**
+ * Claim the transcript for one conversation, and get the token that proves it.
+ *
+ * Any later claim supersedes this one. Holding a token is how a slow response
+ * finds out its answer is no longer wanted.
+ */
+function beginTranscript(agentId, sessionId) {
+  transcript.generation += 1;
+  transcript.agentId = agentId || null;
+  transcript.sessionId = sessionId || null;
+  transcript.phase = "loading";
+  return { agentId: transcript.agentId, sessionId: transcript.sessionId, generation: transcript.generation };
+}
+
+/** The token for whatever is on screen right now, for incremental writers. */
+function currentTranscriptToken() {
+  return { agentId: transcript.agentId, sessionId: transcript.sessionId, generation: transcript.generation };
+}
+
+function transcriptTokenIsCurrent(token) {
+  return Boolean(token) && token.generation === transcript.generation;
+}
+
+/**
+ * Run a write against the transcript, or drop it.
+ *
+ * The check is the whole point: a response that arrives after the reader has
+ * moved on has nothing useful to say about what they are looking at now.
+ */
+function writeTranscript(token, write) {
+  if (!transcriptTokenIsCurrent(token)) return false;
+  write();
+  return true;
+}
+
+/** Whether a live run may still touch the transcript it started writing to. */
+function transcriptShowsConversation(agentId, sessionId) {
+  if (transcript.agentId !== agentId) return false;
+  return !sessionId || !transcript.sessionId || transcript.sessionId === sessionId;
+}
+
+function markTranscriptReady(token) {
+  if (!transcriptTokenIsCurrent(token)) return;
+  transcript.phase = "ready";
+}
+
 /**
  * Hold the transcript still while the pieces of a conversation are fetched.
  *
@@ -9479,26 +9554,12 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   return true;
 }
 
-// Every call that renders claims a ticket. A reconnect can start several loads
-// within a second -- the socket recovering, the route applying, the agent being
-// selected -- and each one used to paint whatever it had finished fetching.
-// That is the transcript flashing between welcome, history, and back.
-const sessionRenderTickets = new Map();
-
-function claimSessionRenderTicket(agentId) {
-  const next = (sessionRenderTickets.get(agentId) || 0) + 1;
-  sessionRenderTickets.set(agentId, next);
-  return next;
-}
-
-function sessionRenderTicketIsCurrent(agentId, ticket) {
-  return sessionRenderTickets.get(agentId) === ticket;
-}
-
 async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
-  const renderTicket = render ? claimSessionRenderTicket(agentId) : 0;
+  // Claimed before anything is fetched, so a load that is overtaken while
+  // waiting finds out rather than painting a conversation nobody is looking at.
+  const token = render ? beginTranscript(agentId, normalized) : null;
 
   const chatState = ensureChatState(agentId);
   if (render && hasActiveChatRequestForAgent(agentId)) {
@@ -9521,7 +9582,11 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
         ? window.portalPrefetchPersonalization(agentId)
         : null,
       typeof window.portalPrefetchPendingInput === "function"
-        ? window.portalPrefetchPendingInput()
+        // Named explicitly: `updateAgentSession` does not run until the session
+        // response lands, so reading it from state here asks about whatever was
+        // open before -- nothing at all on a fresh page, which made this a
+        // no-op and put the card a round trip behind the history it belongs to.
+        ? window.portalPrefetchPendingInput(agentId, normalized)
         : null,
     ])
     : Promise.resolve([]);
@@ -9578,7 +9643,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   // Both are already in flight; this is the join, not the start.
   await companions;
 
-  if (render && !sessionRenderTicketIsCurrent(agentId, renderTicket)) {
+  if (render && !transcriptTokenIsCurrent(token)) {
     // A newer load started while this one was in flight. Its answer is the
     // fresher one, so this reply is only good for the state it already updated.
     return;

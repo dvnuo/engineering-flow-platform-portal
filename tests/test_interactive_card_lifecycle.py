@@ -293,13 +293,13 @@ def test_only_the_newest_session_load_is_allowed_to_paint():
     js = CHAT_UI.read_text(encoding="utf-8")
     body = js.split("async function loadSessionForAgent(", 1)[1]
 
-    claim = body.index("claimSessionRenderTicket(")
+    claim = body.index("beginTranscript(")
     first_await = body.index("await agentApiFor(")
-    check = body.index("sessionRenderTicketIsCurrent(")
+    check = body.index("transcriptTokenIsCurrent(")
     render = body.index("renderChatHistory(")
 
-    assert claim < first_await, "the ticket must be claimed before the request goes out"
-    assert first_await < check < render, "and checked after it returns, before painting"
+    assert claim < first_await, "the transcript must be claimed before the request goes out"
+    assert first_await < check < render, "and the claim checked after it returns, before painting"
 
 
 # ------------------------------------- not every parked run is a lost one

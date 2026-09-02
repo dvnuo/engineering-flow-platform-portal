@@ -465,9 +465,9 @@
    * second step. Prefetching lets the caller run it alongside the rest and
    * apply the result in the same frame as the history.
    */
-  async function fetchPendingInput() {
-    const agent = agentId();
-    const session = sessionId();
+  async function fetchPendingInput(forAgentId, forSessionId) {
+    const agent = forAgentId || agentId();
+    const session = forSessionId || sessionId();
     if (!agent || !session) return null;
     try {
       const payload = await requestJson(
@@ -487,6 +487,10 @@
     if (!held || held.session !== sessionId()) return null;
     return Date.now() - held.at <= PREFETCH_MAX_AGE_MS ? held : null;
   }
+
+  // The load names the session it is prefetching for; by the time the answer is
+  // applied, that session is the one on screen.
+
 
   async function checkPendingInput() {
     if (state.checking || state.submitting) return;
@@ -541,7 +545,7 @@
 
   // Fetched ahead of the paint, so the card is mounted in the same frame as
   // the transcript instead of appearing a round trip later.
-  window.portalPrefetchPendingInput = () => fetchPendingInput();
+  window.portalPrefetchPendingInput = (agent, session) => fetchPendingInput(agent, session);
 
   // -------------------------------------------------------------- listeners
 

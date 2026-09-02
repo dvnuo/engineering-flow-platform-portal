@@ -290,3 +290,108 @@ def test_the_placeholder_is_visibly_a_placeholder():
     assert "animation:" in base
     assert "var(--portal-" in base and "#" not in base
     assert ".portal-skeleton-line { animation: none; }" in css, "respect prefers-reduced-motion"
+
+
+# ------------------------------------------- the transcript has one owner
+
+
+def _transcript_bundle() -> str:
+    js = CHAT_UI.read_text(encoding="utf-8")
+    functions = (
+        "beginTranscript",
+        "currentTranscriptToken",
+        "transcriptTokenIsCurrent",
+        "writeTranscript",
+        "transcriptShowsConversation",
+        "markTranscriptReady",
+    )
+    decl = js.split("const transcript = {", 1)[1].split("};", 1)[0]
+    return "const transcript = {" + decl + "};\n" + "\n".join(
+        _extract_js_function(js, name) for name in functions
+    )
+
+
+def test_a_write_for_a_superseded_conversation_is_dropped():
+    """This is what makes the order of responses stop mattering.
+
+    A slow answer for the conversation the reader has left has nothing useful
+    to say about the one they are looking at now.
+    """
+    result = _run_node(f"""
+{_transcript_bundle()}
+const painted = [];
+const first = beginTranscript("a1", "s1");
+const second = beginTranscript("a1", "s2");
+const wroteStale = writeTranscript(first, () => painted.push("stale"));
+const wroteCurrent = writeTranscript(second, () => painted.push("current"));
+console.log(JSON.stringify({{ wroteStale, wroteCurrent, painted }}));
+""")
+
+    assert result == {"wroteStale": False, "wroteCurrent": True, "painted": ["current"]}
+
+
+def test_the_order_answers_arrive_in_cannot_change_what_is_painted():
+    """Every arrival order of three responses produces the same writes.
+
+    This is the throttling report as an assertion: on a fast connection the
+    three fetches land close enough together to look like one step, and on a
+    slow one the same load used to walk visibly through whatever order they
+    happened to return in.
+    """
+    result = _run_node(f"""
+{_transcript_bundle()}
+const runs = [];
+const orders = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
+for (const order of orders) {{
+  const token = beginTranscript("a1", "s1");
+  const answers = ["history", "personalization", "pendingInput"];
+  const arrived = [];
+  // Responses land in this order; none of them paints on arrival.
+  for (const index of order) arrived.push(answers[index]);
+  const painted = [];
+  writeTranscript(token, () => painted.push("compose:" + arrived.length));
+  runs.push({{ order: order.join(""), painted }});
+}}
+console.log(JSON.stringify(runs));
+""")
+
+    assert len(result) == 6
+    assert {tuple(run["painted"]) for run in result} == {("compose:3",)}, (
+        "every arrival order must end in exactly one paint of the complete state"
+    )
+
+
+def test_a_live_run_can_tell_whether_its_conversation_is_still_open():
+    # Streaming writes are keyed and incremental -- re-rendering the list for
+    # every typewriter delta would cost the reader their scroll position. What
+    # they were missing is a way to know they are still relevant.
+    result = _run_node(f"""
+{_transcript_bundle()}
+beginTranscript("a1", "s1");
+console.log(JSON.stringify({{
+  sameConversation: transcriptShowsConversation("a1", "s1"),
+  otherSession: transcriptShowsConversation("a1", "s2"),
+  otherAgent: transcriptShowsConversation("a2", "s1"),
+  sessionUnknown: transcriptShowsConversation("a1", ""),
+}}));
+""")
+
+    assert result == {
+        "sameConversation": True,
+        "otherSession": False,
+        "otherAgent": False,
+        "sessionUnknown": True,
+    }
+
+
+def test_the_prefetch_is_told_which_conversation_it_is_for():
+    # `updateAgentSession` does not run until the session response lands, so
+    # reading the session from state here asked about whatever was open before
+    # -- nothing at all on a fresh page, which made the prefetch a no-op and put
+    # the card a round trip behind the history it belongs to.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    body = js.split("async function loadSessionForAgent(", 1)[1]
+    body = body[: body.index("\nasync function ", 10)]
+
+    assert "window.portalPrefetchPendingInput(agentId, normalized)" in body
+    assert body.index("portalPrefetchPendingInput(") < body.index("updateAgentSession(agentId, normalized)")
