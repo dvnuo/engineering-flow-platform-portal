@@ -1119,6 +1119,9 @@ const document = {{
       appendChild(child) {{ this.children.push(child); }},
     }};
   }},
+  // renderChatHistory announces the rebuild so interactive_input.js can re-ask
+  // the runtime whether an answer card belongs in the list it just replaced.
+  dispatchEvent() {{ return true; }},
 }};
 {get_non_blank_author_name}
 {get_current_user_display_name}
@@ -1224,6 +1227,9 @@ const document = {{
       appendChild(child) {{ this.children.push(child); }},
     }};
   }},
+  // renderChatHistory announces the rebuild so interactive_input.js can re-ask
+  // the runtime whether an answer card belongs in the list it just replaced.
+  dispatchEvent() {{ return true; }},
 }};
 {render_history_bundle}
 renderChatHistory([
@@ -1330,6 +1336,9 @@ const document = {{
       appendChild(child) {{ this.children.push(child); }},
     }};
   }},
+  // renderChatHistory announces the rebuild so interactive_input.js can re-ask
+  // the runtime whether an answer card belongs in the list it just replaced.
+  dispatchEvent() {{ return true; }},
 }};
 {render_history_bundle}
 renderChatHistory([
@@ -1450,6 +1459,9 @@ const document = {{
       appendChild(child) {{ this.children.push(child); }},
     }};
   }},
+  // renderChatHistory announces the rebuild so interactive_input.js can re-ask
+  // the runtime whether an answer card belongs in the list it just replaced.
+  dispatchEvent() {{ return true; }},
 }};
 {render_history_bundle}
 renderChatHistory([
@@ -1504,6 +1516,9 @@ const document = {{
       appendChild(child) {{ this.children.push(child); }},
     }};
   }},
+  // renderChatHistory announces the rebuild so interactive_input.js can re-ask
+  // the runtime whether an answer card belongs in the list it just replaced.
+  dispatchEvent() {{ return true; }},
 }};
 {render_history_bundle}
 renderChatHistory([
@@ -1565,6 +1580,9 @@ const document = {{
       appendChild(child) {{ this.children.push(child); }},
     }};
   }},
+  // renderChatHistory announces the rebuild so interactive_input.js can re-ask
+  // the runtime whether an answer card belongs in the list it just replaced.
+  dispatchEvent() {{ return true; }},
 }};
 {render_history_bundle}
 renderChatHistory([
