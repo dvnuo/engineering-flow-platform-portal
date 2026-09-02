@@ -139,12 +139,18 @@ def test_the_sizes_are_observed_and_not_computed_once():
     assert fn.count(".observe(") == 2, "both the composer and the scroll area change size"
 
 
-def test_an_engine_without_resizeobserver_still_tracks_the_common_cases():
+def test_the_first_measurement_lands_when_the_chat_view_becomes_visible():
+    # The chat surface is toggled with `display: none`, where everything
+    # measures 0. ResizeObserver fires on the transition back; an event-based
+    # substitute (input, resize) does not, and would leave the reserve at its
+    # fallback until the member happened to type.
     fn = _extract_js_function(CHAT_UI.read_text(encoding="utf-8"), "trackChatSurfaceSizes")
-    fallback = fn.split("} else {", 1)[1]
 
-    assert 'addEventListener("input"' in fallback
-    assert 'addEventListener("resize"' in fallback
+    assert "ResizeObserver" in fn
+    assert "} else {" not in fn, (
+        "no event-based fallback: it cannot see the display:none transition, and "
+        "the stylesheet already requires color-mix(), which is far newer"
+    )
 
 
 # --------------------------------------------- keeping the question on screen
