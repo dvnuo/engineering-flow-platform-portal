@@ -432,14 +432,17 @@ const a = selectAgentById("agent-1");
 const b = selectAgentById("agent-1");
 const c = selectAgentById("agent-2");
 resolveIt();
-Promise.all([a, b, c]).then(() => console.log(JSON.stringify({{ runs, sameSelection: a === b }})));
+Promise.all([a, b, c]).then(([first, second, other]) =>
+  console.log(JSON.stringify({{ runs, first, second, other }})));
 """
     result = _run_node(script)
 
     # Startup selects from the saved last agent and from the route being
-    # applied; each pass clears the transcript to the welcome message.
+    # applied; each pass clears the transcript to the welcome message. `async`
+    # hands every caller its own promise, so the count is what tells them apart.
     assert result["runs"] == 2, "the repeat for the same assistant should join the first"
-    assert result["sameSelection"] is True
+    assert result["first"] == result["second"] == "agent-1"
+    assert result["other"] == "agent-2"
 
 
 def test_the_work_still_happens_where_the_route_expects_it():
