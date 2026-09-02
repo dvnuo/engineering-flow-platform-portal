@@ -617,3 +617,80 @@ def test_clearing_the_conversation_narrows_the_event_filter():
 
     assert 'const currentSessionId = chatState.sessionId || "";' in js
     assert "chatState.sessionId || socketCtx.sessionId" not in js
+
+
+# ------------------------- the composer and the card are one way forward
+
+
+def _intent(pending, *, mounted=True):
+    """What `portalPendingComposerIntent` reports for a given card."""
+    return _run_node(f"""
+setPending({json.dumps(pending)});
+{"runtimeEvent('question.requested', { question_request: " + json.dumps(pending.get("question_request")) + " });" if pending.get("question_request") and mounted else ""}
+{"runtimeEvent('permission.requested', { permission_request: " + json.dumps(pending.get("permission_request")) + " });" if pending.get("permission_request") and mounted else ""}
+console.log(JSON.stringify({{ intent: window.portalPendingComposerIntent() }}));
+""")
+
+
+FREE_TEXT = {"request_id": "q-1", "questions": [{"question": "Which project?", "custom": True}]}
+OPTIONS_ONLY = {"request_id": "q-2", "questions": [
+    {"question": "Which project?", "custom": False, "options": [{"label": "EFP"}, {"label": "OPS"}]}]}
+TWO_QUESTIONS = {"request_id": "q-3", "questions": [
+    {"question": "Which project?", "custom": True},
+    {"question": "Which type?", "custom": True}]}
+
+
+def test_a_single_free_text_question_can_be_answered_from_the_composer():
+    # The card's own text box does exactly this; the composer is a roomier way
+    # to reach it.
+    assert _intent({"question_request": FREE_TEXT})["intent"] == {"acceptsText": True, "reason": ""}
+
+
+def test_a_question_with_no_free_text_sends_the_member_to_the_card():
+    intent = _intent({"question_request": OPTIONS_ONLY})["intent"]
+
+    assert intent["acceptsText"] is False
+    assert "options" in intent["reason"]
+
+
+def test_several_questions_cannot_be_answered_by_one_typed_line():
+    intent = _intent({"question_request": TWO_QUESTIONS})["intent"]
+
+    assert intent["acceptsText"] is False
+    assert "questions" in intent["reason"]
+
+
+def test_a_typed_line_cannot_approve_a_tool():
+    intent = _intent({"permission_request": {"request_id": "p-1", "tool": "bash", "args": "ls"}})["intent"]
+
+    assert intent["acceptsText"] is False
+    assert "Approve" in intent["reason"]
+
+
+def test_no_card_means_the_composer_behaves_normally():
+    assert _intent({})["intent"] is None
+
+
+def test_sending_while_a_question_is_pending_answers_it_rather_than_starting_a_turn():
+    # The run stays stopped until the tool call is resolved. An ordinary message
+    # does not resolve it: the next run replays the pending call, asks again and
+    # stops -- so the message reached the transcript, never reached the model,
+    # and the question came back looking like a new one.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    submit = _extract_js_function(js, "submitChatForSelectedAgent")
+    head = submit[: submit.index("portalAnswerPendingWithText") + 40]
+
+    assert "portalPendingComposerIntent()" in head
+    assert "if (!pendingIntent.acceptsText)" in head
+    assert "showToast(pendingIntent.reason)" in head
+    # And the answer path is taken before anything that would start a new turn.
+    assert "guardNoActiveChatRequestForAgent" in submit[: submit.index("portalPendingComposerIntent")]
+
+
+def test_the_composer_says_what_sending_will_do():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    placeholder = _extract_js_function(js, "updateChatInputPlaceholder")
+
+    assert "portalPendingComposerIntent" in placeholder
+    assert "Type your answer" in placeholder
+    assert 'document.addEventListener("portal:pending-input-changed", updateChatInputPlaceholder)' in js

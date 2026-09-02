@@ -213,12 +213,21 @@
     </form>`;
   }
 
+  function announcePendingChange() {
+    try {
+      document.dispatchEvent(new CustomEvent("portal:pending-input-changed"));
+    } catch (error) {
+      /* the card is up either way */
+    }
+  }
+
   function clearCard() {
     document.getElementById(CARD_ID)?.remove();
     state.pending = null;
     state.kind = null;
     state.session = "";
     state.draft = null;
+    announcePendingChange();
   }
 
   function mountCard(html) {
@@ -243,6 +252,8 @@
       const cutOff = scroll.getBoundingClientRect().top - row.getBoundingClientRect().top;
       if (cutOff > 0) scroll.scrollTop -= cutOff;
     }
+
+    announcePendingChange();
 
     const firstInput = row.querySelector("input");
     if (firstInput) window.setTimeout(() => firstInput.focus(), 40);
@@ -558,6 +569,48 @@
   // Fetched ahead of the paint, so the card is mounted in the same frame as
   // the transcript instead of appearing a round trip later.
   window.portalPrefetchPendingInput = (agent, session) => fetchPendingInput(agent, session);
+
+  /**
+   * What the composer should do while this card is up.
+   *
+   * A run stops at a question until the tool call it came from is resolved.
+   * Sending an ordinary message does not resolve it: the next run replays the
+   * pending call, asks again, and stops -- so the message reaches the
+   * transcript, never reaches the model, and the question comes back. There was
+   * nothing on screen to say so.
+   *
+   * A single question that accepts free text can be answered from the composer,
+   * which is the same thing its own text box does. Anything else has to go
+   * through the card, because a typed line cannot say which of several
+   * questions it answers, or approve a tool.
+   */
+  window.portalPendingComposerIntent = () => {
+    if (!state.pending || !document.getElementById(CARD_ID)) return null;
+    if (state.kind === "permission") {
+      return { acceptsText: false, reason: "Approve or reject the tool above to continue." };
+    }
+    const questions = normalizeQuestions(state.pending);
+    if (questions.length !== 1) {
+      return { acceptsText: false, reason: "Answer the questions above to continue." };
+    }
+    if (!questions[0].custom) {
+      return { acceptsText: false, reason: "Choose one of the options above to continue." };
+    }
+    return { acceptsText: true, reason: "" };
+  };
+
+  /** Answer the pending question with what the member typed. */
+  window.portalAnswerPendingWithText = async (text) => {
+    const form = document.querySelector(`#${CARD_ID} [data-interactive-kind="question"]`);
+    if (!form) return false;
+    const typed = form.querySelector("[data-question-custom-input]");
+    if (typed) {
+      typed.disabled = false;
+      typed.value = String(text || "");
+    }
+    await submitQuestion(form);
+    return true;
+  };
 
   // -------------------------------------------------------------- listeners
 

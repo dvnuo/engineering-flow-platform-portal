@@ -1589,6 +1589,19 @@ function endSingleSubmit(form, options = {}) {
 
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
+
+  // While a card is up, the composer does something other than start a new
+  // turn, and saying so beats letting the member find out by sending.
+  const pendingIntent = typeof window.portalPendingComposerIntent === "function"
+    ? window.portalPendingComposerIntent()
+    : null;
+  if (pendingIntent) {
+    dom.chatInput.placeholder = pendingIntent.acceptsText
+      ? "Type your answer, or use the card above"
+      : pendingIntent.reason;
+    return;
+  }
+
   const maxPlaceholderAgentLength = 24;
   const assistantName = String(state.selectedAgentName || "").trim();
   if (!assistantName) {
@@ -5711,6 +5724,32 @@ async function submitChatForSelectedAgent() {
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
+
+  // A run stopped at a question stays stopped until the tool call it came from
+  // is resolved. Sending an ordinary message does not resolve it: the next run
+  // replays the pending call, asks again, and stops -- so the message reached
+  // the transcript, never reached the model, and the question came back. It
+  // looked like the message had been accepted.
+  const pendingIntent = typeof window.portalPendingComposerIntent === "function"
+    ? window.portalPendingComposerIntent()
+    : null;
+  if (pendingIntent) {
+    const typed = String(dom.chatInput?.value || "").trim();
+    if (!pendingIntent.acceptsText) {
+      showToast(pendingIntent.reason);
+      return;
+    }
+    if (!typed) return;
+    // The card's own free-text box does exactly this; the composer is just a
+    // roomier way to reach it.
+    if (dom.chatInput) {
+      dom.chatInput.value = "";
+      dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    resetChatInputHeight();
+    await window.portalAnswerPendingWithText(typed);
+    return;
+  }
   const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
     ? normalizeAssistantMessageIds
     : (candidate = {}) => {
@@ -15543,6 +15582,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initManagedModals();
   trackChatSurfaceSizes();
   updateChatInputPlaceholder();
+  document.addEventListener("portal:pending-input-changed", updateChatInputPlaceholder);
 
   // Event delegation for remove buttons (replace inline onclick)
   const previewArea = document.getElementById('input-preview-area');
