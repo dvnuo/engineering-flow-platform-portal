@@ -3435,7 +3435,11 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentAgentId = socketCtx.agentId || state.selectedAgentId;
   const chatState = ensureChatState(currentAgentId);
   if (!chatState) return;
-  const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
+  // Deliberately not falling back to the socket's session: starting a new chat
+  // sets this to "" while the socket still holds the old one, and the fallback
+  // meant clearing the conversation *widened* the filter instead of narrowing
+  // it -- so replayed events from the abandoned session kept arriving.
+  const currentSessionId = chatState.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
   try {
@@ -11124,6 +11128,13 @@ async function startNewChatForSelectedAgent() {
     chatState.contextUsage = null;
   }
   removeTemporaryAssistantRows({ forceAll: true });
+  // A new conversation is a new claim on the transcript, so anything still in
+  // flight for the old one is dropped rather than painted over this.
+  beginTranscript(state.selectedAgentId, "");
+  // The old session's socket has nothing left to say here, and it asks for a
+  // replay on every reconnect -- which is how an unanswered question followed
+  // the reader into the new chat.
+  disconnectEventSocket();
   clearMessageListToWelcome();
   setChatSubmitting(false);
   resetChatInputHeight();

@@ -26,6 +26,9 @@
   const state = {
     pending: null,
     kind: null,
+    // Which conversation the pending request came from. A card belongs to one
+    // session; without this it would follow the reader into the next.
+    session: "",
     submitting: false,
     checking: false,
     recheckTimer: 0,
@@ -214,6 +217,7 @@
     document.getElementById(CARD_ID)?.remove();
     state.pending = null;
     state.kind = null;
+    state.session = "";
     state.draft = null;
   }
 
@@ -306,20 +310,22 @@
     });
   }
 
-  function showQuestion(request) {
+  function showQuestion(request, forSessionId) {
     if (alreadyShowing(request, "question")) return;
     const markup = questionCardMarkup(request);
     if (!markup) return;
     state.pending = request;
     state.kind = "question";
+    state.session = forSessionId || sessionId();
     mountCard(markup);
     restoreAnswers();
   }
 
-  function showPermission(request) {
+  function showPermission(request, forSessionId) {
     if (alreadyShowing(request, "permission")) return;
     state.pending = request;
     state.kind = "permission";
+    state.session = forSessionId || sessionId();
     mountCard(permissionCardMarkup(request));
   }
 
@@ -518,6 +524,12 @@
    */
   function remountFromMemory() {
     if (state.submitting || !state.pending) return;
+    if (state.session && state.session !== sessionId()) {
+      // The reader has moved to another conversation; this question is not
+      // theirs to answer here.
+      clearCard();
+      return;
+    }
     if (document.getElementById(CARD_ID)) return;
     if (state.kind === "question") {
       showQuestion(state.pending);
@@ -549,6 +561,25 @@
 
   // -------------------------------------------------------------- listeners
 
+  function eventSessionId(detail) {
+    const event = detail && detail.event ? detail.event : {};
+    const data = event.data && typeof event.data === "object" ? event.data : {};
+    return String(event.session_id || event.sessionId || data.session_id || detail?.sessionId || "");
+  }
+
+  /**
+   * Whether this event describes the conversation currently on screen.
+   *
+   * An event that names no session is taken at face value: some runtime events
+   * carry only a request id, and dropping those would lose live updates.
+   */
+  function eventBelongsToOpenConversation(detail) {
+    const open = sessionId();
+    const from = eventSessionId(detail);
+    if (!open || !from) return true;
+    return open === from;
+  }
+
   function extractRequest(detail, keys) {
     const data = detail && detail.event ? detail.event.data || detail.event : {};
     for (const key of keys) {
@@ -562,15 +593,20 @@
     document.addEventListener("portal:runtime-event", (browserEvent) => {
       const detail = browserEvent.detail || {};
       const type = String(detail.event?.type || "");
+      // The socket asks for `replay=1`, so a question left unanswered in one
+      // conversation is redelivered on the next connect. Without this check it
+      // was mounted into whatever the reader had moved on to -- starting a new
+      // chat brought the old question straight back.
+      if (!eventBelongsToOpenConversation(detail)) return;
 
       if (type === "question.requested" || type === "tool.question_requested") {
         const request = extractRequest(detail, ["question_request", "questionRequest"]);
-        if (request) showQuestion(request);
+        if (request) showQuestion(request, eventSessionId(detail));
         return;
       }
       if (type === "permission.requested" || type === "permission_request" || type === "tool.permission_requested") {
         const request = extractRequest(detail, ["permission_request", "permissionRequest"]);
-        if (request) showPermission(request);
+        if (request) showPermission(request, eventSessionId(detail));
         return;
       }
       // A resolution names the thing it resolved, so it is safe to act on

@@ -529,3 +529,91 @@ def test_the_adoption_writes_the_record_the_recovery_path_looks_for():
     assert "recoverInflightChatRunForAgent(" in fn
     assert 'pendingText: "Working"' in fn, "this run is starting, not reconnecting"
     assert "chatState.currentRequest" in fn, "never adopt over a run already being followed"
+
+
+# --------------------------- a card belongs to one conversation, not the reader
+
+
+def test_a_replayed_question_from_another_conversation_is_ignored():
+    """The socket asks for `replay=1`, so an unanswered question is redelivered.
+
+    Starting a new chat used to bring the old question straight back: the
+    handler mounted whatever arrived without asking which conversation it
+    happened in.
+    """
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+dispatch("portal:runtime-event", {
+  event: { type: "question.requested", session_id: "s-old", data: { question_request: QUESTION } },
+  sessionId: "s-old",
+});
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    # The shim's open session is "s1"; the event names "s-old".
+    assert result["shown"] is False
+
+
+def test_a_question_for_the_open_conversation_still_shows():
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+dispatch("portal:runtime-event", {
+  event: { type: "question.requested", session_id: "s1", data: { question_request: QUESTION } },
+  sessionId: "s1",
+});
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    assert result["shown"] is True
+
+
+def test_an_event_that_names_no_session_is_taken_at_face_value():
+    # Some runtime events carry only a request id; dropping those would lose
+    # live updates for the conversation actually on screen.
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+dispatch("portal:runtime-event", {
+  event: { type: "question.requested", data: { question_request: QUESTION } },
+});
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    assert result["shown"] is True
+
+
+def test_a_rebuild_in_another_conversation_drops_the_card_instead_of_moving_it():
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const beforeMove = shown();
+// The reader opens a different conversation and its transcript is rebuilt.
+window.currentPortalSessionId = () => "s2";
+list.children = [];
+setPending({});
+dispatch("portal:history-rendered", {});
+const afterMove = shown();
+drainTimers(); await settle();
+console.log(JSON.stringify({ beforeMove, afterMove, afterCheck: shown() }));
+""")
+
+    assert result["beforeMove"] is True
+    assert result["afterMove"] is False, "the question is not the new conversation's to answer"
+    assert result["afterCheck"] is False
+
+
+def test_starting_a_new_chat_is_a_clean_break():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "startNewChatForSelectedAgent")
+
+    assert 'beginTranscript(state.selectedAgentId, "")' in fn, "a new conversation is a new claim"
+    assert "disconnectEventSocket();" in fn, "the old socket replays on every reconnect"
+
+
+def test_clearing_the_conversation_narrows_the_event_filter():
+    # The fallback to the socket's session meant clearing the conversation
+    # *widened* the filter: `chatState.sessionId` went to "" while the socket
+    # still held the old id, so every replayed event matched.
+    js = CHAT_UI.read_text(encoding="utf-8")
+
+    assert 'const currentSessionId = chatState.sessionId || "";' in js
+    assert "chatState.sessionId || socketCtx.sessionId" not in js
