@@ -456,7 +456,11 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   .portal-jump-latest { transition: none; }
 }
 .portal-message-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: 200px; min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
+/* The composer floats over the foot of the scroll area, so the list holds
+   empty space the height of the composer plus a gap. chat_ui.js keeps the
+   variable in step with the real composer; 200px is the one-line fallback
+   for before the first measurement lands. */
+.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: calc(var(--portal-composer-height, 200px) + 24px); min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
 .portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; justify-content: center; background: transparent; pointer-events: none; }
 .portal-composer {
   display: flex;
@@ -480,6 +484,86 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 #chat-input { width: 100%; min-height: 48px !important; max-height: 220px; border: 0; border-radius: 0; background: transparent; color: var(--portal-text); padding: 4px 4px 2px; resize: none; outline: none; box-shadow: none; font-size: 16px; line-height: 1.45; }
 #chat-input::placeholder { color: var(--portal-text-muted); }
 #chat-input:focus { border: 0; outline: none; box-shadow: none; }
+
+/* -- conversation loading placeholder ------------------------------------- */
+
+.portal-conversation-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: min(100%, 320px);
+}
+
+.portal-skeleton-line {
+  height: 11px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--portal-surface-soft) 25%,
+    var(--portal-surface-muted) 37%,
+    var(--portal-surface-soft) 63%
+  );
+  background-size: 400% 100%;
+  animation: portal-skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+.portal-skeleton-line.is-short { width: 62%; }
+
+@keyframes portal-skeleton-sweep {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-skeleton-line { animation: none; }
+}
+
+/* -- composer skill chip -------------------------------------------------- */
+
+.portal-skill-chip-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 0; }
+
+.portal-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 1px solid var(--portal-accent);
+  border-radius: 999px;
+  background: var(--portal-accent-soft);
+  color: var(--portal-accent-strong);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-decoration: none;
+  transition: border-color var(--portal-transition), color var(--portal-transition);
+}
+
+.portal-skill-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portal-skill-chip-icon { width: 14px; height: 14px; flex: 0 0 auto; }
+.portal-skill-chip-open { width: 12px; height: 12px; flex: 0 0 auto; opacity: 0.65; }
+
+.portal-skill-chip.is-linked { cursor: pointer; }
+.portal-skill-chip.is-linked:hover { border-color: var(--portal-accent-strong); }
+.portal-skill-chip.is-linked:hover .portal-skill-chip-name { text-decoration: underline; }
+.portal-skill-chip.is-linked:hover .portal-skill-chip-open { opacity: 1; }
+
+.portal-skill-chip.is-linked:focus-visible {
+  outline: 2px solid var(--portal-accent-strong);
+  outline-offset: 2px;
+}
+
+.portal-skill-chip.is-blocked {
+  border-color: var(--portal-danger);
+  background: transparent;
+  color: var(--portal-danger);
+}
+
+.portal-skill-chip.is-blocked.is-linked:hover { border-color: var(--portal-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-skill-chip { transition: none; }
+}
 
 .portal-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 4px; }
 .portal-composer-toolbar-left,
@@ -757,7 +841,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   }
 
   .portal-message-list {
-    padding: 24px 16px 152px;
+    padding: 24px 16px calc(var(--portal-composer-height, 200px) + 24px);
     max-width: 100%;
     min-width: 0;
   }
@@ -5283,7 +5367,18 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 .portal-interactive-card.is-permission .portal-interactive-head { color: var(--portal-warning); }
 
-.portal-interactive-body { display: flex; flex-direction: column; gap: 16px; }
+/* The questions scroll inside the card so the heading and the buttons never
+   do. Four questions with options are taller than the space above the
+   composer, and a card whose "Send answer" has scrolled out of reach is a run
+   the member cannot unblock. 160px covers the card's own head, actions,
+   padding and gaps -- measured at 147, rounded up. */
+.portal-interactive-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: max(140px, calc(var(--portal-chat-viewport-height, 70vh) - var(--portal-composer-height, 200px) - 160px));
+  overflow-y: auto;
+}
 
 .portal-question-item {
   border: none;

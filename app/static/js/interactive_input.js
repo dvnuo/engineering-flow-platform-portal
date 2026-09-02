@@ -16,11 +16,21 @@
   "use strict";
 
   const CARD_ID = "portal-interactive-input";
+  // Long enough for the run to have finished writing its pending request to
+  // session metadata, short enough that a genuinely finished run does not leave
+  // a dead card on screen.
+  const RECHECK_DELAY_MS = 250;
+  // A prefetched answer is only good for the paint it was fetched for; past
+  // that, ask again rather than show something the run has moved on from.
+  const PREFETCH_MAX_AGE_MS = 5000;
   const state = {
     pending: null,
     kind: null,
     submitting: false,
     checking: false,
+    recheckTimer: 0,
+    draft: null,
+    prefetched: null,
   };
 
   function esc(value) {
@@ -88,6 +98,10 @@
       .filter((item) => item.question);
   }
 
+  function hasLabel(option) {
+    return Boolean(String(option && option.label ? option.label : "").trim());
+  }
+
   function optionMarkup(question, questionIndex) {
     const options = question.options
       .map((option, optionIndex) => {
@@ -111,9 +125,12 @@
 
   function questionMarkup(question, index) {
     const options = optionMarkup(question, index);
-    // With no options the free-text box is the only way to answer, so it is
-    // shown outright instead of behind an "Other" toggle.
-    const customAlways = !options;
+    // One option is not a choice. Models reach for it to label a free-text
+    // answer -- "Provide ticket details" with the real instructions in the
+    // description -- and a radio group of one turns that into a control that
+    // does nothing while the actual answer hides behind "Something else...".
+    // Fewer than two options means the box is the answer, so show it.
+    const customAlways = !options || question.options.filter(hasLabel).length < 2;
     return `
     <fieldset class="portal-question-item" data-question-index="${index}">
       ${question.header ? `<legend class="portal-question-header">${esc(question.header)}</legend>` : ""}
@@ -197,6 +214,7 @@
     document.getElementById(CARD_ID)?.remove();
     state.pending = null;
     state.kind = null;
+    state.draft = null;
   }
 
   function mountCard(html) {
@@ -212,21 +230,94 @@
     renderIcons();
 
     const scroll = document.getElementById("message-scroll");
-    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    if (scroll) {
+      scroll.scrollTop = scroll.scrollHeight;
+      // A card with several questions is taller than the space above the
+      // composer, so landing at the very bottom puts the question itself off
+      // the top of the screen and leaves the member looking at buttons with
+      // nothing to read. Give back whatever the jump cut off.
+      const cutOff = scroll.getBoundingClientRect().top - row.getBoundingClientRect().top;
+      if (cutOff > 0) scroll.scrollTop -= cutOff;
+    }
 
     const firstInput = row.querySelector("input");
     if (firstInput) window.setTimeout(() => firstInput.focus(), 40);
   }
 
+  /**
+   * True when this exact request is already on screen.
+   *
+   * Re-mounting rebuilds the form, which throws away a half-typed answer and
+   * blinks the card. The recovery check runs on a timer and on every rebuild,
+   * so it asks this often.
+   */
+  function alreadyShowing(request, kind) {
+    if (state.kind !== kind) return false;
+    const card = document.getElementById(CARD_ID);
+    if (!card) return false;
+    const shown = card.querySelector("[data-request-id]")?.dataset.requestId || "";
+    const incoming = questionRequestId(request);
+    return Boolean(incoming) && shown === incoming;
+  }
+
+  /**
+   * Remember what has been answered so far, so a rebuild cannot eat it.
+   *
+   * Reconnecting rebuilds the transcript, which destroys the form -- and it
+   * tends to happen exactly while somebody is typing the answer that would
+   * unblock the run.
+   */
+  function snapshotAnswers() {
+    const card = document.getElementById(CARD_ID);
+    if (!card || state.kind !== "question") return;
+    const draft = {};
+    card.querySelectorAll("[data-question-index]").forEach((fieldset) => {
+      const index = fieldset.dataset.questionIndex;
+      const typed = fieldset.querySelector("[data-question-custom-input]");
+      const picked = fieldset.querySelector('input[type="radio"]:checked');
+      draft[index] = {
+        custom: typed && !typed.disabled ? String(typed.value || "") : "",
+        option: picked ? picked.value : "",
+      };
+    });
+    state.draft = { requestId: questionRequestId(state.pending), answers: draft };
+  }
+
+  function restoreAnswers() {
+    const card = document.getElementById(CARD_ID);
+    const draft = state.draft;
+    if (!card || !draft || draft.requestId !== questionRequestId(state.pending)) return;
+    card.querySelectorAll("[data-question-index]").forEach((fieldset) => {
+      const saved = draft.answers[fieldset.dataset.questionIndex];
+      if (!saved) return;
+      if (saved.option) {
+        const radio = fieldset.querySelector(`input[type="radio"][value="${CSS.escape(saved.option)}"]`);
+        if (radio) radio.checked = true;
+      }
+      if (!saved.custom) return;
+      const wrap = fieldset.querySelector("[data-question-custom]");
+      const typed = fieldset.querySelector("[data-question-custom-input]");
+      if (!typed) return;
+      // A typed answer means the free-text box had been opened.
+      wrap?.classList.remove("hidden");
+      fieldset.querySelector("[data-question-other-toggle]")?.remove();
+      typed.disabled = false;
+      typed.value = saved.custom;
+    });
+  }
+
   function showQuestion(request) {
+    if (alreadyShowing(request, "question")) return;
     const markup = questionCardMarkup(request);
     if (!markup) return;
     state.pending = request;
     state.kind = "question";
     mountCard(markup);
+    restoreAnswers();
   }
 
   function showPermission(request) {
+    if (alreadyShowing(request, "permission")) return;
     state.pending = request;
     state.kind = "permission";
     mountCard(permissionCardMarkup(request));
@@ -252,6 +343,27 @@
       return { error: "Answer every question before sending." };
     }
     return { answers };
+  }
+
+  /**
+   * Follow the run the answer just started.
+   *
+   * Both respond endpoints reply 202 with the request id of the resumed run.
+   * Dropping it left the card gone, a toast saying "Continuing...", and a
+   * conversation that did not move again until the page was reloaded -- by
+   * which point the work had already happened.
+   */
+  function followResumedRun(result) {
+    const requestId = result && (result.request_id || result.requestId);
+    const agent = agentId();
+    const session = sessionId();
+    if (!requestId || !agent || !session) return;
+    if (typeof window.adoptPortalResumedChatRun !== "function") return;
+    try {
+      Promise.resolve(window.adoptPortalResumedChatRun(agent, session, String(requestId))).catch(() => {});
+    } catch (error) {
+      /* the answer is already sent; following it is a courtesy */
+    }
   }
 
   function setMessage(form, variant, text) {
@@ -280,7 +392,7 @@
     setBusy(form, true);
     setMessage(form, "", "Sending…");
     try {
-      await requestJson(
+      const result = await requestJson(
         `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/question/respond`,
         {
           method: "POST",
@@ -289,6 +401,7 @@
         }
       );
       clearCard();
+      followResumedRun(result);
       if (typeof window.showToast === "function") window.showToast("Answer sent. Continuing…");
     } catch (error) {
       setBusy(form, false);
@@ -305,7 +418,7 @@
     setBusy(form, true);
     setMessage(form, "", decision === "approve" ? "Approving…" : "Rejecting…");
     try {
-      await requestJson(
+      const result = await requestJson(
         `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/permission/respond`,
         {
           method: "POST",
@@ -314,6 +427,7 @@
         }
       );
       clearCard();
+      followResumedRun(result);
       if (typeof window.showToast === "function") {
         window.showToast(decision === "approve" ? "Approved. Continuing…" : "Rejected.");
       }
@@ -332,30 +446,102 @@
    * session metadata, so it can be recovered long after the event that
    * announced it has gone.
    */
+  function applyPendingInput(payload) {
+    if (payload && payload.question_request) {
+      showQuestion(payload.question_request);
+    } else if (payload && payload.permission_request) {
+      showPermission(payload.permission_request);
+    } else {
+      clearCard();
+    }
+  }
+
+  /**
+   * Ask the runtime what this session is blocked on, and keep the answer.
+   *
+   * The transcript is drawn from several fetches. If this one only started when
+   * the others had finished, the card would land a round trip after the
+   * conversation it belongs to -- which on a throttled connection is a visible
+   * second step. Prefetching lets the caller run it alongside the rest and
+   * apply the result in the same frame as the history.
+   */
+  async function fetchPendingInput() {
+    const agent = agentId();
+    const session = sessionId();
+    if (!agent || !session) return null;
+    try {
+      const payload = await requestJson(
+        `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/pending-input`
+      );
+      state.prefetched = { session, payload, at: Date.now() };
+      return payload;
+    } catch (error) {
+      // The session may not exist yet; nothing to show either way.
+      return null;
+    }
+  }
+
+  function takeFreshPrefetch() {
+    const held = state.prefetched;
+    state.prefetched = null;
+    if (!held || held.session !== sessionId()) return null;
+    return Date.now() - held.at <= PREFETCH_MAX_AGE_MS ? held : null;
+  }
+
   async function checkPendingInput() {
     if (state.checking || state.submitting) return;
     const agent = agentId();
     const session = sessionId();
     if (!agent || !session) return;
 
+    const held = takeFreshPrefetch();
+    if (held) {
+      applyPendingInput(held.payload);
+      return;
+    }
+
     state.checking = true;
     try {
-      const payload = await requestJson(
-        `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/pending-input`
-      );
-      if (payload && payload.question_request) {
-        showQuestion(payload.question_request);
-      } else if (payload && payload.permission_request) {
-        showPermission(payload.permission_request);
-      } else {
-        clearCard();
-      }
-    } catch (error) {
-      /* the session may not exist yet; nothing to show either way */
+      applyPendingInput(await fetchPendingInput());
     } finally {
       state.checking = false;
     }
   }
+
+  /**
+   * Redraw the card the list was just rebuilt without, from what we already
+   * know. The runtime is still asked afterwards; this only removes the gap.
+   */
+  function remountFromMemory() {
+    if (state.submitting || !state.pending) return;
+    if (document.getElementById(CARD_ID)) return;
+    if (state.kind === "question") {
+      showQuestion(state.pending);
+    } else if (state.kind === "permission") {
+      showPermission(state.pending);
+    }
+  }
+
+  /**
+   * Ask the runtime what is pending, once, shortly after things settle.
+   *
+   * Deferred rather than immediate because the run writes its pending request
+   * into session metadata around the same moment it reports being finished;
+   * asking too early can read the state from before the question landed and
+   * clear a card that should stay. Coalesced because these events arrive in
+   * bursts and the answer only needs to be right at the end of one.
+   */
+  function scheduleRecheck() {
+    if (state.recheckTimer) window.clearTimeout(state.recheckTimer);
+    state.recheckTimer = window.setTimeout(() => {
+      state.recheckTimer = 0;
+      checkPendingInput();
+    }, RECHECK_DELAY_MS);
+  }
+
+  // Fetched ahead of the paint, so the card is mounted in the same frame as
+  // the transcript instead of appearing a round trip later.
+  window.portalPrefetchPendingInput = () => fetchPendingInput();
 
   // -------------------------------------------------------------- listeners
 
@@ -383,15 +569,23 @@
         if (request) showPermission(request);
         return;
       }
-      // Once the run resolves the block is gone, so the card must not linger.
+      // A resolution names the thing it resolved, so it is safe to act on
+      // directly and worth doing without a round trip.
       if (
         type === "permission.resolved"
         || type === "permission.allowed"
         || type === "permission.denied"
-        || type === "chat.completed"
-        || type === "chat.failed"
       ) {
         clearCard();
+        return;
+      }
+      // A run that stops to ask a question *also* completes: the loop returns
+      // with the question pending and the request finishes, so the very event
+      // that announces the end arrives moments after the card that the end was
+      // caused by. Tearing the card down here removed the only way to unblock
+      // the run. Ask the runtime what is actually outstanding instead.
+      if (type === "chat.completed" || type === "chat.failed") {
+        scheduleRecheck();
       }
     });
 
@@ -399,6 +593,16 @@
       clearCard();
       // Give session state a moment to settle before asking about it.
       window.setTimeout(checkPendingInput, 400);
+    });
+
+    // Loading a session rebuilds the whole message list, which takes the card
+    // with it. Put back what was already on screen straight away and confirm
+    // with the runtime after: clearing and waiting for the round trip made the
+    // card blink out and back on every render, and a reconnecting session
+    // renders several times in a row.
+    document.addEventListener("portal:history-rendered", () => {
+      remountFromMemory();
+      scheduleRecheck();
     });
 
     const list = document.getElementById("message-list");
@@ -438,6 +642,10 @@
       }
     });
 
+    list.addEventListener("input", (browserEvent) => {
+      if (browserEvent.target.closest(`#${CARD_ID}`)) snapshotAnswers();
+    });
+
     // Selecting an option should retire a half-typed free-text answer.
     list.addEventListener("change", (browserEvent) => {
       const radio = browserEvent.target.closest('.portal-question-options input[type="radio"]');
@@ -445,6 +653,7 @@
       const fieldset = radio.closest("[data-question-index]");
       const input = fieldset?.querySelector("[data-question-custom-input]");
       if (input && !input.disabled) input.value = "";
+      snapshotAnswers();
     });
   }
 

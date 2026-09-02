@@ -1398,6 +1398,10 @@ function toSkillSuggestion(item) {
     runtime_name: skill?.runtime_name || skill?.opencode_name || "",
     efp_name: skill?.efp_name || "",
     name: skill?.name || normalizedName,
+    // `desc` above is the dropdown line, with status and blocked reason folded
+    // in. The composer chip wants the skill's own words and nothing else.
+    description: typeof item === "string" ? "" : (skill?.description || ""),
+    repo_path: skill?.repo_path || "",
   };
 }
 
@@ -1420,6 +1424,65 @@ function findCachedSkillForSlash(invocation, agentId = state.selectedAgentId) {
     ].filter(Boolean).map((x) => String(x).trim().toLowerCase().replaceAll("_", "-"));
     return names.includes(target);
   }) || null;
+}
+
+/**
+ * Turn a skills remote into a browsable link to one file on one branch.
+ *
+ * Returns "" rather than a guess whenever any part is missing or the remote is
+ * not something a browser can open, so the caller can fall back to a chip with
+ * no link instead of one that 404s.
+ */
+function skillSourceUrl(repoUrl, branch, repoPath) {
+  const path = String(repoPath || "").replace(/^\/+/, "");
+  const ref = String(branch || "").trim();
+  const remote = String(repoUrl || "").trim();
+  if (!path || !ref || !remote) return "";
+
+  let parsed;
+  try {
+    // git@host:org/repo is a valid remote and not a valid URL.
+    parsed = new URL(remote.replace(/^[^/@:]+@([^:/]+):/, "https://$1/"));
+  } catch (error) {
+    return "";
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+
+  const repo = parsed.pathname.replace(/\.git$/, "").replace(/\/+$/, "");
+  if (!repo || repo === "/") return "";
+  // A branch may contain slashes, so encode segments rather than the whole
+  // string. `parsed.origin` drops any token or username the remote carried,
+  // which must never end up in a link on screen.
+  const encodeSegments = (value) => value.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return `${parsed.origin}${repo}/blob/${encodeSegments(ref)}/${encodeSegments(path)}`;
+}
+
+/**
+ * What the composer should say about a typed slash command.
+ *
+ * Matches the same rule the send path uses, so a chip appears exactly when the
+ * message will in fact run as a skill -- never as a hint that turns out to be
+ * wrong at send time.
+ */
+function resolvePortalSkillCommand(text, agentId = state.selectedAgentId) {
+  const invocation = parseSkillSlashInput(text);
+  if (!invocation) return null;
+  const skill = findCachedSkillForSlash(invocation, agentId);
+  if (!skill) return null;
+
+  const agent = state.mineAgents.find((item) => item.id === agentId) || null;
+  const repoUrl = agent?.effective_skill_repo_url || agent?.skill_repo_url || state.agentDefaults?.default_skill_repo_url || "";
+  const branch = agent?.effective_skill_branch || agent?.skill_branch || state.agentDefaults?.default_skill_branch || "";
+
+  return {
+    command: invocation.command,
+    name: skill.name || invocation.name,
+    description: skill.description || "",
+    callable: skill.callable !== false,
+    blockedReason: skill.blocked_reason || "",
+    branch,
+    url: skillSourceUrl(repoUrl, branch, skill.repo_path),
+  };
 }
 
 function canWriteAgent(agent) {
@@ -1547,6 +1610,51 @@ function syncChatInputHeight() {
 function resetChatInputHeight() {
   if (!dom.chatInput) return;
   dom.chatInput.style.height = 'auto';
+}
+
+/**
+ * Publish the two sizes the chat layout has to react to.
+ *
+ * `--portal-composer-height` keeps the message list's bottom reserve equal to
+ * the composer's real height.
+ *
+ * The composer is absolutely positioned over the foot of the scroll area, so
+ * the list has to hold empty space of its own or the last thing in the
+ * conversation ends up underneath it. That space used to be a flat 200px, which
+ * a composer with a few lines of draft, an attachment strip, or a skill chip
+ * comfortably outgrows -- and once it does, the thing being covered is whatever
+ * the member most recently needs, up to and including the buttons on an
+ * approval card.
+ *
+ * `--portal-chat-viewport-height` is what is left for a card that has to stay
+ * usable without scrolling the conversation -- an approval card whose buttons
+ * scroll away is a run nobody can unblock.
+ *
+ * Observed rather than computed: both sizes move for several unrelated reasons,
+ * and every one of them has to move these numbers.
+ */
+function trackChatSurfaceSizes() {
+  const composer = document.querySelector(".portal-composer-wrap");
+  const surface = document.querySelector(".portal-conversation-main");
+  const scroll = dom.messageScroll || document.getElementById("message-scroll");
+  if (!composer || !surface || !scroll) return;
+
+  const apply = () => {
+    const composerHeight = Math.ceil(composer.getBoundingClientRect().height);
+    if (composerHeight > 0) surface.style.setProperty("--portal-composer-height", `${composerHeight}px`);
+    const viewport = Math.ceil(scroll.getBoundingClientRect().height);
+    if (viewport > 0) surface.style.setProperty("--portal-chat-viewport-height", `${viewport}px`);
+  };
+
+  apply();
+  // ResizeObserver rather than a set of events, because it also fires when the
+  // chat view goes from `display: none` to visible -- which is when the first
+  // real measurement is available and every event-based substitute misses it.
+  // The stylesheet already requires color-mix(), so nothing that can render
+  // this page lacks it.
+  const observer = new ResizeObserver(apply);
+  observer.observe(composer);
+  observer.observe(scroll);
 }
 
 function getCurrentUserDisplayName() {
@@ -4449,6 +4557,32 @@ function defaultWelcomeMessage() {
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
+/**
+ * Hold the transcript still while the pieces of a conversation are fetched.
+ *
+ * A load needs three answers -- the history, the assistant's greeting and
+ * cards, and whatever input the run is blocked on -- and each used to paint the
+ * moment it arrived. On a fast connection they land close enough together to
+ * look like one step; throttle the network and the same load walks visibly
+ * through welcome, cards, question card, history, in whatever order the
+ * responses happened to return. A placeholder says "not yet" once, instead.
+ */
+function showConversationLoading() {
+  if (!dom.messageList) return;
+  dom.messageList.innerHTML = `
+    <div class="message-row message-row-assistant" data-conversation-loading="1" aria-busy="true">
+      <div class="message-meta"><span class="message-author">${escapeHtml(getSelectedAssistantDisplayName())}</span></div>
+      <article class="message-surface message-surface-assistant assistant-message portal-conversation-skeleton">
+        <span class="portal-skeleton-line"></span>
+        <span class="portal-skeleton-line is-short"></span>
+      </article>
+    </div>`;
+}
+
+function conversationIsLoading() {
+  return Boolean(dom.messageList?.querySelector('[data-conversation-loading="1"]'));
+}
+
 function clearMessageListToWelcome() {
   if (dom.messageList) dom.messageList.innerHTML = defaultWelcomeMessage();
   renderMarkdown(dom.messageList);
@@ -5145,7 +5279,26 @@ function renderAgentActions(agent, status) {
   renderIcons();
 }
 
-async function selectAgentById(agentId, { updateRoute = true } = {}) {
+// Startup selects the assistant from more than one place -- the saved last
+// agent and the route being applied -- and each pass clears the transcript to
+// the welcome message before loading the session again. Twice through that is
+// the welcome flashing between two history loads.
+let inFlightAgentSelection = null;
+
+async function selectAgentById(agentId, options = {}) {
+  if (inFlightAgentSelection && inFlightAgentSelection.agentId === agentId) {
+    return inFlightAgentSelection.promise;
+  }
+  const promise = performAgentSelection(agentId, options);
+  inFlightAgentSelection = { agentId, promise };
+  try {
+    return await promise;
+  } finally {
+    if (inFlightAgentSelection?.promise === promise) inFlightAgentSelection = null;
+  }
+}
+
+async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   const previousAgentId = state.selectedAgentId;
   if (previousAgentId) persistComposerForAgent(previousAgentId);
   state.selectedAgentId = agentId;
@@ -5168,11 +5321,18 @@ async function selectAgentById(agentId, { updateRoute = true } = {}) {
   syncHiddenSessionInputFromState();
   restoreComposerForAgent(agentId);
   clearAgentUnread(agentId);
-  clearMessageListToWelcome();
+  // A placeholder rather than the welcome: the welcome is one of the possible
+  // outcomes of this load, and showing it up front means showing it and then
+  // taking it away again for every assistant that has a conversation.
+  showConversationLoading();
 
   await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
   syncAgentListSelection(previousAgentId, agentId);
   await syncSelectedAgentState();
+  // Not every path through the selection ends in a transcript -- a stopped
+  // assistant shows the home view, for one. The placeholder must never be
+  // what is left on screen.
+  if (conversationIsLoading()) clearMessageListToWelcome();
   if (updateRoute && !isApplyingPortalRoute) {
     commitPortalRoute({ section: "assistants", agentId });
   }
@@ -5600,7 +5760,13 @@ async function submitChatForSelectedAgent() {
   }
   chatState.pendingFiles = [];
   renderInputPreview();
-  if (dom.chatInput) dom.chatInput.value = "";
+  if (dom.chatInput) {
+    dom.chatInput.value = "";
+    // Clearing the value fires nothing, so anything drawn from what was typed
+    // -- the skill chip above the field -- would survive the message it
+    // described and sit there next to an empty composer.
+    dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
   // The message is on its way, so the saved draft is no longer wanted.
   clearDraftForAgent(agentIdAtSend);
   resetChatInputHeight();
@@ -5639,7 +5805,12 @@ async function submitChatForSelectedAgent() {
       return;
     }
     if (!isCompletedFinalPayload(payload) || !responseText) {
-      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", payload);
+      await handleIncompleteChatStream(
+        agentIdAtSend,
+        requestCtx,
+        isWaitingForUserInputPayload(payload) ? WAITING_FOR_USER_INPUT_REASON : "runtime_incomplete",
+        payload,
+      );
       return;
     }
     await handleAgentChatSuccess(agentIdAtSend, requestCtx, {
@@ -5917,6 +6088,21 @@ function hasChatStreamFinalPayload(data, streamedText = "") {
 function getCompletionState(payload) {
   const state = String(payload?.completion_state || payload?.completionState || "").trim().toLowerCase();
   return state || "";
+}
+
+const WAITING_FOR_USER_INPUT_REASON = "waiting_for_user_input";
+
+/**
+ * The run stopped to ask, which is not the same as stopping short.
+ *
+ * A parked run has no response text and no `completion_state`, so every test
+ * for "did this finish" said no and the turn was finalized as incomplete --
+ * with a `runtime_incomplete` toast for what is ordinary behaviour. The runtime
+ * says so plainly in the payload's `status`; nothing was reading it.
+ */
+function isWaitingForUserInputPayload(payload) {
+  const status = String(payload?.status || payload?.runtime_status || "").trim().toLowerCase();
+  return status === "waiting_for_question" || status === "waiting_for_permission";
 }
 
 function isCompletedFinalPayload(payload) {
@@ -7020,7 +7206,11 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId || requestCtx.streamCompleted || requestCtx.streamFailed) return;
   clearWaitingForRuntimeEventsTimer(requestCtx);
   cancelAssistantTypewriter(requestCtx);
-  const fallbackCompletionState = reason === "runtime_error" ? "error" : "incomplete";
+  const fallbackCompletionState = reason === "runtime_error"
+    ? "error"
+    : reason === WAITING_FOR_USER_INPUT_REASON
+      ? "blocked"
+      : "incomplete";
   const finalPayload = {
     ...payload,
     completion_state: getCompletionState(payload) || fallbackCompletionState,
@@ -7030,7 +7220,9 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   };
   if (state.selectedAgentId === agentIdAtSend) {
     finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, reason);
-    showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
+    if (reason !== WAITING_FOR_USER_INPUT_REASON) {
+      showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
+    }
     addEditButtonsToMessages();
     renderIcons();
     scrollToBottom();
@@ -7133,8 +7325,13 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
       });
       return "handled";
     }
-    if (candidateText) {
-      await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", candidate);
+    if (candidateText || isWaitingForUserInputPayload(candidate)) {
+      await handleIncompleteChatStream(
+        agentIdAtSend,
+        requestCtx,
+        isWaitingForUserInputPayload(candidate) ? WAITING_FOR_USER_INPUT_REASON : "runtime_incomplete",
+        candidate,
+      );
       return "handled";
     }
   }
@@ -7142,7 +7339,11 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     await handleIncompleteChatStream(
       agentIdAtSend,
       requestCtx,
-      sawError ? "runtime_error" : "runtime_incomplete",
+      sawError
+        ? "runtime_error"
+        : isWaitingForUserInputPayload(requestCtx.streamFinalPayload)
+          ? WAITING_FOR_USER_INPUT_REASON
+          : "runtime_incomplete",
       requestCtx.streamFinalPayload,
     );
     return "handled";
@@ -7684,6 +7885,9 @@ async function maybeShowSuggest() {
       // Replace from the start of "/" token to cursor while preserving preceding whitespace.
       const start = pickSlash.index + pickSlash[1].length;
       dom.chatInput.setRangeText(`${command} `, start, pickCursor, "end");
+      // setRangeText fires no event, so the composer chip, the autosize, and
+      // the draft save would all miss a command picked with the mouse.
+      dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
       hideSuggest();
     });
     return;
@@ -8910,6 +9114,11 @@ function renderChatHistory(messages, metadata = {}) {
       if (entry.userMessageId) article.dataset.userMessageId = entry.userMessageId;
       if (entry.key) article.dataset.assistantGroupKey = entry.key;
       const markdown = getAssistantGroupMarkdown(entry);
+      // A turn that ends by asking has no assistant text at all: the model
+      // called the question tool and stopped. Rendering the group anyway put an
+      // empty bubble above the answer card, with copy and retry buttons for
+      // nothing. The card is the content of that turn.
+      if (!markdown.trim() && !getAssistantGroupDisplayBlocks(entry).length) return;
       article.dataset.copyText = markdown;
       const content = document.createElement("div"); content.className = "message-markdown md-render max-w-none text-sm";
       content.dataset.md = markdown;
@@ -8922,6 +9131,12 @@ function renderChatHistory(messages, metadata = {}) {
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
   scrollToBottom({ force: true });
+  // The rebuild takes anything not born of history with it, including a card
+  // the session is still blocked on. Say so; interactive_input.js re-asks the
+  // runtime whether one belongs here.
+  document.dispatchEvent(new CustomEvent("portal:history-rendered", {
+    detail: { agentId: state.selectedAgentId },
+  }));
 }
 
 function deriveSessionRecoveryNotice(metadata = {}) {
@@ -8989,7 +9204,39 @@ function isTerminalChatRunState(stateValue) {
   return ["completed", "success", "failed", "error", "cancelled", "canceled", "blocked", "incomplete"].includes(String(stateValue || "").trim().toLowerCase());
 }
 
+/**
+ * A run parked on a question or an approval is not a run to reconnect to.
+ *
+ * There is no stream left to follow and no work in flight: it is waiting for
+ * the member, and the answer card is how it resumes. Treating it as inflight
+ * drew a "Reconnecting" placeholder, started a poll, read back `blocked` --
+ * which counts as terminal -- and reloaded the session, which rebuilt the
+ * transcript and re-armed the recovery that started it. That cycle is the
+ * conversation flashing between welcome, history and the card after a refresh.
+ */
+function metadataSaysWaitingForUserInput(metadata = {}) {
+  const sessionStatus = metadata?.session_status && typeof metadata.session_status === "object"
+    ? metadata.session_status
+    : {};
+  if (metadata.pending_question_request || metadata.pending_permission_request) return true;
+  if (sessionStatus.pending_question_request || sessionStatus.pending_permission_request) return true;
+  return [
+    metadata.last_runtime_status,
+    sessionStatus.last_runtime_status,
+    sessionStatus.state,
+  ]
+    .map(normalizeChatRunState)
+    .some((value) => value === "waiting_for_question" || value === "waiting_for_permission");
+}
+
 function inflightChatRunCandidate(agentId, sessionId, metadata = {}) {
+  if (metadataSaysWaitingForUserInput(metadata)) {
+    // The record was written when the message was sent and never cleared,
+    // because the run stopped to ask rather than finishing. Left alone it
+    // proposes the same phantom recovery on every load.
+    clearPersistedInflightChatRun(agentId);
+    return null;
+  }
   const persisted = getPersistedInflightChatRun(agentId);
   if (persisted && String(persisted.session_id || "") === String(sessionId || "")) {
     return persisted;
@@ -9110,15 +9357,45 @@ async function reconnectRecoveredChatStreamForAgent(agentId, requestCtx) {
   }
 }
 
-async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {}, { render = agentId === state.selectedAgentId } = {}) {
+/**
+ * Follow the run the runtime starts when an answer to a card is sent.
+ *
+ * `question/respond` and `permission/respond` return `202` with the request id
+ * of the resumed run, and Portal used to drop it: the card vanished, a toast
+ * said "Continuing...", and nothing else happened until the page was reloaded,
+ * at which point the work turned out to have been done all along.
+ *
+ * The record is written first so the recovery path -- which already knows how
+ * to build the request context, open the socket and follow the run to its end
+ * -- has something to find.
+ */
+async function adoptResumedChatRunForAgent(agentId, sessionId, requestId) {
+  if (!agentId || !sessionId || !requestId) return false;
+  const chatState = ensureChatState(agentId);
+  if (!chatState || chatState.currentRequest) return false;
+  persistInflightChatRun(agentId, {
+    session_id: sessionId,
+    request_id: requestId,
+    message_preview: "",
+    started_at: new Date().toISOString(),
+  });
+  return recoverInflightChatRunForAgent(
+    agentId,
+    sessionId,
+    {},
+    { render: agentId === state.selectedAgentId, pendingText: "Working" },
+  );
+}
+
+async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {}, { render = agentId === state.selectedAgentId, pendingText = "Reconnecting" } = {}) {
   const chatState = ensureChatState(agentId);
   if (!agentId || !sessionId || !chatState || chatState.currentRequest) return false;
   const candidate = inflightChatRunCandidate(agentId, sessionId, metadata);
   if (!candidate?.request_id) return false;
   const metadataSaysRunning = metadataIndicatesRunningChatRun(metadata);
-  const insertedRecoveryPending = render ? renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, "Reconnecting") : false;
+  const insertedRecoveryPending = render ? renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText) : false;
   if (insertedRecoveryPending && state.selectedAgentId === agentId) {
-    setChatStatus("Reconnecting to running response...");
+    setChatStatus(pendingText === "Reconnecting" ? "Reconnecting to running response..." : "Working...");
   }
 
   let statusPayload = null;
@@ -9185,9 +9462,9 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
     chatState.inflightAgentTimeline = createAgentTimelineState({ requestId: candidate.request_id, sessionId });
   }
   setChatSubmittingForAgent(agentId, true);
-  if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, "Reconnecting");
+  if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText);
   if (state.selectedAgentId === agentId) {
-    setChatStatus("Reconnected to running response.");
+    setChatStatus(pendingText === "Reconnecting" ? "Reconnected to running response." : "Working...");
   }
   ensureEventSocketForAgent(agentId, sessionId, candidate.request_id);
   startWaitingForRuntimeEventsTimer(agentId, requestCtx);
@@ -9202,9 +9479,26 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   return true;
 }
 
+// Every call that renders claims a ticket. A reconnect can start several loads
+// within a second -- the socket recovering, the route applying, the agent being
+// selected -- and each one used to paint whatever it had finished fetching.
+// That is the transcript flashing between welcome, history, and back.
+const sessionRenderTickets = new Map();
+
+function claimSessionRenderTicket(agentId) {
+  const next = (sessionRenderTickets.get(agentId) || 0) + 1;
+  sessionRenderTickets.set(agentId, next);
+  return next;
+}
+
+function sessionRenderTicketIsCurrent(agentId, ticket) {
+  return sessionRenderTickets.get(agentId) === ticket;
+}
+
 async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
+  const renderTicket = render ? claimSessionRenderTicket(agentId) : 0;
 
   const chatState = ensureChatState(agentId);
   if (render && hasActiveChatRequestForAgent(agentId)) {
@@ -9214,6 +9508,23 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       return;
     }
   }
+
+  if (render) showConversationLoading();
+
+  // The three answers a drawn conversation needs, asked for together. Each one
+  // used to paint the moment it arrived, so the same load looked different at
+  // every connection speed. Fetching them in parallel and painting once makes
+  // the order they return in stop mattering.
+  const companions = render
+    ? Promise.allSettled([
+      typeof window.portalPrefetchPersonalization === "function"
+        ? window.portalPrefetchPersonalization(agentId)
+        : null,
+      typeof window.portalPrefetchPendingInput === "function"
+        ? window.portalPrefetchPendingInput()
+        : null,
+    ])
+    : Promise.resolve([]);
 
   let data;
   try {
@@ -9263,6 +9574,14 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   recoveryNotice = shouldApplyRecoveryNotice ? deriveSessionRecoveryNotice(normalizedPayload.metadata || {}) : null;
   if (latestChatState && canonicalMessages.length) {
     applyCanonicalMessagesToChatState(agentId, normalized, latestChatState, canonicalMessages, normalizedPayload.metadata || {});
+  }
+  // Both are already in flight; this is the join, not the start.
+  await companions;
+
+  if (render && !sessionRenderTicketIsCurrent(agentId, renderTicket)) {
+    // A newer load started while this one was in flight. Its answer is the
+    // fresher one, so this reply is only good for the state it already updated.
+    return;
   }
   if (render) {
     // Ensure agent name is set
@@ -10224,6 +10543,9 @@ window.selectPortalAgentById = selectAgentById;
 window.currentPortalSessionId = currentSessionIdForSelectedAgent;
 window.currentPortalAgentId = () => state.selectedAgentId;
 window.renderPortalMarkdown = renderMarkdown;
+window.adoptPortalResumedChatRun = adoptResumedChatRunForAgent;
+window.resolvePortalSkillCommand = resolvePortalSkillCommand;
+window.ensurePortalSkillsLoaded = loadTaskSkillsForAgent;
 window.initializeManagedSettingsPanels = initializeManagedSettingsPanels;
 
 window.initPasswordToggles = function(root = document) {
@@ -15105,6 +15427,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyToolPanelState();
   initializeRenderLifecycle();
   initManagedModals();
+  trackChatSurfaceSizes();
   updateChatInputPlaceholder();
 
   // Event delegation for remove buttons (replace inline onclick)

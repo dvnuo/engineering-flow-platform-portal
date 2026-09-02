@@ -47,7 +47,11 @@ def test_stream_final_candidate_can_still_complete_legacy_final():
     assert "isCompletedFinalPayload(candidate)" in candidate_snippet
     assert "finalResponseText(candidate)" in candidate_snippet
     assert "await handleAgentChatSuccess(agentIdAtSend, requestCtx" in candidate_snippet
-    assert 'await handleIncompleteChatStream(agentIdAtSend, requestCtx, "runtime_incomplete", candidate);' in candidate_snippet
+    assert "await handleIncompleteChatStream(" in candidate_snippet
+    assert "runtime_incomplete" in candidate_snippet
+    assert "WAITING_FOR_USER_INPUT_REASON" in candidate_snippet, (
+        "a run that stopped to ask must not be reported as an incomplete one"
+    )
 
 
 def test_non_stream_chat_ok_false_not_success():

@@ -6,9 +6,10 @@
  * that repository itself, so what a member sees can never drift from what the
  * assistant is running.
  *
- * Clicking a card fills the composer but deliberately does not send. Someone
- * who has never prompted an assistant needs to see the wording before it runs,
- * and to be able to change it.
+ * Clicking a card sends. The card names what it does, a card that needs a value
+ * asks for it in a dialog the member confirms, and the composed prompt lands in
+ * the transcript where it can be read and edited -- so a second trip to the
+ * Send button only added a step between deciding and starting.
  */
 (function () {
   "use strict";
@@ -120,6 +121,24 @@
     }
   }
 
+  /**
+   * Send whatever is in the composer, through the form the Send button uses.
+   *
+   * Going through submit rather than calling the send function keeps every
+   * guard that lives on that path -- an upload still in flight, a run already
+   * going -- so a card click is refused for the same reasons a click on Send
+   * would be, and the text stays put for the member to retry.
+   */
+  function sendComposer() {
+    const form = document.getElementById("chat-form");
+    if (!form) return;
+    if (typeof form.requestSubmit === "function") {
+      form.requestSubmit();
+      return;
+    }
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  }
+
   function promptFromCard(card, value) {
     const prompt = String(card.prompt || "");
     if (!card.input) return prompt.trim();
@@ -152,7 +171,11 @@
     }
 
     const answer = window.prompt(placeholder ? `${label} (e.g. ${placeholder})` : label, "");
-    return answer === null ? null : String(answer).trim();
+    // Blank is a cancel, not an answer. showPrompt refuses to close on an empty
+    // required field, but the native prompt has no such notion -- and since the
+    // click now sends, a blank here would fire a prompt with a hole in it
+    // instead of leaving one on screen to notice.
+    return answer === null || !String(answer).trim() ? null : String(answer).trim();
   }
 
   /** Fetch if needed, then paint -- unless the member moved on meanwhile. */
@@ -162,6 +185,12 @@
     if (activeAgentId !== agentId) return;
     applyToWelcome(payload);
   }
+
+  // Fetched ahead of the paint so the greeting and the cards are already in
+  // hand when the transcript is drawn, rather than arriving after it and
+  // rewriting the welcome row a second time.
+  window.portalPrefetchPersonalization = (agentId) =>
+    (agentId ? loadPersonalization(agentId) : Promise.resolve(null));
 
   function bind() {
     document.addEventListener("portal:agent-selected", (browserEvent) => {
@@ -196,6 +225,7 @@
         value = answer;
       }
       fillComposer(promptFromCard(card, value));
+      sendComposer();
     });
   }
 
