@@ -89,6 +89,23 @@ const drainTimers = () => { const due = timers.splice(0); due.forEach((t) => t.f
 const settle = () => new Promise((r) => setImmediate(r));
 const shown = () => !!list.children.find((c) => c.id === "portal-interactive-input");
 const QUESTION = { request_id: "q-1", questions: [{ question: "Which project?", options: [{ label: "EFP" }] }] };
+
+// submitQuestion is private to the module; the submit listener is the door.
+const answerTheCard = () => {
+  const form = {
+    dataset: { requestId: "q-1" },
+    querySelector: (sel) => (sel === "[data-interactive-msg]"
+      ? { textContent: "", classList: { remove() {}, add() {} } }
+      : null),
+    querySelectorAll: (sel) => (sel === "[data-question-index]"
+      ? [{ querySelector: (q) => (q === "[data-question-custom-input]" ? { value: "yes", disabled: false } : null) }]
+      : []),
+  };
+  (listHandlers.submit || []).forEach((fn) => fn({
+    target: { closest: (sel) => (sel === '[data-interactive-kind="question"]' ? form : null) },
+    preventDefault() {},
+  }));
+};
 """
 
 
@@ -467,7 +484,7 @@ def test_answering_follows_the_run_the_runtime_just_started():
 setPending({ question_request: QUESTION });
 runtimeEvent("question.requested", { question_request: QUESTION });
 const adopted = [];
-window.adoptPortalResumedChatRun = (agent, session, requestId) => {
+globalThis.window.adoptPortalResumedChatRun = (agent, session, requestId) => {
   adopted.push({ agent, session, requestId });
   return Promise.resolve(true);
 };
@@ -475,14 +492,8 @@ globalThis.fetch = () => Promise.resolve({
   ok: true, status: 202,
   text: () => Promise.resolve(JSON.stringify({ ok: true, session_id: "s1", request_id: "chat-resume-1", state: "running" })),
 });
-const form = {
-  dataset: { requestId: "q-1" },
-  querySelector: (s) => (s === "[data-interactive-msg]" ? { textContent: "", classList: { remove() {}, add() {} } } : null),
-  querySelectorAll: (s) => (s === "[data-question-index]"
-    ? [{ querySelector: (q) => (q === "[data-question-custom-input]" ? { value: "yes", disabled: false } : null) }]
-    : []),
-};
-await submitQuestion(form);
+answerTheCard();
+await settle(); await settle();
 console.log(JSON.stringify({ adopted, cardGone: !shown() }));
 """)
 
@@ -496,16 +507,12 @@ def test_a_reply_without_a_request_id_is_survivable():
 setPending({ question_request: QUESTION });
 runtimeEvent("question.requested", { question_request: QUESTION });
 let called = 0;
-window.adoptPortalResumedChatRun = () => { called += 1; return Promise.resolve(true); };
+globalThis.window.adoptPortalResumedChatRun = () => { called += 1; return Promise.resolve(true); };
 globalThis.fetch = () => Promise.resolve({
   ok: true, status: 202, text: () => Promise.resolve(JSON.stringify({ ok: true })),
 });
-const form = {
-  dataset: { requestId: "q-1" },
-  querySelector: (s) => (s === "[data-interactive-msg]" ? { textContent: "", classList: { remove() {}, add() {} } } : null),
-  querySelectorAll: () => [{ querySelector: () => ({ value: "yes", disabled: false }) }],
-};
-await submitQuestion(form);
+answerTheCard();
+await settle(); await settle();
 console.log(JSON.stringify({ called, cardGone: !shown() }));
 """)
 

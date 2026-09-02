@@ -2129,7 +2129,8 @@ def test_recovered_chat_stream_only_reconnects_for_run_registry_status():
     assert recover_start >= 0
     recover_slice = js_file[recover_start: recover_start + 5200]
 
-    assert "renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, \"Reconnecting\")" in recover_slice
+    assert "renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText)" in recover_slice
+    assert 'pendingText = "Reconnecting"' in recover_slice, "rejoining a run still says so"
     assert "source_of_truth: \"session_metadata\"" in recover_slice
     assert "requestCtx.reconnectStreamAllowed = statusPayload?.source_of_truth === \"run_registry\";" in recover_slice
     assert "if (requestCtx.reconnectStreamAllowed) void reconnectRecoveredChatStreamForAgent(agentId, requestCtx);" in recover_slice
