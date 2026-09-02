@@ -434,3 +434,70 @@ def test_the_placeholder_is_only_shown_when_something_will_replace_it():
     selection = _extract_js_function(js, "performAgentSelection")
 
     assert 'if (!transcriptShowsConversation(agentId, "")) showConversationLoading();' in selection
+
+
+# ----------------------------------- the live writers know their conversation
+
+
+LIVE_WRITERS = (
+    "renderRecoveredPendingAssistantArticle",
+    "updateOrCreateAssistantRowForRequest",
+    "updatePendingAssistantStreamContent",
+    "renderAgentTimelineForCurrentRequest",
+    "finalizePendingAssistantRow",
+    "finalizeIncompleteAssistantRow",
+)
+
+
+def test_no_live_writer_still_guards_on_the_assistant_alone():
+    """`selectedAgentId !== agentId` answers the wrong question.
+
+    It asks whether this assistant is on screen, not whether this conversation
+    is. A run streaming when the reader starts a new chat, or opens another
+    session of the same assistant, was writing into whatever replaced it.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+
+    for name in LIVE_WRITERS:
+        body = _extract_js_function(js, name)
+        assert "transcriptAcceptsLiveWrite(" in body, f"{name} does not check the conversation"
+        assert "state.selectedAgentId !== agentId" not in body, f"{name} still guards on the assistant alone"
+
+
+def test_every_live_writer_that_knows_its_session_passes_it():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    # The recovery placeholder is keyed by request id and has no session in
+    # scope; the rest carry a request context.
+    for name in LIVE_WRITERS[1:]:
+        body = _extract_js_function(js, name)
+        guard = body[: body.index("\n", body.index("transcriptAcceptsLiveWrite("))]
+        assert "sessionIdAtSend" in guard or "timelineSession" in guard, f"{name} passes no session"
+
+
+def test_an_unknown_session_on_either_side_is_allowed():
+    # A message sent into a brand new chat streams before its session exists;
+    # refusing those writes would lose the first reply of every conversation.
+    result = _run_node(f"""
+{_transcript_bundle()}
+beginTranscript("a1", "");
+const intoNewChat = transcriptShowsConversation("a1", "s-new");
+beginTranscript("a1", "s1");
+const unknownRun = transcriptShowsConversation("a1", "");
+const otherSession = transcriptShowsConversation("a1", "s2");
+console.log(JSON.stringify({{ intoNewChat, unknownRun, otherSession }}));
+""")
+
+    assert result == {"intoNewChat": True, "unknownRun": True, "otherSession": False}
+
+
+def test_a_run_finishing_out_of_view_is_routed_to_the_background():
+    # Not a DOM guard but a routing decision: when the reader is not looking,
+    # mark unread and notify instead of rendering. "Not looking" has to mean the
+    # conversation -- a run finishing while they are in another session of the
+    # same assistant used to paint into it.
+    js = CHAT_UI.read_text(encoding="utf-8")
+
+    for name in ("handleAgentChatSuccess", "handleAgentChatFailure"):
+        body = _extract_js_function(js, name)
+        assert "transcriptAcceptsLiveWrite(agentIdAtSend, requestCtx?.sessionIdAtSend)" in body, name
+        assert "state.selectedAgentId !== agentIdAtSend" not in body, name

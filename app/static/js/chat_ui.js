@@ -2036,7 +2036,7 @@ function removePendingAssistantArticle(requestId = "") {
 }
 
 function renderRecoveredPendingAssistantArticle(agentId, requestId, pendingText = "Reconnecting") {
-  if (state.selectedAgentId !== agentId || !dom.messageList || !requestId) return false;
+  if (!transcriptAcceptsLiveWrite(agentId) || !requestId) return false;
   if (findPendingAssistantArticle(requestId)) return false;
   dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestId, pendingText));
   renderIcons();
@@ -3225,7 +3225,8 @@ function findPendingAssistantArticleForTimeline(requestCtx = {}, timeline = null
 }
 
 function renderAgentTimelineForCurrentRequest(agentId, chatState, options = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList || !chatState?.inflightAgentTimeline) return;
+  const timelineSession = (options.requestCtx || chatState?.currentRequest || {}).sessionIdAtSend;
+  if (!transcriptAcceptsLiveWrite(agentId, timelineSession) || !chatState?.inflightAgentTimeline) return;
   const timeline = chatState.inflightAgentTimeline;
   const requestCtx = options.requestCtx || chatState.currentRequest || {};
   if (!agentTimelineMatchesRequest(timeline, requestCtx)) return;
@@ -4623,6 +4624,24 @@ function writeTranscript(token, write) {
   if (!transcriptTokenIsCurrent(token)) return false;
   write();
   return true;
+}
+
+/**
+ * Whether a live run may still write to the transcript.
+ *
+ * Every one of these writers already asked `state.selectedAgentId !== agentId`,
+ * which answers "is this assistant on screen" but not "is this conversation".
+ * A run streaming when the reader started a new chat, or opened another
+ * session, kept writing into whatever had replaced it.
+ *
+ * An unknown session on either side matches: a message sent into a brand new
+ * chat is streaming before its session exists, and refusing those writes would
+ * lose the first reply of every conversation.
+ */
+function transcriptAcceptsLiveWrite(agentId, sessionId = "") {
+  if (!dom.messageList) return false;
+  if (state.selectedAgentId !== agentId) return false;
+  return transcriptShowsConversation(agentId, sessionId);
 }
 
 /** Whether a live run may still touch the transcript it started writing to. */
@@ -6456,7 +6475,7 @@ function findUserRowForAssistantRequest(requestCtx = {}, payload = {}) {
 }
 
 function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, options = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList || !requestCtx) return null;
+  if (!transcriptAcceptsLiveWrite(agentId, requestCtx?.sessionIdAtSend) || !requestCtx) return null;
   const text = String(options.text ?? extractAssistantVisibleText(payload) ?? "");
   const displayBlocks = Array.isArray(options.displayBlocks) ? options.displayBlocks : extractAssistantDisplayBlocks(payload);
   const hasVisible = text.trim() || displayBlocks.some((block) => (typeof hasRenderableDisplayBlock === "function")
@@ -6568,7 +6587,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
 }
 
 function updatePendingAssistantStreamContent(agentId, markdownText, options = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList) return;
+  if (!transcriptAcceptsLiveWrite(agentId, options?.requestCtx?.sessionIdAtSend)) return;
   const reqId = options?.requestCtx?.clientRequestId || "";
   const article = (reqId
     ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
@@ -6645,7 +6664,7 @@ function scheduleStreamRender(article) {
 }
 
 function finalizePendingAssistantRow(agentId, requestCtx, payload) {
-  if (state.selectedAgentId !== agentId || !dom.messageList) return false;
+  if (!transcriptAcceptsLiveWrite(agentId, requestCtx?.sessionIdAtSend)) return false;
   const reqId = requestCtx?.clientRequestId || '';
   const article = (reqId
     ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
@@ -6775,7 +6794,7 @@ function renderCompletionDiagnosticFields(finalPayload = {}) {
     + `</details>`;
 }
 function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList) return false;
+  if (!transcriptAcceptsLiveWrite(agentId, requestCtx?.sessionIdAtSend)) return false;
   const reqId = requestCtx?.clientRequestId || requestCtx?.requestId || "";
   const article = (reqId
     ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
@@ -7615,7 +7634,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       silent: true,
     });
   }
-  if (state.selectedAgentId !== agentIdAtSend) {
+  if (!transcriptAcceptsLiveWrite(agentIdAtSend, requestCtx?.sessionIdAtSend)) {
     chatState.needsReload = true;
     markAgentUnread(agentIdAtSend, "completed");
     renderAgentList();
@@ -7774,7 +7793,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   chatState.currentRequest = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
-  if (state.selectedAgentId !== agentIdAtSend) {
+  if (!transcriptAcceptsLiveWrite(agentIdAtSend, requestCtx?.sessionIdAtSend)) {
     chatState.draftText = restoredMessage;
     chatState.pendingFiles = [];
     chatState.needsReload = false;
