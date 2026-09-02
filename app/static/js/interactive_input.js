@@ -212,7 +212,15 @@
     renderIcons();
 
     const scroll = document.getElementById("message-scroll");
-    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    if (scroll) {
+      scroll.scrollTop = scroll.scrollHeight;
+      // A card with several questions is taller than the space above the
+      // composer, so landing at the very bottom puts the question itself off
+      // the top of the screen and leaves the member looking at buttons with
+      // nothing to read. Give back whatever the jump cut off.
+      const cutOff = scroll.getBoundingClientRect().top - row.getBoundingClientRect().top;
+      if (cutOff > 0) scroll.scrollTop -= cutOff;
+    }
 
     const firstInput = row.querySelector("input");
     if (firstInput) window.setTimeout(() => firstInput.focus(), 40);

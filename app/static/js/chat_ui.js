@@ -1549,6 +1549,52 @@ function resetChatInputHeight() {
   dom.chatInput.style.height = 'auto';
 }
 
+/**
+ * Publish the two sizes the chat layout has to react to.
+ *
+ * `--portal-composer-height` keeps the message list's bottom reserve equal to
+ * the composer's real height.
+ *
+ * The composer is absolutely positioned over the foot of the scroll area, so
+ * the list has to hold empty space of its own or the last thing in the
+ * conversation ends up underneath it. That space used to be a flat 200px, which
+ * a composer with a few lines of draft, an attachment strip, or a skill chip
+ * comfortably outgrows -- and once it does, the thing being covered is whatever
+ * the member most recently needs, up to and including the buttons on an
+ * approval card.
+ *
+ * `--portal-chat-viewport-height` is what is left for a card that has to stay
+ * usable without scrolling the conversation -- an approval card whose buttons
+ * scroll away is a run nobody can unblock.
+ *
+ * Observed rather than computed: both sizes move for several unrelated reasons,
+ * and every one of them has to move these numbers.
+ */
+function trackChatSurfaceSizes() {
+  const composer = document.querySelector(".portal-composer-wrap");
+  const surface = document.querySelector(".portal-conversation-main");
+  const scroll = dom.messageScroll || document.getElementById("message-scroll");
+  if (!composer || !surface || !scroll) return;
+
+  const apply = () => {
+    const composerHeight = Math.ceil(composer.getBoundingClientRect().height);
+    if (composerHeight > 0) surface.style.setProperty("--portal-composer-height", `${composerHeight}px`);
+    const viewport = Math.ceil(scroll.getBoundingClientRect().height);
+    if (viewport > 0) surface.style.setProperty("--portal-chat-viewport-height", `${viewport}px`);
+  };
+
+  apply();
+  if (typeof ResizeObserver === "function") {
+    const observer = new ResizeObserver(apply);
+    observer.observe(composer);
+    observer.observe(scroll);
+  } else {
+    // Older engines still get the common cases: typing, and resizing the window.
+    dom.chatInput?.addEventListener("input", apply);
+    window.addEventListener("resize", apply);
+  }
+}
+
 function getCurrentUserDisplayName() {
   const name = String(state.currentUserName || "").trim();
   return name || "You";
@@ -15105,6 +15151,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyToolPanelState();
   initializeRenderLifecycle();
   initManagedModals();
+  trackChatSurfaceSizes();
   updateChatInputPlaceholder();
 
   // Event delegation for remove buttons (replace inline onclick)
