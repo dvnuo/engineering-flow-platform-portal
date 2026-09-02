@@ -9027,6 +9027,11 @@ function renderChatHistory(messages, metadata = {}) {
       if (entry.userMessageId) article.dataset.userMessageId = entry.userMessageId;
       if (entry.key) article.dataset.assistantGroupKey = entry.key;
       const markdown = getAssistantGroupMarkdown(entry);
+      // A turn that ends by asking has no assistant text at all: the model
+      // called the question tool and stopped. Rendering the group anyway put an
+      // empty bubble above the answer card, with copy and retry buttons for
+      // nothing. The card is the content of that turn.
+      if (!markdown.trim() && !getAssistantGroupDisplayBlocks(entry).length) return;
       article.dataset.copyText = markdown;
       const content = document.createElement("div"); content.className = "message-markdown md-render max-w-none text-sm";
       content.dataset.md = markdown;
@@ -9325,9 +9330,26 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   return true;
 }
 
+// Every call that renders claims a ticket. A reconnect can start several loads
+// within a second -- the socket recovering, the route applying, the agent being
+// selected -- and each one used to paint whatever it had finished fetching.
+// That is the transcript flashing between welcome, history, and back.
+const sessionRenderTickets = new Map();
+
+function claimSessionRenderTicket(agentId) {
+  const next = (sessionRenderTickets.get(agentId) || 0) + 1;
+  sessionRenderTickets.set(agentId, next);
+  return next;
+}
+
+function sessionRenderTicketIsCurrent(agentId, ticket) {
+  return sessionRenderTickets.get(agentId) === ticket;
+}
+
 async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
+  const renderTicket = render ? claimSessionRenderTicket(agentId) : 0;
 
   const chatState = ensureChatState(agentId);
   if (render && hasActiveChatRequestForAgent(agentId)) {
@@ -9386,6 +9408,11 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   recoveryNotice = shouldApplyRecoveryNotice ? deriveSessionRecoveryNotice(normalizedPayload.metadata || {}) : null;
   if (latestChatState && canonicalMessages.length) {
     applyCanonicalMessagesToChatState(agentId, normalized, latestChatState, canonicalMessages, normalizedPayload.metadata || {});
+  }
+  if (render && !sessionRenderTicketIsCurrent(agentId, renderTicket)) {
+    // A newer load started while this one was in flight. Its answer is the
+    // fresher one, so this reply is only good for the state it already updated.
+    return;
   }
   if (render) {
     // Ensure agent name is set

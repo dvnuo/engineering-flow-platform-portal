@@ -170,6 +170,52 @@ console.log(JSON.stringify({ afterWipe, restored: shown() }));
     assert result["restored"] is True
 
 
+def test_a_rebuild_puts_the_card_back_at_once_rather_than_after_the_round_trip():
+    # Clearing and waiting for the check made the card blink out and back on
+    # every render, and a reconnecting session renders several times in a row.
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+list.children = [];
+dispatch("portal:history-rendered", {});
+console.log(JSON.stringify({ shownBeforeAnyFetch: shown() }));
+""")
+
+    assert result["shownBeforeAnyFetch"] is True
+
+
+def test_showing_the_same_request_again_does_not_rebuild_the_form():
+    # The recovery check runs on a timer and on every rebuild. Re-mounting would
+    # throw away a half-typed answer each time.
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const first = list.children.find((c) => c.id === "portal-interactive-input");
+runtimeEvent("question.requested", { question_request: QUESTION });
+drainTimers(); await settle();
+const second = list.children.find((c) => c.id === "portal-interactive-input");
+console.log(JSON.stringify({ sameElement: first === second, rows: list.children.length }));
+""")
+
+    assert result["sameElement"] is True
+    assert result["rows"] == 1
+
+
+def test_a_different_request_does_replace_the_card():
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const first = list.children.find((c) => c.id === "portal-interactive-input");
+const OTHER = { request_id: "q-2", questions: [{ question: "Which environment?", options: [{ label: "prod" }] }] };
+runtimeEvent("question.requested", { question_request: OTHER });
+const second = list.children.find((c) => c.id === "portal-interactive-input");
+console.log(JSON.stringify({ replaced: first !== second, rows: list.children.length }));
+""")
+
+    assert result["replaced"] is True
+    assert result["rows"] == 1
+
+
 def test_a_resolved_permission_is_cleared_without_a_round_trip():
     # A resolution names what it resolved, so it needs no confirmation and the
     # card should not linger for a quarter of a second after the decision.
@@ -183,6 +229,46 @@ console.log(JSON.stringify({ shown: shown(), requests: fetchCount - before }));
 """)
 
     assert result == {"shown": False, "requests": 0}
+
+
+def test_a_half_typed_answer_is_kept_across_a_rebuild():
+    """Wiring only -- the behaviour needs a layout engine and `CSS.escape`.
+
+    Verified in a browser harness: with two questions, a typed free-text answer
+    and a selected option both survive five consecutive rebuilds. Reconnecting
+    destroys the form, and it tends to happen exactly while somebody is typing
+    the answer that would unblock the run.
+    """
+    js = MODULE.read_text(encoding="utf-8")
+
+    assert "function snapshotAnswers()" in js
+    assert "function restoreAnswers()" in js
+    # Captured on every edit, restored right after the form is rebuilt.
+    assert 'list.addEventListener("input"' in js
+    assert "snapshotAnswers();" in js.split('addEventListener("change"', 1)[1]
+    assert "restoreAnswers();" in js.split("function showQuestion(", 1)[1]
+    # A card that is gone has no draft worth keeping.
+    assert "state.draft = null;" in js.split("function clearCard()", 1)[1]
+
+
+def test_only_the_newest_session_load_is_allowed_to_paint():
+    """Wiring only -- this needs several concurrent fetches to exercise.
+
+    A reconnect starts several loads within a second (the socket recovering,
+    the route applying, the agent being selected) and each one used to paint
+    whatever it had finished fetching. That is the transcript flashing between
+    welcome, history, and back.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    body = js.split("async function loadSessionForAgent(", 1)[1]
+
+    claim = body.index("claimSessionRenderTicket(")
+    first_await = body.index("await agentApiFor(")
+    check = body.index("sessionRenderTicketIsCurrent(")
+    render = body.index("renderChatHistory(")
+
+    assert claim < first_await, "the ticket must be claimed before the request goes out"
+    assert first_await < check < render, "and checked after it returns, before painting"
 
 
 def test_the_rebuild_announces_itself():

@@ -26,6 +26,7 @@
     submitting: false,
     checking: false,
     recheckTimer: 0,
+    draft: null,
   };
 
   function esc(value) {
@@ -202,6 +203,7 @@
     document.getElementById(CARD_ID)?.remove();
     state.pending = null;
     state.kind = null;
+    state.draft = null;
   }
 
   function mountCard(html) {
@@ -231,15 +233,80 @@
     if (firstInput) window.setTimeout(() => firstInput.focus(), 40);
   }
 
+  /**
+   * True when this exact request is already on screen.
+   *
+   * Re-mounting rebuilds the form, which throws away a half-typed answer and
+   * blinks the card. The recovery check runs on a timer and on every rebuild,
+   * so it asks this often.
+   */
+  function alreadyShowing(request, kind) {
+    if (state.kind !== kind) return false;
+    const card = document.getElementById(CARD_ID);
+    if (!card) return false;
+    const shown = card.querySelector("[data-request-id]")?.dataset.requestId || "";
+    const incoming = questionRequestId(request);
+    return Boolean(incoming) && shown === incoming;
+  }
+
+  /**
+   * Remember what has been answered so far, so a rebuild cannot eat it.
+   *
+   * Reconnecting rebuilds the transcript, which destroys the form -- and it
+   * tends to happen exactly while somebody is typing the answer that would
+   * unblock the run.
+   */
+  function snapshotAnswers() {
+    const card = document.getElementById(CARD_ID);
+    if (!card || state.kind !== "question") return;
+    const draft = {};
+    card.querySelectorAll("[data-question-index]").forEach((fieldset) => {
+      const index = fieldset.dataset.questionIndex;
+      const typed = fieldset.querySelector("[data-question-custom-input]");
+      const picked = fieldset.querySelector('input[type="radio"]:checked');
+      draft[index] = {
+        custom: typed && !typed.disabled ? String(typed.value || "") : "",
+        option: picked ? picked.value : "",
+      };
+    });
+    state.draft = { requestId: questionRequestId(state.pending), answers: draft };
+  }
+
+  function restoreAnswers() {
+    const card = document.getElementById(CARD_ID);
+    const draft = state.draft;
+    if (!card || !draft || draft.requestId !== questionRequestId(state.pending)) return;
+    card.querySelectorAll("[data-question-index]").forEach((fieldset) => {
+      const saved = draft.answers[fieldset.dataset.questionIndex];
+      if (!saved) return;
+      if (saved.option) {
+        const radio = fieldset.querySelector(`input[type="radio"][value="${CSS.escape(saved.option)}"]`);
+        if (radio) radio.checked = true;
+      }
+      if (!saved.custom) return;
+      const wrap = fieldset.querySelector("[data-question-custom]");
+      const typed = fieldset.querySelector("[data-question-custom-input]");
+      if (!typed) return;
+      // A typed answer means the free-text box had been opened.
+      wrap?.classList.remove("hidden");
+      fieldset.querySelector("[data-question-other-toggle]")?.remove();
+      typed.disabled = false;
+      typed.value = saved.custom;
+    });
+  }
+
   function showQuestion(request) {
+    if (alreadyShowing(request, "question")) return;
     const markup = questionCardMarkup(request);
     if (!markup) return;
     state.pending = request;
     state.kind = "question";
     mountCard(markup);
+    restoreAnswers();
   }
 
   function showPermission(request) {
+    if (alreadyShowing(request, "permission")) return;
     state.pending = request;
     state.kind = "permission";
     mountCard(permissionCardMarkup(request));
@@ -371,6 +438,20 @@
   }
 
   /**
+   * Redraw the card the list was just rebuilt without, from what we already
+   * know. The runtime is still asked afterwards; this only removes the gap.
+   */
+  function remountFromMemory() {
+    if (state.submitting || !state.pending) return;
+    if (document.getElementById(CARD_ID)) return;
+    if (state.kind === "question") {
+      showQuestion(state.pending);
+    } else if (state.kind === "permission") {
+      showPermission(state.pending);
+    }
+  }
+
+  /**
    * Ask the runtime what is pending, once, shortly after things settle.
    *
    * Deferred rather than immediate because the run writes its pending request
@@ -440,9 +521,12 @@
     });
 
     // Loading a session rebuilds the whole message list, which takes the card
-    // with it. Whether one belongs there is a question for the runtime.
+    // with it. Put back what was already on screen straight away and confirm
+    // with the runtime after: clearing and waiting for the round trip made the
+    // card blink out and back on every render, and a reconnecting session
+    // renders several times in a row.
     document.addEventListener("portal:history-rendered", () => {
-      clearCard();
+      remountFromMemory();
       scheduleRecheck();
     });
 
@@ -483,6 +567,10 @@
       }
     });
 
+    list.addEventListener("input", (browserEvent) => {
+      if (browserEvent.target.closest(`#${CARD_ID}`)) snapshotAnswers();
+    });
+
     // Selecting an option should retire a half-typed free-text answer.
     list.addEventListener("change", (browserEvent) => {
       const radio = browserEvent.target.closest('.portal-question-options input[type="radio"]');
@@ -490,6 +578,7 @@
       const fieldset = radio.closest("[data-question-index]");
       const input = fieldset?.querySelector("[data-question-custom-input]");
       if (input && !input.disabled) input.value = "";
+      snapshotAnswers();
     });
   }
 

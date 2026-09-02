@@ -1144,6 +1144,84 @@ console.log(JSON.stringify({{
     assert data["attachmentChipCount"] == 1
 
 
+def test_render_chat_history_skips_an_assistant_group_with_nothing_to_show():
+    """A turn that ends by asking has no assistant text.
+
+    The model called the question tool and stopped, so the group carries message
+    ids and no content. Rendering it put an empty bubble above the answer card,
+    with copy and retry buttons for nothing.
+    """
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping JS helper behavior test")
+
+    js_file = _chat_ui_js_source()
+    render_history_dependencies = _extract_render_chat_history_dependencies(js_file)
+
+    script = f"""
+const state = {{
+  selectedAgentId: "agent-A",
+  selectedAgentName: "OpsMan",
+  chatStatesByAgent: new Map([["agent-A", {{}}]]),
+}};
+const dom = {{
+  messageList: {{
+    innerHTML: "",
+    children: [],
+    appendChild(node) {{ this.children.push(node); }},
+  }},
+}};
+function getChatState() {{ return state.chatStatesByAgent.get("agent-A"); }}
+function clearMessageListToWelcome() {{ dom.messageList.innerHTML = "WELCOME"; }}
+function renderMarkdown() {{}}
+function decorateToolMessages() {{}}
+function attachThinkingToLatestAssistant() {{}}
+function scrollToBottom() {{}}
+const document = {{
+  createElement(tag) {{
+    return {{
+      tag,
+      className: "",
+      dataset: {{}},
+      textContent: "",
+      children: [],
+      appendChild(child) {{ this.children.push(child); }},
+    }};
+  }},
+  dispatchEvent() {{ return true; }},
+}};
+{_extract_js_function(js_file, "getNonBlankAuthorName")}
+{_extract_js_function(js_file, "getCurrentUserDisplayName")}
+{_extract_js_function(js_file, "getSelectedAssistantDisplayName")}
+{_extract_js_function(js_file, "getHistoryMessageDisplayName")}
+{render_history_dependencies}
+renderChatHistory([
+  {{ role: "user", content: "Can you create a jira ticket?", id: "u1" }},
+  {{ role: "assistant", content: "", id: "a1" }},
+  {{ role: "assistant", content: "   ", id: "a2" }},
+], {{}});
+const rows = dom.messageList.children.map((row) => row.className);
+renderChatHistory([
+  {{ role: "user", content: "and again", id: "u2" }},
+  {{ role: "assistant", content: "here is the answer", id: "a3" }},
+], {{}});
+console.log(JSON.stringify({{
+  rowsForEmptyTurn: rows,
+  rowsWhenThereIsText: dom.messageList.children.map((row) => row.className),
+}}));
+"""
+    completed = _run_node_script(node_bin, script)
+    data = json.loads(completed.stdout)
+
+    assert data["rowsForEmptyTurn"] == ["message-row message-row-user"], (
+        "an assistant group with no text and no display blocks should not render"
+    )
+    assert data["rowsWhenThereIsText"] == [
+        "message-row message-row-user",
+        "message-row message-row-assistant",
+    ], "a turn that did say something must still render"
+
+
 def test_render_chat_history_empty_leaves_no_reusable_attachment_state():
     node_bin = shutil.which("node")
     if not node_bin:
