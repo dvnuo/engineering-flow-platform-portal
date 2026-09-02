@@ -9040,6 +9040,12 @@ function renderChatHistory(messages, metadata = {}) {
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
   scrollToBottom({ force: true });
+  // The rebuild takes anything not born of history with it, including a card
+  // the session is still blocked on. Say so; interactive_input.js re-asks the
+  // runtime whether one belongs here.
+  document.dispatchEvent(new CustomEvent("portal:history-rendered", {
+    detail: { agentId: state.selectedAgentId },
+  }));
 }
 
 function deriveSessionRecoveryNotice(metadata = {}) {

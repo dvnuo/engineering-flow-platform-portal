@@ -16,11 +16,16 @@
   "use strict";
 
   const CARD_ID = "portal-interactive-input";
+  // Long enough for the run to have finished writing its pending request to
+  // session metadata, short enough that a genuinely finished run does not leave
+  // a dead card on screen.
+  const RECHECK_DELAY_MS = 250;
   const state = {
     pending: null,
     kind: null,
     submitting: false,
     checking: false,
+    recheckTimer: 0,
   };
 
   function esc(value) {
@@ -365,6 +370,23 @@
     }
   }
 
+  /**
+   * Ask the runtime what is pending, once, shortly after things settle.
+   *
+   * Deferred rather than immediate because the run writes its pending request
+   * into session metadata around the same moment it reports being finished;
+   * asking too early can read the state from before the question landed and
+   * clear a card that should stay. Coalesced because these events arrive in
+   * bursts and the answer only needs to be right at the end of one.
+   */
+  function scheduleRecheck() {
+    if (state.recheckTimer) window.clearTimeout(state.recheckTimer);
+    state.recheckTimer = window.setTimeout(() => {
+      state.recheckTimer = 0;
+      checkPendingInput();
+    }, RECHECK_DELAY_MS);
+  }
+
   // -------------------------------------------------------------- listeners
 
   function extractRequest(detail, keys) {
@@ -391,15 +413,23 @@
         if (request) showPermission(request);
         return;
       }
-      // Once the run resolves the block is gone, so the card must not linger.
+      // A resolution names the thing it resolved, so it is safe to act on
+      // directly and worth doing without a round trip.
       if (
         type === "permission.resolved"
         || type === "permission.allowed"
         || type === "permission.denied"
-        || type === "chat.completed"
-        || type === "chat.failed"
       ) {
         clearCard();
+        return;
+      }
+      // A run that stops to ask a question *also* completes: the loop returns
+      // with the question pending and the request finishes, so the very event
+      // that announces the end arrives moments after the card that the end was
+      // caused by. Tearing the card down here removed the only way to unblock
+      // the run. Ask the runtime what is actually outstanding instead.
+      if (type === "chat.completed" || type === "chat.failed") {
+        scheduleRecheck();
       }
     });
 
@@ -407,6 +437,13 @@
       clearCard();
       // Give session state a moment to settle before asking about it.
       window.setTimeout(checkPendingInput, 400);
+    });
+
+    // Loading a session rebuilds the whole message list, which takes the card
+    // with it. Whether one belongs there is a question for the runtime.
+    document.addEventListener("portal:history-rendered", () => {
+      clearCard();
+      scheduleRecheck();
     });
 
     const list = document.getElementById("message-list");
