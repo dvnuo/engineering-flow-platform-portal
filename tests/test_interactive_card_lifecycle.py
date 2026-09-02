@@ -42,7 +42,14 @@ const scroll = { scrollTop: 0, scrollHeight: 100, getBoundingClientRect: () => (
 function makeRow() {
   return {
     id: "", className: "", innerHTML: "",
-    querySelector: () => null,
+    // Enough of a query to answer "which request is on screen", which is how
+    // the module decides whether a re-show would be a pointless rebuild.
+    querySelector(selector) {
+      if (selector !== "[data-request-id]") return null;
+      const found = /data-request-id="([^"]*)"/.exec(this.innerHTML);
+      return found ? { dataset: { requestId: found[1] } } : null;
+    },
+    querySelectorAll: () => [],
     getBoundingClientRect: () => ({ top: 10 }),
     remove() { list.children = list.children.filter((c) => c !== this); },
   };
@@ -155,19 +162,24 @@ console.log(JSON.stringify({ askedWithoutDrainingTimers: fetchCount - before }))
     assert result["askedWithoutDrainingTimers"] == 0
 
 
-def test_rebuilding_the_transcript_brings_a_still_pending_card_back():
+def test_a_rebuild_still_lets_the_runtime_have_the_last_word():
+    # The card goes back immediately so it does not blink, but the answer is
+    # not assumed: if the runtime says nothing is pending, it goes.
     result = _run_node("""
 setPending({ question_request: QUESTION });
 runtimeEvent("question.requested", { question_request: QUESTION });
 list.children = [];   // renderChatHistory wipes the list
 dispatch("portal:history-rendered", { agentId: "a1" });
-const afterWipe = shown();
+const restoredAtOnce = shown();
+setPending({});
+list.children = [];
+dispatch("portal:history-rendered", { agentId: "a1" });
 drainTimers(); await settle();
-console.log(JSON.stringify({ afterWipe, restored: shown() }));
+console.log(JSON.stringify({ restoredAtOnce, afterRuntimeSaysNo: shown() }));
 """)
 
-    assert result["afterWipe"] is False
-    assert result["restored"] is True
+    assert result["restoredAtOnce"] is True
+    assert result["afterRuntimeSaysNo"] is False
 
 
 def test_a_rebuild_puts_the_card_back_at_once_rather_than_after_the_round_trip():

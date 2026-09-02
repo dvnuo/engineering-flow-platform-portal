@@ -1201,6 +1201,8 @@ renderChatHistory([
   {{ role: "assistant", content: "   ", id: "a2" }},
 ], {{}});
 const rows = dom.messageList.children.map((row) => row.className);
+// The fake list only tracks appends, so start the second render clean.
+dom.messageList.children = [];
 renderChatHistory([
   {{ role: "user", content: "and again", id: "u2" }},
   {{ role: "assistant", content: "here is the answer", id: "a3" }},
