@@ -34,6 +34,12 @@
     recheckTimer: 0,
     draft: null,
     prefetched: null,
+    // Request ids this client has already submitted an answer or decision for.
+    // The socket reconnect that follows a submission asks for replay, and the
+    // request it is replaying can be the very one just answered -- the server
+    // event stream has no notion of "answered", only "already sent". Without
+    // this, that redelivery remounted a card for a question already put away.
+    resolved: new Set(),
   };
 
   function esc(value) {
@@ -221,6 +227,12 @@
     }
   }
 
+  /** Never show this request again, however it comes back around. */
+  function markResolved(request) {
+    const id = questionRequestId(request);
+    if (id) state.resolved.add(id);
+  }
+
   function clearCard() {
     document.getElementById(CARD_ID)?.remove();
     state.pending = null;
@@ -322,6 +334,7 @@
   }
 
   function showQuestion(request, forSessionId) {
+    if (state.resolved.has(questionRequestId(request))) return;
     if (alreadyShowing(request, "question")) return;
     const markup = questionCardMarkup(request);
     if (!markup) return;
@@ -333,6 +346,7 @@
   }
 
   function showPermission(request, forSessionId) {
+    if (state.resolved.has(questionRequestId(request))) return;
     if (alreadyShowing(request, "permission")) return;
     state.pending = request;
     state.kind = "permission";
@@ -437,6 +451,7 @@
       // Show it before clearing, or the member watches their reply vanish and
       // waits a whole resumed run for it to come back from history.
       showAnswerInTranscript(questions, collected.answers);
+      markResolved(state.pending);
       clearCard();
       followResumedRun(result);
       if (typeof window.showToast === "function") window.showToast("Answer sent. Continuing…");
@@ -463,6 +478,7 @@
           body: JSON.stringify({ request_id: form.dataset.requestId, decision, always }),
         }
       );
+      markResolved(state.pending);
       clearCard();
       followResumedRun(result);
       if (typeof window.showToast === "function") {
@@ -699,6 +715,7 @@
         || type === "permission.allowed"
         || type === "permission.denied"
       ) {
+        markResolved(state.pending);
         clearCard();
         return;
       }

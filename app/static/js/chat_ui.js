@@ -2036,9 +2036,13 @@ function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
  * gets rendered; its `content` is a sentence written for the model.
  */
 function questionAnswerFromMessage(message) {
-  if (!message || message.role !== "tool" || message.tool_name !== "question") return null;
+  if (!message || message.role !== "tool") return null;
   const parts = Array.isArray(message.parts) ? message.parts : [];
   const result = parts.map((part) => part?.tool_result).find(Boolean) || {};
+  // `tool_name` lives on the tool result, not the message -- the runtime's
+  // Message has no such field of its own. Checking it there always read
+  // undefined, so every answer was silently dropped from the transcript.
+  if (result.tool_name !== "question") return null;
   const source = result.metadata || result.output || {};
   const questions = Array.isArray(source.questions) ? source.questions : [];
   const answers = Array.isArray(source.answers) ? source.answers : [];

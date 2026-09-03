@@ -5389,11 +5389,24 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   gap: 8px;
 }
 
-/* Out of the flow entirely while the composer answers for it -- both surfaces
-   feed the same question, so showing both invites answering twice. */
-.portal-interactive-row.is-collapsed {
+/* The composer answers for it now, so the controls that would let the member
+   answer twice go away -- but the question itself stays. It used to leave
+   with them: the card was hidden whole, and a member who had just switched to
+   the composer had nothing left on screen saying what they were answering. */
+.portal-interactive-row.is-collapsed .portal-question-options,
+.portal-interactive-row.is-collapsed .portal-question-custom,
+.portal-interactive-row.is-collapsed .portal-question-other-btn,
+.portal-interactive-row.is-collapsed .portal-interactive-actions {
   display: none;
 }
+
+.portal-interactive-row.is-collapsed .portal-interactive-card {
+  gap: 10px;
+  padding: 12px 18px;
+  animation: none;
+}
+
+.portal-interactive-row.is-collapsed .portal-question-item { gap: 4px; }
 
 /* Height and radius come from .composer-pill-btn; only the emphasis differs,
    because this is the one control the member is being invited to press. */

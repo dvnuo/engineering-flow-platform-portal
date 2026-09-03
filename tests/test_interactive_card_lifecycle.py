@@ -523,6 +523,45 @@ console.log(JSON.stringify({ called, cardGone: !shown() }));
     assert result == {"called": 0, "cardGone": True}
 
 
+def test_a_replay_of_the_just_answered_question_does_not_bring_the_card_back():
+    """The socket reconnect that follows an answer also asks for replay.
+
+    What it replays can be the very question just answered: the event stream
+    has no notion of "answered", only "already delivered before". Without a
+    memory of what this client already resolved, the reconnect remounted a
+    card for a question that had just been put away -- and refreshing the page
+    never reproduced it, because a fresh load asks the runtime instead, which
+    correctly has nothing pending.
+    """
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+answerTheCard();
+await settle(); await settle();
+const afterAnswering = shown();
+runtimeEvent("question.requested", { question_request: QUESTION });
+console.log(JSON.stringify({ afterAnswering, afterReplay: shown() }));
+""")
+
+    assert result == {"afterAnswering": False, "afterReplay": False}
+
+
+def test_a_replay_after_a_permission_resolves_elsewhere_does_not_bring_it_back():
+    # Same replay hazard, for the path where the resolution is not this
+    # client's own submit -- another tab, or an auto-approval.
+    result = _run_node("""
+const PERM = { request_id: "p-1", tool: "bash", args: "ls" };
+setPending({ permission_request: PERM });
+runtimeEvent("permission.requested", { permission_request: PERM });
+runtimeEvent("permission.resolved", {});
+const afterResolve = shown();
+runtimeEvent("permission.requested", { permission_request: PERM });
+console.log(JSON.stringify({ afterResolve, afterReplay: shown() }));
+""")
+
+    assert result == {"afterResolve": False, "afterReplay": False}
+
+
 def test_the_adoption_writes_the_record_the_recovery_path_looks_for():
     js = CHAT_UI.read_text(encoding="utf-8")
     fn = _extract_js_function(js, "adoptResumedChatRunForAgent")
@@ -740,12 +779,16 @@ console.log(JSON.stringify(entries.map((e) => ({{ type: e.type, pairs: e.pairs |
 
 
 def _answer_message(answers, questions, **extra):
+    # `tool_name` lives on the tool result, same as the runtime's ToolResult --
+    # the Message itself carries no field by that name.
     message = {
         "id": "m-answer",
         "role": "tool",
-        "tool_name": "question",
         "content": 'User has answered your questions: "Which project?"="EFP".',
-        "parts": [{"tool_result": {"metadata": {"answers": answers, "questions": questions}}}],
+        "parts": [{"tool_result": {
+            "tool_name": "question",
+            "metadata": {"answers": answers, "questions": questions},
+        }}],
     }
     message.update(extra)
     return message
@@ -782,8 +825,8 @@ def test_the_question_is_kept_with_the_answer():
 def test_other_tool_results_are_still_left_out_of_the_transcript():
     # Rendering every tool result would bury the conversation in bash output.
     entries = _grouped([
-        {"id": "t1", "role": "tool", "tool_name": "bash", "content": "total 48",
-         "parts": [{"tool_result": {"metadata": {"stdout": "total 48"}}}]},
+        {"id": "t1", "role": "tool", "content": "total 48",
+         "parts": [{"tool_result": {"tool_name": "bash", "metadata": {"stdout": "total 48"}}}]},
         {"id": "a1", "role": "assistant", "content": "Listed the directory."},
     ])
 
@@ -1037,13 +1080,34 @@ def test_the_composer_wrap_stacks_its_children():
     assert "align-items: center" in rule
 
 
-def test_collapsing_hides_the_row_that_holds_the_card():
-    # The class is toggled on the row; a rule aimed at the card inside it does
-    # nothing, which is how this shipped hidden-but-visible the first time.
+def test_collapsing_hides_the_controls_but_leaves_the_question_on_screen():
+    """The class lands on the row, and hiding the row whole took the question
+    away with the controls -- once switched to the composer, there was
+    nothing left on screen saying what was being answered. Especially in
+    history, where it had never been shown at all (see the tests below).
+    """
     css = CSS.read_text(encoding="utf-8")
 
-    assert ".portal-interactive-row.is-collapsed {" in css
+    # A rule aimed at the card inside the row does nothing -- that is how this
+    # shipped hidden-but-visible the first time.
+    assert ".portal-interactive-row.is-collapsed {" not in css
     assert ".portal-interactive-card.is-collapsed {" not in css
+
+    for selector in (
+        ".portal-interactive-row.is-collapsed .portal-question-options",
+        ".portal-interactive-row.is-collapsed .portal-question-custom",
+        ".portal-interactive-row.is-collapsed .portal-question-other-btn",
+        ".portal-interactive-row.is-collapsed .portal-interactive-actions",
+    ):
+        assert selector in css
+
+    rule = css.split(".portal-interactive-row.is-collapsed .portal-interactive-actions {", 1)[1].split("}", 1)[0]
+    assert "display: none" in rule
+
+    # The head and the question text itself are never targeted -- they stay
+    # on screen while only the controls that duplicate the composer go away.
+    assert ".portal-interactive-row.is-collapsed .portal-interactive-head" not in css
+    assert ".portal-interactive-row.is-collapsed .portal-question-text" not in css
 
 
 @pytest.mark.parametrize(
