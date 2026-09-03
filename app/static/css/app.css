@@ -5343,40 +5343,50 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 
 /* Sits where the composer would be, so the foot of the conversation keeps its
    shape instead of the transcript jumping when the card appears. */
+/* A capsule that hugs its content rather than a full-width panel: it stands in
+   for the composer, but it holds one sentence and one control, and given the
+   composer's footprint it read as a second empty box. Borrows the composer's
+   own surface, blur and shadow so it reads as the same object, and the pills'
+   radius so it reads as the same kind of control. */
 .portal-composer-switch {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
-  flex-wrap: wrap;
-  width: min(100%, 1000px);
-  max-width: 1000px;
-  padding: 9px 14px;
-  border-radius: var(--portal-radius-xl);
-  border: 1px solid var(--portal-border);
+  max-width: min(100%, 1000px);
+  padding: 5px 5px 5px 16px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--portal-border), transparent 16%);
   background: color-mix(in srgb, var(--portal-surface) 92%, transparent);
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.09),
+    0 2px 6px rgba(15, 23, 42, 0.045);
   backdrop-filter: blur(10px);
   pointer-events: auto;
-  font-size: 0.82rem;
-  color: var(--portal-text-muted);
+  font-size: 13px;
+  color: color-mix(in srgb, var(--portal-text-secondary), var(--portal-text-muted) 20%);
 }
 
-/* Attached to the composer rather than stacked under it: two rounded boxes
-   with borders read as two separate places to type. */
-.portal-composer-switch.is-inline {
-  border: 0;
-  background: transparent;
-  backdrop-filter: none;
-  justify-content: space-between;
-  padding: 2px 16px 6px;
-  gap: 8px;
-}
-
-.portal-composer-switch.is-inline .portal-composer-switch-note {
+.portal-composer-switch-note {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Attached to the composer rather than stacked under it: two rounded boxes
+   with borders read as two separate places to type. */
+/* Attached to the composer rather than stacked under it: two boxes with their
+   own borders read as two separate places to type. */
+.portal-composer-switch.is-inline {
+  display: flex;
+  width: min(100%, 1000px);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  justify-content: space-between;
+  padding: 2px 6px 6px 18px;
+  gap: 8px;
 }
 
 /* Out of the flow entirely while the composer answers for it -- both surfaces
@@ -5385,20 +5395,16 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   display: none;
 }
 
+/* Height and radius come from .composer-pill-btn; only the emphasis differs,
+   because this is the one control the member is being invited to press. */
 .portal-composer-switch-btn {
-  border: 1px solid var(--portal-border);
-  border-radius: 999px;
-  background: transparent;
+  min-height: 30px;
+  flex: 0 0 auto;
   color: var(--portal-accent-strong);
-  padding: 4px 12px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color var(--portal-transition), background var(--portal-transition);
 }
 
 .portal-composer-switch-btn:hover {
-  border-color: var(--portal-accent);
+  border-color: color-mix(in srgb, var(--portal-accent), transparent 45%);
   background: var(--portal-accent-soft);
 }
 

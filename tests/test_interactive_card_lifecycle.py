@@ -24,6 +24,9 @@ from _js_extract_helpers import _extract_js_function
 MODULE = Path("app/static/js/interactive_input.js")
 CHAT_UI = Path("app/static/js/chat_ui.js")
 CSS = Path("app/static/css/app.css")
+APP_HTML = Path("app/templates/app.html")
+
+NL = chr(10)
 
 # Timers are a queue the test drains on purpose, so the debounce is observable
 # rather than something to sleep through.
@@ -940,9 +943,8 @@ def test_the_switch_bar_keeps_the_foot_of_the_conversation_in_shape():
     css = CSS.read_text(encoding="utf-8")
     rule = css.split(".portal-composer-switch {", 1)[1].split("}", 1)[0]
 
-    assert "border-radius: var(--portal-radius-xl)" in rule
+    assert "border-radius: 999px" in rule
     assert "var(--portal-" in rule
-    assert "#" not in rule
 
 
 # ------------------------------- one surface at a time, and one place to type
@@ -979,6 +981,37 @@ def test_the_card_goes_away_while_the_composer_answers_for_it():
     assert "window.portalCollapsePendingCard(false)" in fn
 
 
+def test_the_switch_wears_the_composer_s_own_pill():
+    """It sits among Attach and Run settings, so it should look like them.
+
+    Height, radius, border and hover lift all come from `.composer-pill-btn`;
+    only the emphasis is added, because this is the one control the member is
+    being invited to press.
+    """
+    html = APP_HTML.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-switch-btn {", 1)[1].split("}", 1)[0]
+
+    assert 'class="composer-pill-btn portal-composer-switch-btn' in html
+    for reinvented in ("border-radius", "font:", "font-weight", "padding"):
+        assert reinvented not in rule, f"{reinvented} already comes from the shared pill"
+
+
+def test_the_capsule_hugs_its_content_rather_than_spanning_the_composer():
+    # It stands in for the composer but holds one sentence and one control;
+    # at the composer's full width it read as a second, empty box.
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-switch {", 1)[1].split("}", 1)[0]
+
+    assert "display: inline-flex" in rule
+    assert (NL + "  width:") not in rule, "a fixed width is the composer's, not this"
+    assert "max-width: min(100%, 1000px)" in rule, "but it must not outgrow the composer either"
+    assert "border-radius: 999px" in rule, "the pills' radius, not the composer's corner"
+    # Same surface, blur and shadow as the composer, so it reads as that object.
+    assert "backdrop-filter: blur(10px)" in rule
+    assert "box-shadow:" in rule
+
+
 def test_the_bar_is_a_caption_on_the_composer_rather_than_a_second_panel():
     js = CHAT_UI.read_text(encoding="utf-8")
     fn = _extract_js_function(js, "syncComposerMode")
@@ -989,6 +1022,9 @@ def test_the_bar_is_a_caption_on_the_composer_rather_than_a_second_panel():
     assert "border: 0" in inline
     assert "background: transparent" in inline
     assert "backdrop-filter: none" in inline
+    assert "box-shadow: none" in inline
+    # Aligned to the composer it captions, rather than hugging its own text.
+    assert "width: min(100%, 1000px)" in inline
 
 
 def test_the_composer_wrap_stacks_its_children():
