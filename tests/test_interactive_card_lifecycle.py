@@ -647,25 +647,44 @@ def test_a_single_free_text_question_can_be_answered_from_the_composer():
     assert _intent({"question_request": FREE_TEXT})["intent"] == {"acceptsText": True, "reason": ""}
 
 
-def test_a_question_with_no_free_text_sends_the_member_to_the_card():
+def test_a_question_that_offered_no_free_text_can_still_be_answered_in_words():
+    # `custom: false` is how the card chooses to render, not a rule about what
+    # the member may say -- and the runtime does not enforce it either.
     intent = _intent({"question_request": OPTIONS_ONLY})["intent"]
 
-    assert intent["acceptsText"] is False
-    assert "options" in intent["reason"]
+    assert intent["acceptsText"] is True
+    assert "replaces the options" in intent["note"]
 
 
-def test_several_questions_cannot_be_answered_by_one_typed_line():
+def test_one_line_answers_the_first_of_several_questions_and_says_so():
+    # The runtime takes a shorter answers array than there are questions and
+    # reports the rest as unanswered, so the assistant can follow up on what is
+    # still open. Blocking the composer here would have been stricter than the
+    # runtime and stricter than the member needs.
     intent = _intent({"question_request": TWO_QUESTIONS})["intent"]
 
-    assert intent["acceptsText"] is False
-    assert "questions" in intent["reason"]
+    assert intent["acceptsText"] is True
+    assert "first question" in intent["note"]
+    assert "rest stay open" in intent["note"]
 
 
 def test_a_typed_line_cannot_approve_a_tool():
+    # `permission/respond` wants approve or deny; prose is neither, and guessing
+    # which one it meant is not a guess to make about running a tool.
     intent = _intent({"permission_request": {"request_id": "p-1", "tool": "bash", "args": "ls"}})["intent"]
 
     assert intent["acceptsText"] is False
     assert "Approve" in intent["reason"]
+
+
+def test_the_composer_supplies_its_own_answer_rather_than_filling_the_card():
+    # An options-only card has no text box to fill, and a card with several
+    # questions has more than one.
+    js = MODULE.read_text(encoding="utf-8")
+    fn = js.split("window.portalAnswerPendingWithText = async (text) => {", 1)[1].split("\n  };", 1)[0]
+
+    assert "submitQuestion(form, { answers: [String(text || \"\")] })" in fn
+    assert "data-question-custom-input" not in fn
 
 
 def test_no_card_means_the_composer_behaves_normally():
@@ -854,11 +873,22 @@ def test_a_card_takes_the_composer_off_the_screen_by_default():
 
 
 def test_the_switch_brings_the_composer_back():
-    result = _mode({"acceptsText": True, "reason": ""}, clicks=1)
+    result = _mode({"acceptsText": True, "reason": "", "note": "Your message answers the question above."}, clicks=1)
 
     assert result["composerHidden"] is False
     assert result["switchText"] == "Back to the card"
     assert "answers the question" in result["note"]
+
+
+def test_the_note_says_what_this_particular_line_will_do():
+    # A card with several questions and a card with one are answered very
+    # differently by one sentence.
+    result = _mode(
+        {"acceptsText": True, "reason": "", "note": "Your message answers the first question; the rest stay open."},
+        clicks=1,
+    )
+
+    assert result["note"] == "Your message answers the first question; the rest stay open."
 
 
 def test_the_switch_returns_to_the_card():
@@ -868,15 +898,14 @@ def test_the_switch_returns_to_the_card():
     assert result["switchText"] == "Type your answer instead"
 
 
-def test_no_switch_is_offered_when_the_composer_could_not_answer():
-    # Several questions at once, a list that allows no free text, an approval:
-    # a typed line cannot resolve any of them, so offering the composer would
-    # be offering a dead end.
-    result = _mode({"acceptsText": False, "reason": "Choose one of the options above to continue."})
+def test_no_switch_is_offered_for_an_approval():
+    # The one thing a typed line cannot be. Reading approve or deny out of prose
+    # is a guess nobody should make on the member's behalf.
+    result = _mode({"acceptsText": False, "reason": "Approve or reject the tool above to continue."})
 
     assert result["switchOffered"] is False
     assert result["composerHidden"] is True
-    assert result["note"] == "Choose one of the options above to continue."
+    assert result["note"] == "Approve or reject the tool above to continue."
 
 
 def test_with_no_card_the_composer_is_simply_there():

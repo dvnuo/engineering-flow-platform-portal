@@ -412,12 +412,14 @@
     });
   }
 
-  async function submitQuestion(form) {
+  async function submitQuestion(form, override = null) {
     const agent = agentId();
     const session = sessionId();
     if (!agent || !session) return setMessage(form, "error", "No active conversation to answer.");
 
-    const collected = collectAnswers(form);
+    // The composer supplies its own answer: it is one line for a card that may
+    // have several fields, or none it could have typed into.
+    const collected = override || collectAnswers(form);
     if (collected.error) return setMessage(form, "error", collected.error);
     const questions = normalizeQuestions(state.pending);
 
@@ -604,29 +606,31 @@
    */
   window.portalPendingComposerIntent = () => {
     if (!state.pending || !document.getElementById(CARD_ID)) return null;
+    // An approval is the one thing a typed line cannot be. `permission/respond`
+    // wants approve or deny, and reading either out of prose is a guess nobody
+    // should be making on the member's behalf.
     if (state.kind === "permission") {
       return { acceptsText: false, reason: "Approve or reject the tool above to continue." };
     }
+    // Every question can be answered in words. The runtime takes a shorter
+    // answers array than there are questions and reports the rest as
+    // unanswered, and it does not enforce `custom: false` -- that is how the
+    // card chooses to render, not a rule about what the member may say.
     const questions = normalizeQuestions(state.pending);
-    if (questions.length !== 1) {
-      return { acceptsText: false, reason: "Answer the questions above to continue." };
+    if (questions.length > 1) {
+      return { acceptsText: true, reason: "", note: "Your message answers the first question; the rest stay open." };
     }
-    if (!questions[0].custom) {
-      return { acceptsText: false, reason: "Choose one of the options above to continue." };
+    if (questions.length === 1 && !questions[0].custom) {
+      return { acceptsText: true, reason: "", note: "Your message replaces the options above." };
     }
-    return { acceptsText: true, reason: "" };
+    return { acceptsText: true, reason: "", note: "Your message answers the question above." };
   };
 
   /** Answer the pending question with what the member typed. */
   window.portalAnswerPendingWithText = async (text) => {
     const form = document.querySelector(`#${CARD_ID} [data-interactive-kind="question"]`);
     if (!form) return false;
-    const typed = form.querySelector("[data-question-custom-input]");
-    if (typed) {
-      typed.disabled = false;
-      typed.value = String(text || "");
-    }
-    await submitQuestion(form);
+    await submitQuestion(form, { answers: [String(text || "")] });
     return true;
   };
 

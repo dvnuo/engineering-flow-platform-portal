@@ -1623,8 +1623,10 @@ function syncComposerMode() {
   form.classList.toggle("hidden", !showingComposer);
   bar.classList.remove("hidden");
   if (note) {
+    // Say what this particular line will do -- a card with several questions
+    // and a card with one are answered very differently by one sentence.
     note.textContent = showingComposer
-      ? "Your message answers the question above."
+      ? (intent.note || "Your message answers the question above.")
       : (intent.acceptsText ? "Answer above to continue." : intent.reason);
   }
   if (button) {
