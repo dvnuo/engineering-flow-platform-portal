@@ -12,7 +12,7 @@ def run(script):
 
 def test_grouping_cases():
     s=src(); f1=_extract_js_function(s,'getAssistantDisplayGroupKey'); f0=_extract_js_function(s,'questionAnswerFromMessage'); f2=_extract_js_function(s,'groupSessionMessagesForDisplay'); f3=_extract_js_function(s,'getAssistantGroupMarkdown'); f4=_extract_js_function(s,'getAssistantGroupMessageIds')
-    script=f"""{f1}\n{f2}\n{f3}\n{f4}\nconst c1=[{{id:'u1',role:'user',content:'Q'}},{{id:'a1',role:'assistant',content:'A1'}},{{id:'a2',role:'assistant',content:'A2'}}];
+    script=f"""{f1}\n{f0}\n{f2}\n{f3}\n{f4}\nconst c1=[{{id:'u1',role:'user',content:'Q'}},{{id:'a1',role:'assistant',content:'A1'}},{{id:'a2',role:'assistant',content:'A2'}}];
 const g1=groupSessionMessagesForDisplay(c1);
 const c2=[{{id:'u1',role:'user',content:'Q'}},{{id:'a1',role:'assistant',content:'A1'}},{{id:'a2',role:'assistant',content:'A2'}},{{id:'u2',role:'user',content:'Q2'}},{{id:'a3',role:'assistant',content:'A3'}}];
 const c3=[{{id:'u1',role:'user',content:'Q'}},{{id:'a1',role:'assistant',content:'A1',request_id:'r1'}},{{id:'a2',role:'assistant',content:'A2',request_id:'r2'}}];
