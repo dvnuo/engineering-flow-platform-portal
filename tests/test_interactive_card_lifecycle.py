@@ -824,7 +824,7 @@ const bar = el("bar", {{ querySelector: (s) => (s === "[data-composer-switch-not
 const form = el("form", {{}});
 globalThis.document = {{ getElementById: (id) => (id === "chat-form" ? form : id === "composer-mode-switch" ? bar : null) }};
 const dom = {{ chatInput: {{ focus: () => {{}} }} }};
-globalThis.window = {{ portalPendingComposerIntent: () => {json.dumps(intent)} }};
+globalThis.window = {{ portalPendingComposerIntent: () => ({json.dumps(intent)}) }};
 let composerMode = "card";
 {fn}
 syncComposerMode();
