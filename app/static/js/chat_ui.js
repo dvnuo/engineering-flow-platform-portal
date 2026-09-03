@@ -1967,6 +1967,41 @@ function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
   );
 }
 
+/**
+ * The answer a member gave to a question, if this history message is one.
+ *
+ * An answer is stored as the question tool's result, and the display grouping
+ * kept only `user` and `assistant` -- so answering, by card or by composer,
+ * left no trace in the transcript at all. The member saw their reply vanish.
+ *
+ * The tool result carries the questions and the answers as data, which is what
+ * gets rendered; its `content` is a sentence written for the model.
+ */
+function questionAnswerFromMessage(message) {
+  if (!message || message.role !== "tool" || message.tool_name !== "question") return null;
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  const result = parts.map((part) => part?.tool_result).find(Boolean) || {};
+  const source = result.metadata || result.output || {};
+  const questions = Array.isArray(source.questions) ? source.questions : [];
+  const answers = Array.isArray(source.answers) ? source.answers : [];
+  if (!answers.length) return null;
+
+  const pairs = answers
+    .map((answer, index) => {
+      const chosen = (Array.isArray(answer) ? answer : [answer])
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean);
+      if (!chosen.length) return null;
+      const question = questions[index] || {};
+      return {
+        label: String(question.header || question.question || "").trim(),
+        value: chosen.join(", "),
+      };
+    })
+    .filter(Boolean);
+  return pairs.length ? { pairs, message } : null;
+}
+
 function groupSessionMessagesForDisplay(messages = []) {
   const entries = [];
   let currentAssistantGroup = null;
@@ -1974,6 +2009,14 @@ function groupSessionMessagesForDisplay(messages = []) {
 
   messages.forEach((message, index) => {
     if (!message || typeof message !== "object") return;
+    const answered = questionAnswerFromMessage(message);
+    if (answered) {
+      // An answer ends the assistant's turn the same way a message does: what
+      // follows was said with the answer in hand.
+      currentAssistantGroup = null;
+      entries.push({ type: "question_answer", ...answered });
+      return;
+    }
     if (message.role === "user") {
       currentAssistantGroup = null;
       lastUserMessageId = message.id || lastUserMessageId || "";
@@ -9234,6 +9277,38 @@ function renderChatHistory(messages, metadata = {}) {
       container.appendChild(article); dom.messageList.appendChild(container);
       return;
     }
+    if (entry.type === "question_answer") {
+      const row = document.createElement("div");
+      row.className = "message-row message-row-user portal-answer-row";
+      if (entry.message?.id) row.dataset.messageId = entry.message.id;
+      const header = document.createElement("div");
+      header.className = "message-meta message-meta-user";
+      const who = document.createElement("span");
+      who.className = "message-author";
+      who.textContent = getCurrentUserDisplayName();
+      header.appendChild(who);
+      row.appendChild(header);
+      const article = document.createElement("article");
+      article.className = "message-surface message-surface-user portal-answer-surface";
+      entry.pairs.forEach((pair) => {
+        const line = document.createElement("div");
+        line.className = "portal-answer-line";
+        if (pair.label) {
+          const label = document.createElement("span");
+          label.className = "portal-answer-label";
+          label.textContent = pair.label;
+          line.appendChild(label);
+        }
+        const value = document.createElement("span");
+        value.className = "portal-answer-value";
+        value.textContent = pair.value;
+        line.appendChild(value);
+        article.appendChild(line);
+      });
+      row.appendChild(article);
+      dom.messageList.appendChild(row);
+      return;
+    }
     if (entry.type === "assistant_group") {
       const first = entry.messages[0] || {};
       const last = entry.messages[entry.messages.length - 1] || first;
@@ -10690,6 +10765,48 @@ window.currentPortalSessionId = currentSessionIdForSelectedAgent;
 window.currentPortalAgentId = () => state.selectedAgentId;
 window.renderPortalMarkdown = renderMarkdown;
 window.adoptPortalResumedChatRun = adoptResumedChatRunForAgent;
+/**
+ * Show an answer the moment it is given.
+ *
+ * It reaches the transcript for real on the next load, as the question tool's
+ * result, but that is a whole resumed run away -- and until then the member has
+ * watched their reply disappear. Marked as provisional so the reload replaces
+ * it rather than doubling it.
+ */
+window.renderPortalAnswerNow = function renderPortalAnswerNow(pairs) {
+  if (!dom.messageList || !Array.isArray(pairs) || !pairs.length) return;
+  dom.messageList.querySelectorAll("[data-provisional-answer]").forEach((row) => row.remove());
+  const row = document.createElement("div");
+  row.className = "message-row message-row-user portal-answer-row";
+  row.dataset.provisionalAnswer = "1";
+  const header = document.createElement("div");
+  header.className = "message-meta message-meta-user";
+  const who = document.createElement("span");
+  who.className = "message-author";
+  who.textContent = getCurrentUserDisplayName();
+  header.appendChild(who);
+  row.appendChild(header);
+  const article = document.createElement("article");
+  article.className = "message-surface message-surface-user portal-answer-surface";
+  pairs.forEach((pair) => {
+    const line = document.createElement("div");
+    line.className = "portal-answer-line";
+    if (pair.label) {
+      const label = document.createElement("span");
+      label.className = "portal-answer-label";
+      label.textContent = pair.label;
+      line.appendChild(label);
+    }
+    const value = document.createElement("span");
+    value.className = "portal-answer-value";
+    value.textContent = pair.value;
+    line.appendChild(value);
+    article.appendChild(line);
+  });
+  row.appendChild(article);
+  dom.messageList.appendChild(row);
+  scrollToBottom({ force: true });
+};
 window.resolvePortalSkillCommand = resolvePortalSkillCommand;
 window.ensurePortalSkillsLoaded = loadTaskSkillsForAgent;
 window.initializeManagedSettingsPanels = initializeManagedSettingsPanels;

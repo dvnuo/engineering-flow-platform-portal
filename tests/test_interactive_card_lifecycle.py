@@ -694,3 +694,106 @@ def test_the_composer_says_what_sending_will_do():
     assert "portalPendingComposerIntent" in placeholder
     assert "Type your answer" in placeholder
     assert 'document.addEventListener("portal:pending-input-changed", updateChatInputPlaceholder)' in js
+
+
+# ------------------------------------- an answer is part of the conversation
+
+
+def _grouped(messages):
+    """`groupSessionMessagesForDisplay` over a history payload."""
+    js = CHAT_UI.read_text(encoding="utf-8")
+    bundle = "\n".join(
+        _extract_js_function(js, name)
+        for name in ("questionAnswerFromMessage", "getAssistantDisplayGroupKey", "groupSessionMessagesForDisplay")
+    )
+    return _run_node(f"""
+{bundle}
+const entries = groupSessionMessagesForDisplay({json.dumps(messages)});
+console.log(JSON.stringify(entries.map((e) => ({{ type: e.type, pairs: e.pairs || null }}))));
+""")
+
+
+def _answer_message(answers, questions, **extra):
+    message = {
+        "id": "m-answer",
+        "role": "tool",
+        "tool_name": "question",
+        "content": 'User has answered your questions: "Which project?"="EFP".',
+        "parts": [{"tool_result": {"metadata": {"answers": answers, "questions": questions}}}],
+    }
+    message.update(extra)
+    return message
+
+
+def test_an_answer_appears_in_the_transcript():
+    """Answering left no trace at all -- the member watched their reply vanish.
+
+    It is stored as the question tool's result, and the display grouping kept
+    only `user` and `assistant`.
+    """
+    entries = _grouped([
+        {"id": "u1", "role": "user", "content": "create a ticket"},
+        _answer_message([["EFP"]], [{"header": "Project", "question": "Which project?"}]),
+    ])
+
+    assert [e["type"] for e in entries] == ["message", "question_answer"]
+    assert entries[1]["pairs"] == [{"label": "Project", "value": "EFP"}]
+
+
+def test_the_question_is_kept_with_the_answer():
+    # A transcript read later has to say what "EFP" was an answer to.
+    entries = _grouped([_answer_message(
+        [["EFP"], ["Bug"]],
+        [{"header": "Project"}, {"question": "What issue type?"}],
+    )])
+
+    assert entries[0]["pairs"] == [
+        {"label": "Project", "value": "EFP"},
+        {"label": "What issue type?", "value": "Bug"},
+    ]
+
+
+def test_other_tool_results_are_still_left_out_of_the_transcript():
+    # Rendering every tool result would bury the conversation in bash output.
+    entries = _grouped([
+        {"id": "t1", "role": "tool", "tool_name": "bash", "content": "total 48",
+         "parts": [{"tool_result": {"metadata": {"stdout": "total 48"}}}]},
+        {"id": "a1", "role": "assistant", "content": "Listed the directory."},
+    ])
+
+    assert [e["type"] for e in entries] == ["assistant_group"]
+
+
+def test_an_answer_with_nothing_in_it_is_not_rendered():
+    entries = _grouped([_answer_message([[""], ["  "]], [{"header": "Project"}])])
+
+    assert entries == []
+
+
+def test_an_answer_ends_the_assistant_turn_it_belongs_to():
+    # What the assistant says next was said with the answer in hand, so it is a
+    # new group rather than a continuation of the one that asked.
+    entries = _grouped([
+        {"id": "a1", "role": "assistant", "content": "Which project?"},
+        _answer_message([["EFP"]], [{"header": "Project"}]),
+        {"id": "a2", "role": "assistant", "content": "Created EFP-1."},
+    ])
+
+    assert [e["type"] for e in entries] == ["assistant_group", "question_answer", "assistant_group"]
+
+
+def test_the_answer_is_shown_before_the_card_goes():
+    js = MODULE.read_text(encoding="utf-8")
+    submit = js.split("async function submitQuestion(", 1)[1].split("\n  }", 1)[0]
+
+    assert submit.index("showAnswerInTranscript(") < submit.index("clearCard()"), (
+        "clearing first means the member watches their reply disappear"
+    )
+
+
+def test_the_provisional_row_is_replaced_rather_than_doubled():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = js.split("window.renderPortalAnswerNow = function renderPortalAnswerNow(", 1)[1].split("\n};", 1)[0]
+
+    assert 'querySelectorAll("[data-provisional-answer]")' in fn
+    assert 'row.dataset.provisionalAnswer = "1"' in fn

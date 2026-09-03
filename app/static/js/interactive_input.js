@@ -383,6 +383,20 @@
     }
   }
 
+  /** Pair each answer with the question it answers, and hand it to the transcript. */
+  function showAnswerInTranscript(questions, answers) {
+    if (typeof window.renderPortalAnswerNow !== "function") return;
+    const pairs = (answers || [])
+      .map((answer, index) => {
+        const value = String(answer ?? "").trim();
+        if (!value) return null;
+        const question = questions[index] || {};
+        return { label: String(question.header || question.question || "").trim(), value };
+      })
+      .filter(Boolean);
+    if (pairs.length) window.renderPortalAnswerNow(pairs);
+  }
+
   function setMessage(form, variant, text) {
     const target = form.querySelector("[data-interactive-msg]");
     if (!target) return;
@@ -405,6 +419,7 @@
 
     const collected = collectAnswers(form);
     if (collected.error) return setMessage(form, "error", collected.error);
+    const questions = normalizeQuestions(state.pending);
 
     setBusy(form, true);
     setMessage(form, "", "Sending…");
@@ -417,6 +432,9 @@
           body: JSON.stringify({ request_id: form.dataset.requestId, answers: collected.answers }),
         }
       );
+      // Show it before clearing, or the member watches their reply vanish and
+      // waits a whole resumed run for it to come back from history.
+      showAnswerInTranscript(questions, collected.answers);
       clearCard();
       followResumedRun(result);
       if (typeof window.showToast === "function") window.showToast("Answer sent. Continuing…");
