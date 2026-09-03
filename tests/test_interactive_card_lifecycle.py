@@ -644,7 +644,10 @@ TWO_QUESTIONS = {"request_id": "q-3", "questions": [
 def test_a_single_free_text_question_can_be_answered_from_the_composer():
     # The card's own text box does exactly this; the composer is a roomier way
     # to reach it.
-    assert _intent({"question_request": FREE_TEXT})["intent"] == {"acceptsText": True, "reason": ""}
+    intent = _intent({"question_request": FREE_TEXT})["intent"]
+
+    assert intent["acceptsText"] is True
+    assert intent["note"] == "Your message answers the question above."
 
 
 def test_a_question_that_offered_no_free_text_can_still_be_answered_in_words():
