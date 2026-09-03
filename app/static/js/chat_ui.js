@@ -1587,6 +1587,53 @@ function endSingleSubmit(form, options = {}) {
   setModalFormBusyState(form, false, options);
 }
 
+// Which surface the member is using while a card is up. The card is the
+// default: it is the one that can answer every kind of question, and it is
+// what the assistant just put in front of them.
+let composerMode = "card";
+
+/**
+ * Show the card or the composer, never both competing for the same answer.
+ *
+ * A run stopped at a question continues only when that question is resolved, so
+ * both surfaces feed the same place. The switch is about which one is more
+ * comfortable to type into, not about escaping the question -- and it is only
+ * offered when the composer can actually answer, which rules out several
+ * questions at once, a list that allows no free text, and an approval.
+ */
+function syncComposerMode() {
+  const form = document.getElementById("chat-form");
+  const bar = document.getElementById("composer-mode-switch");
+  if (!form || !bar) return;
+  const note = bar.querySelector("[data-composer-switch-note]");
+  const button = bar.querySelector("[data-composer-switch]");
+
+  const intent = typeof window.portalPendingComposerIntent === "function"
+    ? window.portalPendingComposerIntent()
+    : null;
+
+  if (!intent) {
+    composerMode = "card";
+    form.classList.remove("hidden");
+    bar.classList.add("hidden");
+    return;
+  }
+
+  const showingComposer = intent.acceptsText && composerMode === "message";
+  form.classList.toggle("hidden", !showingComposer);
+  bar.classList.remove("hidden");
+  if (note) {
+    note.textContent = showingComposer
+      ? "Your message answers the question above."
+      : (intent.acceptsText ? "Answer above to continue." : intent.reason);
+  }
+  if (button) {
+    button.classList.toggle("hidden", !intent.acceptsText);
+    button.textContent = showingComposer ? "Back to the card" : "Type your answer instead";
+  }
+  if (showingComposer) dom.chatInput?.focus();
+}
+
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
 
@@ -15699,7 +15746,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   initManagedModals();
   trackChatSurfaceSizes();
   updateChatInputPlaceholder();
-  document.addEventListener("portal:pending-input-changed", updateChatInputPlaceholder);
+  document.addEventListener("portal:pending-input-changed", () => {
+    // A new card is a fresh choice; the last one's preference should not carry.
+    composerMode = "card";
+    updateChatInputPlaceholder();
+    syncComposerMode();
+  });
+  document.getElementById("composer-mode-switch")?.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-composer-switch]")) return;
+    composerMode = composerMode === "message" ? "card" : "message";
+    updateChatInputPlaceholder();
+    syncComposerMode();
+  });
+  syncComposerMode();
 
   // Event delegation for remove buttons (replace inline onclick)
   const previewArea = document.getElementById('input-preview-area');

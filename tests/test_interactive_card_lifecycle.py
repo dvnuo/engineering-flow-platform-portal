@@ -23,6 +23,7 @@ from _js_extract_helpers import _extract_js_function
 
 MODULE = Path("app/static/js/interactive_input.js")
 CHAT_UI = Path("app/static/js/chat_ui.js")
+CSS = Path("app/static/css/app.css")
 
 # Timers are a queue the test drains on purpose, so the debounce is observable
 # rather than something to sleep through.
@@ -693,7 +694,8 @@ def test_the_composer_says_what_sending_will_do():
 
     assert "portalPendingComposerIntent" in placeholder
     assert "Type your answer" in placeholder
-    assert 'document.addEventListener("portal:pending-input-changed", updateChatInputPlaceholder)' in js
+    listener = js.split('document.addEventListener("portal:pending-input-changed"', 1)[1]
+    assert "updateChatInputPlaceholder();" in listener.split("});", 1)[0]
 
 
 # ------------------------------------- an answer is part of the conversation
@@ -797,3 +799,116 @@ def test_the_provisional_row_is_replaced_rather_than_doubled():
 
     assert 'querySelectorAll("[data-provisional-answer]")' in fn
     assert 'row.dataset.provisionalAnswer = "1"' in fn
+
+
+# ------------------------------ the card takes the composer's place, by default
+
+
+def _mode(intent, *, clicks=0):
+    """Drive `syncComposerMode` over a fake composer for a given pending card."""
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "syncComposerMode")
+    return _run_node(f"""
+const classes = {{ form: new Set(["hidden"]), bar: new Set(["hidden"]), button: new Set() }};
+const el = (key, extra) => Object.assign({{
+  classList: {{
+    add: (c) => classes[key].add(c),
+    remove: (c) => classes[key].delete(c),
+    toggle: (c, on) => (on ? classes[key].add(c) : classes[key].delete(c)),
+    contains: (c) => classes[key].has(c),
+  }},
+}}, extra || {{}});
+const note = {{ textContent: "" }};
+const button = el("button", {{ textContent: "" }});
+const bar = el("bar", {{ querySelector: (s) => (s === "[data-composer-switch-note]" ? note : button) }});
+const form = el("form", {{}});
+globalThis.document = {{ getElementById: (id) => (id === "chat-form" ? form : id === "composer-mode-switch" ? bar : null) }};
+const dom = {{ chatInput: {{ focus: () => {{}} }} }};
+globalThis.window = {{ portalPendingComposerIntent: () => {json.dumps(intent)} }};
+let composerMode = "card";
+{fn}
+syncComposerMode();
+for (let i = 0; i < {clicks}; i += 1) {{
+  composerMode = composerMode === "message" ? "card" : "message";
+  syncComposerMode();
+}}
+console.log(JSON.stringify({{
+  composerHidden: classes.form.has("hidden"),
+  barHidden: classes.bar.has("hidden"),
+  switchOffered: !classes.button.has("hidden"),
+  switchText: button.textContent,
+  note: note.textContent,
+}}));
+""")
+
+
+def test_a_card_takes_the_composer_off_the_screen_by_default():
+    # The card is what the assistant just put in front of them, and it is the
+    # one surface that can answer every kind of question.
+    result = _mode({"acceptsText": True, "reason": ""})
+
+    assert result["composerHidden"] is True
+    assert result["barHidden"] is False
+    assert result["switchOffered"] is True
+    assert result["switchText"] == "Type your answer instead"
+
+
+def test_the_switch_brings_the_composer_back():
+    result = _mode({"acceptsText": True, "reason": ""}, clicks=1)
+
+    assert result["composerHidden"] is False
+    assert result["switchText"] == "Back to the card"
+    assert "answers the question" in result["note"]
+
+
+def test_the_switch_returns_to_the_card():
+    result = _mode({"acceptsText": True, "reason": ""}, clicks=2)
+
+    assert result["composerHidden"] is True
+    assert result["switchText"] == "Type your answer instead"
+
+
+def test_no_switch_is_offered_when_the_composer_could_not_answer():
+    # Several questions at once, a list that allows no free text, an approval:
+    # a typed line cannot resolve any of them, so offering the composer would
+    # be offering a dead end.
+    result = _mode({"acceptsText": False, "reason": "Choose one of the options above to continue."})
+
+    assert result["switchOffered"] is False
+    assert result["composerHidden"] is True
+    assert result["note"] == "Choose one of the options above to continue."
+
+
+def test_with_no_card_the_composer_is_simply_there():
+    result = _mode(None)
+
+    assert result["composerHidden"] is False
+    assert result["barHidden"] is True
+
+
+def test_a_new_card_starts_from_the_card_again():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    listener = js.split('document.addEventListener("portal:pending-input-changed"', 1)[1].split("});", 1)[0]
+
+    assert 'composerMode = "card"' in listener, "the last card's preference must not carry to the next"
+
+
+def test_the_card_arrives_with_an_entrance():
+    css = CSS.read_text(encoding="utf-8")
+    rules = [part.split("}", 1)[0] for part in css.split(".portal-interactive-card {")[1:]]
+
+    assert any("animation: portal-interactive-in" in rule for rule in rules)
+    assert "@keyframes portal-interactive-in" in css
+    assert ".portal-interactive-card { animation: none; }" in css, "respect prefers-reduced-motion"
+
+
+def test_the_switch_bar_keeps_the_foot_of_the_conversation_in_shape():
+    # It stands where the composer would, so the transcript does not jump when
+    # the card appears -- and the bottom reserve follows it down, giving the
+    # card the room the composer was using.
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-switch {", 1)[1].split("}", 1)[0]
+
+    assert "border-radius: var(--portal-radius-xl)" in rule
+    assert "var(--portal-" in rule
+    assert "#" not in rule
