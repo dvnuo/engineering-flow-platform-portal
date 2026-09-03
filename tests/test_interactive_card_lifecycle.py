@@ -944,3 +944,88 @@ def test_the_switch_bar_keeps_the_foot_of_the_conversation_in_shape():
     assert "border-radius: var(--portal-radius-xl)" in rule
     assert "var(--portal-" in rule
     assert "#" not in rule
+
+
+# ------------------------------- one surface at a time, and one place to type
+
+
+def test_starting_a_new_chat_takes_the_card_state_with_it():
+    """New chat wiped the list without going near this module.
+
+    The card element went, but its state stayed -- and with it a switch bar
+    still saying "Answer above to continue" about a card that was no longer on
+    screen. A welcome means an empty conversation, and an empty conversation
+    cannot be blocked on anything.
+    """
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const before = !!window.portalPendingComposerIntent();
+list.children = [];
+dispatch("portal:welcome-rendered", { agentId: "a1" });
+console.log(JSON.stringify({ before, after: !!window.portalPendingComposerIntent() }));
+""")
+
+    assert result == {"before": True, "after": False}
+
+
+def test_the_card_goes_away_while_the_composer_answers_for_it():
+    # Both surfaces feed the same question, so showing both invites answering
+    # twice -- and leaves two rounded boxes competing for the foot of the page.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "syncComposerMode")
+
+    assert "window.portalCollapsePendingCard(showingComposer)" in fn
+    # And it comes back when there is no card in play, or the next one is hidden.
+    assert "window.portalCollapsePendingCard(false)" in fn
+
+
+def test_the_bar_is_a_caption_on_the_composer_rather_than_a_second_panel():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "syncComposerMode")
+    css = CSS.read_text(encoding="utf-8")
+    inline = css.split(".portal-composer-switch.is-inline {", 1)[1].split("}", 1)[0]
+
+    assert 'bar.classList.toggle("is-inline", showingComposer)' in fn
+    assert "border: 0" in inline
+    assert "background: transparent" in inline
+    assert "backdrop-filter: none" in inline
+
+
+def test_the_composer_wrap_stacks_its_children():
+    # It was a flex row, so the bar sat *beside* the composer instead of above
+    # it -- which is what made the foot of the page look split in two.
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-wrap {", 1)[1].split("}", 1)[0]
+
+    assert "flex-direction: column" in rule
+    assert "align-items: center" in rule
+
+
+def test_collapsing_hides_the_row_that_holds_the_card():
+    # The class is toggled on the row; a rule aimed at the card inside it does
+    # nothing, which is how this shipped hidden-but-visible the first time.
+    css = CSS.read_text(encoding="utf-8")
+
+    assert ".portal-interactive-row.is-collapsed {" in css
+    assert ".portal-interactive-card.is-collapsed {" not in css
+
+
+@pytest.mark.parametrize(
+    "questions,expected",
+    [
+        ([{"question": "Which project?", "header": "Project", "custom": True}], "Answering “Project”."),
+        ([{"question": "Which project?", "custom": False, "options": [{"label": "EFP"}]}],
+         "Answering “Which project?” in your own words."),
+        ([{"question": "Which project?", "header": "Project", "custom": True},
+          {"question": "Which type?", "custom": True}],
+         "Answering “Project”. The other 1 stay open."),
+    ],
+    ids=["single", "options-only", "two"],
+)
+def test_the_note_names_the_question_it_is_answering(questions, expected):
+    # The card is off screen while the composer answers, so a note that says
+    # "the question above" is pointing at nothing.
+    intent = _intent({"question_request": {"request_id": "q", "questions": questions}})["intent"]
+
+    assert intent["note"] == expected

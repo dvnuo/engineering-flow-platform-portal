@@ -617,13 +617,21 @@
     // unanswered, and it does not enforce `custom: false` -- that is how the
     // card chooses to render, not a rule about what the member may say.
     const questions = normalizeQuestions(state.pending);
+    // Named, because typing into the composer puts the card away -- and an
+    // answer box with the question out of sight is a guessing game.
+    const asked = questions.length ? (questions[0].header || questions[0].question) : "";
     if (questions.length > 1) {
-      return { acceptsText: true, reason: "", note: "Your message answers the first question; the rest stay open." };
+      return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”. The other ${questions.length - 1} stay open.` };
     }
     if (questions.length === 1 && !questions[0].custom) {
-      return { acceptsText: true, reason: "", note: "Your message replaces the options above." };
+      return { acceptsText: true, reason: "", asked, note: `Answering “${asked}” in your own words.` };
     }
-    return { acceptsText: true, reason: "", note: "Your message answers the question above." };
+    return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”.` };
+  };
+
+  /** Put the card away while the composer has the floor, without losing it. */
+  window.portalCollapsePendingCard = (collapsed) => {
+    document.getElementById(CARD_ID)?.classList.toggle("is-collapsed", Boolean(collapsed));
   };
 
   /** Answer the pending question with what the member typed. */
@@ -703,6 +711,12 @@
         scheduleRecheck();
       }
     });
+
+    // A welcome means an empty conversation, and an empty conversation cannot
+    // be blocked on anything. New chat clears the list without going near this
+    // module, which left the card's state behind -- and with it a switch bar
+    // pointing at a card that was no longer on screen.
+    document.addEventListener("portal:welcome-rendered", () => clearCard());
 
     document.addEventListener("portal:agent-selected", () => {
       clearCard();

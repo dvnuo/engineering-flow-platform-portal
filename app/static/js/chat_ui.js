@@ -1616,17 +1616,26 @@ function syncComposerMode() {
     composerMode = "card";
     form.classList.remove("hidden");
     bar.classList.add("hidden");
+    bar.classList.remove("is-inline");
+    if (typeof window.portalCollapsePendingCard === "function") window.portalCollapsePendingCard(false);
     return;
   }
 
   const showingComposer = intent.acceptsText && composerMode === "message";
   form.classList.toggle("hidden", !showingComposer);
   bar.classList.remove("hidden");
+  // With the composer up the bar is a caption on it, not a second panel below
+  // it: two stacked rounded boxes read as two places to type.
+  bar.classList.toggle("is-inline", showingComposer);
+  // And the card goes away while the composer has the floor. Both surfaces
+  // answer the same question, so showing both invites answering twice.
+  if (typeof window.portalCollapsePendingCard === "function") {
+    window.portalCollapsePendingCard(showingComposer);
+  }
   if (note) {
-    // Say what this particular line will do -- a card with several questions
-    // and a card with one are answered very differently by one sentence.
+    // Names the question, since it is no longer on screen to read.
     note.textContent = showingComposer
-      ? (intent.note || "Your message answers the question above.")
+      ? (intent.note || "Answering the question above.")
       : (intent.acceptsText ? "Answer above to continue." : intent.reason);
   }
   if (button) {

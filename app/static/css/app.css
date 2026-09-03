@@ -461,7 +461,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
    variable in step with the real composer; 200px is the one-line fallback
    for before the first measurement lands. */
 .portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: calc(var(--portal-composer-height, 200px) + 24px); min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
-.portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; justify-content: center; background: transparent; pointer-events: none; }
+.portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; background: transparent; pointer-events: none; }
 .portal-composer {
   display: flex;
   flex-direction: column;
@@ -5359,6 +5359,30 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   pointer-events: auto;
   font-size: 0.82rem;
   color: var(--portal-text-muted);
+}
+
+/* Attached to the composer rather than stacked under it: two rounded boxes
+   with borders read as two separate places to type. */
+.portal-composer-switch.is-inline {
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+  justify-content: space-between;
+  padding: 2px 16px 6px;
+  gap: 8px;
+}
+
+.portal-composer-switch.is-inline .portal-composer-switch-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Out of the flow entirely while the composer answers for it -- both surfaces
+   feed the same question, so showing both invites answering twice. */
+.portal-interactive-row.is-collapsed {
+  display: none;
 }
 
 .portal-composer-switch-btn {
