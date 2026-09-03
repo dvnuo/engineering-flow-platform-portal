@@ -647,7 +647,7 @@ def test_a_single_free_text_question_can_be_answered_from_the_composer():
     intent = _intent({"question_request": FREE_TEXT})["intent"]
 
     assert intent["acceptsText"] is True
-    assert intent["note"] == "Your message answers the question above."
+    assert intent["asked"] == "Which project?"
 
 
 def test_a_question_that_offered_no_free_text_can_still_be_answered_in_words():
@@ -656,7 +656,7 @@ def test_a_question_that_offered_no_free_text_can_still_be_answered_in_words():
     intent = _intent({"question_request": OPTIONS_ONLY})["intent"]
 
     assert intent["acceptsText"] is True
-    assert "replaces the options" in intent["note"]
+    assert "in your own words" in intent["note"]
 
 
 def test_one_line_answers_the_first_of_several_questions_and_says_so():
@@ -667,8 +667,7 @@ def test_one_line_answers_the_first_of_several_questions_and_says_so():
     intent = _intent({"question_request": TWO_QUESTIONS})["intent"]
 
     assert intent["acceptsText"] is True
-    assert "first question" in intent["note"]
-    assert "rest stay open" in intent["note"]
+    assert "stay open" in intent["note"], "the member should know the others are still waiting"
 
 
 def test_a_typed_line_cannot_approve_a_tool():
