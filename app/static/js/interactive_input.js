@@ -676,6 +676,18 @@
     return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”.` };
   };
 
+  /**
+   * Whether this session is blocked on the member, card mounted or not.
+   *
+   * `portalPendingComposerIntent` needs the card in the DOM. The run that
+   * asked ends in the same burst of events that raises it, so at the moment
+   * the transcript decides what that run was, the card may not be up yet --
+   * and a parked run judged on that instant reads as one that ended badly.
+   * `state.pending` is set as soon as the request arrives, which is early
+   * enough.
+   */
+  window.portalHasPendingInput = () => Boolean(state.pending);
+
   /** Put the card away while the composer has the floor, without losing it. */
   window.portalCollapsePendingCard = (collapsed) => {
     document.getElementById(CARD_ID)?.classList.toggle("is-collapsed", Boolean(collapsed));

@@ -7082,10 +7082,45 @@ function setTerminalCompletionStatus(finalPayload = {}) {
   else if (completionState === "empty_final") setChatStatus("Empty final response", true);
   else setChatStatus(`Finished with non-success state: ${completionState}`, true);
 }
+/**
+ * Whether the run ended because it is waiting on the member.
+ *
+ * Two ways to know, because neither is reliable alone: the payload may say so
+ * (`isWaitingForUserInputPayload`), and the interactive card knows what it was
+ * asked. A run that stops to ask reports no response text and a non-success
+ * completion state, which is indistinguishable from a run that failed unless
+ * one of these is consulted.
+ */
+function chatRunIsWaitingForUserInput(finalPayload = {}) {
+  if (isWaitingForUserInputPayload(finalPayload)) return true;
+  try {
+    return typeof window.portalHasPendingInput === "function" && window.portalHasPendingInput();
+  } catch (error) {
+    return false;
+  }
+}
+
 function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, source = "final") {
   const failureSources = new Set(["error", "stream_error", "runtime_error"]);
   const completionState = getCompletionState(finalPayload);
-  if (failureSources.has(source) || completionState === "error" || completionState === "failed") {
+  const failed = failureSources.has(source) || completionState === "error" || completionState === "failed";
+  // Every path that reports a run as incomplete comes through here, including
+  // three that reach it directly without passing `handleIncompleteChatStream`.
+  // Guarding only that one left a parked run still drawing the failure
+  // diagnostic -- `completion_state: incomplete`, `incomplete_reason:
+  // runtime_incomplete` -- for the moment before the card settled it.
+  //
+  // A genuine failure still wins: a run that errored while a question happened
+  // to be open is a failure the member needs to see, not a wait.
+  if (!failed && chatRunIsWaitingForUserInput(finalPayload)) {
+    requestCtx.streamIncomplete = true;
+    requestCtx.terminalPayload = finalPayload;
+    finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
+    if (state.selectedAgentId === agentId) setChatStatus("Waiting for your answer.");
+    cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
+    return;
+  }
+  if (failed) {
     requestCtx.streamFailed = true;
   } else {
     requestCtx.streamIncomplete = true;
@@ -7097,6 +7132,7 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
   if (state.selectedAgentId === agentId) setTerminalCompletionStatus(finalPayload);
   cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
 }
+
 function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = false } = {}) {
   const chatState = ensureChatState(agentIdAtSend);
   clearWaitingForRuntimeEventsTimer(requestCtx);
