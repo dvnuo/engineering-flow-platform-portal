@@ -163,7 +163,9 @@
     // answer -- "Provide ticket details" with the real instructions in the
     // description -- and a radio group of one turns that into a control that
     // does nothing while the actual answer hides behind "Something else...".
-    // Fewer than two options means the box is the answer, so show it.
+    // Fewer than two options means the box is the answer -- when there is a
+    // box at all. A question with `custom: false` has none, and then the lone
+    // option is the only way to answer, which is why the gate below tests both.
     const customAlways = !options || question.options.filter(hasLabel).length < 2;
     // ...and when the box is the answer, the lone radio is worse than useless:
     // `collectAnswers` sends a checked option whenever the box is empty, so

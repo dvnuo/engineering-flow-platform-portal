@@ -1409,12 +1409,16 @@ def _question_markup(question):
 const esc = (value) => String(value == null ? "" : value);
 {bundle}
 const html = questionMarkup({json.dumps(question)}, 0);
+const box = (/<(?:input|textarea)[^>]*data-question-custom-input[^>]*>/.exec(html) || [""])[0];
 console.log(JSON.stringify({{
   radios: (html.match(/type="radio"/g) || []).length,
-  textbox: /data-question-custom-input/.test(html) && !/ disabled/.test(html),
-  textarea: /<textarea[^>]*data-question-custom-input/.test(html),
-  labelledby: (/aria-labelledby="([^"]*)"/.exec(html) || [null, ""])[1],
-  describedby: (/aria-describedby="([^"]*)"/.exec(html) || [null, ""])[1],
+  // Scoped to the answer control's own tag: scanning the whole document for
+  // "disabled" reads any other disabled element, or the word in prose, as
+  // this box being disabled.
+  textbox: Boolean(box) && !/\sdisabled/.test(box),
+  textarea: /^<textarea/.test(box),
+  labelledby: (/aria-labelledby="([^"]*)"/.exec(box) || [null, ""])[1],
+  describedby: (/aria-describedby="([^"]*)"/.exec(box) || [null, ""])[1],
   hint: (/portal-question-hint"[^>]*>([^<]*)</.exec(html) || [null, ""])[1],
 }}));
 """)
@@ -1453,6 +1457,9 @@ def test_a_real_choice_still_gets_its_options():
 
     assert result["radios"] == 2
     assert result["hint"] == ""
+    # The box is still there, behind "Something else...", and starts disabled
+    # so it cannot be typed into or submitted by accident.
+    assert result["textbox"] is False
 
 
 def test_a_question_that_refuses_free_text_keeps_its_only_option():
