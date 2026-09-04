@@ -7115,6 +7115,20 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
   if (!failed && chatRunIsWaitingForUserInput(finalPayload)) {
     requestCtx.streamIncomplete = true;
     requestCtx.terminalPayload = finalPayload;
+    // Finished the same way a successful turn does, because as far as the
+    // transcript is concerned it was one: the assistant said its piece and
+    // then asked. Returning early instead left the row stuck on "Thinking"
+    // and the reply itself unwritten until the next reload.
+    const spoken = String(finalPayload?.response || "").trim()
+      || String(requestCtx?.streamedText || "").trim();
+    if (spoken) {
+      finalizePendingAssistantRow(agentId, requestCtx, { ...finalPayload, response: spoken });
+    } else {
+      // It asked without saying anything first. The card is the whole turn,
+      // and an empty assistant bubble above it is just noise.
+      removePendingAssistantArticle(requestCtx?.clientRequestId || requestCtx?.requestId || "");
+    }
+    mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload);
     finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
     if (state.selectedAgentId === agentId) setChatStatus("Waiting for your answer.");
     cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
@@ -7520,7 +7534,9 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   };
   if (state.selectedAgentId === agentIdAtSend) {
     finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, reason);
-    if (reason !== WAITING_FOR_USER_INPUT_REASON) {
+    // The toast reports a problem, and it sits outside the call above, so a
+    // parked run recognised only by the card still raised one.
+    if (reason !== WAITING_FOR_USER_INPUT_REASON && !chatRunIsWaitingForUserInput(finalPayload)) {
       showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
     }
     addEditButtonsToMessages();

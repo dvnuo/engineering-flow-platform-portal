@@ -445,9 +445,12 @@ def test_a_parked_run_is_not_finalised_as_incomplete():
     handler = _extract_js_function(js, "handleIncompleteChatStream")
 
     assert '"blocked"' in handler, "a parked run is blocked, not incomplete"
-    assert "if (reason !== WAITING_FOR_USER_INPUT_REASON)" in handler, (
+    assert "reason !== WAITING_FOR_USER_INPUT_REASON" in handler, (
         "the toast reports a problem; being asked a question is not one"
     )
+    # The reason alone is not enough: a parked run the payload does not
+    # advertise is recognised by the card, and raised a toast anyway.
+    assert "!chatRunIsWaitingForUserInput(finalPayload)" in handler
 
 
 def test_every_incomplete_branch_checks_for_a_parked_run_first():
@@ -1274,3 +1277,24 @@ console.log(JSON.stringify({ before, afterAsk, afterAnswer: window.portalHasPend
 """)
 
     assert result == {"before": False, "afterAsk": True, "afterAnswer": False}
+
+
+def test_a_parked_run_still_finishes_the_row_it_was_streaming_into():
+    """Recognising the wait must not skip finishing the turn.
+
+    The first version of the guard returned before `finalizePendingAssistantRow`
+    and `mergeFinalStreamSnapshot`, so answering left no reply on screen at all
+    -- it was on the server, and a reload was the only way to see it -- and the
+    row it had been streaming into stayed on "Thinking" for good.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "finalizeNonSuccessChatResponse")
+    guard = fn.index("chatRunIsWaitingForUserInput(finalPayload)")
+    waiting = fn[guard : fn.index("return;", guard)]
+
+    assert "finalizePendingAssistantRow(" in waiting, "the reply has to reach the transcript"
+    assert "mergeFinalStreamSnapshot(" in waiting, "and the snapshot has to be merged"
+    # Nothing said before the question means the card is the whole turn.
+    assert "removePendingAssistantArticle(" in waiting
+    # Still no failure diagnostic for something that did not fail.
+    assert "finalizeIncompleteAssistantRow(" not in waiting
