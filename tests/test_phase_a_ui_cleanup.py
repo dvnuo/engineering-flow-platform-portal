@@ -96,7 +96,7 @@ def test_chat_submit_primary_path_is_fetch_runtime():
     assert "renderRuntimeProfileList" in js
     assert "openRuntimeProfileInMain" in js
     assert "runtimeProfilesChanged" in js
-    assert "No runtime profiles available" in js
+    assert "No connection profiles available" in js
     assert 'selectEl.innerHTML = \'<option value=\"\">None</option>\'' not in js
     assert 'let messageBackup = ""' not in js
     assert "let pendingFilesBackup = []" not in js

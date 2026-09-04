@@ -35,16 +35,16 @@ class ProviderConfigResolverError(ValueError):
 def resolve_github_for_agent(db: Session, agent_id: str) -> GithubProviderConfig:
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent or not agent.runtime_profile_id:
-        raise ProviderConfigResolverError("Selected agent does not have a runtime profile")
+        raise ProviderConfigResolverError("The selected assistant has no connection profile")
 
     profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
     if not profile:
-        raise ProviderConfigResolverError("Selected agent does not have a runtime profile")
+        raise ProviderConfigResolverError("The selected assistant has no connection profile")
 
     try:
         config = json.loads(profile.config_json or "{}")
     except json.JSONDecodeError as exc:
-        raise ProviderConfigResolverError("Selected agent runtime profile config is invalid") from exc
+        raise ProviderConfigResolverError("The selected assistant's connection settings could not be read") from exc
 
     github = config.get("github") if isinstance(config, dict) else None
     if not isinstance(github, dict) or not github.get("enabled"):
@@ -98,16 +98,16 @@ def _auth_headers_for_instance(instance: dict) -> dict:
 def resolve_jira_for_agent(db: Session, agent_id: str, source_scope: dict | None = None) -> JiraProviderConfig:
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent or not agent.runtime_profile_id:
-        raise ProviderConfigResolverError("Selected agent does not have a runtime profile")
+        raise ProviderConfigResolverError("The selected assistant has no connection profile")
 
     profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
     if not profile:
-        raise ProviderConfigResolverError("Selected agent does not have a runtime profile")
+        raise ProviderConfigResolverError("The selected assistant has no connection profile")
 
     try:
         config = json.loads(profile.config_json or "{}")
     except json.JSONDecodeError as exc:
-        raise ProviderConfigResolverError("Selected agent runtime profile config is invalid") from exc
+        raise ProviderConfigResolverError("The selected assistant's connection settings could not be read") from exc
 
     jira = config.get("jira") if isinstance(config, dict) else None
     if not isinstance(jira, dict) or not jira.get("enabled"):
@@ -117,7 +117,7 @@ def resolve_jira_for_agent(db: Session, agent_id: str, source_scope: dict | None
     instance_selector = normalized_scope.get("jira_instance")
     instance = select_jira_instance(jira.get("instances") or [], instance_selector)
     if instance_selector and not instance:
-        raise ProviderConfigResolverError("Selected Jira instance was not found in the agent runtime profile")
+        raise ProviderConfigResolverError("The selected Jira instance is not in the assistant's connections")
     if not instance:
         instance = _first_enabled_auth_instance(jira.get("instances") or [])
     if not instance:

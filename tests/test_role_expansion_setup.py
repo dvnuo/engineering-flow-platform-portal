@@ -19,9 +19,8 @@ from app.services.connection_guidance import (
 )
 from app.services.runtime_profile_seed_service import (
     RuntimeProfileSeedService,
-    SeedContainsSecretError,
     find_secret_fields,
-    strip_secret_fields,
+    redact_seed_for_display,
 )
 
 
@@ -38,19 +37,17 @@ def _database():
 # --------------------------------------------------------------- seed service
 
 
-def test_seed_rejects_a_credential_rather_than_storing_it():
-    # Company policy forbids the platform holding a member's credential. The
-    # rule is enforced in code so it cannot depend on admin discipline.
+def test_seed_stores_a_shared_credential():
+    # An organization with a service account puts its token here once instead of
+    # asking every member to paste the same one.
     db = _database()
     service = RuntimeProfileSeedService(db)
 
-    with pytest.raises(SeedContainsSecretError) as excinfo:
-        service.save_seed(
-            {"jira": {"enabled": True, "instances": [{"url": "https://x", "token": "secret-value"}]}}
-        )
+    service.save_seed(
+        {"jira": {"enabled": True, "instances": [{"url": "https://x", "token": "shared-value"}]}}
+    )
 
-    assert "jira.instances[0].token" in str(excinfo.value)
-    assert service.get_seed() == {}
+    assert service.get_seed()["jira"]["instances"][0]["token"] == "shared-value"
 
 
 def test_seed_keeps_connection_shape():
@@ -83,15 +80,15 @@ def test_seed_drops_unknown_top_level_sections():
     assert "not_a_section" not in service.get_seed()
 
 
-def test_empty_password_does_not_trip_the_secret_check():
-    # Round-tripping a form that renders empty credential inputs must not be
-    # mistaken for someone trying to store one.
+def test_a_seed_without_credentials_leaves_them_to_the_member():
+    # Credentials are optional. A seed that carries none is the original
+    # behaviour: shape only, and every member supplies their own account.
     db = _database()
     service = RuntimeProfileSeedService(db)
 
-    service.save_seed({"jira": {"enabled": True, "instances": [{"url": "https://x", "token": ""}]}})
+    service.save_seed({"jira": {"enabled": True, "instances": [{"url": "https://x"}]}})
 
-    assert service.get_seed()["jira"]["instances"][0].get("token") in (None, "")
+    assert not find_secret_fields(service.get_seed())
 
 
 @pytest.mark.parametrize("field", sorted({"api_key", "password", "token", "api_token", "access_key", "secret"}))
@@ -99,22 +96,29 @@ def test_every_sensitive_field_name_is_detected(field):
     assert find_secret_fields({"section": {field: "value"}}) == [f"section.{field}"]
 
 
-def test_strip_removes_secrets_at_any_depth():
-    stripped = strip_secret_fields({"a": {"b": [{"token": "x", "url": "keep"}]}})
-    assert stripped == {"a": {"b": [{"url": "keep"}]}}
+def test_display_copy_masks_secrets_at_any_depth():
+    # What the panel prints as the stored value, as opposed to what it puts in
+    # the fields the admin can reveal one at a time.
+    masked = redact_seed_for_display({"a": {"b": [{"token": "x", "url": "https://keep"}]}})
+    assert masked["a"]["b"][0]["token"] == "[REDACTED]"
+    assert masked["a"]["b"][0]["url"] == "https://keep"
 
 
-def test_seed_read_strips_secrets_written_by_an_older_build():
-    # Defence in depth: a value that reached the row by some other path still
-    # must not flow into a member's profile.
+def test_a_new_member_inherits_a_seeded_credential():
+    from app.services.runtime_profile_service import RuntimeProfileService
+
     db = _database()
-    service = RuntimeProfileSeedService(db)
-    service.settings_repo.set_value(
-        "runtime_profile_seed",
-        {"jira": {"instances": [{"url": "https://x", "token": "leaked"}]}},
+    RuntimeProfileSeedService(db).save_seed(
+        {"jira": {"enabled": True, "instances": [{"url": "https://x", "token": "shared-value"}]}}
     )
+    user = User(username="inheritor", password_hash="hash", role="user", is_active=True)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
-    assert service.get_seed()["jira"]["instances"][0].get("token") is None
+    profile = RuntimeProfileService(db).ensure_user_has_default_profile(user)
+
+    assert "shared-value" in profile.config_json
 
 
 def test_new_member_profile_inherits_the_seed(monkeypatch):

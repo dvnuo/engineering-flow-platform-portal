@@ -210,14 +210,14 @@ def _load_agent_runtime_profile_config(db: Session, agent_id: str):
         return None, None, {}, "Target agent was deleted"
     runtime_profile_id = getattr(agent, "runtime_profile_id", None)
     if not runtime_profile_id:
-        return agent, None, {}, "Selected agent does not have a runtime profile"
+        return agent, None, {}, "The selected assistant has no connection profile"
     profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
     if not profile:
-        return agent, None, {}, "Selected agent runtime profile is missing"
+        return agent, None, {}, "The selected assistant's connection profile is missing"
     try:
         config = json.loads(profile.config_json or "{}")
     except json.JSONDecodeError:
-        return agent, profile, {}, "Selected agent runtime profile config is invalid"
+        return agent, profile, {}, "The selected assistant's connection settings could not be read"
     return agent, profile, config if isinstance(config, dict) else {}, None
 
 
@@ -318,7 +318,7 @@ def build_delegation_condition_summary(source: str | None, scope: dict[str, Any]
             parts.append("labels -" + ", ".join(conditions["labels_exclude"]))
     elif provider == "timer":
         return "Scheduled by Portal timer"
-    return " · ".join(parts) if parts else "All runtime profile source items"
+    return " · ".join(parts) if parts else "Everything this connection can see"
 
 
 def build_delegation_source_preview(
@@ -359,13 +359,13 @@ def build_delegation_source_preview(
             source=source,
             runtime_profile_id=getattr(profile, "id", None),
             runtime_profile_name=getattr(profile, "name", None),
-            account_summary=f"{provider.title()} from runtime profile",
+            account_summary=f"{provider.title()} from the assistant's connections",
             condition_summary=condition_summary,
             status="missing",
             warning=warning,
         )
 
-    profile_name = _clean_text(getattr(profile, "name", None)) or "runtime profile"
+    profile_name = _clean_text(getattr(profile, "name", None)) or "the assistant's connections"
     if provider == "github":
         github = config.get("github") if isinstance(config, dict) else None
         base_url = _clean_text((github or {}).get("base_url")) or "https://api.github.com"
@@ -398,7 +398,7 @@ def build_delegation_source_preview(
     else:
         selected = select_jira_instance(instances, scope.get("jira_instance"))
         if scope.get("jira_instance") and not selected:
-            warning = "Selected Jira instance was not found in the agent runtime profile"
+            warning = "The selected Jira instance is not in the assistant's connections"
         elif not selected:
             warning = "No usable Jira instance found for selected agent"
     if selected:

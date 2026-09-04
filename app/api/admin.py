@@ -7,10 +7,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.agent_repo import AgentRepository
 from app.schemas.admin import AuditLogResponse
 from app.schemas.agent import AgentResponse
-from app.services.runtime_profile_seed_service import (
-    RuntimeProfileSeedService,
-    SeedContainsSecretError,
-)
+from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
 from app.utils.agent_responses import build_agent_response
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -30,7 +27,12 @@ def audit_logs(_: object = Depends(require_admin), db: Session = Depends(get_db)
 
 @router.get("/runtime-profile-seed")
 def get_runtime_profile_seed(_: object = Depends(require_admin), db: Session = Depends(get_db)):
-    """Read the connection shape every new member's default profile starts from."""
+    """Read what every new member's default profile starts from.
+
+    Returns the seed as stored, credentials included, so a client can read it,
+    change one field, and PUT it back without silently wiping the shared
+    credentials an admin configured. Admin-only, like the panel it backs.
+    """
 
     service = RuntimeProfileSeedService(db)
     return {"seed": service.get_seed(), "summary": service.seed_summary()}
@@ -44,16 +46,13 @@ def put_runtime_profile_seed(
 ):
     """Replace the seed.
 
-    Rejected outright if it carries a credential: the platform must never hold a
-    member's secret on their behalf, and enforcing that here means the rule is
-    checked by code rather than trusted to whoever edits the form.
+    Credentials are allowed and optional: an admin seeds the ones that belong to
+    a shared service account and leaves the rest blank for members to supply.
     """
     seed = payload.get("seed") if isinstance(payload, dict) and "seed" in payload else payload
     service = RuntimeProfileSeedService(db)
     try:
         saved = service.save_seed(seed, updated_by_user_id=admin.id)
-    except SeedContainsSecretError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

@@ -100,6 +100,8 @@ const dom = {
   createRuntimeProfileModal: document.getElementById("create-runtime-profile-modal"),
   createRuntimeProfileForm: document.getElementById("create-runtime-profile-form"),
   createRuntimeProfileMsg: document.getElementById("create-runtime-profile-msg"),
+  createRuntimeProfileSource: document.getElementById("create-runtime-profile-source"),
+  createRuntimeProfileSourceDetail: document.getElementById("create-runtime-profile-source-detail"),
   closeCreateRuntimeProfileModal: document.getElementById("close-create-runtime-profile-modal"),
   addAgentBtn: document.getElementById("add-agent-btn"),
   editForm: document.getElementById("edit-form"),
@@ -180,7 +182,7 @@ const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
 
 function initialPortalSectionTitle(section) {
   if (section === "tasks") return "Tasks";
-  if (section === "runtime-profiles") return "Runtime Profiles";
+  if (section === "runtime-profiles") return "Connections";
   if (section === "delegations") return "Delegations";
   if (section === "users") return "Administration";
   return "Assistants";
@@ -188,7 +190,7 @@ function initialPortalSectionTitle(section) {
 
 function initialPortalStatusText(section) {
   if (section === "tasks") return "Task health, workload, and recent activity";
-  if (section === "runtime-profiles") return "Browse and manage your runtime profiles";
+  if (section === "runtime-profiles") return "Browse and manage your connection profiles";
   if (section === "delegations") return "Manage delegations";
   if (section === "users") return "Manage members, roles, access, and usage";
   return "Ready";
@@ -4984,7 +4986,7 @@ function agentHealth(agent) {
       key: "attention",
       tone: "warning",
       label: "Needs setup",
-      detail: "Runtime profile is missing.",
+      detail: "This assistant has no connection profile.",
       action: writable ? "Edit setup" : "",
     };
   }
@@ -5584,7 +5586,7 @@ function applyHomeEmptyState() {
   if (dom.homeSubtitle) {
     dom.homeSubtitle.textContent = hasAnyAgent
       ? "Choose an assistant from the left to start chatting."
-      : "An assistant is a running workspace you chat with. A default runtime profile is already set up, so you can create one now.";
+      : "An assistant is a running workspace you chat with. A set of connections is already set up for you, so you can create one now.";
   }
   if (dom.homeAgentSummary) {
     dom.homeAgentSummary.textContent = hasAnyAgent ? "No assistant selected." : "No assistants yet.";
@@ -8766,7 +8768,7 @@ async function openOverviewAgent(agentId) {
 
 function getSecondaryPaneLabel() {
   if (state.activeNavSection === "tasks") return "Tasks";
-  if (state.activeNavSection === "runtime-profiles") return "Runtime Profiles";
+  if (state.activeNavSection === "runtime-profiles") return "Connections";
   if (state.activeNavSection === "delegations") return "Delegations";
   if (state.activeNavSection === "users") return "Administration";
   return "Assistants";
@@ -8847,7 +8849,7 @@ function renderSecondaryPaneHeader() {
     if (addDelegationBtn) addDelegationBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "runtime-profiles") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
-    dom.secondaryPaneTitle.textContent = "Runtime Profiles";
+    dom.secondaryPaneTitle.textContent = "Connections";
     if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.remove("hidden");
   } else {
     dom.secondaryPaneEyebrow.textContent = "Portal";
@@ -8994,7 +8996,7 @@ function syncDefaultMainViewForSection(section) {
     return;
   }
   if (section === "runtime-profiles") {
-    renderWorkspaceDetailPlaceholder("Select a runtime profile from the left sidebar.", "runtime-profiles-placeholder");
+    renderWorkspaceDetailPlaceholder("Select a connection profile from the left sidebar.", "runtime-profiles-placeholder");
     return;
   }
   if (section === "delegations") {
@@ -9093,7 +9095,7 @@ async function setActiveNavSection(section, {
     } else if (section === "tasks") {
       showTasksLoadingMainView();
     } else if (section === "runtime-profiles") {
-      renderWorkspaceDetailPlaceholder("Loading runtime profiles…", "runtime-profiles-loading");
+      renderWorkspaceDetailPlaceholder("Loading connection profiles…", "runtime-profiles-loading");
     } else if (section === "delegations") {
       renderWorkspaceDetailPlaceholder("Loading delegations…", "delegations-loading");
     }
@@ -9117,7 +9119,7 @@ async function setActiveNavSection(section, {
             commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: targetProfileId });
           }
         } else {
-          renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+          renderWorkspaceDetailPlaceholder("No connection profiles found.", "runtime-profiles-placeholder");
         }
       } else {
         const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
@@ -9131,7 +9133,7 @@ async function setActiveNavSection(section, {
         if (targetProfileId) {
           await loadRuntimeProfilePanelContent(targetProfileId, { updateRoute: false });
         } else {
-          renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+          renderWorkspaceDetailPlaceholder("No connection profiles found.", "runtime-profiles-placeholder");
         }
       }
     }
@@ -10961,13 +10963,7 @@ function addInstanceRow(root, group) {
   const urlPlaceholder = placeholders.url;
   const usernamePlaceholder = placeholders.username;
   const label = instanceGroupLabel(group);
-  // Default Connections seeds where a service lives and never a credential, so
-  // its containers opt out of the username/password/token block. Offering those
-  // fields there would invite a save the server then refuses.
-  const withCredentials = container.dataset.instanceCredentials !== "none";
-  const credentialFieldsHtml = withCredentials
-    ? `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>`
-    : (scopedFieldHtml.trim() === "<div></div>" ? "" : `<div class="grid grid-cols-2 gap-2">${scopedFieldHtml}<div></div></div>`);
+  const credentialFieldsHtml = `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>`;
 
   div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>${credentialFieldsHtml}${apiVersionHtml}</div>`;
   container.append(div);
@@ -11435,8 +11431,8 @@ function initializeManagedSettingsRoot(root) {
 function initializeManagedSettingsPanels() {
   initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
   initializeManagedSettingsRoot(document.getElementById("runtime-profile-panel-root"));
-  // Default Connections reuses the same instance add/remove and model-select
-  // machinery; it just has no credential fields.
+  // Default Connections reuses the same instance add/remove, model-select, and
+  // Copilot-authorization machinery; it seeds the shared values those fields hold.
   initializeManagedSettingsRoot(document.getElementById("default-connections-panel-root"));
 }
 
@@ -11941,7 +11937,7 @@ function renderCreateAgentReview(form, defaults) {
     ["Assistant Name", createAgentFieldValue(form, "name") || "Untitled"],
     ["Runtime Type", runtimeType],
     ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
-    ["Runtime Profile", createAgentSelectedProfileLabel(form) || "Not selected"],
+    ["Connections", createAgentSelectedProfileLabel(form) || "Not selected"],
     ["Instructions Repository", createAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
     ["Instructions Branch", createAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
     ["Skill Repository", createAgentFieldValue(form, "skill_repo_url") || "Configured default"],
@@ -11999,14 +11995,14 @@ function validateCreateAgentStep(form) {
   if (step === "profile") {
     if (!(state.runtimeProfiles || []).length) {
       if (msgEl) {
-        msgEl.textContent = "Create a runtime profile first.";
+        msgEl.textContent = "Create a connection profile first.";
         setModalFeedback(msgEl, "error", msgEl.textContent);
       }
       return false;
     }
     if (!createAgentFieldValue(form, "runtime_profile_id")) {
       if (msgEl) {
-        msgEl.textContent = "Choose a runtime profile.";
+        msgEl.textContent = "Choose a connection profile.";
         setModalFeedback(msgEl, "error", msgEl.textContent);
       }
       return false;
@@ -12107,7 +12103,7 @@ function renderEditAgentReview(form, defaults) {
     ["Assistant Name", editAgentFieldValue(form, "name") || "Untitled"],
     ["Runtime Type", editRuntimeTypeLabel(form, defaults)],
     ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
-    ["Runtime Profile", editAgentSelectedProfileLabel(form) || "Not selected"],
+    ["Connections", editAgentSelectedProfileLabel(form) || "Not selected"],
     ["Instructions Repository", editAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
     ["Instructions Branch", editAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
     ["Skill Repository", editAgentFieldValue(form, "skill_repo_url") || "Configured default"],
@@ -12165,14 +12161,14 @@ function validateEditAgentStep(form) {
   if (step === "profile") {
     if (!(state.runtimeProfiles || []).length) {
       if (msgEl) {
-        msgEl.textContent = "Create a runtime profile first.";
+        msgEl.textContent = "Create a connection profile first.";
         setModalFeedback(msgEl, "error", msgEl.textContent);
       }
       return false;
     }
     if (!editAgentFieldValue(form, "runtime_profile_id")) {
       if (msgEl) {
-        msgEl.textContent = "Choose a runtime profile.";
+        msgEl.textContent = "Choose a connection profile.";
         setModalFeedback(msgEl, "error", msgEl.textContent);
       }
       return false;
@@ -12327,7 +12323,7 @@ function populateRuntimeProfileSelect(selectEl, selectedId = '') {
   if (!selectEl) return;
   const profiles = state.runtimeProfiles || [];
   if (!profiles.length) {
-    selectEl.innerHTML = '<option value="" disabled selected>No runtime profiles available</option>';
+    selectEl.innerHTML = '<option value="" disabled selected>No connection profiles available</option>';
     selectEl.disabled = true;
     return;
   }
@@ -12335,12 +12331,63 @@ function populateRuntimeProfileSelect(selectEl, selectedId = '') {
   selectEl.innerHTML = profiles.map((profile) => {
     const selected = selectedId && selectedId === profile.id ? ' selected' : '';
     const suffix = profile.is_default ? ' (Default)' : '';
-    return `<option value="${escapeHtmlAttr(profile.id)}"${selected}>${safe((profile.name || 'Runtime Profile') + suffix)}</option>`;
+    return `<option value="${escapeHtmlAttr(profile.id)}"${selected}>${safe((profile.name || 'Connection profile') + suffix)}</option>`;
   }).join('');
   if (!selectedId) {
     const defaultProfile = profiles.find((item) => item.is_default);
     selectEl.value = (defaultProfile || profiles[0]).id;
   }
+}
+
+// The server owns this list: which sources exist, what each is called, and the
+// order -- the first entry is the recommended one. The dialog renders what it
+// is given. Only the "copy" group gets a heading; the entries above it read
+// fine straight off the field label.
+const SOURCE_GROUP_LABELS = { copy: "Copy one of my profiles" };
+
+async function populateRuntimeProfileSourceSelect(selectEl, detailEl) {
+  if (!selectEl) return;
+  let sources = [];
+  try {
+    sources = await api("/api/runtime-profiles/sources");
+  } catch (_err) {
+    sources = [];
+  }
+  if (!Array.isArray(sources) || !sources.length) {
+    // Creation must never be blocked by this select, so fall back to the one
+    // source that always works.
+    sources = [{ value: "blank", label: "Nothing - I'll set it up myself", detail: "", group: "start" }];
+  }
+
+  const byGroup = new Map();
+  sources.forEach((source) => {
+    const group = source.group || "start";
+    if (!byGroup.has(group)) byGroup.set(group, []);
+    byGroup.get(group).push(source);
+  });
+
+  selectEl.innerHTML = Array.from(byGroup.entries())
+    .map(([group, items]) => {
+      const options = items
+        .map(
+          (item) =>
+            `<option value="${escapeHtmlAttr(item.value)}" data-detail="${escapeHtmlAttr(item.detail || "")}">${safe(item.label || item.value)}</option>`
+        )
+        .join("");
+      const label = SOURCE_GROUP_LABELS[group];
+      return label ? `<optgroup label="${escapeHtmlAttr(label)}">${options}</optgroup>` : options;
+    })
+    .join("");
+  // The server put the recommended source first: their company's shared setup
+  // when an admin has one, otherwise an empty profile.
+  selectEl.selectedIndex = 0;
+  syncRuntimeProfileSourceDetail(selectEl, detailEl);
+}
+
+function syncRuntimeProfileSourceDetail(selectEl, detailEl) {
+  if (!detailEl) return;
+  const option = selectEl?.selectedOptions?.[0];
+  detailEl.textContent = option?.dataset?.detail || "";
 }
 
 function renderRuntimeProfileList(errorMessage = "") {
@@ -12350,7 +12397,7 @@ function renderRuntimeProfileList(errorMessage = "") {
     return;
   }
   if (!state.runtimeProfiles.length) {
-    dom.runtimeProfileNavList.innerHTML = '<div class="portal-list-state">No runtime profiles found.</div>';
+    dom.runtimeProfileNavList.innerHTML = '<div class="portal-list-state">No connection profiles found.</div>';
     return;
   }
   dom.runtimeProfileNavList.innerHTML = "";
@@ -12359,8 +12406,8 @@ function renderRuntimeProfileList(errorMessage = "") {
     row.type = "button";
     row.className = `portal-list-row${state.selectedRuntimeProfileId === profile.id ? " is-active" : ""}`;
     row.innerHTML = `
-      <div class="portal-list-title">${safe(profile.name || 'Runtime Profile')}</div>
-      <div class="portal-list-meta">Revision ${safe(String(profile.revision || 1))}${profile.is_default ? ' · Default' : ''}</div>
+      <div class="portal-list-title">${safe(profile.name || 'Connection profile')}</div>
+      <div class="portal-list-meta">Version ${safe(String(profile.revision || 1))}${profile.is_default ? ' · Default' : ''}</div>
     `;
     row.addEventListener("click", async () => {
       state.selectedRuntimeProfileId = profile.id;
@@ -12671,7 +12718,7 @@ function delegationConditionSummaryLabel(source, scope = {}, conditions = {}) {
     if (Array.isArray(conditions.labels_include) && conditions.labels_include.length) parts.push(`labels +${conditions.labels_include.join(", ")}`);
     if (Array.isArray(conditions.labels_exclude) && conditions.labels_exclude.length) parts.push(`labels -${conditions.labels_exclude.join(", ")}`);
   }
-  return parts.length ? parts.join(" · ") : "All runtime profile source items";
+  return parts.length ? parts.join(" · ") : "Everything this connection can see";
 }
 
 function delegationJiraInstanceSelectHtml(scope = {}, preview = null) {
@@ -12742,7 +12789,7 @@ function renderDelegationSourceControls(formEl, scope = {}, conditions = {}, pre
   const source = String(formEl.querySelector('[name="source"]')?.value || "").trim();
   const providerKey = delegationProviderKey(source);
   const providerLabel = delegationProviderLabel(source);
-  const accountSummary = preview?.account_summary || (providerKey === "timer" ? "Portal timer" : `${providerLabel} from selected agent runtime profile`);
+  const accountSummary = preview?.account_summary || (providerKey === "timer" ? "Portal timer" : `${providerLabel} from the assistant's connections`);
   const conditionSummary = delegationConditionSummaryLabel(source, scope, conditions);
   const status = String(preview?.status || (loading ? "loading" : "ok")).trim();
   const statusTone = status === "missing" ? "warning" : (loading ? "info" : "success");
@@ -12796,7 +12843,7 @@ async function refreshDelegationSourcePreview(formEl, { resetScope = false, rese
       scope,
       conditions,
       {
-        account_summary: delegationProviderKey(source) === "timer" ? "Portal timer" : `${delegationProviderLabel(source)} from selected agent runtime profile`,
+        account_summary: delegationProviderKey(source) === "timer" ? "Portal timer" : `${delegationProviderLabel(source)} from the assistant's connections`,
         status: "missing",
         warning: error.message,
         options: {},
@@ -13068,8 +13115,8 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
     const agentLabel = delegationTargetAgentLabel(detail, targetAgent);
     const ownerLabel = delegationOwnerLabel(detail);
     const canManage = delegationCanManage(detail);
-    const accountSummary = String(detail.source_account_summary || `${providerLabel} from selected agent runtime profile`).trim();
-    const conditionSummary = String(detail.source_condition_summary || "All runtime profile source items").trim();
+    const accountSummary = String(detail.source_account_summary || `${providerLabel} from the assistant's connections`).trim();
+    const conditionSummary = String(detail.source_condition_summary || "Everything this connection can see").trim();
     const sourceWarning = String(detail.source_config_warning || "").trim();
     const sourceConfigTone = detail.source_config_status === "missing" ? "warning" : "success";
     const sourceConfigLabel = detail.source_config_status === "missing" ? "Needs source" : "Ready";
@@ -15583,7 +15630,7 @@ function bindEvents() {
       event.preventDefault();
       const profileId = deleteProfileBtn.dataset.deleteRuntimeProfile || "";
       if (!profileId) return;
-      if (!(await showConfirm({ title: "Delete runtime profile", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
+      if (!(await showConfirm({ title: "Delete connection profile", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
       try {
         const resp = await fetch(`/api/runtime-profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
         if (!resp.ok) throw new Error(await handleErrorResponse(resp));
@@ -15593,7 +15640,7 @@ function bindEvents() {
         if (next?.id) {
           await openRuntimeProfileInMain(next.id);
         } else {
-          renderWorkspaceDetailPlaceholder("No runtime profiles found.", "runtime-profiles-placeholder");
+          renderWorkspaceDetailPlaceholder("No connection profiles found.", "runtime-profiles-placeholder");
         }
       } catch (err) {
         showToast(err.message, { variant: 'error' });
@@ -15638,11 +15685,18 @@ function bindEvents() {
     applyToolPanelState();
   });
 
-  dom.addRuntimeProfileBtn?.addEventListener("click", () => {
+  dom.addRuntimeProfileBtn?.addEventListener("click", async () => {
     endSingleSubmit(dom.createRuntimeProfileForm, { closeButton: dom.closeCreateRuntimeProfileModal });
     dom.createRuntimeProfileModal?.classList.remove("hidden");
     dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "false");
     if (dom.createRuntimeProfileMsg) setModalFeedback(dom.createRuntimeProfileMsg, "", "");
+    // Read on open rather than cached: an admin may have filled in Default
+    // Connections, or the member added a profile, since the page loaded.
+    await populateRuntimeProfileSourceSelect(dom.createRuntimeProfileSource, dom.createRuntimeProfileSourceDetail);
+  });
+
+  dom.createRuntimeProfileSource?.addEventListener("change", () => {
+    syncRuntimeProfileSourceDetail(dom.createRuntimeProfileSource, dom.createRuntimeProfileSourceDetail);
   });
 
   dom.closeCreateRuntimeProfileModal?.addEventListener("click", () => {
@@ -15664,6 +15718,7 @@ function bindEvents() {
           name: String(formData.get('name') || '').trim(),
           description: String(formData.get('description') || '').trim() || null,
           is_default: String(formData.get('is_default') || '').toLowerCase() === 'on',
+          source: String(formData.get('source') || 'blank').trim() || 'blank',
         }),
       });
       if (!resp.ok) throw new Error(await handleErrorResponse(resp));
@@ -16480,4 +16535,4 @@ function saveSystemPromptSection(agentId, section) {
   });
 }
 
-// provider.retry UX copy: Provider API retrying. Check Runtime Profile LLM API key/base URL/proxy.
+// provider.retry UX copy: Provider API retrying. Check the connection profile LLM API key/base URL/proxy.

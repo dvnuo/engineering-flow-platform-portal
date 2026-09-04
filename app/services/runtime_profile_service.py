@@ -14,10 +14,54 @@ from app.contracts.llm_catalog import (
     PROVIDER_MODELS,
     normalize_provider,
 )
-from app.schemas.runtime_profile import dump_runtime_profile_config_json, parse_runtime_profile_config_json
+from app.schemas.runtime_profile import (
+    dump_runtime_profile_config_json,
+    parse_runtime_profile_config_json,
+    parse_runtime_profile_source,
+    PROFILE_SOURCE_BLANK,
+    PROFILE_SOURCE_DEFAULT_CONNECTIONS,
+    PROFILE_SOURCE_PROFILE,
+    PROFILE_SOURCE_PROFILE_PREFIX,
+)
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 
 logger = logging.getLogger(__name__)
+
+# The description the portal writes on a member's first profile. It is shown to
+# whoever opens the create-profile picker, so it says what happened in plain
+# words rather than naming the table it lives in. The legacy set is what older
+# builds wrote: recognised so the picker can drop it instead of repeating
+# machine jargon at a member who never typed it, and so no row has to be
+# rewritten to get the tidier reading.
+DEFAULT_PROFILE_DESCRIPTION = "Set up for you when you joined"
+LEGACY_DEFAULT_PROFILE_DESCRIPTIONS = frozenset({"Auto-created default runtime profile"})
+
+
+def _as_sentence(text: str) -> str:
+    """Close a member-written description so the line after it does not run on.
+
+    Descriptions are free text and most people leave the full stop off.
+    """
+    cleaned = (text or "").strip()
+    if cleaned and cleaned[-1] not in ".!?:":
+        cleaned += "."
+    return cleaned
+
+
+# Section keys are the config's own vocabulary; the dialog says them the way the
+# Connections form does.
+SEED_SECTION_LABELS = {
+    "llm": "LLM model",
+    "mobile-auto": "BrowserStack",
+    "jira": "Jira",
+    "confluence": "Confluence",
+    "github": "GitHub",
+    "jenkins": "Jenkins",
+    "proxy": "Proxy",
+    "aws": "AWS",
+    "git": "Git",
+    "debug": "Debug",
+}
 
 
 class RuntimeProfileService:
@@ -144,13 +188,14 @@ class RuntimeProfileService:
         self.db.commit()
 
     def _seeded_default_config_json(self) -> str:
-        """Build a new member's first profile from the admin-maintained seed.
+        """Build a profile config from the admin-maintained Default Connections.
 
-        The seed carries connection shape only (URLs, API versions, project
-        keys) and is validated to hold no credentials, so a new member lands on
-        a profile that already points at the right Jira/Confluence and only
-        needs their own account and token. A missing or unreadable seed falls
-        back to the empty default rather than blocking sign-in.
+        The seed carries connection shape (URLs, API versions, project keys) and
+        whatever shared credentials the admin chose to fill in, so the member
+        lands on a profile already pointing at the right Jira/Confluence and
+        supplies only what was left blank. A missing or unreadable seed falls
+        back to the empty default rather than blocking sign-in -- this runs on
+        the registration path, where an exception would lock a member out.
         """
         try:
             from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
@@ -169,7 +214,7 @@ class RuntimeProfileService:
             return self.repo.create(
                 owner_user_id=user.id,
                 name="Default",
-                description="Auto-created default runtime profile",
+                description=DEFAULT_PROFILE_DESCRIPTION,
                 config_json=self._seeded_default_config_json(),
                 is_default=True,
             )
@@ -201,6 +246,99 @@ class RuntimeProfileService:
         if updated_count:
             self.db.commit()
         return updated_count
+
+    def config_json_for_source(self, user, source: str | None) -> str:
+        """Resolve a create-source into the config the new profile starts with.
+
+        Copying happens here rather than in the browser because a profile's
+        credentials never leave the server in readable form. "Copy from my
+        profile" therefore goes through validate_profile_belongs_to_user, which
+        404s on anyone else's profile -- the copy can only ever be of something
+        the member already holds.
+        """
+        kind, profile_id = parse_runtime_profile_source(source)
+        if kind == PROFILE_SOURCE_DEFAULT_CONNECTIONS:
+            return self._seeded_default_config_json()
+        if kind == PROFILE_SOURCE_PROFILE:
+            origin = self.validate_profile_belongs_to_user(user, profile_id)
+            return self.normalize_persisted_config_json(origin.config_json)
+        return self.normalize_persisted_config_json(None)
+
+    def creation_sources(self, user) -> list[dict]:
+        """What the "Start this profile with" picker offers, in the order shown.
+
+        Written for whoever opens the dialog, not for whoever built it. Nobody
+        outside Administration has seen the words "Default Connections", so the
+        option is named after where it came from -- an admin prepared it -- and
+        not after a scope the portal cannot know: an installation may serve one
+        team or a whole company. It says which services it covers and whether
+        it arrives with sign-in details, which is the one thing that decides how
+        much work is left for whoever picked it.
+
+        The shared setup is listed first, and the client selects whatever comes
+        first, so the ordering here is the recommendation. It appears only when
+        an admin has actually filled it in: an option that silently produces an
+        empty profile would be worse than no option at all.
+        """
+        shared: list[dict] = []
+        try:
+            from app.services.runtime_profile_seed_service import (
+                find_secret_fields,
+                RuntimeProfileSeedService,
+            )
+
+            seed = RuntimeProfileSeedService(self.db).get_seed()
+        except Exception:  # pragma: no cover - the dialog must still open
+            logger.warning("Could not read the connection seed for the source list", exc_info=True)
+            seed = {}
+        if seed:
+            named = ", ".join(sorted(SEED_SECTION_LABELS.get(key, key) for key in seed))
+            sign_in = (
+                "Shared sign-in details are included, so there may be nothing left to enter."
+                if find_secret_fields(seed)
+                else "You still add your own sign-in details."
+            )
+            shared.append(
+                {
+                    "value": PROFILE_SOURCE_DEFAULT_CONNECTIONS,
+                    "label": "The setup your admin prepared",
+                    # Leading with the verb rather than the list keeps the
+                    # sentence right whether the admin seeded one service or six.
+                    # The label already credits the admin, so this does not.
+                    "detail": f"Already set up for you: {named}. {sign_in}",
+                    "group": "start",
+                }
+            )
+
+        sources: list[dict] = shared + [
+            {
+                "value": PROFILE_SOURCE_BLANK,
+                "label": "Nothing - I'll set it up myself",
+                "detail": "Every service starts empty, for you to fill in.",
+                "group": "start",
+            }
+        ]
+
+        for profile in self.list_for_user(user):
+            # "(Default)" next to a name invites the question "default what?".
+            # The answer belongs in the description line, where there is room
+            # for it.
+            description = (profile.description or "").strip()
+            if description in LEGACY_DEFAULT_PROFILE_DESCRIPTIONS:
+                description = ""
+            notes = [_as_sentence(description)] if description else []
+            if profile.is_default:
+                notes.append("This is your current default.")
+            notes.append("An exact copy, including any sign-in details you saved.")
+            sources.append(
+                {
+                    "value": f"{PROFILE_SOURCE_PROFILE_PREFIX}{profile.id}",
+                    "label": f"A copy of {profile.name}",
+                    "detail": " ".join(notes),
+                    "group": "copy",
+                }
+            )
+        return sources
 
     def create_for_user(self, user, *, name, description, config_json=None, is_default=False) -> RuntimeProfile:
         existing_count = self.repo.count_by_owner(user.id)

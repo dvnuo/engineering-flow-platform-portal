@@ -50,9 +50,10 @@ from app.services.help_center import (
     topics_by_group as help_topics_by_group,
 )
 from app.services.git_branch_cache import cached_branches_for
+from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import (
     RuntimeProfileSeedService,
-    SeedContainsSecretError,
+    redact_seed_for_display,
 )
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
@@ -960,16 +961,17 @@ def _apply_runtime_profile_save(db, runtime_profile) -> tuple[str, str]:
         logger.exception("runtime profile secret save/restart failed profile_id=%s", runtime_profile.id)
         return (
             "error",
-            "Runtime profile was saved, but updating the profile Secret or restarting agents failed. Save again to retry.",
+            "Your connections were saved, but rolling them out to the assistants failed. Save again to retry.",
         )
 
     running = result.get("running_agent_count", 0)
     if not running:
-        return ("success", "Runtime profile saved. No running agents; changes will apply on next start.")
-    message = f"Runtime profile saved. Restarting {running} running agents to apply revision {runtime_profile.revision}."
+        return ("success", "Connections saved. No assistant is running, so they will pick these up the next time they start.")
+    plural = "" if running == 1 else "s"
+    message = f"Connections saved. Restarting {running} running assistant{plural} to apply version {runtime_profile.revision}."
     failed = result.get("failed_agent_ids") or []
     if failed:
-        return ("warning", f"{message} Restart failed for {len(failed)} agent(s).")
+        return ("warning", f"{message} Restart failed for {len(failed)} of them.")
     return ("success", message)
 
 
@@ -1007,9 +1009,13 @@ def _runtime_profile_panel_context(
 def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
     """Read instance rows from the Default Connections form.
 
-    Deliberately not _settings_parse_instances: that one exists to preserve
-    credentials a member left blank, and the seed has no credentials to
-    preserve. Here blank simply means blank.
+    Deliberately not _settings_parse_instances: that one preserves a credential
+    the member left blank because their form may not have carried it. This form
+    renders every stored value back into its field, so blank simply means blank
+    -- clearing a shared credential is done by emptying the box.
+
+    A blank credential is dropped rather than stored as "", so "no shared
+    credential here" reads the same in the stored value as it does in the form.
     """
     try:
         count = max(0, int((form.get(f"{prefix}_instance_count") or "0").strip()))
@@ -1024,7 +1030,10 @@ def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
             if field == "enabled":
                 row[field] = str(form.get(name) or "").lower() in {"1", "true", "on", "yes"}
                 continue
-            row[field] = (form.get(name) or "").strip()
+            value = (form.get(name) or "").strip()
+            if field in SENSITIVE_FIELD_NAMES and not value:
+                continue
+            row[field] = value
         # A row with neither a name nor a URL is an empty card the admin added
         # and left alone; dropping it keeps the stored value clean.
         if row.get("name") or row.get("url"):
@@ -1033,16 +1042,29 @@ def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
 
 
 def _seed_config_from_form(form) -> dict:
-    """Build the seed from the form, carrying only non-secret fields.
+    """Build the seed from the Default Connections form.
 
-    Nothing here reads a credential field. The service still re-checks on save,
-    so the guarantee does not rest on this function alone.
+    Credentials are read like any other field and are entirely optional: a
+    blank one is left out of the seed rather than stored as "", so a section can
+    carry only where a service lives (members supply their own account) or a
+    shared service account's credential as well. The two cases are told apart by
+    the key being absent rather than by an empty string.
     """
     def flag(name: str) -> bool:
         return str(form.get(name) or "").lower() in {"1", "true", "on", "yes"}
 
     def text(name: str) -> str:
         return (form.get(name) or "").strip()
+
+    def put(target: dict, key: str, form_key: str) -> None:
+        """Set ``key`` only when the admin typed something.
+
+        Every field in this form is optional, so an absent key -- not an empty
+        string -- is how "the admin left this alone" is stored.
+        """
+        value = text(form_key)
+        if value:
+            target[key] = value
 
     seed: dict = {}
 
@@ -1054,44 +1076,68 @@ def _seed_config_from_form(form) -> dict:
     context_tokens = text("llm_max_context_tokens")
     if context_tokens.isdigit():
         llm["max_context_tokens"] = int(context_tokens)
+    # Only the selected provider's credentials are read. The other provider's
+    # fields are hidden in the form, so carrying them over would seed a
+    # credential the admin cannot see -- and with no provider chosen there is
+    # nothing to authorize against yet.
+    if llm.get("provider") == "ai_platform":
+        auth: dict = {}
+        for key, form_key in (
+            ("username", "llm_ai_platform_username"),
+            ("password", "llm_ai_platform_password"),
+            ("usercase", "llm_ai_platform_usercase"),
+        ):
+            put(auth, key, form_key)
+        if auth:
+            llm["ai_platform"] = {"auth": auth}
+    elif llm.get("provider"):
+        put(llm, "api_key", "llm_api_key")
     if llm:
         seed["llm"] = llm
 
-    jira_instances = _seed_parse_instances(form, "jira", ["enabled", "name", "url", "project", "api_version"])
+    jira_instances = _seed_parse_instances(
+        form, "jira", ["enabled", "name", "url", "username", "password", "token", "project", "api_version"]
+    )
     if flag("jira_enabled") or jira_instances:
         seed["jira"] = {"enabled": flag("jira_enabled"), "instances": jira_instances}
 
-    confluence_instances = _seed_parse_instances(form, "confluence", ["enabled", "name", "url", "space"])
+    confluence_instances = _seed_parse_instances(
+        form, "confluence", ["enabled", "name", "url", "username", "password", "token", "space"]
+    )
     if flag("confluence_enabled") or confluence_instances:
         seed["confluence"] = {"enabled": flag("confluence_enabled"), "instances": confluence_instances}
 
-    github_base_url = text("github_base_url")
-    if flag("github_enabled") or github_base_url:
-        github: dict = {"enabled": flag("github_enabled")}
-        if github_base_url:
-            github["base_url"] = github_base_url
-        seed["github"] = github
+    github: dict = {}
+    put(github, "base_url", "github_base_url")
+    put(github, "api_token", "github_api_token")
+    if flag("github_enabled") or github:
+        seed["github"] = {"enabled": flag("github_enabled"), **github}
 
-    jenkins_instances = _seed_parse_instances(form, "jenkins", ["enabled", "name", "url"])
+    jenkins_instances = _seed_parse_instances(
+        form, "jenkins", ["enabled", "name", "url", "username", "password", "token"]
+    )
     if flag("jenkins_enabled") or jenkins_instances:
         seed["jenkins"] = {"enabled": flag("jenkins_enabled"), "instances": jenkins_instances}
 
-    proxy_url = text("proxy_url")
-    if flag("proxy_enabled") or proxy_url:
-        proxy: dict = {"enabled": flag("proxy_enabled")}
-        if proxy_url:
-            proxy["url"] = proxy_url
-        seed["proxy"] = proxy
+    proxy: dict = {}
+    for key in ("url", "username", "password"):
+        put(proxy, key, f"proxy_{key}")
+    if flag("proxy_enabled") or proxy:
+        seed["proxy"] = {"enabled": flag("proxy_enabled"), **proxy}
 
-    aws_domain = text("aws_domain")
-    if flag("aws_enabled") or aws_domain:
-        aws: dict = {"enabled": flag("aws_enabled")}
-        if aws_domain:
-            aws["domain"] = aws_domain
-        seed["aws"] = aws
+    aws: dict = {}
+    for key in ("domain", "username", "password"):
+        put(aws, key, f"aws_{key}")
+    if flag("aws_enabled") or aws:
+        seed["aws"] = {"enabled": flag("aws_enabled"), **aws}
 
-    if flag("mobile_enabled"):
-        seed["mobile-auto"] = {"enabled": True}
+    browserstack: dict = {}
+    put(browserstack, "username", "mobile_browserstack_username")
+    put(browserstack, "access_key", "mobile_browserstack_access_key")
+    if flag("mobile_enabled") or browserstack:
+        seed["mobile-auto"] = {"enabled": flag("mobile_enabled")}
+        if browserstack:
+            seed["mobile-auto"]["browserstack"] = browserstack
 
     return seed
 
@@ -1853,10 +1899,13 @@ def _default_connections_context(
 ) -> dict:
     service = RuntimeProfileSeedService(db)
     seed = seed_override if seed_override is not None else service.get_seed()
+    # The form shows each credential in a password input the admin reveals on
+    # purpose; the raw dump below it gets the masked copy instead.
+    display_seed = redact_seed_for_display(seed)
     return {
         "request": request,
         "seed": seed,
-        "seed_json": json.dumps(seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
+        "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),
         "guidance": all_guidance(),
         "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
@@ -1959,7 +2008,7 @@ async def app_default_connections_save(request: Request):
         service = RuntimeProfileSeedService(db)
         try:
             service.save_seed(_seed_config_from_form(form), updated_by_user_id=user.id)
-        except (SeedContainsSecretError, ValueError) as exc:
+        except ValueError as exc:
             # Re-render from the submitted values rather than from storage, so a
             # rejected save does not silently discard the admin's edits.
             return templates.TemplateResponse(
@@ -1986,7 +2035,7 @@ async def app_default_connections_save(request: Request):
                 request,
                 db,
                 status_type="success",
-                status_message="Default connections saved. New members inherit these.",
+                status_message="Default connections saved. New members inherit these, credentials included.",
             ),
         )
     finally:
@@ -2600,7 +2649,7 @@ async def app_agent_settings_panel(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "",
                     "status_message": "",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
+                    "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2661,7 +2710,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "error",
                     "status_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
+                    "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2681,7 +2730,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "agent_id": agent_id,
                     "status_type": "error",
                     "status_message": "Assigned runtime profile was not found.",
-                    "profile_missing_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
+                    "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
                     "profile_bound_agent_count": 0,
@@ -2722,7 +2771,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             runtime_profile = profile_repo.save(runtime_profile)
             status_type, status_message = _apply_runtime_profile_save(db, runtime_profile)
         else:
-            status_type, status_message = ("success", "Runtime profile saved.")
+            status_type, status_message = ("success", "Connections saved.")
 
         view_data = _settings_view_payload(sanitized_config, RuntimeProfileService.merge_with_managed_defaults(sanitized_config))
         return templates.TemplateResponse(
@@ -2870,7 +2919,7 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
         )
 
         status_type = "success"
-        status_message = "Runtime profile saved."
+        status_message = "Connections saved."
         if config_changed:
             status_type, status_message = _apply_runtime_profile_save(db, updated)
 

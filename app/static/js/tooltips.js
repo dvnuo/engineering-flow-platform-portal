@@ -70,7 +70,7 @@
     ["#tasks-menu-btn", "Tasks — work an assistant runs on its own, tracked to completion"],
     ["#delegations-menu-btn", "Delegations — rules that start work automatically from GitHub, Jira, or a timer"],
     ["#users-menu-btn", "Administration — members, roles, and who is allowed to sign in"],
-    ["#runtime-profiles-menu-btn", "Runtime Profiles — the credentials and integrations assistants boot with"],
+    ["#runtime-profiles-menu-btn", "Connections — the services and sign-in details assistants boot with"],
     ["#help-btn", "What the terms mean, and the keyboard shortcuts"],
     ["#logout-btn", "Sign out of Portal"],
 

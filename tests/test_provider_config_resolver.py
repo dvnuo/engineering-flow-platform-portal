@@ -71,7 +71,7 @@ def test_resolve_github_for_agent_failures():
     agent = _mk_agent(user.id, None)
     db.add(agent); db.commit(); db.refresh(agent)
 
-    with pytest.raises(ProviderConfigResolverError, match="does not have a runtime profile"):
+    with pytest.raises(ProviderConfigResolverError, match="has no connection profile"):
         resolve_github_for_agent(db, agent.id)
 
     rp_disabled = RuntimeProfile(owner_user_id=user.id, name="rp2", config_json=json.dumps({"github": {"enabled": False}}), is_default=False)

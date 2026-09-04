@@ -66,7 +66,7 @@ def test_agent_health_card_is_wired_into_agent_meta():
 
     assert "agentHealthCardHtml(agent)" in render_agent_meta
     assert "data-agent-health-action" in render_agent_meta
-    assert "Runtime profile is missing." in agent_health
+    assert "This assistant has no connection profile." in agent_health
     assert "Ready to chat." in agent_health
     assert "openEditDialog(agent)" in health_action
     assert 'action(`/api/agents/${agent.id}/restart`)' in health_action
