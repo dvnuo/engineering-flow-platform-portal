@@ -461,7 +461,7 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
    variable in step with the real composer; 200px is the one-line fallback
    for before the first measurement lands. */
 .portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: calc(var(--portal-composer-height, 200px) + 24px); min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
-.portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; justify-content: center; background: transparent; pointer-events: none; }
+.portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; background: transparent; pointer-events: none; }
 .portal-composer {
   display: flex;
   flex-direction: column;
@@ -563,6 +563,8 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 
 @media (prefers-reduced-motion: reduce) {
   .portal-skill-chip { transition: none; }
+  .portal-interactive-card { animation: none; }
+  .portal-composer-switch-btn { transition: none; }
 }
 
 .portal-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 4px; }
@@ -5337,11 +5339,136 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   color: var(--portal-text-secondary);
 }
 
+/* -- switching between the card and the composer --------------------------- */
+
+/* Sits where the composer would be, so the foot of the conversation keeps its
+   shape instead of the transcript jumping when the card appears. */
+/* A capsule that hugs its content rather than a full-width panel: it stands in
+   for the composer, but it holds one sentence and one control, and given the
+   composer's footprint it read as a second empty box. Borrows the composer's
+   own surface, blur and shadow so it reads as the same object, and the pills'
+   radius so it reads as the same kind of control. */
+.portal-composer-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(100%, 1000px);
+  padding: 5px 5px 5px 16px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--portal-border), transparent 16%);
+  background: color-mix(in srgb, var(--portal-surface) 92%, transparent);
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.09),
+    0 2px 6px rgba(15, 23, 42, 0.045);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--portal-text-secondary), var(--portal-text-muted) 20%);
+}
+
+.portal-composer-switch-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Attached to the composer rather than stacked under it: two rounded boxes
+   with borders read as two separate places to type. */
+/* Attached to the composer rather than stacked under it: two boxes with their
+   own borders read as two separate places to type. */
+.portal-composer-switch.is-inline {
+  display: flex;
+  width: min(100%, 1000px);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  justify-content: space-between;
+  padding: 2px 6px 6px 18px;
+  gap: 8px;
+}
+
+/* The composer answers for it now, so the controls that would let the member
+   answer twice go away -- but the question itself stays. It used to leave
+   with them: the card was hidden whole, and a member who had just switched to
+   the composer had nothing left on screen saying what they were answering. */
+.portal-interactive-row.is-collapsed .portal-question-options,
+.portal-interactive-row.is-collapsed .portal-question-custom,
+.portal-interactive-row.is-collapsed .portal-question-other-btn,
+.portal-interactive-row.is-collapsed .portal-interactive-actions {
+  display: none;
+}
+
+.portal-interactive-row.is-collapsed .portal-interactive-card {
+  gap: 10px;
+  padding: 12px 18px;
+  animation: none;
+}
+
+.portal-interactive-row.is-collapsed .portal-question-item { gap: 4px; }
+
+/* Height and radius come from .composer-pill-btn; only the emphasis differs,
+   because this is the one control the member is being invited to press. */
+.portal-composer-switch-btn {
+  min-height: 30px;
+  flex: 0 0 auto;
+  color: var(--portal-accent-strong);
+}
+
+.portal-composer-switch-btn:hover {
+  border-color: color-mix(in srgb, var(--portal-accent), transparent 45%);
+  background: var(--portal-accent-soft);
+}
+
+.portal-composer-switch-btn:focus-visible {
+  outline: 2px solid var(--portal-accent);
+  outline-offset: 2px;
+}
+
+/* -- an answer given to a question ---------------------------------------- */
+
+.portal-answer-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.portal-answer-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* What the assistant asked, kept on the assistant's side of the transcript.
+   The accent edge is the card's, so a question that was answered still reads
+   as the same thing the card was, rather than as ordinary prose. */
+.portal-asked-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--portal-accent);
+}
+
+.portal-asked-question {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.portal-answer-value { min-width: 0; overflow-wrap: anywhere; }
+
 /* -- interactive input (questions and approvals) -------------------------- */
 
 .portal-interactive-row { width: 100%; }
 
+@keyframes portal-interactive-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
 .portal-interactive-card {
+  animation: portal-interactive-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   display: flex;
   flex-direction: column;
   gap: 14px;

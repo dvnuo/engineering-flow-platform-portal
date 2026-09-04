@@ -26,11 +26,20 @@
   const state = {
     pending: null,
     kind: null,
+    // Which conversation the pending request came from. A card belongs to one
+    // session; without this it would follow the reader into the next.
+    session: "",
     submitting: false,
     checking: false,
     recheckTimer: 0,
     draft: null,
     prefetched: null,
+    // Request ids this client has already submitted an answer or decision for.
+    // The socket reconnect that follows a submission asks for replay, and the
+    // request it is replaying can be the very one just answered -- the server
+    // event stream has no notion of "answered", only "already sent". Without
+    // this, that redelivery remounted a card for a question already put away.
+    resolved: new Set(),
   };
 
   function esc(value) {
@@ -210,11 +219,55 @@
     </form>`;
   }
 
+  function announcePendingChange() {
+    try {
+      document.dispatchEvent(new CustomEvent("portal:pending-input-changed"));
+    } catch (error) {
+      /* the card is up either way */
+    }
+  }
+
+  /**
+   * Every identity a request answers to.
+   *
+   * The request id is derived from what is being asked, so it is stable for as
+   * long as the question is -- but only on a runtime carrying that fix. The
+   * tool call id is stable regardless: a replay of an unanswered question is a
+   * replay of the same pending call, whatever id the run mints for it. Matching
+   * on either means a redelivered question is recognised in both cases.
+   */
+  function requestIdentities(request) {
+    if (!request || typeof request !== "object") return [];
+    const metadata = request.metadata && typeof request.metadata === "object" ? request.metadata : {};
+    const id = questionRequestId(request);
+    const call = String(request.tool_call_id || metadata.tool_call_id || "");
+    const identities = [];
+    if (id) identities.push(`id:${id}`);
+    if (call) identities.push(`call:${call}`);
+    return identities;
+  }
+
+  /** Never show this request again, however it comes back around. */
+  function markResolved(request) {
+    requestIdentities(request).forEach((identity) => state.resolved.add(identity));
+  }
+
+  function wasResolved(request) {
+    return requestIdentities(request).some((identity) => state.resolved.has(identity));
+  }
+
   function clearCard() {
     document.getElementById(CARD_ID)?.remove();
     state.pending = null;
     state.kind = null;
+    // The form is gone, so nothing is being submitted through it. Only the
+    // failure path used to put this back, which left it stuck true for the
+    // life of the page after a successful answer -- and with it the recovery
+    // check that is the only thing able to clear a card shown in error.
+    state.submitting = false;
+    state.session = "";
     state.draft = null;
+    announcePendingChange();
   }
 
   function mountCard(html) {
@@ -239,6 +292,8 @@
       const cutOff = scroll.getBoundingClientRect().top - row.getBoundingClientRect().top;
       if (cutOff > 0) scroll.scrollTop -= cutOff;
     }
+
+    announcePendingChange();
 
     const firstInput = row.querySelector("input");
     if (firstInput) window.setTimeout(() => firstInput.focus(), 40);
@@ -306,20 +361,24 @@
     });
   }
 
-  function showQuestion(request) {
+  function showQuestion(request, forSessionId) {
+    if (wasResolved(request)) return;
     if (alreadyShowing(request, "question")) return;
     const markup = questionCardMarkup(request);
     if (!markup) return;
     state.pending = request;
     state.kind = "question";
+    state.session = forSessionId || sessionId();
     mountCard(markup);
     restoreAnswers();
   }
 
-  function showPermission(request) {
+  function showPermission(request, forSessionId) {
+    if (wasResolved(request)) return;
     if (alreadyShowing(request, "permission")) return;
     state.pending = request;
     state.kind = "permission";
+    state.session = forSessionId || sessionId();
     mountCard(permissionCardMarkup(request));
   }
 
@@ -366,6 +425,23 @@
     }
   }
 
+  /** Pair each answer with the question it answers, and hand it to the transcript. */
+  function showAnswerInTranscript(questions, answers) {
+    if (typeof window.renderPortalAnswerNow !== "function") return;
+    const pairs = (answers || [])
+      .map((answer, index) => {
+        const value = String(answer ?? "").trim();
+        if (!value) return null;
+        const question = questions[index] || {};
+        // The question, not its header: "PROJECT" does not tell anyone what
+        // they were asked, and this row is the only record left once the card
+        // is gone.
+        return { label: String(question.question || question.header || "").trim(), value };
+      })
+      .filter(Boolean);
+    if (pairs.length) window.renderPortalAnswerNow(pairs);
+  }
+
   function setMessage(form, variant, text) {
     const target = form.querySelector("[data-interactive-msg]");
     if (!target) return;
@@ -381,13 +457,16 @@
     });
   }
 
-  async function submitQuestion(form) {
+  async function submitQuestion(form, override = null) {
     const agent = agentId();
     const session = sessionId();
     if (!agent || !session) return setMessage(form, "error", "No active conversation to answer.");
 
-    const collected = collectAnswers(form);
+    // The composer supplies its own answer: it is one line for a card that may
+    // have several fields, or none it could have typed into.
+    const collected = override || collectAnswers(form);
     if (collected.error) return setMessage(form, "error", collected.error);
+    const questions = normalizeQuestions(state.pending);
 
     setBusy(form, true);
     setMessage(form, "", "Sending…");
@@ -400,6 +479,10 @@
           body: JSON.stringify({ request_id: form.dataset.requestId, answers: collected.answers }),
         }
       );
+      // Show it before clearing, or the member watches their reply vanish and
+      // waits a whole resumed run for it to come back from history.
+      showAnswerInTranscript(questions, collected.answers);
+      markResolved(state.pending);
       clearCard();
       followResumedRun(result);
       if (typeof window.showToast === "function") window.showToast("Answer sent. Continuing…");
@@ -426,6 +509,7 @@
           body: JSON.stringify({ request_id: form.dataset.requestId, decision, always }),
         }
       );
+      markResolved(state.pending);
       clearCard();
       followResumedRun(result);
       if (typeof window.showToast === "function") {
@@ -465,9 +549,9 @@
    * second step. Prefetching lets the caller run it alongside the rest and
    * apply the result in the same frame as the history.
    */
-  async function fetchPendingInput() {
-    const agent = agentId();
-    const session = sessionId();
+  async function fetchPendingInput(forAgentId, forSessionId) {
+    const agent = forAgentId || agentId();
+    const session = forSessionId || sessionId();
     if (!agent || !session) return null;
     try {
       const payload = await requestJson(
@@ -487,6 +571,10 @@
     if (!held || held.session !== sessionId()) return null;
     return Date.now() - held.at <= PREFETCH_MAX_AGE_MS ? held : null;
   }
+
+  // The load names the session it is prefetching for; by the time the answer is
+  // applied, that session is the one on screen.
+
 
   async function checkPendingInput() {
     if (state.checking || state.submitting) return;
@@ -514,6 +602,12 @@
    */
   function remountFromMemory() {
     if (state.submitting || !state.pending) return;
+    if (state.session && state.session !== sessionId()) {
+      // The reader has moved to another conversation; this question is not
+      // theirs to answer here.
+      clearCard();
+      return;
+    }
     if (document.getElementById(CARD_ID)) return;
     if (state.kind === "question") {
       showQuestion(state.pending);
@@ -541,9 +635,80 @@
 
   // Fetched ahead of the paint, so the card is mounted in the same frame as
   // the transcript instead of appearing a round trip later.
-  window.portalPrefetchPendingInput = () => fetchPendingInput();
+  window.portalPrefetchPendingInput = (agent, session) => fetchPendingInput(agent, session);
+
+  /**
+   * What the composer should do while this card is up.
+   *
+   * A run stops at a question until the tool call it came from is resolved.
+   * Sending an ordinary message does not resolve it: the next run replays the
+   * pending call, asks again, and stops -- so the message reaches the
+   * transcript, never reaches the model, and the question comes back. There was
+   * nothing on screen to say so.
+   *
+   * A single question that accepts free text can be answered from the composer,
+   * which is the same thing its own text box does. Anything else has to go
+   * through the card, because a typed line cannot say which of several
+   * questions it answers, or approve a tool.
+   */
+  window.portalPendingComposerIntent = () => {
+    if (!state.pending || !document.getElementById(CARD_ID)) return null;
+    // An approval is the one thing a typed line cannot be. `permission/respond`
+    // wants approve or deny, and reading either out of prose is a guess nobody
+    // should be making on the member's behalf.
+    if (state.kind === "permission") {
+      return { acceptsText: false, reason: "Approve or reject the tool above to continue." };
+    }
+    // Every question can be answered in words. The runtime takes a shorter
+    // answers array than there are questions and reports the rest as
+    // unanswered, and it does not enforce `custom: false` -- that is how the
+    // card chooses to render, not a rule about what the member may say.
+    const questions = normalizeQuestions(state.pending);
+    // Named, because typing into the composer puts the card away -- and an
+    // answer box with the question out of sight is a guessing game.
+    const asked = questions.length ? (questions[0].question || questions[0].header) : "";
+    if (questions.length > 1) {
+      return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”. The other ${questions.length - 1} stay open.` };
+    }
+    if (questions.length === 1 && !questions[0].custom) {
+      return { acceptsText: true, reason: "", asked, note: `Answering “${asked}” in your own words.` };
+    }
+    return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”.` };
+  };
+
+  /** Put the card away while the composer has the floor, without losing it. */
+  window.portalCollapsePendingCard = (collapsed) => {
+    document.getElementById(CARD_ID)?.classList.toggle("is-collapsed", Boolean(collapsed));
+  };
+
+  /** Answer the pending question with what the member typed. */
+  window.portalAnswerPendingWithText = async (text) => {
+    const form = document.querySelector(`#${CARD_ID} [data-interactive-kind="question"]`);
+    if (!form) return false;
+    await submitQuestion(form, { answers: [String(text || "")] });
+    return true;
+  };
 
   // -------------------------------------------------------------- listeners
+
+  function eventSessionId(detail) {
+    const event = detail && detail.event ? detail.event : {};
+    const data = event.data && typeof event.data === "object" ? event.data : {};
+    return String(event.session_id || event.sessionId || data.session_id || detail?.sessionId || "");
+  }
+
+  /**
+   * Whether this event describes the conversation currently on screen.
+   *
+   * An event that names no session is taken at face value: some runtime events
+   * carry only a request id, and dropping those would lose live updates.
+   */
+  function eventBelongsToOpenConversation(detail) {
+    const open = sessionId();
+    const from = eventSessionId(detail);
+    if (!open || !from) return true;
+    return open === from;
+  }
 
   function extractRequest(detail, keys) {
     const data = detail && detail.event ? detail.event.data || detail.event : {};
@@ -558,15 +723,20 @@
     document.addEventListener("portal:runtime-event", (browserEvent) => {
       const detail = browserEvent.detail || {};
       const type = String(detail.event?.type || "");
+      // The socket asks for `replay=1`, so a question left unanswered in one
+      // conversation is redelivered on the next connect. Without this check it
+      // was mounted into whatever the reader had moved on to -- starting a new
+      // chat brought the old question straight back.
+      if (!eventBelongsToOpenConversation(detail)) return;
 
       if (type === "question.requested" || type === "tool.question_requested") {
         const request = extractRequest(detail, ["question_request", "questionRequest"]);
-        if (request) showQuestion(request);
+        if (request) showQuestion(request, eventSessionId(detail));
         return;
       }
       if (type === "permission.requested" || type === "permission_request" || type === "tool.permission_requested") {
         const request = extractRequest(detail, ["permission_request", "permissionRequest"]);
-        if (request) showPermission(request);
+        if (request) showPermission(request, eventSessionId(detail));
         return;
       }
       // A resolution names the thing it resolved, so it is safe to act on
@@ -576,6 +746,7 @@
         || type === "permission.allowed"
         || type === "permission.denied"
       ) {
+        markResolved(state.pending);
         clearCard();
         return;
       }
@@ -588,6 +759,12 @@
         scheduleRecheck();
       }
     });
+
+    // A welcome means an empty conversation, and an empty conversation cannot
+    // be blocked on anything. New chat clears the list without going near this
+    // module, which left the card's state behind -- and with it a switch bar
+    // pointing at a card that was no longer on screen.
+    document.addEventListener("portal:welcome-rendered", () => clearCard());
 
     document.addEventListener("portal:agent-selected", () => {
       clearCard();

@@ -184,6 +184,7 @@ globalThis.document = {{
 }};
 globalThis.window = {{ setTimeout: () => {{}} }};
 function renderIcons() {{}}
+function announcePendingChange() {{}}
 const CARD_ID = "portal-interactive-input";
 {mount}
 mountCard("<form></form>");
@@ -217,6 +218,7 @@ globalThis.document = {{
 }};
 globalThis.window = {{ setTimeout: () => {{}} }};
 function renderIcons() {{}}
+function announcePendingChange() {{}}
 const CARD_ID = "portal-interactive-input";
 {mount}
 mountCard("<form></form>");
@@ -290,3 +292,214 @@ def test_the_placeholder_is_visibly_a_placeholder():
     assert "animation:" in base
     assert "var(--portal-" in base and "#" not in base
     assert ".portal-skeleton-line { animation: none; }" in css, "respect prefers-reduced-motion"
+
+
+# ------------------------------------------- the transcript has one owner
+
+
+def _transcript_bundle() -> str:
+    js = CHAT_UI.read_text(encoding="utf-8")
+    functions = (
+        "beginTranscript",
+        "currentTranscriptToken",
+        "transcriptTokenIsCurrent",
+        "writeTranscript",
+        "transcriptShowsConversation",
+        "markTranscriptReady",
+    )
+    decl = js.split("const transcript = {", 1)[1].split("};", 1)[0]
+    return "const transcript = {" + decl + "};\n" + "\n".join(
+        _extract_js_function(js, name) for name in functions
+    )
+
+
+def test_a_write_for_a_superseded_conversation_is_dropped():
+    """This is what makes the order of responses stop mattering.
+
+    A slow answer for the conversation the reader has left has nothing useful
+    to say about the one they are looking at now.
+    """
+    result = _run_node(f"""
+{_transcript_bundle()}
+const painted = [];
+const first = beginTranscript("a1", "s1");
+const second = beginTranscript("a1", "s2");
+const wroteStale = writeTranscript(first, () => painted.push("stale"));
+const wroteCurrent = writeTranscript(second, () => painted.push("current"));
+console.log(JSON.stringify({{ wroteStale, wroteCurrent, painted }}));
+""")
+
+    assert result == {"wroteStale": False, "wroteCurrent": True, "painted": ["current"]}
+
+
+def test_the_order_answers_arrive_in_cannot_change_what_is_painted():
+    """Every arrival order of three responses produces the same writes.
+
+    This is the throttling report as an assertion: on a fast connection the
+    three fetches land close enough together to look like one step, and on a
+    slow one the same load used to walk visibly through whatever order they
+    happened to return in.
+    """
+    result = _run_node(f"""
+{_transcript_bundle()}
+const runs = [];
+const orders = [[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
+for (const order of orders) {{
+  const token = beginTranscript("a1", "s1");
+  const answers = ["history", "personalization", "pendingInput"];
+  const arrived = [];
+  // Responses land in this order; none of them paints on arrival.
+  for (const index of order) arrived.push(answers[index]);
+  const painted = [];
+  writeTranscript(token, () => painted.push("compose:" + arrived.length));
+  runs.push({{ order: order.join(""), painted }});
+}}
+console.log(JSON.stringify(runs));
+""")
+
+    assert len(result) == 6
+    assert {tuple(run["painted"]) for run in result} == {("compose:3",)}, (
+        "every arrival order must end in exactly one paint of the complete state"
+    )
+
+
+def test_a_live_run_can_tell_whether_its_conversation_is_still_open():
+    # Streaming writes are keyed and incremental -- re-rendering the list for
+    # every typewriter delta would cost the reader their scroll position. What
+    # they were missing is a way to know they are still relevant.
+    result = _run_node(f"""
+{_transcript_bundle()}
+beginTranscript("a1", "s1");
+console.log(JSON.stringify({{
+  sameConversation: transcriptShowsConversation("a1", "s1"),
+  otherSession: transcriptShowsConversation("a1", "s2"),
+  otherAgent: transcriptShowsConversation("a2", "s1"),
+  sessionUnknown: transcriptShowsConversation("a1", ""),
+}}));
+""")
+
+    assert result == {
+        "sameConversation": True,
+        "otherSession": False,
+        "otherAgent": False,
+        "sessionUnknown": True,
+    }
+
+
+def test_the_prefetch_is_told_which_conversation_it_is_for():
+    # `updateAgentSession` does not run until the session response lands, so
+    # reading the session from state here asked about whatever was open before
+    # -- nothing at all on a fresh page, which made the prefetch a no-op and put
+    # the card a round trip behind the history it belongs to.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    body = js.split("async function loadSessionForAgent(", 1)[1]
+    body = body[: body.index("\nasync function ", 10)]
+
+    assert "window.portalPrefetchPendingInput(agentId, normalized)" in body
+    assert body.index("portalPrefetchPendingInput(") < body.index("updateAgentSession(agentId, normalized)")
+
+
+def test_asking_for_the_conversation_already_shown_draws_nothing():
+    """Startup asks twice and the two asks are sequential.
+
+    `refreshAll` restores the last assistant and loads its session; the route
+    is then applied and selects the same assistant again. Nothing overlaps, so
+    no amount of guarding against concurrency catches it -- which is why the
+    skeleton appeared three times before anything was drawn.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    body = js.split("async function loadSessionForAgent(", 1)[1]
+    body = body[: body.index("\nasync function ", 10)]
+    guard = body[: body.index("await agentApiFor(")]
+
+    assert 'transcript.phase === "ready"' in guard
+    assert "transcript.agentId === agentId" in guard
+    assert "transcript.sessionId === normalized" in guard
+    assert "!force" in guard
+    assert "needsReload" in guard, "a conversation marked stale must reload"
+
+
+def test_a_caller_that_changed_the_conversation_says_so():
+    # Showing a conversation and redrawing one are different requests. Only the
+    # second may skip the guard, and only these four changed anything.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    forced = js.count("force: true }")
+
+    assert forced >= 5, "message landed (x2), compaction, recovered run, restart"
+
+
+def test_the_placeholder_is_only_shown_when_something_will_replace_it():
+    # Re-selecting the assistant already on screen loads nothing, so a skeleton
+    # painted first would be left there -- or wiped to the welcome, taking the
+    # conversation with it.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    selection = _extract_js_function(js, "performAgentSelection")
+
+    assert 'if (!transcriptShowsConversation(agentId, "")) showConversationLoading();' in selection
+
+
+# ----------------------------------- the live writers know their conversation
+
+
+LIVE_WRITERS = (
+    "renderRecoveredPendingAssistantArticle",
+    "updateOrCreateAssistantRowForRequest",
+    "updatePendingAssistantStreamContent",
+    "renderAgentTimelineForCurrentRequest",
+    "finalizePendingAssistantRow",
+    "finalizeIncompleteAssistantRow",
+)
+
+
+def test_no_live_writer_still_guards_on_the_assistant_alone():
+    """`selectedAgentId !== agentId` answers the wrong question.
+
+    It asks whether this assistant is on screen, not whether this conversation
+    is. A run streaming when the reader starts a new chat, or opens another
+    session of the same assistant, was writing into whatever replaced it.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+
+    for name in LIVE_WRITERS:
+        body = _extract_js_function(js, name)
+        assert "transcriptAcceptsLiveWrite(" in body, f"{name} does not check the conversation"
+        assert "state.selectedAgentId !== agentId" not in body, f"{name} still guards on the assistant alone"
+
+
+def test_every_live_writer_that_knows_its_session_passes_it():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    # The recovery placeholder is keyed by request id and has no session in
+    # scope; the rest carry a request context.
+    for name in LIVE_WRITERS[1:]:
+        body = _extract_js_function(js, name)
+        guard = body[: body.index("\n", body.index("transcriptAcceptsLiveWrite("))]
+        assert "sessionIdAtSend" in guard or "timelineSession" in guard, f"{name} passes no session"
+
+
+def test_an_unknown_session_on_either_side_is_allowed():
+    # A message sent into a brand new chat streams before its session exists;
+    # refusing those writes would lose the first reply of every conversation.
+    result = _run_node(f"""
+{_transcript_bundle()}
+beginTranscript("a1", "");
+const intoNewChat = transcriptShowsConversation("a1", "s-new");
+beginTranscript("a1", "s1");
+const unknownRun = transcriptShowsConversation("a1", "");
+const otherSession = transcriptShowsConversation("a1", "s2");
+console.log(JSON.stringify({{ intoNewChat, unknownRun, otherSession }}));
+""")
+
+    assert result == {"intoNewChat": True, "unknownRun": True, "otherSession": False}
+
+
+def test_a_run_finishing_out_of_view_is_routed_to_the_background():
+    # Not a DOM guard but a routing decision: when the reader is not looking,
+    # mark unread and notify instead of rendering. "Not looking" has to mean the
+    # conversation -- a run finishing while they are in another session of the
+    # same assistant used to paint into it.
+    js = CHAT_UI.read_text(encoding="utf-8")
+
+    for name in ("handleAgentChatSuccess", "handleAgentChatFailure"):
+        body = _extract_js_function(js, name)
+        assert "transcriptAcceptsLiveWrite(agentIdAtSend, requestCtx?.sessionIdAtSend)" in body, name
+        assert "state.selectedAgentId !== agentIdAtSend" not in body, name

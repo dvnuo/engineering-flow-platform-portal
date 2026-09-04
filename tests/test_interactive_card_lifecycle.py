@@ -14,6 +14,7 @@ only party that actually knows. These drive the real module under node.
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,10 @@ from _js_extract_helpers import _extract_js_function
 
 MODULE = Path("app/static/js/interactive_input.js")
 CHAT_UI = Path("app/static/js/chat_ui.js")
+CSS = Path("app/static/css/app.css")
+APP_HTML = Path("app/templates/app.html")
+
+NL = chr(10)
 
 # Timers are a queue the test drains on purpose, so the debounce is observable
 # rather than something to sleep through.
@@ -114,7 +119,18 @@ def _run_node(body: str):
     if not node_bin:
         pytest.skip("node is not installed; skipping card lifecycle tests")
     script = f"{SHIM}\n{MODULE.read_text(encoding='utf-8')}\n(async () => {{\n{body}\n}})().catch((e) => {{ console.error(e); process.exit(1); }});"
-    result = subprocess.run([node_bin, "-e", script], check=False, text=True, capture_output=True)
+    # Run from a file rather than `node -e`: the script carries the whole
+    # module, and Windows caps a command line at ~32KB, so passing it inline
+    # fails there with "the filename or extension is too long" -- which reads
+    # as every one of these tests failing at once rather than not running.
+    with tempfile.TemporaryDirectory() as work:
+        script_path = Path(work) / "case.js"
+        script_path.write_text(script, encoding="utf-8")
+        # utf-8 explicitly: the notes carry curly quotes, and decoding node's
+        # output with the Windows locale codec fails on them.
+        result = subprocess.run(
+            [node_bin, str(script_path)], check=False, text=True, encoding="utf-8", capture_output=True
+        )
     if result.returncode != 0:
         raise AssertionError(f"node failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
     return json.loads(result.stdout.strip())
@@ -293,13 +309,13 @@ def test_only_the_newest_session_load_is_allowed_to_paint():
     js = CHAT_UI.read_text(encoding="utf-8")
     body = js.split("async function loadSessionForAgent(", 1)[1]
 
-    claim = body.index("claimSessionRenderTicket(")
+    claim = body.index("beginTranscript(")
     first_await = body.index("await agentApiFor(")
-    check = body.index("sessionRenderTicketIsCurrent(")
+    check = body.index("transcriptTokenIsCurrent(")
     render = body.index("renderChatHistory(")
 
-    assert claim < first_await, "the ticket must be claimed before the request goes out"
-    assert first_await < check < render, "and checked after it returns, before painting"
+    assert claim < first_await, "the transcript must be claimed before the request goes out"
+    assert first_await < check < render, "and the claim checked after it returns, before painting"
 
 
 # ------------------------------------- not every parked run is a lost one
@@ -397,15 +413,28 @@ const cases = [
   {{ status: "waiting_for_question" }},
   {{ status: "waiting_for_permission" }},
   {{ status: "WAITING_FOR_QUESTION" }},
+  // The same fact as the session metadata spells it.
+  {{ last_runtime_status: "waiting_for_question" }},
+  {{ latest_event_state: "blocked" }},
+  {{ completion_state: "blocked" }},
+  // And the plainest evidence of all.
+  {{ pending_question_request: {{ request_id: "q-1" }} }},
+  {{ pending_permission_request: {{ request_id: "p-1" }} }},
   {{ status: "completed" }},
   {{ status: "max_iterations" }},
+  {{ completion_state: "incomplete" }},
   {{ response: "" }},
   {{}},
 ];
 console.log(JSON.stringify(cases.map(isWaitingForUserInputPayload)));
 """
 
-    assert _run_node(script) == [True, True, True, False, False, False, False]
+    assert _run_node(script) == [
+        True, True, True,
+        True, True, True,
+        True, True,
+        False, False, False, False, False,
+    ]
 
 
 def test_a_parked_run_is_not_finalised_as_incomplete():
@@ -519,6 +548,88 @@ console.log(JSON.stringify({ called, cardGone: !shown() }));
     assert result == {"called": 0, "cardGone": True}
 
 
+def test_a_replay_of_the_just_answered_question_does_not_bring_the_card_back():
+    """The socket reconnect that follows an answer also asks for replay.
+
+    What it replays can be the very question just answered: the event stream
+    has no notion of "answered", only "already delivered before". Without a
+    memory of what this client already resolved, the reconnect remounted a
+    card for a question that had just been put away -- and refreshing the page
+    never reproduced it, because a fresh load asks the runtime instead, which
+    correctly has nothing pending.
+    """
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+answerTheCard();
+await settle(); await settle();
+const afterAnswering = shown();
+runtimeEvent("question.requested", { question_request: QUESTION });
+console.log(JSON.stringify({ afterAnswering, afterReplay: shown() }));
+""")
+
+    assert result == {"afterAnswering": False, "afterReplay": False}
+
+
+def test_a_replay_after_a_permission_resolves_elsewhere_does_not_bring_it_back():
+    # Same replay hazard, for the path where the resolution is not this
+    # client's own submit -- another tab, or an auto-approval.
+    result = _run_node("""
+const PERM = { request_id: "p-1", tool: "bash", args: "ls" };
+setPending({ permission_request: PERM });
+runtimeEvent("permission.requested", { permission_request: PERM });
+runtimeEvent("permission.resolved", {});
+const afterResolve = shown();
+runtimeEvent("permission.requested", { permission_request: PERM });
+console.log(JSON.stringify({ afterResolve, afterReplay: shown() }));
+""")
+
+    assert result == {"afterResolve": False, "afterReplay": False}
+
+
+def test_a_replay_that_renames_the_request_is_still_the_answered_question():
+    """A runtime without the stable-id fix mints a new request id per run.
+
+    The id is derived from the request metadata there, which carries a fresh
+    `run_id` every run, so the same unanswered question comes back wearing a
+    different id and an id-only guard lets it through. The tool call it is a
+    replay of does not change, and that is what this matches on.
+    """
+    result = _run_node("""
+const ASKED = { request_id: "q-1", tool_call_id: "call-7",
+                questions: [{ question: "Which project?", options: [{ label: "EFP" }] }] };
+setPending({ question_request: ASKED });
+runtimeEvent("question.requested", { question_request: ASKED });
+answerTheCard();
+await settle(); await settle();
+const afterAnswering = shown();
+const RENAMED = Object.assign({}, ASKED, { request_id: "q-1-run-2" });
+runtimeEvent("question.requested", { question_request: RENAMED });
+console.log(JSON.stringify({ afterAnswering, afterReplay: shown() }));
+""")
+
+    assert result == {"afterAnswering": False, "afterReplay": False}
+
+
+def test_a_genuinely_new_question_still_gets_a_card():
+    # The guard must not swallow the next question: a new ask is a new tool
+    # call, and nothing about it was answered.
+    result = _run_node("""
+const ASKED = { request_id: "q-1", tool_call_id: "call-7",
+                questions: [{ question: "Which project?", options: [{ label: "EFP" }] }] };
+setPending({ question_request: ASKED });
+runtimeEvent("question.requested", { question_request: ASKED });
+answerTheCard();
+await settle(); await settle();
+const NEXT = { request_id: "q-2", tool_call_id: "call-8",
+               questions: [{ question: "Which environment?", options: [{ label: "prod" }] }] };
+runtimeEvent("question.requested", { question_request: NEXT });
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    assert result["shown"] is True
+
+
 def test_the_adoption_writes_the_record_the_recovery_path_looks_for():
     js = CHAT_UI.read_text(encoding="utf-8")
     fn = _extract_js_function(js, "adoptResumedChatRunForAgent")
@@ -529,3 +640,588 @@ def test_the_adoption_writes_the_record_the_recovery_path_looks_for():
     assert "recoverInflightChatRunForAgent(" in fn
     assert 'pendingText: "Working"' in fn, "this run is starting, not reconnecting"
     assert "chatState.currentRequest" in fn, "never adopt over a run already being followed"
+
+
+# --------------------------- a card belongs to one conversation, not the reader
+
+
+def test_a_replayed_question_from_another_conversation_is_ignored():
+    """The socket asks for `replay=1`, so an unanswered question is redelivered.
+
+    Starting a new chat used to bring the old question straight back: the
+    handler mounted whatever arrived without asking which conversation it
+    happened in.
+    """
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+dispatch("portal:runtime-event", {
+  event: { type: "question.requested", session_id: "s-old", data: { question_request: QUESTION } },
+  sessionId: "s-old",
+});
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    # The shim's open session is "s1"; the event names "s-old".
+    assert result["shown"] is False
+
+
+def test_a_question_for_the_open_conversation_still_shows():
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+dispatch("portal:runtime-event", {
+  event: { type: "question.requested", session_id: "s1", data: { question_request: QUESTION } },
+  sessionId: "s1",
+});
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    assert result["shown"] is True
+
+
+def test_an_event_that_names_no_session_is_taken_at_face_value():
+    # Some runtime events carry only a request id; dropping those would lose
+    # live updates for the conversation actually on screen.
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+dispatch("portal:runtime-event", {
+  event: { type: "question.requested", data: { question_request: QUESTION } },
+});
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    assert result["shown"] is True
+
+
+def test_a_rebuild_in_another_conversation_drops_the_card_instead_of_moving_it():
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const beforeMove = shown();
+// The reader opens a different conversation and its transcript is rebuilt.
+window.currentPortalSessionId = () => "s2";
+list.children = [];
+setPending({});
+dispatch("portal:history-rendered", {});
+const afterMove = shown();
+drainTimers(); await settle();
+console.log(JSON.stringify({ beforeMove, afterMove, afterCheck: shown() }));
+""")
+
+    assert result["beforeMove"] is True
+    assert result["afterMove"] is False, "the question is not the new conversation's to answer"
+    assert result["afterCheck"] is False
+
+
+def test_starting_a_new_chat_is_a_clean_break():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "startNewChatForSelectedAgent")
+
+    assert 'beginTranscript(state.selectedAgentId, "")' in fn, "a new conversation is a new claim"
+    assert "disconnectEventSocket();" in fn, "the old socket replays on every reconnect"
+
+
+def test_clearing_the_conversation_narrows_the_event_filter():
+    # The fallback to the socket's session meant clearing the conversation
+    # *widened* the filter: `chatState.sessionId` went to "" while the socket
+    # still held the old id, so every replayed event matched.
+    js = CHAT_UI.read_text(encoding="utf-8")
+
+    assert 'const currentSessionId = chatState.sessionId || "";' in js
+    assert "chatState.sessionId || socketCtx.sessionId" not in js
+
+
+# ------------------------- the composer and the card are one way forward
+
+
+def _intent(pending, *, mounted=True):
+    """What `portalPendingComposerIntent` reports for a given card."""
+    return _run_node(f"""
+setPending({json.dumps(pending)});
+{"runtimeEvent('question.requested', { question_request: " + json.dumps(pending.get("question_request")) + " });" if pending.get("question_request") and mounted else ""}
+{"runtimeEvent('permission.requested', { permission_request: " + json.dumps(pending.get("permission_request")) + " });" if pending.get("permission_request") and mounted else ""}
+console.log(JSON.stringify({{ intent: window.portalPendingComposerIntent() }}));
+""")
+
+
+FREE_TEXT = {"request_id": "q-1", "questions": [{"question": "Which project?", "custom": True}]}
+OPTIONS_ONLY = {"request_id": "q-2", "questions": [
+    {"question": "Which project?", "custom": False, "options": [{"label": "EFP"}, {"label": "OPS"}]}]}
+TWO_QUESTIONS = {"request_id": "q-3", "questions": [
+    {"question": "Which project?", "custom": True},
+    {"question": "Which type?", "custom": True}]}
+
+
+def test_a_single_free_text_question_can_be_answered_from_the_composer():
+    # The card's own text box does exactly this; the composer is a roomier way
+    # to reach it.
+    intent = _intent({"question_request": FREE_TEXT})["intent"]
+
+    assert intent["acceptsText"] is True
+    assert intent["asked"] == "Which project?"
+
+
+def test_a_question_that_offered_no_free_text_can_still_be_answered_in_words():
+    # `custom: false` is how the card chooses to render, not a rule about what
+    # the member may say -- and the runtime does not enforce it either.
+    intent = _intent({"question_request": OPTIONS_ONLY})["intent"]
+
+    assert intent["acceptsText"] is True
+    assert "in your own words" in intent["note"]
+
+
+def test_one_line_answers_the_first_of_several_questions_and_says_so():
+    # The runtime takes a shorter answers array than there are questions and
+    # reports the rest as unanswered, so the assistant can follow up on what is
+    # still open. Blocking the composer here would have been stricter than the
+    # runtime and stricter than the member needs.
+    intent = _intent({"question_request": TWO_QUESTIONS})["intent"]
+
+    assert intent["acceptsText"] is True
+    assert "stay open" in intent["note"], "the member should know the others are still waiting"
+
+
+def test_a_typed_line_cannot_approve_a_tool():
+    # `permission/respond` wants approve or deny; prose is neither, and guessing
+    # which one it meant is not a guess to make about running a tool.
+    intent = _intent({"permission_request": {"request_id": "p-1", "tool": "bash", "args": "ls"}})["intent"]
+
+    assert intent["acceptsText"] is False
+    assert "Approve" in intent["reason"]
+
+
+def test_the_composer_supplies_its_own_answer_rather_than_filling_the_card():
+    # An options-only card has no text box to fill, and a card with several
+    # questions has more than one.
+    js = MODULE.read_text(encoding="utf-8")
+    fn = js.split("window.portalAnswerPendingWithText = async (text) => {", 1)[1].split("\n  };", 1)[0]
+
+    assert "submitQuestion(form, { answers: [String(text || \"\")] })" in fn
+    assert "data-question-custom-input" not in fn
+
+
+def test_no_card_means_the_composer_behaves_normally():
+    assert _intent({})["intent"] is None
+
+
+def test_sending_while_a_question_is_pending_answers_it_rather_than_starting_a_turn():
+    # The run stays stopped until the tool call is resolved. An ordinary message
+    # does not resolve it: the next run replays the pending call, asks again and
+    # stops -- so the message reached the transcript, never reached the model,
+    # and the question came back looking like a new one.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    submit = _extract_js_function(js, "submitChatForSelectedAgent")
+    head = submit[: submit.index("portalAnswerPendingWithText") + 40]
+
+    assert "portalPendingComposerIntent()" in head
+    assert "if (!pendingIntent.acceptsText)" in head
+    assert "showToast(pendingIntent.reason)" in head
+    # And the answer path is taken before anything that would start a new turn.
+    assert "guardNoActiveChatRequestForAgent" in submit[: submit.index("portalPendingComposerIntent")]
+
+
+def test_the_composer_says_what_sending_will_do():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    placeholder = _extract_js_function(js, "updateChatInputPlaceholder")
+
+    assert "portalPendingComposerIntent" in placeholder
+    assert "Type your answer" in placeholder
+    listener = js.split('document.addEventListener("portal:pending-input-changed"', 1)[1]
+    assert "updateChatInputPlaceholder();" in listener.split("});", 1)[0]
+
+
+# ------------------------------------- an answer is part of the conversation
+
+
+def _grouped(messages):
+    """`groupSessionMessagesForDisplay` over a history payload."""
+    js = CHAT_UI.read_text(encoding="utf-8")
+    bundle = "\n".join(
+        _extract_js_function(js, name)
+        for name in ("questionAnswerFromMessage", "getAssistantDisplayGroupKey", "groupSessionMessagesForDisplay")
+    )
+    return _run_node(f"""
+{bundle}
+const entries = groupSessionMessagesForDisplay({json.dumps(messages)});
+console.log(JSON.stringify(entries.map((e) => ({{ type: e.type, pairs: e.pairs || null }}))));
+""")
+
+
+def _answer_message(answers, questions, **extra):
+    # `tool_name` lives on the tool result, same as the runtime's ToolResult --
+    # the Message itself carries no field by that name.
+    message = {
+        "id": "m-answer",
+        "role": "tool",
+        "content": 'User has answered your questions: "Which project?"="EFP".',
+        "parts": [{"tool_result": {
+            "tool_name": "question",
+            "metadata": {"answers": answers, "questions": questions},
+        }}],
+    }
+    message.update(extra)
+    return message
+
+
+def test_an_answer_appears_in_the_transcript():
+    """Answering left no trace at all -- the member watched their reply vanish.
+
+    It is stored as the question tool's result, and the display grouping kept
+    only `user` and `assistant`.
+    """
+    entries = _grouped([
+        {"id": "u1", "role": "user", "content": "create a ticket"},
+        _answer_message([["EFP"]], [{"header": "Project", "question": "Which project?"}]),
+    ])
+
+    assert [e["type"] for e in entries] == ["message", "question_answer"]
+    # The question, not the "Project" header it also carries.
+    assert entries[1]["pairs"] == [{"label": "Which project?", "value": "EFP"}]
+
+
+def test_the_question_is_kept_with_the_answer():
+    # A transcript read later has to say what "EFP" was an answer to. The
+    # first here carries only a header, which is then all there is to show.
+    entries = _grouped([_answer_message(
+        [["EFP"], ["Bug"]],
+        [{"header": "Project"}, {"question": "What issue type?"}],
+    )])
+
+    assert entries[0]["pairs"] == [
+        {"label": "Project", "value": "EFP"},
+        {"label": "What issue type?", "value": "Bug"},
+    ]
+
+
+def test_other_tool_results_are_still_left_out_of_the_transcript():
+    # Rendering every tool result would bury the conversation in bash output.
+    entries = _grouped([
+        {"id": "t1", "role": "tool", "content": "total 48",
+         "parts": [{"tool_result": {"tool_name": "bash", "metadata": {"stdout": "total 48"}}}]},
+        {"id": "a1", "role": "assistant", "content": "Listed the directory."},
+    ])
+
+    assert [e["type"] for e in entries] == ["assistant_group"]
+
+
+def test_an_answer_with_nothing_in_it_is_not_rendered():
+    entries = _grouped([_answer_message([[""], ["  "]], [{"header": "Project"}])])
+
+    assert entries == []
+
+
+def test_an_answer_ends_the_assistant_turn_it_belongs_to():
+    # What the assistant says next was said with the answer in hand, so it is a
+    # new group rather than a continuation of the one that asked.
+    entries = _grouped([
+        {"id": "a1", "role": "assistant", "content": "Which project?"},
+        _answer_message([["EFP"]], [{"header": "Project"}]),
+        {"id": "a2", "role": "assistant", "content": "Created EFP-1."},
+    ])
+
+    assert [e["type"] for e in entries] == ["assistant_group", "question_answer", "assistant_group"]
+
+
+def test_the_answer_is_shown_before_the_card_goes():
+    js = MODULE.read_text(encoding="utf-8")
+    submit = js.split("async function submitQuestion(", 1)[1].split("\n  }", 1)[0]
+
+    assert submit.index("showAnswerInTranscript(") < submit.index("clearCard()"), (
+        "clearing first means the member watches their reply disappear"
+    )
+
+
+def test_the_provisional_row_is_replaced_rather_than_doubled():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = js.split("window.renderPortalAnswerNow = function renderPortalAnswerNow(", 1)[1].split("\n};", 1)[0]
+
+    assert 'querySelectorAll("[data-provisional-answer]")' in fn
+    assert "provisional: true" in fn
+    # Both rows carry the mark, or a reload would replace the answer and leave
+    # the question it answered stranded above it.
+    rows = _extract_js_function(js, "appendQuestionAnswerRows")
+    assert rows.count('dataset.provisionalAnswer = "1"') == 2
+
+
+def test_the_question_stays_on_the_assistants_side_of_the_transcript():
+    """It was rendered inside the member's own bubble, under their name.
+
+    That reads as the member asking themselves which project to file in --
+    the question is the assistant's, and only the answer is theirs.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "appendQuestionAnswerRows")
+    asked, answered = fn.split("const row = document.createElement", 1)
+
+    assert "message-row-assistant" in asked
+    assert "message-surface-assistant" in asked
+    assert "getSelectedAssistantDisplayName()" in asked
+
+    assert "message-row-user" in answered
+    assert "message-surface-user" in answered
+    assert "getCurrentUserDisplayName()" in answered
+    # The answer bubble carries the answer alone now.
+    assert "portal-answer-label" not in answered
+
+
+# ------------------------------ the card takes the composer's place, by default
+
+
+def _mode(intent, *, clicks=0):
+    """Drive `syncComposerMode` over a fake composer for a given pending card."""
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "syncComposerMode")
+    return _run_node(f"""
+const classes = {{ form: new Set(["hidden"]), bar: new Set(["hidden"]), button: new Set() }};
+const el = (key, extra) => Object.assign({{
+  classList: {{
+    add: (c) => classes[key].add(c),
+    remove: (c) => classes[key].delete(c),
+    toggle: (c, on) => (on ? classes[key].add(c) : classes[key].delete(c)),
+    contains: (c) => classes[key].has(c),
+  }},
+}}, extra || {{}});
+const note = {{ textContent: "" }};
+const button = el("button", {{ textContent: "" }});
+const bar = el("bar", {{ querySelector: (s) => (s === "[data-composer-switch-note]" ? note : button) }});
+const form = el("form", {{}});
+globalThis.document = {{ getElementById: (id) => (id === "chat-form" ? form : id === "composer-mode-switch" ? bar : null) }};
+const dom = {{ chatInput: {{ focus: () => {{}} }} }};
+globalThis.window = {{ portalPendingComposerIntent: () => ({json.dumps(intent)}) }};
+let composerMode = "card";
+{fn}
+syncComposerMode();
+for (let i = 0; i < {clicks}; i += 1) {{
+  composerMode = composerMode === "message" ? "card" : "message";
+  syncComposerMode();
+}}
+console.log(JSON.stringify({{
+  composerHidden: classes.form.has("hidden"),
+  barHidden: classes.bar.has("hidden"),
+  switchOffered: !classes.button.has("hidden"),
+  switchText: button.textContent,
+  note: note.textContent,
+}}));
+""")
+
+
+def test_a_card_takes_the_composer_off_the_screen_by_default():
+    # The card is what the assistant just put in front of them, and it is the
+    # one surface that can answer every kind of question.
+    result = _mode({"acceptsText": True, "reason": ""})
+
+    assert result["composerHidden"] is True
+    assert result["barHidden"] is False
+    assert result["switchOffered"] is True
+    assert result["switchText"] == "Type your answer instead"
+
+
+def test_the_switch_brings_the_composer_back():
+    result = _mode({"acceptsText": True, "reason": "", "note": "Your message answers the question above."}, clicks=1)
+
+    assert result["composerHidden"] is False
+    assert result["switchText"] == "Back to the card"
+    assert "answers the question" in result["note"]
+
+
+def test_the_note_says_what_this_particular_line_will_do():
+    # A card with several questions and a card with one are answered very
+    # differently by one sentence.
+    result = _mode(
+        {"acceptsText": True, "reason": "", "note": "Your message answers the first question; the rest stay open."},
+        clicks=1,
+    )
+
+    assert result["note"] == "Your message answers the first question; the rest stay open."
+
+
+def test_the_switch_returns_to_the_card():
+    result = _mode({"acceptsText": True, "reason": ""}, clicks=2)
+
+    assert result["composerHidden"] is True
+    assert result["switchText"] == "Type your answer instead"
+
+
+def test_no_switch_is_offered_for_an_approval():
+    # The one thing a typed line cannot be. Reading approve or deny out of prose
+    # is a guess nobody should make on the member's behalf.
+    result = _mode({"acceptsText": False, "reason": "Approve or reject the tool above to continue."})
+
+    assert result["switchOffered"] is False
+    assert result["composerHidden"] is True
+    assert result["note"] == "Approve or reject the tool above to continue."
+
+
+def test_with_no_card_the_composer_is_simply_there():
+    result = _mode(None)
+
+    assert result["composerHidden"] is False
+    assert result["barHidden"] is True
+
+
+def test_a_new_card_starts_from_the_card_again():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    listener = js.split('document.addEventListener("portal:pending-input-changed"', 1)[1].split("});", 1)[0]
+
+    assert 'composerMode = "card"' in listener, "the last card's preference must not carry to the next"
+
+
+def test_the_card_arrives_with_an_entrance():
+    css = CSS.read_text(encoding="utf-8")
+    rules = [part.split("}", 1)[0] for part in css.split(".portal-interactive-card {")[1:]]
+
+    assert any("animation: portal-interactive-in" in rule for rule in rules)
+    assert "@keyframes portal-interactive-in" in css
+    assert ".portal-interactive-card { animation: none; }" in css, "respect prefers-reduced-motion"
+
+
+def test_the_switch_bar_keeps_the_foot_of_the_conversation_in_shape():
+    # It stands where the composer would, so the transcript does not jump when
+    # the card appears -- and the bottom reserve follows it down, giving the
+    # card the room the composer was using.
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-switch {", 1)[1].split("}", 1)[0]
+
+    assert "border-radius: 999px" in rule
+    assert "var(--portal-" in rule
+
+
+# ------------------------------- one surface at a time, and one place to type
+
+
+def test_starting_a_new_chat_takes_the_card_state_with_it():
+    """New chat wiped the list without going near this module.
+
+    The card element went, but its state stayed -- and with it a switch bar
+    still saying "Answer above to continue" about a card that was no longer on
+    screen. A welcome means an empty conversation, and an empty conversation
+    cannot be blocked on anything.
+    """
+    result = _run_node("""
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+const before = !!window.portalPendingComposerIntent();
+list.children = [];
+dispatch("portal:welcome-rendered", { agentId: "a1" });
+console.log(JSON.stringify({ before, after: !!window.portalPendingComposerIntent() }));
+""")
+
+    assert result == {"before": True, "after": False}
+
+
+def test_the_card_goes_away_while_the_composer_answers_for_it():
+    # Both surfaces feed the same question, so showing both invites answering
+    # twice -- and leaves two rounded boxes competing for the foot of the page.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "syncComposerMode")
+
+    assert "window.portalCollapsePendingCard(showingComposer)" in fn
+    # And it comes back when there is no card in play, or the next one is hidden.
+    assert "window.portalCollapsePendingCard(false)" in fn
+
+
+def test_the_switch_wears_the_composer_s_own_pill():
+    """It sits among Attach and Run settings, so it should look like them.
+
+    Height, radius, border and hover lift all come from `.composer-pill-btn`;
+    only the emphasis is added, because this is the one control the member is
+    being invited to press.
+    """
+    html = APP_HTML.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-switch-btn {", 1)[1].split("}", 1)[0]
+
+    assert 'class="composer-pill-btn portal-composer-switch-btn' in html
+    for reinvented in ("border-radius", "font:", "font-weight", "padding"):
+        assert reinvented not in rule, f"{reinvented} already comes from the shared pill"
+
+
+def test_the_capsule_hugs_its_content_rather_than_spanning_the_composer():
+    # It stands in for the composer but holds one sentence and one control;
+    # at the composer's full width it read as a second, empty box.
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-switch {", 1)[1].split("}", 1)[0]
+
+    assert "display: inline-flex" in rule
+    assert (NL + "  width:") not in rule, "a fixed width is the composer's, not this"
+    assert "max-width: min(100%, 1000px)" in rule, "but it must not outgrow the composer either"
+    assert "border-radius: 999px" in rule, "the pills' radius, not the composer's corner"
+    # Same surface, blur and shadow as the composer, so it reads as that object.
+    assert "backdrop-filter: blur(10px)" in rule
+    assert "box-shadow:" in rule
+
+
+def test_the_bar_is_a_caption_on_the_composer_rather_than_a_second_panel():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "syncComposerMode")
+    css = CSS.read_text(encoding="utf-8")
+    inline = css.split(".portal-composer-switch.is-inline {", 1)[1].split("}", 1)[0]
+
+    assert 'bar.classList.toggle("is-inline", showingComposer)' in fn
+    assert "border: 0" in inline
+    assert "background: transparent" in inline
+    assert "backdrop-filter: none" in inline
+    assert "box-shadow: none" in inline
+    # Aligned to the composer it captions, rather than hugging its own text.
+    assert "width: min(100%, 1000px)" in inline
+
+
+def test_the_composer_wrap_stacks_its_children():
+    # It was a flex row, so the bar sat *beside* the composer instead of above
+    # it -- which is what made the foot of the page look split in two.
+    css = CSS.read_text(encoding="utf-8")
+    rule = css.split(".portal-composer-wrap {", 1)[1].split("}", 1)[0]
+
+    assert "flex-direction: column" in rule
+    assert "align-items: center" in rule
+
+
+def test_collapsing_hides_the_controls_but_leaves_the_question_on_screen():
+    """The class lands on the row, and hiding the row whole took the question
+    away with the controls -- once switched to the composer, there was
+    nothing left on screen saying what was being answered. Especially in
+    history, where it had never been shown at all (see the tests below).
+    """
+    css = CSS.read_text(encoding="utf-8")
+
+    # A rule aimed at the card inside the row does nothing -- that is how this
+    # shipped hidden-but-visible the first time.
+    assert ".portal-interactive-row.is-collapsed {" not in css
+    assert ".portal-interactive-card.is-collapsed {" not in css
+
+    for selector in (
+        ".portal-interactive-row.is-collapsed .portal-question-options",
+        ".portal-interactive-row.is-collapsed .portal-question-custom",
+        ".portal-interactive-row.is-collapsed .portal-question-other-btn",
+        ".portal-interactive-row.is-collapsed .portal-interactive-actions",
+    ):
+        assert selector in css
+
+    rule = css.split(".portal-interactive-row.is-collapsed .portal-interactive-actions {", 1)[1].split("}", 1)[0]
+    assert "display: none" in rule
+
+    # The head and the question text itself are never targeted -- they stay
+    # on screen while only the controls that duplicate the composer go away.
+    assert ".portal-interactive-row.is-collapsed .portal-interactive-head" not in css
+    assert ".portal-interactive-row.is-collapsed .portal-question-text" not in css
+
+
+@pytest.mark.parametrize(
+    "questions,expected",
+    [
+        ([{"question": "Which project?", "header": "Project", "custom": True}],
+         "Answering “Which project?”."),
+        ([{"question": "Which project?", "custom": False, "options": [{"label": "EFP"}]}],
+         "Answering “Which project?” in your own words."),
+        ([{"question": "Which project?", "header": "Project", "custom": True},
+          {"question": "Which type?", "custom": True}],
+         "Answering “Which project?”. The other 1 stay open."),
+    ],
+    ids=["single", "options-only", "two"],
+)
+def test_the_note_names_the_question_it_is_answering(questions, expected):
+    # The card is off screen while the composer answers, so a note that says
+    # "the question above" is pointing at nothing -- and naming the header
+    # instead ("Answering Project") does not say what was asked either.
+    intent = _intent({"question_request": {"request_id": "q", "questions": questions}})["intent"]
+
+    assert intent["note"] == expected

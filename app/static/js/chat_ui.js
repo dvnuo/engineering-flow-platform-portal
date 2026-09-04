@@ -1587,8 +1587,79 @@ function endSingleSubmit(form, options = {}) {
   setModalFormBusyState(form, false, options);
 }
 
+// Which surface the member is using while a card is up. The card is the
+// default: it is the one that can answer every kind of question, and it is
+// what the assistant just put in front of them.
+let composerMode = "card";
+
+/**
+ * Show the card or the composer, never both competing for the same answer.
+ *
+ * A run stopped at a question continues only when that question is resolved, so
+ * both surfaces feed the same place. The switch is about which one is more
+ * comfortable to type into, not about escaping the question -- and it is only
+ * offered when the composer can actually answer, which rules out several
+ * questions at once, a list that allows no free text, and an approval.
+ */
+function syncComposerMode() {
+  const form = document.getElementById("chat-form");
+  const bar = document.getElementById("composer-mode-switch");
+  if (!form || !bar) return;
+  const note = bar.querySelector("[data-composer-switch-note]");
+  const button = bar.querySelector("[data-composer-switch]");
+
+  const intent = typeof window.portalPendingComposerIntent === "function"
+    ? window.portalPendingComposerIntent()
+    : null;
+
+  if (!intent) {
+    composerMode = "card";
+    form.classList.remove("hidden");
+    bar.classList.add("hidden");
+    bar.classList.remove("is-inline");
+    if (typeof window.portalCollapsePendingCard === "function") window.portalCollapsePendingCard(false);
+    return;
+  }
+
+  const showingComposer = intent.acceptsText && composerMode === "message";
+  form.classList.toggle("hidden", !showingComposer);
+  bar.classList.remove("hidden");
+  // With the composer up the bar is a caption on it, not a second panel below
+  // it: two stacked rounded boxes read as two places to type.
+  bar.classList.toggle("is-inline", showingComposer);
+  // And the card goes away while the composer has the floor. Both surfaces
+  // answer the same question, so showing both invites answering twice.
+  if (typeof window.portalCollapsePendingCard === "function") {
+    window.portalCollapsePendingCard(showingComposer);
+  }
+  if (note) {
+    // Names the question, since it is no longer on screen to read.
+    note.textContent = showingComposer
+      ? (intent.note || "Answering the question above.")
+      : (intent.acceptsText ? "Answer above to continue." : intent.reason);
+  }
+  if (button) {
+    button.classList.toggle("hidden", !intent.acceptsText);
+    button.textContent = showingComposer ? "Back to the card" : "Type your answer instead";
+  }
+  if (showingComposer) dom.chatInput?.focus();
+}
+
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
+
+  // While a card is up, the composer does something other than start a new
+  // turn, and saying so beats letting the member find out by sending.
+  const pendingIntent = typeof window.portalPendingComposerIntent === "function"
+    ? window.portalPendingComposerIntent()
+    : null;
+  if (pendingIntent) {
+    dom.chatInput.placeholder = pendingIntent.acceptsText
+      ? "Type your answer, or use the card above"
+      : pendingIntent.reason;
+    return;
+  }
+
   const maxPlaceholderAgentLength = 24;
   const assistantName = String(state.selectedAgentName || "").trim();
   if (!assistantName) {
@@ -1954,6 +2025,48 @@ function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
   );
 }
 
+/**
+ * The answer a member gave to a question, if this history message is one.
+ *
+ * An answer is stored as the question tool's result, and the display grouping
+ * kept only `user` and `assistant` -- so answering, by card or by composer,
+ * left no trace in the transcript at all. The member saw their reply vanish.
+ *
+ * The tool result carries the questions and the answers as data, which is what
+ * gets rendered; its `content` is a sentence written for the model.
+ */
+function questionAnswerFromMessage(message) {
+  if (!message || message.role !== "tool") return null;
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  const result = parts.map((part) => part?.tool_result).find(Boolean) || {};
+  // The legacy session view hoists `tool_name` onto the message and the part
+  // carries its own; accept either, so this does not turn on which of the two
+  // shapes a runtime happens to send.
+  if (result.tool_name !== "question" && message.tool_name !== "question") return null;
+  const source = result.metadata || result.output || {};
+  const questions = Array.isArray(source.questions) ? source.questions : [];
+  const answers = Array.isArray(source.answers) ? source.answers : [];
+  if (!answers.length) return null;
+
+  const pairs = answers
+    .map((answer, index) => {
+      const chosen = (Array.isArray(answer) ? answer : [answer])
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean);
+      if (!chosen.length) return null;
+      const question = questions[index] || {};
+      return {
+        // What was asked, not the header. A header is a one-word tag the model
+        // attaches ("Project"); reading "PROJECT: EFP" back later does not say
+        // what was being decided, which is the whole reason to keep the pair.
+        label: String(question.question || question.header || "").trim(),
+        value: chosen.join(", "),
+      };
+    })
+    .filter(Boolean);
+  return pairs.length ? { pairs, message } : null;
+}
+
 function groupSessionMessagesForDisplay(messages = []) {
   const entries = [];
   let currentAssistantGroup = null;
@@ -1961,6 +2074,14 @@ function groupSessionMessagesForDisplay(messages = []) {
 
   messages.forEach((message, index) => {
     if (!message || typeof message !== "object") return;
+    const answered = questionAnswerFromMessage(message);
+    if (answered) {
+      // An answer ends the assistant's turn the same way a message does: what
+      // follows was said with the answer in hand.
+      currentAssistantGroup = null;
+      entries.push({ type: "question_answer", ...answered });
+      return;
+    }
     if (message.role === "user") {
       currentAssistantGroup = null;
       lastUserMessageId = message.id || lastUserMessageId || "";
@@ -2036,7 +2157,7 @@ function removePendingAssistantArticle(requestId = "") {
 }
 
 function renderRecoveredPendingAssistantArticle(agentId, requestId, pendingText = "Reconnecting") {
-  if (state.selectedAgentId !== agentId || !dom.messageList || !requestId) return false;
+  if (!transcriptAcceptsLiveWrite(agentId) || !requestId) return false;
   if (findPendingAssistantArticle(requestId)) return false;
   dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestId, pendingText));
   renderIcons();
@@ -3225,7 +3346,8 @@ function findPendingAssistantArticleForTimeline(requestCtx = {}, timeline = null
 }
 
 function renderAgentTimelineForCurrentRequest(agentId, chatState, options = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList || !chatState?.inflightAgentTimeline) return;
+  const timelineSession = (options.requestCtx || chatState?.currentRequest || {}).sessionIdAtSend;
+  if (!transcriptAcceptsLiveWrite(agentId, timelineSession) || !chatState?.inflightAgentTimeline) return;
   const timeline = chatState.inflightAgentTimeline;
   const requestCtx = options.requestCtx || chatState.currentRequest || {};
   if (!agentTimelineMatchesRequest(timeline, requestCtx)) return;
@@ -3435,7 +3557,11 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const currentAgentId = socketCtx.agentId || state.selectedAgentId;
   const chatState = ensureChatState(currentAgentId);
   if (!chatState) return;
-  const currentSessionId = chatState.sessionId || socketCtx.sessionId || "";
+  // Deliberately not falling back to the socket's session: starting a new chat
+  // sets this to "" while the socket still holds the old one, and the fallback
+  // meant clearing the conversation *widened* the filter instead of narrowing
+  // it -- so replayed events from the abandoned session kept arriving.
+  const currentSessionId = chatState.sessionId || "";
   if (entry.agent_id && currentAgentId && entry.agent_id !== currentAgentId) return;
   if (entry.session_id && currentSessionId && entry.session_id !== currentSessionId) return;
   try {
@@ -4557,6 +4683,99 @@ function defaultWelcomeMessage() {
   return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
 }
 
+/* ===== transcript ownership =================================================
+ *
+ * `#message-list` had nineteen writers across three files, each painting on its
+ * own async schedule. Nothing was wrong with any one of them; what was missing
+ * was an owner. A load could paint over a streaming row, a personalization
+ * response could rewrite a welcome the history had already replaced, and the
+ * order it all happened in came down to which fetch returned first -- which is
+ * why the same load looked different at every connection speed.
+ *
+ * Everything that writes to the transcript now says which conversation it is
+ * writing for, and writes for a conversation that is no longer on screen are
+ * dropped. Two modes share that rule:
+ *
+ *   compose  - a load has every answer it needs and paints once.
+ *   patch    - a live run edits rows it owns, found by key.
+ *
+ * Patching is not a compromise here. The typewriter rewrites text at animation
+ * rate; re-rendering the list for each delta would cost the reader their scroll
+ * position and their selection. Keyed edits are the right shape for that phase.
+ * What they were missing is the same thing the load was: a way to know they are
+ * still relevant.
+ */
+const transcript = {
+  agentId: null,
+  sessionId: null,
+  generation: 0,
+  phase: "idle",
+};
+
+/**
+ * Claim the transcript for one conversation, and get the token that proves it.
+ *
+ * Any later claim supersedes this one. Holding a token is how a slow response
+ * finds out its answer is no longer wanted.
+ */
+function beginTranscript(agentId, sessionId) {
+  transcript.generation += 1;
+  transcript.agentId = agentId || null;
+  transcript.sessionId = sessionId || null;
+  transcript.phase = "loading";
+  return { agentId: transcript.agentId, sessionId: transcript.sessionId, generation: transcript.generation };
+}
+
+/** The token for whatever is on screen right now, for incremental writers. */
+function currentTranscriptToken() {
+  return { agentId: transcript.agentId, sessionId: transcript.sessionId, generation: transcript.generation };
+}
+
+function transcriptTokenIsCurrent(token) {
+  return Boolean(token) && token.generation === transcript.generation;
+}
+
+/**
+ * Run a write against the transcript, or drop it.
+ *
+ * The check is the whole point: a response that arrives after the reader has
+ * moved on has nothing useful to say about what they are looking at now.
+ */
+function writeTranscript(token, write) {
+  if (!transcriptTokenIsCurrent(token)) return false;
+  write();
+  return true;
+}
+
+/**
+ * Whether a live run may still write to the transcript.
+ *
+ * Every one of these writers already asked `state.selectedAgentId !== agentId`,
+ * which answers "is this assistant on screen" but not "is this conversation".
+ * A run streaming when the reader started a new chat, or opened another
+ * session, kept writing into whatever had replaced it.
+ *
+ * An unknown session on either side matches: a message sent into a brand new
+ * chat is streaming before its session exists, and refusing those writes would
+ * lose the first reply of every conversation.
+ */
+function transcriptAcceptsLiveWrite(agentId, sessionId = "") {
+  if (!dom.messageList) return false;
+  if (state.selectedAgentId !== agentId) return false;
+  return transcriptShowsConversation(agentId, sessionId);
+}
+
+/** Whether a live run may still touch the transcript it started writing to. */
+function transcriptShowsConversation(agentId, sessionId) {
+  if (transcript.agentId !== agentId) return false;
+  return !sessionId || !transcript.sessionId || transcript.sessionId === sessionId;
+}
+
+function markTranscriptReady(token) {
+  if (!transcriptTokenIsCurrent(token)) return;
+  transcript.phase = "ready";
+}
+
 /**
  * Hold the transcript still while the pieces of a conversation are fetched.
  *
@@ -5323,8 +5542,10 @@ async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   clearAgentUnread(agentId);
   // A placeholder rather than the welcome: the welcome is one of the possible
   // outcomes of this load, and showing it up front means showing it and then
-  // taking it away again for every assistant that has a conversation.
-  showConversationLoading();
+  // taking it away again for every assistant that has a conversation. Skipped
+  // when this assistant is already the one on screen, since then there may be
+  // nothing to load and nothing to replace it with.
+  if (!transcriptShowsConversation(agentId, "")) showConversationLoading();
 
   await setActiveNavSection("assistants", { toggleIfSame: false, updateRoute: false });
   syncAgentListSelection(previousAgentId, agentId);
@@ -5611,6 +5832,32 @@ async function submitChatForSelectedAgent() {
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
+
+  // A run stopped at a question stays stopped until the tool call it came from
+  // is resolved. Sending an ordinary message does not resolve it: the next run
+  // replays the pending call, asks again, and stops -- so the message reached
+  // the transcript, never reached the model, and the question came back. It
+  // looked like the message had been accepted.
+  const pendingIntent = typeof window.portalPendingComposerIntent === "function"
+    ? window.portalPendingComposerIntent()
+    : null;
+  if (pendingIntent) {
+    const typed = String(dom.chatInput?.value || "").trim();
+    if (!pendingIntent.acceptsText) {
+      showToast(pendingIntent.reason);
+      return;
+    }
+    if (!typed) return;
+    // The card's own free-text box does exactly this; the composer is just a
+    // roomier way to reach it.
+    if (dom.chatInput) {
+      dom.chatInput.value = "";
+      dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    resetChatInputHeight();
+    await window.portalAnswerPendingWithText(typed);
+    return;
+  }
   const localNormalizeAssistantMessageIds = (typeof normalizeAssistantMessageIds === "function")
     ? normalizeAssistantMessageIds
     : (candidate = {}) => {
@@ -6100,9 +6347,26 @@ const WAITING_FOR_USER_INPUT_REASON = "waiting_for_user_input";
  * with a `runtime_incomplete` toast for what is ordinary behaviour. The runtime
  * says so plainly in the payload's `status`; nothing was reading it.
  */
+/**
+ * Whether this payload describes a run that stopped to ask, rather than one
+ * that ended badly.
+ *
+ * Only `status` was read, and the runtime does not always spell it that way:
+ * the session metadata reports the same fact as `last_runtime_status`, and as
+ * a `blocked` completion state. Missing it meant a run parked on a question
+ * was reported to the member as `incomplete` / `runtime_incomplete`, with a
+ * toast, for what is ordinary behaviour. The pending request itself is the
+ * plainest evidence of all, so it counts too.
+ */
 function isWaitingForUserInputPayload(payload) {
-  const status = String(payload?.status || payload?.runtime_status || "").trim().toLowerCase();
-  return status === "waiting_for_question" || status === "waiting_for_permission";
+  if (!payload || typeof payload !== "object") return false;
+  const statuses = [payload.status, payload.runtime_status, payload.last_runtime_status]
+    .map((value) => String(value || "").trim().toLowerCase());
+  if (statuses.some((value) => value === "waiting_for_question" || value === "waiting_for_permission")) return true;
+  const states = [payload.completion_state, payload.completionState, payload.latest_event_state]
+    .map((value) => String(value || "").trim().toLowerCase());
+  if (states.includes("blocked")) return true;
+  return Boolean(payload.pending_question_request || payload.pending_permission_request);
 }
 
 function isCompletedFinalPayload(payload) {
@@ -6375,7 +6639,7 @@ function findUserRowForAssistantRequest(requestCtx = {}, payload = {}) {
 }
 
 function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, options = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList || !requestCtx) return null;
+  if (!transcriptAcceptsLiveWrite(agentId, requestCtx?.sessionIdAtSend) || !requestCtx) return null;
   const text = String(options.text ?? extractAssistantVisibleText(payload) ?? "");
   const displayBlocks = Array.isArray(options.displayBlocks) ? options.displayBlocks : extractAssistantDisplayBlocks(payload);
   const hasVisible = text.trim() || displayBlocks.some((block) => (typeof hasRenderableDisplayBlock === "function")
@@ -6487,7 +6751,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
 }
 
 function updatePendingAssistantStreamContent(agentId, markdownText, options = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList) return;
+  if (!transcriptAcceptsLiveWrite(agentId, options?.requestCtx?.sessionIdAtSend)) return;
   const reqId = options?.requestCtx?.clientRequestId || "";
   const article = (reqId
     ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
@@ -6564,7 +6828,7 @@ function scheduleStreamRender(article) {
 }
 
 function finalizePendingAssistantRow(agentId, requestCtx, payload) {
-  if (state.selectedAgentId !== agentId || !dom.messageList) return false;
+  if (!transcriptAcceptsLiveWrite(agentId, requestCtx?.sessionIdAtSend)) return false;
   const reqId = requestCtx?.clientRequestId || '';
   const article = (reqId
     ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
@@ -6694,7 +6958,7 @@ function renderCompletionDiagnosticFields(finalPayload = {}) {
     + `</details>`;
 }
 function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) {
-  if (state.selectedAgentId !== agentId || !dom.messageList) return false;
+  if (!transcriptAcceptsLiveWrite(agentId, requestCtx?.sessionIdAtSend)) return false;
   const reqId = requestCtx?.clientRequestId || requestCtx?.requestId || "";
   const article = (reqId
     ? dom.messageList.querySelector(`article[data-pending-assistant="1"][data-client-request-id="${CSS.escape(reqId)}"]`)
@@ -7429,7 +7693,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     setChatSubmittingForAgent(agentIdAtSend, false);
     setChatStatus("Completed without a visible assistant response. Reloading session...");
     if (finalSessionId) {
-      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
+      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
     if (typeof syncSelectedAgentChatActionControls === "function") syncSelectedAgentChatActionControls();
     return;
@@ -7534,7 +7798,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       silent: true,
     });
   }
-  if (state.selectedAgentId !== agentIdAtSend) {
+  if (!transcriptAcceptsLiveWrite(agentIdAtSend, requestCtx?.sessionIdAtSend)) {
     chatState.needsReload = true;
     markAgentUnread(agentIdAtSend, "completed");
     renderAgentList();
@@ -7546,7 +7810,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   const optimisticUserArticle = getLatestOptimisticUserArticle();
   if (!optimisticUserArticle) {
     if (finalSessionId) {
-      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true });
+      await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
     addEditButtonsToMessages();
     setChatStatus("Ready");
@@ -7693,7 +7957,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   }
   chatState.currentRequest = null;
   setChatSubmittingForAgent(agentIdAtSend, false);
-  if (state.selectedAgentId !== agentIdAtSend) {
+  if (!transcriptAcceptsLiveWrite(agentIdAtSend, requestCtx?.sessionIdAtSend)) {
     chatState.draftText = restoredMessage;
     chatState.pendingFiles = [];
     chatState.needsReload = false;
@@ -8336,7 +8600,7 @@ async function compactCurrentConversation() {
     const beforePercent = contextUsagePercent(result?.before);
     const afterSnapshot = result?.after && typeof result.after === "object" ? result.after : null;
     if (afterSnapshot) chatState.contextUsage = afterSnapshot;
-    await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId });
+    await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId, force: true });
     const refreshed = await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
     const afterPercent = contextUsagePercent(refreshed || afterSnapshot);
     const reduction = beforePercent != null && afterPercent != null
@@ -9058,6 +9322,67 @@ async function returnFromTaskDetailToSidebar() {
   }
 }
 
+/**
+ * A question and its answer, each on the side that actually said it.
+ *
+ * These used to be one row inside the member's own bubble, with the question
+ * as a label above the answer -- so the assistant's words appeared under the
+ * member's name, and the transcript read as though somebody had asked
+ * themselves which project to file in.
+ */
+function appendQuestionAnswerRows(list, pairs, { messageId = "", provisional = false } = {}) {
+  if (!list || !Array.isArray(pairs) || !pairs.length) return;
+  const asked = pairs.map((pair) => pair.label).filter(Boolean);
+
+  if (asked.length) {
+    const askedRow = document.createElement("div");
+    askedRow.className = "message-row message-row-assistant portal-asked-row";
+    if (provisional) askedRow.dataset.provisionalAnswer = "1";
+    const askedHeader = document.createElement("div");
+    askedHeader.className = "message-meta";
+    const assistant = document.createElement("span");
+    assistant.className = "message-author";
+    assistant.textContent = getSelectedAssistantDisplayName();
+    askedHeader.appendChild(assistant);
+    askedRow.appendChild(askedHeader);
+    const askedArticle = document.createElement("article");
+    askedArticle.className = "message-surface message-surface-assistant portal-asked-surface";
+    asked.forEach((question) => {
+      const line = document.createElement("div");
+      line.className = "portal-asked-question";
+      line.textContent = question;
+      askedArticle.appendChild(line);
+    });
+    askedRow.appendChild(askedArticle);
+    list.appendChild(askedRow);
+  }
+
+  const row = document.createElement("div");
+  row.className = "message-row message-row-user portal-answer-row";
+  if (messageId) row.dataset.messageId = messageId;
+  if (provisional) row.dataset.provisionalAnswer = "1";
+  const header = document.createElement("div");
+  header.className = "message-meta message-meta-user";
+  const who = document.createElement("span");
+  who.className = "message-author";
+  who.textContent = getCurrentUserDisplayName();
+  header.appendChild(who);
+  row.appendChild(header);
+  const article = document.createElement("article");
+  article.className = "message-surface message-surface-user portal-answer-surface";
+  pairs.forEach((pair) => {
+    const line = document.createElement("div");
+    line.className = "portal-answer-line";
+    const value = document.createElement("span");
+    value.className = "portal-answer-value";
+    value.textContent = pair.value;
+    line.appendChild(value);
+    article.appendChild(line);
+  });
+  row.appendChild(article);
+  list.appendChild(row);
+}
+
 function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
   if (!messages.length) { clearMessageListToWelcome(); return; }
@@ -9093,6 +9418,10 @@ function renderChatHistory(messages, metadata = {}) {
         article.appendChild(attachmentDiv);
       }
       container.appendChild(article); dom.messageList.appendChild(container);
+      return;
+    }
+    if (entry.type === "question_answer") {
+      appendQuestionAnswerRows(dom.messageList, entry.pairs, { messageId: entry.message?.id || "" });
       return;
     }
     if (entry.type === "assistant_group") {
@@ -9282,8 +9611,12 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
   }
   if (state.selectedAgentId === agentId) {
     setChatSubmittingForAgent(agentId, false);
-    setChatStatus(isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready");
-    await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false });
+    setChatStatus(
+      isWaitingForUserInputPayload(statusPayload) || isWaitingForUserInputPayload(statusPayload?.final_payload)
+        ? "Waiting for your answer."
+        : isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready",
+    );
+    await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false, force: true });
   } else if (chatState) {
     chatState.needsReload = true;
   }
@@ -9479,26 +9812,28 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   return true;
 }
 
-// Every call that renders claims a ticket. A reconnect can start several loads
-// within a second -- the socket recovering, the route applying, the agent being
-// selected -- and each one used to paint whatever it had finished fetching.
-// That is the transcript flashing between welcome, history, and back.
-const sessionRenderTickets = new Map();
-
-function claimSessionRenderTicket(agentId) {
-  const next = (sessionRenderTickets.get(agentId) || 0) + 1;
-  sessionRenderTickets.set(agentId, next);
-  return next;
-}
-
-function sessionRenderTicketIsCurrent(agentId, ticket) {
-  return sessionRenderTickets.get(agentId) === ticket;
-}
-
-async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true } = {}) {
+async function loadSessionForAgent(agentId, sessionId, { render = agentId === state.selectedAgentId, recoverRunning = true, force = false } = {}) {
   const normalized = (sessionId || "").trim();
   if (!normalized) return;
-  const renderTicket = render ? claimSessionRenderTicket(agentId) : 0;
+
+  // Asking for the conversation already on screen is not a request to draw it
+  // again. Startup asks twice -- once from the restored last assistant, once
+  // from the route being applied -- and the two are sequential, so no amount of
+  // guarding against overlap catches them. Callers that changed the
+  // conversation say `force`; callers that just want it shown do not.
+  if (
+    render
+    && !force
+    && transcript.phase === "ready"
+    && transcript.agentId === agentId
+    && transcript.sessionId === normalized
+    && !ensureChatState(agentId)?.needsReload
+  ) {
+    return;
+  }
+  // Claimed before anything is fetched, so a load that is overtaken while
+  // waiting finds out rather than painting a conversation nobody is looking at.
+  const token = render ? beginTranscript(agentId, normalized) : null;
 
   const chatState = ensureChatState(agentId);
   if (render && hasActiveChatRequestForAgent(agentId)) {
@@ -9521,7 +9856,11 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
         ? window.portalPrefetchPersonalization(agentId)
         : null,
       typeof window.portalPrefetchPendingInput === "function"
-        ? window.portalPrefetchPendingInput()
+        // Named explicitly: `updateAgentSession` does not run until the session
+        // response lands, so reading it from state here asks about whatever was
+        // open before -- nothing at all on a fresh page, which made this a
+        // no-op and put the card a round trip behind the history it belongs to.
+        ? window.portalPrefetchPendingInput(agentId, normalized)
         : null,
     ])
     : Promise.resolve([]);
@@ -9578,7 +9917,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   // Both are already in flight; this is the join, not the start.
   await companions;
 
-  if (render && !sessionRenderTicketIsCurrent(agentId, renderTicket)) {
+  if (render && !transcriptTokenIsCurrent(token)) {
     // A newer load started while this one was in flight. Its answer is the
     // fresher one, so this reply is only good for the state it already updated.
     return;
@@ -9590,6 +9929,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
       state.selectedAgentName = agent?.name || null;
     }
     renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
+    markTranscriptReady(token);
     addEditButtonsToMessages();
     if (!ensureChatState(agentId)?.currentRequest) setChatStatus(`Loaded session ${normalized}`);
     applyRecoveryNotice();
@@ -10544,6 +10884,20 @@ window.currentPortalSessionId = currentSessionIdForSelectedAgent;
 window.currentPortalAgentId = () => state.selectedAgentId;
 window.renderPortalMarkdown = renderMarkdown;
 window.adoptPortalResumedChatRun = adoptResumedChatRunForAgent;
+/**
+ * Show an answer the moment it is given.
+ *
+ * It reaches the transcript for real on the next load, as the question tool's
+ * result, but that is a whole resumed run away -- and until then the member has
+ * watched their reply disappear. Marked as provisional so the reload replaces
+ * it rather than doubling it.
+ */
+window.renderPortalAnswerNow = function renderPortalAnswerNow(pairs) {
+  if (!dom.messageList || !Array.isArray(pairs) || !pairs.length) return;
+  dom.messageList.querySelectorAll("[data-provisional-answer]").forEach((row) => row.remove());
+  appendQuestionAnswerRows(dom.messageList, pairs, { provisional: true });
+  scrollToBottom({ force: true });
+};
 window.resolvePortalSkillCommand = resolvePortalSkillCommand;
 window.ensurePortalSkillsLoaded = loadTaskSkillsForAgent;
 window.initializeManagedSettingsPanels = initializeManagedSettingsPanels;
@@ -11040,6 +11394,13 @@ async function startNewChatForSelectedAgent() {
     chatState.contextUsage = null;
   }
   removeTemporaryAssistantRows({ forceAll: true });
+  // A new conversation is a new claim on the transcript, so anything still in
+  // flight for the old one is dropped rather than painted over this.
+  beginTranscript(state.selectedAgentId, "");
+  // The old session's socket has nothing left to say here, and it asks for a
+  // replay on every reconnect -- which is how an unanswered question followed
+  // the reader into the new chat.
+  disconnectEventSocket();
   clearMessageListToWelcome();
   setChatSubmitting(false);
   resetChatInputHeight();
@@ -11146,7 +11507,7 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
         const chatState = ensureChatState(agentId);
         if (chatState?.sessionId) {
           try {
-            await loadSessionForAgent(agentId, chatState.sessionId, { render: true });
+            await loadSessionForAgent(agentId, chatState.sessionId, { render: true, force: true });
           } catch (error) {
             console.warn("Failed to reload session after restart completed", error);
           }
@@ -15429,6 +15790,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   initManagedModals();
   trackChatSurfaceSizes();
   updateChatInputPlaceholder();
+  document.addEventListener("portal:pending-input-changed", () => {
+    // A new card is a fresh choice; the last one's preference should not carry.
+    composerMode = "card";
+    updateChatInputPlaceholder();
+    syncComposerMode();
+  });
+  document.getElementById("composer-mode-switch")?.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-composer-switch]")) return;
+    composerMode = composerMode === "message" ? "card" : "message";
+    updateChatInputPlaceholder();
+    syncComposerMode();
+  });
+  syncComposerMode();
 
   // Event delegation for remove buttons (replace inline onclick)
   const previewArea = document.getElementById('input-preview-area');
