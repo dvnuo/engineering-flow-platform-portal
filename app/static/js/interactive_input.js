@@ -134,6 +134,21 @@
     return `<div class="portal-question-options" role="radiogroup" aria-label="${esc(question.question)}">${options}</div>`;
   }
 
+  /**
+   * What a lone option was really trying to say.
+   *
+   * Its label names an action rather than an answer ("Provide project and
+   * scope") and the description carries the actual instructions, so the text
+   * is worth keeping even though the control is not.
+   */
+  function loneOptionHint(question) {
+    const only = question.options.filter(hasLabel)[0];
+    if (!only) return "";
+    const description = String(only.description || "").trim();
+    const text = description || String(only.label || "").trim();
+    return text ? `<p class="portal-question-hint">${esc(text)}</p>` : "";
+  }
+
   function questionMarkup(question, index) {
     const options = optionMarkup(question, index);
     // One option is not a choice. Models reach for it to label a free-text
@@ -142,11 +157,18 @@
     // does nothing while the actual answer hides behind "Something else...".
     // Fewer than two options means the box is the answer, so show it.
     const customAlways = !options || question.options.filter(hasLabel).length < 2;
+    // ...and when the box is the answer, the lone radio is worse than useless:
+    // `collectAnswers` sends a checked option whenever the box is empty, so
+    // picking it submits "Provide project and scope" as the member's answer
+    // and the assistant has to ask all over again. Keep its words, drop the
+    // control. A question that refuses free text keeps its options, since
+    // then they are the only way to answer at all.
+    const optionsAreTheAnswer = !(customAlways && question.custom);
     return `
     <fieldset class="portal-question-item" data-question-index="${index}">
       ${question.header ? `<legend class="portal-question-header">${esc(question.header)}</legend>` : ""}
       <p class="portal-question-text">${esc(question.question)}</p>
-      ${options}
+      ${optionsAreTheAnswer ? options : loneOptionHint(question)}
       ${
         question.custom
           ? `

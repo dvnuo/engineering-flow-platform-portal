@@ -1394,3 +1394,72 @@ def test_a_parked_final_asks_for_the_card_it_may_never_be_sent():
 
     card = MODULE.read_text(encoding="utf-8")
     assert "window.portalCheckPendingInput = () => scheduleRecheck();" in card
+
+
+def _question_markup(question):
+    js = MODULE.read_text(encoding="utf-8")
+    bundle = "\n".join(
+        _extract_js_function(js, name)
+        for name in ("hasLabel", "optionMarkup", "loneOptionHint", "questionMarkup")
+    )
+    # `esc` is stood in for rather than extracted: the shared extractor
+    # cannot parse it (its regex literals carry unbalanced braces), and
+    # none of these assertions turn on escaping.
+    return _run_node(f"""
+const esc = (value) => String(value == null ? "" : value);
+{bundle}
+const html = questionMarkup({json.dumps(question)}, 0);
+console.log(JSON.stringify({{
+  radios: (html.match(/type="radio"/g) || []).length,
+  textbox: /data-question-custom-input/.test(html) && !/ disabled/.test(html),
+  hint: (/portal-question-hint">([^<]*)</.exec(html) || [null, ""])[1],
+}}));
+""")
+
+
+def test_a_lone_option_is_not_offered_as_a_choice():
+    """A radio group of one is not a choice, and this one is a trap.
+
+    A model with nothing to offer wraps a request for free text in a single
+    pseudo-option -- "Provide project and scope" -- and puts the real
+    instructions in its description. `collectAnswers` sends a checked option
+    whenever the text box is empty, so picking it submits that label as the
+    member's answer and the assistant has to ask all over again.
+    """
+    result = _question_markup({
+        "question": "Which project key should receive it?",
+        "custom": True,
+        "options": [{
+            "label": "Provide project and scope",
+            "description": "Enter a project key plus the affected AWS account, symptoms, and any deadline.",
+        }],
+    })
+
+    assert result["radios"] == 0, "the lone option must not render as a control"
+    assert result["textbox"] is True, "the box is the answer"
+    # Its words are what the model actually wanted to say; only the radio goes.
+    assert result["hint"].startswith("Enter a project key")
+
+
+def test_a_real_choice_still_gets_its_options():
+    result = _question_markup({
+        "question": "Which project?",
+        "custom": True,
+        "options": [{"label": "EFP"}, {"label": "Portal"}],
+    })
+
+    assert result["radios"] == 2
+    assert result["hint"] == ""
+
+
+def test_a_question_that_refuses_free_text_keeps_its_only_option():
+    # Then the option is the only way to answer at all; dropping it would
+    # leave a card nobody can act on.
+    result = _question_markup({
+        "question": "Approve?",
+        "custom": False,
+        "options": [{"label": "Yes"}],
+    })
+
+    assert result["radios"] == 1
+    assert result["textbox"] is False
