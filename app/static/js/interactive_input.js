@@ -40,6 +40,8 @@
     // event stream has no notion of "answered", only "already sent". Without
     // this, that redelivery remounted a card for a question already put away.
     resolved: new Set(),
+    // Set when this client answers, cleared by the first run-end that follows.
+    awaitingResumedRun: false,
   };
 
   function esc(value) {
@@ -247,6 +249,31 @@
     return identities;
   }
 
+  /**
+   * Ask the transcript to catch up once, after a run this client unblocked.
+   *
+   * Answering starts a run Portal joins rather than sends, and that join can
+   * end without the transcript learning anything -- refused before it starts,
+   * or accepted and then silent. The run happened either way, so the member is
+   * left looking at the state from before their answer until they reload.
+   *
+   * Only after an answer, only once per answer, and only when nothing is
+   * streaming, so a working turn is never interrupted by it.
+   */
+  function reconcileAfterAnsweredRun() {
+    if (!state.awaitingResumedRun) return;
+    state.awaitingResumedRun = false;
+    if (typeof window.reconcilePortalTranscript !== "function") return;
+    const agent = agentId();
+    const session = sessionId();
+    if (!agent || !session) return;
+    try {
+      Promise.resolve(window.reconcilePortalTranscript(agent, session)).catch(() => {});
+    } catch (error) {
+      /* the answer is already sent; catching up is a courtesy */
+    }
+  }
+
   /** Never show this request again, however it comes back around. */
   function markResolved(request) {
     requestIdentities(request).forEach((identity) => state.resolved.add(identity));
@@ -413,6 +440,7 @@
    * which point the work had already happened.
    */
   function followResumedRun(result) {
+    state.awaitingResumedRun = true;
     const requestId = result && (result.request_id || result.requestId);
     const agent = agentId();
     const session = sessionId();
@@ -676,6 +704,28 @@
     return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”.` };
   };
 
+  /**
+   * Whether this session is blocked on the member, card mounted or not.
+   *
+   * `portalPendingComposerIntent` needs the card in the DOM. The run that
+   * asked ends in the same burst of events that raises it, so at the moment
+   * the transcript decides what that run was, the card may not be up yet --
+   * and a parked run judged on that instant reads as one that ended badly.
+   * `state.pending` is set as soon as the request arrives, which is early
+   * enough.
+   */
+  window.portalHasPendingInput = () => Boolean(state.pending);
+
+  /**
+   * Ask the runtime what is outstanding, on request.
+   *
+   * The transcript learns that a joined run has ended from its final payload,
+   * not from the run-end events this module listens for -- those never reach
+   * it for a run it did not start. Offered so the transcript can raise the
+   * card at the one moment it knows a run stopped waiting.
+   */
+  window.portalCheckPendingInput = () => scheduleRecheck();
+
   /** Put the card away while the composer has the floor, without losing it. */
   window.portalCollapsePendingCard = (collapsed) => {
     document.getElementById(CARD_ID)?.classList.toggle("is-collapsed", Boolean(collapsed));
@@ -757,6 +807,7 @@
       // the run. Ask the runtime what is actually outstanding instead.
       if (type === "chat.completed" || type === "chat.failed") {
         scheduleRecheck();
+        reconcileAfterAnsweredRun();
       }
     });
 
