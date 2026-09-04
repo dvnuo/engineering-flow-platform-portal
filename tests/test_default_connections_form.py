@@ -361,10 +361,36 @@ def test_the_llm_api_key_is_read_only_for_the_provider_it_belongs_to():
     assert ai_platform["llm"]["ai_platform"]["auth"] == {"username": "u", "password": "pw", "usercase": "uc"}
 
 
-def test_no_provider_means_no_provider_credential():
+def test_leaving_the_provider_unset_keeps_the_shared_copilot_key():
+    # Unset resolves to GitHub Copilot, which the option now says out loud, so
+    # its key still applies. Gating on a provider being picked meant a stored
+    # key was dropped by the next save: the field is hidden by CSS rather than
+    # removed, so the browser posts it back and the builder threw it away.
     config = _seed_config_from_form(_form({"llm_api_key": "key"}))
 
-    assert "api_key" not in config.get("llm", {})
+    assert config["llm"]["api_key"] == "key"
+
+
+def test_the_copilot_key_is_ignored_while_ai_platform_is_selected():
+    config = _seed_config_from_form(
+        _form({"llm_provider": "ai_platform", "llm_api_key": "key", "llm_ai_platform_username": "u"})
+    )
+
+    assert "api_key" not in config["llm"]
+
+
+def test_an_empty_credential_is_not_displayed_as_though_it_were_set():
+    # save_seed does not drop blanks the way the form does, so a seed written
+    # through the JSON API can hold "token": "". redact_value masks by key name
+    # whatever the value is, which would print [REDACTED] for a credential
+    # nobody set -- while the summary, which checks the value, said otherwise.
+    html = _panel_html(
+        seed={"jira": {"enabled": True, "instances": [{"name": "P", "url": "https://x", "token": ""}]}}
+    )
+
+    dump = html.split("<pre")[1]
+    assert "[REDACTED]" not in dump
+    assert "token" not in dump
 
 
 def test_context_size_is_stored_as_a_number():

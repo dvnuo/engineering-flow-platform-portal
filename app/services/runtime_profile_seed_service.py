@@ -76,11 +76,21 @@ def redact_seed_for_display(seed: dict) -> dict:
 
 def _walk_mask(value: Any) -> None:
     if isinstance(value, dict):
+        # An empty credential is dropped rather than masked. redact_value masks
+        # by key name whatever the value is, so leaving "token": "" in place
+        # would print [REDACTED] for a credential nobody set -- and seed_summary,
+        # which checks the value, would say the opposite on the same screen.
+        blank_secrets: list[str] = []
         for key, child in value.items():
-            if key in SENSITIVE_FIELD_NAMES and isinstance(child, str) and child:
-                value[key] = REDACTED
-            else:
-                _walk_mask(child)
+            if key in SENSITIVE_FIELD_NAMES and isinstance(child, str):
+                if child.strip():
+                    value[key] = REDACTED
+                else:
+                    blank_secrets.append(key)
+                continue
+            _walk_mask(child)
+        for key in blank_secrets:
+            value.pop(key, None)
     elif isinstance(value, list):
         for child in value:
             _walk_mask(child)

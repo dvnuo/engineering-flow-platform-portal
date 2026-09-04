@@ -1092,7 +1092,12 @@ def _seed_config_from_form(form) -> dict:
             put(auth, key, form_key)
         if auth:
             llm["ai_platform"] = {"auth": auth}
-    elif llm.get("provider"):
+    else:
+        # Anything other than an explicit ai_platform choice resolves to
+        # GitHub Copilot -- which is what the unset option now says out loud --
+        # so its key is read here too. Gating this on a provider being picked
+        # dropped a stored key on the next save, because the field is hidden by
+        # CSS rather than removed and posts its value back either way.
         put(llm, "api_key", "llm_api_key")
     if llm:
         seed["llm"] = llm
@@ -2718,7 +2723,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "request": request,
                     "agent_id": agent_id,
                     "status_type": "error",
-                    "status_message": "This agent has no runtime profile. Runtime settings are unavailable until one is assigned.",
+                    "status_message": "Nothing was saved: this assistant has no connection profile yet.",
                     "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,
@@ -2738,7 +2743,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
                     "request": request,
                     "agent_id": agent_id,
                     "status_type": "error",
-                    "status_message": "Assigned runtime profile was not found.",
+                    "status_message": "Nothing was saved: this assistant's connection profile is no longer available.",
                     "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
                     "profile_name": None,
                     "profile_revision": None,

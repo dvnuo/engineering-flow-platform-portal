@@ -933,3 +933,21 @@ def test_templates_include_copilot_result_summary_notes():
     assert 'data-copilot-result-summary' in settings_tpl
     assert 'Saved OAuth credential present' not in runtime_tpl
     assert 'Saved OAuth credential present' not in settings_tpl
+
+
+def test_a_missing_profile_is_explained_once_and_in_one_vocabulary():
+    """The status line and the standing explanation must not disagree.
+
+    settings_panel.html renders status_message above profile_missing_message,
+    so a screen that sets both shows the same fact twice. The cleanup updated
+    one of them and left the other saying "runtime profile".
+    """
+    import re
+    from pathlib import Path
+
+    source = Path("app/web.py").read_text(encoding="utf-8")
+    settings_messages = re.findall(r'"status_message": "([^"]*)"', source)
+    missing_messages = re.findall(r'"profile_missing_message": "([^"]*)"', source)
+
+    for message in settings_messages + missing_messages:
+        assert "runtime profile" not in message.lower(), message
