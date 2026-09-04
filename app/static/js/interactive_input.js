@@ -227,10 +227,33 @@
     }
   }
 
+  /**
+   * Every identity a request answers to.
+   *
+   * The request id is derived from what is being asked, so it is stable for as
+   * long as the question is -- but only on a runtime carrying that fix. The
+   * tool call id is stable regardless: a replay of an unanswered question is a
+   * replay of the same pending call, whatever id the run mints for it. Matching
+   * on either means a redelivered question is recognised in both cases.
+   */
+  function requestIdentities(request) {
+    if (!request || typeof request !== "object") return [];
+    const metadata = request.metadata && typeof request.metadata === "object" ? request.metadata : {};
+    const id = questionRequestId(request);
+    const call = String(request.tool_call_id || metadata.tool_call_id || "");
+    const identities = [];
+    if (id) identities.push(`id:${id}`);
+    if (call) identities.push(`call:${call}`);
+    return identities;
+  }
+
   /** Never show this request again, however it comes back around. */
   function markResolved(request) {
-    const id = questionRequestId(request);
-    if (id) state.resolved.add(id);
+    requestIdentities(request).forEach((identity) => state.resolved.add(identity));
+  }
+
+  function wasResolved(request) {
+    return requestIdentities(request).some((identity) => state.resolved.has(identity));
   }
 
   function clearCard() {
@@ -339,7 +362,7 @@
   }
 
   function showQuestion(request, forSessionId) {
-    if (state.resolved.has(questionRequestId(request))) return;
+    if (wasResolved(request)) return;
     if (alreadyShowing(request, "question")) return;
     const markup = questionCardMarkup(request);
     if (!markup) return;
@@ -351,7 +374,7 @@
   }
 
   function showPermission(request, forSessionId) {
-    if (state.resolved.has(questionRequestId(request))) return;
+    if (wasResolved(request)) return;
     if (alreadyShowing(request, "permission")) return;
     state.pending = request;
     state.kind = "permission";

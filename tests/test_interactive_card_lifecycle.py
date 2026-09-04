@@ -14,6 +14,7 @@ only party that actually knows. These drive the real module under node.
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -118,7 +119,18 @@ def _run_node(body: str):
     if not node_bin:
         pytest.skip("node is not installed; skipping card lifecycle tests")
     script = f"{SHIM}\n{MODULE.read_text(encoding='utf-8')}\n(async () => {{\n{body}\n}})().catch((e) => {{ console.error(e); process.exit(1); }});"
-    result = subprocess.run([node_bin, "-e", script], check=False, text=True, capture_output=True)
+    # Run from a file rather than `node -e`: the script carries the whole
+    # module, and Windows caps a command line at ~32KB, so passing it inline
+    # fails there with "the filename or extension is too long" -- which reads
+    # as every one of these tests failing at once rather than not running.
+    with tempfile.TemporaryDirectory() as work:
+        script_path = Path(work) / "case.js"
+        script_path.write_text(script, encoding="utf-8")
+        # utf-8 explicitly: the notes carry curly quotes, and decoding node's
+        # output with the Windows locale codec fails on them.
+        result = subprocess.run(
+            [node_bin, str(script_path)], check=False, text=True, encoding="utf-8", capture_output=True
+        )
     if result.returncode != 0:
         raise AssertionError(f"node failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
     return json.loads(result.stdout.strip())
@@ -560,6 +572,49 @@ console.log(JSON.stringify({ afterResolve, afterReplay: shown() }));
 """)
 
     assert result == {"afterResolve": False, "afterReplay": False}
+
+
+def test_a_replay_that_renames_the_request_is_still_the_answered_question():
+    """A runtime without the stable-id fix mints a new request id per run.
+
+    The id is derived from the request metadata there, which carries a fresh
+    `run_id` every run, so the same unanswered question comes back wearing a
+    different id and an id-only guard lets it through. The tool call it is a
+    replay of does not change, and that is what this matches on.
+    """
+    result = _run_node("""
+const ASKED = { request_id: "q-1", tool_call_id: "call-7",
+                questions: [{ question: "Which project?", options: [{ label: "EFP" }] }] };
+setPending({ question_request: ASKED });
+runtimeEvent("question.requested", { question_request: ASKED });
+answerTheCard();
+await settle(); await settle();
+const afterAnswering = shown();
+const RENAMED = Object.assign({}, ASKED, { request_id: "q-1-run-2" });
+runtimeEvent("question.requested", { question_request: RENAMED });
+console.log(JSON.stringify({ afterAnswering, afterReplay: shown() }));
+""")
+
+    assert result == {"afterAnswering": False, "afterReplay": False}
+
+
+def test_a_genuinely_new_question_still_gets_a_card():
+    # The guard must not swallow the next question: a new ask is a new tool
+    # call, and nothing about it was answered.
+    result = _run_node("""
+const ASKED = { request_id: "q-1", tool_call_id: "call-7",
+                questions: [{ question: "Which project?", options: [{ label: "EFP" }] }] };
+setPending({ question_request: ASKED });
+runtimeEvent("question.requested", { question_request: ASKED });
+answerTheCard();
+await settle(); await settle();
+const NEXT = { request_id: "q-2", tool_call_id: "call-8",
+               questions: [{ question: "Which environment?", options: [{ label: "prod" }] }] };
+runtimeEvent("question.requested", { question_request: NEXT });
+console.log(JSON.stringify({ shown: shown() }));
+""")
+
+    assert result["shown"] is True
 
 
 def test_the_adoption_writes_the_record_the_recovery_path_looks_for():
