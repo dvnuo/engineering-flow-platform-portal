@@ -1400,7 +1400,7 @@ def _question_markup(question):
     js = MODULE.read_text(encoding="utf-8")
     bundle = "\n".join(
         _extract_js_function(js, name)
-        for name in ("hasLabel", "optionMarkup", "loneOptionHint", "questionMarkup")
+        for name in ("questionId", "hintId", "hasLabel", "optionMarkup", "loneOptionHint", "questionMarkup")
     )
     # `esc` is stood in for rather than extracted: the shared extractor
     # cannot parse it (its regex literals carry unbalanced braces), and
@@ -1412,7 +1412,10 @@ const html = questionMarkup({json.dumps(question)}, 0);
 console.log(JSON.stringify({{
   radios: (html.match(/type="radio"/g) || []).length,
   textbox: /data-question-custom-input/.test(html) && !/ disabled/.test(html),
-  hint: (/portal-question-hint">([^<]*)</.exec(html) || [null, ""])[1],
+  textarea: /<textarea[^>]*data-question-custom-input/.test(html),
+  labelledby: (/aria-labelledby="([^"]*)"/.exec(html) || [null, ""])[1],
+  describedby: (/aria-describedby="([^"]*)"/.exec(html) || [null, ""])[1],
+  hint: (/portal-question-hint"[^>]*>([^<]*)</.exec(html) || [null, ""])[1],
 }}));
 """)
 
@@ -1463,3 +1466,66 @@ def test_a_question_that_refuses_free_text_keeps_its_only_option():
 
     assert result["radios"] == 1
     assert result["textbox"] is False
+
+
+def test_the_answer_box_fits_the_answer_being_asked_for():
+    """These questions ask for several facts at once.
+
+    A project key, an environment, a symptom, a deadline -- typed into a
+    single-line input, which scrolls sideways and flattens anything pasted
+    with newlines in it.
+    """
+    result = _question_markup({
+        "question": "Which project key, and what should the review cover?",
+        "custom": True,
+        "options": [{"label": "Provide project and scope", "description": "Key plus account and symptoms."}],
+    })
+
+    assert result["textarea"] is True
+    # Labelled by the question, described by what the model actually asked for.
+    assert result["labelledby"] == "pii-q0-text"
+    assert result["describedby"] == "pii-q0-hint"
+
+
+def test_enter_sends_and_shift_enter_writes_a_line():
+    # Growing the box from one line to several took the form's implicit
+    # "Enter submits" with it, so it is handled explicitly -- the same
+    # bargain the composer makes, since these are two places to type.
+    js = MODULE.read_text(encoding="utf-8")
+    listener = js.split('list.addEventListener("keydown"', 1)[1].split("});", 1)[0]
+
+    assert 'browserEvent.key !== "Enter" || browserEvent.shiftKey' in listener
+    assert "submitQuestion(form)" in listener
+    assert "state.submitting" in listener, "a second Enter must not send twice"
+
+
+def test_enter_mid_composition_is_choosing_a_candidate_not_sending():
+    # An IME confirms a candidate with Enter. Without this the card would
+    # submit whatever half-written text was on screen.
+    js = MODULE.read_text(encoding="utf-8")
+    listener = js.split('list.addEventListener("keydown"', 1)[1].split("});", 1)[0]
+
+    assert "browserEvent.isComposing" in listener
+    assert "browserEvent.keyCode === 229" in listener
+
+
+def test_the_box_grows_but_not_past_the_card():
+    # The card body scrolls; a box that grew without limit would push
+    # "Send answer" out of reach, which this card has done before.
+    js = MODULE.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "autosizeAnswerBox")
+
+    assert 'box.style.height = "auto"' in fn, "it has to shrink again when text is deleted"
+    assert "Math.min(box.scrollHeight + borders, answerBoxCeiling(box))" in fn
+    # `border-box` plus a scrollHeight that counts padding but not borders
+    # clips the last line by 2px -- measured in a browser, and it reads as a
+    # rendering bug rather than a full box.
+    assert "box.offsetHeight - box.clientHeight" in fn
+
+    # A fixed ceiling is not enough. Measured in a browser: a 160px box inside
+    # a body whose own max-height had resolved to 144px scrolled inside a body
+    # that also scrolled, and pushed the question out of view.
+    ceiling = _extract_js_function(js, "answerBoxCeiling")
+    assert "portal-interactive-body" in ceiling
+    assert "clientHeight" in ceiling
+    assert 'list.addEventListener("input"' in js and "autosizeAnswerBox(" in js
