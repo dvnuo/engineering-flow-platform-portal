@@ -6347,9 +6347,26 @@ const WAITING_FOR_USER_INPUT_REASON = "waiting_for_user_input";
  * with a `runtime_incomplete` toast for what is ordinary behaviour. The runtime
  * says so plainly in the payload's `status`; nothing was reading it.
  */
+/**
+ * Whether this payload describes a run that stopped to ask, rather than one
+ * that ended badly.
+ *
+ * Only `status` was read, and the runtime does not always spell it that way:
+ * the session metadata reports the same fact as `last_runtime_status`, and as
+ * a `blocked` completion state. Missing it meant a run parked on a question
+ * was reported to the member as `incomplete` / `runtime_incomplete`, with a
+ * toast, for what is ordinary behaviour. The pending request itself is the
+ * plainest evidence of all, so it counts too.
+ */
 function isWaitingForUserInputPayload(payload) {
-  const status = String(payload?.status || payload?.runtime_status || "").trim().toLowerCase();
-  return status === "waiting_for_question" || status === "waiting_for_permission";
+  if (!payload || typeof payload !== "object") return false;
+  const statuses = [payload.status, payload.runtime_status, payload.last_runtime_status]
+    .map((value) => String(value || "").trim().toLowerCase());
+  if (statuses.some((value) => value === "waiting_for_question" || value === "waiting_for_permission")) return true;
+  const states = [payload.completion_state, payload.completionState, payload.latest_event_state]
+    .map((value) => String(value || "").trim().toLowerCase());
+  if (states.includes("blocked")) return true;
+  return Boolean(payload.pending_question_request || payload.pending_permission_request);
 }
 
 function isCompletedFinalPayload(payload) {
@@ -9594,7 +9611,11 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
   }
   if (state.selectedAgentId === agentId) {
     setChatSubmittingForAgent(agentId, false);
-    setChatStatus(isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready");
+    setChatStatus(
+      isWaitingForUserInputPayload(statusPayload) || isWaitingForUserInputPayload(statusPayload?.final_payload)
+        ? "Waiting for your answer."
+        : isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready",
+    );
     await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false, force: true });
   } else if (chatState) {
     chatState.needsReload = true;

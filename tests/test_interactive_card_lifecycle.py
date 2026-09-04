@@ -413,15 +413,28 @@ const cases = [
   {{ status: "waiting_for_question" }},
   {{ status: "waiting_for_permission" }},
   {{ status: "WAITING_FOR_QUESTION" }},
+  // The same fact as the session metadata spells it.
+  {{ last_runtime_status: "waiting_for_question" }},
+  {{ latest_event_state: "blocked" }},
+  {{ completion_state: "blocked" }},
+  // And the plainest evidence of all.
+  {{ pending_question_request: {{ request_id: "q-1" }} }},
+  {{ pending_permission_request: {{ request_id: "p-1" }} }},
   {{ status: "completed" }},
   {{ status: "max_iterations" }},
+  {{ completion_state: "incomplete" }},
   {{ response: "" }},
   {{}},
 ];
 console.log(JSON.stringify(cases.map(isWaitingForUserInputPayload)));
 """
 
-    assert _run_node(script) == [True, True, True, False, False, False, False]
+    assert _run_node(script) == [
+        True, True, True,
+        True, True, True,
+        True, True,
+        False, False, False, False, False,
+    ]
 
 
 def test_a_parked_run_is_not_finalised_as_incomplete():
