@@ -237,6 +237,11 @@
     document.getElementById(CARD_ID)?.remove();
     state.pending = null;
     state.kind = null;
+    // The form is gone, so nothing is being submitted through it. Only the
+    // failure path used to put this back, which left it stuck true for the
+    // life of the page after a successful answer -- and with it the recovery
+    // check that is the only thing able to clear a card shown in error.
+    state.submitting = false;
     state.session = "";
     state.draft = null;
     announcePendingChange();
@@ -405,7 +410,10 @@
         const value = String(answer ?? "").trim();
         if (!value) return null;
         const question = questions[index] || {};
-        return { label: String(question.header || question.question || "").trim(), value };
+        // The question, not its header: "PROJECT" does not tell anyone what
+        // they were asked, and this row is the only record left once the card
+        // is gone.
+        return { label: String(question.question || question.header || "").trim(), value };
       })
       .filter(Boolean);
     if (pairs.length) window.renderPortalAnswerNow(pairs);
@@ -635,7 +643,7 @@
     const questions = normalizeQuestions(state.pending);
     // Named, because typing into the composer puts the card away -- and an
     // answer box with the question out of sight is a guessing game.
-    const asked = questions.length ? (questions[0].header || questions[0].question) : "";
+    const asked = questions.length ? (questions[0].question || questions[0].header) : "";
     if (questions.length > 1) {
       return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”. The other ${questions.length - 1} stay open.` };
     }

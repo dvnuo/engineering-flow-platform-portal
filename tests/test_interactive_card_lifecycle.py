@@ -806,11 +806,13 @@ def test_an_answer_appears_in_the_transcript():
     ])
 
     assert [e["type"] for e in entries] == ["message", "question_answer"]
-    assert entries[1]["pairs"] == [{"label": "Project", "value": "EFP"}]
+    # The question, not the "Project" header it also carries.
+    assert entries[1]["pairs"] == [{"label": "Which project?", "value": "EFP"}]
 
 
 def test_the_question_is_kept_with_the_answer():
-    # A transcript read later has to say what "EFP" was an answer to.
+    # A transcript read later has to say what "EFP" was an answer to. The
+    # first here carries only a header, which is then all there is to show.
     entries = _grouped([_answer_message(
         [["EFP"], ["Bug"]],
         [{"header": "Project"}, {"question": "What issue type?"}],
@@ -1113,18 +1115,20 @@ def test_collapsing_hides_the_controls_but_leaves_the_question_on_screen():
 @pytest.mark.parametrize(
     "questions,expected",
     [
-        ([{"question": "Which project?", "header": "Project", "custom": True}], "Answering “Project”."),
+        ([{"question": "Which project?", "header": "Project", "custom": True}],
+         "Answering “Which project?”."),
         ([{"question": "Which project?", "custom": False, "options": [{"label": "EFP"}]}],
          "Answering “Which project?” in your own words."),
         ([{"question": "Which project?", "header": "Project", "custom": True},
           {"question": "Which type?", "custom": True}],
-         "Answering “Project”. The other 1 stay open."),
+         "Answering “Which project?”. The other 1 stay open."),
     ],
     ids=["single", "options-only", "two"],
 )
 def test_the_note_names_the_question_it_is_answering(questions, expected):
     # The card is off screen while the composer answers, so a note that says
-    # "the question above" is pointing at nothing.
+    # "the question above" is pointing at nothing -- and naming the header
+    # instead ("Answering Project") does not say what was asked either.
     intent = _intent({"question_request": {"request_id": "q", "questions": questions}})["intent"]
 
     assert intent["note"] == expected

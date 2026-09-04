@@ -2039,10 +2039,10 @@ function questionAnswerFromMessage(message) {
   if (!message || message.role !== "tool") return null;
   const parts = Array.isArray(message.parts) ? message.parts : [];
   const result = parts.map((part) => part?.tool_result).find(Boolean) || {};
-  // `tool_name` lives on the tool result, not the message -- the runtime's
-  // Message has no such field of its own. Checking it there always read
-  // undefined, so every answer was silently dropped from the transcript.
-  if (result.tool_name !== "question") return null;
+  // The legacy session view hoists `tool_name` onto the message and the part
+  // carries its own; accept either, so this does not turn on which of the two
+  // shapes a runtime happens to send.
+  if (result.tool_name !== "question" && message.tool_name !== "question") return null;
   const source = result.metadata || result.output || {};
   const questions = Array.isArray(source.questions) ? source.questions : [];
   const answers = Array.isArray(source.answers) ? source.answers : [];
@@ -2056,7 +2056,10 @@ function questionAnswerFromMessage(message) {
       if (!chosen.length) return null;
       const question = questions[index] || {};
       return {
-        label: String(question.header || question.question || "").trim(),
+        // What was asked, not the header. A header is a one-word tag the model
+        // attaches ("Project"); reading "PROJECT: EFP" back later does not say
+        // what was being decided, which is the whole reason to keep the pair.
+        label: String(question.question || question.header || "").trim(),
         value: chosen.join(", "),
       };
     })
