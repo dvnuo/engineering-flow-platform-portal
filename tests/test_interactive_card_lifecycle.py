@@ -1374,3 +1374,23 @@ console.log(JSON.stringify({ beforeAnswer, afterAnswer, afterSecondEnd: reconcil
 """)
 
     assert result == {"beforeAnswer": 0, "afterAnswer": 1, "afterSecondEnd": 1}
+
+
+def test_a_parked_final_asks_for_the_card_it_may_never_be_sent():
+    """A run this client joined rather than sent may never deliver the event.
+
+    The card is raised by `question.requested`, which reaches the card module
+    only through the events socket. That socket is opened per run and drops
+    every event not stamped with the run's id; a resumed run delivered none.
+    The final payload is the one moment the transcript knows the run stopped
+    to ask, so it asks the runtime what for, rather than waiting for an event.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "finalizeNonSuccessChatResponse")
+    guard = fn.index("chatRunIsWaitingForUserInput(finalPayload)")
+    waiting = fn[guard : fn.index("return;", guard)]
+
+    assert "window.portalCheckPendingInput()" in waiting
+
+    card = MODULE.read_text(encoding="utf-8")
+    assert "window.portalCheckPendingInput = () => scheduleRecheck();" in card

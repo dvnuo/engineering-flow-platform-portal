@@ -716,6 +716,16 @@
    */
   window.portalHasPendingInput = () => Boolean(state.pending);
 
+  /**
+   * Ask the runtime what is outstanding, on request.
+   *
+   * The transcript learns that a joined run has ended from its final payload,
+   * not from the run-end events this module listens for -- those never reach
+   * it for a run it did not start. Offered so the transcript can raise the
+   * card at the one moment it knows a run stopped waiting.
+   */
+  window.portalCheckPendingInput = () => scheduleRecheck();
+
   /** Put the card away while the composer has the floor, without losing it. */
   window.portalCollapsePendingCard = (collapsed) => {
     document.getElementById(CARD_ID)?.classList.toggle("is-collapsed", Boolean(collapsed));

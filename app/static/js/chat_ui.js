@@ -7144,6 +7144,16 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
     finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
     if (state.selectedAgentId === agentId) setChatStatus("Waiting for your answer.");
     cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
+    // The card is raised by a question.requested event, which a run this
+    // client joined rather than sent may never deliver. This is the moment
+    // the transcript knows the run stopped waiting; ask the runtime what for.
+    if (typeof window.portalCheckPendingInput === "function") {
+      try {
+        window.portalCheckPendingInput();
+      } catch (error) {
+        /* the card keeps its own recheck */
+      }
+    }
     return;
   }
   if (failed) {
