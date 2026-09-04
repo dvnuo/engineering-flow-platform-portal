@@ -445,9 +445,12 @@ def test_a_parked_run_is_not_finalised_as_incomplete():
     handler = _extract_js_function(js, "handleIncompleteChatStream")
 
     assert '"blocked"' in handler, "a parked run is blocked, not incomplete"
-    assert "if (reason !== WAITING_FOR_USER_INPUT_REASON)" in handler, (
+    assert "reason !== WAITING_FOR_USER_INPUT_REASON" in handler, (
         "the toast reports a problem; being asked a question is not one"
     )
+    # The reason alone is not enough: a parked run the payload does not
+    # advertise is recognised by the card, and raised a toast anyway.
+    assert "!chatRunIsWaitingForUserInput(finalPayload)" in handler
 
 
 def test_every_incomplete_branch_checks_for_a_parked_run_first():
@@ -1225,3 +1228,83 @@ def test_the_note_names_the_question_it_is_answering(questions, expected):
     intent = _intent({"question_request": {"request_id": "q", "questions": questions}})["intent"]
 
     assert intent["note"] == expected
+
+
+def test_the_incomplete_diagnostic_is_not_rendered_for_a_parked_run():
+    """`completion_state: incomplete` kept appearing for a moment after an answer.
+
+    The guard was on `handleIncompleteChatStream`, but the function that
+    actually draws the diagnostic is `finalizeNonSuccessChatResponse`, and
+    three call sites reach it directly without passing that guard. So a run
+    that had merely stopped to ask still rendered the failure block until the
+    card settled it a moment later.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "finalizeNonSuccessChatResponse")
+
+    # The check, and the return, come before anything is drawn.
+    guard = fn.index("chatRunIsWaitingForUserInput(finalPayload)")
+    assert guard < fn.index("finalizeIncompleteAssistantRow"), "the diagnostic must not be drawn"
+    assert "return;" in fn[guard:fn.index("finalizeIncompleteAssistantRow")]
+    # A real failure still reports as one, even with a question open.
+    assert "!failed && chatRunIsWaitingForUserInput" in fn, (
+        "a run that errored while a card was open is a failure, not a wait"
+    )
+
+
+def test_a_parked_run_is_recognised_without_the_card_being_mounted():
+    # The run that asked ends in the same burst of events that raises the
+    # card, so a check needing the card in the DOM is checked too early.
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "chatRunIsWaitingForUserInput")
+
+    assert "isWaitingForUserInputPayload(finalPayload)" in fn
+    assert "portalHasPendingInput" in fn
+    module = MODULE.read_text(encoding="utf-8")
+    assert "window.portalHasPendingInput = () => Boolean(state.pending);" in module, (
+        "state.pending is set when the request arrives, not when the card mounts"
+    )
+
+
+def test_the_pending_flag_follows_the_request_not_the_card():
+    result = _run_node("""
+const before = window.portalHasPendingInput();
+runtimeEvent("question.requested", { question_request: QUESTION });
+const afterAsk = window.portalHasPendingInput();
+answerTheCard();
+await settle(); await settle();
+console.log(JSON.stringify({ before, afterAsk, afterAnswer: window.portalHasPendingInput() }));
+""")
+
+    assert result == {"before": False, "afterAsk": True, "afterAnswer": False}
+
+
+def test_a_parked_run_still_finishes_the_row_it_was_streaming_into():
+    """Recognising the wait must not skip finishing the turn.
+
+    The first version of the guard returned before `finalizePendingAssistantRow`
+    and `mergeFinalStreamSnapshot`, so answering left no reply on screen at all
+    -- it was on the server, and a reload was the only way to see it -- and the
+    row it had been streaming into stayed on "Thinking" for good.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "finalizeNonSuccessChatResponse")
+    guard = fn.index("chatRunIsWaitingForUserInput(finalPayload)")
+    waiting = fn[guard : fn.index("return;", guard)]
+
+    assert "finalizePendingAssistantRow(" in waiting, "the reply has to reach the transcript"
+    assert "mergeFinalStreamSnapshot(" in waiting, "and the snapshot has to be merged"
+    # A follow-up question is a run Portal joined rather than sent, and it
+    # streams into the row without necessarily filling in `response` or
+    # `streamedText`. Judging by those alone discarded a rendered reply.
+    assert "findPendingAssistantArticle(" in waiting and "dataset?.md" in waiting, (
+        "what is already on screen counts as having been said"
+    )
+    # ...and is actually consulted, not merely computed.
+    spoken = waiting[waiting.index("const spoken") : waiting.index(";", waiting.index("const spoken"))]
+    assert "onScreen" in spoken, "the on-screen text must feed the decision"
+    assert "response: spoken" in waiting, "finishing must not blank what streaming wrote"
+    # Nothing said before the question means the card is the whole turn.
+    assert "removePendingAssistantArticle(" in waiting
+    # Still no failure diagnostic for something that did not fail.
+    assert "finalizeIncompleteAssistantRow(" not in waiting

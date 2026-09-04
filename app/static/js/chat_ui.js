@@ -7082,10 +7082,71 @@ function setTerminalCompletionStatus(finalPayload = {}) {
   else if (completionState === "empty_final") setChatStatus("Empty final response", true);
   else setChatStatus(`Finished with non-success state: ${completionState}`, true);
 }
+/**
+ * Whether the run ended because it is waiting on the member.
+ *
+ * Two ways to know, because neither is reliable alone: the payload may say so
+ * (`isWaitingForUserInputPayload`), and the interactive card knows what it was
+ * asked. A run that stops to ask reports no response text and a non-success
+ * completion state, which is indistinguishable from a run that failed unless
+ * one of these is consulted.
+ */
+function chatRunIsWaitingForUserInput(finalPayload = {}) {
+  if (isWaitingForUserInputPayload(finalPayload)) return true;
+  try {
+    return typeof window.portalHasPendingInput === "function" && window.portalHasPendingInput();
+  } catch (error) {
+    return false;
+  }
+}
+
 function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, source = "final") {
   const failureSources = new Set(["error", "stream_error", "runtime_error"]);
   const completionState = getCompletionState(finalPayload);
-  if (failureSources.has(source) || completionState === "error" || completionState === "failed") {
+  const failed = failureSources.has(source) || completionState === "error" || completionState === "failed";
+  // Every path that reports a run as incomplete comes through here, including
+  // three that reach it directly without passing `handleIncompleteChatStream`.
+  // Guarding only that one left a parked run still drawing the failure
+  // diagnostic -- `completion_state: incomplete`, `incomplete_reason:
+  // runtime_incomplete` -- for the moment before the card settled it.
+  //
+  // A genuine failure still wins: a run that errored while a question happened
+  // to be open is a failure the member needs to see, not a wait.
+  if (!failed && chatRunIsWaitingForUserInput(finalPayload)) {
+    requestCtx.streamIncomplete = true;
+    requestCtx.terminalPayload = finalPayload;
+    // Finished the same way a successful turn does, because as far as the
+    // transcript is concerned it was one: the assistant said its piece and
+    // then asked. Returning early instead left the row stuck on "Thinking"
+    // and the reply itself unwritten until the next reload.
+    // What is already on screen counts as having been said. A run adopted
+    // mid-flight -- which is every follow-up question, since answering starts
+    // a run Portal joins rather than one it sent -- streams into the row
+    // without necessarily filling in `response` or `streamedText`, so judging
+    // by those alone discarded a reply that had already been rendered.
+    const reqId = requestCtx?.clientRequestId || requestCtx?.requestId || "";
+    const onScreen = String(
+      findPendingAssistantArticle(reqId)?.querySelector(".message-markdown")?.dataset?.md || ""
+    ).trim();
+    const spoken = String(finalPayload?.response || "").trim()
+      || String(requestCtx?.streamedText || "").trim()
+      || onScreen;
+    if (spoken) {
+      // Passed back as the response so finishing the row cannot blank what
+      // streaming already put into it.
+      finalizePendingAssistantRow(agentId, requestCtx, { ...finalPayload, response: spoken });
+    } else {
+      // It asked without saying anything first. The card is the whole turn,
+      // and an empty assistant bubble above it is just noise.
+      removePendingAssistantArticle(reqId);
+    }
+    mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload);
+    finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
+    if (state.selectedAgentId === agentId) setChatStatus("Waiting for your answer.");
+    cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
+    return;
+  }
+  if (failed) {
     requestCtx.streamFailed = true;
   } else {
     requestCtx.streamIncomplete = true;
@@ -7097,6 +7158,7 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
   if (state.selectedAgentId === agentId) setTerminalCompletionStatus(finalPayload);
   cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
 }
+
 function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = false } = {}) {
   const chatState = ensureChatState(agentIdAtSend);
   clearWaitingForRuntimeEventsTimer(requestCtx);
@@ -7484,7 +7546,9 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
   };
   if (state.selectedAgentId === agentIdAtSend) {
     finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, finalPayload, reason);
-    if (reason !== WAITING_FOR_USER_INPUT_REASON) {
+    // The toast reports a problem, and it sits outside the call above, so a
+    // parked run recognised only by the card still raised one.
+    if (reason !== WAITING_FOR_USER_INPUT_REASON && !chatRunIsWaitingForUserInput(finalPayload)) {
       showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
     }
     addEditButtonsToMessages();
