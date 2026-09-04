@@ -5,10 +5,19 @@ from __future__ import annotations
 from typing import Any
 import re
 
+from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
+
 REDACTED = "[REDACTED]"
 REDACTED_PRIVATE_KEY = "[REDACTED_PRIVATE_KEY]"
 
-_SENSITIVE_KEYS = {
+# Key names whose values never belong in a log line. Deliberately broader than
+# the profile Secret's list -- it covers transport headers and anything else
+# that carries a credential past this module -- but it must never be narrower,
+# or a value the platform bothers to encrypt at rest would still be printed in
+# the clear on its way through. Unioning SENSITIVE_FIELD_NAMES in is what makes
+# that a fact rather than a habit: "access_key" was missing until it did, so a
+# BrowserStack access key read from a profile config reached logs verbatim.
+_SENSITIVE_KEYS = SENSITIVE_FIELD_NAMES | {
     "password",
     "passwd",
     "pwd",
@@ -34,6 +43,10 @@ _SENSITIVE_KEYS = {
     "openai_api_key",
     "llm_api_key",
     "proxy_password",
+    # The secret half of an AWS-style pair; it reduces to no name already
+    # listed. Its access_key_id counterpart is an identifier, not a credential,
+    # and stays readable so a log line can still say which key was used.
+    "secret_access_key",
 }
 
 _COMPACT_SENSITIVE_KEYS = {key.replace("_", "") for key in _SENSITIVE_KEYS}
@@ -42,7 +55,7 @@ _TEXT_PATTERNS = [
     (re.compile(r"(?i)(authorization\s*:\s*bearer\s+)[^\s,;]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(authorization\s*:\s*basic\s+)[^\s,;]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)(cookie\s*:\s*)[^\r\n]+"), r"\1[REDACTED]"),
-    (re.compile(r"(?i)\b(token|access_token|refresh_token|password|api_key|secret|secret_key)\s*=\s*([^&\s]+)"), r"\1=[REDACTED]"),
+    (re.compile(r"(?i)\b(token|access_token|refresh_token|password|api_key|access_key|secret|secret_key|secret_access_key)\s*=\s*([^&\s]+)"), r"\1=[REDACTED]"),
     (re.compile(r"\bghp_[A-Za-z0-9_]+"), REDACTED),
     (re.compile(r"\bgho_[A-Za-z0-9_]+"), REDACTED),
     (re.compile(r"\bghu_[A-Za-z0-9_]+"), REDACTED),

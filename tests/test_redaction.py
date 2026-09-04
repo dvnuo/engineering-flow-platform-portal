@@ -1,4 +1,13 @@
-from app.redaction import REDACTED, REDACTED_PRIVATE_KEY, redact_text, redact_value, safe_preview, sanitize_exception_message
+from app.redaction import (
+    REDACTED,
+    REDACTED_PRIVATE_KEY,
+    _is_sensitive_key,
+    redact_text,
+    redact_value,
+    safe_preview,
+    sanitize_exception_message,
+)
+from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 
 
 def test_redact_sensitive_dict_keys():
@@ -99,3 +108,52 @@ def test_safe_preview_redacts_stringified_custom_object():
     assert "abc123" not in preview
     assert "secret" not in preview
     assert "[REDACTED]" in preview
+
+
+def test_every_field_the_profile_secret_encrypts_is_redacted_from_logs():
+    """The invariant, not just the one name that was missing.
+
+    Encrypting a value into the profile Secret and then printing it verbatim on
+    the way through would make the encryption decorative. "access_key" slipped
+    through exactly that way, so the relationship between the two lists is
+    asserted rather than left to whoever edits either one next.
+    """
+    unredacted = sorted(name for name in SENSITIVE_FIELD_NAMES if not _is_sensitive_key(name))
+
+    assert unredacted == []
+
+
+def test_a_browserstack_access_key_does_not_reach_a_log_line():
+    # The shape it actually has in a runtime profile config.
+    payload = {"mobile-auto": {"browserstack": {"username": "team-bot", "access_key": "bs-live-key"}}}
+
+    redacted = redact_value(payload)
+
+    assert redacted["mobile-auto"]["browserstack"]["access_key"] == REDACTED
+    # The username is not a credential and stays readable, or the log stops
+    # being able to say which account was in play.
+    assert redacted["mobile-auto"]["browserstack"]["username"] == "team-bot"
+
+
+def test_access_key_is_matched_however_it_is_spelled():
+    payload = {"access_key": "a", "accessKey": "b", "ACCESS_KEY": "c", "secret_access_key": "d"}
+
+    redacted = redact_value(payload)
+
+    assert list(redacted.values()) == [REDACTED] * 4
+
+
+def test_an_access_key_id_stays_readable():
+    # An AWS access key id names a credential without being one; redacting it
+    # would cost a log line its only clue about which key was used.
+    assert redact_value({"access_key_id": "AKIAEXAMPLE"})["access_key_id"] == "AKIAEXAMPLE"
+
+
+def test_access_keys_are_redacted_out_of_free_text_too():
+    redacted = redact_text("access_key=bs-live-key&secret_access_key=aws-sec&region=us-east-1")
+
+    assert "bs-live-key" not in redacted
+    assert "aws-sec" not in redacted
+    # Everything that is not a credential survives, or the line stops being
+    # worth logging.
+    assert "region=us-east-1" in redacted
