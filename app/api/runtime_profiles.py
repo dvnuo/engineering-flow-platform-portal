@@ -9,9 +9,11 @@ from app.deps import get_current_user
 from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,
     redact_runtime_profile_config_for_public_response,
+    PROFILE_SOURCE_BLANK,
     RuntimeProfileCreateRequest,
     RuntimeProfileOptionResponse,
     RuntimeProfileResponse,
+    RuntimeProfileSourceResponse,
     RuntimeProfileUpdateRequest,
 )
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
@@ -31,12 +33,24 @@ def _runtime_profile_response(service: RuntimeProfileService, profile) -> Runtim
 
 @router.post("", response_model=RuntimeProfileResponse)
 def create_runtime_profile(payload: RuntimeProfileCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Create a profile, optionally starting from the admin defaults or a copy.
+
+    ``source`` decides where the config comes from; the posted ``config_json``
+    is used only for the default "blank" source, so the two can never disagree.
+    Copying is resolved server-side because responses redact credentials -- a
+    client could not assemble the copy even if it wanted to.
+    """
     service = RuntimeProfileService(db)
+    config_json = (
+        payload.config_json
+        if payload.source == PROFILE_SOURCE_BLANK
+        else service.config_json_for_source(user, payload.source)
+    )
     profile = service.create_for_user(
         user,
         name=payload.name,
         description=payload.description,
-        config_json=payload.config_json,
+        config_json=config_json,
         is_default=payload.is_default,
     )
     try:
@@ -65,6 +79,18 @@ def list_runtime_profile_options(user=Depends(get_current_user), db: Session = D
             is_default=bool(p.is_default),
         )
         for p in profiles
+    ]
+
+
+@router.get("/sources", response_model=list[RuntimeProfileSourceResponse])
+def list_runtime_profile_sources(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """What a new profile can start from: nothing, the admin defaults, or a copy.
+
+    Declared above /{profile_id} so "sources" is not read as a profile id.
+    """
+    return [
+        RuntimeProfileSourceResponse(**source)
+        for source in RuntimeProfileService(db).creation_sources(user)
     ]
 
 

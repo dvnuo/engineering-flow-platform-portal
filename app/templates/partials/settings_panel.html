@@ -18,7 +18,9 @@
       <div class="portal-inline-state is-error">{{ profile_missing_message }}</div>
     {% else %}
       <div class="portal-inline-state">
-        Runtime Profile: <strong>{{ profile_name }}</strong> · Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong>.
+        Connections: <strong>{{ profile_name }}</strong> ·
+        Shared with <strong>{{ profile_bound_agent_count }}</strong> assistant{% if profile_bound_agent_count != 1 %}s{% endif %} ·
+        Version <strong>{{ profile_revision }}</strong>
       </div>
     {% endif %}
     <div class="portal-inline-state">
@@ -27,7 +29,7 @@
       Recent failed trigger: <strong>{{ recent_failed_trigger_summary }}</strong>
     </div>
   {% else %}
-  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running agent(s); in-flight tasks will be interrupted."{% endif %} class="portal-panel-stack">
+  <form id="settings-form" hx-post="/app/agents/{{ agent_id }}/settings/save" hx-target="#tool-panel-body" hx-swap="innerHTML" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running assistant{% if profile_running_bound_agent_count != 1 %}s{% endif %}. Anything they are working on right now is interrupted."{% endif %} class="portal-panel-stack">
     <input type="hidden" name="__touch_llm" value="0" data-touch-flag="llm" />
     <input type="hidden" name="__touch_proxy" value="0" data-touch-flag="proxy" />
     <input type="hidden" name="__touch_jira" value="0" data-touch-flag="jira" />
@@ -53,8 +55,11 @@
       <div class="portal-inline-state is-error">{{ profile_missing_message }}</div>
     {% else %}
       <div class="portal-inline-state">
-        Runtime Profile: <strong>{{ profile_name }}</strong> · Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong> · Running: <strong>{{ profile_running_bound_agent_count or 0 }}</strong>{% if profile_running_bound_agent_count %} (will restart on save){% endif %}.<br />
-        Changes here update a shared RuntimeProfile and affect all bound agents. Saving restarts running bound agents to apply the new revision.
+        Connections: <strong>{{ profile_name }}</strong> ·
+        Shared with <strong>{{ profile_bound_agent_count }}</strong> assistant{% if profile_bound_agent_count != 1 %}s{% endif %}{% if profile_running_bound_agent_count %}, <strong>{{ profile_running_bound_agent_count }}</strong> running now{% endif %} ·
+        Version <strong>{{ profile_revision }}</strong><br />
+        Saving applies these settings to every assistant that uses <strong>{{ profile_name }}</strong>.
+        {% if profile_running_bound_agent_count %}Anything running now restarts, so work in progress is interrupted.{% else %}They pick the changes up the next time they start.{% endif %}
       </div>
     {% endif %}
     <div class="portal-inline-state">

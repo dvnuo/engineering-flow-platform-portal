@@ -1,15 +1,23 @@
 """Admin-maintained seed for every new member's default runtime profile.
 
-Company policy forbids the platform from configuring a member's credentials, so
-the seed deliberately carries only the *shape* of a connection — instance URLs,
-API versions, project and space keys — and never a value. A new member opens
-Connections to find Jira already pointing at the right site and only has to
-supply their own account and token.
+The seed carries the *shape* of a connection -- instance URLs, API versions,
+project and space keys -- so a new member opens Connections to find Jira
+already pointing at the right site. It may also carry credentials, and that is
+the admin's call, field by field: an organization that runs shared service
+accounts ("the CI bot's Jenkins token") can put those in once instead of asking
+every member to paste them, while a field left blank stays blank and the member
+supplies their own.
 
-That boundary is enforced here rather than left to admin discipline:
-``strip_secret_fields`` rejects a save that carries any field name the profile
-Secret treats as sensitive, reusing the same list the encryption layer uses so
-the two can never drift apart.
+Nothing is required. A seed with no credentials behaves exactly as before, so
+leaving every secret field empty keeps the platform out of the business of
+holding anyone's account.
+
+Where a seeded credential ends up: ``RuntimeProfileService`` copies the seed
+into the member's first profile, from which it reaches the runtime through the
+``efp-profile-*`` Secret with its sensitive values encrypted
+(``profile_secret_encryption``). The member owns that copy and can overwrite it
+with their own credential at any time; later edits to the seed do not reach
+profiles that already exist.
 """
 from __future__ import annotations
 
@@ -19,26 +27,19 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.platform_setting import RUNTIME_PROFILE_SEED_KEY
+from app.redaction import REDACTED, redact_value
 from app.repositories.platform_setting_repo import PlatformSettingRepository
 from app.schemas.runtime_profile import ALLOWED_RUNTIME_PROFILE_SECTIONS
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 
 
-class SeedContainsSecretError(ValueError):
-    """Raised when an admin tries to put a credential into the shared seed."""
-
-    def __init__(self, paths: list[str]) -> None:
-        self.paths = paths
-        joined = ", ".join(paths)
-        super().__init__(
-            f"The shared seed cannot contain credentials. Remove these fields: {joined}. "
-            "Members supply their own credentials in Connections."
-        )
-
-
 def find_secret_fields(value: Any, path: str = "") -> list[str]:
-    """Return dotted paths of every sensitive field carrying a non-empty value."""
+    """Return dotted paths of every sensitive field carrying a non-empty value.
+
+    Used to tell an admin which parts of the seed are shared credentials rather
+    than to police them.
+    """
 
     found: list[str] = []
     if isinstance(value, dict):
@@ -54,23 +55,45 @@ def find_secret_fields(value: Any, path: str = "") -> list[str]:
     return found
 
 
-def strip_secret_fields(config: dict) -> dict:
-    """Drop every sensitive key so a seed can never carry a credential."""
+def redact_seed_for_display(seed: dict) -> dict:
+    """Return the seed with every credential value masked.
 
-    result = copy.deepcopy(config)
-    _walk_strip(result)
-    return result
+    The form renders each secret into a password input the admin can reveal on
+    purpose; the raw "Stored value" dump has no such gesture, so it shows which
+    credentials are set without putting them on screen.
+
+    Masks exactly the fields the profile Secret encrypts, so the two agree on
+    what counts as a credential, then hands the result to the general redactor
+    for anything it recognizes by shape (a token in a URL, say).
+    """
+
+    if not isinstance(seed, dict):
+        return {}
+    masked = copy.deepcopy(seed)
+    _walk_mask(masked)
+    return redact_value(masked)
 
 
-def _walk_strip(value: Any) -> None:
+def _walk_mask(value: Any) -> None:
     if isinstance(value, dict):
-        for key in [k for k in value if k in SENSITIVE_FIELD_NAMES]:
+        # An empty credential is dropped rather than masked. redact_value masks
+        # by key name whatever the value is, so leaving "token": "" in place
+        # would print [REDACTED] for a credential nobody set -- and seed_summary,
+        # which checks the value, would say the opposite on the same screen.
+        blank_secrets: list[str] = []
+        for key, child in value.items():
+            if key in SENSITIVE_FIELD_NAMES and isinstance(child, str):
+                if child.strip():
+                    value[key] = REDACTED
+                else:
+                    blank_secrets.append(key)
+                continue
+            _walk_mask(child)
+        for key in blank_secrets:
             value.pop(key, None)
-        for child in value.values():
-            _walk_strip(child)
     elif isinstance(value, list):
         for child in value:
-            _walk_strip(child)
+            _walk_mask(child)
 
 
 class RuntimeProfileSeedService:
@@ -79,23 +102,15 @@ class RuntimeProfileSeedService:
         self.settings_repo = PlatformSettingRepository(db)
 
     def get_seed(self) -> dict:
-        """Return the stored seed, defensively stripped of anything sensitive.
+        """Return the stored seed, keyed down to the sections a profile knows."""
 
-        Stripping on read as well as write means a seed written by an older
-        build (or edited directly in the database) still cannot leak a value
-        into a member's profile.
-        """
         stored = self.settings_repo.get_value(RUNTIME_PROFILE_SEED_KEY, default={})
-        return strip_secret_fields(_only_known_sections(stored))
+        return _only_known_sections(stored)
 
     def save_seed(self, config: dict, *, updated_by_user_id: int | None = None) -> dict:
         if not isinstance(config, dict):
             raise ValueError("Seed must be a JSON object.")
-        offending = find_secret_fields(config)
-        if offending:
-            raise SeedContainsSecretError(offending)
-        cleaned = strip_secret_fields(_only_known_sections(config))
-        canonical = canonicalize_portal_runtime_profile_config(cleaned)
+        canonical = canonicalize_portal_runtime_profile_config(_only_known_sections(config))
         self.settings_repo.set_value(
             RUNTIME_PROFILE_SEED_KEY,
             canonical,
@@ -111,18 +126,39 @@ class RuntimeProfileSeedService:
         for section in ("jira", "confluence", "github", "jenkins"):
             value = seed.get(section)
             if not isinstance(value, dict):
-                summary.append({"section": section, "configured": False, "detail": "Not seeded"})
+                summary.append({"section": section, "configured": False, "credentials": False, "detail": "Not seeded"})
                 continue
+            credentials = bool(find_secret_fields(value))
+            suffix = " · shared credentials set" if credentials else ""
             instances = value.get("instances")
             if isinstance(instances, list) and instances:
                 names = [str(item.get("name") or item.get("url") or "?") for item in instances if isinstance(item, dict)]
                 summary.append(
-                    {"section": section, "configured": True, "detail": f"{len(names)} instance(s): " + ", ".join(names)}
+                    {
+                        "section": section,
+                        "configured": True,
+                        "credentials": credentials,
+                        "detail": f"{len(names)} instance(s): " + ", ".join(names) + suffix,
+                    }
                 )
             elif value.get("base_url"):
-                summary.append({"section": section, "configured": True, "detail": str(value.get("base_url"))})
+                summary.append(
+                    {
+                        "section": section,
+                        "configured": True,
+                        "credentials": credentials,
+                        "detail": str(value.get("base_url")) + suffix,
+                    }
+                )
             else:
-                summary.append({"section": section, "configured": False, "detail": "Not seeded"})
+                summary.append(
+                    {
+                        "section": section,
+                        "configured": credentials,
+                        "credentials": credentials,
+                        "detail": "Shared credentials only" if credentials else "Not seeded",
+                    }
+                )
         return summary
 
 

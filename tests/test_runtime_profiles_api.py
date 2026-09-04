@@ -246,3 +246,325 @@ def test_runtime_profile_api_redaction_does_not_remove_persisted_oauth(monkeypat
         assert saved["llm"]["oauth"]["refresh"] == "gho_R"
     finally:
         cleanup()
+
+
+# ------------------------------------------------ where a new profile starts
+
+# A profile can start from nothing, from the admin-maintained Default
+# Connections, or as a copy of one the member already has. The copy is resolved
+# on the server: API responses redact credentials, so a client could not
+# assemble one even if it tried -- and a member must never be able to name
+# someone else's profile as the source.
+
+
+def _seed(db, config):
+    from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
+
+    RuntimeProfileSeedService(db).save_seed(config)
+
+
+SHARED_SEED = {
+    "jira": {
+        "enabled": True,
+        "instances": [{"name": "Prod", "url": "https://company.atlassian.net", "token": "shared-token"}],
+    }
+}
+
+
+def test_sources_offer_the_shared_setup_only_once_an_admin_fills_it_in(monkeypatch):
+    client, db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        before = client.get("/api/runtime-profiles/sources")
+        assert before.status_code == 200
+        assert [item["value"] for item in before.json()] == ["blank"]
+
+        _seed(db, SHARED_SEED)
+
+        after = client.get("/api/runtime-profiles/sources").json()
+        # The shared setup leads, because the client selects whatever is first.
+        assert [item["value"] for item in after] == ["default_connections", "blank"]
+    finally:
+        cleanup()
+
+
+def test_the_shared_setup_is_named_and_described_for_whoever_opens_the_dialog(monkeypatch):
+    # "Default Connections" is an Administration menu nobody else has seen, so
+    # the option cannot be named after it.
+    client, db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        _seed(db, SHARED_SEED)
+        entry = next(
+            item
+            for item in client.get("/api/runtime-profiles/sources").json()
+            if item["value"] == "default_connections"
+        )
+
+        assert entry["label"] == "The setup your admin prepared"
+        assert "Default Connections" not in entry["detail"]
+        # It says which services it covers...
+        assert "Jira" in entry["detail"]
+        # ...and that this seed carries a shared token, which is what decides
+        # whether the member has anything left to do.
+        assert "Shared sign-in details are included" in entry["detail"]
+    finally:
+        cleanup()
+
+
+def test_a_shared_setup_without_credentials_says_so_instead(monkeypatch):
+    client, db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        _seed(db, {"jira": {"enabled": True, "instances": [{"name": "Prod", "url": "https://x"}]}})
+        entry = next(
+            item
+            for item in client.get("/api/runtime-profiles/sources").json()
+            if item["value"] == "default_connections"
+        )
+
+        assert "You still add your own sign-in details." in entry["detail"]
+    finally:
+        cleanup()
+
+
+def test_sources_list_the_members_own_profiles_as_copy_targets(monkeypatch):
+    client, _db, _u1, u2, set_user, cleanup = _build_client(monkeypatch)
+    try:
+        created = client.post("/api/runtime-profiles", json={"name": "Production", "description": "Team wide."})
+        assert created.status_code == 200
+
+        mine = client.get("/api/runtime-profiles/sources").json()
+        copy_entries = [item for item in mine if item["group"] == "copy"]
+        assert [item["value"] for item in copy_entries] == ["profile:" + created.json()["id"]]
+        assert copy_entries[0]["label"] == "A copy of Production"
+        # "(Default)" beside a name invites "default what?"; the answer goes in
+        # the description line, along with the fact that a copy takes secrets.
+        assert copy_entries[0]["detail"] == (
+            "Team wide. This is your current default. "
+            "An exact copy, including any sign-in details you saved."
+        )
+
+        # Another member sees their own profiles, never this one.
+        set_user(u2)
+        assert [item for item in client.get("/api/runtime-profiles/sources").json() if item["group"] == "copy"] == []
+    finally:
+        cleanup()
+
+
+def test_the_empty_option_says_what_it_leaves_you_with(monkeypatch):
+    client, _db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        entry = next(
+            item for item in client.get("/api/runtime-profiles/sources").json() if item["value"] == "blank"
+        )
+
+        assert entry["label"] == "Nothing - I'll set it up myself"
+        assert entry["detail"] == "Every service starts empty, for you to fill in."
+    finally:
+        cleanup()
+
+
+def test_creating_from_default_connections_carries_the_shared_credentials(monkeypatch):
+    client, db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        _seed(db, SHARED_SEED)
+
+        created = client.post(
+            "/api/runtime-profiles",
+            json={"name": "From defaults", "source": "default_connections"},
+        )
+        assert created.status_code == 200
+
+        # The response redacts the token, so assert against what was persisted.
+        stored = db.get(RuntimeProfile, created.json()["id"])
+        assert json.loads(stored.config_json)["jira"]["instances"][0]["token"] == "shared-token"
+
+        # And the response says a token is set without disclosing it.
+        instance = json.loads(created.json()["config_json"])["jira"]["instances"][0]
+        assert instance["token_present"] is True
+        assert "token" not in instance
+    finally:
+        cleanup()
+
+
+def test_an_existing_member_can_pick_up_default_connections_on_a_new_profile(monkeypatch):
+    # The point of the source picker: seeding used to reach only members who had
+    # no profile at all, which left everyone already signed up behind.
+    client, db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        first = client.post("/api/runtime-profiles", json={"name": "Existing"})
+        assert first.status_code == 200
+        _seed(db, SHARED_SEED)
+
+        later = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Now with defaults", "source": "default_connections"},
+        )
+        assert later.status_code == 200
+        assert "company.atlassian.net" in db.get(RuntimeProfile, later.json()["id"]).config_json
+        # The profile they already had is untouched.
+        assert json.loads(db.get(RuntimeProfile, first.json()["id"]).config_json) == {}
+    finally:
+        cleanup()
+
+
+def test_copying_a_profile_duplicates_its_config_including_credentials(monkeypatch):
+    client, db, u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        origin = RuntimeProfile(
+            owner_user_id=u1.id,
+            name="Origin",
+            config_json=json.dumps(
+                {"github": {"enabled": True, "api_token": "ghp_origin"}, "llm": {"provider": "github_copilot"}}
+            ),
+            is_default=True,
+        )
+        db.add(origin)
+        db.commit()
+        db.refresh(origin)
+
+        copied = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Copy", "source": "profile:" + origin.id},
+        )
+        assert copied.status_code == 200
+
+        stored = json.loads(db.get(RuntimeProfile, copied.json()["id"]).config_json)
+        assert stored["github"]["api_token"] == "ghp_origin"
+        assert stored["llm"]["provider"] == "github_copilot"
+
+        # A copy, not a link.
+        assert copied.json()["id"] != origin.id
+    finally:
+        cleanup()
+
+
+def test_copying_someone_elses_profile_is_not_found(monkeypatch):
+    client, db, _u1, u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        theirs = RuntimeProfile(
+            owner_user_id=u2.id,
+            name="Theirs",
+            config_json=json.dumps({"github": {"api_token": "ghp_theirs"}}),
+            is_default=True,
+        )
+        db.add(theirs)
+        db.commit()
+        db.refresh(theirs)
+
+        stolen = client.post("/api/runtime-profiles", json={"name": "Nope", "source": "profile:" + theirs.id})
+
+        assert stolen.status_code == 404
+        assert not db.query(RuntimeProfile).filter_by(name="Nope").all()
+    finally:
+        cleanup()
+
+
+def test_a_source_that_names_nothing_is_rejected(monkeypatch):
+    client, _db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        for bad in ("profile:", "somewhere-else", "profile"):
+            resp = client.post("/api/runtime-profiles", json={"name": "Bad " + bad, "source": bad})
+            assert resp.status_code == 422, bad
+    finally:
+        cleanup()
+
+
+def test_the_blank_source_still_honours_a_posted_config(monkeypatch):
+    # API clients that post a config directly must keep working; only a
+    # non-blank source takes the config out of their hands.
+    client, db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        created = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Posted", "config_json": json.dumps({"github": {"enabled": True}})},
+        )
+        assert created.status_code == 200
+        assert json.loads(db.get(RuntimeProfile, created.json()["id"]).config_json)["github"]["enabled"] is True
+    finally:
+        cleanup()
+
+
+def test_a_source_beats_a_posted_config_rather_than_merging_with_it(monkeypatch):
+    client, db, _u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        _seed(db, SHARED_SEED)
+
+        created = client.post(
+            "/api/runtime-profiles",
+            json={
+                "name": "Both",
+                "source": "default_connections",
+                "config_json": json.dumps({"github": {"enabled": True}}),
+            },
+        )
+        assert created.status_code == 200
+
+        stored = json.loads(db.get(RuntimeProfile, created.json()["id"]).config_json)
+        assert "jira" in stored
+        assert "github" not in stored
+    finally:
+        cleanup()
+
+
+def test_the_picker_never_repeats_machine_written_jargon_at_a_member(monkeypatch):
+    # Older builds described a member's first profile as "Auto-created default
+    # runtime profile". Nobody typed that, and "runtime profile" is a word from
+    # the schema, so the picker drops it rather than reading it back.
+    client, db, u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        legacy = RuntimeProfile(
+            owner_user_id=u1.id,
+            name="Default",
+            description="Auto-created default runtime profile",
+            config_json="{}",
+            is_default=True,
+        )
+        db.add(legacy)
+        db.commit()
+
+        entry = next(
+            item for item in client.get("/api/runtime-profiles/sources").json() if item["group"] == "copy"
+        )
+
+        assert "runtime profile" not in entry["detail"]
+        assert entry["detail"] == (
+            "This is your current default. An exact copy, including any sign-in details you saved."
+        )
+    finally:
+        cleanup()
+
+
+def test_a_first_profile_describes_itself_in_plain_words(monkeypatch):
+    from app.services.runtime_profile_service import RuntimeProfileService
+
+    client, db, _u1, u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        profile = RuntimeProfileService(db).ensure_user_has_default_profile(u2)
+
+        assert profile.description == "Set up for you when you joined"
+    finally:
+        cleanup()
+
+
+def test_a_description_the_member_wrote_is_kept_and_closed_off(monkeypatch):
+    # Free text, so most people leave the full stop off; without one the next
+    # sentence runs straight into it.
+    client, db, u1, _u2, _set_user, cleanup = _build_client(monkeypatch)
+    try:
+        db.add(
+            RuntimeProfile(
+                owner_user_id=u1.id,
+                name="Sandbox",
+                description="For experiments",
+                config_json="{}",
+                is_default=False,
+            )
+        )
+        db.commit()
+
+        entry = next(
+            item for item in client.get("/api/runtime-profiles/sources").json() if item["group"] == "copy"
+        )
+
+        assert entry["detail"].startswith("For experiments. An exact copy")
+    finally:
+        cleanup()

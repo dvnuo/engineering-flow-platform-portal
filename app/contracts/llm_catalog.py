@@ -22,9 +22,22 @@ COPILOT_MODELS: tuple[str, ...] = (
     "gpt-5.6-sol",
     "gpt-5.6-terra",
 )
-AI_PLATFORM_MODELS: tuple[str, ...] = ("gpt-5.4",)
+# The gateway fronts the same GPT-5.6 line, so the variants are offered here
+# too. Keeping the two lists aligned also means switching a profile between
+# providers keeps its model instead of being coerced back to 5.4 -- the
+# fallback in coerce_to_provider_model only fires for a model the target
+# provider does not have.
+AI_PLATFORM_MODELS: tuple[str, ...] = (
+    "gpt-5.4",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+)
 
 DEFAULT_COPILOT_MODEL = "gpt-5.6-terra"
+# Deliberately still 5.4: this is the repair value coerce_to_provider_model
+# falls back to for an unrecognized model, not a recommendation, and moving it
+# would silently change which model an existing broken profile lands on.
 DEFAULT_AI_PLATFORM_MODEL = "gpt-5.4"
 
 PROVIDER_MODELS: dict[str, tuple[str, ...]] = {

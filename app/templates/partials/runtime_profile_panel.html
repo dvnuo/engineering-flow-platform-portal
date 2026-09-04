@@ -27,7 +27,7 @@
 {%- endmacro %}
 
 <div class="portal-panel-stack" id="runtime-profile-panel-root" data-runtime-profile-id="{{ profile_id }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/runtime-profiles/{{ profile_id }}/test">
-  <form id="runtime-profile-form" hx-post="/app/runtime-profiles/{{ profile_id }}/save" hx-target="#workspace-detail-content" hx-swap="innerHTML" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running agent(s); in-flight tasks will be interrupted."{% endif %} class="portal-panel-stack">
+  <form id="runtime-profile-form" hx-post="/app/runtime-profiles/{{ profile_id }}/save" hx-target="#workspace-detail-content" hx-swap="innerHTML" {% if profile_running_bound_agent_count %}hx-confirm="Saving will restart {{ profile_running_bound_agent_count }} running assistant{% if profile_running_bound_agent_count != 1 %}s{% endif %}. Anything they are working on right now is interrupted."{% endif %} class="portal-panel-stack">
     <input type="hidden" name="__touch_llm" value="0" data-touch-flag="llm" />
     <input type="hidden" name="__touch_proxy" value="0" data-touch-flag="proxy" />
     <input type="hidden" name="__touch_jira" value="0" data-touch-flag="jira" />
@@ -76,14 +76,14 @@
     {% endif %}
 
     <section class="portal-panel-section">
-      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Runtime Profile Metadata</h6></div>
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>About this profile</h6></div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label"><span class="portal-form-label">Name</span><input type="text" name="name" value="{{ profile_name }}" required class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Description</span><input type="text" name="description" value="{{ profile_description }}" class="portal-form-input" /></label>
       </div>
       <div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" name="is_default" {% if profile_is_default %}checked{% endif %} /><span class="toggle-slider"></span></label><span>Default profile</span></div>
-      <div class="portal-inline-state">Revision: <strong>{{ profile_revision }}</strong> · Bound agents: <strong>{{ profile_bound_agent_count }}</strong> · Running: <strong>{{ profile_running_bound_agent_count }}</strong>{% if profile_running_bound_agent_count %} (will restart on save){% endif %}</div>
-      <div class="portal-inline-note">Changes here update a shared Runtime Profile and affect all bound agents. Saving restarts running bound agents to apply the new revision.</div>
+      <div class="portal-inline-state">Shared with <strong>{{ profile_bound_agent_count }}</strong> assistant{% if profile_bound_agent_count != 1 %}s{% endif %}{% if profile_running_bound_agent_count %}, <strong>{{ profile_running_bound_agent_count }}</strong> running now{% endif %} · Version <strong>{{ profile_revision }}</strong></div>
+      <div class="portal-inline-note">Saving applies these settings to every assistant that uses this profile. {% if profile_running_bound_agent_count %}Anything running now restarts, so work in progress is interrupted.{% else %}They pick the changes up the next time they start.{% endif %}</div>
     </section>
 
     <section class="portal-panel-section" id="profile-section-proxy" data-managed-section="proxy">
@@ -287,6 +287,6 @@
       <label class="portal-form-label"><span class="portal-form-label">Log Level</span><select name="debug_log_level" class="portal-form-select"><option value="DEBUG" {% if debug.get('log_level', 'INFO') == 'DEBUG' %}selected{% endif %}>DEBUG</option><option value="INFO" {% if debug.get('log_level', 'INFO') == 'INFO' %}selected{% endif %}>INFO</option><option value="WARNING" {% if debug.get('log_level', 'INFO') == 'WARNING' %}selected{% endif %}>WARNING</option><option value="ERROR" {% if debug.get('log_level', 'INFO') == 'ERROR' %}selected{% endif %}>ERROR</option></select></label>
     </section>
 
-    <div class="flex items-center gap-2"><button type="submit" class="portal-btn is-primary">Save Settings</button><button type="button" class="portal-btn" data-delete-runtime-profile="{{ profile_id }}">Delete Runtime Profile</button></div>
+    <div class="flex items-center gap-2"><button type="submit" class="portal-btn is-primary">Save Settings</button><button type="button" class="portal-btn" data-delete-runtime-profile="{{ profile_id }}">Delete profile</button></div>
   </form>
 </div>

@@ -302,7 +302,7 @@ def test_settings_panel_restart_confirm_is_on_form_not_button(monkeypatch):
         form_open = text[text.index('<form id="settings-form"'):]
         form_tag = form_open[: form_open.index(">") + 1]
         assert "hx-confirm=" in form_tag
-        assert "Saving will restart 1 running agent(s)" in form_tag
+        assert "Saving will restart 1 running assistant" in form_tag
 
         # The submit button carries no hx-confirm (would be a silent no-op).
         assert 'class="portal-btn is-primary">Save Settings</button>' in text
@@ -325,7 +325,7 @@ def test_runtime_profile_panel_restart_confirm_is_on_form_not_button(monkeypatch
         form_open = text[text.index('<form id="runtime-profile-form"'):]
         form_tag = form_open[: form_open.index(">") + 1]
         assert "hx-confirm=" in form_tag
-        assert "Saving will restart 1 running agent(s)" in form_tag
+        assert "Saving will restart 1 running assistant" in form_tag
 
         assert 'class="portal-btn is-primary">Save Settings</button>' in text
     finally:
@@ -384,7 +384,7 @@ def test_settings_save_unchanged_config_skips_restart(monkeypatch):
         assert first.status_code == 200
         db.refresh(rp)
         assert rp.revision == 2
-        assert "to apply revision" in first.text  # restart status message
+        assert "to apply version" in first.text  # restart status message
 
         # Re-saving the byte-identical config is a no-op: no revision bump and no
         # restart of the running agent.
@@ -392,8 +392,8 @@ def test_settings_save_unchanged_config_skips_restart(monkeypatch):
         assert second.status_code == 200
         db.refresh(rp)
         assert rp.revision == 2
-        assert "to apply revision" not in second.text
-        assert "Runtime profile saved." in second.text
+        assert "to apply version" not in second.text
+        assert "Connections saved." in second.text
     finally:
         cleanup()
 
@@ -763,7 +763,7 @@ def test_settings_panel_runtime_profile_missing_message(monkeypatch):
     try:
         resp = client.get(f"/app/agents/{agent.id}/settings/panel")
         assert resp.status_code == 200
-        assert "This agent has no runtime profile." in resp.text
+        assert "This assistant has no connection profile yet" in resp.text
         assert "Assign one from Edit Assistant first." not in resp.text
     finally:
         cleanup()
@@ -933,3 +933,21 @@ def test_templates_include_copilot_result_summary_notes():
     assert 'data-copilot-result-summary' in settings_tpl
     assert 'Saved OAuth credential present' not in runtime_tpl
     assert 'Saved OAuth credential present' not in settings_tpl
+
+
+def test_a_missing_profile_is_explained_once_and_in_one_vocabulary():
+    """The status line and the standing explanation must not disagree.
+
+    settings_panel.html renders status_message above profile_missing_message,
+    so a screen that sets both shows the same fact twice. The cleanup updated
+    one of them and left the other saying "runtime profile".
+    """
+    import re
+    from pathlib import Path
+
+    source = Path("app/web.py").read_text(encoding="utf-8")
+    settings_messages = re.findall(r'"status_message": "([^"]*)"', source)
+    missing_messages = re.findall(r'"profile_missing_message": "([^"]*)"', source)
+
+    for message in settings_messages + missing_messages:
+        assert "runtime profile" not in message.lower(), message

@@ -645,9 +645,8 @@ def _js_card_html(group):
         else ""
     )
 
-    # Default Connections reuses this builder without credential fields, so the
-    # block is now a slot. This test covers the credential-carrying branch,
-    # which is what the runtime-profile and settings panels render.
+    # Kept as a named slot because the credential block is the longest run of
+    # markup the builder emits; substituting it keeps this assertion readable.
     credential_fields = (
         '<div class="grid grid-cols-2 gap-2">'
         f'<input type="text" data-field="username" value="" placeholder="{placeholders["username"]}" class="portal-form-input" />'

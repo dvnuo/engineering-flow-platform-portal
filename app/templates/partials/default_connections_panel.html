@@ -1,6 +1,6 @@
 {% macro instance_group(group, label, fields) -%}
 <input type="hidden" name="{{ group }}_instance_count" value="{{ (seed.get(group, {}).get('instances') or [])|length }}" data-instance-count="{{ group }}" />
-<div class="space-y-2" data-instance-container="{{ group }}" data-instance-credentials="none">
+<div class="space-y-2" data-instance-container="{{ group }}">
   {% for inst in (seed.get(group, {}).get('instances') or []) %}
   <div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="{{ group }}">
     <div class="portal-settings-instance-head">
@@ -29,7 +29,7 @@
         {% else %}
         <label class="portal-form-label">
           <span class="portal-form-label">{{ field.label }}</span>
-          <input type="text" data-field="{{ field.key }}" value="{{ inst.get(field.key, '') }}" placeholder="{{ field.placeholder }}" class="portal-form-input" />
+          <input type="{{ field.type or 'text' }}" data-field="{{ field.key }}" value="{{ inst.get(field.key, '') }}" placeholder="{{ field.placeholder }}" class="portal-form-input" />
         </label>
         {% endif %}
         {% endfor %}
@@ -41,13 +41,16 @@
 <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="{{ group }}">+ Add {{ label }} instance</button>
 {%- endmacro %}
 
-<div id="default-connections-panel-root" class="portal-panel-stack" data-default-connections-panel>
+<div id="default-connections-panel-root" class="portal-panel-stack" data-default-connections-panel
+     data-copilot-auth-base="/api/copilot/auth">
   <div class="portal-panel-header">
     <div>
       <h5 class="portal-panel-title">Default connections</h5>
       <p class="portal-panel-note">
-        The connection shape every new member's profile starts from. They open Connections to
-        find these already filled in and supply only their own credentials.
+        What every new member's profile starts from. They open Connections to find these already
+        filled in, and change or complete whatever they need. Members never see the name
+        &ldquo;Default connections&rdquo; &mdash; when they create a profile this is offered as
+        <strong>The setup your admin prepared</strong>, and it is what they land on by default.
       </p>
     </div>
   </div>
@@ -58,10 +61,10 @@
   {% endif %}
 
   <div class="portal-callout is-warning">
-    <strong>No credentials here.</strong>
-    This seed is shared with every member, so it carries only where a service lives &mdash; never a
-    token, password, API key, or access key. Those fields are deliberately absent below, and a save
-    containing one is refused.
+    <strong>Credentials here are shared with every new member.</strong>
+    Fill one in only for an account meant to be shared &mdash; a service or team account. Leave it
+    blank and the field arrives empty, for the member to fill in with their own. A seeded credential
+    is copied into each new member's profile, where they can see it and change it.
   </div>
 
   <form id="default-connections-form" class="portal-panel-stack"
@@ -71,12 +74,15 @@
 
     <section class="portal-panel-section">
       <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>LLM model</h6></div>
-      <p class="portal-panel-note">Which provider and model a new member starts on. They authorize their own access.</p>
+      <p class="portal-panel-note">Which provider and model a new member starts on.</p>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
           <span class="portal-form-label">Provider</span>
           <select name="llm_provider" id="llm_provider" class="portal-form-select">
-            <option value="">No default &mdash; members choose</option>
+            {# "members choose" was a promise the code cannot keep: normalize_provider
+               maps blank to github_copilot everywhere, and a member's own panel
+               offers no blank option for them to choose from. #}
+            <option value="">Leave unset &mdash; assistants use GitHub Copilot</option>
             {% for value, label in llm_providers %}
             <option value="{{ value }}" {% if seed.get('llm', {}).get('provider') == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -93,21 +99,55 @@
         <label class="portal-form-label">
           <span class="portal-form-label">Default thinking level</span>
           <select name="llm_reasoning_effort" class="portal-form-select">
-            <option value="">Runtime default</option>
+            {% set current_effort = seed.get('llm', {}).get('reasoning_effort') or default_reasoning_effort %}
             {% for value in reasoning_efforts %}
-            <option value="{{ value }}" {% if seed.get('llm', {}).get('reasoning_effort') == value %}selected{% endif %}>{{ value|capitalize }}</option>
+            <option value="{{ value }}" {% if current_effort == value %}selected{% endif %}>{{ value|capitalize }}</option>
             {% endfor %}
           </select>
         </label>
         <label class="portal-form-label">
           <span class="portal-form-label">Default context size</span>
           <select name="llm_max_context_tokens" class="portal-form-select">
-            <option value="">Runtime default</option>
+            {% set current_context = seed.get('llm', {}).get('max_context_tokens') or default_context_size %}
             {% for value, label in context_sizes %}
-            <option value="{{ value }}" {% if seed.get('llm', {}).get('max_context_tokens') == value %}selected{% endif %}>{{ label }}</option>
+            <option value="{{ value }}" {% if current_context == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </label>
+      </div>
+
+      {# A credential belongs to the provider it authenticates against, so each block only shows --
+         and is only read on save -- while that provider is selected. With no default provider there
+         is nothing for a member to be signed in to yet. #}
+      <div class="space-y-2 hidden" data-provider-fields="github_copilot">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Shared API key</span>
+          <input type="password" name="llm_api_key" value="{{ seed.get('llm', {}).get('api_key', '') }}" placeholder="Leave blank so members authorize their own" class="portal-form-input" />
+        </label>
+        <div class="space-y-2 hidden" data-copilot-auth-root>
+          <button type="button" data-copilot-auth-button class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
+          <div class="portal-form-input hidden" data-copilot-instructions>
+            <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
+            <a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a>
+            <p class="portal-inline-note">Step 2: Copy this code</p>
+            <div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div>
+            <p class="portal-inline-note">Step 3: Click to complete authorization</p>
+            <a href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all" data-copilot-device-link>Complete Authorization</a>
+            <div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div>
+          </div>
+          <div class="portal-inline-note hidden" data-copilot-result-summary></div>
+          <div class="portal-inline-note" data-copilot-auth-help>The token belongs to whoever completes the GitHub step, so sign in as the shared account first. Portal fills the key above; click Save defaults to keep it.</div>
+        </div>
+      </div>
+
+      {% set ap_auth = seed.get('llm', {}).get('ai_platform', {}).get('auth', {}) %}
+      <div class="space-y-2 hidden" data-provider-fields="ai_platform">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="llm_ai_platform_username" value="{{ ap_auth.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="llm_ai_platform_password" value="{{ ap_auth.get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Usercase</span><input type="text" name="llm_ai_platform_usercase" value="{{ ap_auth.get('usercase', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        </div>
+        <div class="portal-inline-note">AI Platform needs all three to sign in, so seed the whole set or none of it. Connection endpoints are managed centrally by the Portal configuration.</div>
       </div>
     </section>
 
@@ -125,6 +165,9 @@
       {{ instance_group('jira', 'Jira', [
           {'key': 'name', 'label': 'Name', 'placeholder': 'Production'},
           {'key': 'url', 'label': 'URL', 'placeholder': 'https://yourcompany.atlassian.net'},
+          {'key': 'username', 'label': 'Shared account email', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared API token', 'type': 'password', 'placeholder': 'Optional'},
           {'key': 'project', 'label': 'Default project', 'placeholder': 'ABC'},
           {'key': 'api_version', 'label': 'API version', 'type': 'select', 'options': [
               {'value': '', 'label': 'Auto'}, {'value': '2', 'label': 'REST API v2'}, {'value': '3', 'label': 'REST API v3'}]}
@@ -145,6 +188,9 @@
       {{ instance_group('confluence', 'Confluence', [
           {'key': 'name', 'label': 'Name', 'placeholder': 'Wiki'},
           {'key': 'url', 'label': 'URL', 'placeholder': 'https://yourcompany.atlassian.net/wiki'},
+          {'key': 'username', 'label': 'Shared account email', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared API token', 'type': 'password', 'placeholder': 'Optional'},
           {'key': 'space', 'label': 'Default space key', 'placeholder': 'ENG'}
       ]) }}
     </section>
@@ -160,12 +206,20 @@
         </label>
         <span>Offer GitHub to members</span>
       </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">API base URL</span>
-        <input type="text" name="github_base_url" value="{{ seed.get('github', {}).get('base_url', '') }}"
-               placeholder="https://api.github.com" class="portal-form-input" />
-        <span class="portal-form-hint">Set this for GitHub Enterprise. Leave blank for public GitHub.</span>
-      </label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">API base URL</span>
+          <input type="text" name="github_base_url" value="{{ seed.get('github', {}).get('base_url', '') }}"
+                 placeholder="https://api.github.com" class="portal-form-input" />
+          <span class="portal-form-hint">Set this for GitHub Enterprise. Leave blank for public GitHub.</span>
+        </label>
+        <label class="portal-form-label">
+          <span class="portal-form-label">Shared API token</span>
+          <input type="password" name="github_api_token" value="{{ seed.get('github', {}).get('api_token', '') }}"
+                 placeholder="Optional" class="portal-form-input" />
+          <span class="portal-form-hint">A machine account's token every new member starts with. Blank means each brings their own.</span>
+        </label>
+      </div>
     </section>
 
     <section class="portal-panel-section" data-instance-group="jenkins">
@@ -181,7 +235,10 @@
       </div>
       {{ instance_group('jenkins', 'Jenkins', [
           {'key': 'name', 'label': 'Name', 'placeholder': 'CI'},
-          {'key': 'url', 'label': 'URL', 'placeholder': 'https://jenkins.example.com'}
+          {'key': 'url', 'label': 'URL', 'placeholder': 'https://jenkins.example.com'},
+          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared API token', 'type': 'password', 'placeholder': 'Optional'}
       ]) }}
     </section>
 
@@ -200,8 +257,11 @@
         <span class="portal-form-label">Proxy URL</span>
         <input type="text" name="proxy_url" value="{{ seed.get('proxy', {}).get('url', '') }}"
                placeholder="http://proxy.example.com:8080" class="portal-form-input" />
-        <span class="portal-form-hint">Any proxy credentials stay with the member.</span>
       </label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="proxy_username" value="{{ seed.get('proxy', {}).get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="proxy_password" value="{{ seed.get('proxy', {}).get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      </div>
     </section>
 
     <section class="portal-panel-section">
@@ -215,10 +275,11 @@
         </label>
         <span>Offer AWS to members</span>
       </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">Domain</span>
-        <input type="text" name="aws_domain" value="{{ seed.get('aws', {}).get('domain', '') }}" class="portal-form-input" />
-      </label>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ seed.get('aws', {}).get('domain', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="aws_username" value="{{ seed.get('aws', {}).get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="aws_password" value="{{ seed.get('aws', {}).get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      </div>
     </section>
 
     <section class="portal-panel-section">
@@ -232,7 +293,11 @@
         </label>
         <span>Offer BrowserStack to members</span>
       </div>
-      <p class="portal-panel-note">BrowserStack needs only a username and access key, both of which are the member's own, so there is nothing else to seed here.</p>
+      {% set browserstack = seed.get('mobile-auto', {}).get('browserstack', {}) %}
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="mobile_browserstack_username" value="{{ browserstack.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Shared access key</span><input type="password" name="mobile_browserstack_access_key" value="{{ browserstack.get('access_key', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      </div>
     </section>
 
     <div class="flex items-center gap-2">
@@ -243,6 +308,7 @@
 
   <details class="portal-collapsible">
     <summary class="portal-collapsible-summary"><strong>Stored value</strong></summary>
+    <p class="portal-panel-note">Credentials read <code>[REDACTED]</code> here; reveal one in its own field above.</p>
     <pre class="portal-panel-pre">{{ seed_json }}</pre>
   </details>
 </div>
