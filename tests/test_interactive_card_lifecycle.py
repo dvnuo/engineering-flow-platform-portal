@@ -1294,6 +1294,16 @@ def test_a_parked_run_still_finishes_the_row_it_was_streaming_into():
 
     assert "finalizePendingAssistantRow(" in waiting, "the reply has to reach the transcript"
     assert "mergeFinalStreamSnapshot(" in waiting, "and the snapshot has to be merged"
+    # A follow-up question is a run Portal joined rather than sent, and it
+    # streams into the row without necessarily filling in `response` or
+    # `streamedText`. Judging by those alone discarded a rendered reply.
+    assert "findPendingAssistantArticle(" in waiting and "dataset?.md" in waiting, (
+        "what is already on screen counts as having been said"
+    )
+    # ...and is actually consulted, not merely computed.
+    spoken = waiting[waiting.index("const spoken") : waiting.index(";", waiting.index("const spoken"))]
+    assert "onScreen" in spoken, "the on-screen text must feed the decision"
+    assert "response: spoken" in waiting, "finishing must not blank what streaming wrote"
     # Nothing said before the question means the card is the whole turn.
     assert "removePendingAssistantArticle(" in waiting
     # Still no failure diagnostic for something that did not fail.

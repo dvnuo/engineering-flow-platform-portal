@@ -7119,14 +7119,26 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
     // transcript is concerned it was one: the assistant said its piece and
     // then asked. Returning early instead left the row stuck on "Thinking"
     // and the reply itself unwritten until the next reload.
+    // What is already on screen counts as having been said. A run adopted
+    // mid-flight -- which is every follow-up question, since answering starts
+    // a run Portal joins rather than one it sent -- streams into the row
+    // without necessarily filling in `response` or `streamedText`, so judging
+    // by those alone discarded a reply that had already been rendered.
+    const reqId = requestCtx?.clientRequestId || requestCtx?.requestId || "";
+    const onScreen = String(
+      findPendingAssistantArticle(reqId)?.querySelector(".message-markdown")?.dataset?.md || ""
+    ).trim();
     const spoken = String(finalPayload?.response || "").trim()
-      || String(requestCtx?.streamedText || "").trim();
+      || String(requestCtx?.streamedText || "").trim()
+      || onScreen;
     if (spoken) {
+      // Passed back as the response so finishing the row cannot blank what
+      // streaming already put into it.
       finalizePendingAssistantRow(agentId, requestCtx, { ...finalPayload, response: spoken });
     } else {
       // It asked without saying anything first. The card is the whole turn,
       // and an empty assistant bubble above it is just noise.
-      removePendingAssistantArticle(requestCtx?.clientRequestId || requestCtx?.requestId || "");
+      removePendingAssistantArticle(reqId);
     }
     mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload);
     finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
