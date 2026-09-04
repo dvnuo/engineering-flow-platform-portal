@@ -1308,3 +1308,69 @@ def test_a_parked_run_still_finishes_the_row_it_was_streaming_into():
     assert "removePendingAssistantArticle(" in waiting
     # Still no failure diagnostic for something that did not fail.
     assert "finalizeIncompleteAssistantRow(" not in waiting
+
+
+def test_an_answer_that_cannot_be_followed_still_shows_its_outcome():
+    """`recoverInflightChatRunForAgent` gives up quietly in three places.
+
+    No candidate record, a run status it cannot read, and a run already being
+    followed -- each returns false to a transcript still showing the state from
+    before the answer, with no pending row to show for it. The work happens
+    either way, so the member sees nothing until they reload.
+
+    A follow-up question makes the first likely: the session says "waiting" for
+    the whole turn, and `inflightChatRunCandidate` clears the record it was
+    about to use on exactly that signal.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    adopt = _extract_js_function(js, "adoptResumedChatRunForAgent")
+
+    assert "const followed = await recoverInflightChatRunForAgent(" in adopt, (
+        "the result has to be looked at; it used to be returned unread"
+    )
+    assert "if (followed) return true;" in adopt
+    assert "reloadTranscriptAfterUnfollowedRun(agentId, sessionId)" in adopt
+
+
+def test_the_fallback_does_not_pull_the_transcript_from_a_live_run():
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "reloadTranscriptAfterUnfollowedRun")
+
+    # Something is being followed after all: leave it alone.
+    assert "if (chatState?.currentRequest) return false;" in fn
+    # Not the open conversation: mark it, do not paint over what is.
+    assert "needsReload = true" in fn
+    assert "loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false, force: true })" in fn
+
+
+def test_the_transcript_catches_up_once_after_an_answered_run():
+    """The follow can end without the transcript learning anything.
+
+    Refused before it starts, or accepted and then silent -- the run happened
+    either way, and the member was left looking at the state from before their
+    answer until they reloaded. Only after an answer, only once, and only when
+    nothing is streaming.
+    """
+    result = _run_node("""
+let reconciled = 0;
+globalThis.window.reconcilePortalTranscript = () => { reconciled += 1; return Promise.resolve(true); };
+globalThis.window.adoptPortalResumedChatRun = () => Promise.resolve(true);
+globalThis.fetch = () => Promise.resolve({
+  ok: true, status: 202,
+  text: () => Promise.resolve(JSON.stringify({ ok: true, session_id: "s1", request_id: "chat-resume-1" })),
+});
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+// A run ending before any answer is nobody's business.
+runtimeEvent("chat.completed", {});
+const beforeAnswer = reconciled;
+answerTheCard();
+await settle(); await settle();
+runtimeEvent("chat.completed", {});
+const afterAnswer = reconciled;
+// ...and only once for that answer.
+runtimeEvent("chat.completed", {});
+console.log(JSON.stringify({ beforeAnswer, afterAnswer, afterSecondEnd: reconciled }));
+""")
+
+    assert result == {"beforeAnswer": 0, "afterAnswer": 1, "afterSecondEnd": 1}
