@@ -9305,6 +9305,67 @@ async function returnFromTaskDetailToSidebar() {
   }
 }
 
+/**
+ * A question and its answer, each on the side that actually said it.
+ *
+ * These used to be one row inside the member's own bubble, with the question
+ * as a label above the answer -- so the assistant's words appeared under the
+ * member's name, and the transcript read as though somebody had asked
+ * themselves which project to file in.
+ */
+function appendQuestionAnswerRows(list, pairs, { messageId = "", provisional = false } = {}) {
+  if (!list || !Array.isArray(pairs) || !pairs.length) return;
+  const asked = pairs.map((pair) => pair.label).filter(Boolean);
+
+  if (asked.length) {
+    const askedRow = document.createElement("div");
+    askedRow.className = "message-row message-row-assistant portal-asked-row";
+    if (provisional) askedRow.dataset.provisionalAnswer = "1";
+    const askedHeader = document.createElement("div");
+    askedHeader.className = "message-meta";
+    const assistant = document.createElement("span");
+    assistant.className = "message-author";
+    assistant.textContent = getSelectedAssistantDisplayName();
+    askedHeader.appendChild(assistant);
+    askedRow.appendChild(askedHeader);
+    const askedArticle = document.createElement("article");
+    askedArticle.className = "message-surface message-surface-assistant portal-asked-surface";
+    asked.forEach((question) => {
+      const line = document.createElement("div");
+      line.className = "portal-asked-question";
+      line.textContent = question;
+      askedArticle.appendChild(line);
+    });
+    askedRow.appendChild(askedArticle);
+    list.appendChild(askedRow);
+  }
+
+  const row = document.createElement("div");
+  row.className = "message-row message-row-user portal-answer-row";
+  if (messageId) row.dataset.messageId = messageId;
+  if (provisional) row.dataset.provisionalAnswer = "1";
+  const header = document.createElement("div");
+  header.className = "message-meta message-meta-user";
+  const who = document.createElement("span");
+  who.className = "message-author";
+  who.textContent = getCurrentUserDisplayName();
+  header.appendChild(who);
+  row.appendChild(header);
+  const article = document.createElement("article");
+  article.className = "message-surface message-surface-user portal-answer-surface";
+  pairs.forEach((pair) => {
+    const line = document.createElement("div");
+    line.className = "portal-answer-line";
+    const value = document.createElement("span");
+    value.className = "portal-answer-value";
+    value.textContent = pair.value;
+    line.appendChild(value);
+    article.appendChild(line);
+  });
+  row.appendChild(article);
+  list.appendChild(row);
+}
+
 function renderChatHistory(messages, metadata = {}) {
   if (!dom.messageList) return;
   if (!messages.length) { clearMessageListToWelcome(); return; }
@@ -9343,35 +9404,7 @@ function renderChatHistory(messages, metadata = {}) {
       return;
     }
     if (entry.type === "question_answer") {
-      const row = document.createElement("div");
-      row.className = "message-row message-row-user portal-answer-row";
-      if (entry.message?.id) row.dataset.messageId = entry.message.id;
-      const header = document.createElement("div");
-      header.className = "message-meta message-meta-user";
-      const who = document.createElement("span");
-      who.className = "message-author";
-      who.textContent = getCurrentUserDisplayName();
-      header.appendChild(who);
-      row.appendChild(header);
-      const article = document.createElement("article");
-      article.className = "message-surface message-surface-user portal-answer-surface";
-      entry.pairs.forEach((pair) => {
-        const line = document.createElement("div");
-        line.className = "portal-answer-line";
-        if (pair.label) {
-          const label = document.createElement("span");
-          label.className = "portal-answer-label";
-          label.textContent = pair.label;
-          line.appendChild(label);
-        }
-        const value = document.createElement("span");
-        value.className = "portal-answer-value";
-        value.textContent = pair.value;
-        line.appendChild(value);
-        article.appendChild(line);
-      });
-      row.appendChild(article);
-      dom.messageList.appendChild(row);
+      appendQuestionAnswerRows(dom.messageList, entry.pairs, { messageId: entry.message?.id || "" });
       return;
     }
     if (entry.type === "assistant_group") {
@@ -10841,35 +10874,7 @@ window.adoptPortalResumedChatRun = adoptResumedChatRunForAgent;
 window.renderPortalAnswerNow = function renderPortalAnswerNow(pairs) {
   if (!dom.messageList || !Array.isArray(pairs) || !pairs.length) return;
   dom.messageList.querySelectorAll("[data-provisional-answer]").forEach((row) => row.remove());
-  const row = document.createElement("div");
-  row.className = "message-row message-row-user portal-answer-row";
-  row.dataset.provisionalAnswer = "1";
-  const header = document.createElement("div");
-  header.className = "message-meta message-meta-user";
-  const who = document.createElement("span");
-  who.className = "message-author";
-  who.textContent = getCurrentUserDisplayName();
-  header.appendChild(who);
-  row.appendChild(header);
-  const article = document.createElement("article");
-  article.className = "message-surface message-surface-user portal-answer-surface";
-  pairs.forEach((pair) => {
-    const line = document.createElement("div");
-    line.className = "portal-answer-line";
-    if (pair.label) {
-      const label = document.createElement("span");
-      label.className = "portal-answer-label";
-      label.textContent = pair.label;
-      line.appendChild(label);
-    }
-    const value = document.createElement("span");
-    value.className = "portal-answer-value";
-    value.textContent = pair.value;
-    line.appendChild(value);
-    article.appendChild(line);
-  });
-  row.appendChild(article);
-  dom.messageList.appendChild(row);
+  appendQuestionAnswerRows(dom.messageList, pairs, { provisional: true });
   scrollToBottom({ force: true });
 };
 window.resolvePortalSkillCommand = resolvePortalSkillCommand;

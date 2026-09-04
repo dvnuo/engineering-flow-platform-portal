@@ -922,7 +922,32 @@ def test_the_provisional_row_is_replaced_rather_than_doubled():
     fn = js.split("window.renderPortalAnswerNow = function renderPortalAnswerNow(", 1)[1].split("\n};", 1)[0]
 
     assert 'querySelectorAll("[data-provisional-answer]")' in fn
-    assert 'row.dataset.provisionalAnswer = "1"' in fn
+    assert "provisional: true" in fn
+    # Both rows carry the mark, or a reload would replace the answer and leave
+    # the question it answered stranded above it.
+    rows = _extract_js_function(js, "appendQuestionAnswerRows")
+    assert rows.count('dataset.provisionalAnswer = "1"') == 2
+
+
+def test_the_question_stays_on_the_assistants_side_of_the_transcript():
+    """It was rendered inside the member's own bubble, under their name.
+
+    That reads as the member asking themselves which project to file in --
+    the question is the assistant's, and only the answer is theirs.
+    """
+    js = CHAT_UI.read_text(encoding="utf-8")
+    fn = _extract_js_function(js, "appendQuestionAnswerRows")
+    asked, answered = fn.split("const row = document.createElement", 1)
+
+    assert "message-row-assistant" in asked
+    assert "message-surface-assistant" in asked
+    assert "getSelectedAssistantDisplayName()" in asked
+
+    assert "message-row-user" in answered
+    assert "message-surface-user" in answered
+    assert "getCurrentUserDisplayName()" in answered
+    # The answer bubble carries the answer alone now.
+    assert "portal-answer-label" not in answered
 
 
 # ------------------------------ the card takes the composer's place, by default

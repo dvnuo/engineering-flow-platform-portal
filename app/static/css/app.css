@@ -5441,13 +5441,18 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   min-width: 0;
 }
 
-/* The question this answers, so a transcript read later still makes sense.
-   It is a sentence rather than a tag now, so it wraps and is not shouted in
-   caps -- a whole question set in letter-spaced uppercase reads as a banner. */
-.portal-answer-label {
-  font-size: 0.78rem;
-  font-weight: 500;
-  opacity: 0.75;
+/* What the assistant asked, kept on the assistant's side of the transcript.
+   The accent edge is the card's, so a question that was answered still reads
+   as the same thing the card was, rather than as ordinary prose. */
+.portal-asked-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--portal-accent);
+}
+
+.portal-asked-question {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
