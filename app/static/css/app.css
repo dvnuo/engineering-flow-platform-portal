@@ -5533,6 +5533,26 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   line-height: 1.5;
 }
 
+/* The answer to one of these is usually several facts at once -- a project
+   key, an environment, a symptom -- so the box grows with what is typed
+   instead of scrolling a single line sideways. The cap is enforced in JS;
+   this only stops the browser's own resize handle fighting it. */
+.portal-question-textarea {
+  resize: none;
+  overflow-y: auto;
+  min-height: 40px;
+  line-height: 1.45;
+  font: inherit;
+}
+
+/* What a lone option said, once its radio is gone: instructions, not a choice. */
+.portal-question-hint {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--portal-text-muted);
+  line-height: 1.45;
+}
+
 .portal-question-options { display: flex; flex-direction: column; gap: 6px; }
 
 .portal-question-option {

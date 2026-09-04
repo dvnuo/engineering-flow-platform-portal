@@ -134,25 +134,60 @@
     return `<div class="portal-question-options" role="radiogroup" aria-label="${esc(question.question)}">${options}</div>`;
   }
 
+  /**
+   * What a lone option was really trying to say.
+   *
+   * Its label names an action rather than an answer ("Provide project and
+   * scope") and the description carries the actual instructions, so the text
+   * is worth keeping even though the control is not.
+   */
+  function loneOptionHint(question, index) {
+    const only = question.options.filter(hasLabel)[0];
+    if (!only) return "";
+    const description = String(only.description || "").trim();
+    const text = description || String(only.label || "").trim();
+    return text ? `<p class="portal-question-hint" id="${hintId(index)}">${esc(text)}</p>` : "";
+  }
+
+  function questionId(index) {
+    return `pii-q${index}-text`;
+  }
+
+  function hintId(index) {
+    return `pii-q${index}-hint`;
+  }
+
   function questionMarkup(question, index) {
     const options = optionMarkup(question, index);
     // One option is not a choice. Models reach for it to label a free-text
     // answer -- "Provide ticket details" with the real instructions in the
     // description -- and a radio group of one turns that into a control that
     // does nothing while the actual answer hides behind "Something else...".
-    // Fewer than two options means the box is the answer, so show it.
+    // Fewer than two options means the box is the answer -- when there is a
+    // box at all. A question with `custom: false` has none, and then the lone
+    // option is the only way to answer, which is why the gate below tests both.
     const customAlways = !options || question.options.filter(hasLabel).length < 2;
+    // ...and when the box is the answer, the lone radio is worse than useless:
+    // `collectAnswers` sends a checked option whenever the box is empty, so
+    // picking it submits "Provide project and scope" as the member's answer
+    // and the assistant has to ask all over again. Keep its words, drop the
+    // control. A question that refuses free text keeps its options, since
+    // then they are the only way to answer at all.
+    const optionsAreTheAnswer = !(customAlways && question.custom);
     return `
     <fieldset class="portal-question-item" data-question-index="${index}">
       ${question.header ? `<legend class="portal-question-header">${esc(question.header)}</legend>` : ""}
-      <p class="portal-question-text">${esc(question.question)}</p>
-      ${options}
+      <p class="portal-question-text" id="${questionId(index)}">${esc(question.question)}</p>
+      ${optionsAreTheAnswer ? options : loneOptionHint(question, index)}
       ${
         question.custom
           ? `
       <div class="portal-question-custom${customAlways ? "" : " hidden"}" data-question-custom>
-        <input type="text" class="portal-form-input" data-question-custom-input
-               placeholder="Type your answer" ${customAlways ? "" : "disabled"} />
+        <textarea class="portal-form-input portal-question-textarea" data-question-custom-input
+                  rows="1" placeholder="Type your answer"
+                  aria-labelledby="${questionId(index)}"
+                  ${!optionsAreTheAnswer && loneOptionHint(question, index) ? `aria-describedby="${hintId(index)}"` : ""}
+                  ${customAlways ? "" : "disabled"}></textarea>
       </div>
       ${
         customAlways
@@ -219,6 +254,39 @@
       </div>
       <p class="portal-interactive-msg" data-interactive-msg></p>
     </form>`;
+  }
+
+  // Capped rather than unbounded: the card body scrolls, and a box that grows
+  // past it pushes "Send answer" out of reach -- the failure this card already
+  // had once.
+  const ANSWER_BOX_MAX_PX = 160;
+  // What the body keeps for the question above the box. Below this the box
+  // stops growing and scrolls itself, which is the lesser of the two evils.
+  const ANSWER_BOX_MIN_PX = 44;
+
+  /**
+   * The tallest this box may get before it is doing harm.
+   *
+   * A fixed ceiling is not enough: the body has its own max-height, computed
+   * from the space above the composer, and on a short window that is smaller
+   * than the ceiling. Measured, a 160px box inside a 144px body scrolled
+   * inside a body that also scrolled, and pushed the question out of view.
+   */
+  function answerBoxCeiling(box) {
+    const body = box.closest(".portal-interactive-body");
+    const available = body ? body.clientHeight - ANSWER_BOX_MIN_PX : 0;
+    if (!available || available <= 0) return ANSWER_BOX_MAX_PX;
+    return Math.max(ANSWER_BOX_MIN_PX, Math.min(ANSWER_BOX_MAX_PX, available));
+  }
+
+  function autosizeAnswerBox(box) {
+    if (!box || box.tagName !== "TEXTAREA") return;
+    box.style.height = "auto";
+    // The box is `border-box`, and `scrollHeight` counts padding but not
+    // borders, so assigning it straight back loses them and clips the last
+    // line by 2px -- enough to hide a descender and look like a rendering bug.
+    const borders = box.offsetHeight - box.clientHeight;
+    box.style.height = `${Math.min(box.scrollHeight + borders, answerBoxCeiling(box))}px`;
   }
 
   function announcePendingChange() {
@@ -322,7 +390,7 @@
 
     announcePendingChange();
 
-    const firstInput = row.querySelector("input");
+    const firstInput = row.querySelector("input, textarea");
     if (firstInput) window.setTimeout(() => firstInput.focus(), 40);
   }
 
@@ -871,7 +939,25 @@
     });
 
     list.addEventListener("input", (browserEvent) => {
-      if (browserEvent.target.closest(`#${CARD_ID}`)) snapshotAnswers();
+      if (!browserEvent.target.closest(`#${CARD_ID}`)) return;
+      autosizeAnswerBox(browserEvent.target.closest("[data-question-custom-input]"));
+      snapshotAnswers();
+    });
+
+    // The box grew from one line to several, which took the form's implicit
+    // "Enter submits" with it. Enter sends, Shift+Enter writes a line -- the
+    // composer's bargain, so the two places to type behave the same.
+    list.addEventListener("keydown", (browserEvent) => {
+      if (browserEvent.key !== "Enter" || browserEvent.shiftKey) return;
+      const box = browserEvent.target.closest("[data-question-custom-input]");
+      if (!box || !box.closest(`#${CARD_ID}`)) return;
+      // Mid-composition Enter is choosing a candidate, not sending. Without
+      // this it would submit whatever half-written text was on screen.
+      if (browserEvent.isComposing || browserEvent.keyCode === 229) return;
+      const form = box.closest('[data-interactive-kind="question"]');
+      if (!form || state.submitting) return;
+      browserEvent.preventDefault();
+      submitQuestion(form);
     });
 
     // Selecting an option should retire a half-typed free-text answer.
