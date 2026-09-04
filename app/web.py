@@ -14,6 +14,8 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.contracts.llm_catalog import (
     CONTEXT_SIZE_PRESETS,
+    DEFAULT_CONTEXT_SIZE,
+    DEFAULT_REASONING_EFFORT,
     PROVIDER_MODELS,
     SUPPORTED_REASONING_EFFORTS,
 )
@@ -1911,6 +1913,13 @@ def _default_connections_context(
         "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
         "reasoning_efforts": list(SUPPORTED_REASONING_EFFORTS),
         "context_sizes": [(size, f"{size // 1000}K" if size < 1_000_000 else "1M") for size in CONTEXT_SIZE_PRESETS],
+        # Neither field offers "leave it to the runtime" any more, because a
+        # member's own panel rejects a blank one and would overwrite it on their
+        # first save. Something has to be selected when nothing is stored, and
+        # it must be the managed default rather than whichever value sorts
+        # first -- otherwise saving an untouched form pins everyone to Low/64K.
+        "default_reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "default_context_size": DEFAULT_CONTEXT_SIZE,
         "status_type": status_type,
         "status_message": status_message,
     }

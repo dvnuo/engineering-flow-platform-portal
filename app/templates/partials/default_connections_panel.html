@@ -79,7 +79,10 @@
         <label class="portal-form-label">
           <span class="portal-form-label">Provider</span>
           <select name="llm_provider" id="llm_provider" class="portal-form-select">
-            <option value="">No default &mdash; members choose</option>
+            {# "members choose" was a promise the code cannot keep: normalize_provider
+               maps blank to github_copilot everywhere, and a member's own panel
+               offers no blank option for them to choose from. #}
+            <option value="">Leave unset &mdash; assistants use GitHub Copilot</option>
             {% for value, label in llm_providers %}
             <option value="{{ value }}" {% if seed.get('llm', {}).get('provider') == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -96,18 +99,18 @@
         <label class="portal-form-label">
           <span class="portal-form-label">Default thinking level</span>
           <select name="llm_reasoning_effort" class="portal-form-select">
-            <option value="">Runtime default</option>
+            {% set current_effort = seed.get('llm', {}).get('reasoning_effort') or default_reasoning_effort %}
             {% for value in reasoning_efforts %}
-            <option value="{{ value }}" {% if seed.get('llm', {}).get('reasoning_effort') == value %}selected{% endif %}>{{ value|capitalize }}</option>
+            <option value="{{ value }}" {% if current_effort == value %}selected{% endif %}>{{ value|capitalize }}</option>
             {% endfor %}
           </select>
         </label>
         <label class="portal-form-label">
           <span class="portal-form-label">Default context size</span>
           <select name="llm_max_context_tokens" class="portal-form-select">
-            <option value="">Runtime default</option>
+            {% set current_context = seed.get('llm', {}).get('max_context_tokens') or default_context_size %}
             {% for value, label in context_sizes %}
-            <option value="{{ value }}" {% if seed.get('llm', {}).get('max_context_tokens') == value %}selected{% endif %}>{{ label }}</option>
+            <option value="{{ value }}" {% if current_context == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </label>

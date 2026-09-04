@@ -11,6 +11,7 @@ arrives empty for the member to complete. The tests below hold that line: a
 blank credential must not reach the stored value as "", or "nobody seeded one"
 and "somebody seeded an empty one" would look the same.
 """
+import re
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.datastructures import FormData
 
+from app.contracts.llm_catalog import DEFAULT_CONTEXT_SIZE, DEFAULT_REASONING_EFFORT
 from app.db import Base
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
@@ -102,12 +104,59 @@ def test_instance_containers_no_longer_opt_out_of_credential_fields():
     assert 'data-field="token"' in js
 
 
-def test_provider_offers_an_unset_option():
-    # Without it the browser preselects whichever provider sorts first, so
-    # saving an untouched form silently pins every new member to it.
+def test_provider_offers_an_unset_option_without_promising_a_choice():
+    # The blank is worth keeping -- it leaves the profile's provider unwritten.
+    # The old label called it "No default - members choose", which the code
+    # cannot honour: normalize_provider maps blank to github_copilot on every
+    # path, and a member's own panel has no blank option to choose from.
     html = _panel_html()
 
-    assert '<option value="">No default' in html
+    assert '<option value="">' in html
+    assert "members choose" not in html
+    assert "assistants use GitHub Copilot" in html
+
+
+def _select_options(html: str, name: str) -> list[tuple[str, bool]]:
+    block = re.search(rf'name="{name}"[^>]*>(.*?)</select>', html, re.S)
+    assert block, name
+    return [
+        (value, bool(is_selected))
+        for value, is_selected, _label in re.findall(
+            r'<option value="([^"]*)"[^>]*?(selected)?>([^<]*)</option>', block.group(1)
+        )
+    ]
+
+
+def test_thinking_level_and_context_size_no_longer_offer_a_blank():
+    # A member's own panel rejects a blank one outright ("must be a supported
+    # value") and has no blank option, so anything seeded blank was overwritten
+    # the first time they saved. Offering a choice the next screen refuses is
+    # worse than not offering it.
+    html = _panel_html()
+
+    for name in ("llm_reasoning_effort", "llm_max_context_tokens"):
+        assert "" not in [value for value, _ in _select_options(html, name)], name
+
+
+def test_an_unseeded_form_preselects_the_managed_default_not_the_first_option():
+    # Without an explicit selection the browser takes whichever option comes
+    # first -- Low and 64K -- so saving an untouched panel would quietly pin
+    # every new member to the smallest settings.
+    html = _panel_html()
+
+    assert [value for value, chosen in _select_options(html, "llm_reasoning_effort") if chosen] == [
+        DEFAULT_REASONING_EFFORT
+    ]
+    assert [value for value, chosen in _select_options(html, "llm_max_context_tokens") if chosen] == [
+        str(DEFAULT_CONTEXT_SIZE)
+    ]
+
+
+def test_a_seeded_thinking_level_and_context_size_come_back_selected():
+    html = _panel_html(seed={"llm": {"reasoning_effort": "low", "max_context_tokens": 64000}})
+
+    assert [value for value, chosen in _select_options(html, "llm_reasoning_effort") if chosen] == ["low"]
+    assert [value for value, chosen in _select_options(html, "llm_max_context_tokens") if chosen] == ["64000"]
 
 
 def test_saved_values_come_back_into_the_form():
