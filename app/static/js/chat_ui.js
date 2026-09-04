@@ -10702,6 +10702,9 @@ const managedProviderModels = {
   ],
   ai_platform: [
     { value: "gpt-5.4", label: "GPT-5.4" },
+    { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+    { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+    { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
   ],
 };
 

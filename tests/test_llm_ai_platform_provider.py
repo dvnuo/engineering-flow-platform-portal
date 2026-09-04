@@ -52,14 +52,23 @@ def test_normalize_provider_whitelist():
 
 
 def test_coerce_model_is_provider_aware():
+    # An unrecognized model still repairs to the provider's fallback...
     assert coerce_to_provider_model("ai_platform", "gpt-9-bogus") == "gpt-5.4"
+    # ...but one both providers offer now survives the switch between them.
+    assert coerce_to_provider_model("ai_platform", "gpt-5.6-terra") == "gpt-5.6-terra"
+    # gpt-5.5 is Copilot-only, so it is still coerced away.
+    assert coerce_to_provider_model("ai_platform", "gpt-5.5") == "gpt-5.4"
     assert coerce_to_provider_model("ai_platform", "gpt-5.4") == "gpt-5.4"
     assert coerce_to_provider_model("github_copilot", "gpt-5.4") == "gpt-5.4"
     assert coerce_to_provider_model("github_copilot", "bogus") == "gpt-5.6-terra"
 
 
 def test_managed_models_per_provider():
-    assert RuntimeProfileService.managed_model_values_for_provider("ai_platform") == ("gpt-5.4",)
+    ai_platform = RuntimeProfileService.managed_model_values_for_provider("ai_platform")
+    assert "gpt-5.4" in ai_platform
+    # The gateway fronts the same 5.6 line, so a member switching provider is
+    # not quietly moved off the model they picked.
+    assert "gpt-5.6-terra" in ai_platform
     assert "gpt-5.6-terra" in RuntimeProfileService.managed_model_values_for_provider("github_copilot")
     assert RuntimeProfileService.normalize_managed_llm_provider("ai-platform") == "ai_platform"
     assert RuntimeProfileService.normalize_managed_llm_provider("") == ""
