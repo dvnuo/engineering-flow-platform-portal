@@ -360,9 +360,9 @@ def test_login_page_offers_sso_and_copilot_with_enterprise_step(monkeypatch):
     assert "Sign in with GitHub Copilot" in response.text
     assert "Assistants use your GitHub Copilot models." in response.text
     assert "portal-auth-method-icon--github" in response.text
-    # Copilot is listed first and recommended; SSO folds away once Copilot is chosen.
+    # Copilot is listed first; SSO folds away once Copilot is chosen.
     assert response.text.index("data-copilot-choose") < response.text.index("data-sso-choice")
-    assert "Recommended" in response.text
+    assert "Recommended" not in response.text
     assert "data-copilot-back" in response.text
     assert 'href="https://github.com/enterprises/acme/sso"' in response.text
     assert "login_copilot.js" in response.text

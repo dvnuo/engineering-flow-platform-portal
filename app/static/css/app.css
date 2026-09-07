@@ -5988,7 +5988,6 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .portal-auth-method-title { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; font-weight: 600; font-size: .95rem; line-height: 1.3; }
 .portal-auth-method-hint { font-size: .8rem; color: var(--portal-text-muted); line-height: 1.4; }
 .portal-auth-method-chevron { color: var(--portal-text-muted); display: grid; place-items: center; transition: transform .18s ease, color .18s ease; }
-.portal-auth-pill { font-size: .66rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .45rem; border-radius: 999px; color: var(--portal-accent-strong); background: var(--portal-accent-soft); }
 
 /* Copilot mode: the other method folds away so it cannot be clicked by accident. */
 .login-card.is-copilot-mode .portal-auth-method[data-auth-method="sso"] { display: none; }
