@@ -17,6 +17,7 @@ import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.user import User
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository, normalize_username
@@ -28,6 +29,7 @@ from app.services.outbound_http import github_client_kwargs
 from app.services.runtime_profile_service import RuntimeProfileService
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # Copilot OAuth always runs against public github.com (see
 # CopilotAuthService), so the matching user lookup is fixed too.
@@ -99,6 +101,22 @@ def attach_copilot_token_to_default_profile(db: Session, user: User, token: str)
     service.repo.save(profile)
 
 
+def portal_username_from_github_login(login: str) -> str:
+    """Strip the enterprise suffix from a GitHub login.
+
+    Enterprise-managed users log in to GitHub as "<employee id>_<enterprise>";
+    the portal account is keyed by the employee id alone (GITHUB_USERNAME_SUFFIX
+    holds the "_<enterprise>" part). Matching is case-insensitive because
+    GitHub logins are, and a login that is only the suffix is left untouched
+    rather than collapsed to an empty username.
+    """
+    cleaned = (login or "").strip()
+    suffix = settings.github_username_suffix.strip()
+    if suffix and len(cleaned) > len(suffix) and cleaned.lower().endswith(suffix.lower()):
+        return cleaned[: -len(suffix)]
+    return cleaned
+
+
 async def fetch_github_user(token: str) -> dict:
     """Resolve the GitHub account behind a Copilot OAuth token."""
     headers = {
@@ -115,6 +133,7 @@ async def fetch_github_user(token: str) -> dict:
         raise ValueError("GitHub did not return a login for this token")
     return {
         "login": login,
+        "username": portal_username_from_github_login(login),
         "name": str(data.get("name") or "").strip(),
         "email": str(data.get("email") or "").strip(),
     }

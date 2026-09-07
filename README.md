@@ -68,6 +68,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `SSO_CLIENT_SECRET` | OIDC client secret, only for confidential clients | (empty) |
 | `SSO_SCOPE` | Scope requested on the authorize redirect | `read write` |
 | `SSO_VERIFY_TLS` | Verify the IdP's TLS certificate during the token exchange; set `false` only for an internal CA that is not in the container trust store | `true` |
+| `GITHUB_USERNAME_SUFFIX` | Enterprise suffix on GitHub logins (`_emucompany` in `12345678_emucompany`); it is stripped so the portal username is the employee id, matching the allowlist and SSO. Empty keeps the GitHub login | (empty) |
 | `GITHUB_PROXY_URL` | How the portal reaches github.com for the Copilot device flow and user lookup: empty honours `HTTP(S)_PROXY`/`NO_PROXY` from the pod environment, `direct` ignores them, or an explicit proxy URL such as `http://proxy.corp:3128` | (empty) |
 | `GITHUB_HTTP_TIMEOUT_SECONDS` | Timeout for those github.com calls | `30` |
 | `SSO_PROXY_URL` | Same semantics for the server-side SSO token exchange; set `direct` when `HTTPS_PROXY` is present in the pod but the IdP must be reached without it | (empty) |

@@ -99,6 +99,8 @@ spec:
               value: "true"
             - name: GITHUB_ENTERPRISE_SSO_URL
               value: "https://github.com/enterprises/company-emu/sso"
+            - name: GITHUB_USERNAME_SUFFIX
+              value: "_emucompany"
             # Egress for github.com calls: empty = pod HTTP(S)_PROXY env,
             # "direct" = no proxy, or an explicit proxy URL.
             - name: GITHUB_PROXY_URL

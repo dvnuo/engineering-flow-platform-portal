@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # to skip that step.
     copilot_login_enabled: bool = Field(default=True, validation_alias="COPILOT_LOGIN_ENABLED")
     github_enterprise_sso_url: str = Field(default="", validation_alias="GITHUB_ENTERPRISE_SSO_URL")
+    # Enterprise-managed GitHub accounts carry the enterprise short code as a
+    # login suffix ("12345678_emucompany"). The portal username is the part
+    # before it, so it matches the employee id used on the allowlist and by
+    # SSO. Empty keeps the GitHub login as is.
+    github_username_suffix: str = Field(default="", validation_alias="GITHUB_USERNAME_SUFFIX")
 
     agents_namespace: str = "efp-agents"
     agents_volume_sub_path_prefix: str = "efp-agents"

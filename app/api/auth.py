@@ -157,7 +157,7 @@ async def copilot_login_check(payload: CopilotLoginCheckRequest, db: Session = D
     try:
         user, created = provision_external_user(
             db,
-            username=github_user["login"],
+            username=github_user.get("username") or github_user["login"],
             display_name=github_user.get("name") or "",
             source="github_copilot",
         )

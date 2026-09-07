@@ -50,7 +50,9 @@ def _copilot_authorized(monkeypatch, *, token="gho_test_token", login="Alice", n
 
     async def fake_github_user(access_token):
         assert access_token == token
-        return {"login": login, "name": name, "email": ""}
+        from app.services.external_login_service import portal_username_from_github_login
+
+        return {"login": login, "username": portal_username_from_github_login(login), "name": name, "email": ""}
 
     monkeypatch.setattr(auth_api.copilot_auth_service, "start_authorization", fake_start)
     monkeypatch.setattr(auth_api.copilot_auth_service, "check_authorization", fake_check)
@@ -122,6 +124,44 @@ def test_copilot_sign_in_provisions_member_with_allowlisted_role_and_copilot_pro
     finally:
         app.dependency_overrides.clear()
         db.close()
+
+
+def test_copilot_sign_in_strips_configured_enterprise_suffix(monkeypatch):
+    """Enterprise-managed logins look like 12345678_emucompany; the portal
+    account is keyed by the employee id in front of the suffix."""
+    from app.main import app
+    import app.api.auth as auth_api
+    from app.services import external_login_service
+
+    db = _database()
+    app.dependency_overrides[auth_api.get_db] = _override_db(db)
+    monkeypatch.setattr(external_login_service, "hash_password", lambda value: f"hashed-{value}")
+    monkeypatch.setattr(external_login_service.settings, "github_username_suffix", "_emucompany")
+    db.add(UserAllowlistEntry(username="12345678", role="user", is_active=True))
+    db.commit()
+    _copilot_authorized(monkeypatch, login="12345678_EmuCompany", name="Employee")
+    client = TestClient(app)
+    try:
+        checked = _copilot_sign_in(client)
+        assert checked.status_code == 200, checked.text
+        assert checked.json()["username"] == "12345678"
+        assert db.query(User).filter_by(username="12345678").one().role == "user"
+        assert db.query(User).filter(User.username.like("%emucompany%")).count() == 0
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+
+
+def test_portal_username_from_github_login_suffix_rules(monkeypatch):
+    from app.services import external_login_service as svc
+
+    monkeypatch.setattr(svc.settings, "github_username_suffix", "_emucompany")
+    assert svc.portal_username_from_github_login("12345678_emucompany") == "12345678"
+    assert svc.portal_username_from_github_login(" 12345678_EMUCOMPANY ") == "12345678"
+    assert svc.portal_username_from_github_login("octocat") == "octocat"
+    assert svc.portal_username_from_github_login("_emucompany") == "_emucompany"
+    monkeypatch.setattr(svc.settings, "github_username_suffix", "")
+    assert svc.portal_username_from_github_login("12345678_emucompany") == "12345678_emucompany"
 
 
 def test_copilot_sign_in_without_allowlist_lands_on_unauthorized_page(monkeypatch):
