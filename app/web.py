@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -19,7 +19,8 @@ from app.contracts.llm_catalog import (
     PROVIDER_MODELS,
     SUPPORTED_REASONING_EFFORTS,
 )
-from app.db import SessionLocal
+from sqlalchemy.orm import Session
+from app.db import SessionLocal, get_db
 from app.repositories.agent_execution_repo import AgentExecutionRepository
 from app.contracts.runtime_type import ALLOWED_RUNTIME_TYPES
 from app.repositories.agent_repo import AgentRepository
@@ -38,7 +39,7 @@ from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_config_dict,
 )
-from app.services.auth_service import parse_session_token
+from app.services.auth_service import parse_session_token, set_session_cookie
 from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
 from app.services.k8s_service import K8sService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
@@ -67,7 +68,7 @@ from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
-from app.utils.sso_auth import login_user_by_code
+from app.utils.sso_auth import login_user_by_code, sso_authorize_url, sso_enabled, sso_redirect_uri
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -194,8 +195,8 @@ def _authorized_web_user(request: Request):
     return None, _redirect_for_access_reason(access_reason)
 
 
-def _anonymous_auth_page(request: Request, template_name: str, title: str) -> Response:
-    response = templates.TemplateResponse(template_name, {"request": request, "title": title})
+def _anonymous_auth_page(request: Request, template_name: str, title: str, **context) -> Response:
+    response = templates.TemplateResponse(template_name, {"request": request, "title": title, **context})
     if request.cookies.get(settings.session_cookie_name):
         _clear_session_cookie(response)
     return response
@@ -1584,8 +1585,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     return _settings_finalize_config_payload(config_payload), None
 
 
-from app.utils.sso_auth import login_user_by_code
-
 @router.get("/")
 def index(request: Request) -> RedirectResponse:
     user, access_reason = _session_user_access(request)
@@ -1594,50 +1593,82 @@ def index(request: Request) -> RedirectResponse:
     return _redirect_for_access_reason(access_reason)
 
 
-@router.get("/admlogin")
-def login_page(request: Request):
-    if _current_user_from_cookie(request):
+def _login_page_context(*, password_form: bool = False) -> dict:
+    """What the login template needs to offer the configured sign-in methods.
+
+    The password form is the fallback when no external method is configured
+    (local development) and the explicit choice at /admlogin for the
+    bootstrap admin.
+    """
+    external_methods = sso_enabled() or settings.copilot_login_enabled
+    return {
+        "sso_enabled": sso_enabled(),
+        "copilot_login_enabled": settings.copilot_login_enabled,
+        "github_enterprise_sso_url": settings.github_enterprise_sso_url.strip(),
+        "password_form": password_form or not external_methods,
+    }
+
+
+def _anonymous_login_gate(request: Request):
+    """Redirect an already signed-in (or allowlist-blocked) visitor away from the login pages."""
+    user, access_reason = _session_user_access(request)
+    if user and access_reason is None:
         return RedirectResponse(url="/app", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
+    if access_reason in ACCESS_DENIED_REASONS:
+        return _redirect_to_unauthorized()
+    return None
+
+
+@router.get("/admlogin")
+def admin_login_page(request: Request):
+    """Username/password form, kept for the bootstrap admin and SSO outages."""
+    gate = _anonymous_login_gate(request)
+    if gate is not None:
+        return gate
+    return _anonymous_auth_page(request, "login.html", "Portal Login", **_login_page_context(password_form=True))
 
 
 @router.get("/login")
 def login_page(request: Request):
+    """Pick a sign-in method: company SSO and/or GitHub Copilot."""
+    gate = _anonymous_login_gate(request)
+    if gate is not None:
+        return gate
+    return _anonymous_auth_page(request, "login.html", "Portal Login", **_login_page_context())
 
-    user, access_reason = _session_user_access(request)
-    if user and access_reason is None:
-        return RedirectResponse(url="/app", status_code=302)
-    if access_reason in ACCESS_DENIED_REASONS:
-        return _redirect_to_unauthorized()
 
-    return RedirectResponse(url=f"https://sso-auth.company.com/realms/persons/protocol/openid-connect/auth?response_type=code&client_id=webapp&scope=read%20write&redirect_uri={base_uri}/auth&state=", status_code=302)
-    # return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
+@router.get("/login/sso")
+def login_via_sso(request: Request):
+    gate = _anonymous_login_gate(request)
+    if gate is not None:
+        return gate
+    if not sso_enabled():
+        return RedirectResponse(url="/login", status_code=302)
+    response = RedirectResponse(url=sso_authorize_url(), status_code=302)
+    if request.cookies.get(settings.session_cookie_name):
+        _clear_session_cookie(response)
+    return response
 
 
 @router.get("/auth")
-async def auth_page(request: Request):
-    session_state = (request.query_params.get("session_state") or "").strip()
+async def auth_page(request: Request, db: Session = Depends(get_db)):
+    """OpenID Connect callback: exchange the code and start a portal session."""
+    if not sso_enabled():
+        return _redirect_to_login()
     code = (request.query_params.get("code") or "").strip()
-    token = await login_user_by_code(redirect_uri=f"{base_uri}/auth", code=code)
+    if not code:
+        return _redirect_to_login()
+    token = await login_user_by_code(db, redirect_uri=sso_redirect_uri(), code=code)
 
     response = RedirectResponse(url="/app", status_code=302)
-    response.set_cookie(
-        key=settings.session_cookie_name,
-        value=token,
-        httponly=True,
-        samesite="lax",
-    )
+    set_session_cookie(response, token)
     return response
 
 
 @router.get("/register")
-def register_page(request: Request):
-    user, access_reason = _session_user_access(request)
-    if user and access_reason is None:
-        return RedirectResponse(url="/app", status_code=302)
-    if access_reason in ACCESS_DENIED_REASONS:
-        return _redirect_to_unauthorized()
-    return _anonymous_auth_page(request, "register.html", "Create Account")
+def register_page():
+    """Self-service registration is gone; accounts come from SSO / GitHub Copilot sign-in."""
+    return RedirectResponse(url="/login", status_code=302)
 
 
 @router.get("/unauthorized")

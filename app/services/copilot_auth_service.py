@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 
 from app.redaction import sanitize_exception_message
+from app.services.outbound_http import describe_github_egress, github_client_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +63,14 @@ class CopilotAuthService:
         device_url = COPILOT_DEVICE_CODE_URL
         access_token_url = COPILOT_ACCESS_TOKEN_URL
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(**github_client_kwargs()) as client:
                 response = await client.post(device_url, headers=self._HEADERS, json={"client_id": COPILOT_OAUTH_CLIENT_ID, "scope": "read:user"})
         except Exception as exc:
-            logger.exception("Copilot start authorization failed")
-            return 500, {"error": "Failed to start authorization", "details": sanitize_exception_message(exc)}
+            logger.exception("Copilot start authorization failed (outbound via %s)", describe_github_egress())
+            return 500, {
+                "error": "Failed to start authorization",
+                "details": f"{sanitize_exception_message(exc)} (reaching {device_url} via {describe_github_egress()})",
+            }
 
         if response.status_code not in (200, 201):
             return 502, {"error": "GitHub authorization start failed", "details": sanitize_exception_message(response.text)}
@@ -133,11 +137,11 @@ class CopilotAuthService:
             return 200, {"status": "authorized", "oauth": oauth, "oauth_summary": self._oauth_summary(oauth, record.get("runtime_type", "native")), "token": oauth.get("access", ""), "runtime_type": record.get("runtime_type", "native")}
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(**github_client_kwargs()) as client:
                 response = await client.post(record["access_token_url"], headers=self._HEADERS, json={"client_id": record.get("client_id") or COPILOT_OAUTH_CLIENT_ID, "device_code": record["device_code"], "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
         except Exception as exc:
-            logger.exception("Copilot verify failed auth_id=%s", auth_id)
-            return 500, {"status": "failed", "message": sanitize_exception_message(exc)}
+            logger.exception("Copilot verify failed auth_id=%s (outbound via %s)", auth_id, describe_github_egress())
+            return 500, {"status": "failed", "message": f"{sanitize_exception_message(exc)} (via {describe_github_egress()})"}
 
         body = self._safe_response_json(response)
         error = body.get("error") if isinstance(body, dict) else None

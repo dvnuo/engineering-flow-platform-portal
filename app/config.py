@@ -47,6 +47,44 @@ class Settings(BaseSettings):
     # team channel, or a mailto:/https: link.
     portal_support_contact: str = Field(default="", validation_alias="PORTAL_SUPPORT_CONTACT")
 
+    # Single sign-on (OpenID Connect authorization-code flow, e.g. Keycloak).
+    # SSO is enabled only when SSO_ISSUER_URL is set; otherwise /login serves
+    # the username/password form. The issuer is the realm base, for Keycloak
+    # "https://<host>/realms/<realm>"; the authorize and token endpoints are
+    # derived from it. BASE_URI must be the portal's public origin so the
+    # callback (BASE_URI + /auth) matches the redirect URI registered at the IdP.
+    sso_issuer_url: str = Field(default="", validation_alias="SSO_ISSUER_URL")
+    # The browser is redirected to SSO_ISSUER_URL; the server-side token
+    # exchange calls SSO_INTERNAL_ISSUER_URL, for deployments where the portal
+    # reaches the IdP through a different host (cluster-internal service,
+    # proxy) than the user's browser does. Empty means "same as SSO_ISSUER_URL".
+    sso_internal_issuer_url: str = Field(default="", validation_alias="SSO_INTERNAL_ISSUER_URL")
+    sso_client_id: str = Field(default="webapp", validation_alias="SSO_CLIENT_ID")
+    sso_client_secret: str = Field(default="", validation_alias="SSO_CLIENT_SECRET")
+    sso_scope: str = Field(default="read write", validation_alias="SSO_SCOPE")
+    sso_verify_tls: bool = Field(default=True, validation_alias="SSO_VERIFY_TLS")
+    # Outbound proxy settings for the portal's own HTTP calls (see
+    # app/services/outbound_http.py): empty = honour HTTP(S)_PROXY / NO_PROXY
+    # from the pod environment, "direct" = ignore them, or an explicit proxy
+    # URL. github.com (Copilot device flow + user lookup) usually needs the
+    # egress proxy inside the cluster; the IdP usually must not use it.
+    sso_proxy_url: str = Field(default="", validation_alias="SSO_PROXY_URL")
+    github_proxy_url: str = Field(default="", validation_alias="GITHUB_PROXY_URL")
+    github_http_timeout_seconds: int = Field(default=30, validation_alias="GITHUB_HTTP_TIMEOUT_SECONDS")
+
+    # GitHub Copilot sign-in: the same GitHub device flow the runtime-profile
+    # panel uses, offered on the login page. Before starting it, members are
+    # sent to the enterprise SSO page below (opened in a new tab) so their
+    # GitHub session is already authorized for the enterprise; leave it empty
+    # to skip that step.
+    copilot_login_enabled: bool = Field(default=True, validation_alias="COPILOT_LOGIN_ENABLED")
+    github_enterprise_sso_url: str = Field(default="", validation_alias="GITHUB_ENTERPRISE_SSO_URL")
+    # Enterprise-managed GitHub accounts carry the enterprise short code as a
+    # login suffix ("12345678_emucompany"). The portal username is the part
+    # before it, so it matches the employee id used on the allowlist and by
+    # SSO. Empty keeps the GitHub login as is.
+    github_username_suffix: str = Field(default="", validation_alias="GITHUB_USERNAME_SUFFIX")
+
     agents_namespace: str = "efp-agents"
     agents_volume_sub_path_prefix: str = "efp-agents"
     k8s_enabled: bool = False

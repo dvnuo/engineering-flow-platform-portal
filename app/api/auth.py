@@ -1,81 +1,41 @@
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 import logging
 logger = logging.getLogger(__name__)
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.repositories.audit_repo import AuditRepository
+from app.redaction import sanitize_exception_message
 from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
-from app.schemas.auth import LoginRequest, MeResponse, RegisterRequest
-from app.services.access_control_service import ALLOWED_USER_ROLES
-from app.services.auth_service import hash_password, issue_session_token, verify_password
-from app.services.runtime_profile_service import RuntimeProfileService
-from app.redaction import sanitize_exception_message
+from app.schemas.auth import LoginRequest, MeResponse
+from app.services.auth_service import issue_session_token, set_session_cookie, verify_password
+from app.services.copilot_auth_service import copilot_auth_service
+from app.services.external_login_service import (
+    fetch_github_user,
+    provision_external_user,
+    sync_copilot_token_to_default_profile,
+)
+from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 settings = get_settings()
+runtime_profile_secret_service = RuntimeProfileSecretService()
 
 
-@router.post("/register")
-def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
-    repo = UserRepository(db)
-    username = payload.username
-    allowlist_entry = UserAllowlistRepository(db).get_active_by_username(username)
-    if not allowlist_entry:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This username is not on the registration allowlist",
-        )
-
-    # Check if username exists
-    existing = repo.get_by_username_case_insensitive(username)
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
-    
-    # Create new user (default role: user)
-    # Use transaction to prevent race condition
-    try:
-        role = allowlist_entry.role if allowlist_entry.role in ALLOWED_USER_ROLES else "user"
-        user = repo.create(username, hash_password(payload.password), role, payload.nickname)
-        repo.mark_login(user)
-        RuntimeProfileService(db).ensure_user_has_default_profile(user)
-    except Exception as e:
-        logger.exception("Auth error")
-        db.rollback()
-        sanitized_error = sanitize_exception_message(e).lower()
-        # Check if it's a duplicate key error
-        if "duplicate key" in sanitized_error or "unique" in sanitized_error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
-        raise
-    
-    # Audit trail for registration
-    AuditRepository(db).create(
-        action="register",
-        target_type="user",
-        target_id=str(user.id),
-        user_id=user.id,
-        details={"username": user.username},
-    )
-    
-    # Auto-login
-    token = issue_session_token(user.id)
-    response.set_cookie(
-        key=settings.session_cookie_name,
-        value=token,
-        httponly=True,
-        samesite="lax",
-        max_age=365 * 24 * 60 * 60,  # 1 year
-    )
-    return {"ok": True, "username": user.username, "role": user.role}
+# Self-service registration is gone: accounts are provisioned on first
+# sign-in through SSO or GitHub Copilot (see external_login_service).
 
 
 @router.post("/login")
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    """Password sign-in, kept for the bootstrap admin (served at /admlogin)."""
     repo = UserRepository(db)
     user = repo.get_by_username_case_insensitive(payload.username)
     if not user or not verify_password(payload.password, user.password_hash):
@@ -88,14 +48,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
 
     repo.mark_login(user)
 
-    token = issue_session_token(user.id)
-    response.set_cookie(
-        key=settings.session_cookie_name,
-        value=token,
-        httponly=True,
-        samesite="lax",
-        max_age=365 * 24 * 60 * 60,  # 1 year
-    )
+    set_session_cookie(response, issue_session_token(user.id))
     return {"ok": True}
 
 
@@ -136,3 +89,106 @@ def complete_onboarding(user=Depends(get_current_user), db: Session = Depends(ge
         role=user.role,
         onboarding_completed=True,
     )
+
+
+# --- GitHub Copilot sign-in ---------------------------------------------------
+#
+# Same GitHub device flow the runtime-profile panel uses to connect Copilot,
+# run before there is a session. The browser starts a flow, the member
+# authorizes on GitHub, and the poll that sees "authorized" turns the token
+# into a portal account + session. The token is never returned to the
+# browser here; it goes onto the member's default runtime profile (created
+# on first sign-in, refreshed on later ones) exactly like saving the profile
+# in Settings would, including the Secret update + restart of bound agents.
+
+
+def _copilot_flow_owner(flow_id: str) -> str:
+    return f"login:{flow_id}"
+
+
+class CopilotLoginCheckRequest(BaseModel):
+    flow_id: str
+    auth_id: str
+    device_code: str
+
+
+def _require_copilot_login_enabled() -> None:
+    if not settings.copilot_login_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GitHub Copilot sign-in is disabled")
+
+
+@router.post("/copilot/start")
+async def copilot_login_start():
+    _require_copilot_login_enabled()
+    flow_id = uuid4().hex
+    status_code, payload = await copilot_auth_service.start_authorization(
+        user_id=_copilot_flow_owner(flow_id),
+        github_base_url=None,
+    )
+    if status_code == 200:
+        payload = {**payload, "flow_id": flow_id}
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+@router.post("/copilot/check")
+async def copilot_login_check(payload: CopilotLoginCheckRequest, db: Session = Depends(get_db)):
+    _require_copilot_login_enabled()
+    flow_id = (payload.flow_id or "").strip()
+    if not flow_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="flow_id required")
+    status_code, result = await copilot_auth_service.check_authorization(
+        user_id=_copilot_flow_owner(flow_id),
+        auth_id=payload.auth_id,
+        device_code=payload.device_code,
+    )
+    if status_code != 200 or result.get("status") != "authorized":
+        return JSONResponse(status_code=status_code, content=result)
+
+    token = str(result.get("token") or (result.get("oauth") or {}).get("access") or "").strip()
+    if not token:
+        return JSONResponse(status_code=200, content={"status": "failed", "message": "GitHub returned no token"})
+
+    try:
+        github_user = await fetch_github_user(token)
+    except Exception as exc:
+        logger.exception("GitHub user lookup failed after Copilot authorization")
+        return JSONResponse(
+            status_code=200,
+            content={"status": "failed", "message": f"GitHub user lookup failed: {sanitize_exception_message(exc)}"},
+        )
+
+    try:
+        user, created = provision_external_user(
+            db,
+            username=github_user.get("username") or github_user["login"],
+            display_name=github_user.get("name") or "",
+            source="github_copilot",
+        )
+        profile, token_updated = sync_copilot_token_to_default_profile(db, user, token)
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Provisioning portal user after Copilot authorization failed")
+        return JSONResponse(
+            status_code=200,
+            content={"status": "failed", "message": f"Sign-in failed: {sanitize_exception_message(exc)}"},
+        )
+
+    if token_updated:
+        try:
+            runtime_profile_secret_service.apply_profile_save(db, profile)
+        except Exception:
+            db.rollback()
+            logger.exception("runtime profile secret save/restart failed after Copilot sign-in profile_id=%s", profile.id)
+
+    response = JSONResponse(
+        status_code=200,
+        content={
+            "status": "authorized",
+            "redirect": "/app",
+            "username": user.username,
+            "created": created,
+            "profile_token_updated": token_updated,
+        },
+    )
+    set_session_cookie(response, issue_session_token(user.id))
+    return response
