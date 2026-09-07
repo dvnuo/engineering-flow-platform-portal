@@ -47,20 +47,16 @@ def test_login_api_invalid_credentials():
         assert True
 
 
-def test_register_api():
-    """Test registration endpoint."""
+def test_register_api_removed():
+    """Self-service registration is gone; accounts come from SSO / Copilot sign-in."""
     from app.main import app
     client = TestClient(app)
-    
-    try:
-        response = client.post("/api/auth/register", json={
-            "username": "newuser",
-            "password": "password123"
-        })
-        assert response.status_code in [200, 201, 400, 403, 409]
-    except Exception:
-        assert True
 
+    response = client.post("/api/auth/register", json={
+        "username": "newuser",
+        "password": "password123"
+    })
+    assert response.status_code in [404, 405]
 
 def test_logout_api():
     """Test logout endpoint."""
@@ -84,11 +80,10 @@ def test_me_api_requires_auth():
     assert response.status_code in [401, 403]
 
 
-def test_register_creates_default_runtime_profile(monkeypatch):
-    from app.main import app
-    import app.api.auth as auth_api
+def test_external_sign_in_creates_default_runtime_profile(monkeypatch):
     from app.db import Base
     from app.models import RuntimeProfile, User, UserAllowlistEntry
+    from app.services import external_login_service
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.pool import StaticPool
@@ -100,19 +95,20 @@ def test_register_creates_default_runtime_profile(monkeypatch):
     db.add(UserAllowlistEntry(username="new-u", role="user", is_active=True))
     db.commit()
 
-    def _override_db():
-        yield db
-
-    monkeypatch.setattr(auth_api, "hash_password", lambda raw: f"hashed-{raw}")
-    app.dependency_overrides[auth_api.get_db] = _override_db
-    client = TestClient(app)
+    monkeypatch.setattr(external_login_service, "hash_password", lambda raw: f"hashed-{raw}")
     try:
-        resp = client.post("/api/auth/register", json={"username": "new-u", "password": "pass123"})
-        assert resp.status_code == 200
+        user, created = external_login_service.provision_external_user(db, username="New-U", source="sso")
+        assert created is True
+        assert user.username == "new-u"
         user_id = db.query(User).filter_by(username="new-u").one().id
         profiles = db.query(RuntimeProfile).filter(RuntimeProfile.owner_user_id == user_id).all()
         assert len(profiles) >= 1
         assert len([p for p in profiles if p.is_default]) == 1
+
+        again, created_again = external_login_service.provision_external_user(db, username="new-u", source="sso")
+        assert created_again is False
+        assert again.id == user.id
+        assert db.query(RuntimeProfile).filter(RuntimeProfile.owner_user_id == user_id).count() == len(profiles)
     finally:
-        app.dependency_overrides.clear()
         db.close()
+

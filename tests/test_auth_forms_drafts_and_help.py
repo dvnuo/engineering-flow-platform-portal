@@ -21,7 +21,7 @@ APP_HTML = Path("app/templates/app.html").read_text(encoding="utf-8")
 USERS_HTML = Path("app/templates/partials/users_panel.html").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("template", ["login.html", "register.html"])
+@pytest.mark.parametrize("template", ["login.html"])
 def test_auth_forms_are_accessible_and_password_manager_friendly(template):
     html = Path("app/templates") / template
     source = html.read_text(encoding="utf-8")
@@ -32,8 +32,8 @@ def test_auth_forms_are_accessible_and_password_manager_friendly(template):
     assert "auth_form.js" in source
 
 
-def test_login_and_register_use_the_shared_handler_rather_than_inline_fetch():
-    for template in ("login.html", "register.html"):
+def test_login_uses_the_shared_handler_rather_than_inline_fetch():
+    for template in ("login.html",):
         source = (Path("app/templates") / template).read_text(encoding="utf-8")
         assert "initAuthForm({" in source
         assert "await fetch(" not in source

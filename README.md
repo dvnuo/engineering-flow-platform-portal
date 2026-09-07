@@ -61,6 +61,14 @@ The configured bootstrap administrator is created as the first administrator and
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_USER_ALLOWLIST` | Comma, semicolon, or newline-separated usernames seeded into the registration allowlist on startup (`REGISTRATION_ALLOWLIST` is accepted as an alias) | (empty) |
 | `PORTAL_SUPPORT_CONTACT` | Shown on the "not on the allowlist" page so a blocked user knows who can grant access (a name, team channel, or `mailto:`/`https:` link) | (empty) |
+| `BASE_URI` | Public origin of the portal (no trailing slash); required with SSO so the callback `BASE_URI/auth` matches the redirect URI registered at the IdP | (empty) |
+| `SSO_ISSUER_URL` | OpenID Connect issuer / Keycloak realm base URL, e.g. `https://sso.example.com/realms/persons`. Empty disables SSO and `/login` serves the password form; `/admlogin` always serves the form | (empty) |
+| `SSO_CLIENT_ID` | OIDC client id | `webapp` |
+| `SSO_CLIENT_SECRET` | OIDC client secret, only for confidential clients | (empty) |
+| `SSO_SCOPE` | Scope requested on the authorize redirect | `read write` |
+| `SSO_VERIFY_TLS` | Verify the IdP's TLS certificate during the token exchange; set `false` only for an internal CA that is not in the container trust store | `true` |
+| `COPILOT_LOGIN_ENABLED` | Offer "Sign in with GitHub Copilot" on the login page (GitHub device flow; a first sign-in creates the member and stores the Copilot token on their default runtime profile) | `true` |
+| `GITHUB_ENTERPRISE_SSO_URL` | Enterprise SSO page members must sign in to (new tab) before the Copilot authorization starts, e.g. `https://github.com/enterprises/<slug>/sso`; empty skips that step | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |

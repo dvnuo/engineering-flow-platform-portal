@@ -13,3 +13,4 @@ bcrypt==4.2.0
 croniter==6.2.2
 tzdata==2026.2
 cryptography==44.0.0
+PyJWT==2.13.0

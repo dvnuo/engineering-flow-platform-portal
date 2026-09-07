@@ -5956,3 +5956,13 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
 @media (prefers-reduced-motion: reduce) {
   .is-scroll-target { animation: none; outline: 2px solid var(--portal-accent); outline-offset: 4px; }
 }
+
+/* Login page: sign-in method choice + GitHub Copilot device flow. */
+.portal-auth-choices { display: grid; gap: .5rem; }
+.portal-auth-choice { width: 100%; justify-content: center; text-align: center; }
+.portal-auth-copilot { display: grid; gap: .75rem; padding-top: .75rem; border-top: 1px solid var(--portal-border); }
+.portal-auth-steps { display: grid; gap: .75rem; margin: 0; padding-left: 1.25rem; }
+.portal-auth-steps li { display: grid; gap: .5rem; }
+.portal-auth-steps p { margin: 0; }
+.portal-auth-code { display: block; font-size: 1.5rem; letter-spacing: .2em; font-weight: 600; text-align: center; padding: .5rem; border: 1px dashed var(--portal-border); border-radius: var(--portal-radius-lg); user-select: all; min-height: 2.6rem; }
+.portal-auth-status { margin: 0; font-size: .9rem; opacity: .85; }

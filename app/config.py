@@ -47,6 +47,26 @@ class Settings(BaseSettings):
     # team channel, or a mailto:/https: link.
     portal_support_contact: str = Field(default="", validation_alias="PORTAL_SUPPORT_CONTACT")
 
+    # Single sign-on (OpenID Connect authorization-code flow, e.g. Keycloak).
+    # SSO is enabled only when SSO_ISSUER_URL is set; otherwise /login serves
+    # the username/password form. The issuer is the realm base, for Keycloak
+    # "https://<host>/realms/<realm>"; the authorize and token endpoints are
+    # derived from it. BASE_URI must be the portal's public origin so the
+    # callback (BASE_URI + /auth) matches the redirect URI registered at the IdP.
+    sso_issuer_url: str = Field(default="", validation_alias="SSO_ISSUER_URL")
+    sso_client_id: str = Field(default="webapp", validation_alias="SSO_CLIENT_ID")
+    sso_client_secret: str = Field(default="", validation_alias="SSO_CLIENT_SECRET")
+    sso_scope: str = Field(default="read write", validation_alias="SSO_SCOPE")
+    sso_verify_tls: bool = Field(default=True, validation_alias="SSO_VERIFY_TLS")
+
+    # GitHub Copilot sign-in: the same GitHub device flow the runtime-profile
+    # panel uses, offered on the login page. Before starting it, members are
+    # sent to the enterprise SSO page below (opened in a new tab) so their
+    # GitHub session is already authorized for the enterprise; leave it empty
+    # to skip that step.
+    copilot_login_enabled: bool = Field(default=True, validation_alias="COPILOT_LOGIN_ENABLED")
+    github_enterprise_sso_url: str = Field(default="", validation_alias="GITHUB_ENTERPRISE_SSO_URL")
+
     agents_namespace: str = "efp-agents"
     agents_volume_sub_path_prefix: str = "efp-agents"
     k8s_enabled: bool = False

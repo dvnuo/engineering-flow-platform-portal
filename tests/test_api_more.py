@@ -27,16 +27,12 @@ def test_auth_login_wrong_password():
         assert True
 
 
-def test_auth_register():
-    """Test registration."""
+def test_auth_register_endpoint_removed():
+    """Accounts are provisioned through SSO / GitHub Copilot sign-in now."""
     from app.main import app
     client = TestClient(app)
-    try:
-        response = client.post("/api/auth/register",
-                             json={"username": "newuser", "password": "password123"})
-        assert response.status_code in [200, 201, 400, 409]
-    except Exception:
-        assert True
+    response = client.post("/api/auth/register", json={"username": "newuser", "password": "password123"})
+    assert response.status_code in [404, 405]
 
 
 def test_auth_logout():

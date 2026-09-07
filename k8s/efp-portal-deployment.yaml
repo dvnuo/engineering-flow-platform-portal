@@ -84,6 +84,18 @@ spec:
                   optional: true
             - name: PORTAL_INTERNAL_BASE_URL
               value: "http://efp-portal-service.default.svc.cluster.local"
+            # Single sign-on. BASE_URI is the browser-facing origin; leave
+            # SSO_ISSUER_URL empty to fall back to username/password login.
+            - name: BASE_URI
+              value: ""
+            - name: SSO_ISSUER_URL
+              value: "https://sso-auth.company.com/realms/persons"
+            - name: SSO_CLIENT_ID
+              value: "webapp"
+            - name: COPILOT_LOGIN_ENABLED
+              value: "true"
+            - name: GITHUB_ENTERPRISE_SSO_URL
+              value: "https://github.com/enterprises/company-emu/sso"
             - name: K8S_KUBECONFIG
               value: ""
             - name: K8S_GIT_TOKEN_KEY

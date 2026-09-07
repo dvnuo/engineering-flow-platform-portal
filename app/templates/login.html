@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="login-shell">
-  <div class="login-card">
+  <div class="login-card" id="login-card"
+       data-copilot-auth-base="/api/auth/copilot"
+       data-github-enterprise-sso-url="{{ github_enterprise_sso_url or '' }}">
     <h1>Engineering Portal</h1>
+
+    {% if password_form %}
     <p class="portal-auth-copy">Sign in with an allowlisted account.</p>
 
     <form id="login-form" class="stack">
@@ -23,12 +27,57 @@
     <p id="login-error" class="portal-auth-error" role="alert" aria-live="assertive"></p>
 
     <p class="portal-auth-footnote">
-      Don't have an account? <a class="portal-auth-link" href="/register">Create one</a>
+      Member? <a class="portal-auth-link" href="/login">Sign in with SSO or GitHub Copilot</a>
     </p>
+    {% else %}
+    <p class="portal-auth-copy">Choose how to sign in. Access is granted by your administrator's allowlist.</p>
+
+    <div class="portal-auth-choices" data-auth-choices>
+      {% if sso_enabled %}
+      <a class="portal-btn is-primary portal-auth-choice" href="/login/sso" data-sso-choice>Sign in with SSO</a>
+      {% endif %}
+      {% if copilot_login_enabled %}
+      <button type="button" class="portal-btn portal-auth-choice" data-copilot-choose aria-expanded="false" aria-controls="copilot-login-panel">Sign in with GitHub Copilot</button>
+      {% endif %}
+    </div>
+
+    {% if copilot_login_enabled %}
+    <section id="copilot-login-panel" class="portal-auth-copilot hidden" data-copilot-panel>
+      <ol class="portal-auth-steps">
+        {% if github_enterprise_sso_url %}
+        <li data-copilot-step="enterprise">
+          <p>Sign in to GitHub through your enterprise SSO first, then come back here.</p>
+          <a class="portal-btn" href="{{ github_enterprise_sso_url }}" target="_blank" rel="noopener" data-copilot-enterprise-link>Open GitHub enterprise SSO</a>
+          <button type="button" class="portal-btn is-primary" data-copilot-start>I have signed in, continue</button>
+        </li>
+        {% else %}
+        <li data-copilot-step="enterprise">
+          <p>Authorize Portal to use your GitHub Copilot access.</p>
+          <button type="button" class="portal-btn is-primary" data-copilot-start>Start GitHub Copilot authorization</button>
+        </li>
+        {% endif %}
+        <li class="hidden" data-copilot-step="device">
+          <p>Enter this code on GitHub to authorize Copilot:</p>
+          <code class="portal-auth-code" data-copilot-user-code></code>
+          <a class="portal-btn is-primary" href="#" target="_blank" rel="noopener" data-copilot-device-link>Open GitHub device authorization</a>
+          <p class="portal-auth-hint">Waiting for GitHub… <span data-copilot-timer></span></p>
+        </li>
+      </ol>
+      <p class="portal-auth-status" data-copilot-status role="status" aria-live="polite"></p>
+    </section>
+    {% endif %}
+
+    <p id="login-error" class="portal-auth-error" role="alert" aria-live="assertive"></p>
+
+    <p class="portal-auth-footnote">
+      Administrator? <a class="portal-auth-link" href="/admlogin">Sign in with a password</a>
+    </p>
+    {% endif %}
   </div>
 </div>
 
 <script src="{{ static_url('js/auth_form.js') }}"></script>
+{% if password_form %}
 <script>
 initAuthForm({
   formId: "login-form",
@@ -40,4 +89,7 @@ initAuthForm({
   buildPayload: (data) => ({ username: data.username, password: data.password }),
 });
 </script>
+{% else %}
+<script src="{{ static_url('js/login_copilot.js') }}"></script>
+{% endif %}
 {% endblock %}

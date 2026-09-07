@@ -313,7 +313,6 @@ def test_templates_portalized_for_panel_visual_consistency():
     settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
     usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
     login_html = Path("app/templates/login.html").read_text(encoding="utf-8")
-    register_html = Path("app/templates/register.html").read_text(encoding="utf-8")
 
     assert "portal-toast" in app_html
     assert "class=\"primary\"" not in app_html
@@ -347,19 +346,12 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in usage_html
     assert "portal-usage-grid" in usage_html
     assert "portal-auth-copy" in login_html
-    assert "portal-auth-copy" in register_html
     assert "portal-auth-footnote" in login_html
-    assert "portal-auth-footnote" in register_html
     assert "portal-auth-link" in login_html
-    assert "portal-auth-link" in register_html
     assert "portal-auth-error" in login_html
-    assert "portal-auth-error" in register_html
     assert 'class="error"' not in login_html
-    assert 'class="error"' not in register_html
     assert "muted tiny" not in login_html
-    assert "muted tiny" not in register_html
     assert 'class="muted"' not in login_html
-    assert 'class="muted"' not in register_html
     assert "text-slate" not in settings_html
     assert "bg-slate" not in settings_html
     assert "border-slate" not in settings_html

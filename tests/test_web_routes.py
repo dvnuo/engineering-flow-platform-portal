@@ -76,12 +76,12 @@ def test_login_page():
     assert response.status_code == 200
 
 
-def test_register_page():
-    """Test register page."""
+def test_register_page_redirects_to_login():
+    """Self-service registration was removed."""
     from app.main import app
     client = TestClient(app)
-    response = client.get("/register")
-    assert response.status_code == 200
+    response = client.get("/register", follow_redirects=False)
+    assert response.status_code == 302
 
 
 def test_app_page():

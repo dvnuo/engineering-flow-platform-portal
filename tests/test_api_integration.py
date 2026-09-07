@@ -34,12 +34,13 @@ def test_login_page():
     assert response.status_code == 200
 
 
-def test_register_page():
-    """Test register page endpoint."""
+def test_register_page_is_gone():
+    """Self-service registration was removed; the old URL lands on sign-in."""
     from app.main import app
     client = TestClient(app)
-    response = client.get("/register")
-    assert response.status_code == 200
+    response = client.get("/register", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/login"
 
 
 def test_app_page_redirects_or_shows_login():
