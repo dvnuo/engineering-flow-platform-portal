@@ -51,9 +51,8 @@ def test_banner_follows_lifecycle_actions_and_reports_status_back():
     action_fn = _extract_js_function(CHAT_JS, "action")
     assert 'new CustomEvent("portal:agent-lifecycle"' in action_fn
     # Start is not in parseAgentLifecycleAction's stop|restart regex; it must
-    # still announce itself, and show the transition without waiting.
+    # still announce itself.
     assert "/start$/" in action_fn
-    assert 'applyLocalAgentStatus(lifecycleAgentId, result?.status || "creating", "")' in action_fn
 
     sync_state = _extract_js_function(CHAT_JS, "syncSelectedAgentState")
     assert "announceStartupWatch(agent)" in sync_state
@@ -62,9 +61,11 @@ def test_banner_follows_lifecycle_actions_and_reports_status_back():
 
 def test_external_status_switches_view_but_leaves_restart_poll_alone():
     handler = _extract_js_function(CHAT_JS, "handleExternalAgentStatus")
-    assert "updateAgentRuntimeStatusCache(agentId, payload)" in handler
-    assert 'if (previous === "restarting") return;' in handler
-    assert "await syncSelectedAgentState();" in handler
+    assert 'applyAgentStatusSnapshot([{ agentId, payload }], { source: "banner" })' in handler
+    snapshot = _extract_js_function(CHAT_JS, "applyAgentStatusSnapshot")
+    assert "updateAgentRuntimeStatusCache(agentId, payload, { render: false })" in snapshot
+    assert 'if (selectedPrevious === "restarting") return;' in snapshot
+    assert "await syncSelectedAgentState();" in snapshot
 
 
 def test_banner_hides_write_actions_from_readers():

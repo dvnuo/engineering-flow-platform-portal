@@ -241,7 +241,8 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-agent-status-dot.status-failed { background: var(--portal-danger); }
 /* Stopped is a hollow ring: a deliberate pause, not the same grey as "unknown". */
 .portal-agent-status-dot.status-stopped { background: transparent; box-shadow: inset 0 0 0 2px #94a3b8; }
-.portal-agent-status-dot.status-deleting { background: #94a3b8; }
+.portal-agent-status-dot.status-deleting,
+.portal-agent-status-dot.status-stopping { background: #94a3b8; }
 /* Transitional states (starting, restarting, deleting) breathe so a glance
    tells "in motion" apart from "settled". */
 .portal-agent-status-dot.is-pulsing { animation: portal-status-pulse 1.4s ease-in-out infinite; }
@@ -5780,6 +5781,13 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .portal-startup-phases li.is-done { color: var(--portal-success); border-color: rgba(22, 163, 74, 0.35); }
 
 .portal-startup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.portal-startup-progress.is-slow { border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 40%); }
+.portal-startup-progress.is-slow .portal-startup-progress-head { color: color-mix(in srgb, var(--portal-warning), var(--portal-text) 35%); }
+.portal-startup-progress.is-failed { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 40%); }
+
+.portal-home-agent-summary-copy { margin: 0 0 10px; }
+.portal-home-start-agent-btn { display: inline-flex; align-items: center; gap: 6px; }
 
 /* -- dark theme corrections ---------------------------------------------- */
 

@@ -99,13 +99,46 @@
     </div>`;
   }
 
-  function cardMarkup(startup) {
+  // Past this multiple of the typical start the wait is no longer "usual".
+  // Kubernetes only declares the rollout failed after its own progress
+  // deadline (minutes), and until then nothing here can restart a start in
+  // progress, so this changes what the card says, not what it offers.
+  const SLOW_START_FACTOR = 2.5;
+  const SUPPORT_AFTER_SECONDS = 600;
+
+  function elapsedSeconds() {
+    return startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
+  }
+
+  // The server's reading, adjusted for how long this member has been waiting.
+  function escalate(startup) {
+    if (!startup.is_starting) return startup;
+    const typical = Number(startup.typical_seconds) || 40;
+    const elapsed = elapsedSeconds();
+    if (elapsed < typical * SLOW_START_FACTOR) return startup;
+    const view = {
+      ...startup,
+      is_slow: true,
+      headline: "Startup is taking longer than usual",
+      detail: "Still waiting for the runtime. The platform marks a start that never finishes as failed, and you can retry from there.",
+    };
+    if (elapsed >= SUPPORT_AFTER_SECONDS) {
+      view.detail = "This has been going on for a while. Retrying later usually works; if it keeps happening, your administrator needs to look at it.";
+      view.action_label = "Contact support";
+      view.action = "contact_support";
+    }
+    return view;
+  }
+
+  function cardMarkup(rawStartup) {
+    const startup = escalate(rawStartup);
     const icon = startup.is_failed ? "triangle-alert" : startup.is_starting ? "loader" : "pause";
     const detail = startup.is_starting
       ? `${esc(startup.detail)} ${esc(elapsedLabel())}`.trim()
       : esc(startup.detail);
+    const tone = startup.is_failed ? " is-failed" : startup.is_slow ? " is-slow" : "";
     return `
-    <div class="portal-startup-progress${startup.is_failed ? " is-failed" : ""}">
+    <div class="portal-startup-progress${tone}">
       <div class="portal-startup-progress-head">
         <i data-lucide="${icon}" class="w-4 h-4"></i>
         <span>${esc(startup.headline)}</span>
@@ -184,13 +217,13 @@
     }
   }
 
-  function watch(agentId) {
+  function watch(agentId, { keepElapsed = false } = {}) {
     stopPolling();
-    startedAt = Date.now();
+    if (!keepElapsed) startedAt = Date.now();
     if (agentId) poll(agentId);
   }
 
-  async function runAction(action, agentId) {
+  function runAction(action, agentId) {
     if (action === "open_connections") {
       document.getElementById("runtime-profiles-menu-btn")?.click();
       return;
@@ -202,25 +235,10 @@
     if ((action !== "retry" && action !== "start") || !agentId) return;
     const button = document.querySelector(`#${CARD_ID} [data-startup-action]`);
     if (button) button.disabled = true;
-    try {
-      const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}/start`, { method: "POST" });
-      if (!response.ok) {
-        let detail = "";
-        try {
-          detail = (await response.json())?.detail || "";
-        } catch (error) {
-          /* body is optional */
-        }
-        throw new Error(detail || `HTTP ${response.status}`);
-      }
-      if (typeof window.showToast === "function") window.showToast("Starting the assistant…");
-      watch(agentId);
-    } catch (error) {
-      if (button) button.disabled = false;
-      if (typeof window.showToast === "function") {
-        window.showToast(`Could not start the assistant. ${error?.message || ""}`.trim(), { variant: "error" });
-      }
-    }
+    // chat_ui.js owns lifecycle actions (optimistic status, toasts, restart
+    // polling, refresh); it answers with portal:agent-lifecycle, which
+    // restarts the watch here.
+    document.dispatchEvent(new CustomEvent("portal:agent-action", { detail: { agentId, action: "start" } }));
   }
 
   function switchTo(agentId) {
@@ -250,10 +268,16 @@
         switchTo(agentId);
         return;
       }
+      if (!agentId || agentId !== activeAgentId) return;
+      // "refresh": the periodic poll saw this assistant change while the
+      // watch here was settled. Look again, without restarting the clock.
+      if (lifecycleAction === "refresh") {
+        watch(agentId, { keepElapsed: true });
+        return;
+      }
       // Start / Stop / Restart from the details panel or the health card. The
       // watch already running (if any) would only notice on its next tick, and
       // for a settled assistant there is no watch running at all.
-      if (!agentId || agentId !== activeAgentId) return;
       watch(agentId);
     });
 

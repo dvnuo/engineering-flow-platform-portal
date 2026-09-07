@@ -933,11 +933,12 @@ function syncSelectedAgentChatActionControls() {
     dom.abortChatRunBtn.setAttribute("aria-hidden", showAbort ? "false" : "true");
   }
   const status = getSelectedAgentStatus();
+  const wakeable = canWakeSelectedAssistant(getSelectedAgent(), status);
   const needsStart = status !== "running";
   const disabled = busy || needsStart;
   const title = busy
     ? "This assistant is still working in the current session."
-    : "Start the assistant from Assistant details first";
+    : "Start the assistant first";
 
   setButtonDisabled(dom.headerNewChatBtn, disabled, disabled ? title : "");
   setButtonDisabled(sessionsBtn, disabled, disabled ? title : "");
@@ -956,8 +957,11 @@ function syncSelectedAgentChatActionControls() {
           : "Context usage";
   setButtonDisabled(contextBtn, contextDisabled, contextTitle);
   syncContextUsageToolbar(chatState?.contextUsage);
-  setButtonDisabled(dom.homeStartChatBtn, disabled, disabled ? title : "");
-  if (dom.sendChatBtn) dom.sendChatBtn.disabled = busy || needsStart;
+  // A paused assistant can still be chatted with: New chat and Send start it
+  // first (see prepareSelectedAssistantForSend).
+  setButtonDisabled(dom.homeStartChatBtn, disabled && !wakeable, disabled && !wakeable ? title : "");
+  if (dom.homeStartChatBtn) dom.homeStartChatBtn.textContent = needsStart && wakeable ? "Start & chat" : "New Chat";
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = busy || (needsStart && !wakeable);
 }
 
 
@@ -1510,10 +1514,80 @@ function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
   }
   const status = getSelectedAgentStatus();
   if (status !== "running") {
-    showToast(`${agent.name} is ${status}. Start it from Assistant details first.`);
+    showToast(`${agent.name} is ${status}. Start it first.`);
     return false;
   }
   return true;
+}
+
+// Statuses a message can be sent into: the assistant is either up, or on its
+// way up, or paused and will be started for the sender. Failed is not one of
+// them -- the banner says why and offers Retry; sending would just retry it
+// blind.
+const WAKEABLE_AGENT_STATUSES = new Set(["stopped", "starting", "creating", "pending", "restarting"]);
+
+function canWakeSelectedAssistant(agent = getSelectedAgent(), status = getSelectedAgentStatus()) {
+  return Boolean(agent) && canWriteAgent(agent) && WAKEABLE_AGENT_STATUSES.has(status);
+}
+
+// Chat is usable right now, or will be once the assistant is awake.
+function canChatWithSelectedAssistant() {
+  const status = getSelectedAgentStatus();
+  return status === "running" || canWakeSelectedAssistant(getSelectedAgent(), status);
+}
+
+// Brings a paused assistant up so a message can be sent to it, or waits out a
+// start already in progress. Resolves true once the runtime is ready. The
+// banner shows the phases meanwhile; this only reports the outcome.
+async function wakeSelectedAssistant(agentId = state.selectedAgentId) {
+  const agent = (state.mineAgents || []).find((item) => item.id === agentId);
+  if (!agent) return false;
+  const chatState = ensureChatState(agentId);
+  if (chatState.wakeInFlight) return chatState.wakeInFlight;
+
+  chatState.wakeInFlight = (async () => {
+    const status = agentRuntimeStatus(agent);
+    if (status === "running") return true;
+    if (!canWakeSelectedAssistant(agent, status)) return false;
+    if (state.selectedAgentId === agentId) setChatStatus("Starting the assistant… your message will be sent when it is ready.");
+    if (status === "stopped") {
+      await action(`/api/agents/${encodeURIComponent(agentId)}/start`);
+    }
+    await waitForAgentRuntimeStatus(agentId, {
+      targetStatuses: ["running"],
+      failureStatuses: ["failed", "deleting"],
+      timeoutMs: 180000,
+      intervalMs: 2000,
+    });
+    return true;
+  })()
+    .catch((error) => {
+      const message = `Could not start the assistant: ${error?.message || "unknown error"}`;
+      showToast(message, { variant: "error" });
+      if (state.selectedAgentId === agentId) setChatStatus(message, true);
+      return false;
+    })
+    .finally(() => {
+      chatState.wakeInFlight = null;
+    });
+  return chatState.wakeInFlight;
+}
+
+// A send while the assistant is not running: wake it, restore its state, and
+// only then let the send proceed. Returns false when sending must not go on.
+async function prepareSelectedAssistantForSend(agentId) {
+  if (getSelectedAgentStatus() === "running") return true;
+  const chatState = ensureChatState(agentId);
+  const hadSession = Boolean(chatState?.sessionId);
+  const awake = await wakeSelectedAssistant(agentId);
+  if (!awake || state.selectedAgentId !== agentId) return false;
+  // Restores the last session and reconnects the event socket, the way a
+  // selection would have. A member who was looking at a fresh welcome gets a
+  // fresh conversation rather than having their message land in the last one.
+  await syncSelectedAgentState();
+  if (state.selectedAgentId !== agentId) return false;
+  if (!hadSession) await startNewChatForSelectedAgent();
+  return getSelectedAgentStatus() === "running";
 }
 
 // "1 members" / "1 assistants" showed up wherever a count was interpolated
@@ -1666,6 +1740,13 @@ function updateChatInputPlaceholder() {
   const assistantName = String(state.selectedAgentName || "").trim();
   if (!assistantName) {
     dom.chatInput.placeholder = "Ask anything...";
+    return;
+  }
+  const status = getSelectedAgentStatus();
+  if (status !== "running" && canWakeSelectedAssistant(getSelectedAgent(), status)) {
+    dom.chatInput.placeholder = status === "stopped"
+      ? "Paused. Sending a message starts it first (about 40 seconds)."
+      : "Starting up. Your message is sent once it is ready.";
     return;
   }
   const displayName = assistantName.length > maxPlaceholderAgentLength
@@ -4968,7 +5049,9 @@ function compactText(value, maxLength = 160) {
   return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
-const TRANSITIONAL_AGENT_STATUSES = new Set(["creating", "starting", "pending", "restarting", "deleting"]);
+// "starting" and "stopping" are local: what the UI shows between clicking an
+// action and the runtime confirming it. The server never reports them.
+const TRANSITIONAL_AGENT_STATUSES = new Set(["creating", "starting", "pending", "restarting", "deleting", "stopping"]);
 
 function agentHealth(agent) {
   const status = agentRuntimeStatus(agent);
@@ -5021,6 +5104,16 @@ function agentHealth(agent) {
       tone: "neutral",
       label: "Deleting",
       detail: "This assistant is being removed.",
+      action: "",
+      busy: true,
+    };
+  }
+  if (status === "stopping") {
+    return {
+      key: "stopping",
+      tone: "neutral",
+      label: "Stopping",
+      detail: "Pausing the runtime.",
       action: "",
       busy: true,
     };
@@ -5633,22 +5726,97 @@ function announceStartupWatch(agent) {
   }
 }
 
-// assistant_startup.js polls the selected assistant while it starts and reports
-// each reading here, so the sidebar, header badge and main view follow along
-// instead of waiting for the next full refresh.
-async function handleExternalAgentStatus(agentId, payload) {
-  const agent = (state.mineAgents || []).find((item) => item.id === agentId);
-  if (!agent || !payload) return;
-  const previous = agentRuntimeStatus(agent);
-  updateAgentRuntimeStatusCache(agentId, payload);
-  const current = agentRuntimeStatus(agent);
-  if (agentId !== state.selectedAgentId || state.activeNavSection !== "assistants") return;
+// Applies a batch of status readings (from the periodic poll or the startup
+// banner) so the sidebar, header badge and main view follow along instead of
+// waiting for the next full refresh. Renders the list once, not once per agent.
+async function applyAgentStatusSnapshot(entries, { source = "poll" } = {}) {
+  const agentsById = new Map((state.mineAgents || []).map((agent) => [agent.id, agent]));
+  let selectedPrevious = null;
+  let selectedCurrent = null;
+  let touched = false;
+  for (const entry of entries || []) {
+    const agentId = entry?.agentId || entry?.payload?.id;
+    const payload = entry?.payload;
+    const agent = agentsById.get(agentId);
+    if (!agent || !payload) continue;
+    const previous = agentRuntimeStatus(agent);
+    updateAgentRuntimeStatusCache(agentId, payload, { render: false });
+    const current = agentRuntimeStatus(agent);
+    touched = true;
+    if (agentId === state.selectedAgentId) {
+      selectedPrevious = previous;
+      selectedCurrent = current;
+    }
+  }
+  if (!touched) return;
+  renderAgentList();
+
+  if (selectedPrevious === null || state.activeNavSection !== "assistants") return;
+  const agentId = state.selectedAgentId;
+  // The banner is settled (not polling) for a stopped or failed assistant; a
+  // change the periodic poll noticed is its cue to look again.
+  if (source !== "banner" && selectedPrevious !== selectedCurrent) {
+    try {
+      document.dispatchEvent(new CustomEvent("portal:agent-lifecycle", { detail: { agentId, action: "refresh" } }));
+    } catch (error) {
+      /* listeners are decoration */
+    }
+  }
   // Restart has its own poll (pollAgentUntilRestartComplete) that reloads the
-  // session when the runtime is back; do not race it.
-  if (previous === "restarting") return;
-  if ((previous === "running") === (current === "running")) return;
+  // session when the runtime is back, and a wake-for-send restores state
+  // itself; do not race either.
+  if (selectedPrevious === "restarting") return;
+  if (ensureChatState(agentId)?.wakeInFlight) return;
+  if ((selectedPrevious === "running") === (selectedCurrent === "running")) return;
   if (hasActiveChatRequestForAgent(agentId)) return;
   await syncSelectedAgentState();
+}
+
+// assistant_startup.js polls the selected assistant while it starts and reports
+// each reading here.
+async function handleExternalAgentStatus(agentId, payload) {
+  await applyAgentStatusSnapshot([{ agentId, payload }], { source: "banner" });
+}
+
+// ===== periodic status refresh =====
+// Idle auto-stop, evictions and crash loops happen with nobody clicking
+// anything; without this the sidebar only found out on the next page load.
+const AGENT_STATUS_POLL_MS = 30000;
+const AGENT_STATUS_FOCUS_MIN_GAP_MS = 10000;
+
+async function pollAgentStatuses({ force = false } = {}) {
+  if (document.hidden && !force) return false;
+  if (!(state.mineAgents || []).length) return false;
+  if (state.agentStatusPollInFlight) return false;
+  state.agentStatusPollInFlight = true;
+  try {
+    const payload = await api("/api/agents/status");
+    state.agentStatusPolledAt = Date.now();
+    const entries = (payload?.statuses || []).map((item) => ({ agentId: item.id, payload: item }));
+    await applyAgentStatusSnapshot(entries, { source: "poll" });
+    return true;
+  } catch (error) {
+    // Status is unavailable, not wrong; the next tick tries again.
+    return false;
+  } finally {
+    state.agentStatusPollInFlight = false;
+  }
+}
+
+function startAgentStatusPolling() {
+  if (state.agentStatusPollTimer) return;
+  state.agentStatusPollTimer = setInterval(() => {
+    pollAgentStatuses().catch(() => {});
+  }, AGENT_STATUS_POLL_MS);
+  // Coming back to the tab is when a stale sidebar is most likely, and most
+  // noticeable.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) pollAgentStatuses().catch(() => {});
+  });
+  window.addEventListener("focus", () => {
+    if (Date.now() - Number(state.agentStatusPolledAt || 0) < AGENT_STATUS_FOCUS_MIN_GAP_MS) return;
+    pollAgentStatuses().catch(() => {});
+  });
 }
 
 // With no assistant selected there are two very different situations, and the
@@ -5718,8 +5886,17 @@ async function syncSelectedAgentState() {
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
   dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
   if (dom.homeAgentSummary) {
-    if (status !== "running") dom.homeAgentSummary.textContent = `${agent.name} is ${status}. Start it to open chat.`;
-    else dom.homeAgentSummary.textContent = `${agent.name} is running. Open a session or start a new chat.`;
+    const health = agentHealth(agent);
+    const startable = canWriteAgent(agent) && ["stopped", "failed"].includes(status);
+    // The Start used to live only in the details panel, one click away from a
+    // card that told the member to go and find it.
+    dom.homeAgentSummary.innerHTML = `
+      <p class="portal-home-agent-summary-copy">${safe(status === "running"
+        ? `${agent.name} is running. Open a session or start a new chat.`
+        : `${agent.name}: ${health.label}. ${health.detail}`)}</p>
+      ${startable ? `<button type="button" class="toolbar-primary-btn portal-home-start-agent-btn" data-home-start-agent="${escapeHtmlAttr(agent.id)}"><i data-lucide="play" class="w-4 h-4"></i>Start</button>` : ""}
+    `;
+    renderIcons();
   }
 
   if (dom.chatAgentId) dom.chatAgentId.value = agent.id;
@@ -5735,8 +5912,15 @@ async function syncSelectedAgentState() {
   }
 
   const running = status === "running";
-  setMainView(running ? "chat" : "home");
+  // A paused or starting assistant keeps the chat view: the composer is where
+  // a member wakes it (see prepareSelectedAssistantForSend) and the banner
+  // above shows what it is doing meanwhile. Failed and read-only go home.
+  const showChat = running || canWakeSelectedAssistant(agent, status);
+  setMainView(showChat ? "chat" : "home");
   syncMainHeader();
+  // Nothing to receive events from, and the socket would otherwise keep
+  // reconnecting to a runtime that is gone.
+  if (!running && state.eventWsAgentId === agent.id) disconnectEventSocket();
 
   if (running) {
     const chatState = ensureChatState(agent.id);
@@ -5785,13 +5969,22 @@ async function refreshAll({ preserveLayout = false, skipRouteApply = false } = {
   [...mine, ...publicAgents].forEach((agent) => allById.set(agent.id, agent));
   state.mineAgents = Array.from(allById.values());
 
-  const pairs = await Promise.all(state.mineAgents.map(async (agent) => {
-    try {
-      return [agent.id, await api(`/api/agents/${agent.id}/status`)];
-    } catch {
-      return [agent.id, { status: agent.status }];
-    }
-  }));
+  // One round trip for every status; the per-agent calls remain as a fallback.
+  let pairs = null;
+  try {
+    const batch = await api("/api/agents/status");
+    const byId = new Map((batch?.statuses || []).map((item) => [item.id, item]));
+    pairs = state.mineAgents.map((agent) => [agent.id, byId.get(agent.id) || { status: agent.status }]);
+    state.agentStatusPolledAt = Date.now();
+  } catch {
+    pairs = await Promise.all(state.mineAgents.map(async (agent) => {
+      try {
+        return [agent.id, await api(`/api/agents/${agent.id}/status`)];
+      } catch {
+        return [agent.id, { status: agent.status }];
+      }
+    }));
+  }
 
   state.agentStatus = new Map(pairs);
 
@@ -5914,6 +6107,13 @@ async function submitChatForSelectedAgent() {
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
+  if (chatState.wakeInFlight) {
+    showToast("Starting the assistant… your message will be sent when it is ready.");
+    return;
+  }
+  // Paused assistants used to disable Send and point at a hidden panel; now the
+  // send wakes it. The typed message stays in the composer until it goes.
+  if (!(await prepareSelectedAssistantForSend(agentIdAtSend))) return;
 
   // A run stopped at a question stays stopped until the tool call it came from
   // is resolved. Sending an ordinary message does not resolve it: the next run
@@ -11622,7 +11822,7 @@ function parseAgentLifecycleAction(path = "") {
   };
 }
 
-function applyLocalAgentStatus(agentId, status, lastError = "") {
+function applyLocalAgentStatus(agentId, status, lastError = "", { render = true } = {}) {
   if (!agentId) return;
   if (!state.agentStatus || typeof state.agentStatus.set !== "function") state.agentStatus = new Map();
 
@@ -11643,15 +11843,16 @@ function applyLocalAgentStatus(agentId, status, lastError = "") {
     setSelectedStatusText(normalizedStatus);
     if (agent) renderAgentActions(agent, normalizedStatus);
     syncSelectedAgentChatActionControls();
+    updateChatInputPlaceholder();
   }
-  renderAgentList();
+  if (render) renderAgentList();
 }
 
-function updateAgentRuntimeStatusCache(agentId, payload = {}) {
+function updateAgentRuntimeStatusCache(agentId, payload = {}, options = {}) {
   if (!agentId) return;
   const status = payload?.status || "";
   const lastError = payload?.last_error || payload?.message || "";
-  applyLocalAgentStatus(agentId, status, lastError);
+  applyLocalAgentStatus(agentId, status, lastError, options);
   if (payload && typeof payload === "object" && state.agentStatus && typeof state.agentStatus.set === "function") {
     const existing = state.agentStatus.get(agentId) || {};
     state.agentStatus.set(agentId, { ...existing, ...payload, status: String(status || existing.status || "").toLowerCase() });
@@ -11794,10 +11995,26 @@ async function action(path, method = "POST", needsConfirm = false) {
     setChatStatus("Restarting assistant…");
   }
 
+  // Show the transition the moment it is asked for, not when the request
+  // returns. The action buttons re-render disabled with it, which also stops
+  // a second click while the first is in flight.
+  const startMatch = String(path || "").match(/^\/api\/agents\/([^/]+)\/start$/);
+  const lifecycleAgentId = lifecycle?.agentId || (startMatch ? decodeURIComponent(startMatch[1]) : null);
+  const lifecycleAction = lifecycle?.action || (startMatch ? "start" : null);
+  const OPTIMISTIC_STATUS = { start: "starting", stop: "stopping", restart: "restarting" };
+  let previousLocal = null;
+  if (lifecycleAgentId && normalizedMethod === "POST" && OPTIMISTIC_STATUS[lifecycleAction]) {
+    const cached = state.agentStatus?.get?.(lifecycleAgentId) || {};
+    const listed = (state.mineAgents || []).find((item) => item.id === lifecycleAgentId);
+    previousLocal = { status: cached.status || listed?.status || "", lastError: cached.last_error || listed?.last_error || "" };
+    applyLocalAgentStatus(lifecycleAgentId, OPTIMISTIC_STATUS[lifecycleAction], "");
+  }
+
   let result = null;
   try {
     result = await api(path, { method });
   } catch (error) {
+    if (previousLocal) applyLocalAgentStatus(lifecycleAgentId, previousLocal.status, previousLocal.lastError);
     if (isRestartAction) {
       const message = agentRestartErrorMessage(error);
       showToast(message);
@@ -11818,13 +12035,11 @@ async function action(path, method = "POST", needsConfirm = false) {
   }
 
   if (normalizedMethod === "POST") {
-    const startMatch = String(path || "").match(/^\/api\/agents\/([^/]+)\/start$/);
-    const lifecycleAgentId = lifecycle?.agentId || (startMatch ? decodeURIComponent(startMatch[1]) : null);
-    const lifecycleAction = lifecycle?.action || (startMatch ? "start" : null);
     if (lifecycleAgentId && lifecycleAction) {
-      // Start has no poll of its own; show the transition right away rather
-      // than leaving the old "stopped" on screen until the next full refresh.
-      if (lifecycleAction === "start") applyLocalAgentStatus(lifecycleAgentId, result?.status || "creating", "");
+      // Start answers "running" before the pod exists; the status poll settles
+      // it, so keep "starting" on screen rather than flashing Ready. Stop's
+      // answer is final.
+      if (lifecycleAction === "stop") applyLocalAgentStatus(lifecycleAgentId, result?.status || "stopped", result?.last_error || "");
       try {
         document.dispatchEvent(new CustomEvent("portal:agent-lifecycle", {
           detail: { agentId: lifecycleAgentId, action: lifecycleAction },
@@ -14919,6 +15134,15 @@ function showToast(message, opts = {}) {
 
 // ===== wiring =====
 function bindEvents() {
+  // The startup banner's Start / Retry buttons go through the same path as the
+  // details panel, so restart polling, toasts and refreshes behave the same.
+  document.addEventListener("portal:agent-action", (browserEvent) => {
+    const agentId = browserEvent.detail?.agentId;
+    const lifecycleAction = browserEvent.detail?.action;
+    if (!agentId || !["start", "stop", "restart"].includes(lifecycleAction)) return;
+    action(`/api/agents/${encodeURIComponent(agentId)}/${lifecycleAction}`).catch(() => {});
+  });
+
   document.addEventListener("portal:agent-status", (browserEvent) => {
     const agentId = browserEvent.detail?.agentId;
     const payload = browserEvent.detail?.payload;
@@ -15333,7 +15557,25 @@ function bindEvents() {
       dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load agents: ${safe(error.message)}</div>`;
     }
   });
-  dom.homeStartChatBtn?.addEventListener("click", () => startNewChatForSelectedAgent());
+  dom.homeStartChatBtn?.addEventListener("click", async () => {
+    // "Start & chat" for a paused assistant: bring it up, then open a chat.
+    if (getSelectedAgentStatus() !== "running" && canChatWithSelectedAssistant()) {
+      const agentId = state.selectedAgentId;
+      if (!(await prepareSelectedAssistantForSend(agentId))) return;
+      if (state.selectedAgentId !== agentId) return;
+      dom.chatInput?.focus();
+      return;
+    }
+    await startNewChatForSelectedAgent();
+  });
+  dom.homeAgentSummary?.addEventListener("click", (browserEvent) => {
+    const button = browserEvent.target.closest("[data-home-start-agent]");
+    if (!button) return;
+    button.disabled = true;
+    action(`/api/agents/${encodeURIComponent(button.dataset.homeStartAgent)}/start`).catch(() => {
+      button.disabled = false;
+    });
+  });
   // First-run path: the empty home screen now offers the real next step directly.
   dom.homeCreateAgentBtn?.addEventListener("click", () => dom.addAgentBtn?.click());
 
@@ -16191,6 +16433,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadAgentDefaults();
   await refreshAll({ preserveLayout: true, skipRouteApply: true });
   await applyPortalRouteFromHash({ replaceInvalid: true });
+  startAgentStatusPolling();
   await restorePinnedToolPanelFromPreferencesOnce();
   renderMarkdown(document);
   renderIcons();
