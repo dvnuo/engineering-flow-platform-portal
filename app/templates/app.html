@@ -180,7 +180,10 @@
     <main class="portal-main">
       <header class="portal-main-header">
         <div class="portal-main-header-copy">
-          <h1 id="embed-title">Select an assistant</h1>
+          <div class="portal-main-header-title-row">
+            <h1 id="embed-title">Select an assistant</h1>
+            <span id="selected-status" class="portal-status-badge portal-header-status-badge hidden" role="status" aria-live="polite"></span>
+          </div>
           <div id="chat-status" class="portal-statusline" role="status" aria-live="polite">Ready</div>
         </div>
         <div class="portal-main-toolbar">
@@ -250,6 +253,11 @@
           </div>
         </div>
       </header>
+
+      {# Lifecycle banner: what the selected assistant is doing while it is not
+         ready to chat. Lives outside both the home and chat views so it stays
+         visible whichever one is showing; assistant_startup.js fills it. #}
+      <div id="assistant-status-banner" class="portal-assistant-status-banner hidden"></div>
 
       <section id="center-placeholder" class="portal-home hidden">
         <div class="portal-home-hero">

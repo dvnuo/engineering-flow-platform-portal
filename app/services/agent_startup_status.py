@@ -145,7 +145,7 @@ def startup_view(status: str | None, last_error: str | None = None) -> dict[str,
             "is_failed": False,
             "phase": phase,
             "phases": [{"key": key, "label": label} for key, label in STARTUP_PHASES],
-            "headline": "Starting your assistant",
+            "headline": "Restarting your assistant" if normalized == "restarting" else "Starting your assistant",
             "detail": f"This usually takes about {TYPICAL_STARTUP_SECONDS} seconds.",
             "action_label": None,
             "action": None,
@@ -155,15 +155,18 @@ def startup_view(status: str | None, last_error: str | None = None) -> dict[str,
 
     if normalized == "stopped":
         # Idle auto-stop is invisible otherwise, and "stopped" reads as broken.
+        # Nothing wakes it on its own (chat is disabled while stopped), so the
+        # card carries the Start button rather than pointing at a hidden panel.
         return {
             "is_starting": False,
             "is_failed": False,
             "phase": "stopped",
             "phases": [{"key": key, "label": label} for key, label in STARTUP_PHASES],
             "headline": "Paused to save resources",
-            "detail": "It wakes up when you send a message.",
-            "action_label": None,
-            "action": None,
+            "detail": "Start it to continue chatting. This usually takes about "
+            f"{TYPICAL_STARTUP_SECONDS} seconds.",
+            "action_label": "Start",
+            "action": "start",
             "typical_seconds": TYPICAL_STARTUP_SECONDS,
             "technical_detail": message,
         }

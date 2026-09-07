@@ -224,15 +224,31 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-agent-row.is-warning { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--portal-warning), transparent 20%); }
 .portal-agent-row.is-success.is-active { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--portal-success), transparent 20%); }
 html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,255,.18); border-color: rgba(126,162,255,.4); }
-.portal-agent-row-head { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; }
+.portal-agent-row-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
+.portal-agent-status-label { flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; color: var(--portal-text-muted); }
+.portal-agent-status-label.is-success { color: var(--portal-success); }
+.portal-agent-status-label.is-warning { color: color-mix(in srgb, var(--portal-warning), var(--portal-text) 30%); }
+.portal-agent-status-label.is-error { color: var(--portal-danger); }
 .portal-agent-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .portal-agent-shared { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; padding: 2px 8px; border: 1px solid var(--portal-border); border-radius: 999px; color: var(--portal-text-muted); }
 .portal-agent-row-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
 .portal-agent-status-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 999px; background: #64748b; }
 .portal-agent-status-dot.status-running { background: var(--portal-success); }
 .portal-agent-status-dot.status-creating,
+.portal-agent-status-dot.status-starting,
+.portal-agent-status-dot.status-pending,
 .portal-agent-status-dot.status-restarting { background: var(--portal-warning); }
 .portal-agent-status-dot.status-failed { background: var(--portal-danger); }
+/* Stopped is a hollow ring: a deliberate pause, not the same grey as "unknown". */
+.portal-agent-status-dot.status-stopped { background: transparent; box-shadow: inset 0 0 0 2px #94a3b8; }
+.portal-agent-status-dot.status-deleting { background: #94a3b8; }
+/* Transitional states (starting, restarting, deleting) breathe so a glance
+   tells "in motion" apart from "settled". */
+.portal-agent-status-dot.is-pulsing { animation: portal-status-pulse 1.4s ease-in-out infinite; }
+@keyframes portal-status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--portal-warning), transparent 100%); opacity: 1; }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--portal-warning), transparent 70%); opacity: .55; }
+}
 .portal-agent-unread { min-width: 18px; max-width: 100%; height: 18px; border-radius: 999px; background: var(--portal-accent); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; }
 .portal-agent-chat-badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--portal-border); border-radius: 999px; padding: 1px 6px; color: var(--portal-text-muted); }
 .portal-agent-chat-badge.is-running { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); color: var(--portal-accent); }
@@ -262,6 +278,16 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 }
 .portal-main-header { padding: 16px 24px; border-bottom: 1px solid var(--portal-border); height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 14px; background: var(--portal-workspace-secondary); }
 .portal-main-header-copy h1 { margin: 0; font-size: 1.15rem; }
+.portal-main-header-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.portal-main-header-title-row h1 { min-width: 0; }
+.portal-header-status-badge { flex: 0 0 auto; min-height: 22px; padding: 0 9px; font-size: 10px; gap: 6px; }
+.portal-header-status-badge.is-pulsing::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: currentColor; animation: portal-status-pulse 1.4s ease-in-out infinite; }
+
+/* Lifecycle banner under the header (see assistant_startup.js). Empty means
+   nothing to say, so it takes no room. */
+.portal-assistant-status-banner { flex: 0 0 auto; padding: 12px 24px 0; }
+.portal-assistant-status-banner:empty { display: none; }
+.portal-assistant-status-banner .portal-startup-progress { max-width: 860px; }
 
 /* The title block defaulted to min-width:auto, so a long title ("Delegations",
    or a long assistant name) refused to shrink and pushed the toolbar past the
@@ -4689,6 +4715,8 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
   #tool-panel,
   .assistant-loading-dots i,
   .portal-agent-row,
+  .portal-agent-status-dot.is-pulsing,
+  .portal-header-status-badge.is-pulsing::before,
   .portal-agent-health-card,
   .toolbar-icon-btn,
   .portal-header-action,

@@ -4968,11 +4968,16 @@ function compactText(value, maxLength = 160) {
   return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
+const TRANSITIONAL_AGENT_STATUSES = new Set(["creating", "starting", "pending", "restarting", "deleting"]);
+
 function agentHealth(agent) {
   const status = agentRuntimeStatus(agent);
   const lastError = String(agent?.last_error || state.agentStatus.get(agent?.id)?.last_error || "").trim();
   const writable = canWriteAgent(agent);
-  if (lastError || ["failed", "error"].includes(status)) {
+  const inTransition = TRANSITIONAL_AGENT_STATUSES.has(status);
+  // A note left by a previous failure (or the local "Restart requested") is
+  // not what is happening now while the runtime is in motion.
+  if ((lastError && !inTransition) || ["failed", "error"].includes(status)) {
     return {
       key: "attention",
       tone: "error",
@@ -4990,13 +4995,34 @@ function agentHealth(agent) {
       action: writable ? "Edit setup" : "",
     };
   }
-  if (["creating", "starting", "restarting"].includes(status)) {
+  if (status === "restarting") {
+    return {
+      key: "starting",
+      tone: "warning",
+      label: "Restarting",
+      detail: "Runtime is restarting. Chat will be available soon.",
+      action: "",
+      busy: true,
+    };
+  }
+  if (["creating", "starting", "pending"].includes(status)) {
     return {
       key: "starting",
       tone: "warning",
       label: "Starting",
       detail: "Runtime is preparing. Chat will be available soon.",
       action: "",
+      busy: true,
+    };
+  }
+  if (status === "deleting") {
+    return {
+      key: "deleting",
+      tone: "neutral",
+      label: "Deleting",
+      detail: "This assistant is being removed.",
+      action: "",
+      busy: true,
     };
   }
   if (status === "running") {
@@ -5117,10 +5143,12 @@ function renderAgentList() {
       const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       const rowBadges = `${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}`;
       const statusLabel = `Status: ${status}`;
+      const dotClass = `portal-agent-status-dot status-${safe(status)}${health.busy ? " is-pulsing" : ""}`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
-          <span class="portal-agent-status-dot status-${safe(status)}" title="${escapeHtmlAttr(statusLabel)}" aria-hidden="true"></span>
+          <span class="${dotClass}" title="${escapeHtmlAttr(statusLabel)}" aria-hidden="true"></span>
           <span class="portal-agent-name">${safe(agent.name)}</span>
+          <span class="portal-agent-status-label is-${safe(health.tone)}" aria-hidden="true">${safe(health.label)}</span>
         </div>
         ${rowBadges ? `<div class="portal-agent-row-badges">${rowBadges}</div>` : ""}
       `;
@@ -5561,16 +5589,66 @@ async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   }
   try {
     document.dispatchEvent(new CustomEvent("portal:agent-selected", {
-      detail: { agentId, agent: getSelectedAgent() },
+      detail: { agentId, agent: getSelectedAgent(), canWrite: canWriteAgent(getSelectedAgent()) },
     }));
   } catch (error) {
     /* listeners are decoration; selection has already succeeded */
   }
 }
 
+// The header badge is the one place the selected assistant's lifecycle is
+// always visible, whichever view is showing. #chat-status next to it carries
+// transient messages and gets overwritten constantly; this does not.
 function setSelectedStatusText(status = "idle") {
   if (!dom.selectedStatus) return;
-  dom.selectedStatus.textContent = status || "idle";
+  const agent = getSelectedAgent();
+  const normalized = String(status || "idle").trim().toLowerCase();
+  if (!agent || normalized === "idle") {
+    dom.selectedStatus.textContent = "";
+    dom.selectedStatus.className = "portal-status-badge portal-header-status-badge hidden";
+    dom.selectedStatus.removeAttribute("title");
+    return;
+  }
+  const health = agentHealth(agent);
+  dom.selectedStatus.textContent = health.label;
+  dom.selectedStatus.className = `portal-status-badge portal-header-status-badge is-${health.tone}${health.busy ? " is-pulsing" : ""}`;
+  dom.selectedStatus.title = `${health.detail}\nRuntime status: ${normalized}`;
+  dom.selectedStatus.setAttribute("aria-label", `Assistant status: ${health.label}. ${health.detail}`);
+}
+
+// Tells assistant_startup.js which assistant to watch. Selection can change
+// without selectAgentById (initial load restores it from storage, refreshAll
+// drops a deleted one), so this runs from syncSelectedAgentState and fires only
+// when the watched assistant actually changes.
+function announceStartupWatch(agent) {
+  const agentId = agent?.id || null;
+  if (state.startupWatchAgentId === agentId) return;
+  state.startupWatchAgentId = agentId;
+  try {
+    document.dispatchEvent(new CustomEvent("portal:agent-lifecycle", {
+      detail: { agentId, action: "sync", canWrite: canWriteAgent(agent) },
+    }));
+  } catch (error) {
+    /* listeners are decoration */
+  }
+}
+
+// assistant_startup.js polls the selected assistant while it starts and reports
+// each reading here, so the sidebar, header badge and main view follow along
+// instead of waiting for the next full refresh.
+async function handleExternalAgentStatus(agentId, payload) {
+  const agent = (state.mineAgents || []).find((item) => item.id === agentId);
+  if (!agent || !payload) return;
+  const previous = agentRuntimeStatus(agent);
+  updateAgentRuntimeStatusCache(agentId, payload);
+  const current = agentRuntimeStatus(agent);
+  if (agentId !== state.selectedAgentId || state.activeNavSection !== "assistants") return;
+  // Restart has its own poll (pollAgentUntilRestartComplete) that reloads the
+  // session when the runtime is back; do not race it.
+  if (previous === "restarting") return;
+  if ((previous === "running") === (current === "running")) return;
+  if (hasActiveChatRequestForAgent(agentId)) return;
+  await syncSelectedAgentState();
 }
 
 // With no assistant selected there are two very different situations, and the
@@ -5605,6 +5683,7 @@ async function syncSelectedAgentState() {
   const sessionsBtn = document.getElementById("btn-sessions");
 
   if (!agent) {
+    announceStartupWatch(null);
     dom.embedTitle.textContent = "Select an assistant";
     setSelectedStatusText("idle");
     setChatStatus("Ready");
@@ -5627,6 +5706,7 @@ async function syncSelectedAgentState() {
   }
 
   const status = getSelectedAgentStatus();
+  announceStartupWatch(agent);
   state.selectedAgentName = agent.name || null;
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
@@ -8944,10 +9024,12 @@ function syncMainHeader() {
   });
   syncAdminHeaderActions(state.activeNavSection);
   syncOverviewToolbars();
+  document.getElementById("assistant-status-banner")?.classList.toggle("hidden", !assistantMode);
 
   if (assistantMode) {
     restoreAssistantHeaderState();
   } else {
+    setSelectedStatusText("idle");
     if (state.activeNavSection === "tasks") {
       dom.embedTitle.textContent = "Tasks";
       // Falls back until the panel with the real numbers has swapped in.
@@ -11733,6 +11815,24 @@ async function action(path, method = "POST", needsConfirm = false) {
     const message = agentRestartErrorMessage(error, "Request failed.");
     showToast(`${agentActionLabel(path)} failed: ${message}`, { variant: "error" });
     throw error;
+  }
+
+  if (normalizedMethod === "POST") {
+    const startMatch = String(path || "").match(/^\/api\/agents\/([^/]+)\/start$/);
+    const lifecycleAgentId = lifecycle?.agentId || (startMatch ? decodeURIComponent(startMatch[1]) : null);
+    const lifecycleAction = lifecycle?.action || (startMatch ? "start" : null);
+    if (lifecycleAgentId && lifecycleAction) {
+      // Start has no poll of its own; show the transition right away rather
+      // than leaving the old "stopped" on screen until the next full refresh.
+      if (lifecycleAction === "start") applyLocalAgentStatus(lifecycleAgentId, result?.status || "creating", "");
+      try {
+        document.dispatchEvent(new CustomEvent("portal:agent-lifecycle", {
+          detail: { agentId: lifecycleAgentId, action: lifecycleAction },
+        }));
+      } catch (error) {
+        /* listeners are decoration; the action has already succeeded */
+      }
+    }
   }
 
   if (lifecycle && normalizedMethod === "POST") {
@@ -14819,6 +14919,15 @@ function showToast(message, opts = {}) {
 
 // ===== wiring =====
 function bindEvents() {
+  document.addEventListener("portal:agent-status", (browserEvent) => {
+    const agentId = browserEvent.detail?.agentId;
+    const payload = browserEvent.detail?.payload;
+    if (!agentId || !payload) return;
+    handleExternalAgentStatus(agentId, payload).catch((error) => {
+      console.warn("Failed to apply assistant status update", error);
+    });
+  });
+
   // Edit modal events
   dom.editForm?.addEventListener("submit", async (e) => {
     e.preventDefault();

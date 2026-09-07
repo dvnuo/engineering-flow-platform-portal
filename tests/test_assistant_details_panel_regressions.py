@@ -83,11 +83,14 @@ def test_agent_list_keeps_search_and_compact_hover_status():
     assert 'id="agent-scope-filter"' not in template
     assert 'id="agent-filter-clear"' not in template
     assert 'id="agent-status-filter"' not in template
-    assert 'id="selected-status"' not in template
+    # The header lifecycle badge came back (see test_assistant_status_visibility).
+    assert 'id="selected-status"' in template
     assert "visibleAgents()" in render_agent_list
     assert "agentHealth(agent)" in render_agent_list
     assert "row.title =" in render_agent_list
     assert "portal-agent-status-dot" in render_agent_list
+    # One short label next to the dot, not the old two-line health summary.
+    assert "portal-agent-status-label" in render_agent_list
     assert "portal-agent-status-text" not in render_agent_list
     assert "portal-agent-health-line" not in render_agent_list
     assert "portal-agent-row-badges" in render_agent_list
