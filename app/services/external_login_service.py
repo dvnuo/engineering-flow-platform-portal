@@ -79,26 +79,45 @@ def provision_external_user(db: Session, *, username: str, display_name: str = "
     return user, created
 
 
-def attach_copilot_token_to_default_profile(db: Session, user: User, token: str) -> None:
-    """Store the Copilot OAuth token on the member's default runtime profile.
+COPILOT_PROVIDER = "github_copilot"
 
-    The default profile is the admin-seeded one (Default Connections), so the
-    member inherits the shared Jira/Confluence/GitHub setup and only the LLM
-    credential is theirs.
+
+def sync_copilot_token_to_default_profile(db: Session, user: User, token: str) -> tuple[object, bool]:
+    """Put the Copilot OAuth token on the member's default runtime profile.
+
+    Runs on every Copilot sign-in, not only the first: GitHub tokens get
+    revoked or rotated, and signing in again is how a member repairs a
+    profile whose Copilot credential stopped working. The default profile is
+    the admin-seeded one (Default Connections), so a new member inherits the
+    shared Jira/Confluence/GitHub setup and only the LLM credential is theirs.
+
+    A default profile the member has pointed at another provider (AI
+    Platform) is left alone -- signing in with Copilot must not silently
+    switch the models their assistants run on. Returns ``(profile, changed)``.
     """
-    token = (token or "").strip()
-    if not token:
-        return
     service = RuntimeProfileService(db)
     profile = service.ensure_user_has_default_profile(user)
+    token = (token or "").strip()
+    if not token:
+        return profile, False
     config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
-    llm = dict(config.get("llm") or {}) if isinstance(config, dict) else {}
-    llm["provider"] = "github_copilot"
-    llm["api_key"] = token
     config = dict(config) if isinstance(config, dict) else {}
+    llm = dict(config.get("llm") or {})
+    provider = str(llm.get("provider") or "").strip().lower()
+    if provider and provider != COPILOT_PROVIDER:
+        logger.info(
+            "Copilot sign-in left default profile alone: provider=%s user_id=%s profile_id=%s",
+            provider, user.id, profile.id,
+        )
+        return profile, False
+    if provider == COPILOT_PROVIDER and str(llm.get("api_key") or "").strip() == token:
+        return profile, False
+    llm["provider"] = COPILOT_PROVIDER
+    llm["api_key"] = token
     config["llm"] = llm
     profile.config_json = service.normalize_persisted_config_json(json.dumps(config))
     service.repo.save(profile)
+    return profile, True
 
 
 def portal_username_from_github_login(login: str) -> str:

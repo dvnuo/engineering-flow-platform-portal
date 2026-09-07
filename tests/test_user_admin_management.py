@@ -115,12 +115,66 @@ def test_copilot_sign_in_provisions_member_with_allowlisted_role_and_copilot_pro
         assert me.status_code == 200
         assert me.json()["username"] == "alice"
 
-        # Signing in again reuses the account and leaves the profile alone.
+        assert body["profile_token_updated"] is True
+
+        # Signing in again reuses the account and refreshes the Copilot token on
+        # the same default profile, applying it like a Settings save would.
+        applied = []
+        monkeypatch.setattr(auth_api.runtime_profile_secret_service, "apply_profile_save", lambda _db, p: applied.append(p.id) or {})
         _copilot_authorized(monkeypatch, token="gho_other_token")
         again = _copilot_sign_in(client)
         assert again.json()["created"] is False
+        assert again.json()["profile_token_updated"] is True
         assert db.query(RuntimeProfile).filter(RuntimeProfile.owner_user_id == user.id).count() == 1
-        assert json.loads(profiles[0].config_json)["llm"]["api_key"] == "gho_test_token"
+        db.refresh(profiles[0])
+        assert json.loads(profiles[0].config_json)["llm"]["api_key"] == "gho_other_token"
+        assert applied == [profiles[0].id]
+
+        # Same token again: nothing to write, no restart.
+        again = _copilot_sign_in(client)
+        assert again.json()["profile_token_updated"] is False
+        assert applied == [profiles[0].id]
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+
+
+def test_copilot_sign_in_does_not_override_a_profile_on_another_provider(monkeypatch):
+    """A member who moved their default profile to AI Platform keeps it; the
+    Copilot token is not forced onto it."""
+    import json
+
+    from app.main import app
+    import app.api.auth as auth_api
+    from app.models import RuntimeProfile
+    from app.services import external_login_service
+
+    db = _database()
+    app.dependency_overrides[auth_api.get_db] = _override_db(db)
+    monkeypatch.setattr(external_login_service, "hash_password", lambda value: f"hashed-{value}")
+    user = User(username="carol", password_hash="hashed", role="user", is_active=True)
+    db.add(user)
+    db.add(UserAllowlistEntry(username="carol", role="user", is_active=True))
+    db.commit()
+    db.refresh(user)
+    db.add(RuntimeProfile(
+        owner_user_id=user.id,
+        name="Default",
+        config_json=json.dumps({"llm": {"provider": "ai_platform", "model": "gpt-5.4"}}),
+        is_default=True,
+    ))
+    db.commit()
+    _copilot_authorized(monkeypatch, login="carol", name="Carol")
+    client = TestClient(app)
+    try:
+        checked = _copilot_sign_in(client)
+        assert checked.status_code == 200, checked.text
+        assert checked.json()["status"] == "authorized"
+        assert checked.json()["profile_token_updated"] is False
+        profile = db.query(RuntimeProfile).filter_by(owner_user_id=user.id, is_default=True).one()
+        llm = json.loads(profile.config_json)["llm"]
+        assert llm["provider"] == "ai_platform"
+        assert "api_key" not in llm
     finally:
         app.dependency_overrides.clear()
         db.close()

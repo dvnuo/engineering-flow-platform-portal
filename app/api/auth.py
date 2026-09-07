@@ -18,13 +18,15 @@ from app.schemas.auth import LoginRequest, MeResponse
 from app.services.auth_service import issue_session_token, set_session_cookie, verify_password
 from app.services.copilot_auth_service import copilot_auth_service
 from app.services.external_login_service import (
-    attach_copilot_token_to_default_profile,
     fetch_github_user,
     provision_external_user,
+    sync_copilot_token_to_default_profile,
 )
+from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 settings = get_settings()
+runtime_profile_secret_service = RuntimeProfileSecretService()
 
 
 # Self-service registration is gone: accounts are provisioned on first
@@ -95,8 +97,9 @@ def complete_onboarding(user=Depends(get_current_user), db: Session = Depends(ge
 # run before there is a session. The browser starts a flow, the member
 # authorizes on GitHub, and the poll that sees "authorized" turns the token
 # into a portal account + session. The token is never returned to the
-# browser here; on a first sign-in it goes straight onto the member's default
-# runtime profile.
+# browser here; it goes onto the member's default runtime profile (created
+# on first sign-in, refreshed on later ones) exactly like saving the profile
+# in Settings would, including the Secret update + restart of bound agents.
 
 
 def _copilot_flow_owner(flow_id: str) -> str:
@@ -161,8 +164,7 @@ async def copilot_login_check(payload: CopilotLoginCheckRequest, db: Session = D
             display_name=github_user.get("name") or "",
             source="github_copilot",
         )
-        if created:
-            attach_copilot_token_to_default_profile(db, user, token)
+        profile, token_updated = sync_copilot_token_to_default_profile(db, user, token)
     except Exception as exc:
         db.rollback()
         logger.exception("Provisioning portal user after Copilot authorization failed")
@@ -171,9 +173,22 @@ async def copilot_login_check(payload: CopilotLoginCheckRequest, db: Session = D
             content={"status": "failed", "message": f"Sign-in failed: {sanitize_exception_message(exc)}"},
         )
 
+    if token_updated:
+        try:
+            runtime_profile_secret_service.apply_profile_save(db, profile)
+        except Exception:
+            db.rollback()
+            logger.exception("runtime profile secret save/restart failed after Copilot sign-in profile_id=%s", profile.id)
+
     response = JSONResponse(
         status_code=200,
-        content={"status": "authorized", "redirect": "/app", "username": user.username, "created": created},
+        content={
+            "status": "authorized",
+            "redirect": "/app",
+            "username": user.username,
+            "created": created,
+            "profile_token_updated": token_updated,
+        },
     )
     set_session_cookie(response, issue_session_token(user.id))
     return response
