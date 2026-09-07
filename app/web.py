@@ -67,6 +67,7 @@ from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
+from app.utils.sso_auth import login_user_by_code
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/templates")
@@ -1583,6 +1584,8 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     return _settings_finalize_config_payload(config_payload), None
 
 
+from app.utils.sso_auth import login_user_by_code
+
 @router.get("/")
 def index(request: Request) -> RedirectResponse:
     user, access_reason = _session_user_access(request)
@@ -1591,14 +1594,40 @@ def index(request: Request) -> RedirectResponse:
     return _redirect_for_access_reason(access_reason)
 
 
+@router.get("/admlogin")
+def login_page(request: Request):
+    if _current_user_from_cookie(request):
+        return RedirectResponse(url="/app", status_code=302)
+    return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
+
+
 @router.get("/login")
 def login_page(request: Request):
+
     user, access_reason = _session_user_access(request)
     if user and access_reason is None:
         return RedirectResponse(url="/app", status_code=302)
     if access_reason in ACCESS_DENIED_REASONS:
         return _redirect_to_unauthorized()
-    return _anonymous_auth_page(request, "login.html", "Portal Login")
+
+    return RedirectResponse(url=f"https://sso-auth.company.com/realms/persons/protocol/openid-connect/auth?response_type=code&client_id=webapp&scope=read%20write&redirect_uri={base_uri}/auth&state=", status_code=302)
+    # return templates.TemplateResponse("login.html", {"request": request, "title": "Portal Login"})
+
+
+@router.get("/auth")
+async def auth_page(request: Request):
+    session_state = (request.query_params.get("session_state") or "").strip()
+    code = (request.query_params.get("code") or "").strip()
+    token = await login_user_by_code(redirect_uri=f"{base_uri}/auth", code=code)
+
+    response = RedirectResponse(url="/app", status_code=302)
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=token,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @router.get("/register")
