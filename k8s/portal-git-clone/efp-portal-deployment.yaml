@@ -75,6 +75,9 @@ spec:
               value: ""
             - name: SSO_ISSUER_URL
               value: "https://sso-auth.company.com/realms/persons"
+            # Server-side token exchange; leave empty to use SSO_ISSUER_URL.
+            - name: SSO_INTERNAL_ISSUER_URL
+              value: ""
             - name: SSO_CLIENT_ID
               value: "webapp"
             - name: COPILOT_LOGIN_ENABLED

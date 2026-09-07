@@ -305,6 +305,22 @@ def test_admin_login_page_clears_invalid_cookie_without_redirect():
     assert "Max-Age=0" in set_cookie
 
 
+def test_sso_token_exchange_can_use_a_separate_internal_issuer(monkeypatch):
+    """Browser redirects go to the public IdP host; the server-side token
+    exchange may need a different (cluster-internal) host."""
+    import app.utils.sso_auth as sso
+
+    monkeypatch.setattr(sso.settings, "sso_issuer_url", "https://sso.example.com/realms/persons/")
+    monkeypatch.setattr(sso.settings, "sso_internal_issuer_url", "")
+    monkeypatch.setattr(sso.settings, "base_uri", "https://portal.example.com")
+    assert sso.sso_authorize_url().startswith("https://sso.example.com/realms/persons/protocol/openid-connect/auth?")
+    assert sso.sso_token_url() == "https://sso.example.com/realms/persons/protocol/openid-connect/token"
+
+    monkeypatch.setattr(sso.settings, "sso_internal_issuer_url", "http://keycloak.sso.svc.cluster.local:8080/realms/persons")
+    assert sso.sso_authorize_url().startswith("https://sso.example.com/realms/persons/protocol/openid-connect/auth?")
+    assert sso.sso_token_url() == "http://keycloak.sso.svc.cluster.local:8080/realms/persons/protocol/openid-connect/token"
+
+
 def test_sso_callback_sets_long_lived_session_cookie(monkeypatch):
     """A session cookie without Max-Age is dropped when the browser closes,
     which forced members through SSO again every day."""

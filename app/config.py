@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # derived from it. BASE_URI must be the portal's public origin so the
     # callback (BASE_URI + /auth) matches the redirect URI registered at the IdP.
     sso_issuer_url: str = Field(default="", validation_alias="SSO_ISSUER_URL")
+    # The browser is redirected to SSO_ISSUER_URL; the server-side token
+    # exchange calls SSO_INTERNAL_ISSUER_URL, for deployments where the portal
+    # reaches the IdP through a different host (cluster-internal service,
+    # proxy) than the user's browser does. Empty means "same as SSO_ISSUER_URL".
+    sso_internal_issuer_url: str = Field(default="", validation_alias="SSO_INTERNAL_ISSUER_URL")
     sso_client_id: str = Field(default="webapp", validation_alias="SSO_CLIENT_ID")
     sso_client_secret: str = Field(default="", validation_alias="SSO_CLIENT_SECRET")
     sso_scope: str = Field(default="read write", validation_alias="SSO_SCOPE")

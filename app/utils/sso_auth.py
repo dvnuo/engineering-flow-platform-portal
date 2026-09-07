@@ -25,8 +25,18 @@ def sso_redirect_uri() -> str:
     return f"{settings.base_uri.rstrip('/')}{SSO_CALLBACK_PATH}"
 
 
-def _issuer() -> str:
+def _browser_issuer() -> str:
+    """Issuer base the user's browser is redirected to."""
     return settings.sso_issuer_url.strip().rstrip("/")
+
+
+def _api_issuer() -> str:
+    """Issuer base the portal itself calls for the token exchange.
+
+    Falls back to the browser-facing base; set SSO_INTERNAL_ISSUER_URL when
+    the portal reaches the IdP through a different host than the browser.
+    """
+    return settings.sso_internal_issuer_url.strip().rstrip("/") or _browser_issuer()
 
 
 def sso_authorize_url(state: str = "") -> str:
@@ -39,11 +49,11 @@ def sso_authorize_url(state: str = "") -> str:
             "state": state,
         }
     )
-    return f"{_issuer()}/protocol/openid-connect/auth?{query}"
+    return f"{_browser_issuer()}/protocol/openid-connect/auth?{query}"
 
 
 def sso_token_url() -> str:
-    return f"{_issuer()}/protocol/openid-connect/token"
+    return f"{_api_issuer()}/protocol/openid-connect/token"
 
 
 async def get_user_by_code(redirect_uri: str, code: str):

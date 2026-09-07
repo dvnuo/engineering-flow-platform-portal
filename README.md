@@ -63,6 +63,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `PORTAL_SUPPORT_CONTACT` | Shown on the "not on the allowlist" page so a blocked user knows who can grant access (a name, team channel, or `mailto:`/`https:` link) | (empty) |
 | `BASE_URI` | Public origin of the portal (no trailing slash); required with SSO so the callback `BASE_URI/auth` matches the redirect URI registered at the IdP | (empty) |
 | `SSO_ISSUER_URL` | OpenID Connect issuer / Keycloak realm base URL, e.g. `https://sso.example.com/realms/persons`. Empty disables SSO and `/login` serves the password form; `/admlogin` always serves the form | (empty) |
+| `SSO_INTERNAL_ISSUER_URL` | Issuer base the portal calls server-side for the token exchange, when it reaches the IdP through a different host than the browser (e.g. `http://keycloak.sso.svc.cluster.local:8080/realms/persons`); empty uses `SSO_ISSUER_URL` | (empty) |
 | `SSO_CLIENT_ID` | OIDC client id | `webapp` |
 | `SSO_CLIENT_SECRET` | OIDC client secret, only for confidential clients | (empty) |
 | `SSO_SCOPE` | Scope requested on the authorize redirect | `read write` |
