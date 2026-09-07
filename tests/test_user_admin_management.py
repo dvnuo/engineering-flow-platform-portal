@@ -245,7 +245,8 @@ def test_login_page_offers_copilot_only_when_sso_not_configured():
     assert "data-copilot-choose" in response.text
     assert "data-sso-choice" not in response.text
     assert 'id="login-form"' not in response.text
-    assert 'href="/admlogin"' in response.text
+    # Member-facing page: no administrator/password hint, no registration link.
+    assert "/admlogin" not in response.text
     assert 'href="/register"' not in response.text
 
 
@@ -259,7 +260,16 @@ def test_login_page_offers_sso_and_copilot_with_enterprise_step(monkeypatch):
     response = client.get("/login", follow_redirects=False)
     assert response.status_code == 200
     assert 'href="/login/sso"' in response.text
+    assert "Sign in with Employee SSO" in response.text
+    assert "Assistants use the default AI Platform model." in response.text
     assert "data-copilot-choose" in response.text
+    assert "Sign in with GitHub Copilot" in response.text
+    assert "Assistants use your GitHub Copilot models." in response.text
+    assert "portal-auth-method-icon--github" in response.text
+    # Copilot is listed first and recommended; SSO folds away once Copilot is chosen.
+    assert response.text.index("data-copilot-choose") < response.text.index("data-sso-choice")
+    assert "Recommended" in response.text
+    assert "data-copilot-back" in response.text
     assert 'href="https://github.com/enterprises/acme/sso"' in response.text
     assert "login_copilot.js" in response.text
 

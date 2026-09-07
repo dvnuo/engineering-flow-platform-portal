@@ -5958,11 +5958,80 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
 }
 
 /* Login page: sign-in method choice + GitHub Copilot device flow. */
-.portal-auth-choices { display: grid; gap: .5rem; }
-.portal-auth-choice { width: 100%; justify-content: center; text-align: center; }
-.portal-auth-copilot { display: grid; gap: .75rem; padding-top: .75rem; border-top: 1px solid var(--portal-border); }
-.portal-auth-steps { display: grid; gap: .75rem; margin: 0; padding-left: 1.25rem; }
-.portal-auth-steps li { display: grid; gap: .5rem; }
-.portal-auth-steps p { margin: 0; }
-.portal-auth-code { display: block; font-size: 1.5rem; letter-spacing: .2em; font-weight: 600; text-align: center; padding: .5rem; border: 1px dashed var(--portal-border); border-radius: var(--portal-radius-lg); user-select: all; min-height: 2.6rem; }
-.portal-auth-status { margin: 0; font-size: .9rem; opacity: .85; }
+.login-card--methods { padding: 1.5rem 1.4rem 1.3rem; gap: 1.1rem; box-shadow: var(--portal-shadow-lg); animation: portal-auth-card-in .45s cubic-bezier(.22,.61,.36,1) both; }
+.portal-auth-brand { display: grid; justify-items: center; text-align: center; gap: .35rem; }
+.portal-auth-brand h1 { margin: 0; font-size: 1.35rem; }
+.portal-auth-logo { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; color: var(--portal-accent-strong); background: var(--portal-accent-soft); margin-bottom: .2rem; }
+.portal-auth-copy[data-auth-intro] { transition: opacity .2s ease; }
+
+.portal-auth-methods { display: grid; gap: .6rem; }
+.portal-auth-method {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .85rem;
+  width: 100%; padding: .85rem .95rem; border-radius: 16px; text-align: left; text-decoration: none;
+  border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text);
+  cursor: pointer; font: inherit;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background-color .18s ease, opacity .25s ease;
+  animation: portal-auth-method-in .4s ease both;
+}
+.portal-auth-methods .portal-auth-method:nth-child(2) { animation-delay: .07s; }
+.portal-auth-method:hover, .portal-auth-method:focus-visible { border-color: var(--portal-accent); box-shadow: 0 10px 24px rgba(63,114,255,.14); transform: translateY(-2px); outline: none; }
+.portal-auth-method:hover .portal-auth-method-chevron, .portal-auth-method:focus-visible .portal-auth-method-chevron { transform: translateX(3px); color: var(--portal-accent-strong); }
+.portal-auth-method:active { transform: translateY(0); }
+.portal-auth-method.is-selected { border-color: var(--portal-accent); background: var(--portal-accent-soft); cursor: default; transform: none; box-shadow: none; }
+.portal-auth-method.is-selected .portal-auth-method-chevron { transform: rotate(90deg); color: var(--portal-accent-strong); }
+.portal-auth-method-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; transition: transform .18s ease; }
+.portal-auth-method:hover .portal-auth-method-icon { transform: scale(1.06); }
+.portal-auth-method-icon--github { background: #24292f; color: #fff; }
+.portal-auth-method-icon--sso { background: var(--portal-surface-soft); color: var(--portal-text-secondary); }
+html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; color: #24292f; }
+.portal-auth-method-body { display: grid; gap: .15rem; min-width: 0; }
+.portal-auth-method-title { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; font-weight: 600; font-size: .95rem; line-height: 1.3; }
+.portal-auth-method-hint { font-size: .8rem; color: var(--portal-text-muted); line-height: 1.4; }
+.portal-auth-method-chevron { color: var(--portal-text-muted); display: grid; place-items: center; transition: transform .18s ease, color .18s ease; }
+.portal-auth-pill { font-size: .66rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .45rem; border-radius: 999px; color: var(--portal-accent-strong); background: var(--portal-accent-soft); }
+
+/* Copilot mode: the other method folds away so it cannot be clicked by accident. */
+.login-card.is-copilot-mode .portal-auth-method[data-auth-method="sso"] { display: none; }
+
+.portal-auth-copilot { display: grid; gap: .9rem; animation: portal-auth-expand .3s ease both; }
+.portal-auth-steps { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.portal-auth-step { display: grid; grid-template-columns: auto 1fr; gap: .8rem; padding: .8rem .9rem; border-radius: 14px; border: 1px solid var(--portal-border); background: var(--portal-surface-muted); animation: portal-auth-expand .3s ease both; transition: border-color .2s ease, background-color .2s ease, opacity .2s ease; }
+.portal-auth-step.is-active { border-color: var(--portal-accent); background: var(--portal-surface); }
+.portal-auth-step.is-done { opacity: .72; }
+.portal-auth-step.is-done .portal-auth-step-actions { display: none; }
+.portal-auth-step-num { width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center; font-size: .78rem; font-weight: 600; color: var(--portal-text-secondary); background: var(--portal-surface-soft); border: 1px solid var(--portal-border); transition: background-color .2s ease, color .2s ease, border-color .2s ease; }
+.portal-auth-step.is-active .portal-auth-step-num { color: #fff; background: var(--portal-accent-strong); border-color: transparent; }
+.portal-auth-step.is-done .portal-auth-step-num { color: #fff; background: var(--portal-success); border-color: transparent; }
+.portal-auth-step.is-done .portal-auth-step-index { display: none; }
+.portal-auth-step.is-done .portal-auth-step-num::after { content: "\2713"; }
+.login-card.is-signed-in .portal-auth-step[data-copilot-step="done"] .portal-auth-step-num { color: #fff; background: var(--portal-success); border-color: transparent; animation: portal-auth-pop .35s ease both; }
+.portal-auth-step-body { display: grid; gap: .45rem; min-width: 0; }
+.portal-auth-step-title { margin: 0; font-weight: 600; font-size: .9rem; }
+.portal-auth-step-text { margin: 0; font-size: .82rem; color: var(--portal-text-muted); line-height: 1.45; }
+.portal-auth-step-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .15rem; }
+.portal-auth-step-actions .portal-btn { transition: transform .15s ease, background-color .15s ease; }
+.portal-auth-step-actions .portal-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.portal-auth-code-row { display: flex; align-items: stretch; gap: .5rem; }
+.portal-auth-code { flex: 1; font-size: 1.45rem; letter-spacing: .18em; font-weight: 700; text-align: center; padding: .5rem .6rem; border: 1px dashed var(--portal-accent); border-radius: 12px; background: var(--portal-accent-soft); color: var(--portal-text); user-select: all; min-height: 2.6rem; animation: portal-auth-code-in .5s ease both; }
+.portal-auth-copy-btn { height: auto; }
+.portal-auth-waiting { display: flex; align-items: center; gap: .5rem; margin: 0; font-size: .82rem; color: var(--portal-text-secondary); }
+.portal-auth-timer { color: var(--portal-text-muted); }
+.portal-auth-spinner { width: 14px; height: 14px; border-radius: 999px; border: 2px solid var(--portal-border-strong); border-top-color: var(--portal-accent-strong); animation: portal-auth-spin .8s linear infinite; }
+.portal-auth-status { margin: 0; font-size: .85rem; color: var(--portal-text-secondary); }
+.portal-auth-status:empty { display: none; }
+.portal-auth-back { display: inline-flex; align-items: center; gap: .3rem; justify-self: start; padding: .25rem .1rem; border: 0; background: none; color: var(--portal-text-muted); font: inherit; font-size: .82rem; cursor: pointer; border-radius: 8px; transition: color .15s ease, transform .15s ease; }
+.portal-auth-back:hover, .portal-auth-back:focus-visible { color: var(--portal-accent-strong); transform: translateX(-2px); outline: none; }
+.portal-auth-error:empty { display: none; }
+
+@keyframes portal-auth-card-in { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes portal-auth-method-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes portal-auth-expand { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes portal-auth-code-in { 0% { transform: scale(.94); opacity: 0; } 60% { transform: scale(1.03); opacity: 1; } 100% { transform: none; } }
+@keyframes portal-auth-pop { 0% { transform: scale(.6); } 70% { transform: scale(1.15); } 100% { transform: none; } }
+@keyframes portal-auth-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card--methods, .portal-auth-method, .portal-auth-copilot, .portal-auth-step, .portal-auth-code, .portal-auth-step-num { animation: none !important; transition: none !important; }
+  .portal-auth-method:hover, .portal-auth-back:hover, .portal-auth-step-actions .portal-btn:hover:not(:disabled) { transform: none; }
+  .portal-auth-spinner { animation-duration: 1.6s; }
+}

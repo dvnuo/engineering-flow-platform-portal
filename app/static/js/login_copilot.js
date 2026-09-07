@@ -6,23 +6,36 @@
  * until GitHub reports it authorized. The server turns that authorization
  * into a portal account + session cookie, so the only thing this script
  * does with the result is follow the redirect.
+ *
+ * Choosing Copilot puts the card into "copilot mode": the other sign-in
+ * method folds away so it cannot be clicked by accident, and a back link
+ * restores the choice.
  */
 (function () {
   var card = document.getElementById("login-card");
   if (!card) return;
 
   var authBase = (card.dataset.copilotAuthBase || "").trim() || "/api/auth/copilot";
+  var intro = card.querySelector("[data-auth-intro]");
   var chooseButton = card.querySelector("[data-copilot-choose]");
   var panel = card.querySelector("[data-copilot-panel]");
+  var backButton = card.querySelector("[data-copilot-back]");
   var startButton = card.querySelector("[data-copilot-start]");
-  var deviceStep = card.querySelector('[data-copilot-step="device"]');
+  var steps = {
+    enterprise: card.querySelector('[data-copilot-step="enterprise"]'),
+    device: card.querySelector('[data-copilot-step="device"]'),
+    done: card.querySelector('[data-copilot-step="done"]'),
+  };
   var userCode = card.querySelector("[data-copilot-user-code]");
+  var copyButton = card.querySelector("[data-copilot-copy]");
   var deviceLink = card.querySelector("[data-copilot-device-link]");
   var timerNode = card.querySelector("[data-copilot-timer]");
   var statusNode = card.querySelector("[data-copilot-status]");
   var errorNode = document.getElementById("login-error");
   if (!chooseButton || !panel || !startButton) return;
 
+  var introText = intro ? intro.textContent : "";
+  var startLabel = startButton.textContent;
   var pollTimer = null;
   var countdownTimer = null;
 
@@ -41,10 +54,49 @@
     countdownTimer = null;
   }
 
-  function resetStart(label) {
+  function setStep(name) {
+    Object.keys(steps).forEach(function (key) {
+      var node = steps[key];
+      if (!node) return;
+      var order = ["enterprise", "device", "done"];
+      var reached = order.indexOf(key) <= order.indexOf(name);
+      node.classList.toggle("hidden", !reached);
+      node.classList.toggle("is-active", key === name);
+      node.classList.toggle("is-done", order.indexOf(key) < order.indexOf(name));
+    });
+  }
+
+  function resetFlow() {
     stopTimers();
     startButton.disabled = false;
-    if (label) startButton.textContent = label;
+    startButton.textContent = startLabel;
+    if (userCode) userCode.textContent = "";
+    if (copyButton) copyButton.textContent = "Copy";
+    setStatus("");
+    setStep("enterprise");
+  }
+
+  function enterCopilotMode() {
+    card.classList.add("is-copilot-mode");
+    panel.classList.remove("hidden");
+    chooseButton.setAttribute("aria-expanded", "true");
+    chooseButton.classList.add("is-selected");
+    if (intro) intro.textContent = "Sign in with GitHub Copilot";
+    setError("");
+    resetFlow();
+    var firstAction = panel.querySelector("a, button");
+    if (firstAction) firstAction.focus({ preventScroll: true });
+  }
+
+  function leaveCopilotMode() {
+    resetFlow();
+    card.classList.remove("is-copilot-mode");
+    panel.classList.add("hidden");
+    chooseButton.setAttribute("aria-expanded", "false");
+    chooseButton.classList.remove("is-selected");
+    if (intro) intro.textContent = introText;
+    setError("");
+    chooseButton.focus({ preventScroll: true });
   }
 
   async function postJson(url, body) {
@@ -66,51 +118,73 @@
     return data.message || data.detail || data.details || data.error || fallback;
   }
 
+  function failAndReset(message) {
+    setError(message);
+    stopTimers();
+    startButton.disabled = false;
+    startButton.textContent = startLabel;
+    setStep("enterprise");
+  }
+
   chooseButton.addEventListener("click", function () {
-    var open = panel.classList.contains("hidden");
-    panel.classList.toggle("hidden", !open);
-    chooseButton.setAttribute("aria-expanded", open ? "true" : "false");
-    setError("");
+    if (card.classList.contains("is-copilot-mode")) return;
+    enterCopilotMode();
   });
+
+  if (backButton) backButton.addEventListener("click", leaveCopilotMode);
+
+  if (copyButton) {
+    copyButton.addEventListener("click", async function () {
+      var code = userCode ? userCode.textContent.trim() : "";
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code);
+        copyButton.textContent = "Copied";
+        setTimeout(function () { copyButton.textContent = "Copy"; }, 1600);
+      } catch (clipboardError) {
+        copyButton.textContent = "Select & copy";
+      }
+    });
+  }
 
   startButton.addEventListener("click", async function () {
     setError("");
     setStatus("");
     stopTimers();
     startButton.disabled = true;
-    var originalLabel = startButton.textContent;
-    startButton.textContent = "Starting…";
+    startButton.textContent = "Contacting GitHub…";
 
     var started;
     try {
       started = await postJson(authBase + "/start", {});
     } catch (networkError) {
-      setError("Could not reach the server. Check your connection and try again.");
-      resetStart(originalLabel);
+      failAndReset("Could not reach the server. Check your connection and try again.");
       return;
     }
     var flow = started.data;
     if (!started.ok || flow.error || !flow.auth_id || !flow.device_code || !flow.user_code || !flow.flow_id) {
-      setError(describeFailure(flow, "Could not start GitHub authorization. Try again."));
-      resetStart(originalLabel);
+      failAndReset(describeFailure(flow, "Could not start GitHub authorization. Try again."));
       return;
     }
 
     if (userCode) userCode.textContent = flow.user_code;
     if (deviceLink) deviceLink.href = flow.verification_complete_url || flow.verification_url || "https://github.com/login/device";
-    if (deviceStep) deviceStep.classList.remove("hidden");
     startButton.textContent = "Waiting for GitHub…";
-    setStatus("Waiting for you to authorize on GitHub. This page updates on its own.");
+    setStep("device");
+    if (deviceLink) deviceLink.focus({ preventScroll: true });
 
     var remaining = Number(flow.expires_in || 600);
-    if (timerNode) timerNode.textContent = remaining + "s";
+    function renderTimer() {
+      if (!timerNode) return;
+      var m = Math.floor(Math.max(remaining, 0) / 60);
+      var s = Math.max(remaining, 0) % 60;
+      timerNode.textContent = "code valid " + m + ":" + (s < 10 ? "0" : "") + s;
+    }
+    renderTimer();
     countdownTimer = setInterval(function () {
       remaining -= 1;
-      if (timerNode) timerNode.textContent = Math.max(remaining, 0) + "s";
-      if (remaining <= 0) {
-        setError("Authorization timed out. Start again.");
-        resetStart(originalLabel);
-      }
+      renderTimer();
+      if (remaining <= 0) failAndReset("The code expired before GitHub confirmed it. Start again.");
     }, 1000);
 
     var intervalMs = Math.max(Number(flow.interval || 5), 3) * 1000;
@@ -123,25 +197,25 @@
           device_code: flow.device_code,
         });
       } catch (networkError) {
-        setError("Lost contact with the server while waiting for GitHub. Start again.");
-        resetStart(originalLabel);
+        failAndReset("Lost contact with the server while waiting for GitHub. Start again.");
         return;
       }
       var result = checked.data;
       if (!checked.ok) {
-        setError(describeFailure(result, "Authorization check failed (HTTP " + checked.status + ")."));
-        resetStart(originalLabel);
+        failAndReset(describeFailure(result, "Authorization check failed (HTTP " + checked.status + ")."));
         return;
       }
       if (result.status === "pending") return;
       if (result.status === "authorized") {
         stopTimers();
-        setStatus("Signed in. Taking you to the portal…");
-        window.location.href = result.redirect || "/app";
+        setStep("done");
+        card.classList.add("is-signed-in");
+        setTimeout(function () {
+          window.location.href = result.redirect || "/app";
+        }, 500);
         return;
       }
-      setError(describeFailure(result, "GitHub authorization failed."));
-      resetStart(originalLabel);
+      failAndReset(describeFailure(result, "GitHub authorization failed."));
     }, intervalMs);
   });
 })();
