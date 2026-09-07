@@ -24,6 +24,7 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.access_control_service import ALLOWED_USER_ROLES
 from app.services.auth_service import hash_password
+from app.services.outbound_http import github_client_kwargs
 from app.services.runtime_profile_service import RuntimeProfileService
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ async def fetch_github_user(token: str) -> dict:
         "Accept": "application/vnd.github+json",
         "User-Agent": "efp-portal",
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(**github_client_kwargs()) as client:
         response = await client.get(GITHUB_USER_API_URL, headers=headers)
     response.raise_for_status()
     data = response.json()

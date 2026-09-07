@@ -68,6 +68,9 @@ The configured bootstrap administrator is created as the first administrator and
 | `SSO_CLIENT_SECRET` | OIDC client secret, only for confidential clients | (empty) |
 | `SSO_SCOPE` | Scope requested on the authorize redirect | `read write` |
 | `SSO_VERIFY_TLS` | Verify the IdP's TLS certificate during the token exchange; set `false` only for an internal CA that is not in the container trust store | `true` |
+| `GITHUB_PROXY_URL` | How the portal reaches github.com for the Copilot device flow and user lookup: empty honours `HTTP(S)_PROXY`/`NO_PROXY` from the pod environment, `direct` ignores them, or an explicit proxy URL such as `http://proxy.corp:3128` | (empty) |
+| `GITHUB_HTTP_TIMEOUT_SECONDS` | Timeout for those github.com calls | `30` |
+| `SSO_PROXY_URL` | Same semantics for the server-side SSO token exchange; set `direct` when `HTTPS_PROXY` is present in the pod but the IdP must be reached without it | (empty) |
 | `COPILOT_LOGIN_ENABLED` | Offer "Sign in with GitHub Copilot" on the login page (GitHub device flow; a first sign-in creates the member and stores the Copilot token on their default runtime profile) | `true` |
 | `GITHUB_ENTERPRISE_SSO_URL` | Enterprise SSO page members must sign in to (new tab) before the Copilot authorization starts, e.g. `https://github.com/enterprises/<slug>/sso`; empty skips that step | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |

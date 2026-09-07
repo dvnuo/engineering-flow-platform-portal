@@ -84,6 +84,12 @@ spec:
               value: "true"
             - name: GITHUB_ENTERPRISE_SSO_URL
               value: "https://github.com/enterprises/company-emu/sso"
+            # Egress for github.com calls: empty = pod HTTP(S)_PROXY env,
+            # "direct" = no proxy, or an explicit proxy URL.
+            - name: GITHUB_PROXY_URL
+              value: ""
+            - name: SSO_PROXY_URL
+              value: ""
             - name: BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:

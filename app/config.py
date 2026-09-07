@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     sso_client_secret: str = Field(default="", validation_alias="SSO_CLIENT_SECRET")
     sso_scope: str = Field(default="read write", validation_alias="SSO_SCOPE")
     sso_verify_tls: bool = Field(default=True, validation_alias="SSO_VERIFY_TLS")
+    # Outbound proxy settings for the portal's own HTTP calls (see
+    # app/services/outbound_http.py): empty = honour HTTP(S)_PROXY / NO_PROXY
+    # from the pod environment, "direct" = ignore them, or an explicit proxy
+    # URL. github.com (Copilot device flow + user lookup) usually needs the
+    # egress proxy inside the cluster; the IdP usually must not use it.
+    sso_proxy_url: str = Field(default="", validation_alias="SSO_PROXY_URL")
+    github_proxy_url: str = Field(default="", validation_alias="GITHUB_PROXY_URL")
+    github_http_timeout_seconds: int = Field(default=30, validation_alias="GITHUB_HTTP_TIMEOUT_SECONDS")
 
     # GitHub Copilot sign-in: the same GitHub device flow the runtime-profile
     # panel uses, offered on the login page. Before starting it, members are

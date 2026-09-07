@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.redaction import sanitize_exception_message
 from app.services.auth_service import issue_session_token
 from app.services.external_login_service import provision_external_user
+from app.services.outbound_http import describe_sso_egress, sso_client_kwargs
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -68,7 +69,7 @@ async def get_user_by_code(redirect_uri: str, code: str):
     if settings.sso_client_secret:
         form["client_secret"] = settings.sso_client_secret
     try:
-        async with httpx.AsyncClient(verify=settings.sso_verify_tls, timeout=15.0) as client:
+        async with httpx.AsyncClient(**sso_client_kwargs(verify=settings.sso_verify_tls)) as client:
             response = await client.post(sso_token_url(), data=form)
             response.raise_for_status()
             token = response.json()
@@ -78,10 +79,10 @@ async def get_user_by_code(redirect_uri: str, code: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("SSO token exchange failed")
+        logger.exception("SSO token exchange failed (reaching %s via %s)", sso_token_url(), describe_sso_egress())
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"SSO token exchange failed: {sanitize_exception_message(e)}",
+            detail=f"SSO token exchange failed: {sanitize_exception_message(e)} (via {describe_sso_egress()})",
         )
 
     email = str(claims.get("email") or "").strip()
