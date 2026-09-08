@@ -142,3 +142,8 @@ def test_non_assistant_sections_hide_badge_and_banner():
     assert 'document.getElementById("assistant-status-banner")?.classList.toggle("hidden", !assistantMode)' in body
     else_branch = body.split("} else {", 1)[1]
     assert 'setSelectedStatusText("idle")' in else_branch
+
+
+def test_startup_banner_card_is_centred_on_wide_screens():
+    rule = CSS.split(".portal-assistant-status-banner .portal-startup-progress {", 1)[1].split("}", 1)[0]
+    assert "margin: 0 auto" in rule

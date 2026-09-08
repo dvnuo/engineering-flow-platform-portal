@@ -290,7 +290,8 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
    nothing to say, so it takes no room. */
 .portal-assistant-status-banner { flex: 0 0 auto; padding: 12px 24px 0; }
 .portal-assistant-status-banner:empty { display: none; }
-.portal-assistant-status-banner .portal-startup-progress { max-width: 860px; }
+/* Centred: on a wide screen a card hugging the left edge reads as part of the sidebar, not the assistant. */
+.portal-assistant-status-banner .portal-startup-progress { max-width: 860px; margin: 0 auto; }
 
 /* The title block defaulted to min-width:auto, so a long title ("Delegations",
    or a long assistant name) refused to shrink and pushed the toolbar past the
