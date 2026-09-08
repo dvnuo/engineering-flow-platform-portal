@@ -257,9 +257,11 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-agent-chat-badge.is-error { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%); color: var(--portal-danger); }
 .portal-empty-note { color: var(--portal-text-muted); font-size: 13px; }
 
+/* No translate: a row sliding up from below the last one briefly overflows the
+   list and blinks its scrollbar on every rebuild. */
 @keyframes portal-list-item-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes portal-panel-enter {

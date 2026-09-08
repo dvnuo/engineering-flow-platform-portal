@@ -5289,6 +5289,47 @@ function syncAgentRowUnreadBadge(agentId) {
   return true;
 }
 
+// Updates the status-derived parts of existing sidebar rows (dot, label, tone,
+// hover text) without rebuilding the list. A rebuild replays every row's enter
+// animation, and with a status poll running that made the sidebar flicker (and
+// its scrollbar blink, since the animation nudges rows past the bottom edge).
+// Returns false when a full render is needed after all: no rows yet, a row
+// missing, or a search filter that keys on status text.
+function syncAgentListStatus(agentIds = null) {
+  if (!dom.mineList) return false;
+  if (String(state.agentFilters?.query || "").trim()) return false;
+  const rows = dom.mineList.querySelectorAll(".portal-agent-row[data-agent-id]");
+  if (!rows.length) return false;
+  const rowsById = new Map(Array.from(rows).map((row) => [row.dataset.agentId, row]));
+  const targets = agentIds ? agentIds : Array.from(rowsById.keys());
+  const TONES = ["is-success", "is-warning", "is-error", "is-neutral", "is-info"];
+
+  for (const agentId of targets) {
+    const row = rowsById.get(agentId);
+    const agent = (state.mineAgents || []).find((item) => item.id === agentId);
+    if (!row || !agent) return false;
+    const status = agentRuntimeStatus(agent);
+    const health = agentHealth(agent);
+
+    TONES.forEach((tone) => row.classList.remove(tone));
+    row.classList.add(`is-${health.tone}`);
+    row.title = `${agent.name || "Assistant"}\nStatus: ${status}\n${health.detail}`;
+    row.setAttribute("aria-label", `${agent.name || "Assistant"}. Status ${status}. ${health.detail}`);
+
+    const dot = row.querySelector(".portal-agent-status-dot");
+    if (dot) {
+      dot.className = `portal-agent-status-dot status-${status}${health.busy ? " is-pulsing" : ""}`;
+      dot.title = `Status: ${status}`;
+    }
+    const label = row.querySelector(".portal-agent-status-label");
+    if (label) {
+      label.className = `portal-agent-status-label is-${health.tone}`;
+      label.textContent = health.label;
+    }
+  }
+  return true;
+}
+
 function syncAgentListSelection(previousAgentId = null, selectedAgentId = state.selectedAgentId) {
   if (!dom.mineList) return false;
   const rows = dom.mineList.querySelectorAll(".portal-agent-row[data-agent-id]");
@@ -5731,25 +5772,29 @@ function announceStartupWatch(agent) {
 // waiting for the next full refresh. Renders the list once, not once per agent.
 async function applyAgentStatusSnapshot(entries, { source = "poll" } = {}) {
   const agentsById = new Map((state.mineAgents || []).map((agent) => [agent.id, agent]));
+  const readingOf = (agent) => `${agentRuntimeStatus(agent)}|${String(agent?.last_error || state.agentStatus.get(agent?.id)?.last_error || "").trim()}`;
   let selectedPrevious = null;
   let selectedCurrent = null;
-  let touched = false;
+  const changed = [];
   for (const entry of entries || []) {
     const agentId = entry?.agentId || entry?.payload?.id;
     const payload = entry?.payload;
     const agent = agentsById.get(agentId);
     if (!agent || !payload) continue;
     const previous = agentRuntimeStatus(agent);
+    const before = readingOf(agent);
     updateAgentRuntimeStatusCache(agentId, payload, { render: false });
     const current = agentRuntimeStatus(agent);
-    touched = true;
+    if (readingOf(agent) !== before) changed.push(agentId);
     if (agentId === state.selectedAgentId) {
       selectedPrevious = previous;
       selectedCurrent = current;
     }
   }
-  if (!touched) return;
-  renderAgentList();
+  // Most polls confirm what is already on screen; touching the DOM for those
+  // is what made the sidebar flicker.
+  if (!changed.length) return;
+  if (!syncAgentListStatus(changed)) renderAgentList();
 
   if (selectedPrevious === null || state.activeNavSection !== "assistants") return;
   const agentId = state.selectedAgentId;
@@ -11845,7 +11890,7 @@ function applyLocalAgentStatus(agentId, status, lastError = "", { render = true 
     syncSelectedAgentChatActionControls();
     updateChatInputPlaceholder();
   }
-  if (render) renderAgentList();
+  if (render && !syncAgentListStatus([agentId])) renderAgentList();
 }
 
 function updateAgentRuntimeStatusCache(agentId, payload = {}, options = {}) {

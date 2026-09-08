@@ -266,3 +266,25 @@ def test_slow_start_changes_the_card_without_promising_a_restart():
     assert 'view.action = "contact_support";' in STARTUP_JS
     assert "const startup = escalate(rawStartup);" in STARTUP_JS
     assert ".portal-startup-progress.is-slow" in CSS
+
+
+# ------------------------------------------------- front-end: no flicker
+
+
+def test_status_updates_patch_rows_in_place_instead_of_rebuilding():
+    # A rebuild replays every row's enter animation; with a poll running the
+    # sidebar flickered and its scrollbar blinked on each tick.
+    sync = _extract_js_function(CHAT_JS, "syncAgentListStatus")
+    assert 'querySelector(".portal-agent-status-dot")' in sync
+    assert 'querySelector(".portal-agent-status-label")' in sync
+    assert 'if (String(state.agentFilters?.query || "").trim()) return false;' in sync
+
+    snapshot = _extract_js_function(CHAT_JS, "applyAgentStatusSnapshot")
+    assert "if (!changed.length) return;" in snapshot
+    assert "if (!syncAgentListStatus(changed)) renderAgentList();" in snapshot
+
+    local = _extract_js_function(CHAT_JS, "applyLocalAgentStatus")
+    assert "if (render && !syncAgentListStatus([agentId])) renderAgentList();" in local
+
+    keyframes = CSS.split("@keyframes portal-list-item-in {", 1)[1].split("}", 1)[0]
+    assert "translateY" not in keyframes
