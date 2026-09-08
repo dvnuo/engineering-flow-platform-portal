@@ -341,7 +341,10 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-settings-section-head" in settings_html
     assert "portal-settings-instance-card" in settings_html
     assert "portal-instance-remove" in settings_html
-    assert "portal-link-inline" in settings_html
+    # The settings panel's inline links live in the shared Copilot card it includes.
+    copilot_card_html = Path("app/templates/partials/copilot_auth_card.html").read_text(encoding="utf-8")
+    assert '{% include "partials/copilot_auth_card.html" %}' in settings_html
+    assert "portal-link-inline" in copilot_card_html
     assert ("portal-password-toggle" in settings_html) or ("portal-password-toggle" in js_source)
     assert "portal-panel-stack" in usage_html
     assert "portal-usage-grid" in usage_html

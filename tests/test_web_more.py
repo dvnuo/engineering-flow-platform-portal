@@ -1304,7 +1304,6 @@ async function fetch(url, options) {{
           device_code: 'device-1',
           user_code: 'CODE1',
           verification_url: 'https://github.com/login/device',
-          verification_complete_url: 'https://github.com/login/device?user_code=CODE1',
           expires_in: 60,
           interval: 7,
         }};
@@ -1338,6 +1337,8 @@ global.fetch = fetch;
     toasts,
     summaryText: root.elements.summary.textContent,
     startBody: JSON.parse(fetchCalls[0].options.body),
+    verifyHref: root.elements.verifyLink.href,
+    deviceHref: root.elements.deviceLink.href,
   }}));
 }})().catch((error) => {{
   console.error(error);
@@ -1355,6 +1356,10 @@ global.fetch = fetch;
     assert data["fetchCalls"][1]["url"] == "/api/copilot/auth/check"
     assert data["summaryText"] == "nope"
     assert len(data["clearedIntervals"]) >= 2
+    assert data["verifyHref"] == "https://github.com/login/device"
+    # Without verification_complete_url the "Complete Authorization" link still
+    # leads to the device page (the only route there in enterprise-SSO mode).
+    assert data["deviceHref"] == "https://github.com/login/device"
 
 
 def test_start_copilot_auth_stops_on_check_http_error_or_missing_status():

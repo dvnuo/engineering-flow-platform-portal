@@ -11560,13 +11560,17 @@ async function startCopilotAuth(root) {
     }
 
     if (instructions) instructions.classList.remove("hidden");
+    // With GITHUB_ENTERPRISE_SSO_URL configured the card has no verify link:
+    // step 1 is the enterprise SSO page rendered by the template, and the
+    // device page is reached only through the "Complete Authorization" link.
     if (verifyLink) {
       verifyLink.href = data.verification_url;
       verifyLink.textContent = data.verification_url;
     }
     if (deviceLink) {
-      if (data.verification_complete_url) {
-        deviceLink.href = data.verification_complete_url;
+      const completeUrl = data.verification_complete_url || data.verification_url;
+      if (completeUrl) {
+        deviceLink.href = completeUrl;
         deviceLink.classList.remove("hidden");
       } else {
         deviceLink.classList.add("hidden");
