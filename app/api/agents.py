@@ -22,6 +22,7 @@ from app.schemas.agent import (
     AgentCreateRequest,
     AgentDeleteResponse,
     AgentResponse,
+    AgentStatusBatchResponse,
     AgentStatusResponse,
     AgentUpdateRequest,
 )
@@ -32,6 +33,7 @@ from app.services.k8s_service import K8sService
 from app.services.inference_settings_service import resolve_agent_inference_profile
 from app.services.proxy_service import ProxyService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
+from app.services.runtime_status_cache import runtime_status_cache
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.utils.git_urls import normalize_git_repo_url
 from app.utils.agent_responses import build_agent_response
@@ -109,6 +111,7 @@ def _load_writable_agent(agent_id: str, user, db: Session):
 def _delete_agent(repo: AgentRepository, agent, user, db: Session):
     agent.status = "deleting"
     repo.save(agent)
+    runtime_status_cache.invalidate(agent.id)
 
     runtime = k8s_service.delete_agent_runtime(agent)
     if runtime.status == "failed":
@@ -328,6 +331,54 @@ def list_public(user=Depends(get_current_user), db: Session = Depends(get_db)):
     _ = user
     agents = AgentRepository(db).list_public()
     return [build_agent_response(r) for r in agents]
+
+
+def _refresh_agent_runtime_status(repo: AgentRepository, agent, *, use_cache: bool):
+    """Read the runtime status, persist a change, and return the reading.
+
+    The single-agent endpoint always goes live (a member is watching it start);
+    the batch endpoint reads through the cache so a sidebar refresh across many
+    open tabs does not turn into that many Kubernetes calls.
+    """
+    runtime = runtime_status_cache.get(agent.id) if use_cache else None
+    if runtime is None:
+        runtime = k8s_service.get_agent_runtime_status(agent)
+        runtime_status_cache.put(agent.id, runtime)
+
+    next_status = runtime.status if is_valid_status(runtime.status) else "failed"
+    if agent.status != next_status or agent.last_error != runtime.message:
+        agent.status = next_status
+        agent.last_error = runtime.message
+        repo.save(agent)
+    return runtime
+
+
+@router.get("/status", response_model=AgentStatusBatchResponse)
+def list_agent_statuses(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Runtime status of every assistant the caller can see.
+
+    Backs the sidebar's periodic refresh. Without it the sidebar only learned
+    about idle auto-stop, evictions and crash loops on the next page load.
+    """
+    repo = AgentRepository(db)
+    seen: dict[str, object] = {}
+    for agent in [*repo.list_by_owner(user.id), *repo.list_public()]:
+        seen.setdefault(agent.id, agent)
+
+    statuses = []
+    for agent in seen.values():
+        runtime = _refresh_agent_runtime_status(repo, agent, use_cache=True)
+        statuses.append(
+            AgentStatusResponse(
+                id=agent.id,
+                status=agent.status,
+                cpu_usage=runtime.cpu_usage,
+                memory_usage=runtime.memory_usage,
+                last_error=agent.last_error,
+                startup=startup_view(agent.status, agent.last_error),
+            )
+        )
+    return AgentStatusBatchResponse(statuses=statuses)
 
 
 @router.post("/simple", response_model=AgentResponse)
@@ -587,6 +638,7 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     agent.last_error = runtime.message
     agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
+    runtime_status_cache.invalidate(agent.id)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -602,6 +654,7 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
     agent.status = runtime.status
     agent.last_error = runtime.message
     repo.save(agent)
+    runtime_status_cache.invalidate(agent.id)
     AuditRepository(db).create("stop_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -637,6 +690,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     agent.last_error = runtime.message
     agent.last_activity_at = datetime.utcnow()
     repo.save(agent)
+    runtime_status_cache.invalidate(agent.id)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
     return build_agent_response(agent)
 
@@ -703,10 +757,7 @@ async def agent_status(agent_id: str, user=Depends(get_current_user), db: Sessio
     if not _can_read(agent, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    runtime = k8s_service.get_agent_runtime_status(agent)
-    agent.status = runtime.status if is_valid_status(runtime.status) else "failed"
-    agent.last_error = runtime.message
-    repo.save(agent)
+    runtime = _refresh_agent_runtime_status(repo, agent, use_cache=False)
 
     desired_profile_revision = None
     if agent.runtime_profile_id:

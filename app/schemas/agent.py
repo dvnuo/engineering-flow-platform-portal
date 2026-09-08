@@ -126,6 +126,12 @@ class AgentStatusResponse(BaseModel):
     startup: Optional[dict] = None
 
 
+class AgentStatusBatchResponse(BaseModel):
+    """Status of every assistant the caller can see, in one round trip."""
+
+    statuses: list[AgentStatusResponse]
+
+
 class AgentChatModelProfileResponse(BaseModel):
     runtime_profile_id: Optional[str] = None
     revision: Optional[int] = None

@@ -8,14 +8,27 @@
  *
  * The reading itself is computed server-side (app/services/agent_startup_status)
  * and arrives on the status payload as `startup`; this only draws it.
+ *
+ * It draws into #assistant-status-banner, which sits under the main header and
+ * outside both the home and chat views. The chat view is hidden whenever the
+ * assistant is not running, so a card inside the transcript would only ever be
+ * seen once there was nothing left to say.
+ *
+ * Two events tie this to chat_ui.js without either reaching into the other:
+ *   - portal:agent-selected / portal:agent-lifecycle (from chat_ui) start a
+ *     watch on that assistant;
+ *   - portal:agent-status (from here) hands every status reading back so the
+ *     sidebar, header badge and main view follow along.
  */
 (function () {
   "use strict";
 
+  const BANNER_ID = "assistant-status-banner";
   const CARD_ID = "portal-startup-card";
   const POLL_MS = 3000;
 
   let activeAgentId = null;
+  let canWrite = false;
   let timer = null;
   let startedAt = 0;
 
@@ -72,8 +85,13 @@
       .join("")}</ul>`;
   }
 
+  // Start, Retry and Connections change the assistant; a member who can only
+  // read it would get a 403 for their trouble.
+  const WRITE_ACTIONS = new Set(["start", "retry", "open_connections"]);
+
   function actionMarkup(startup) {
     if (!startup.action) return "";
+    if (WRITE_ACTIONS.has(startup.action) && !canWrite) return "";
     return `<div class="portal-startup-actions">
       <button type="button" class="portal-btn is-primary" data-startup-action="${esc(startup.action)}">
         ${esc(startup.action_label || "Continue")}
@@ -81,13 +99,46 @@
     </div>`;
   }
 
-  function cardMarkup(startup) {
+  // Past this multiple of the typical start the wait is no longer "usual".
+  // Kubernetes only declares the rollout failed after its own progress
+  // deadline (minutes), and until then nothing here can restart a start in
+  // progress, so this changes what the card says, not what it offers.
+  const SLOW_START_FACTOR = 2.5;
+  const SUPPORT_AFTER_SECONDS = 600;
+
+  function elapsedSeconds() {
+    return startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
+  }
+
+  // The server's reading, adjusted for how long this member has been waiting.
+  function escalate(startup) {
+    if (!startup.is_starting) return startup;
+    const typical = Number(startup.typical_seconds) || 40;
+    const elapsed = elapsedSeconds();
+    if (elapsed < typical * SLOW_START_FACTOR) return startup;
+    const view = {
+      ...startup,
+      is_slow: true,
+      headline: "Startup is taking longer than usual",
+      detail: "Still waiting for the runtime. The platform marks a start that never finishes as failed, and you can retry from there.",
+    };
+    if (elapsed >= SUPPORT_AFTER_SECONDS) {
+      view.detail = "This has been going on for a while. Retrying later usually works; if it keeps happening, your administrator needs to look at it.";
+      view.action_label = "Contact support";
+      view.action = "contact_support";
+    }
+    return view;
+  }
+
+  function cardMarkup(rawStartup) {
+    const startup = escalate(rawStartup);
     const icon = startup.is_failed ? "triangle-alert" : startup.is_starting ? "loader" : "pause";
     const detail = startup.is_starting
       ? `${esc(startup.detail)} ${esc(elapsedLabel())}`.trim()
       : esc(startup.detail);
+    const tone = startup.is_failed ? " is-failed" : startup.is_slow ? " is-slow" : "";
     return `
-    <div class="portal-startup-progress${startup.is_failed ? " is-failed" : ""}">
+    <div class="portal-startup-progress${tone}">
       <div class="portal-startup-progress-head">
         <i data-lucide="${icon}" class="w-4 h-4"></i>
         <span>${esc(startup.headline)}</span>
@@ -107,8 +158,8 @@
   }
 
   function mountCard(startup) {
-    const list = document.getElementById("message-list");
-    if (!list) return;
+    const banner = document.getElementById(BANNER_ID);
+    if (!banner) return;
     const existing = document.getElementById(CARD_ID);
     const html = cardMarkup(startup);
     if (existing) {
@@ -116,12 +167,20 @@
       renderIcons();
       return;
     }
-    const row = document.createElement("div");
-    row.id = CARD_ID;
-    row.className = "message-row message-row-assistant portal-interactive-row";
-    row.innerHTML = html;
-    list.prepend(row);
+    const card = document.createElement("div");
+    card.id = CARD_ID;
+    card.className = "portal-startup-card";
+    card.innerHTML = html;
+    banner.replaceChildren(card);
     renderIcons();
+  }
+
+  function reportStatus(agentId, payload) {
+    try {
+      document.dispatchEvent(new CustomEvent("portal:agent-status", { detail: { agentId, payload } }));
+    } catch (error) {
+      /* the card is still correct even if nobody else is listening */
+    }
   }
 
   async function poll(agentId) {
@@ -138,6 +197,8 @@
       return;
     }
     if (activeAgentId !== agentId) return;
+
+    reportStatus(agentId, payload);
 
     const startup = payload && payload.startup;
     if (!startup || (!startup.is_starting && !startup.is_failed && startup.phase !== "stopped")) {
@@ -156,7 +217,13 @@
     }
   }
 
-  async function runAction(action, agentId) {
+  function watch(agentId, { keepElapsed = false } = {}) {
+    stopPolling();
+    if (!keepElapsed) startedAt = Date.now();
+    if (agentId) poll(agentId);
+  }
+
+  function runAction(action, agentId) {
     if (action === "open_connections") {
       document.getElementById("runtime-profiles-menu-btn")?.click();
       return;
@@ -165,30 +232,56 @@
       document.getElementById("help-btn")?.click();
       return;
     }
-    if (action !== "retry" || !agentId) return;
-    try {
-      await fetch(`/api/agents/${encodeURIComponent(agentId)}/start`, { method: "POST" });
-      if (typeof window.showToast === "function") window.showToast("Starting the assistant again…");
-      startedAt = Date.now();
+    if ((action !== "retry" && action !== "start") || !agentId) return;
+    const button = document.querySelector(`#${CARD_ID} [data-startup-action]`);
+    if (button) button.disabled = true;
+    // chat_ui.js owns lifecycle actions (optimistic status, toasts, restart
+    // polling, refresh); it answers with portal:agent-lifecycle, which
+    // restarts the watch here.
+    document.dispatchEvent(new CustomEvent("portal:agent-action", { detail: { agentId, action: "start" } }));
+  }
+
+  function switchTo(agentId) {
+    if (agentId === activeAgentId) return;
+    clearCard();
+    activeAgentId = agentId;
+    if (agentId) {
+      watch(agentId);
+    } else {
       stopPolling();
-      poll(agentId);
-    } catch (error) {
-      if (typeof window.showToast === "function") {
-        window.showToast("Could not start the assistant.", { variant: "error" });
-      }
     }
   }
 
   function bind() {
     document.addEventListener("portal:agent-selected", (browserEvent) => {
-      stopPolling();
-      clearCard();
-      activeAgentId = browserEvent.detail?.agentId || null;
-      startedAt = Date.now();
-      if (activeAgentId) poll(activeAgentId);
+      canWrite = browserEvent.detail?.canWrite === true;
+      switchTo(browserEvent.detail?.agentId || null);
     });
 
-    document.getElementById("message-list")?.addEventListener("click", (browserEvent) => {
+    document.addEventListener("portal:agent-lifecycle", (browserEvent) => {
+      const agentId = browserEvent.detail?.agentId || null;
+      const lifecycleAction = browserEvent.detail?.action;
+      // "sync": chat_ui settled on a selected assistant by some path other
+      // than a click (initial load, a refresh). Same as a selection.
+      if (lifecycleAction === "sync") {
+        if (typeof browserEvent.detail?.canWrite === "boolean") canWrite = browserEvent.detail.canWrite;
+        switchTo(agentId);
+        return;
+      }
+      if (!agentId || agentId !== activeAgentId) return;
+      // "refresh": the periodic poll saw this assistant change while the
+      // watch here was settled. Look again, without restarting the clock.
+      if (lifecycleAction === "refresh") {
+        watch(agentId, { keepElapsed: true });
+        return;
+      }
+      // Start / Stop / Restart from the details panel or the health card. The
+      // watch already running (if any) would only notice on its next tick, and
+      // for a settled assistant there is no watch running at all.
+      watch(agentId);
+    });
+
+    document.getElementById(BANNER_ID)?.addEventListener("click", (browserEvent) => {
       const button = browserEvent.target.closest("[data-startup-action]");
       if (button) runAction(button.dataset.startupAction, activeAgentId);
     });

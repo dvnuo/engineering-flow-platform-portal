@@ -49,7 +49,7 @@ def test_initial_hash_route_section_is_applied_before_async_route_load():
     assert 'activeNavSection: INITIAL_PORTAL_ROUTE_SECTION' in state_block
     assert 'if (state.activeNavSection !== "assistants")' in sync_selected
     assert sync_selected.index('if (state.activeNavSection !== "assistants")') < sync_selected.index(
-        'setMainView(running ? "chat" : "home")'
+        'setMainView(showChat ? "chat" : "home")'
     )
 
     assert 'id="rail-assistants-btn" class="portal-rail-btn is-active"' in html
