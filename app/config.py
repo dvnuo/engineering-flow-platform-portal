@@ -28,6 +28,10 @@ class Settings(BaseSettings):
         default="/v1/api/v1/chat/completions",
         validation_alias="AI_PLATFORM_CHAT_URI",
     )
+    # Optional native Responses API path on the same chat host. A ``{usercase}``
+    # placeholder is filled from the profile's auth.usercase at projection time;
+    # empty keeps the native runtime on chat/completions.
+    ai_platform_responses_uri: str = Field(default="", validation_alias="AI_PLATFORM_RESPONSES_URI")
     ai_platform_ib2b_host: str = Field(default="", validation_alias="AI_PLATFORM_IB2B_HOST")
     ai_platform_ib2b_uri: str = Field(default="", validation_alias="AI_PLATFORM_IB2B_URI")
     ai_platform_trust_token_header: str = Field(

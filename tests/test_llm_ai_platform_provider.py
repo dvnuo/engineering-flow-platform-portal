@@ -32,15 +32,18 @@ def _ai_profile(model="gpt-5.4"):
     }
 
 
-def _ai_settings():
-    return SimpleNamespace(
+def _ai_settings(**overrides):
+    values = dict(
         ai_platform_chat_host="https://chat.int",
         ai_platform_chat_uri="/v1/api/v1/chat/completions",
+        ai_platform_responses_uri="",
         ai_platform_ib2b_host="https://ib2b.int",
         ai_platform_ib2b_uri="/dsp/token",
         ai_platform_trust_token_header="X-Trust",
         ai_platform_tracking_prefix="EFP",
     )
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 def test_normalize_provider_whitelist():
@@ -135,3 +138,54 @@ def test_legacy_and_copilot_still_coerce_to_copilot():
     assert c["provider"] == "github_copilot"
     assert c["model"] == "gpt-5.6-terra"
     assert c["api_key"] == "sk"
+
+
+def test_projection_omits_responses_block_without_a_configured_path():
+    canonical = build_canonical_profile_config(_ai_profile(), settings=_ai_settings())
+    assert "responses" not in canonical["llm"]["ai_platform"]
+
+
+def test_projection_fills_usercase_into_responses_path():
+    settings = _ai_settings(ai_platform_responses_uri="/v1/{usercase}/responses")
+    canonical = build_canonical_profile_config(_ai_profile(), settings=settings)
+    ai_platform = canonical["llm"]["ai_platform"]
+    # Responses shares the chat host; the placeholder is filled from the
+    # profile credential and the chat endpoint stays untouched.
+    assert ai_platform["responses"] == {"host": "https://chat.int", "uri": "/v1/uc/responses"}
+    assert ai_platform["chat"] == {"host": "https://chat.int", "uri": "/v1/api/v1/chat/completions"}
+    # Both runtimes receive the block; OpenCode ignores it, native prefers it.
+    assert project_canonical_for_runtime(canonical, "opencode")["llm"]["ai_platform"]["responses"]["uri"] == "/v1/uc/responses"
+
+
+def test_projection_url_encodes_the_usercase_placeholder():
+    settings = _ai_settings(ai_platform_responses_uri="/v1/{usercase}/responses")
+    profile = _ai_profile()
+    profile["llm"]["ai_platform"]["auth"]["usercase"] = "team/a b"
+    canonical = build_canonical_profile_config(profile, settings=settings)
+    assert canonical["llm"]["ai_platform"]["responses"]["uri"] == "/v1/team%2Fa%20b/responses"
+
+
+def test_projection_drops_placeholder_endpoint_when_profile_has_no_usercase():
+    settings = _ai_settings(ai_platform_responses_uri="/v1/{usercase}/responses")
+    profile = _ai_profile()
+    profile["llm"]["ai_platform"]["auth"].pop("usercase")
+    canonical = build_canonical_profile_config(profile, settings=settings)
+    ai_platform = canonical["llm"]["ai_platform"]
+    # A literal "{usercase}" must never reach a runtime; falling back to chat
+    # is what the native runtime does when no responses endpoint is present.
+    assert "responses" not in ai_platform
+    assert ai_platform["chat"]["uri"] == "/v1/api/v1/chat/completions"
+
+
+def test_projection_keeps_literal_responses_path_without_placeholder():
+    settings = _ai_settings(ai_platform_responses_uri="/v1/responses")
+    canonical = build_canonical_profile_config(_ai_profile(), settings=settings)
+    assert canonical["llm"]["ai_platform"]["responses"]["uri"] == "/v1/responses"
+
+
+def test_profile_cannot_override_responses_endpoint():
+    settings = _ai_settings(ai_platform_responses_uri="/v1/{usercase}/responses")
+    profile = _ai_profile()
+    profile["llm"]["ai_platform"]["responses"] = {"host": "https://profile.invalid", "uri": "/evil"}
+    canonical = build_canonical_profile_config(profile, settings=settings)
+    assert canonical["llm"]["ai_platform"]["responses"] == {"host": "https://chat.int", "uri": "/v1/uc/responses"}
