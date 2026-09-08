@@ -61,6 +61,7 @@ def test_settings_ai_platform_defaults():
     settings = Settings()
     assert settings.ai_platform_chat_host == ""
     assert settings.ai_platform_chat_uri == "/v1/api/v1/chat/completions"
+    assert settings.ai_platform_responses_uri == ""
     assert settings.ai_platform_ib2b_host == ""
     assert settings.ai_platform_ib2b_uri == ""
     assert settings.ai_platform_trust_token_header == "X-XXXX-E2E-Trust-Token"
@@ -70,6 +71,7 @@ def test_settings_ai_platform_defaults():
 def test_settings_ai_platform_env_overrides(monkeypatch):
     monkeypatch.setenv("AI_PLATFORM_CHAT_HOST", "https://chat.example")
     monkeypatch.setenv("AI_PLATFORM_CHAT_URI", "/chat")
+    monkeypatch.setenv("AI_PLATFORM_RESPONSES_URI", "/v1/{usercase}/responses")
     monkeypatch.setenv("AI_PLATFORM_IB2B_HOST", "https://ib2b.example")
     monkeypatch.setenv("AI_PLATFORM_IB2B_URI", "/token")
     monkeypatch.setenv("AI_PLATFORM_TRUST_TOKEN_HEADER", "X-Trust")
@@ -79,6 +81,7 @@ def test_settings_ai_platform_env_overrides(monkeypatch):
 
     assert settings.ai_platform_chat_host == "https://chat.example"
     assert settings.ai_platform_chat_uri == "/chat"
+    assert settings.ai_platform_responses_uri == "/v1/{usercase}/responses"
     assert settings.ai_platform_ib2b_host == "https://ib2b.example"
     assert settings.ai_platform_ib2b_uri == "/token"
     assert settings.ai_platform_trust_token_header == "X-Trust"

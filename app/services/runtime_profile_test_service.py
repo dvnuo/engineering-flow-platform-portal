@@ -133,13 +133,12 @@ class RuntimeProfileTestService:
         llm_cfg = materialize_ai_platform_llm_config(llm_cfg, settings=self.settings)
         provider = normalize_provider(llm_cfg.get("provider"))
         model = str(llm_cfg.get("model") or "").strip()
-        _ = runtime_type
 
         if not model:
             return False, "LLM model is required."
 
         if provider == "ai_platform":
-            return await self._test_ai_platform(llm_cfg, model)
+            return await self._test_ai_platform(llm_cfg, model, runtime_type=runtime_type)
 
         api_key = str(llm_cfg.get("api_key") or "").strip()
         if not api_key:
@@ -171,13 +170,32 @@ class RuntimeProfileTestService:
             return False, f"{provider}/{model} test failed: {message}"
         return True, f"LLM smoke test OK: {provider}/{model}."
 
-    async def _test_ai_platform(self, llm_cfg: dict, model: str) -> tuple[bool, str]:
+    @staticmethod
+    def _ai_platform_endpoint_is_responses(endpoint: str) -> bool:
+        path = urlparse(endpoint).path.rstrip("/").lower()
+        return path.endswith("/responses") or path.endswith("/responses/compact")
+
+    async def _test_ai_platform(
+        self,
+        llm_cfg: dict,
+        model: str,
+        *,
+        runtime_type: str | None = None,
+    ) -> tuple[bool, str]:
         ap = llm_cfg.get("ai_platform") if isinstance(llm_cfg.get("ai_platform"), dict) else {}
         chat = ap.get("chat") if isinstance(ap.get("chat"), dict) else {}
+        responses = ap.get("responses") if isinstance(ap.get("responses"), dict) else {}
         ib2b = ap.get("ib2b") if isinstance(ap.get("ib2b"), dict) else {}
         auth = ap.get("auth") if isinstance(ap.get("auth"), dict) else {}
-        chat_host = str(chat.get("host") or "").strip()
-        chat_uri = str(chat.get("uri") or "/v1/api/v1/chat/completions").strip()
+        # Mirror the runtimes: native prefers the Responses endpoint when one is
+        # configured, the OpenCode adapter only speaks chat/completions.
+        use_responses = (
+            str(runtime_type or "native").strip().lower() != "opencode"
+            and bool(str(responses.get("uri") or "").strip())
+        )
+        endpoint_config = responses if use_responses else chat
+        chat_host = str(endpoint_config.get("host") or chat.get("host") or "").strip()
+        chat_uri = str(endpoint_config.get("uri") or "/v1/api/v1/chat/completions").strip()
         ib2b_host = str(ib2b.get("host") or "").strip()
         ib2b_uri = str(ib2b.get("uri") or "").strip()
         username = str(auth.get("username") or "").strip()
@@ -213,6 +231,7 @@ class RuntimeProfileTestService:
             if not token:
                 return False, "AI Platform token exchange did not return issued_token."
 
+        endpoint = self._join_url(chat_host, chat_uri)
         tracking = f"{prefix}-smoketest"
         headers = {
             "Content-Type": "application/json",
@@ -221,14 +240,20 @@ class RuntimeProfileTestService:
             "x-correlation-id": tracking,
             "x-usersession-id": tracking,
         }
-        payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_completion_tokens": 1,
-        }
-        if usercase:
-            payload["user"] = usercase
-        return await self._provider_request("ai_platform", model, self._join_url(chat_host, chat_uri), headers, payload)
+        if self._ai_platform_endpoint_is_responses(endpoint):
+            # The Responses gateway also expects the JWT as a Bearer token and
+            # routes the use case through the URL rather than a ``user`` field.
+            headers["Authorization"] = f"Bearer {token}"
+            payload: dict = {"model": model, "input": "ping"}
+        else:
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_completion_tokens": 1,
+            }
+            if usercase:
+                payload["user"] = usercase
+        return await self._provider_request("ai_platform", model, endpoint, headers, payload)
 
     @staticmethod
     def _join_url(host: str, uri: str) -> str:
