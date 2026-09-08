@@ -78,6 +78,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |
 | `AI_PLATFORM_CHAT_URI` | Centrally managed AI Platform chat-completions path | `/v1/api/v1/chat/completions` |
+| `AI_PLATFORM_RESPONSES_URI` | Optional AI Platform Responses API path on the chat host, e.g. `/v1/{usercase}/responses`; `{usercase}` is filled from the profile credential. Empty keeps the native runtime on chat/completions (OpenCode always uses chat/completions) | (empty) |
 | `AI_PLATFORM_IB2B_HOST` | Centrally managed iB2B token service host | (empty) |
 | `AI_PLATFORM_IB2B_URI` | Centrally managed iB2B token exchange path | (empty) |
 | `AI_PLATFORM_TRUST_TOKEN_HEADER` | Header used to send the exchanged trust token | `X-XXXX-E2E-Trust-Token` |

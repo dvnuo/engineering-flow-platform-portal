@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+from urllib.parse import quote
 
 from app.config import Settings, get_settings
 from app.contracts.llm_catalog import AI_PLATFORM_PROVIDER, normalize_provider
 
 
 PROFILE_AUTH_FIELDS: tuple[str, ...] = ("username", "password", "usercase")
+USERCASE_PLACEHOLDER = "{usercase}"
 
 
 def profile_ai_platform_config(value: Any) -> dict[str, Any]:
@@ -37,6 +39,14 @@ def configured_ai_platform_config(settings: Settings | None = None) -> dict[str,
         )
         if value
     }
+    responses = {
+        key: value
+        for key, value in (
+            ("host", clean("ai_platform_chat_host").rstrip("/")),
+            ("uri", clean("ai_platform_responses_uri")),
+        )
+        if value
+    }
     ib2b = {
         key: value
         for key, value in (
@@ -56,6 +66,10 @@ def configured_ai_platform_config(settings: Settings | None = None) -> dict[str,
     configured: dict[str, Any] = {}
     if chat:
         configured["chat"] = chat
+    # Only a real path selects the Responses endpoint; a host alone is just
+    # the chat host repeated.
+    if responses.get("uri"):
+        configured["responses"] = responses
     if ib2b:
         configured["ib2b"] = ib2b
     if auth:
@@ -83,6 +97,23 @@ def materialize_ai_platform_llm_config(
         configured["auth"] = merged_auth
     else:
         configured.pop("auth", None)
+
+    # Endpoint paths may carry a ``{usercase}`` placeholder (the Responses
+    # gateway routes by use case). Fill it from the profile credential; without
+    # a usercase the endpoint cannot be addressed, so drop it rather than send
+    # a literal placeholder.
+    usercase = str(profile_auth.get("usercase") or "").strip()
+    for endpoint_name in ("chat", "responses"):
+        endpoint = configured.get(endpoint_name)
+        if not isinstance(endpoint, dict):
+            continue
+        uri = str(endpoint.get("uri") or "")
+        if USERCASE_PLACEHOLDER not in uri:
+            continue
+        if usercase:
+            endpoint["uri"] = uri.replace(USERCASE_PLACEHOLDER, quote(usercase, safe=""))
+        else:
+            configured.pop(endpoint_name, None)
 
     if configured:
         materialized["ai_platform"] = configured

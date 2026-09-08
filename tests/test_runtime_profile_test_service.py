@@ -162,3 +162,69 @@ def test_confluence_uses_basic_for_username_token(monkeypatch):
     )
     assert ok is True
     assert seen["headers"]["Authorization"].startswith("Basic ")
+
+
+def _responses_settings():
+    return _ai_settings(ai_platform_responses_uri="/v1/{usercase}/responses")
+
+
+def _record_calls(svc, monkeypatch):
+    calls = []
+
+    async def _fake_http_json_request(*, method, url, headers, payload, timeout):
+        calls.append({"url": url, "headers": headers, "payload": payload})
+        if "ib2b" in url:
+            return True, "ok", {"issued_token": "JWT-123"}
+        return True, "ok", {"id": "resp_1", "output": []}
+
+    monkeypatch.setattr(svc, "_http_json_request", _fake_http_json_request)
+    return calls
+
+
+def test_ai_platform_smoke_uses_responses_endpoint_for_native(monkeypatch):
+    svc = RuntimeProfileTestService(_responses_settings())
+    calls = _record_calls(svc, monkeypatch)
+
+    ok, msg = asyncio.run(svc._test_llm(_ai_cfg(), runtime_type="native"))
+
+    assert ok is True, msg
+    assert calls[1]["url"] == "https://chat.int/v1/uc/responses"
+    # Responses wants the JWT both in the trust header and as a Bearer token,
+    # and takes a plain ``input`` instead of chat messages / ``user``.
+    assert calls[1]["headers"]["X-Trust"] == "JWT-123"
+    assert calls[1]["headers"]["Authorization"] == "Bearer JWT-123"
+    assert calls[1]["payload"] == {"model": "gpt-5.4", "input": "ping"}
+
+
+def test_ai_platform_smoke_defaults_to_native_routing(monkeypatch):
+    svc = RuntimeProfileTestService(_responses_settings())
+    calls = _record_calls(svc, monkeypatch)
+
+    ok, _msg = asyncio.run(svc._test_llm(_ai_cfg()))
+
+    assert ok is True
+    assert calls[1]["url"] == "https://chat.int/v1/uc/responses"
+
+
+def test_ai_platform_smoke_keeps_chat_endpoint_for_opencode(monkeypatch):
+    svc = RuntimeProfileTestService(_responses_settings())
+    calls = _record_calls(svc, monkeypatch)
+
+    ok, _msg = asyncio.run(svc._test_llm(_ai_cfg(), runtime_type="opencode"))
+
+    assert ok is True
+    assert calls[1]["url"] == "https://chat.int/v1/api/v1/chat/completions"
+    assert "Authorization" not in calls[1]["headers"]
+    assert calls[1]["payload"]["messages"] == [{"role": "user", "content": "ping"}]
+    assert calls[1]["payload"]["user"] == "uc"
+
+
+def test_ai_platform_smoke_stays_on_chat_without_responses_path(monkeypatch):
+    svc = RuntimeProfileTestService(_ai_settings())
+    calls = _record_calls(svc, monkeypatch)
+
+    ok, _msg = asyncio.run(svc._test_llm(_ai_cfg(), runtime_type="native"))
+
+    assert ok is True
+    assert calls[1]["url"] == "https://chat.int/v1/api/v1/chat/completions"
+    assert "Authorization" not in calls[1]["headers"]
