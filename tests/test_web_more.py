@@ -1357,6 +1357,96 @@ global.fetch = fetch;
     assert len(data["clearedIntervals"]) >= 2
 
 
+def test_start_copilot_auth_keeps_server_rendered_enterprise_sso_link():
+    """With GITHUB_ENTERPRISE_SSO_URL set, step 1 is the SSO page and must not be
+    replaced by the device verification URL; that URL still drives step 3."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        pytest.skip("node is not installed; skipping copilot auth behavior test")
+
+    js_file = _chat_ui_js_source()
+    extracted = "\n".join(
+        _extract_js_function(js_file, name)
+        for name in [
+            "getManagedCopilotState",
+            "stopCopilotPolling",
+            "getManagedCopilotAuthBase",
+            "setCopilotResultSummary",
+            "getManagedGithubBaseUrl",
+            "finishCopilotAuthWithMessage",
+            "startCopilotAuth",
+        ]
+    )
+
+    script = f"""
+global.setInterval = () => 1;
+global.clearInterval = () => {{}};
+function safe(v) {{ return String(v || ""); }}
+function showToast() {{}}
+function markManagedSectionTouched() {{}}
+function makeClassList() {{ return {{ add() {{}}, remove() {{}}, toggle() {{}} }}; }}
+function makeRoot(enterprise) {{
+  const verifyLink = enterprise
+    ? {{ href: "https://github.com/enterprises/acme/sso", textContent: "https://github.com/enterprises/acme/sso", dataset: {{ copilotVerifyLink: "", copilotEnterpriseLink: "" }} }}
+    : {{ href: "#", textContent: "", dataset: {{ copilotVerifyLink: "" }} }};
+  const elements = {{
+    instructions: {{ classList: makeClassList() }},
+    summary: {{ textContent: "", classList: makeClassList() }},
+    verifyLink,
+    deviceLink: {{ href: "", classList: makeClassList() }},
+    userCode: {{ textContent: "" }},
+    timer: {{ textContent: "" }},
+    apiKey: {{ value: "" }},
+    githubBase: {{ value: "" }},
+  }};
+  return {{
+    elements,
+    dataset: {{ copilotAuthBase: "/api/copilot/auth" }},
+    querySelector(sel) {{
+      if (sel === "[data-copilot-instructions]") return elements.instructions;
+      if (sel === "[data-copilot-result-summary]") return elements.summary;
+      if (sel === "[data-copilot-verify-link]") return elements.verifyLink;
+      if (sel === "[data-copilot-device-link]") return elements.deviceLink;
+      if (sel === "[data-copilot-user-code]") return elements.userCode;
+      if (sel === "[data-copilot-timer]") return elements.timer;
+      if (sel === 'input[name="llm_api_key"]') return elements.apiKey;
+      if (sel === 'input[name="github_base_url"]') return elements.githubBase;
+      return null;
+    }}
+  }};
+}}
+global.fetch = async () => ({{ ok: true, json: async () => ({{
+  auth_id: 'auth-1', device_code: 'device-1', user_code: 'CODE1',
+  verification_url: 'https://github.com/login/device',
+  verification_complete_url: 'https://github.com/login/device?user_code=CODE1',
+  expires_in: 60, interval: 5,
+}}) }});
+
+{extracted}
+
+(async () => {{
+  const enterprise = makeRoot(true);
+  const plain = makeRoot(false);
+  await startCopilotAuth(enterprise);
+  await startCopilotAuth(plain);
+  console.log(JSON.stringify({{
+    enterprise: {{ href: enterprise.elements.verifyLink.href, text: enterprise.elements.verifyLink.textContent, device: enterprise.elements.deviceLink.href, code: enterprise.elements.userCode.textContent }},
+    plain: {{ href: plain.elements.verifyLink.href, text: plain.elements.verifyLink.textContent, device: plain.elements.deviceLink.href }},
+  }}));
+}})().catch((error) => {{ console.error(error); process.exit(1); }});
+"""
+    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    data = json.loads(completed.stdout)
+
+    assert data["enterprise"]["href"] == "https://github.com/enterprises/acme/sso"
+    assert data["enterprise"]["text"] == "https://github.com/enterprises/acme/sso"
+    assert data["enterprise"]["device"] == "https://github.com/login/device?user_code=CODE1"
+    assert data["enterprise"]["code"] == "CODE1"
+    assert data["plain"]["href"] == "https://github.com/login/device"
+    assert data["plain"]["text"] == "https://github.com/login/device"
+    assert data["plain"]["device"] == "https://github.com/login/device?user_code=CODE1"
+
+
 def test_start_copilot_auth_stops_on_check_http_error_or_missing_status():
     node_bin = shutil.which("node")
     if not node_bin:

@@ -132,6 +132,9 @@ def static_url(path: str) -> str:
 templates.env.filters['data_attr'] = escape_data_attr
 templates.env.globals['local_datetime'] = local_datetime
 templates.env.globals['static_url'] = static_url
+# Read at render time (not import time) so a runtime-profile panel picks up the
+# same GITHUB_ENTERPRISE_SSO_URL the login page uses for its Copilot step 1.
+templates.env.globals['copilot_enterprise_sso_url'] = lambda: settings.github_enterprise_sso_url.strip()
 settings = get_settings()
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()

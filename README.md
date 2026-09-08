@@ -73,7 +73,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `GITHUB_HTTP_TIMEOUT_SECONDS` | Timeout for those github.com calls | `30` |
 | `SSO_PROXY_URL` | Same semantics for the server-side SSO token exchange; set `direct` when `HTTPS_PROXY` is present in the pod but the IdP must be reached without it | (empty) |
 | `COPILOT_LOGIN_ENABLED` | Offer "Sign in with GitHub Copilot" on the login page (GitHub device flow; a first sign-in creates the member and stores the Copilot token on their default runtime profile) | `true` |
-| `GITHUB_ENTERPRISE_SSO_URL` | Enterprise SSO page members must sign in to (new tab) before the Copilot authorization starts, e.g. `https://github.com/enterprises/<slug>/sso`; empty skips that step | (empty) |
+| `GITHUB_ENTERPRISE_SSO_URL` | Enterprise SSO page members must sign in to (new tab) before the Copilot authorization starts, e.g. `https://github.com/enterprises/<slug>/sso`; used as step 1 both on the login page and in the runtime profile / settings "Authorize GitHub Copilot" cards; empty skips that step | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |

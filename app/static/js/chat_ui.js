@@ -11560,7 +11560,11 @@ async function startCopilotAuth(root) {
     }
 
     if (instructions) instructions.classList.remove("hidden");
-    if (verifyLink) {
+    // When GITHUB_ENTERPRISE_SSO_URL is configured the template already renders
+    // step 1 as the enterprise SSO page (same as the login page); the device
+    // verification URL then only belongs on the "Complete Authorization" link.
+    const keepsEnterpriseLink = !!(verifyLink?.dataset && verifyLink.dataset.copilotEnterpriseLink !== undefined);
+    if (verifyLink && !keepsEnterpriseLink) {
       verifyLink.href = data.verification_url;
       verifyLink.textContent = data.verification_url;
     }

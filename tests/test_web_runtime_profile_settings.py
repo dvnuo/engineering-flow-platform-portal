@@ -141,6 +141,42 @@ def test_runtime_profile_panel_hides_legacy_llm_timeout(monkeypatch):
         cleanup()
 
 
+def test_runtime_profile_panel_copilot_step_one_uses_enterprise_sso_url(monkeypatch):
+    """Same GITHUB_ENTERPRISE_SSO_URL the login page uses opens the Copilot flow here."""
+    import app.web as web_module
+
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        monkeypatch.setattr(web_module.settings, "github_enterprise_sso_url", "https://github.com/enterprises/acme/sso ")
+        rp = _bind_profile(db, agent, {"llm": {"provider": "github_copilot"}})
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert "Step 1: Sign in to GitHub through your enterprise SSO" in resp.text
+        assert 'href="https://github.com/enterprises/acme/sso" target="_blank" rel="noopener noreferrer" class="portal-link-inline break-all" data-copilot-verify-link data-copilot-enterprise-link>https://github.com/enterprises/acme/sso</a>' in resp.text
+        assert "Step 1: Click the link below to authorize" not in resp.text
+        assert "Step 3: Click to complete authorization" in resp.text
+        assert "data-copilot-device-link" in resp.text
+    finally:
+        cleanup()
+
+
+def test_runtime_profile_panel_copilot_step_one_falls_back_to_device_link(monkeypatch):
+    import app.web as web_module
+
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        monkeypatch.setattr(web_module.settings, "github_enterprise_sso_url", "")
+        rp = _bind_profile(db, agent, {"llm": {"provider": "github_copilot"}})
+        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
+        assert resp.status_code == 200
+        assert "Step 1: Click the link below to authorize" in resp.text
+        assert 'href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a>' in resp.text
+        assert "data-copilot-enterprise-link" not in resp.text
+        assert "enterprise SSO" not in resp.text
+    finally:
+        cleanup()
+
+
 def test_settings_panel_get_llm_tools_custom_mode_renders_patterns(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:

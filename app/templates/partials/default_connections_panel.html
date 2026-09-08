@@ -127,8 +127,14 @@
         <div class="space-y-2 hidden" data-copilot-auth-root>
           <button type="button" data-copilot-auth-button class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
           <div class="portal-form-input hidden" data-copilot-instructions>
+            {% set enterprise_sso_url = copilot_enterprise_sso_url() if copilot_enterprise_sso_url is defined else '' %}
+            {% if enterprise_sso_url %}
+            <p class="portal-inline-note">Step 1: Sign in to GitHub through your enterprise SSO (opens in a new tab), then come back here</p>
+            <a href="{{ enterprise_sso_url }}" target="_blank" rel="noopener noreferrer" class="portal-link-inline break-all" data-copilot-verify-link data-copilot-enterprise-link>{{ enterprise_sso_url }}</a>
+            {% else %}
             <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
             <a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a>
+            {% endif %}
             <p class="portal-inline-note">Step 2: Copy this code</p>
             <div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div>
             <p class="portal-inline-note">Step 3: Click to complete authorization</p>
