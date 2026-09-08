@@ -141,38 +141,54 @@ def test_runtime_profile_panel_hides_legacy_llm_timeout(monkeypatch):
         cleanup()
 
 
-def test_runtime_profile_panel_copilot_step_one_uses_enterprise_sso_url(monkeypatch):
-    """Same GITHUB_ENTERPRISE_SSO_URL the login page uses opens the Copilot flow here."""
+def _copilot_card_panels(client, db, agent):
+    """The three panels that render partials/copilot_auth_card.html."""
+    rp = _bind_profile(db, agent, {"llm": {"provider": "github_copilot"}})
+    return {
+        "runtime_profile": client.get(f"/app/runtime-profiles/{rp.id}/panel"),
+        "settings": client.get(f"/app/agents/{agent.id}/settings/panel"),
+        "default_connections": client.get("/app/admin/default-connections/panel"),
+    }
+
+
+def test_copilot_cards_show_enterprise_sso_as_step_one_before_authorizing(monkeypatch):
+    """Same GITHUB_ENTERPRISE_SSO_URL the login page uses opens every Copilot card."""
     import app.web as web_module
 
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        monkeypatch.setattr(web_module.settings, "github_enterprise_sso_url", "https://github.com/enterprises/acme/sso ")
-        rp = _bind_profile(db, agent, {"llm": {"provider": "github_copilot"}})
-        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
-        assert resp.status_code == 200
-        assert "Step 1: Sign in to GitHub through your enterprise SSO" in resp.text
-        assert 'href="https://github.com/enterprises/acme/sso" target="_blank" rel="noopener noreferrer" class="portal-link-inline break-all" data-copilot-verify-link data-copilot-enterprise-link>https://github.com/enterprises/acme/sso</a>' in resp.text
-        assert "Step 1: Click the link below to authorize" not in resp.text
-        assert "Step 3: Click to complete authorization" in resp.text
-        assert "data-copilot-device-link" in resp.text
+        monkeypatch.setattr(web_module.settings, "github_enterprise_sso_url", " https://github.com/enterprises/acme/sso ")
+        for name, resp in _copilot_card_panels(client, db, agent).items():
+            assert resp.status_code == 200, name
+            html = resp.text
+            assert "Step 1: Sign in to GitHub through your enterprise SSO" in html, name
+            assert 'href="https://github.com/enterprises/acme/sso"' in html, name
+            assert "data-copilot-enterprise-link" in html, name
+            # The SSO step sits outside the hidden instructions block, i.e. it is
+            # visible before "Authorize GitHub Copilot" mints a device code.
+            assert html.index("data-copilot-enterprise-link") < html.index("data-copilot-auth-button") < html.index("data-copilot-instructions"), name
+            assert "data-copilot-verify-link" not in html, name
+            assert "Step 1: Click the link below to authorize" not in html, name
+            assert "Step 2: Copy this code" in html, name
+            assert "Step 3: Click to complete authorization" in html, name
+            assert "data-copilot-device-link" in html, name
     finally:
         cleanup()
 
 
-def test_runtime_profile_panel_copilot_step_one_falls_back_to_device_link(monkeypatch):
+def test_copilot_cards_fall_back_to_device_link_without_enterprise_sso(monkeypatch):
     import app.web as web_module
 
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         monkeypatch.setattr(web_module.settings, "github_enterprise_sso_url", "")
-        rp = _bind_profile(db, agent, {"llm": {"provider": "github_copilot"}})
-        resp = client.get(f"/app/runtime-profiles/{rp.id}/panel")
-        assert resp.status_code == 200
-        assert "Step 1: Click the link below to authorize" in resp.text
-        assert 'href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a>' in resp.text
-        assert "data-copilot-enterprise-link" not in resp.text
-        assert "enterprise SSO" not in resp.text
+        for name, resp in _copilot_card_panels(client, db, agent).items():
+            assert resp.status_code == 200, name
+            html = resp.text
+            assert "Step 1: Click the link below to authorize" in html, name
+            assert "data-copilot-verify-link" in html, name
+            assert "data-copilot-enterprise-link" not in html, name
+            assert "enterprise SSO" not in html, name
     finally:
         cleanup()
 
@@ -909,15 +925,23 @@ def test_settings_save_ignores_invalid_temperature(monkeypatch):
 
 
 
-def _copilot_root_block(text: str) -> str:
-    start = text.index('data-copilot-auth-root')
-    end = text.index('<div class="portal-settings-section-title"', start)
-    return text[start:end]
+def _with_copilot_card(text: str) -> str:
+    """Inline partials/copilot_auth_card.html where a panel includes it.
+
+    The card is shared by the panels, so the static checks below read the
+    panel as the server renders it: with the card in place of the include tag.
+    """
+    from pathlib import Path
+
+    card = Path("app/templates/partials/copilot_auth_card.html").read_text(encoding="utf-8")
+    include_tag = '{% include "partials/copilot_auth_card.html" %}'
+    assert include_tag in text
+    return text.replace(include_tag, card)
 
 def test_templates_and_js_include_single_copilot_auth_button_and_api_key_flow():
     from pathlib import Path
-    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
-    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    runtime_tpl = _with_copilot_card(Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8"))
+    settings_tpl = _with_copilot_card(Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8"))
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert 'name="llm_api_key"' in runtime_tpl
     assert 'name="llm_api_key"' in settings_tpl
@@ -941,10 +965,9 @@ def test_templates_and_js_include_single_copilot_auth_button_and_api_key_flow():
     assert "GitHub Copilot authorization always uses github.com" in runtime_tpl
     assert "Generate a GitHub Copilot token" in settings_tpl
     assert "GitHub Copilot authorization always uses github.com" in settings_tpl
-    assert "Generate a GitHub Copilot token" in _copilot_root_block(runtime_tpl)
-    assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(runtime_tpl)
-    assert "Generate a GitHub Copilot token" in _copilot_root_block(settings_tpl)
-    assert "GitHub Copilot authorization always uses github.com" in _copilot_root_block(settings_tpl)
+    # The notes are handed to the shared card, which renders them inside the auth root.
+    assert "{% for note in copilot_auth_help %}" in runtime_tpl
+    assert runtime_tpl.index("data-copilot-auth-root") < runtime_tpl.index("data-copilot-auth-help")
     assert 'setCopilotApiKeyField' in js
     assert 'querySelectorAll("[data-copilot-auth-button]")' in js
     assert 'button.classList.toggle("hidden", !isCopilot)' in js
@@ -963,8 +986,8 @@ def test_templates_and_js_include_single_copilot_auth_button_and_api_key_flow():
 
 def test_templates_include_copilot_result_summary_notes():
     from pathlib import Path
-    runtime_tpl = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
-    settings_tpl = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    runtime_tpl = _with_copilot_card(Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8"))
+    settings_tpl = _with_copilot_card(Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8"))
     assert 'data-copilot-result-summary' in runtime_tpl
     assert 'data-copilot-result-summary' in settings_tpl
     assert 'Saved OAuth credential present' not in runtime_tpl

@@ -45,10 +45,15 @@ def test_settings_merge_copilot_uses_llm_api_key_only():
 
 
 def test_ui_and_js_static_single_key_auth_flow_markers():
+    # Both panels include the shared Copilot card; check them as rendered, card inlined.
+    card = open("app/templates/partials/copilot_auth_card.html", encoding="utf-8").read()
+    include_tag = '{% include "partials/copilot_auth_card.html" %}'
     rp = open("app/templates/partials/runtime_profile_panel.html", encoding="utf-8").read()
     sp = open("app/templates/partials/settings_panel.html", encoding="utf-8").read()
     js = open("app/static/js/chat_ui.js", encoding="utf-8").read()
     for text in [rp, sp]:
+        assert text.count(include_tag) == 1
+        text = text.replace(include_tag, card)
         assert 'data-copilot-auth-button="native"' not in text
         assert 'data-copilot-auth-button="opencode"' not in text
         assert text.count("data-copilot-auth-button") == 1

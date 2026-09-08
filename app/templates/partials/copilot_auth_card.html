@@ -1,0 +1,35 @@
+{#
+  "Authorize GitHub Copilot" card shared by the runtime profile, agent settings
+  and default connections panels. Expects `copilot_auth_help`: the notes to
+  show under the card. `copilot_enterprise_sso_url` is a Jinja global (app/web.py).
+
+  With GITHUB_ENTERPRISE_SSO_URL configured, step 1 is the enterprise SSO page
+  and is visible before the device flow starts, mirroring the login page: the
+  member signs in there first, then clicks Authorize, so the one-time code's
+  expiry clock does not run while they are on the SSO page.
+#}
+{% set enterprise_sso_url = copilot_enterprise_sso_url() %}
+<div class="space-y-2 hidden" data-copilot-auth-root>
+  {% if enterprise_sso_url %}
+  <div class="portal-form-input" data-copilot-enterprise-step>
+    <p class="portal-inline-note">Step 1: Sign in to GitHub through your enterprise SSO (opens in a new tab), then come back here and click Authorize GitHub Copilot</p>
+    <a href="{{ enterprise_sso_url }}" target="_blank" rel="noopener noreferrer" class="portal-link-inline break-all" data-copilot-enterprise-link>{{ enterprise_sso_url }}</a>
+  </div>
+  {% endif %}
+  <button type="button" data-copilot-auth-button class="portal-btn is-secondary hidden">Authorize GitHub Copilot</button>
+  <div class="portal-form-input hidden" data-copilot-instructions>
+    {% if not enterprise_sso_url %}
+    <p class="portal-inline-note">Step 1: Click the link below to authorize</p>
+    <a href="#" target="_blank" rel="noopener noreferrer" class="portal-link-inline" data-copilot-verify-link></a>
+    {% endif %}
+    <p class="portal-inline-note">Step 2: Copy this code</p>
+    <div class="flex items-center gap-2"><span class="portal-detail-code" data-copilot-user-code></span><button type="button" class="portal-btn is-secondary" data-copilot-copy-button>Copy</button></div>
+    <p class="portal-inline-note">Step 3: Click to complete authorization</p>
+    <a href="#" target="_blank" rel="noopener noreferrer" class="hidden portal-link-inline break-all" data-copilot-device-link>Complete Authorization &rarr;</a>
+    <div class="flex items-center gap-2 mt-2"><span class="portal-inline-note" data-copilot-timer></span></div>
+  </div>
+  <div class="portal-inline-note hidden" data-copilot-result-summary></div>
+  {% for note in copilot_auth_help %}
+  <div class="portal-inline-note" data-copilot-auth-help>{{ note }}</div>
+  {% endfor %}
+</div>

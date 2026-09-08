@@ -132,10 +132,19 @@ def static_url(path: str) -> str:
 templates.env.filters['data_attr'] = escape_data_attr
 templates.env.globals['local_datetime'] = local_datetime
 templates.env.globals['static_url'] = static_url
-# Read at render time (not import time) so a runtime-profile panel picks up the
-# same GITHUB_ENTERPRISE_SSO_URL the login page uses for its Copilot step 1.
-templates.env.globals['copilot_enterprise_sso_url'] = lambda: settings.github_enterprise_sso_url.strip()
 settings = get_settings()
+
+
+def copilot_enterprise_sso_url() -> str:
+    """GITHUB_ENTERPRISE_SSO_URL as step 1 of every Copilot authorization.
+
+    Read at render time so the login page and the panels' "Authorize GitHub
+    Copilot" cards (partials/copilot_auth_card.html) always agree on the URL.
+    """
+    return (settings.github_enterprise_sso_url or "").strip()
+
+
+templates.env.globals['copilot_enterprise_sso_url'] = copilot_enterprise_sso_url
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
 k8s_service = K8sService()
@@ -1607,7 +1616,7 @@ def _login_page_context(*, password_form: bool = False) -> dict:
     return {
         "sso_enabled": sso_enabled(),
         "copilot_login_enabled": settings.copilot_login_enabled,
-        "github_enterprise_sso_url": settings.github_enterprise_sso_url.strip(),
+        "github_enterprise_sso_url": copilot_enterprise_sso_url(),
         "password_form": password_form or not external_methods,
     }
 
