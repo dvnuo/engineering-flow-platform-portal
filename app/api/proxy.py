@@ -27,6 +27,7 @@ from app.services.agent_activity import touch_agent_activity
 from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.services.auth_service import parse_session_token
+from app.services.proxy_service import build_portal_user_metadata
 from app.services.proxy_service import (
     ProxyService,
     build_portal_agent_headers,
@@ -227,10 +228,19 @@ def _enrich_chat_payload_with_runtime_metadata(
     inference_overrides: dict | None = None,
 ) -> dict:
     enriched = dict(payload)
-    _ = user
     enriched.pop("metadata", None)
     enriched.pop("portal_user_id", None)
     enriched.pop("portal_user_name", None)
+
+    # Identity is server-owned: whatever the browser put in the payload was
+    # dropped above, and the signed-in member goes in as structured metadata so
+    # the runtime can tell the model who "me" is (the CLI credentials belong to
+    # a shared service account, not to the member).
+    runtime_metadata = dict(runtime_metadata) if isinstance(runtime_metadata, dict) else {}
+    runtime_metadata.pop("portal_user", None)
+    portal_user = build_portal_user_metadata(user)
+    if portal_user:
+        runtime_metadata["portal_user"] = portal_user
 
     provider = runtime_metadata.get("provider") if isinstance(runtime_metadata, dict) else None
     if inference_overrides is None:

@@ -324,11 +324,61 @@ def test_enrich_chat_payload_replaces_metadata_but_keeps_model_override():
 
     enriched = _enrich_chat_payload_with_runtime_metadata(payload, runtime_metadata, user=None)
 
-    assert enriched["metadata"] == runtime_metadata
+    assert enriched["metadata"] == {**runtime_metadata, "model": "gpt-5"}
+    assert "model" not in runtime_metadata
     assert enriched["model_override"] == "gpt-5"
     assert "client" not in enriched["metadata"]
     assert enriched["metadata"]["runtime_profile_id"] == "rp-1"
     assert "llm_tool_loop" not in enriched["metadata"]
+    assert "portal_user" not in enriched["metadata"]
+
+
+def test_enrich_chat_payload_adds_server_owned_portal_user_metadata():
+    from app.api.proxy import _enrich_chat_payload_with_runtime_metadata
+
+    user = SimpleNamespace(id=77, username="runtime-user", nickname="Runtime User", role="user")
+    runtime_metadata = {
+        "runtime_profile_id": "rp-1",
+        "provider": "openai",
+        "portal_user": {"id": "spoofed", "username": "spoofed"},
+    }
+
+    enriched = _enrich_chat_payload_with_runtime_metadata(
+        {"message": "hello", "portal_user_id": "spoofed", "portal_user_name": "spoofed"},
+        runtime_metadata,
+        user=user,
+    )
+
+    assert enriched["metadata"]["portal_user"] == {
+        "id": "77",
+        "username": "runtime-user",
+        "display_name": "Runtime User",
+    }
+    assert enriched["metadata"]["runtime_profile_id"] == "rp-1"
+    assert "portal_user_id" not in enriched
+    assert "portal_user_name" not in enriched
+    # The caller's dict is not mutated.
+    assert runtime_metadata["portal_user"] == {"id": "spoofed", "username": "spoofed"}
+
+
+def test_enrich_chat_payload_portal_user_survives_inference_overrides():
+    from app.api.proxy import _enrich_chat_payload_with_runtime_metadata
+
+    user = SimpleNamespace(id=5, username="plain-user", nickname=None, role="user")
+
+    enriched = _enrich_chat_payload_with_runtime_metadata(
+        {"message": "hello"},
+        {"runtime_profile_id": "rp-1", "provider": "github_copilot"},
+        user=user,
+        runtime_type="native",
+        inference_overrides={"reasoning_effort": "high"},
+    )
+
+    assert enriched["metadata"]["portal_user"] == {
+        "id": "5",
+        "username": "plain-user",
+        "display_name": "plain-user",
+    }
 
 
 def test_normalize_and_validate_model_override_accepts_trimmed_allowed_value(monkeypatch):
@@ -701,6 +751,11 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
     assert forwarded_payload["metadata"]["runtime_profile_id"] == "server-runtime"
     assert forwarded_payload["metadata"]["runtime_profile"]["name"] == "Server Runtime"
     assert forwarded_payload["metadata"]["provider"] == "openai"
+    assert forwarded_payload["metadata"]["portal_user"] == {
+        "id": "77",
+        "username": "runtime-user",
+        "display_name": "Runtime User",
+    }
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "77"
     assert captured["extra_headers"]["X-Portal-User-Name"] == "Runtime User"
