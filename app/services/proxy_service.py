@@ -49,6 +49,28 @@ def build_portal_identity_fields(user) -> dict[str, str]:
     return identity
 
 
+def build_portal_user_metadata(user) -> dict[str, str]:
+    """Structured identity Portal places in trusted chat metadata as ``portal_user``.
+
+    The identity headers collapse nickname and username into one display value;
+    the runtime prompt needs both, because the display name is what the member
+    recognises while the username is what Jira/Confluence filters accept.
+    """
+    if user is None:
+        return {}
+    identity: dict[str, str] = {}
+    user_id = sanitize_header_value(getattr(user, "id", None))
+    if user_id:
+        identity["id"] = user_id
+    username = sanitize_header_value(getattr(user, "username", None))
+    if username:
+        identity["username"] = username
+    display_name = sanitize_header_value(getattr(user, "nickname", None)) or username
+    if display_name:
+        identity["display_name"] = display_name
+    return identity
+
+
 def build_portal_identity_headers(user) -> dict[str, str]:
     headers = {"X-Portal-Author-Source": "portal"}
     identity = build_portal_identity_fields(user)

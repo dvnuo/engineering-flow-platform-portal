@@ -89,6 +89,7 @@ Runtime responsibility:
 - Portal drops low-level runtime internals for tools, skills, loop control, context shaping, compaction, prompt assembly, structured output, and runtime mode.
 - Runtime profile apply payloads and trusted chat metadata carry the sanitized profile context under `config` / `runtime_profile.config`.
 - Browser-provided chat `metadata` is untrusted. Portal replaces it with server-owned runtime profile/config/authorization metadata.
+- Trusted chat metadata also carries `portal_user` (`{id, username, display_name}`) for the signed-in member, built server-side from the session user. The runtime renders it into the model's system prompt so "my"/"me" resolves to the member rather than to the shared Jira/Confluence service account; browser-supplied `portal_user` / `portal_user_id` / `portal_user_name` values are dropped.
 
 ## 11) Runtime tool/catalog contract
 - Runtime core tool ids are runtime-owned and should appear in `/api/capabilities` snapshots as `capability_type: "tool"` entries: `apply_patch`, `bash`, `edit`, `glob`, `grep`, `invalid`, `read`, `skill`, `task`, `todowrite`, `webfetch`, `write`.
