@@ -49,7 +49,7 @@
       <h6>Step 2 · Install and start the bridge</h6>
     </div>
     <ol class="portal-setup-guide-steps">
-      <li>In the unzipped folder, double-click <code>install-bridge.cmd</code>. It registers the <code>efp-bridge://</code> link for your Windows account only (no admin, no autostart). Equivalent command: <code>browser serve --register-protocol --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
+      <li>In the unzipped folder, double-click <code>install-bridge.cmd</code> (Windows) or run <code>./install-bridge.sh <span data-connector-origin>{{ portal_origin }}</span></code> (macOS, Linux). It registers the <code>efp-bridge://</code> link for your account only (no admin, no autostart). Equivalent command: <code>browser serve --register-protocol --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
       <li>Click <strong>Start bridge</strong> below. Chrome asks whether to open the EFP bridge: allow it (tick "always allow" to skip the prompt next time).</li>
       <li>A new Chrome window titled EFP opens with this Portal as its first tab. Sign in to your work sites there once; the window keeps its own logins.</li>
     </ol>
@@ -110,7 +110,7 @@
         {% if guide and guide.troubleshooting %}
           {% for line in guide.troubleshooting %}<li>{{ line }}</li>{% endfor %}
         {% else %}
-          <li><strong>Bridge not detected</strong>: it is not running. Repeat step 2; if the efp-bridge link does nothing, run <code>install-bridge.cmd</code> again.</li>
+          <li><strong>Bridge not detected</strong>: it is not running. Repeat step 2; if the efp-bridge link does nothing, run <code>install-bridge.cmd</code> (Windows) or <code>install-bridge.sh</code> (macOS, Linux) again.</li>
           <li><strong>devtools_unavailable</strong>: Chrome refused its DevTools port. Check <code>chrome://policy</code> for <code>RemoteDebuggingAllowed</code>.</li>
           <li><strong>origin_denied / CORS error</strong>: the bridge was started for another Portal address. Restart it with <code>--origin <span data-connector-origin>{{ portal_origin }}</span></code>.</li>
           <li><strong>Windows SmartScreen</strong> may warn on first launch of <code>browser.exe</code>. Choose "More info" → "Run anyway".</li>

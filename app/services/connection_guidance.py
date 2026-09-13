@@ -186,12 +186,12 @@ CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
         "summary": "Lets an assistant read and operate pages in a Chrome window on your own PC, with your logins.",
         "steps": [
             "Download the EFP browser bridge from Connectors → Local browser and unzip it in your user folder.",
-            "Double-click install-bridge.cmd in the unzipped folder, then click Start bridge on the panel and allow the efp-bridge link when Chrome asks.",
+            "Run the installer in the unzipped folder (double-click install-bridge.cmd on Windows, ./install-bridge.sh <portal origin> on macOS or Linux), then click Start bridge on the panel and allow the efp-bridge link when Chrome asks.",
             "Click Test connection. It lists the tabs of the EFP browser window; sign in to your work sites in that window once.",
             "Switch Enabled on and save. New chats show a Browser toggle in the composer.",
         ],
         "troubleshooting": [
-            "Bridge not detected: it is not running. Repeat step 2; if the efp-bridge link does nothing, run install-bridge.cmd again.",
+            "Bridge not detected: it is not running. Repeat step 2; if the efp-bridge link does nothing, run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) again.",
             "devtools_unavailable: Chrome refused its DevTools port. Check chrome://policy for RemoteDebuggingAllowed.",
             "origin_denied or a CORS error: the bridge was started for another Portal address. Restart it with --origin set to this Portal's address.",
             "Windows SmartScreen may warn the first time browser.exe runs. Choose More info, then Run anyway.",
