@@ -177,6 +177,32 @@ def _section_is_offered(section: str, config: dict) -> bool:
     return bool(isinstance(instances, list) and instances)
 
 
+# Connectors are not runtime-profile sections (they never enter a pod), so they
+# get their own table. The panel under Connectors and the Help topic render the
+# same entry, which is why the steps and the troubleshooting lines live here.
+CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
+    "local_browser": {
+        "title": "Local browser connector",
+        "summary": "Lets an assistant read and operate pages in a Chrome window on your own PC, with your logins.",
+        "steps": [
+            "Download the EFP browser bridge from Connectors → Local browser and unzip it in your user folder.",
+            "Double-click install-bridge.cmd in the unzipped folder, then click Start bridge on the panel and allow the efp-bridge link when Chrome asks.",
+            "Click Test connection. It lists the tabs of the EFP browser window; sign in to your work sites in that window once.",
+            "Switch Enabled on and save. New chats show a Browser toggle in the composer.",
+        ],
+        "troubleshooting": [
+            "Bridge not detected: it is not running. Repeat step 2; if the efp-bridge link does nothing, run install-bridge.cmd again.",
+            "devtools_unavailable: Chrome refused its DevTools port. Check chrome://policy for RemoteDebuggingAllowed.",
+            "origin_denied or a CORS error: the bridge was started for another Portal address. Restart it with --origin set to this Portal's address.",
+            "Windows SmartScreen may warn the first time browser.exe runs. Choose More info, then Run anyway.",
+            "The EFP browser window keeps its own logins; sites protected by device-based sign-in may ask you to sign in there once.",
+        ],
+        "help_url": None,
+        "help_label": None,
+    },
+}
+
+
 def connection_checklist(config: dict) -> dict[str, Any]:
     """Build the Connections progress checklist for one profile config."""
 

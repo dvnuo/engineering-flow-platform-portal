@@ -1,0 +1,122 @@
+{# Connectors → Local browser: a four-step guided panel. Live status comes from
+   static/js/connectors/local_browser.js which probes the bridge on 127.0.0.1. #}
+<div class="portal-panel-stack portal-connector-panel"
+     id="connector-panel-root"
+     data-connector-type="{{ connector.type }}"
+     data-enabled="{{ 'true' if connector.enabled else 'false' }}"
+     data-last-verified="{{ connector.last_verified_at or '' }}"
+     data-default-port="{{ default_port }}">
+
+  <section class="portal-panel-section">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>{{ connector.label }}</h6>
+    </div>
+    <p class="portal-panel-note">{{ connector.description }}</p>
+    <div class="portal-connector-status" role="status">
+      <span>Bridge: <strong data-connector-status="bridge">checking…</strong></span>
+      <span>Browser window: <strong data-connector-status="session">–</strong></span>
+      <span>Last test: <strong data-connector-status="verified">{{ (connector.last_verified_at or 'never')|replace('T', ' ')|truncate(19, True, '') }}</strong></span>
+      <button type="button" class="composer-pill-btn" data-connector-action="refresh" title="Check again">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i><span>Refresh</span>
+      </button>
+    </div>
+    <p class="portal-panel-note">
+      The assistant drives a separate Chrome window that belongs to EFP (its own profile, so you sign in there once).
+      Everything runs on your PC; the Portal only relays requests while a chat is open in this tab.
+    </p>
+  </section>
+
+  <section class="portal-panel-section portal-connector-step" data-connector-step="1">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Step 1 · Download the bridge</h6>
+    </div>
+    <p class="portal-panel-note">
+      Download the EFP browser bridge{% if cli_version %} (version {{ cli_version }}){% endif %} and unzip it anywhere in your user folder, for example <code>%LOCALAPPDATA%\efp\browser-bridge</code>. No administrator rights are needed.
+    </p>
+    <div class="portal-setup-guide-links">
+      <a class="portal-btn is-primary" href="{{ download_url }}" download>
+        <i data-lucide="download" class="w-4 h-4"></i> Download bridge
+      </a>
+      <a class="portal-link-inline" href="#/help/local-browser-connector">Full guide &rarr;</a>
+    </div>
+  </section>
+
+  <section class="portal-panel-section portal-connector-step" data-connector-step="2">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Step 2 · Install and start the bridge</h6>
+    </div>
+    <ol class="portal-setup-guide-steps">
+      <li>In the unzipped folder, double-click <code>install-bridge.cmd</code>. It registers the <code>efp-bridge://</code> link for your Windows account only (no admin, no autostart). Equivalent command: <code>browser serve --register-protocol --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
+      <li>Click <strong>Start bridge</strong> below. Chrome asks whether to open the EFP bridge: allow it (tick "always allow" to skip the prompt next time).</li>
+      <li>A new Chrome window titled EFP opens with this Portal as its first tab. Sign in to your work sites there once; the window keeps its own logins.</li>
+    </ol>
+    <div class="portal-setup-guide-links">
+      <a class="portal-btn is-secondary" href="efp-bridge://start" data-connector-launch-link data-connector-action="launch">
+        <i data-lucide="play" class="w-4 h-4"></i> Start bridge
+      </a>
+    </div>
+    <div class="portal-inline-state hidden" data-connector-result="launch"></div>
+  </section>
+
+  <section class="portal-panel-section portal-connector-step" data-connector-step="3">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Step 3 · Test the connection</h6>
+    </div>
+    <p class="portal-panel-note">The test asks the bridge for its version and lists the tabs open in your EFP browser window. Nothing is changed on any page.</p>
+    <div class="portal-setup-guide-links">
+      <button type="button" class="portal-btn is-secondary" data-connector-action="test">
+        <i data-lucide="activity" class="w-4 h-4"></i> Test connection
+      </button>
+    </div>
+    <div class="portal-inline-state hidden" data-connector-result="test"></div>
+  </section>
+
+  <section class="portal-panel-section portal-connector-step" data-connector-step="4">
+    <div class="portal-settings-section-title">
+      <span class="portal-section-accent" aria-hidden="true"></span>
+      <h6>Step 4 · Enable for your assistants</h6>
+    </div>
+    <label class="portal-toggle-row">
+      <input type="checkbox" data-connector-field="enabled" {% if connector.enabled %}checked{% endif %} />
+      <span><strong>Enabled</strong><small>Assistants may use the browser bridge from this PC.</small></span>
+    </label>
+    <label class="portal-toggle-row">
+      <input type="checkbox" data-connector-field="auto_enable_in_new_chats" {% if connector.config.auto_enable_in_new_chats is not defined or connector.config.auto_enable_in_new_chats %}checked{% endif %} />
+      <span><strong>On by default in new chats</strong><small>The composer toggle starts switched on; you can turn it off per chat.</small></span>
+    </label>
+    <label class="portal-toggle-row">
+      <span><strong>Bridge port</strong><small>Default 8765. Change only if another program uses it.</small></span>
+      <input type="number" min="1024" max="65535" class="portal-input portal-input-short" data-connector-field="preferred_port" value="{{ connector.config.preferred_port or default_port }}" />
+    </label>
+    <div class="portal-setup-guide-links">
+      <button type="button" class="portal-btn is-primary" data-connector-action="save">
+        <i data-lucide="save" class="w-4 h-4"></i> Save
+      </button>
+    </div>
+    <div class="portal-inline-state hidden" data-connector-result="save"></div>
+  </section>
+
+  <details class="portal-collapsible portal-setup-guide">
+    <summary class="portal-collapsible-summary">
+      <i data-lucide="circle-help" class="w-4 h-4"></i>
+      <span>Troubleshooting</span>
+    </summary>
+    <div class="portal-setup-guide-body">
+      <ul class="portal-setup-guide-steps">
+        {% if guide and guide.troubleshooting %}
+          {% for line in guide.troubleshooting %}<li>{{ line }}</li>{% endfor %}
+        {% else %}
+          <li><strong>Bridge not detected</strong>: it is not running. Repeat step 2; if the efp-bridge link does nothing, run <code>install-bridge.cmd</code> again.</li>
+          <li><strong>devtools_unavailable</strong>: Chrome refused its DevTools port. Check <code>chrome://policy</code> for <code>RemoteDebuggingAllowed</code>.</li>
+          <li><strong>origin_denied / CORS error</strong>: the bridge was started for another Portal address. Restart it with <code>--origin <span data-connector-origin>{{ portal_origin }}</span></code>.</li>
+          <li><strong>Windows SmartScreen</strong> may warn on first launch of <code>browser.exe</code>. Choose "More info" → "Run anyway".</li>
+          <li>The EFP browser window has its own logins. Sites protected by device-based sign-in may ask you to sign in there once.</li>
+        {% endif %}
+      </ul>
+    </div>
+  </details>
+</div>

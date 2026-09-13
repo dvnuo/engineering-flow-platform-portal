@@ -18,6 +18,7 @@ REQUIRED_PORTAL_TABLES = (
     "delegation_rule_events",
     "assistant_types",
     "platform_settings",
+    "user_connectors",
 )
 
 

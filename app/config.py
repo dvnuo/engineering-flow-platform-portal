@@ -217,6 +217,13 @@ class Settings(BaseSettings):
     agent_task_runtime_status_max_bytes: int = Field(default=2_000_000, validation_alias="AGENT_TASK_RUNTIME_STATUS_MAX_BYTES")
     agent_task_runtime_missing_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS")
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")
+
+    # Connectors (docs/CONNECTORS_CONTRACT.md §8). The download URL points at
+    # the EFP browser bridge zip; empty falls back to the copy CI drops under
+    # app/static/downloads/.
+    connectors_enabled: bool = Field(default=True, validation_alias="CONNECTORS_ENABLED")
+    local_browser_cli_download_url: str = Field(default="", validation_alias="LOCAL_BROWSER_CLI_DOWNLOAD_URL")
+    local_browser_cli_version: str = Field(default="", validation_alias="LOCAL_BROWSER_CLI_VERSION")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

@@ -90,6 +90,9 @@ def test_portal_hash_route_sections_are_declared():
         # Connections and survive a reload or a new tab.
         "help",
         "runtime-profiles",
+        # Connectors (per-member capabilities such as the local browser bridge)
+        # are routable so the composer toggle can deep-link into the setup panel.
+        "connectors",
         "delegations",
         "users",
     }

@@ -10,8 +10,10 @@ from app.models.runtime_capability_catalog_snapshot import RuntimeCapabilityCata
 from app.models.assistant_type import AssistantType
 from app.models.platform_setting import PlatformSetting
 from app.models.delegation_rule import DelegationRule, DelegationRuleRun, DelegationRuleEvent
+from app.models.user_connector import UserConnector
 
 __all__ = [
+    "UserConnector",
     "User",
     "UserAllowlistEntry",
     "Agent",

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-role="{{ role }}" class="portal-app-root">
+<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-nickname="{{ nickname }}" data-role="{{ role }}" class="portal-app-root">
   <div class="portal-shell">
     <nav class="portal-rail" aria-label="Workspace navigation">
       <div class="portal-rail-top">
@@ -23,6 +23,11 @@
         <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Connections">
           <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
         </button>
+        {% if connectors_enabled %}
+        <button id="connectors-menu-btn" class="portal-rail-btn" type="button" title="Connectors">
+          <i data-lucide="plug-zap" class="w-5 h-5"></i>
+        </button>
+        {% endif %}
         <button id="help-btn" class="portal-rail-btn" type="button" title="Help" aria-label="Help">
           <i data-lucide="circle-help" class="w-5 h-5"></i>
         </button>
@@ -98,6 +103,11 @@
         <section id="runtime-profiles-nav-section" class="portal-secondary-section hidden">
           <div id="runtime-profile-nav-list" class="portal-secondary-list-body"></div>
         </section>
+        {% if connectors_enabled %}
+        <section id="connectors-nav-section" class="portal-secondary-section hidden">
+          <div id="connector-nav-list" class="portal-secondary-list-body"></div>
+        </section>
+        {% endif %}
         <section id="delegations-nav-section" class="portal-secondary-section hidden">
           <div class="portal-list-tools" aria-label="Delegation filters">
             <div class="portal-list-tool-row">
@@ -363,6 +373,17 @@
                       </label>
                     </div>
                   </details>
+                  {% if connectors_enabled %}
+                  <button type="button"
+                          id="composer-browser-toggle"
+                          class="composer-pill-btn composer-connector-toggle hidden"
+                          data-state="hidden"
+                          aria-pressed="false"
+                          title="Let the assistant use your local browser">
+                    <i data-lucide="globe" class="w-4 h-4"></i>
+                    <span id="composer-browser-toggle-text">Browser</span>
+                  </button>
+                  {% endif %}
                 </div>
 
                 <div class="portal-composer-toolbar-right">
@@ -818,4 +839,7 @@
 <script src="{{ static_url('js/assistant_personalization.js') }}"></script>
 <script src="{{ static_url('js/assistant_startup.js') }}"></script>
 <script src="{{ static_url('js/composer_skill_chip.js') }}"></script>
+{% if connectors_enabled %}
+<script src="{{ static_url('js/connectors/local_browser.js') }}"></script>
+{% endif %}
 {% endblock %}
