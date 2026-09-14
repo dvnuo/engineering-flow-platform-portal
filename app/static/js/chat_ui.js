@@ -1046,12 +1046,14 @@ installWorkspaceLinkRenderer(md);
 // The assistant cannot build an absolute download URL itself: the runtime does
 // not know the Portal origin or the assistant id. It emits the workspace path
 // and the Portal, which knows both, resolves it at render time.
-const WORKSPACE_LINK_SCHEME = "workspace:";
+// These helpers are self-contained on purpose: the node tests extract them one
+// function at a time.
 
 function parseWorkspaceLinkPath(href) {
+  const scheme = "workspace:";
   const raw = String(href || "").trim();
-  if (!/^workspace:/i.test(raw)) return null;
-  let path = raw.slice(WORKSPACE_LINK_SCHEME.length).replace(/^\/+/, "");
+  if (!raw.toLowerCase().startsWith(scheme)) return null;
+  let path = raw.slice(scheme.length).replace(/^\/+/, "");
   try {
     path = decodeURIComponent(path);
   } catch (_err) {
