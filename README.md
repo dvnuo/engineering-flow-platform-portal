@@ -106,6 +106,10 @@ The configured bootstrap administrator is created as the first administrator and
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | Default OpenCode runtime image tag | `1.14.39` |
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
 | `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
+| `CONNECTORS_ENABLED` | Show the Connectors menu and the `/api/connectors` routes (per-member connectors such as the local browser bridge; see `docs/CONNECTORS_CONTRACT.md`) | `true` |
+| `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | Download link template for the EFP browser bridge packages shown in Connectors → Local browser; `{platform}` expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64` (a URL without it hands one package to every system); empty serves `app/static/downloads/efp-browser-bridge-{platform}.zip`, the zips built by `scripts/browser-bridge/package.sh` in the tools repository | (empty) |
+| `LOCAL_BROWSER_CLI_VERSION` | Version label shown next to that download | (empty) |
+| `LOCAL_BROWSER_START_URL` | First tab of the EFP browser window whenever the bridge opens or reopens it: an absolute http(s) URL, or a path such as `/app` resolved against this Portal's origin; empty opens the Portal origin | (empty) |
 
 For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite). The Kubernetes manifests also expose `efp-portal-secret.GIT_TOKEN` to the Portal main container as `GIT_REPO_AUTH_PAT` so `/api/git-repos/branches` can list private repository branches during agent creation.
 

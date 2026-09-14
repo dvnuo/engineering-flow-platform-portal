@@ -220,6 +220,57 @@ def _websocket_connect_header_kwargs(headers: dict[str, str]) -> dict[str, dict[
     return {"additional_headers": headers}
 
 
+_CONNECTOR_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _inject_connectors_metadata(payload: dict, db, user) -> dict:
+    """Turn the page's ``connectors`` hint into server-trusted runtime metadata.
+
+    The page may only *ask* for a connector; whether the member actually
+    enabled it is decided here from ``user_connectors``. The runtime treats
+    ``metadata.connectors`` like any other Portal-vouched metadata, so nothing
+    from the request body is copied through unchecked (CONNECTORS_CONTRACT §2).
+    """
+
+    requested = payload.pop("connectors", None)
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return payload
+    metadata.pop("connectors", None)
+    metadata.pop("enable_browser_tool", None)
+    if not isinstance(requested, dict) or not requested:
+        return payload
+    try:
+        from app.services.connector_service import enabled_connectors_for_user
+
+        enabled = enabled_connectors_for_user(db, getattr(user, "id", None))
+    except Exception:
+        logger.exception("connector lookup failed; chat continues without connectors")
+        return payload
+
+    injected: dict[str, dict] = {}
+    for connector_type, hint in requested.items():
+        if connector_type not in enabled or not isinstance(hint, dict):
+            continue
+        client_id = str(hint.get("client_id") or "").strip()
+        if not _CONNECTOR_CLIENT_ID_RE.fullmatch(client_id):
+            continue
+        protocol_version = hint.get("protocol_version")
+        if not isinstance(protocol_version, int) or isinstance(protocol_version, bool):
+            protocol_version = 1
+        injected[connector_type] = {
+            "enabled": True,
+            "client_id": client_id,
+            "protocol_version": protocol_version,
+            "config": dict(enabled.get(connector_type) or {}),
+        }
+    if injected:
+        metadata["connectors"] = injected
+        if "local_browser" in injected:
+            metadata["enable_browser_tool"] = True
+    return payload
+
+
 def _enrich_chat_payload_with_runtime_metadata(
     payload: dict,
     runtime_metadata: dict,
@@ -419,6 +470,7 @@ async def proxy_agent(
                 runtime_type=getattr(agent, "runtime_type", None),
                 inference_overrides=inference_overrides,
             )
+            parsed_payload = _inject_connectors_metadata(parsed_payload, db, user)
             chat_execution = record_chat_started_best_effort(
                 db,
                 agent=agent,

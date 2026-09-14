@@ -1725,6 +1725,7 @@ def app_page(request: Request):
             # The help sub-menu is part of the shell, like the other nav lists,
             # so it renders with the page rather than on first open.
             "help_groups": help_topics_by_group(),
+            "connectors_enabled": bool(get_settings().connectors_enabled),
         },
     )
 
@@ -2942,6 +2943,59 @@ async def app_runtime_profile_panel(request: Request, profile_id: str):
         )
     finally:
         db.close()
+
+
+@router.get("/app/connectors/{connector_type}/panel")
+async def app_connector_panel(request: Request, connector_type: str):
+    """Render the settings panel for one connector type (Connectors menu)."""
+
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    if not get_settings().connectors_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connectors are disabled")
+
+    from app.services import connector_service
+    from app.services.connection_guidance import CONNECTOR_GUIDANCE
+    from app.services.connector_registry import (
+        LOCAL_BROWSER_DEFAULT_PORT,
+        detect_local_browser_platform,
+        get_connector_spec,
+        local_browser_platform_label,
+    )
+
+    try:
+        spec = get_connector_spec(connector_type)
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+
+    db = SessionLocal()
+    try:
+        connector = connector_service.get_for_user(db, user, spec.type)
+    finally:
+        db.close()
+
+    resolved_settings = get_settings()
+    portal_origin = (resolved_settings.base_uri or str(request.base_url)).rstrip("/")
+    # The panel is fetched by the member's own browser, so its User-Agent picks
+    # the package offered first; the page refines the CPU with client hints.
+    primary_platform = detect_local_browser_platform(request.headers.get("user-agent"))
+    return templates.TemplateResponse(
+        spec.panel_template,
+        {
+            "request": request,
+            "connector": connector,
+            "guide": CONNECTOR_GUIDANCE.get(spec.guidance_key),
+            "download_url": connector_service.local_browser_download_url(resolved_settings, primary_platform),
+            "download_links": connector_service.local_browser_download_links(resolved_settings),
+            "primary_platform": primary_platform,
+            "primary_platform_label": local_browser_platform_label(primary_platform),
+            "cli_version": resolved_settings.local_browser_cli_version,
+            "portal_origin": portal_origin,
+            "default_port": LOCAL_BROWSER_DEFAULT_PORT,
+            "start_url": connector_service.local_browser_start_url(resolved_settings, portal_origin),
+        },
+    )
 
 
 @router.post("/app/runtime-profiles/{profile_id}/test/{target}")

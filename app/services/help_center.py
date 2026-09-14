@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services.connection_guidance import CONNECTION_GUIDANCE
+from app.services.connection_guidance import CONNECTION_GUIDANCE, CONNECTOR_GUIDANCE
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class HelpTopic:
     shortcuts: tuple[tuple[str, str], ...] = field(default=())
 
 
-GROUP_ORDER = ("Getting started", "Connections", "Working")
+GROUP_ORDER = ("Getting started", "Connections", "Connectors", "Working")
 
 
 # Per-connection detail that has no room beside a form field: what the
@@ -374,8 +374,40 @@ def _connection_topics() -> tuple[HelpTopic, ...]:
     return tuple(topics)
 
 
+def _connector_topics() -> tuple[HelpTopic, ...]:
+    """Connectors (Local browser, …) get one guide each, derived like connections."""
+
+    topics = []
+    for key, guidance in CONNECTOR_GUIDANCE.items():
+        body = (
+            (
+                "What this is for",
+                (
+                    "The assistant drives a separate Chrome window that belongs to EFP on your PC. "
+                    "It uses that window's logins, so internal sites work without sharing credentials.",
+                    "Nothing runs unless a chat is open in this browser tab and the Browser toggle is on.",
+                ),
+            ),
+            ("If it stops working", tuple(guidance.get("troubleshooting") or ())),
+        )
+        topics.append(
+            HelpTopic(
+                id=f"{key.replace('_', '-')}-connector",
+                title=guidance["title"],
+                summary=guidance["summary"],
+                group="Connectors",
+                icon="globe",
+                steps=tuple(guidance.get("steps") or ()),
+                body=body,
+                help_url=guidance.get("help_url"),
+                help_label=guidance.get("help_label"),
+            )
+        )
+    return tuple(topics)
+
+
 def all_topics() -> tuple[HelpTopic, ...]:
-    return CONCEPT_TOPICS + _connection_topics()
+    return CONCEPT_TOPICS + _connection_topics() + _connector_topics()
 
 
 def topics_by_group() -> list[tuple[str, list[HelpTopic]]]:

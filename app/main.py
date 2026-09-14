@@ -19,6 +19,7 @@ from app.api.assistant_types import router as assistant_types_router
 from app.api.git_repos import router as git_repos_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
+from app.api.connectors import router as connectors_router
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, reset_log_context
@@ -160,6 +161,7 @@ app.include_router(agents_router)
 app.include_router(assistant_types_router)
 app.include_router(git_repos_router)
 app.include_router(runtime_profiles_router)
+app.include_router(connectors_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
 app.include_router(copilot_router)

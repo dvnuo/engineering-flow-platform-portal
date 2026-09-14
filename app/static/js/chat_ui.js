@@ -46,6 +46,7 @@ const dom = {
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
   delegationsMenuBtn: document.getElementById("delegations-menu-btn"),
   runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
+  connectorsMenuBtn: document.getElementById("connectors-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
   secondaryDrawerBackdrop: document.getElementById("secondary-drawer-backdrop"),
   portalSecondaryPane: document.getElementById("portal-secondary-pane"),
@@ -57,6 +58,8 @@ const dom = {
   assistantsNavSection: document.getElementById("assistants-nav-section"),
   tasksNavSection: document.getElementById("tasks-nav-section"),
   runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
+  connectorsNavSection: document.getElementById("connectors-nav-section"),
+  connectorNavList: document.getElementById("connector-nav-list"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
   usersNavSection: document.getElementById("users-nav-section"),
   helpNavSection: document.getElementById("help-nav-section"),
@@ -152,13 +155,19 @@ const PORTAL_ROUTE_SECTIONS = new Set([
   "tasks",
   "help",
   "runtime-profiles",
+  "connectors",
   "delegations",
   "users",
 ]);
 const DEFAULT_PORTAL_ROUTE_SECTION = "assistants";
 
 function isPortalRouteSectionAvailable(section) {
-  return PORTAL_ROUTE_SECTIONS.has(section) && (section !== "users" || Boolean(dom.usersMenuBtn));
+  if (!PORTAL_ROUTE_SECTIONS.has(section)) return false;
+  if (section === "users") return Boolean(dom.usersMenuBtn);
+  // Connectors is feature-gated server-side; the rail button only renders when
+  // CONNECTORS_ENABLED is on.
+  if (section === "connectors") return Boolean(dom.connectorsMenuBtn);
+  return true;
 }
 
 function initialPortalRouteSectionFromHash(hash = window.location.hash) {
@@ -183,6 +192,7 @@ const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
 function initialPortalSectionTitle(section) {
   if (section === "tasks") return "Tasks";
   if (section === "runtime-profiles") return "Connections";
+  if (section === "connectors") return "Connectors";
   if (section === "delegations") return "Delegations";
   if (section === "users") return "Administration";
   return "Assistants";
@@ -191,6 +201,7 @@ function initialPortalSectionTitle(section) {
 function initialPortalStatusText(section) {
   if (section === "tasks") return "Task health, workload, and recent activity";
   if (section === "runtime-profiles") return "Browse and manage your connection profiles";
+  if (section === "connectors") return "Local devices and tools your assistants can use";
   if (section === "delegations") return "Manage delegations";
   if (section === "users") return "Manage members, roles, access, and usage";
   return "Ready";
@@ -202,6 +213,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     assistants: dom.railAssistantsBtn,
     tasks: dom.tasksMenuBtn,
     "runtime-profiles": dom.runtimeProfilesMenuBtn,
+    connectors: dom.connectorsMenuBtn,
     delegations: dom.delegationsMenuBtn,
     users: dom.usersMenuBtn,
     help: dom.helpBtn,
@@ -210,6 +222,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     assistants: dom.assistantsNavSection,
     tasks: dom.tasksNavSection,
     "runtime-profiles": dom.runtimeProfilesNavSection,
+    connectors: dom.connectorsNavSection,
     delegations: dom.delegationsNavSection,
     users: dom.usersNavSection,
     help: dom.helpNavSection,
@@ -488,6 +501,8 @@ const state = {
   serverFilesCurrentPath: null,
   runtimeProfiles: [],
   selectedRuntimeProfileId: null,
+  connectors: [],
+  selectedConnectorType: null,
   delegations: [],
   delegationFilters: { owner: "all", source: "all" },
   selectedDelegationRuleId: null,
@@ -517,6 +532,7 @@ function parsePortalHashRoute(hash = window.location.hash) {
     agentId: "",
     taskId: "",
     runtimeProfileId: "",
+    connectorType: "",
     delegationRuleId: "",
     userManagementView: "",
     helpTopicId: "",
@@ -542,7 +558,8 @@ function parsePortalHashRoute(hash = window.location.hash) {
     section,
   };
 
-  if (queryString) return fallback;
+  // Connector panels accept a `?step=N` deep link into their guided setup.
+  if (queryString && section !== "connectors") return fallback;
   if (encodedParts.length > 2) return fallback;
 
   const decodedId = safeDecodeRouteComponent(encodedParts[1] || "");
@@ -554,6 +571,8 @@ function parsePortalHashRoute(hash = window.location.hash) {
     parsed.taskId = decodedId;
   } else if (section === "runtime-profiles") {
     parsed.runtimeProfileId = decodedId;
+  } else if (section === "connectors") {
+    parsed.connectorType = decodedId;
   } else if (section === "delegations") {
     parsed.delegationRuleId = decodedId;
   } else if (section === "users") {
@@ -581,6 +600,11 @@ function portalHashForRoute(route = {}) {
   if (section === "runtime-profiles") {
     const runtimeProfileId = route.runtimeProfileId ? String(route.runtimeProfileId) : "";
     return runtimeProfileId ? `#/runtime-profiles/${encodeURIComponent(runtimeProfileId)}` : "#/runtime-profiles";
+  }
+
+  if (section === "connectors") {
+    const connectorType = route.connectorType ? String(route.connectorType) : "";
+    return connectorType ? `#/connectors/${encodeURIComponent(connectorType)}` : "#/connectors";
   }
 
   if (section === "delegations") {
@@ -613,6 +637,10 @@ function currentPortalRouteFromState() {
 
   if (section === "runtime-profiles") {
     return { section, runtimeProfileId: state.selectedRuntimeProfileId || "" };
+  }
+
+  if (section === "connectors") {
+    return { section, connectorType: state.selectedConnectorType || "" };
   }
 
   if (section === "delegations") {
@@ -648,6 +676,8 @@ function clearPortalSectionDetailSelection(section) {
     state.selectedTaskId = null;
   } else if (section === "runtime-profiles") {
     state.selectedRuntimeProfileId = null;
+  } else if (section === "connectors") {
+    state.selectedConnectorType = null;
   } else if (section === "delegations") {
     state.selectedDelegationRuleId = null;
   } else if (section === "users") {
@@ -672,6 +702,7 @@ async function openPortalSection(section, {
   const hadDetailSelection = (
     (section === "tasks" && !!state.selectedTaskId) ||
     (section === "runtime-profiles" && !!state.selectedRuntimeProfileId) ||
+    (section === "connectors" && !!state.selectedConnectorType) ||
     (section === "delegations" && !!state.selectedDelegationRuleId) ||
     (section === "users" && !!state.selectedUserManagementView)
   );
@@ -680,7 +711,7 @@ async function openPortalSection(section, {
   // not a specific detail item.
   clearPortalSectionDetailSelection(section);
 
-  const opensDetailByDefault = section === "runtime-profiles";
+  const opensDetailByDefault = section === "runtime-profiles" || section === "connectors";
 
   if (!isApplyingPortalRoute && !opensDetailByDefault) {
     commitPortalRoute(portalSectionRoute(section), { replace });
@@ -783,6 +814,29 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
       await openRuntimeProfileInMain(route.runtimeProfileId, { ensureSection: false, updateRoute: false });
     } else {
       await setActiveNavSection("runtime-profiles", {
+        toggleIfSame: false,
+        updateRoute: false,
+        preferSectionLanding: true,
+      });
+    }
+    return;
+  }
+
+  if (route.section === "connectors") {
+    if (route.connectorType) {
+      // Pre-select so the section switch loads the requested panel once;
+      // a second htmx swap into the same target while the first settles is
+      // what htmx reports as `insertBefore` on null.
+      state.selectedConnectorType = route.connectorType;
+      await setActiveNavSection("connectors", { toggleIfSame: false, updateRoute: false });
+      const alreadyShown = state.selectedConnectorType === route.connectorType
+        && dom.workspaceDetailContent?.dataset.workspaceState === "connector-detail";
+      if (!alreadyShown) {
+        await refreshConnectorList({ preserveSelection: true });
+        await openConnectorInMain(route.connectorType, { ensureSection: false, updateRoute: false });
+      }
+    } else {
+      await setActiveNavSection("connectors", {
         toggleIfSame: false,
         updateRoute: false,
         preferSectionLanding: true,
@@ -2462,6 +2516,7 @@ function isTrackableStreamEvent(type) {
     "permission.requested", "permission.resolved", "permission_request", "permission_resolved",
     "permission.denied", "permission.allowed",
     "question.requested",
+    "connector.request", "connector.responded",
     "provider.retry", "provider.status", "provider.rate_limit", "model.retry",
     "event_bridge.connected", "event_bridge.disconnected", "event_bridge.reconnected", "runtime.raw",
     "runtime.status.validated",
@@ -3317,6 +3372,39 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
     title = "Question requested";
     icon = "circle-help";
     status = "pending";
+  } else if (type === "connector.request" || type === "connector.responded") {
+    // One row per connector request: the response event carries the same
+    // request id, so it updates the pending row instead of adding a second.
+    const connectorRequestId = data.connector_request_id
+      || (data.connector_request && (data.connector_request.id || data.connector_request.request_id))
+      || "";
+    if (connectorRequestId) {
+      const action = data.action || (data.connector_request && data.connector_request.action) || "";
+      const label = data.connector_type === "local_browser" ? "Browser" : (data.connector_type || "Connector");
+      const pendingId = `connector:${connectorRequestId}`;
+      const responded = type === "connector.responded";
+      const ok = data.ok !== false;
+      upsertAgentTimelineItem(timeline, pendingId, {
+        kind: "tool",
+        status: responded ? (ok ? "completed" : "failed") : "pending",
+        title: `${label}: ${action || "request"}`,
+        icon: "globe",
+        createdAt: event.created_at,
+      }, {
+        kind: "tool",
+        status: responded ? (ok ? "completed" : "failed") : "pending",
+        title: `${label}: ${action || "request"}`,
+        summary: responded
+          ? truncateAgentTimelineText(ok ? `done in ${data.duration_ms || 0} ms` : (data.error_code || "failed"))
+          : "waiting for your browser",
+        icon: "globe",
+      });
+      return true;
+    }
+    kind = "tool";
+    title = type === "connector.request" ? "Connector request" : "Connector response";
+    icon = "globe";
+    status = type === "connector.request" ? "pending" : "completed";
   }
   upsertAgentTimelineItem(timeline, itemId, {
     kind,
@@ -6264,6 +6352,14 @@ async function submitChatForSelectedAgent() {
     ...(reasoningEffort && reasoningEffort !== defaultReasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     ...(contextValue > 0 && contextValue !== defaultContextValue ? { max_context_tokens: contextValue } : {}),
   };
+  // Connectors ride at the top level (the proxy drops client metadata) and only
+  // name the tab that is sending; the proxy decides what is actually enabled.
+  if (window.portalConnectors && typeof window.portalConnectors.chatRequestConnectors === "function") {
+    const requestConnectors = window.portalConnectors.chatRequestConnectors(agentIdAtSend);
+    if (requestConnectors && typeof requestConnectors === "object" && Object.keys(requestConnectors).length) {
+      requestBody.connectors = requestConnectors;
+    }
+  }
   const slashInvocation = parseSkillSlashInput(messageAtSend);
   const matchedSkill = findCachedSkillForSlash(slashInvocation, agentIdAtSend);
   if (slashInvocation && matchedSkill && matchedSkill.callable === false) {
@@ -9094,6 +9190,7 @@ async function openOverviewAgent(agentId) {
 function getSecondaryPaneLabel() {
   if (state.activeNavSection === "tasks") return "Tasks";
   if (state.activeNavSection === "runtime-profiles") return "Connections";
+  if (state.activeNavSection === "connectors") return "Connectors";
   if (state.activeNavSection === "delegations") return "Delegations";
   if (state.activeNavSection === "users") return "Administration";
   return "Assistants";
@@ -9176,6 +9273,9 @@ function renderSecondaryPaneHeader() {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Connections";
     if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.remove("hidden");
+  } else if (state.activeNavSection === "connectors") {
+    dom.secondaryPaneEyebrow.textContent = "My Space";
+    dom.secondaryPaneTitle.textContent = "Connectors";
   } else {
     dom.secondaryPaneEyebrow.textContent = "Portal";
     dom.secondaryPaneTitle.textContent = "Administration";
@@ -9289,6 +9389,9 @@ function syncMainHeader() {
       const heading = ADMIN_PANEL_HEADINGS[activeAdminPanel] || ADMIN_PANEL_HEADINGS.users;
       dom.embedTitle.textContent = heading.title;
       setChatStatus(heading.status);
+    } else if (state.activeNavSection === "connectors") {
+      dom.embedTitle.textContent = "Connectors";
+      setChatStatus("Local devices and tools your assistants can use");
     } else {
       dom.embedTitle.textContent = "Connections";
       setChatStatus("Browse and manage your connection profiles");
@@ -9326,6 +9429,10 @@ function syncDefaultMainViewForSection(section) {
     renderWorkspaceDetailPlaceholder("Select a connection profile from the left sidebar.", "runtime-profiles-placeholder");
     return;
   }
+  if (section === "connectors") {
+    renderWorkspaceDetailPlaceholder("Select a connector from the left sidebar.", "connectors-placeholder");
+    return;
+  }
   if (section === "delegations") {
     loadDelegationOverviewPanel();
     return;
@@ -9345,9 +9452,10 @@ async function setActiveNavSection(section, {
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = typeof PORTAL_ROUTE_SECTIONS !== "undefined"
     ? PORTAL_ROUTE_SECTIONS
-    : new Set(["assistants", "tasks", "runtime-profiles", "delegations", "users"]);
+    : new Set(["assistants", "tasks", "runtime-profiles", "connectors", "delegations", "users"]);
   if (!validSections.has(section)) return;
   if (section === "users" && !dom.usersMenuBtn) return;
+  if (section === "connectors" && !dom.connectorsMenuBtn) return;
 
   if (preferSectionLanding) {
     clearPortalSectionDetailSelection(section);
@@ -9368,6 +9476,7 @@ async function setActiveNavSection(section, {
   dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
   dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
+  dom.connectorsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "connectors");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
   dom.usersMenuBtn?.classList.toggle("is-active", state.activeNavSection === "users");
   dom.helpBtn?.classList.toggle("is-active", state.activeNavSection === "help");
@@ -9375,6 +9484,7 @@ async function setActiveNavSection(section, {
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
   dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
+  dom.connectorsNavSection?.classList.toggle("hidden", state.activeNavSection !== "connectors");
   dom.delegationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "delegations");
   dom.usersNavSection?.classList.toggle("hidden", state.activeNavSection !== "users");
   dom.helpNavSection?.classList.toggle("hidden", state.activeNavSection !== "help");
@@ -9423,6 +9533,8 @@ async function setActiveNavSection(section, {
       showTasksLoadingMainView();
     } else if (section === "runtime-profiles") {
       renderWorkspaceDetailPlaceholder("Loading connection profiles…", "runtime-profiles-loading");
+    } else if (section === "connectors") {
+      renderWorkspaceDetailPlaceholder("Loading connectors…", "connectors-loading");
     } else if (section === "delegations") {
       renderWorkspaceDetailPlaceholder("Loading delegations…", "delegations-loading");
     }
@@ -9462,6 +9574,23 @@ async function setActiveNavSection(section, {
         } else {
           renderWorkspaceDetailPlaceholder("No connection profiles found.", "runtime-profiles-placeholder");
         }
+      }
+    }
+  }
+
+  if (state.activeNavSection === "connectors" && shouldRefreshVisibleSection) {
+    await refreshConnectorList({ preserveSelection: !preferSectionLanding });
+    if (state.activeNavSection === "connectors" && !state.secondaryPaneCollapsed) {
+      const targetType = state.selectedConnectorType || (state.connectors[0] || {}).type || null;
+      state.selectedConnectorType = targetType;
+      renderConnectorList();
+      if (targetType) {
+        await loadConnectorPanelContent(targetType, { updateRoute: false });
+        if (preferSectionLanding && updateRoute && !isApplyingPortalRoute) {
+          commitPortalRoute({ section: "connectors", connectorType: targetType });
+        }
+      } else {
+        renderWorkspaceDetailPlaceholder("No connectors are available.", "connectors-placeholder");
       }
     }
   }
@@ -12816,6 +12945,86 @@ async function refreshRuntimeProfileList({ preserveSelection = true } = {}) {
   renderRuntimeProfileList();
 }
 
+// ===== connectors (Connectors menu) =====
+// Connectors are per-member capabilities outside the pod (docs/CONNECTORS_CONTRACT.md).
+// The list comes from the registry merged with the member's state; each type
+// renders its own htmx panel and the bridge module (static/js/connectors/) binds it.
+
+async function loadConnectorsList(force = false) {
+  if (!force && Array.isArray(state.connectors) && state.connectors.length > 0) {
+    return state.connectors;
+  }
+  try {
+    const items = await api("/api/connectors");
+    state.connectors = Array.isArray(items) ? items : [];
+  } catch (_err) {
+    state.connectors = [];
+  }
+  return state.connectors;
+}
+
+function renderConnectorList(errorMessage = "") {
+  if (!dom.connectorNavList) return;
+  if (errorMessage) {
+    dom.connectorNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
+    return;
+  }
+  if (!state.connectors.length) {
+    dom.connectorNavList.innerHTML = '<div class="portal-list-state">No connectors are available.</div>';
+    return;
+  }
+  dom.connectorNavList.innerHTML = "";
+  state.connectors.forEach((connector) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `portal-list-row${state.selectedConnectorType === connector.type ? " is-active" : ""}`;
+    const status = connector.enabled ? "Enabled" : "Not enabled";
+    row.innerHTML = `
+      <div class="portal-list-title">${safe(connector.label || connector.type)}</div>
+      <div class="portal-list-meta">${safe(status)}${connector.category ? ` · ${safe(connector.category)}` : ""}</div>
+    `;
+    row.addEventListener("click", async () => {
+      state.selectedConnectorType = connector.type;
+      renderConnectorList();
+      await openConnectorInMain(connector.type);
+    });
+    dom.connectorNavList.append(row);
+  });
+}
+
+async function loadConnectorPanelContent(connectorType, { updateRoute = true } = {}) {
+  if (!connectorType) return;
+  state.selectedConnectorType = connectorType;
+  renderConnectorList();
+  await htmx.ajax("GET", `/app/connectors/${encodeURIComponent(connectorType)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+  if (window.portalConnectors && typeof window.portalConnectors.initPanel === "function") {
+    window.portalConnectors.initPanel();
+  }
+  setMainView("detail");
+  dom.workspaceDetailContent.dataset.workspaceState = "connector-detail";
+  syncMainHeader();
+}
+
+async function openConnectorInMain(connectorType, { ensureSection = true, updateRoute = true } = {}) {
+  if (!connectorType) return;
+  if (ensureSection) {
+    await setActiveNavSection("connectors", { toggleIfSame: false, updateRoute: false });
+  }
+  await loadConnectorPanelContent(connectorType, { updateRoute: false });
+  if (updateRoute && !isApplyingPortalRoute) {
+    commitPortalRoute({ section: "connectors", connectorType });
+  }
+}
+
+async function refreshConnectorList({ preserveSelection = true } = {}) {
+  await loadConnectorsList(true);
+  const previousSelected = state.selectedConnectorType;
+  if (!preserveSelection || !state.connectors.some((item) => item.type === previousSelected)) {
+    state.selectedConnectorType = (state.connectors[0] || {}).type || null;
+  }
+  renderConnectorList();
+}
+
 async function loadDelegationRules() {
   try {
     const rules = await api("/api/delegation-rules");
@@ -16077,6 +16286,14 @@ function bindEvents() {
     }
   });
   dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"));
+  dom.connectorsMenuBtn?.addEventListener("click", () => openPortalSection("connectors"));
+  // The connector panel saves through its own bundle; keep the sidebar's
+  // "Enabled / Not enabled" line in step without a full section reload.
+  document.addEventListener("portal:connectors-changed", () => {
+    if (state.activeNavSection === "connectors") {
+      refreshConnectorList({ preserveSelection: true });
+    }
+  });
   window.addEventListener("resize", () => {
     if (!state.toolPanelPinned) return;
     if (!isWideEnoughToPinToolPanel()) {

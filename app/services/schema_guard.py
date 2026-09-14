@@ -28,6 +28,7 @@ REQUIRED_PORTAL_TABLES = (
     "delegation_rule_events",
     "assistant_types",
     "platform_settings",
+    "user_connectors",
 )
 REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
     "updated_at",

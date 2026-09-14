@@ -6073,3 +6073,92 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
   .portal-auth-method:hover, .portal-auth-back:hover, .portal-auth-step-actions .portal-btn:hover:not(:disabled) { transform: none; }
   .portal-auth-spinner { animation-duration: 1.6s; }
 }
+
+/* ===== Connectors (Connectors menu + composer browser toggle) ===== */
+.composer-connector-toggle[data-state="on"] {
+  border-color: color-mix(in srgb, var(--portal-cta-bg), transparent 30%);
+  background: color-mix(in srgb, var(--portal-cta-bg) 16%, var(--portal-surface-muted) 84%);
+  color: var(--portal-text);
+}
+
+.composer-connector-toggle[data-state="off"] {
+  opacity: 0.8;
+}
+
+.composer-connector-toggle[data-state="offline"],
+.composer-connector-toggle[data-state="setup"] {
+  border-style: dashed;
+  color: var(--portal-text-muted);
+}
+
+.portal-connector-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--portal-border), transparent 16%);
+  background: color-mix(in srgb, var(--portal-surface-muted) 70%, transparent);
+  font-size: 13px;
+  color: var(--portal-text-secondary);
+}
+
+.portal-connector-status strong[data-tone="ok"] {
+  color: var(--portal-success, #1a7f4b);
+}
+
+.portal-connector-status strong[data-tone="warn"] {
+  color: var(--portal-warning, #b26a00);
+}
+
+.portal-connector-status .composer-pill-btn {
+  margin-left: auto;
+}
+
+.portal-connector-step {
+  border-left: 3px solid color-mix(in srgb, var(--portal-border-strong), transparent 40%);
+}
+
+.portal-connector-step.is-done {
+  border-left-color: var(--portal-success, #1a7f4b);
+}
+
+.portal-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.portal-toggle-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.portal-toggle-row small {
+  color: var(--portal-text-muted);
+}
+
+.portal-toggle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.portal-input-short {
+  max-width: 120px;
+  margin-left: auto;
+}
+
+.portal-connector-tab-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.portal-connector-tab-list small {
+  color: var(--portal-text-muted);
+  margin-left: 6px;
+}
