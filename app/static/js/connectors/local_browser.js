@@ -620,7 +620,7 @@
         if (probe.alive) {
           setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)}. Continue with step 3.`, "success");
         } else {
-          setPanelResult(root, "launch", "<strong>Bridge not detected yet.</strong> If nothing happened, the protocol link is not registered: run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) from the unzipped folder, then try again.", "error");
+          setPanelResult(root, "launch", "<strong>Bridge not detected yet.</strong> If nothing happened, the protocol link is not registered: run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) from the unzipped folder, then try again. If it did start, the launcher writes what happened to <code>.efp/browser/logs/bridge-serve.log</code> in your home folder; a bridge left running for a different Portal address is refused there by name.", "error");
         }
         await refreshPanelStatus(root, { force: false });
         await renderToggle({ probe: false });

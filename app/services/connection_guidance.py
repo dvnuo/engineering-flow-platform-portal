@@ -192,6 +192,8 @@ CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
         ],
         "troubleshooting": [
             "Bridge not detected: it is not running. Repeat step 2; if the efp-bridge link does nothing, run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) again.",
+            "Start bridge seems to do nothing: the launcher runs without a window on purpose and writes each attempt to .efp/browser/logs/bridge-serve.log in your home folder. Read the last lines there.",
+            "Bridge stays undetected after a Portal address change: a bridge started for the old address is still holding the port and rejects this page. Stop it (end the browser process in Task Manager, or close the terminal it runs in) and click Start bridge again.",
             "devtools_unavailable: Chrome refused its DevTools port. Check chrome://policy for RemoteDebuggingAllowed.",
             "origin_denied or a CORS error: the bridge was started for another Portal address. Restart it with --origin set to this Portal's address.",
             "Windows SmartScreen may warn the first time browser.exe runs. Choose More info, then Run anyway.",

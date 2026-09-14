@@ -111,6 +111,8 @@
           {% for line in guide.troubleshooting %}<li>{{ line }}</li>{% endfor %}
         {% else %}
           <li><strong>Bridge not detected</strong>: it is not running. Repeat step 2; if the efp-bridge link does nothing, run <code>install-bridge.cmd</code> (Windows) or <code>install-bridge.sh</code> (macOS, Linux) again.</li>
+          <li><strong>Start bridge seems to do nothing</strong>: the launcher deliberately runs without a window. Every attempt is written to <code>.efp/browser/logs/bridge-serve.log</code> in your home folder; read the last lines there.</li>
+          <li><strong>Still undetected after the Portal address changed</strong>: a bridge started for the old address is holding the port and rejects this page. Stop it (end the <code>browser</code> process, or close the terminal it runs in) and click Start bridge again.</li>
           <li><strong>devtools_unavailable</strong>: Chrome refused its DevTools port. Check <code>chrome://policy</code> for <code>RemoteDebuggingAllowed</code>.</li>
           <li><strong>origin_denied / CORS error</strong>: the bridge was started for another Portal address. Restart it with <code>--origin <span data-connector-origin>{{ portal_origin }}</span></code>.</li>
           <li><strong>Windows SmartScreen</strong> may warn on first launch of <code>browser.exe</code>. Choose "More info" → "Run anyway".</li>
