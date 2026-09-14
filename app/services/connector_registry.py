@@ -17,6 +17,45 @@ from typing import Any
 LOCAL_BROWSER_TYPE = "local_browser"
 LOCAL_BROWSER_DEFAULT_PORT = 8765
 
+# Download packages the Portal offers, one zip per entry built by
+# scripts/browser-bridge/package.sh in the tools repository (the binary, the
+# installer for that system, and a README; nothing else). The member's own
+# system is offered first, the rest under "Other systems".
+LOCAL_BROWSER_PLATFORMS: tuple[tuple[str, str], ...] = (
+    ("windows-amd64", "Windows (x64)"),
+    ("windows-arm64", "Windows (ARM64)"),
+    ("darwin-arm64", "macOS (Apple silicon)"),
+    ("darwin-amd64", "macOS (Intel)"),
+    ("linux-amd64", "Linux (x64)"),
+    ("linux-arm64", "Linux (ARM64)"),
+)
+
+
+def local_browser_platform_label(platform: str) -> str:
+    for key, label in LOCAL_BROWSER_PLATFORMS:
+        if key == platform:
+            return label
+    return platform
+
+
+def detect_local_browser_platform(user_agent: str | None) -> str:
+    """Best guess of the member's package from the User-Agent header.
+
+    Chrome on Apple silicon still reports "Intel Mac OS X", so a Mac gets the
+    Apple silicon package here and the page corrects it with client hints
+    (navigator.userAgentData architecture); the other systems only need the OS.
+    """
+
+    ua = str(user_agent or "").lower()
+    arm = any(token in ua for token in ("arm64", "aarch64", "armv8"))
+    if "windows" in ua:
+        return "windows-arm64" if arm else "windows-amd64"
+    if "mac os x" in ua or "macintosh" in ua:
+        return "darwin-arm64"
+    if "linux" in ua or "x11" in ua:
+        return "linux-arm64" if arm else "linux-amd64"
+    return LOCAL_BROWSER_PLATFORMS[0][0]
+
 
 @dataclass(frozen=True)
 class ConnectorSpec:
@@ -117,8 +156,11 @@ __all__ = [
     "CONNECTOR_REGISTRY",
     "ConnectorSpec",
     "LOCAL_BROWSER_DEFAULT_PORT",
+    "LOCAL_BROWSER_PLATFORMS",
     "LOCAL_BROWSER_TYPE",
+    "detect_local_browser_platform",
     "get_connector_spec",
     "is_known_connector",
     "list_connector_specs",
+    "local_browser_platform_label",
 ]

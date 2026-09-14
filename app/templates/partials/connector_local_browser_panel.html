@@ -33,14 +33,22 @@
       <h6>Step 1 · Download the bridge</h6>
     </div>
     <p class="portal-panel-note">
-      Download the EFP browser bridge{% if cli_version %} (version {{ cli_version }}){% endif %} and unzip it anywhere in your user folder, for example <code>%LOCALAPPDATA%\efp\browser-bridge</code>. No administrator rights are needed.
+      Download the EFP browser bridge{% if cli_version %} (version {{ cli_version }}){% endif %} for your system and unzip it anywhere in your user folder, for example <code>%LOCALAPPDATA%\efp\browser-bridge</code> (Windows) or <code>~/efp/browser-bridge</code> (macOS, Linux). No administrator rights are needed. The package holds only the <code>browser</code> program, the installer for that system, and a README.
     </p>
     <div class="portal-setup-guide-links">
-      <a class="portal-btn is-primary" href="{{ download_url }}" download>
-        <i data-lucide="download" class="w-4 h-4"></i> Download bridge
+      <a class="portal-btn is-primary" href="{{ download_url }}" download data-connector-download-primary data-platform="{{ primary_platform }}">
+        <i data-lucide="download" class="w-4 h-4"></i> <span data-connector-download-label>Download for {{ primary_platform_label }}</span>
       </a>
       <a class="portal-link-inline" href="#/help/local-browser-connector">Full guide &rarr;</a>
     </div>
+    <details class="portal-collapsible">
+      <summary class="portal-collapsible-summary"><span>Other systems</span></summary>
+      <ul class="portal-setup-guide-steps">
+        {% for link in download_links %}
+        <li><a href="{{ link.url }}" download data-connector-download data-platform="{{ link.platform }}" data-label="{{ link.label }}">{{ link.label }}</a></li>
+        {% endfor %}
+      </ul>
+    </details>
   </section>
 
   <section class="portal-panel-section portal-connector-step" data-connector-step="2">
@@ -49,7 +57,7 @@
       <h6>Step 2 · Install and start the bridge</h6>
     </div>
     <ol class="portal-setup-guide-steps">
-      <li>In the unzipped folder, double-click <code>install-bridge.cmd</code> (Windows) or run <code>./install-bridge.sh <span data-connector-origin>{{ portal_origin }}</span></code> (macOS, Linux). It registers the <code>efp-bridge://</code> link for your account only (no admin, no autostart). Equivalent command: <code>browser serve --register-protocol --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
+      <li>In the unzipped folder, double-click <code>install-bridge.cmd</code> (Windows) and enter <span data-connector-origin>{{ portal_origin }}</span> when it asks for the Portal address, or run <code>./install-bridge.sh <span data-connector-origin>{{ portal_origin }}</span></code> (macOS, Linux). It registers the <code>efp-bridge://</code> link for your account only (no admin, no autostart). Equivalent command: <code>browser serve --register-protocol --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
       <li>Click <strong>Start bridge</strong> below. Chrome asks whether to open the EFP bridge: allow it (tick "always allow" to skip the prompt next time).</li>
       <li>A new Chrome window titled EFP opens with <code>{{ start_url or portal_origin }}</code> as its only tab. Sign in to your work sites there once; the window keeps its own logins.</li>
       <li>Closed that window? The bridge keeps running in the background: click <strong>Start bridge</strong> again to reopen it, or just send a message; the next browser action reopens it.</li>

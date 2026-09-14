@@ -654,6 +654,47 @@
     document.dispatchEvent(new CustomEvent("portal:connectors-changed", { detail: { type, enabled } }));
   }
 
+  // Which bridge package fits this browser's system. The server picks from the
+  // User-Agent, where a Mac reads as Intel even on Apple silicon; client hints
+  // name the CPU, so the primary download link is corrected here. Returns ""
+  // when nothing better than the server's choice is known.
+  async function detectDownloadPlatform() {
+    const uaData = navigator.userAgentData;
+    let os = uaData && uaData.platform ? String(uaData.platform) : "";
+    let arch = "";
+    if (uaData && typeof uaData.getHighEntropyValues === "function") {
+      try {
+        const hints = await uaData.getHighEntropyValues(["architecture", "platform"]);
+        os = String(hints.platform || os);
+        arch = String(hints.architecture || "");
+      } catch (_error) {
+        arch = "";
+      }
+    }
+    const ua = navigator.userAgent || "";
+    const source = os || ua;
+    const family = /windows/i.test(source) ? "windows" : /mac/i.test(source) ? "darwin" : /linux|x11|cros/i.test(source) ? "linux" : "";
+    if (!family) return "";
+    if (!arch) {
+      if (family === "darwin") return "";
+      return `${family}-${/aarch64|arm64/i.test(ua) ? "arm64" : "amd64"}`;
+    }
+    return `${family}-${/arm/i.test(arch) ? "arm64" : "amd64"}`;
+  }
+
+  async function refineDownloadLink(root) {
+    const primary = root.querySelector("[data-connector-download-primary]");
+    if (!primary) return;
+    const platform = await detectDownloadPlatform();
+    if (!platform || primary.dataset.platform === platform) return;
+    const match = root.querySelector(`[data-connector-download][data-platform="${platform}"]`);
+    if (!match) return;
+    primary.href = match.href;
+    primary.dataset.platform = platform;
+    const label = primary.querySelector("[data-connector-download-label]");
+    if (label) label.textContent = `Download for ${match.dataset.label || platform}`;
+  }
+
   function initPanel(rootElement) {
     const root = rootElement || document.getElementById(PANEL_ROOT_ID);
     if (!root || root.dataset.connectorsBound === "1") return;
@@ -662,6 +703,7 @@
     originNodes.forEach((node) => { node.textContent = portalOrigin(); });
     const launchLink = root.querySelector("[data-connector-launch-link]");
     if (launchLink) launchLink.href = launchUrl(localBrowserConfig().preferred_port);
+    refineDownloadLink(root);
 
     root.addEventListener("click", async (event) => {
       const actionNode = event.target.closest("[data-connector-action]");

@@ -206,7 +206,7 @@ the setting changed reopens on the current page.
 
 | Where | Key | Default | Purpose |
 |---|---|---|---|
-| Portal env | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | empty → `/static/downloads/efp-browser-bridge.zip` | download button target |
+| Portal env | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | empty → `/static/downloads/efp-browser-bridge-{platform}.zip` | download link template; `{platform}` is one of `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64` (tools `scripts/browser-bridge/package.sh` builds one zip per platform: binary, installer, README). The panel offers the member's own system first (User-Agent, refined by client hints on the page) and lists the rest |
 | Portal env | `LOCAL_BROWSER_CLI_VERSION` | empty | shown on the panel |
 | Portal env | `LOCAL_BROWSER_START_URL` | empty → Portal origin | first tab of the EFP window when the bridge opens or reopens it; absolute http(s) URL or a path resolved against the Portal origin; sent as the link's `url` and as `session.ensure{url}` |
 | Portal env | `CONNECTORS_ENABLED` | `true` | hides the Connectors menu when false |

@@ -171,9 +171,33 @@ def test_download_url_prefers_configuration():
     class _Settings:
         local_browser_cli_download_url = ""
 
-    assert connector_service.local_browser_download_url(_Settings()) == "/static/downloads/efp-browser-bridge.zip"
+    assert connector_service.local_browser_download_url(_Settings()) == "/static/downloads/efp-browser-bridge-windows-amd64.zip"
+    assert connector_service.local_browser_download_url(_Settings(), "darwin-arm64") == "/static/downloads/efp-browser-bridge-darwin-arm64.zip"
+    # One package for every system when the URL carries no placeholder.
     _Settings.local_browser_cli_download_url = "https://artifacts.example.test/bridge.zip"
-    assert connector_service.local_browser_download_url(_Settings()) == "https://artifacts.example.test/bridge.zip"
+    assert connector_service.local_browser_download_url(_Settings(), "linux-amd64") == "https://artifacts.example.test/bridge.zip"
+    _Settings.local_browser_cli_download_url = "https://artifacts.example.test/efp-browser-bridge-{platform}.zip"
+    links = connector_service.local_browser_download_links(_Settings())
+    assert [item["platform"] for item in links] == ["windows-amd64", "windows-arm64", "darwin-arm64", "darwin-amd64", "linux-amd64", "linux-arm64"]
+    assert links[2] == {
+        "platform": "darwin-arm64",
+        "label": "macOS (Apple silicon)",
+        "url": "https://artifacts.example.test/efp-browser-bridge-darwin-arm64.zip",
+    }
+
+
+def test_detect_local_browser_platform_from_user_agent():
+    from app.services.connector_registry import detect_local_browser_platform
+
+    chrome = "Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    assert detect_local_browser_platform(chrome.format("Windows NT 10.0; Win64; x64")) == "windows-amd64"
+    assert detect_local_browser_platform(chrome.format("Windows NT 10.0; ARM64")) == "windows-arm64"
+    # Apple silicon Macs still say Intel; the page corrects this with client hints.
+    assert detect_local_browser_platform(chrome.format("Macintosh; Intel Mac OS X 10_15_7")) == "darwin-arm64"
+    assert detect_local_browser_platform(chrome.format("X11; Linux x86_64")) == "linux-amd64"
+    assert detect_local_browser_platform(chrome.format("X11; Linux aarch64")) == "linux-arm64"
+    assert detect_local_browser_platform("") == "windows-amd64"
+    assert detect_local_browser_platform(None) == "windows-amd64"
 
 
 def test_start_url_resolves_a_path_against_the_portal_origin():
@@ -266,7 +290,15 @@ def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):
         html = response.text
         assert 'id="connector-panel-root"' in html
         assert "Step 1" in html and "Step 4" in html
-        assert "efp-browser-bridge.zip" in html
+        # The test client sends no browser User-Agent, so Windows x64 is offered
+        # first; every other system stays one click away.
+        assert "efp-browser-bridge-windows-amd64.zip" in html and "Download for Windows (x64)" in html
+        assert "efp-browser-bridge-darwin-amd64.zip" in html and "efp-browser-bridge-linux-arm64.zip" in html
+        mac = client.get(
+            f"/app/connectors/{LOCAL_BROWSER_TYPE}/panel",
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36"},
+        ).text
+        assert "Download for macOS (Apple silicon)" in mac and 'data-platform="darwin-arm64"' in mac
         assert "install-bridge.cmd" in html
         assert 'data-connector-action="test"' in html
         assert client.get("/app/connectors/unknown/panel").status_code == 404
