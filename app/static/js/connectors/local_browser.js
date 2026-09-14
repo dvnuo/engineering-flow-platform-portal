@@ -303,6 +303,31 @@
     return probeLocalBrowser({ force: true });
   }
 
+  // Makes the bridge reachable and its Chrome window open, in that order. The
+  // bridge outlives the window (closing Chrome leaves browser serve running),
+  // so a reachable bridge with a closed window is asked to reopen it through
+  // session.ensure; the protocol link would only find the bridge already
+  // running and do nothing. Resolves to the final probe, with `error` set
+  // when the window could not be opened.
+  async function ensureBrowserSession({ port, launchTimeoutMs = 8000 } = {}) {
+    let probe = await probeLocalBrowser({ force: true });
+    if (!probe.alive) {
+      launchBridge(port);
+      probe = await waitForBridge(launchTimeoutMs);
+      if (!probe.alive) return { ...probe, error: { code: "bridge_unreachable" } };
+    }
+    if (probe.sessionAlive) return probe;
+    // A bridge that has just started is still launching Chrome itself; the
+    // call queues behind that and returns once the window is up.
+    const outcome = await runLocalBrowser("session.ensure", {}, 60);
+    // Chrome lists a transient extra target for a moment after it starts; let
+    // it settle so the tab count shown next to the status is the real one.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    probe = await probeLocalBrowser({ force: true });
+    if (!outcome.ok) return { ...probe, error: outcome.error || { code: "session_not_running" } };
+    return probe;
+  }
+
   const localBrowserModule = {
     type: LOCAL_BROWSER_TYPE,
     probe: probeLocalBrowser,
@@ -458,9 +483,8 @@
       return;
     }
     if (mode === "offline") {
-      launchBridge();
-      applyToggleView({ mode: "offline", label: "Starting bridge…", title: "Waiting for the local bridge." });
-      const probe = await waitForBridge(6000);
+      applyToggleView({ mode: "offline", label: "Starting browser…", title: "Starting the local bridge and its Chrome window." });
+      const probe = await ensureBrowserSession();
       if (!probe.alive) window.location.hash = "#/connectors/local_browser?step=2";
       await renderToggle({ probe: false });
       return;
@@ -504,7 +528,7 @@
     panelStatus(root, "bridge", "checking…", "");
     const probe = await probeLocalBrowser({ force });
     panelStatus(root, "bridge", probe.alive ? `running on port ${probe.port}${probe.version ? ` (v${probe.version})` : ""}` : "not detected", probe.alive ? "ok" : "warn");
-    panelStatus(root, "session", probe.alive ? (probe.sessionAlive ? `Chrome window open (${probe.tabCount || 0} tabs)` : "Chrome window not started") : "–", probe.sessionAlive ? "ok" : "");
+    panelStatus(root, "session", probe.alive ? (probe.sessionAlive ? `Chrome window open (${probe.tabCount || 0} tabs)` : "Chrome window closed (Start bridge reopens it)") : "–", probe.sessionAlive ? "ok" : "");
     root.querySelectorAll("[data-connector-step]").forEach((section) => {
       const step = section.dataset.connectorStep;
       const done = (step === "2" && probe.alive) || (step === "3" && root.dataset.lastVerified) || (step === "4" && root.dataset.enabled === "true");
@@ -523,6 +547,15 @@
     }
     if (code === "origin_denied") {
       return `The bridge was started for a different Portal address. Restart it with --origin ${portalOrigin()}.`;
+    }
+    if (code === "command_not_allowed") {
+      return "Your bridge is older than this Portal. Download the bridge again (step 1) and run the installer once more.";
+    }
+    if (code === "browser_not_found") {
+      return "No Chrome, Edge, or Chromium was found on this PC. Install Chrome, then click Start bridge again.";
+    }
+    if (code === "session_not_running" || code === "session_not_found") {
+      return "The EFP browser window is closed. Click Start bridge to reopen it.";
     }
     if (code === "session_busy") {
       return "Another browser command was still running. Wait a moment and test again.";
@@ -614,11 +647,15 @@
       const action = actionNode.dataset.connectorAction;
       if (action === "launch") {
         event.preventDefault();
-        setPanelResult(root, "launch", "Starting the bridge… allow the efp-bridge link if Chrome asks.", "");
-        launchBridge(Number(root.querySelector('[data-connector-field="preferred_port"]')?.value) || undefined);
-        const probe = await waitForBridge(8000);
-        if (probe.alive) {
-          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)}. Continue with step 3.`, "success");
+        setPanelResult(root, "launch", "Starting the bridge and its Chrome window… allow the efp-bridge link if Chrome asks.", "");
+        const port = Number(root.querySelector('[data-connector-field="preferred_port"]')?.value) || undefined;
+        const probe = await ensureBrowserSession({ port });
+        if (probe.alive && probe.sessionAlive) {
+          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)} and the EFP browser window is open. Continue with step 3.`, "success");
+        } else if (probe.alive) {
+          const error = probe.error || {};
+          const hint = troubleshootFor(error) || String(error.hint || "");
+          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)}, but its Chrome window did not open: ${esc(error.code || "error")} ${esc(error.message || "")}${hint ? `<br>${esc(hint)}` : ""}`, "error");
         } else {
           setPanelResult(root, "launch", "<strong>Bridge not detected yet.</strong> If nothing happened, the protocol link is not registered: run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) from the unzipped folder, then try again. If it did start, the launcher writes what happened to <code>.efp/browser/logs/bridge-serve.log</code> in your home folder; a bridge left running for a different Portal address is refused there by name.", "error");
         }
@@ -692,6 +729,7 @@
       probeLocalBrowser,
       runLocalBrowser,
       launchBridge,
+      ensureBrowserSession,
       chatRequestConnectors,
       renderToggle,
       initPanel,

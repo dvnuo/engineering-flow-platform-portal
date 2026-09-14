@@ -167,14 +167,24 @@ Rules
   security layer. `Access-Control-Allow-Origin` echoes the configured `--origin` (a single
   origin; `*` is accepted by the CLI but not recommended).
 - Requests whose `Origin` header does not match the configured origin get `403`.
-- Only tab/page/bookmark.list/session.status commands are exposed; session lifecycle is not.
+- Only tab/page/bookmark.list/session.status/session.ensure commands are exposed; session
+  lifecycle beyond `session.ensure` is not. `session.ensure` reopens the managed Chrome window
+  after the member closed it (the bridge outlives the window, so `/ping` keeps answering with
+  `session.alive: false`) and brings a tab at the Portal origin to the front without adding
+  tabs; it returns `{ session, reused, target, tab_opened }`. The page calls it (timeout 60)
+  when the bridge is reachable but the window is closed, instead of the protocol link.
+- A tab or page command that finds the window closed (`session_not_running`, or
+  `session_not_found` after `browser session stop`) is retried once after the bridge reopens
+  the window; `session.status` reports the closed window as is.
 - Requests for the same `session` are executed one at a time.
 - Screenshots come back as JPEG base64, longest side 1280.
 - The page carries `client_id` only to the Portal, never to the bridge.
 
 Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765` runs
 `browser.exe bridge-launch "<url>"`, which starts `browser serve --origin … --port …` if it is
-not already running (registration: `browser serve --register-protocol --origin <origin>`).
+not already running and asks a running bridge whose window is closed to reopen it
+(registration: `browser serve --register-protocol --origin <origin>`). The bridge launches
+Chrome directly on the Portal URL, so the window opens with that single tab.
 
 ## 7. Portal Connectors API
 

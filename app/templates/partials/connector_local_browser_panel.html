@@ -51,7 +51,8 @@
     <ol class="portal-setup-guide-steps">
       <li>In the unzipped folder, double-click <code>install-bridge.cmd</code> (Windows) or run <code>./install-bridge.sh <span data-connector-origin>{{ portal_origin }}</span></code> (macOS, Linux). It registers the <code>efp-bridge://</code> link for your account only (no admin, no autostart). Equivalent command: <code>browser serve --register-protocol --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
       <li>Click <strong>Start bridge</strong> below. Chrome asks whether to open the EFP bridge: allow it (tick "always allow" to skip the prompt next time).</li>
-      <li>A new Chrome window titled EFP opens with this Portal as its first tab. Sign in to your work sites there once; the window keeps its own logins.</li>
+      <li>A new Chrome window titled EFP opens with this Portal as its only tab. Sign in to your work sites there once; the window keeps its own logins.</li>
+      <li>Closed that window? The bridge keeps running in the background: click <strong>Start bridge</strong> again to reopen it, or just send a message; the next browser action reopens it.</li>
     </ol>
     <div class="portal-setup-guide-links">
       <a class="portal-btn is-secondary" href="efp-bridge://start" data-connector-launch-link data-connector-action="launch">
@@ -112,6 +113,7 @@
         {% else %}
           <li><strong>Bridge not detected</strong>: it is not running. Repeat step 2; if the efp-bridge link does nothing, run <code>install-bridge.cmd</code> (Windows) or <code>install-bridge.sh</code> (macOS, Linux) again.</li>
           <li><strong>Start bridge seems to do nothing</strong>: the launcher deliberately runs without a window. Every attempt is written to <code>.efp/browser/logs/bridge-serve.log</code> in your home folder; read the last lines there.</li>
+          <li><strong>The EFP browser window is closed</strong> but the bridge shows as running: click Start bridge to reopen the window, or send a message; the next browser action reopens it.</li>
           <li><strong>Still undetected after the Portal address changed</strong>: a bridge started for the old address is holding the port and rejects this page. Stop it (end the <code>browser</code> process, or close the terminal it runs in) and click Start bridge again.</li>
           <li><strong>devtools_unavailable</strong>: Chrome refused its DevTools port. Check <code>chrome://policy</code> for <code>RemoteDebuggingAllowed</code>.</li>
           <li><strong>origin_denied / CORS error</strong>: the bridge was started for another Portal address. Restart it with <code>--origin <span data-connector-origin>{{ portal_origin }}</span></code>.</li>
