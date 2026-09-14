@@ -16,6 +16,7 @@ Portal is the web interface for Engineering Flow Platform. It provides agent man
 - **Session History** - View past conversations
 - **Usage Tracking** - Monitor agent usage and costs
 - **Skills Panel** - Browse available agent skills
+- **Diagrams** - A `` ```mermaid `` fence in an assistant reply renders inline with a Diagram | Code switch; Copy hands back the source for a README, a pull request, or Confluence Gliffy's Mermaid import
 
 ---
 
@@ -374,7 +375,7 @@ Access `http://localhost:8000/app`
 ## Tech Stack
 
 - **Backend**: FastAPI, SQLAlchemy, SQLite
-- **Frontend**: HTMX, Alpine.js, Tailwind CSS
+- **Frontend**: HTMX, Alpine.js, Tailwind CSS, markdown-it, highlight.js, Mermaid (all vendored under `app/static/lib/`; `mermaid.min.js` 11.15.0 is fetched on demand when a reply carries a diagram)
 - **Deployment**: Kubernetes (EKS), Docker
 
 ---
