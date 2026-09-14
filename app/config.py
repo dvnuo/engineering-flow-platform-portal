@@ -220,10 +220,13 @@ class Settings(BaseSettings):
 
     # Connectors (docs/CONNECTORS_CONTRACT.md §8). The download URL points at
     # the EFP browser bridge zip; empty falls back to the copy CI drops under
-    # app/static/downloads/.
+    # app/static/downloads/. The start URL is the first tab of the EFP browser
+    # window whenever the bridge opens or reopens it: an absolute http(s) URL,
+    # or a path resolved against this Portal's origin; empty opens the origin.
     connectors_enabled: bool = Field(default=True, validation_alias="CONNECTORS_ENABLED")
     local_browser_cli_download_url: str = Field(default="", validation_alias="LOCAL_BROWSER_CLI_DOWNLOAD_URL")
     local_browser_cli_version: str = Field(default="", validation_alias="LOCAL_BROWSER_CLI_VERSION")
+    local_browser_start_url: str = Field(default="", validation_alias="LOCAL_BROWSER_START_URL")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

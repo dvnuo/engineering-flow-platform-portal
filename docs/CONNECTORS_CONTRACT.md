@@ -180,17 +180,21 @@ Rules
 - Screenshots come back as JPEG base64, longest side 1280.
 - The page carries `client_id` only to the Portal, never to the bridge.
 
-Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765` runs
-`browser.exe bridge-launch "<url>"`, which starts `browser serve --origin … --port …` if it is
-not already running and asks a running bridge whose window is closed to reopen it
+Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765[&url=<urlencoded start page>]`
+runs `browser.exe bridge-launch "<url>"`, which starts `browser serve --origin … --port … --url …`
+if it is not already running and asks a running bridge whose window is closed to reopen it
 (registration: `browser serve --register-protocol --origin <origin>`). The bridge launches
-Chrome directly on the Portal URL, so the window opens with that single tab.
+Chrome directly on the start page, so the window opens with that single tab. The `url`
+parameter is `LOCAL_BROWSER_START_URL` (§8) resolved by the page against its own origin; it
+must be absolute http(s) and is omitted when the setting is empty (the bridge then opens the
+origin). The page passes the same value as `session.ensure{url}` so a bridge started before
+the setting changed reopens on the current page.
 
 ## 7. Portal Connectors API
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/connectors` | list of registry types with the current user's state: `[{type, label, kind, category, enabled, config, last_verified_at}]` |
+| GET | `/api/connectors` | list of registry types with the current user's state: `[{type, label, kind, category, enabled, config, settings, last_verified_at}]`; `settings` holds deployment-level values the page needs (read-only; `local_browser`: `{start_url}` raw from `LOCAL_BROWSER_START_URL`) |
 | GET | `/api/connectors/{type}` | one entry |
 | PUT | `/api/connectors/{type}` | `{ "enabled": true, "config": { … } }`; config validated against the type's schema |
 | POST | `/api/connectors/{type}/verify` | `{ "ok": true, "details": {…} }` from the page's own probe; stores `last_verified_at` |
@@ -204,6 +208,7 @@ Chrome directly on the Portal URL, so the window opens with that single tab.
 |---|---|---|---|
 | Portal env | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | empty → `/static/downloads/efp-browser-bridge.zip` | download button target |
 | Portal env | `LOCAL_BROWSER_CLI_VERSION` | empty | shown on the panel |
+| Portal env | `LOCAL_BROWSER_START_URL` | empty → Portal origin | first tab of the EFP window when the bridge opens or reopens it; absolute http(s) URL or a path resolved against the Portal origin; sent as the link's `url` and as `session.ensure{url}` |
 | Portal env | `CONNECTORS_ENABLED` | `true` | hides the Connectors menu when false |
 | tools CLI | `EFP_BROWSER_SERVE_PORT`, `EFP_BROWSER_SERVE_ALLOWED_ORIGIN` | 8765, empty | defaults for `browser serve` |
 | runtime | `enable_browser_tool` (Portal-managed runtime field) | false | registers the tool |

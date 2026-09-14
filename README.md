@@ -109,6 +109,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `CONNECTORS_ENABLED` | Show the Connectors menu and the `/api/connectors` routes (per-member connectors such as the local browser bridge; see `docs/CONNECTORS_CONTRACT.md`) | `true` |
 | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | Download link for the EFP browser bridge zip shown in Connectors → Local browser; empty serves `app/static/downloads/efp-browser-bridge.zip` | (empty) |
 | `LOCAL_BROWSER_CLI_VERSION` | Version label shown next to that download | (empty) |
+| `LOCAL_BROWSER_START_URL` | First tab of the EFP browser window whenever the bridge opens or reopens it: an absolute http(s) URL, or a path such as `/app` resolved against this Portal's origin; empty opens the Portal origin | (empty) |
 
 For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite). The Kubernetes manifests also expose `efp-portal-secret.GIT_TOKEN` to the Portal main container as `GIT_REPO_AUTH_PAT` so `/api/git-repos/branches` can list private repository branches during agent creation.
 

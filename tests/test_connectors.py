@@ -176,6 +176,35 @@ def test_download_url_prefers_configuration():
     assert connector_service.local_browser_download_url(_Settings()) == "https://artifacts.example.test/bridge.zip"
 
 
+def test_start_url_resolves_a_path_against_the_portal_origin():
+    class _Settings:
+        local_browser_start_url = ""
+
+    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test") == ""
+    _Settings.local_browser_start_url = "/app#/chat"
+    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test/") == "https://portal.example.test/app#/chat"
+    _Settings.local_browser_start_url = "app"
+    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test") == "https://portal.example.test/app"
+    _Settings.local_browser_start_url = " https://sso.example.test/landing "
+    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test") == "https://sso.example.test/landing"
+    # Without an origin a path is handed back as is for the page to resolve.
+    _Settings.local_browser_start_url = "/app"
+    assert connector_service.local_browser_start_url(_Settings()) == "/app"
+
+
+def test_connectors_api_exposes_the_start_page_setting(alice_client, monkeypatch):
+    from app.config import get_settings
+
+    # Pinned rather than assumed: a developer's .env may configure a start page.
+    monkeypatch.setattr(get_settings(), "local_browser_start_url", "")
+    entry = alice_client.get(f"/api/connectors/{LOCAL_BROWSER_TYPE}").json()
+    assert entry["settings"] == {"start_url": ""}
+    # Raw on purpose: the page resolves a path against the origin it runs on.
+    monkeypatch.setattr(get_settings(), "local_browser_start_url", "/app#/chat")
+    listing = alice_client.get("/api/connectors").json()
+    assert listing[0]["settings"] == {"start_url": "/app#/chat"}
+
+
 # ---------------------------------------------------------------------------
 # API
 
@@ -241,6 +270,12 @@ def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):
         assert "install-bridge.cmd" in html
         assert 'data-connector-action="test"' in html
         assert client.get("/app/connectors/unknown/panel").status_code == 404
+        # The configured start page is named as the window's only tab.
+        from app.config import get_settings
+
+        monkeypatch.setattr(get_settings(), "local_browser_start_url", "/app#/chat")
+        html = client.get(f"/app/connectors/{LOCAL_BROWSER_TYPE}/panel").text
+        assert "/app#/chat</code> as its only tab" in html
     finally:
         monkeypatch.setattr(db_session, "close", original_close)
 

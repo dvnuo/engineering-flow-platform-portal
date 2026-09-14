@@ -29,11 +29,17 @@ class ConnectorSpec:
     guidance_key: str
     config_defaults: dict[str, Any] = field(default_factory=dict)
     validate_config: Callable[[Mapping[str, Any] | None], dict[str, Any]] = lambda config: {}
+    # Deployment-level values the page needs for this type (read-only for the
+    # member, unlike ``config``); resolved per request so settings stay live.
+    settings_provider: Callable[[], dict[str, Any]] = lambda: {}
 
     def normalized_config(self, config: Mapping[str, Any] | None) -> dict[str, Any]:
         """Validate ``config`` and fill in defaults; raises ValueError."""
 
         return self.validate_config(config)
+
+    def server_settings(self) -> dict[str, Any]:
+        return dict(self.settings_provider() or {})
 
 
 def _validate_local_browser_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -65,6 +71,14 @@ def _validate_local_browser_config(config: Mapping[str, Any] | None) -> dict[str
     return {"auto_enable_in_new_chats": bool(auto_enable), "preferred_port": int(port)}
 
 
+def _local_browser_settings() -> dict[str, Any]:
+    from app.config import get_settings
+
+    # Raw value on purpose: the page resolves a path against the origin it
+    # runs on, which is also the origin it hands the bridge.
+    return {"start_url": str(get_settings().local_browser_start_url or "").strip()}
+
+
 CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
     LOCAL_BROWSER_TYPE: ConnectorSpec(
         type=LOCAL_BROWSER_TYPE,
@@ -80,6 +94,7 @@ CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
         guidance_key=LOCAL_BROWSER_TYPE,
         config_defaults={"auto_enable_in_new_chats": True, "preferred_port": LOCAL_BROWSER_DEFAULT_PORT},
         validate_config=_validate_local_browser_config,
+        settings_provider=_local_browser_settings,
     ),
 }
 

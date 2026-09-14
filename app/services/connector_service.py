@@ -67,6 +67,7 @@ def _entry(spec: ConnectorSpec, row) -> dict[str, Any]:
         "description": spec.description,
         "enabled": bool(row.enabled) if row is not None else False,
         "config": _safe_config(spec, row.config_json if row is not None else None),
+        "settings": spec.server_settings(),
         "last_verified_at": _iso(row.last_verified_at) if row is not None else None,
     }
 
@@ -152,11 +153,30 @@ def local_browser_download_url(settings=None) -> str:
     return configured or LOCAL_BROWSER_FALLBACK_DOWNLOAD_PATH
 
 
+def local_browser_start_url(settings=None, portal_origin: str = "") -> str:
+    """First tab of the EFP browser window (LOCAL_BROWSER_START_URL).
+
+    An absolute http(s) URL is returned as configured; a path is resolved
+    against ``portal_origin`` when one is given. Empty means the bridge opens
+    the Portal origin itself.
+    """
+
+    resolved = settings or get_settings()
+    configured = str(getattr(resolved, "local_browser_start_url", "") or "").strip()
+    if not configured or configured.lower().startswith(("http://", "https://")):
+        return configured
+    origin = str(portal_origin or "").strip().rstrip("/")
+    if not origin:
+        return configured
+    return f"{origin}/{configured.lstrip('/')}"
+
+
 __all__ = [
     "enabled_connectors_for_user",
     "get_for_user",
     "list_for_user",
     "local_browser_download_url",
+    "local_browser_start_url",
     "record_verification",
     "update_for_user",
 ]

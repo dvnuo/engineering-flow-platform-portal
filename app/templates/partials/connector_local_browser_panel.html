@@ -51,7 +51,7 @@
     <ol class="portal-setup-guide-steps">
       <li>In the unzipped folder, double-click <code>install-bridge.cmd</code> (Windows) or run <code>./install-bridge.sh <span data-connector-origin>{{ portal_origin }}</span></code> (macOS, Linux). It registers the <code>efp-bridge://</code> link for your account only (no admin, no autostart). Equivalent command: <code>browser serve --register-protocol --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
       <li>Click <strong>Start bridge</strong> below. Chrome asks whether to open the EFP bridge: allow it (tick "always allow" to skip the prompt next time).</li>
-      <li>A new Chrome window titled EFP opens with this Portal as its only tab. Sign in to your work sites there once; the window keeps its own logins.</li>
+      <li>A new Chrome window titled EFP opens with <code>{{ start_url or portal_origin }}</code> as its only tab. Sign in to your work sites there once; the window keeps its own logins.</li>
       <li>Closed that window? The bridge keeps running in the background: click <strong>Start bridge</strong> again to reopen it, or just send a message; the next browser action reopens it.</li>
     </ol>
     <div class="portal-setup-guide-links">

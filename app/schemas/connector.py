@@ -11,6 +11,8 @@ class ConnectorResponse(BaseModel):
     description: str
     enabled: bool
     config: dict[str, Any] = Field(default_factory=dict)
+    # Deployment-level values for the page (for local_browser: start_url).
+    settings: dict[str, Any] = Field(default_factory=dict)
     last_verified_at: Optional[str] = None
 
 

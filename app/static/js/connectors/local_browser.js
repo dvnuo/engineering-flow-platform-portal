@@ -275,9 +275,27 @@
     }
   }
 
+  // First tab of the EFP window (LOCAL_BROWSER_START_URL on the server): an
+  // absolute URL as configured, a path resolved against this Portal's origin,
+  // or "" when the bridge should open the origin itself.
+  function localBrowserStartUrl() {
+    const entry = connectorEntry(LOCAL_BROWSER_TYPE);
+    const raw = String((entry && entry.settings && entry.settings.start_url) || "").trim();
+    if (!raw) return "";
+    if (/^https?:\/\//i.test(raw)) return raw;
+    try {
+      return new URL(raw, `${portalOrigin()}/`).toString();
+    } catch (_error) {
+      return "";
+    }
+  }
+
   function launchUrl(port) {
     const targetPort = port || localBrowserConfig().preferred_port || PORT_RANGE[0];
-    return `efp-bridge://start?origin=${encodeURIComponent(portalOrigin())}&port=${encodeURIComponent(String(targetPort))}`;
+    let link = `efp-bridge://start?origin=${encodeURIComponent(portalOrigin())}&port=${encodeURIComponent(String(targetPort))}`;
+    const startUrl = localBrowserStartUrl();
+    if (startUrl) link += `&url=${encodeURIComponent(startUrl)}`;
+    return link;
   }
 
   function launchBridge(port) {
@@ -310,6 +328,9 @@
   // running and do nothing. Resolves to the final probe, with `error` set
   // when the window could not be opened.
   async function ensureBrowserSession({ port, launchTimeoutMs = 8000 } = {}) {
+    // The launch link and the reopen carry the configured start page, which
+    // arrives with the connector list.
+    await loadConnectors();
     let probe = await probeLocalBrowser({ force: true });
     if (!probe.alive) {
       launchBridge(port);
@@ -319,7 +340,8 @@
     if (probe.sessionAlive) return probe;
     // A bridge that has just started is still launching Chrome itself; the
     // call queues behind that and returns once the window is up.
-    const outcome = await runLocalBrowser("session.ensure", {}, 60);
+    const startUrl = localBrowserStartUrl();
+    const outcome = await runLocalBrowser("session.ensure", startUrl ? { url: startUrl } : {}, 60);
     // Chrome lists a transient extra target for a moment after it starts; let
     // it settle so the tab count shown next to the status is the real one.
     await new Promise((resolve) => setTimeout(resolve, 1500));

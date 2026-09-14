@@ -2982,6 +2982,7 @@ async def app_connector_panel(request: Request, connector_type: str):
             "cli_version": resolved_settings.local_browser_cli_version,
             "portal_origin": portal_origin,
             "default_port": LOCAL_BROWSER_DEFAULT_PORT,
+            "start_url": connector_service.local_browser_start_url(resolved_settings, portal_origin),
         },
     )
 
