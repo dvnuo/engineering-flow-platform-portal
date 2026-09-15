@@ -19,6 +19,7 @@ HELPERS = (
     "mermaidCacheKey",
     "diagramErrorSummary",
     "buildDiagramToolbarHtml",
+    "composeDiagramFixRequest",
 )
 
 
@@ -66,7 +67,7 @@ def test_mermaid_helpers_classify_fences_and_summarise_errors():
             // mermaid parse errors carry the message in .str with the caret lines after it.
             assert.equal(
               diagramErrorSummary({ str: "Parse error on line 2:\n...B --> \n---^\nExpecting 'SEMI'", message: "x" }),
-              "Parse error on line 2:",
+              "Parse error on line 2",
             );
             assert.equal(diagramErrorSummary(new Error("  \n boom ")), "boom");
             assert.equal(diagramErrorSummary(""), "unknown error");
@@ -79,6 +80,12 @@ def test_mermaid_helpers_classify_fences_and_summarise_errors():
             assert.match(toolbar, /data-diagram-view="code"[^>]*aria-pressed="true"/);
             assert.ok(toolbar.includes("message-diagram-copy"));
             assert.ok(toolbar.includes('class="message-diagram-status" role="status" hidden'));
+
+            const request = composeDiagramFixRequest("Parse error on line 4", "flowchart LR\n  A[Unclosed --> B\n");
+            assert.ok(request.includes('(the block starting with "flowchart LR")'));
+            assert.ok(request.includes("did not render in Portal: Parse error on line 4. Fix"));
+            assert.ok(request.includes("resend only the corrected mermaid code block"));
+            assert.equal(composeDiagramFixRequest("boom", "").includes("the block starting with"), false);
             """
         )
     )

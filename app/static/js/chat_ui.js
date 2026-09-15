@@ -4621,7 +4621,9 @@ function currentMermaidTheme() {
 
 function diagramErrorSummary(error) {
   const text = String(error?.str || error?.message || error || "").replace(/\r\n?/g, "\n");
-  const firstLine = text.split("\n").map((line) => line.trim()).find((line) => line) || "unknown error";
+  // mermaid's parse errors read "Parse error on line 4:" with the caret lines
+  // after it; the colon points at text we do not show.
+  const firstLine = (text.split("\n").map((line) => line.trim()).find((line) => line) || "unknown error").replace(/[:\s]+$/, "");
   return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 }
 
@@ -4664,11 +4666,54 @@ function setDiagramError(component, message) {
   const status = component.querySelector(".message-diagram-status");
   if (status) {
     status.textContent = `Diagram unavailable: ${message}`;
+    const fixButton = buildDiagramFixButton(component, message);
+    if (fixButton) status.appendChild(fixButton);
     status.hidden = false;
   }
   const diagramButton = component.querySelector('[data-diagram-view="diagram"]');
   if (diagramButton) diagramButton.disabled = true;
   setDiagramView(component, "code");
+}
+
+// The runtime has no Mermaid parser, so the assistant cannot check its own
+// diagram before sending; the reader closes that loop by handing the error
+// back. The request only lands in the composer, it is not sent: the member
+// reads it, edits it if they like, and presses Send.
+function composeDiagramFixRequest(message, source) {
+  const firstLine = String(source || "").split("\n").map((line) => line.trim()).find((line) => line) || "";
+  const which = firstLine ? ` (the block starting with "${firstLine}")` : "";
+  return `The Mermaid diagram in your last reply${which} did not render in Portal: ${message}. Fix the syntax and resend only the corrected mermaid code block.`;
+}
+
+// Same behaviour as the starter cards: value, input event (autosize and the
+// send button listen for it), focus, caret at the end.
+function fillComposer(text) {
+  const input = dom.chatInput;
+  if (!input) return false;
+  input.value = String(text || "");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.focus();
+  try {
+    input.setSelectionRange(input.value.length, input.value.length);
+  } catch (error) {
+    /* not all inputs support selection ranges */
+  }
+  return true;
+}
+
+function buildDiagramFixButton(component, message) {
+  // Only a diagram in the transcript can be handed back to the assistant that
+  // drew it; task and delegation detail views have no composer for their author.
+  if (!dom.messageList?.contains(component) || !dom.chatInput) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "message-diagram-fix";
+  button.textContent = "Ask assistant to fix";
+  button.title = "Put a fix request for this diagram in the message box";
+  button.addEventListener("click", () => {
+    fillComposer(composeDiagramFixRequest(message, diagramSource(component)));
+  });
+  return button;
 }
 
 // Wraps a <pre><code class="language-mermaid"> in the diagram component. The

@@ -1076,6 +1076,10 @@ html[data-theme="dark"] .message-surface-error {
 .message-diagram-switch-btn.is-active { background: var(--portal-accent-soft); color: var(--portal-text); }
 .message-diagram-switch-btn:disabled { opacity: .45; cursor: default; }
 .message-diagram-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   padding: .35rem .65rem;
   font-size: 12px;
   color: var(--portal-danger);
@@ -1083,6 +1087,16 @@ html[data-theme="dark"] .message-surface-error {
   background: color-mix(in srgb, var(--portal-danger), var(--portal-codeblock-bg) 90%);
   overflow-wrap: anywhere;
 }
+.message-diagram-fix {
+  border: 1px solid color-mix(in srgb, var(--portal-danger), var(--portal-border) 50%);
+  background: var(--portal-surface);
+  border-radius: 8px;
+  padding: .15rem .5rem;
+  font-size: 12px;
+  color: var(--portal-text);
+  cursor: pointer;
+}
+.message-diagram-fix:hover { border-color: var(--portal-danger); }
 .message-diagram-canvas {
   padding: .8rem .95rem;
   overflow: auto;
