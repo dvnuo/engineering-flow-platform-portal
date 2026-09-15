@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -2640,62 +2640,6 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
             raise HTTPException(status_code=502, detail="Preview failed")
         
         return Response(content=content, media_type=content_type, status_code=status_code)
-    finally:
-        db.close()
-
-
-@router.get("/a/{agent_id}/api/files/download")
-async def agent_files_download(agent_id: str, request: Request, path: str = "", paths: Optional[List[str]] = Query(default=None)):
-    """Proxy download file request to agent."""
-    # Support both 'path' and 'paths' parameter (frontend uses 'paths')
-    # paths can be a list for multiple files
-    if paths is None:
-        # Fallback to single 'path' param
-        file_paths = [path] if path else []
-    else:
-        file_paths = paths
-    
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-        # Use proxy_service.forward for consistent proxy behavior (frontend uses 'paths')
-        query_items = [("paths", p) for p in file_paths]
-        status_code, content, content_type = await _forward_runtime(
-            user=user,
-            agent=agent,
-            method="GET",
-            subpath="api/files/download",
-            query_items=query_items,
-            body=None,
-        )
-        
-        if status_code >= 400:
-            raise HTTPException(status_code=502, detail="Download failed")
-        
-        # Extract filename from path (use first for single, zip for multiple)
-        if len(file_paths) > 1:
-            filename = "files.zip"
-        elif content_type == 'application/zip':
-            # Agent already determined it's a ZIP (e.g., folder download)
-            filename = file_paths[0].split("/")[-1] + ".zip" if file_paths else "download.zip"
-        else:
-            filename = file_paths[0].split("/")[-1] if file_paths else "download"
-        
-        return Response(
-            content=content, 
-            media_type=content_type, 
-            status_code=status_code,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
     finally:
         db.close()
 
