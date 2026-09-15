@@ -34,12 +34,21 @@ def test_agent_file_preview_route_contract_exists():
     assert "query_items=[(\"max_chars\", str(max_chars))]" in source
 
 
-def test_agent_file_download_route_contract_exists():
+def test_legacy_agent_file_download_route_removed():
+    # The runtime no longer serves api/files/download; downloads go through the
+    # generic proxy to api/server-files/download, which streams instead of
+    # buffering the file in Portal memory.
     source = _web_source()
 
-    assert '@router.get("/a/{agent_id}/api/files/download")' in source
-    assert 'subpath="api/files/download"' in source
-    assert 'query_items = [("paths", p) for p in file_paths]' in source
+    assert '@router.get("/a/{agent_id}/api/files/download")' not in source
+    assert 'subpath="api/files/download"' not in source
+
+    proxy = _proxy_source()
+    assert 'normalized_subpath == "api/server-files/download"' in proxy
+
+    chat_ui = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "/api/server-files/download" in chat_ui
+    assert "/api/files/download" not in chat_ui
 
 
 def test_files_panel_route_contract_removed():

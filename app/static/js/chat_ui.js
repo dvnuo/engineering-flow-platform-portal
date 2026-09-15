@@ -1033,10 +1033,94 @@ const md = window.markdownit({
   },
 });
 
-// Only allow http/https URLs to be converted to links
+// Only http/https URLs and workspace: file links may become links. A
+// workspace: link names a file the assistant wrote in this assistant's
+// workspace (e.g. workspace:output/deck.pptx); the renderer below turns it
+// into a download through the Server Files proxy.
 md.validateLink = function(text) {
-  return /^https?:\/\//i.test(text);
+  return /^https?:\/\//i.test(text) || parseWorkspaceLinkPath(text) !== null;
 };
+installWorkspaceLinkRenderer(md);
+
+// ===== workspace file links =====
+// The assistant cannot build an absolute download URL itself: the runtime does
+// not know the Portal origin or the assistant id. It emits the workspace path
+// and the Portal, which knows both, resolves it at render time.
+// These helpers are self-contained on purpose: the node tests extract them one
+// function at a time.
+
+function parseWorkspaceLinkPath(href) {
+  const scheme = "workspace:";
+  const raw = String(href || "").trim();
+  if (!raw.toLowerCase().startsWith(scheme)) return null;
+  let path = raw.slice(scheme.length).replace(/^\/+/, "");
+  try {
+    path = decodeURIComponent(path);
+  } catch (_err) {
+    // Keep the raw text; a stray percent sign is not worth losing the link over.
+  }
+  path = path.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+  if (!path || /[\u0000-\u001f]/.test(path)) return null;
+  const segments = path.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return null;
+  return path;
+}
+
+function workspaceFileName(path) {
+  const normalized = String(path || "");
+  const index = normalized.lastIndexOf("/");
+  return index >= 0 ? normalized.slice(index + 1) : normalized;
+}
+
+function workspaceFileDirectory(path) {
+  const normalized = String(path || "");
+  const index = normalized.lastIndexOf("/");
+  return index > 0 ? normalized.slice(0, index) : "";
+}
+
+function currentWorkspaceAgentId() {
+  const agentId = (typeof state === "object" && state) ? state.selectedAgentId : null;
+  return agentId ? String(agentId) : "";
+}
+
+function buildWorkspaceFileDownloadUrl(agentId, path) {
+  if (!agentId || !path) return "";
+  return `/a/${encodeURIComponent(agentId)}/api/server-files/download?paths=${encodeURIComponent(path)}`;
+}
+
+function buildWorkspaceFileContentUrl(agentId, path) {
+  if (!agentId || !path) return "";
+  return `/a/${encodeURIComponent(agentId)}/api/server-files/content?path=${encodeURIComponent(path)}`;
+}
+
+function installWorkspaceLinkRenderer(renderer) {
+  const rules = renderer.renderer.rules;
+  const defaultLinkOpen = rules.link_open
+    || ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  rules.link_open = (tokens, idx, options, env, self) => {
+    const token = tokens[idx];
+    const path = parseWorkspaceLinkPath(token.attrGet("href"));
+    if (path !== null) {
+      const downloadUrl = buildWorkspaceFileDownloadUrl(currentWorkspaceAgentId(), path);
+      token.attrSet("href", downloadUrl || "#");
+      if (downloadUrl) token.attrSet("download", workspaceFileName(path));
+      token.attrSet("data-workspace-file", path);
+      token.attrJoin("class", "message-workspace-link");
+    }
+    return defaultLinkOpen(tokens, idx, options, env, self);
+  };
+  const defaultImage = rules.image;
+  if (typeof defaultImage !== "function") return;
+  rules.image = (tokens, idx, options, env, self) => {
+    const token = tokens[idx];
+    const path = parseWorkspaceLinkPath(token.attrGet("src"));
+    if (path !== null) {
+      token.attrSet("src", buildWorkspaceFileContentUrl(currentWorkspaceAgentId(), path) || "");
+      token.attrSet("data-workspace-file", path);
+    }
+    return defaultImage(tokens, idx, options, env, self);
+  };
+}
 
 // ===== generic helpers =====
 function safe(value) {
@@ -4290,6 +4374,9 @@ function hasRenderableDisplayBlock(block) {
   if (["markdown", "callout", "tool_result"].includes(type)) {
     return !!getDisplayBlockText(block);
   }
+  if (type === "file") {
+    return parseWorkspaceLinkPath(`workspace:${pickFirstMeaningfulBlockValue(block, ["path", "file_path", "workspace_path"])}`) !== null;
+  }
   if (type === "code") {
     return !!pickFirstMeaningfulBlockValue(block, ["code", "content", "text", "message", "output", "result", "value"]);
   }
@@ -4371,6 +4458,70 @@ function renderTableBlock(block) {
   `;
 }
 
+const FILE_BLOCK_TYPE_LABELS = {
+  pptx: "PowerPoint", potx: "PowerPoint template", docx: "Word", xlsx: "Excel", pdf: "PDF",
+  md: "Markdown", csv: "CSV", json: "JSON", txt: "Text", html: "HTML", zip: "Archive",
+  png: "Image", jpg: "Image", jpeg: "Image", gif: "Image", svg: "Image", webp: "Image",
+};
+
+function formatFileBlockSize(rawSize) {
+  const size = Number(rawSize);
+  if (!Number.isFinite(size) || size < 0) return "";
+  if (size >= 1024 * 1024) return `${Math.max(0.1, Math.round(size / (1024 * 102.4)) / 10)} MB`;
+  if (size >= 1024) return `${Math.max(1, Math.round(size / 102.4) / 10)} KB`;
+  return `${Math.round(size)} B`;
+}
+
+function formatFileBlockMeta(block, name) {
+  const extension = String(name || "").split(".").pop().toLowerCase();
+  const typeLabel = (extension && extension !== String(name || "").toLowerCase())
+    ? (FILE_BLOCK_TYPE_LABELS[extension] || extension.toUpperCase())
+    : "";
+  return [typeLabel, formatFileBlockSize(block?.size)].filter(Boolean).join(" · ");
+}
+
+// A file the assistant produced in the workspace (runtime `file` display
+// block). Download goes through the Server Files proxy; "Open folder" shows
+// the surrounding directory in the Server Files panel.
+function renderFileBlock(block) {
+  const rawPath = pickFirstMeaningfulBlockValue(block, ["path", "file_path", "workspace_path"]);
+  const path = parseWorkspaceLinkPath(`workspace:${rawPath}`);
+  if (path === null) return "";
+  const name = pickFirstMeaningfulBlockValue(block, ["name", "filename"]) || workspaceFileName(path);
+  const downloadUrl = buildWorkspaceFileDownloadUrl(currentWorkspaceAgentId(), path);
+  const action = String(block?.action || "").toLowerCase();
+  const actionLabel = action === "updated" ? "Updated" : (action === "created" ? "New" : "");
+  const meta = formatFileBlockMeta(block, name);
+  const description = getDisplayBlockText(block);
+  // One template literal per fragment: the test-side function extractor does
+  // not follow nested template literals.
+  const downloadHtml = downloadUrl
+    ? `<a class="portal-btn is-secondary message-file-download" href="${escapeHtmlAttr(downloadUrl)}" download="${escapeHtmlAttr(name)}" rel="noopener">Download</a>`
+    : "";
+  const badgeHtml = actionLabel
+    ? ` <span class="message-file-badge is-${escapeHtmlAttr(action)}">${actionLabel}</span>`
+    : "";
+  const metaHtml = meta ? ` · ${escapeHtml(meta)}` : "";
+  const descriptionHtml = description ? `<div class="message-file-description">${escapeHtml(description)}</div>` : "";
+  const directoryAttr = escapeHtmlAttr(workspaceFileDirectory(path));
+  return `
+    <section class="message-block message-block-file">
+      <div class="message-file-card" data-workspace-file="${escapeHtmlAttr(path)}">
+        <div class="message-file-icon" aria-hidden="true">📄</div>
+        <div class="message-file-body">
+          <div class="message-file-name">${escapeHtml(name)}${badgeHtml}</div>
+          <div class="message-file-meta">${escapeHtml(path)}${metaHtml}</div>
+          ${descriptionHtml}
+        </div>
+        <div class="message-file-actions">
+          ${downloadHtml}
+          <button type="button" class="portal-btn is-secondary message-file-open" data-server-path="${directoryAttr}" title="Open in Server Files">Open folder</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderSingleDisplayBlock(block) {
   if (!block || typeof block !== "object") return "";
   const type = String(block.type || "").toLowerCase();
@@ -4378,6 +4529,7 @@ function renderSingleDisplayBlock(block) {
   if (type === "markdown") {
     return `<section class="message-block message-block-markdown">${md.render(normalizeMarkdownText(blockText))}</section>`;
   }
+  if (type === "file") return renderFileBlock(block);
   if (type === "code") return renderCodeBlock(block);
   if (type === "table") return renderTableBlock(block);
   if (type === "callout") {
@@ -4498,9 +4650,11 @@ document.addEventListener("click", async (event) => {
 function enhanceMarkdownBlock(root) {
   if (!root) return;
   root.querySelectorAll("a").forEach((anchor) => {
+    anchor.classList.add("message-link");
+    // A workspace file link downloads in place; a new tab would only flash.
+    if (anchor.hasAttribute("download")) return;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
-    anchor.classList.add("message-link");
   });
 
   root.querySelectorAll("table").forEach((table) => {
@@ -10607,6 +10761,17 @@ async function openServerFiles() {
   await loadServerFiles();
 }
 
+// Open the Server Files panel at a workspace-relative directory, e.g. the
+// folder of a file card in a reply. Same access rule as the panel itself.
+async function openServerFilesAt(path) {
+  const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
+  if (!canWriteAgent(agent)) {
+    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
+    return;
+  }
+  await loadServerFiles(path || undefined);
+}
+
 function buildServerFilesBreadcrumb(path, rootPath) {
   const normalizedRoot = String(rootPath || '/').replace(/\/+$/, '') || '/';
   const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
@@ -15899,6 +16064,12 @@ function bindEvents() {
   document.getElementById('btn-sessions')?.addEventListener('click', () => toggleSessionsDrawer());
 
 
+  dom.messageList?.addEventListener("click", async (event) => {
+    const openFolder = event.target.closest(".message-file-open[data-server-path]");
+    if (!openFolder) return;
+    event.preventDefault();
+    await openServerFilesAt(openFolder.dataset.serverPath || "");
+  });
   dom.toolPanelBody?.addEventListener("click", async (event) => {
     const newChatBtn = event.target.closest("#sessions-new-chat-btn");
     if (newChatBtn) {
