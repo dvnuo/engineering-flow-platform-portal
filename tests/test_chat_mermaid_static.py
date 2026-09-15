@@ -130,3 +130,23 @@ def test_css_styles_the_diagram_component_from_theme_tokens():
     assert "var(--portal-codeblock-bg)" in block
     assert "var(--portal-codeblock-border)" in block
     assert "#" not in re.sub(r"/\*.*?\*/", "", block, flags=re.S), "no hard-coded colors; both themes come from tokens"
+
+
+def test_render_failure_offers_a_fix_request_only_inside_the_transcript():
+    source = _chat_ui()
+    error = _extract_js_function(source, "setDiagramError")
+    assert "buildDiagramFixButton(component, message)" in error
+    button = _extract_js_function(source, "buildDiagramFixButton")
+    assert "dom.messageList?.contains(component)" in button, "task and delegation views have no composer for the author"
+    assert "fillComposer(composeDiagramFixRequest(message, diagramSource(component)))" in button
+
+
+def test_fix_request_lands_in_the_composer_without_sending():
+    source = _chat_ui()
+    fill = _extract_js_function(source, "fillComposer")
+    assert "dom.chatInput" in fill
+    assert 'dispatchEvent(new Event("input", { bubbles: true }))' in fill
+    for send_path in ("submitChatForSelectedAgent", "requestSubmit", ".submit(", "sendChatBtn.click"):
+        assert send_path not in fill
+    css = _read("app/static/css/app.css")
+    assert ".message-diagram-fix {" in css
