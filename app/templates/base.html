@@ -24,6 +24,10 @@
 
     <link rel="stylesheet" href="{{ static_url('lib/typography.min.css') }}" />
     <link rel="stylesheet" href="{{ static_url('css/app.css') }}" />
+    <!-- mermaid.min.js is 3 MB and only needed once a reply carries a diagram,
+         so chat_ui.js fetches it on demand from this versioned URL instead of a
+         <script> tag here (see renderMermaidDiagrams). -->
+    <meta name="portal-mermaid-src" content="{{ static_url('lib/mermaid.min.js') }}" />
 
 
     <!-- htmx, highlight.js and lucide are ~570KB together and were all

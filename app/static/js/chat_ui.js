@@ -1025,11 +1025,21 @@ const md = window.markdownit({
   breaks: true,
   typographer: true,
   highlight: (str, lang) => {
-    if (lang && hljs.getLanguage(lang)) {
-      const highlighted = hljs.highlight(str, { language: lang }).value;
-      return `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+    const language = normalizeFenceLanguage(lang);
+    if (isMermaidFenceLanguage(language)) {
+      // Mermaid source stays escaped text: enhanceMarkdownBlock wraps it in a
+      // diagram component and renderMermaidDiagrams draws it from textContent.
+      return `<pre><code class="language-mermaid">${md.utils.escapeHtml(str)}</code></pre>`;
     }
-    return `<pre><code class="hljs">${md.utils.escapeHtml(str)}</code></pre>`;
+    if (language && hljs.getLanguage(language)) {
+      const highlighted = hljs.highlight(str, { language }).value;
+      return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
+    }
+    // Keep the fence's language on the element even without a grammar for it:
+    // the code block toolbar labels the block from this class, and it used to
+    // read "text" for every language hljs does not know.
+    const languageClass = language ? ` language-${language}` : "";
+    return `<pre><code class="hljs${languageClass}">${md.utils.escapeHtml(str)}</code></pre>`;
   },
 });
 
@@ -4263,6 +4273,7 @@ function applyTheme(theme) {
     dom.themeToggle.setAttribute("aria-label", meta.label);
   }
   renderIcons();
+  rerenderMermaidDiagrams();
 }
 
 function toggleTheme() {
@@ -4421,7 +4432,17 @@ function renderCodeBlock(block) {
   const language = String(block?.lang || block?.language || "").trim().toLowerCase();
   const codeCandidates = [block?.code, block?.content, block?.text, block?.message, block?.output, block?.result, block?.value];
   const code = codeCandidates.find((value) => isMeaningfulText(value));
-  const className = language ? `language-${language}` : "";
+  if (isMermaidFenceLanguage(language)) {
+    // Same markup as a ```mermaid fence, so enhanceMarkdownBlock builds the
+    // diagram component for runtime-supplied code blocks too.
+    return `
+    <section class="message-block message-block-code">
+      <pre><code class="language-mermaid">${safe(code || "")}</code></pre>
+    </section>
+  `;
+  }
+  const normalizedLanguage = normalizeFenceLanguage(language);
+  const className = normalizedLanguage ? `language-${normalizedLanguage}` : "";
   return `
     <section class="message-block message-block-code">
       <div class="message-codeblock">
@@ -4666,7 +4687,11 @@ function enhanceMarkdownBlock(root) {
   });
 
   root.querySelectorAll("pre > code").forEach((code) => {
-    if (code.closest(".message-codeblock")) return;
+    if (code.closest(".message-codeblock") || code.closest(".message-diagram")) return;
+    if (isMermaidCodeElement(code)) {
+      buildDiagramComponent(code);
+      return;
+    }
     const pre = code.parentElement;
     if (!pre) return;
     const wrapper = document.createElement("div");
@@ -4712,6 +4737,250 @@ function enhanceMarkdownBlock(root) {
   });
 }
 
+// ===== Mermaid diagrams =====
+// A ```mermaid fence (or a code display block with lang "mermaid") becomes a
+// .message-diagram component: the source stays in the DOM as the Code view and
+// the SVG drawn by mermaid.js is the Diagram view. mermaid.min.js is 3 MB, so
+// it is fetched on the first diagram of the page rather than with the shell;
+// <meta name="portal-mermaid-src"> in base.html carries its versioned URL.
+// Rendered SVG is cached per theme + source because renderMarkdown rebuilds a
+// message's innerHTML on every pass and would otherwise lay the graph out again.
+const mermaidSvgCache = new Map();
+let mermaidLoadPromise = null;
+let mermaidRenderSeq = 0;
+let mermaidInitializedTheme = "";
+
+function normalizeFenceLanguage(lang) {
+  const first = String(lang || "").trim().split(/\s+/)[0] || "";
+  return first.toLowerCase().replace(/[^a-z0-9+#._-]/g, "");
+}
+
+function isMermaidFenceLanguage(lang) {
+  const language = normalizeFenceLanguage(lang);
+  return language === "mermaid" || language === "mmd";
+}
+
+function isMermaidCodeElement(code) {
+  if (!code || !code.classList) return false;
+  return Array.from(code.classList).some((name) => name.startsWith("language-") && isMermaidFenceLanguage(name.slice("language-".length)));
+}
+
+function mermaidCacheKey(theme, source) {
+  return `${theme}\n${source}`;
+}
+
+function currentMermaidTheme() {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "default";
+}
+
+function diagramErrorSummary(error) {
+  const text = String(error?.str || error?.message || error || "").replace(/\r\n?/g, "\n");
+  const firstLine = text.split("\n").map((line) => line.trim()).find((line) => line) || "unknown error";
+  return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
+}
+
+function buildDiagramToolbarHtml() {
+  return (
+    '<div class="message-codeblock-toolbar message-diagram-toolbar">'
+    + '<span class="message-codeblock-lang">mermaid</span>'
+    + '<div class="message-diagram-actions">'
+    + '<div class="message-diagram-switch" role="group" aria-label="Diagram view">'
+    + '<button type="button" class="message-diagram-switch-btn" data-diagram-view="diagram" aria-pressed="false" disabled>Diagram</button>'
+    + '<button type="button" class="message-diagram-switch-btn is-active" data-diagram-view="code" aria-pressed="true">Code</button>'
+    + '</div>'
+    + '<button type="button" class="message-codeblock-copy message-diagram-copy" title="Copy Mermaid source">Copy</button>'
+    + '</div>'
+    + '</div>'
+    + '<div class="message-diagram-status" role="status" hidden></div>'
+  );
+}
+
+function diagramSource(component) {
+  return component?.querySelector(".message-diagram-source code")?.textContent || "";
+}
+
+function setDiagramView(component, view) {
+  const next = view === "diagram" ? "diagram" : "code";
+  component.dataset.view = next;
+  const canvas = component.querySelector(".message-diagram-canvas");
+  const source = component.querySelector(".message-diagram-source");
+  if (canvas) canvas.hidden = next !== "diagram";
+  if (source) source.hidden = next !== "code";
+  component.querySelectorAll("[data-diagram-view]").forEach((button) => {
+    const active = button.dataset.diagramView === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setDiagramError(component, message) {
+  component.dataset.diagramState = "error";
+  const status = component.querySelector(".message-diagram-status");
+  if (status) {
+    status.textContent = `Diagram unavailable: ${message}`;
+    status.hidden = false;
+  }
+  const diagramButton = component.querySelector('[data-diagram-view="diagram"]');
+  if (diagramButton) diagramButton.disabled = true;
+  setDiagramView(component, "code");
+}
+
+// Wraps a <pre><code class="language-mermaid"> in the diagram component. The
+// component starts on the Code view with Diagram disabled; renderMermaidDiagrams
+// flips it once the SVG exists, so a half-streamed fence never shows a blank box.
+function buildDiagramComponent(code) {
+  const pre = code?.parentElement;
+  if (!pre || !pre.parentNode) return null;
+  const component = document.createElement("div");
+  component.className = "message-diagram";
+  component.dataset.view = "code";
+  component.dataset.diagramState = "pending";
+  component.innerHTML = buildDiagramToolbarHtml()
+    + '<div class="message-diagram-canvas" role="img" aria-label="Mermaid diagram" hidden></div>';
+  pre.parentNode.insertBefore(component, pre);
+  pre.classList.add("message-diagram-source");
+  component.appendChild(pre);
+  component.querySelectorAll("[data-diagram-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      setDiagramView(component, button.dataset.diagramView);
+    });
+  });
+  const copyButton = component.querySelector(".message-diagram-copy");
+  copyButton?.addEventListener("click", async () => {
+    // Always the Mermaid source, whichever view is showing: that is what pastes
+    // into a README, a pull request, or Gliffy's Mermaid import.
+    const copied = await copyText(diagramSource(component));
+    if (!copied) return;
+    copyButton.textContent = "Copied";
+    copyButton.classList.add("is-copied");
+    window.setTimeout(() => {
+      copyButton.textContent = "Copy";
+      copyButton.classList.remove("is-copied");
+    }, 1400);
+  });
+  return component;
+}
+
+function mermaidScriptUrl() {
+  return document.querySelector('meta[name="portal-mermaid-src"]')?.getAttribute("content") || "";
+}
+
+function ensureMermaidLoaded() {
+  if (window.mermaid) return Promise.resolve(window.mermaid);
+  if (mermaidLoadPromise) return mermaidLoadPromise;
+  const src = mermaidScriptUrl();
+  if (!src) return Promise.reject(new Error("the diagram renderer is not configured"));
+  mermaidLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      if (window.mermaid) resolve(window.mermaid);
+      else reject(new Error("the diagram renderer did not initialise"));
+    };
+    script.onerror = () => {
+      // Leave the next diagram free to retry the download.
+      mermaidLoadPromise = null;
+      script.remove();
+      reject(new Error("the diagram renderer could not be downloaded"));
+    };
+    document.head.appendChild(script);
+  });
+  return mermaidLoadPromise;
+}
+
+function configureMermaid(mermaid, theme) {
+  if (mermaidInitializedTheme === theme) return;
+  mermaid.initialize({
+    startOnLoad: false,
+    // strict encodes HTML in labels and disables click handlers. The source
+    // comes from the model, so never loosen it.
+    securityLevel: "strict",
+    // Failures are reported in the component; mermaid must not paint its own
+    // error graphic into the document.
+    suppressErrorRendering: true,
+    theme,
+    fontFamily: "inherit",
+  });
+  mermaidInitializedTheme = theme;
+}
+
+async function renderMermaidComponent(mermaid, component, theme) {
+  const source = diagramSource(component);
+  const key = mermaidCacheKey(theme, source);
+  let svg = mermaidSvgCache.get(key) || "";
+  if (!svg) {
+    try {
+      mermaidRenderSeq += 1;
+      const result = await mermaid.render(`portal-mermaid-${mermaidRenderSeq}`, source);
+      svg = String(result?.svg || "");
+      if (!svg) throw new Error("the renderer produced no output");
+      mermaidSvgCache.set(key, svg);
+    } catch (error) {
+      if (component.isConnected) setDiagramError(component, diagramErrorSummary(error));
+      return;
+    }
+  }
+  // renderMarkdown may have rebuilt the transcript while the graph was laid out.
+  if (!component.isConnected) return;
+  const canvas = component.querySelector(".message-diagram-canvas");
+  if (!canvas) return;
+  canvas.innerHTML = svg;
+  component.dataset.diagramState = "rendered";
+  component.dataset.diagramTheme = theme;
+  const status = component.querySelector(".message-diagram-status");
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
+  const diagramButton = component.querySelector('[data-diagram-view="diagram"]');
+  if (diagramButton) diagramButton.disabled = false;
+  setDiagramView(component, "diagram");
+}
+
+async function renderMermaidDiagrams(scope = document) {
+  if (!scope?.querySelectorAll) return;
+  const pending = Array.from(scope.querySelectorAll(".message-diagram"))
+    .filter((component) => component.dataset.diagramState === "pending");
+  if (!pending.length) return;
+  pending.forEach((component) => { component.dataset.diagramState = "rendering"; });
+  const theme = currentMermaidTheme();
+  let mermaid;
+  try {
+    mermaid = await ensureMermaidLoaded();
+  } catch (error) {
+    const message = diagramErrorSummary(error);
+    pending.forEach((component) => { if (component.isConnected) setDiagramError(component, message); });
+    return;
+  }
+  configureMermaid(mermaid, theme);
+  for (const component of pending) {
+    if (!component.isConnected) continue;
+    await renderMermaidComponent(mermaid, component, theme);
+  }
+  // A drawn diagram is taller than its source, so keep a reader who was at the
+  // bottom of the transcript at the bottom.
+  if (pending.some((component) => component.isConnected && dom.messageList?.contains(component))) scrollToBottom();
+  // The theme changed while these were drawing: draw them again in the new one.
+  if (currentMermaidTheme() !== theme) rerenderMermaidDiagrams(scope);
+}
+
+// Theme changes swap mermaid's palette, so every drawn diagram is redrawn (from
+// cache when that theme was seen before). Errors stay errors.
+function rerenderMermaidDiagrams(scope = document) {
+  if (!window.mermaid || !scope?.querySelectorAll) return;
+  const theme = currentMermaidTheme();
+  let stale = 0;
+  scope.querySelectorAll(".message-diagram").forEach((component) => {
+    if (component.dataset.diagramState === "rendered" && component.dataset.diagramTheme !== theme) {
+      component.dataset.diagramState = "pending";
+      stale += 1;
+    }
+  });
+  if (stale) renderMermaidDiagrams(scope);
+}
+
 function renderMarkdown(scope = document, { highlight = true } = {}) {
   scope.querySelectorAll(".md-render").forEach((el) => {
     const markdown = normalizeMarkdownText(el.dataset.md || "");
@@ -4724,9 +4993,13 @@ function renderMarkdown(scope = document, { highlight = true } = {}) {
     if (!highlight) return;
     el.querySelectorAll("pre code").forEach((code) => {
       if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
+      if (isMermaidCodeElement(code)) return;
       hljs.highlightElement(code);
       code.dataset.highlighted = "1";
     });
+    // Diagrams follow the same rule as highlighting: only the final pass draws
+    // them, so a half-streamed ```mermaid fence never reaches the renderer.
+    renderMermaidDiagrams(el);
   });
 }
 

@@ -648,6 +648,8 @@ def test_chat_ui_display_block_helpers_behavior():
     has_renderable_block = _extract_js_function(js_file, "hasRenderableDisplayBlock")
     parse_block = _extract_js_function(js_file, "parseDisplayBlocks")
     text_block = _extract_js_function(js_file, "getDisplayBlockText")
+    fence_language_block = _extract_js_function(js_file, "normalizeFenceLanguage")
+    mermaid_fence_block = _extract_js_function(js_file, "isMermaidFenceLanguage")
     code_block = _extract_js_function(js_file, "renderCodeBlock")
     table_block = _extract_js_function(js_file, "renderTableBlock")
     single_block = _extract_js_function(js_file, "renderSingleDisplayBlock")
@@ -663,6 +665,8 @@ const md = {{ render: (v) => `<p>${{v}}</p>` }};
 {has_renderable_block}
 {parse_block}
 {text_block}
+{fence_language_block}
+{mermaid_fence_block}
 {code_block}
 {table_block}
 {single_block}
@@ -734,6 +738,11 @@ const result = {{
     code: "   ",
     text: "print(1)",
   }}),
+  mermaidCodeBlock: renderCodeBlock({{
+    type: "code",
+    lang: "mermaid",
+    content: "graph TD",
+  }}),
   codeOnly: renderCodeBlock({{
     type: "code",
     code: "print(1)",
@@ -797,6 +806,10 @@ console.log(JSON.stringify(result));
     assert "language-python" in data["renderCodeFromCodeField"]
     assert "Copy" in data["renderCodeFromCodeField"]
     assert "x = 1" in data["renderCodeBlankContentFallback"]
+    # A mermaid code block is handed to the diagram component, not the code toolbar.
+    assert 'class="language-mermaid"' in data["mermaidCodeBlock"]
+    assert "graph TD" in data["mermaidCodeBlock"]
+    assert "message-codeblock-copy" not in data["mermaidCodeBlock"]
     assert "Heads up" in data["calloutFromEnglishMessage"]
     assert data["bodylessBlocksFallbackPlaceholder"].strip() == ""
 

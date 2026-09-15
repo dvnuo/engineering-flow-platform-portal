@@ -1044,6 +1044,60 @@ html[data-theme="dark"] .message-surface-error {
 .message-codeblock .hljs-literal,
 .message-codeblock .hljs-params,
 .message-codeblock .hljs-subst { color: var(--portal-code-token-literal); }
+/* Mermaid diagram component (chat_ui.js buildDiagramComponent): toolbar with a
+   Diagram | Code switch and Copy, a status line for render failures, the SVG
+   canvas, and the source <pre> as the Code view. Colors come from the code
+   block tokens so both themes are covered. */
+.message-diagram {
+  border: 1px solid var(--portal-codeblock-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--portal-codeblock-bg);
+}
+.message-diagram [hidden] { display: none !important; }
+.message-diagram-actions { display: flex; align-items: center; gap: 8px; }
+.message-diagram-switch {
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--portal-codeblock-border), var(--portal-border) 30%);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.message-diagram-switch-btn {
+  border: 0;
+  background: transparent;
+  padding: .2rem .55rem;
+  font-size: 12px;
+  color: var(--portal-text-muted);
+  cursor: pointer;
+}
+.message-diagram-switch-btn + .message-diagram-switch-btn {
+  border-left: 1px solid color-mix(in srgb, var(--portal-codeblock-border), var(--portal-border) 30%);
+}
+.message-diagram-switch-btn.is-active { background: var(--portal-accent-soft); color: var(--portal-text); }
+.message-diagram-switch-btn:disabled { opacity: .45; cursor: default; }
+.message-diagram-status {
+  padding: .35rem .65rem;
+  font-size: 12px;
+  color: var(--portal-danger);
+  border-bottom: 1px solid var(--portal-codeblock-border);
+  background: color-mix(in srgb, var(--portal-danger), var(--portal-codeblock-bg) 90%);
+  overflow-wrap: anywhere;
+}
+.message-diagram-canvas {
+  padding: .8rem .95rem;
+  overflow: auto;
+  background: var(--portal-surface);
+  text-align: center;
+}
+.message-diagram-canvas svg { max-width: 100%; height: auto; display: inline-block; }
+.message-diagram-source {
+  margin: 0;
+  overflow-x: auto;
+  padding: .8rem .95rem;
+  color: var(--portal-codeblock-text);
+  background: var(--portal-codeblock-bg);
+}
+.message-diagram-source code { color: var(--portal-codeblock-text); }
 .message-table-wrap { overflow-x: auto; border: 1px solid var(--portal-border); border-radius: 10px; }
 .message-table-wrap table { margin: 0; border: 0; min-width: 420px; }
 .message-callout { border: 1px solid var(--portal-border); border-radius: 12px; padding: .7rem .85rem; background: var(--portal-surface-soft); }
