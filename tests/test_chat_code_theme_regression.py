@@ -45,6 +45,10 @@ def test_app_css_defines_code_theme_tokens_for_light_and_dark_modes():
         "--portal-code-token-type",
         "--portal-code-token-attr",
         "--portal-code-token-built-in",
+        "--portal-code-token-addition",
+        "--portal-code-token-addition-bg",
+        "--portal-code-token-deletion",
+        "--portal-code-token-deletion-bg",
     ]
 
     for token in required_tokens:
@@ -91,3 +95,10 @@ def test_chat_renderer_codeblock_structure_is_preserved():
     assert ".message-codeblock" in js_source
     assert "message-codeblock-toolbar" in js_source
     assert "message-codeblock-copy" in js_source
+
+
+def test_diff_blocks_colour_added_and_removed_lines_from_tokens():
+    css = _read("app/static/css/app.css")
+
+    assert ".message-codeblock .hljs-addition { color: var(--portal-code-token-addition); background: var(--portal-code-token-addition-bg); }" in css
+    assert ".message-codeblock .hljs-deletion { color: var(--portal-code-token-deletion); background: var(--portal-code-token-deletion-bg); }" in css

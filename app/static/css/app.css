@@ -42,6 +42,10 @@
   --portal-code-token-attr: #0c4a6e;
   --portal-code-token-built-in: #7c2d12;
   --portal-code-token-literal: #0369a1;
+  --portal-code-token-addition: #15803d;
+  --portal-code-token-addition-bg: rgba(22, 163, 74, 0.12);
+  --portal-code-token-deletion: #b91c1c;
+  --portal-code-token-deletion-bg: rgba(220, 38, 38, 0.12);
   --portal-radius-xl: 24px;
   --portal-radius-lg: 20px;
   --portal-radius-md: 14px;
@@ -92,6 +96,10 @@ html[data-theme="dark"] {
   --portal-code-token-attr: #7dd3fc;
   --portal-code-token-built-in: #fdba74;
   --portal-code-token-literal: #67e8f9;
+  --portal-code-token-addition: #86efac;
+  --portal-code-token-addition-bg: rgba(34, 197, 94, 0.18);
+  --portal-code-token-deletion: #fca5a5;
+  --portal-code-token-deletion-bg: rgba(248, 113, 113, 0.18);
 }
 
 * { box-sizing: border-box; }
@@ -1033,6 +1041,9 @@ html[data-theme="dark"] .message-surface-error {
 .message-codeblock .hljs-comment,
 .message-codeblock .hljs-doctag { color: var(--portal-code-token-comment); }
 .message-codeblock .hljs-meta { color: var(--portal-code-token-meta); }
+/* ```diff blocks: + and - lines carry the review's whole point, so colour them. */
+.message-codeblock .hljs-addition { color: var(--portal-code-token-addition); background: var(--portal-code-token-addition-bg); }
+.message-codeblock .hljs-deletion { color: var(--portal-code-token-deletion); background: var(--portal-code-token-deletion-bg); }
 .message-codeblock .hljs-variable,
 .message-codeblock .hljs-name { color: var(--portal-code-token-variable); }
 .message-codeblock .hljs-type,
