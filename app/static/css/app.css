@@ -1195,10 +1195,14 @@ html[data-theme="dark"] .message-surface-error {
   min-height: 0;
   overflow: auto;
   padding: 16px;
-  text-align: center;
+  /* A flex box with auto margins on the drawing centres it both ways while it
+     is smaller than the viewport, and lets the margins collapse to zero once
+     it overflows, so the top-left corner stays reachable by scrolling
+     (justify-content: center would clip it). */
+  display: flex;
   outline: none;
 }
-.message-diagram-lightbox-viewport svg { max-width: none; display: inline-block; }
+.message-diagram-lightbox-viewport svg { max-width: none; flex: none; margin: auto; display: block; }
 .message-diagram-lightbox-close { font-size: 16px; line-height: 1; padding: .1rem .5rem; }
 body.has-diagram-lightbox { overflow: hidden; }
 @media (max-width: 640px) {

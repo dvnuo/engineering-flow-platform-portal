@@ -207,3 +207,5 @@ def test_lightbox_offers_full_screen_tab_and_exports_and_closes_on_escape():
     css = _read("app/static/css/app.css")
     assert ".message-diagram-lightbox { position: fixed; inset: 0; z-index: 1100; }" in css
     assert ":fullscreen .message-diagram-lightbox-panel" in css
+    # Centred both ways while smaller than the viewport, scrollable from the top-left once larger.
+    assert ".message-diagram-lightbox-viewport svg { max-width: none; flex: none; margin: auto; display: block; }" in css
