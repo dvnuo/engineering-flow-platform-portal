@@ -520,38 +520,27 @@
             role="radiogroup"
             aria-describedby="create-runtime-type-hint"
           >
+            {# Only the engines this Portal offers for new assistants
+               (ENABLED_RUNTIME_TYPES); the wizard re-renders the same set from
+               /api/agents/defaults once it has loaded. #}
+            {% for option in create_runtime_type_options %}
             <label class="runtime-type-radio-option">
               <input
                 class="runtime-type-radio-input"
                 type="radio"
                 name="runtime_type"
-                value="native"
-                checked
+                value="{{ option.value }}"
+                {% if option.checked %}checked{% endif %}
               />
               <span class="runtime-type-radio-card">
                 <span class="runtime-type-radio-control" aria-hidden="true"></span>
                 <span class="runtime-type-radio-copy">
-                  <span class="runtime-type-radio-title">EFP Native Runtime</span>
-                  <span class="runtime-type-radio-description">Use the native EFP Python runtime.</span>
+                  <span class="runtime-type-radio-title">{{ option.label }}</span>
+                  <span class="runtime-type-radio-description">{{ option.description }}</span>
                 </span>
               </span>
             </label>
-
-            <label class="runtime-type-radio-option">
-              <input
-                class="runtime-type-radio-input"
-                type="radio"
-                name="runtime_type"
-                value="opencode"
-              />
-              <span class="runtime-type-radio-card">
-                <span class="runtime-type-radio-control" aria-hidden="true"></span>
-                <span class="runtime-type-radio-copy">
-                  <span class="runtime-type-radio-title">OpenCode Runtime</span>
-                  <span class="runtime-type-radio-description">Use the opencode runtime adapter.</span>
-                </span>
-              </span>
-            </label>
+            {% endfor %}
           </div>
           <p id="create-runtime-type-hint" class="portal-modal-copy"></p>
         </fieldset>

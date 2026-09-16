@@ -117,6 +117,12 @@ class Settings(BaseSettings):
     default_agent_image_repo: str = "ghcr.io/dvnuo/engineering-flow-platform"
     default_agent_image_tag: str = "latest"
     default_runtime_type: str = Field(default="native", validation_alias="DEFAULT_RUNTIME_TYPE")
+    # Runtime markers offered for *new* assistants (the Engine step of the
+    # create wizard, /api/agents/defaults, and the assistant-type editor): a
+    # comma-separated subset of native / opencode. Unknown markers are ignored
+    # and an empty result offers native. Existing assistants keep whichever
+    # runtime they were created with; only creation and switching are gated.
+    enabled_runtime_types: str = Field(default="native", validation_alias="ENABLED_RUNTIME_TYPES")
     default_opencode_runtime_image_repo: str = Field(
         default="ghcr.io/dvnuo/efp-opencode-runtime",
         validation_alias="DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO",

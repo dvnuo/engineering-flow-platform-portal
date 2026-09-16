@@ -13756,11 +13756,19 @@ function runtimeImagePreview(config) {
 }
 
 function getCreateRuntimeTypes(defaults) {
-  return getRuntimeTypes(defaults);
+  // Only the engines this Portal offers for new assistants (ENABLED_RUNTIME_TYPES).
+  // The full matrix stays in getRuntimeTypes so an existing assistant on an
+  // engine that is no longer offered still displays its real engine.
+  const runtimeTypes = getRuntimeTypes(defaults);
+  const enabled = runtimeTypes.filter((item) => item?.enabled !== false);
+  return enabled.length ? enabled : runtimeTypes;
 }
 
 function getCreateDefaultRuntimeType(defaults) {
-  return normalizeRuntimeTypeValue(defaults?.default_runtime_type || "native", defaults);
+  const preferred = normalizeRuntimeTypeValue(defaults?.default_runtime_type || "native", defaults);
+  const createTypes = getCreateRuntimeTypes(defaults);
+  if (createTypes.some((item) => String(item?.value || "").trim().toLowerCase() === preferred)) return preferred;
+  return String(createTypes[0]?.value || "native").trim().toLowerCase() || "native";
 }
 
 function runtimeTypeDescription(item) {

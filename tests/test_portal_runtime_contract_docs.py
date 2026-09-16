@@ -23,6 +23,9 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert "Missing, blank, or legacy stored runtime markers normalize to `native`" in text
     assert "Invalid non-empty request values are rejected at request boundaries." in text
     assert "Switching an existing agent between `native` and `opencode` is allowed." in text
+    assert "`ENABLED_RUNTIME_TYPES` (default `native`)" in text
+    assert "each with an `enabled` flag" in text
+    assert "The target marker must be enabled (`ENABLED_RUNTIME_TYPES`)" in text
     assert "Both runtimes default to `/workspace`" in text
     assert "OpenCode-specific state, env, and mount wiring" in text
     assert "multiple Python EFP versions" in text
@@ -90,6 +93,8 @@ def test_portal_runtime_contract_doc_and_readme_alignment():
     assert ("no runtime" + " selector") not in readme
     assert "Portal provisions either the Python EFP native runtime or the OpenCode runtime based on `runtime_type`." in readme
     assert "`/api/agents/defaults` exposes `default_runtime_type` and the supported `runtime_types` matrix" in readme
+    assert "| `ENABLED_RUNTIME_TYPES` |" in readme
+    assert "Only markers listed in `ENABLED_RUNTIME_TYPES` are offered for new agents" in readme
     assert "New agents mount `/workspace` by default for both runtimes." in readme
     assert "no alternate Python EFP runtime versions" in readme
     assert "no runtime source overlay" in readme
