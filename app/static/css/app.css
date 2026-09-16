@@ -42,6 +42,10 @@
   --portal-code-token-attr: #0c4a6e;
   --portal-code-token-built-in: #7c2d12;
   --portal-code-token-literal: #0369a1;
+  --portal-code-token-addition: #15803d;
+  --portal-code-token-addition-bg: rgba(22, 163, 74, 0.12);
+  --portal-code-token-deletion: #b91c1c;
+  --portal-code-token-deletion-bg: rgba(220, 38, 38, 0.12);
   --portal-radius-xl: 24px;
   --portal-radius-lg: 20px;
   --portal-radius-md: 14px;
@@ -92,6 +96,10 @@ html[data-theme="dark"] {
   --portal-code-token-attr: #7dd3fc;
   --portal-code-token-built-in: #fdba74;
   --portal-code-token-literal: #67e8f9;
+  --portal-code-token-addition: #86efac;
+  --portal-code-token-addition-bg: rgba(34, 197, 94, 0.18);
+  --portal-code-token-deletion: #fca5a5;
+  --portal-code-token-deletion-bg: rgba(248, 113, 113, 0.18);
 }
 
 * { box-sizing: border-box; }
@@ -1033,6 +1041,9 @@ html[data-theme="dark"] .message-surface-error {
 .message-codeblock .hljs-comment,
 .message-codeblock .hljs-doctag { color: var(--portal-code-token-comment); }
 .message-codeblock .hljs-meta { color: var(--portal-code-token-meta); }
+/* ```diff blocks: + and - lines carry the review's whole point, so colour them. */
+.message-codeblock .hljs-addition { color: var(--portal-code-token-addition); background: var(--portal-code-token-addition-bg); }
+.message-codeblock .hljs-deletion { color: var(--portal-code-token-deletion); background: var(--portal-code-token-deletion-bg); }
 .message-codeblock .hljs-variable,
 .message-codeblock .hljs-name { color: var(--portal-code-token-variable); }
 .message-codeblock .hljs-type,
@@ -1044,6 +1055,167 @@ html[data-theme="dark"] .message-surface-error {
 .message-codeblock .hljs-literal,
 .message-codeblock .hljs-params,
 .message-codeblock .hljs-subst { color: var(--portal-code-token-literal); }
+/* Mermaid diagram component (chat_ui.js buildDiagramComponent): toolbar with a
+   Diagram | Code switch and Copy, a status line for render failures, the SVG
+   canvas, and the source <pre> as the Code view. Colors come from the code
+   block tokens so both themes are covered. */
+.message-diagram {
+  border: 1px solid var(--portal-codeblock-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--portal-codeblock-bg);
+}
+.message-diagram [hidden] { display: none !important; }
+.message-diagram-toolbar { flex-wrap: wrap; row-gap: 6px; }
+.message-diagram-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+/* Zoom group: − 100% + Fit. Hidden while the source is showing. */
+.message-diagram-zoom {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid color-mix(in srgb, var(--portal-codeblock-border), var(--portal-border) 30%);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.message-diagram-zoom-btn,
+.message-diagram-zoom-level {
+  border: 0;
+  background: transparent;
+  padding: .2rem .5rem;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--portal-text-muted);
+  cursor: pointer;
+}
+.message-diagram-zoom-btn + .message-diagram-zoom-btn,
+.message-diagram-zoom-btn + .message-diagram-zoom-level,
+.message-diagram-zoom-level + .message-diagram-zoom-btn {
+  border-left: 1px solid color-mix(in srgb, var(--portal-codeblock-border), var(--portal-border) 30%);
+}
+.message-diagram-zoom-level { min-width: 3.4em; text-align: center; font-variant-numeric: tabular-nums; color: var(--portal-text); }
+.message-diagram-zoom-btn.is-active { background: var(--portal-accent-soft); color: var(--portal-text); }
+.message-diagram-zoom-btn:disabled { opacity: .45; cursor: default; }
+.message-diagram-tool {
+  border: 1px solid color-mix(in srgb, var(--portal-codeblock-border), var(--portal-border) 30%);
+  background: color-mix(in srgb, var(--portal-codeblock-toolbar-bg), var(--portal-surface) 25%);
+  border-radius: 8px;
+  padding: .2rem .55rem;
+  font-size: 12px;
+  color: var(--portal-codeblock-text);
+  cursor: pointer;
+}
+.message-diagram-tool:hover { border-color: var(--portal-border-strong); }
+.message-diagram[data-view="code"] .message-diagram-zoom,
+.message-diagram[data-view="code"] .message-diagram-expand { display: none; }
+.message-diagram-switch {
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--portal-codeblock-border), var(--portal-border) 30%);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.message-diagram-switch-btn {
+  border: 0;
+  background: transparent;
+  padding: .2rem .55rem;
+  font-size: 12px;
+  color: var(--portal-text-muted);
+  cursor: pointer;
+}
+.message-diagram-switch-btn + .message-diagram-switch-btn {
+  border-left: 1px solid color-mix(in srgb, var(--portal-codeblock-border), var(--portal-border) 30%);
+}
+.message-diagram-switch-btn.is-active { background: var(--portal-accent-soft); color: var(--portal-text); }
+.message-diagram-switch-btn:disabled { opacity: .45; cursor: default; }
+.message-diagram-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: .35rem .65rem;
+  font-size: 12px;
+  color: var(--portal-danger);
+  border-bottom: 1px solid var(--portal-codeblock-border);
+  background: color-mix(in srgb, var(--portal-danger), var(--portal-codeblock-bg) 90%);
+  overflow-wrap: anywhere;
+}
+.message-diagram-fix {
+  border: 1px solid color-mix(in srgb, var(--portal-danger), var(--portal-border) 50%);
+  background: var(--portal-surface);
+  border-radius: 8px;
+  padding: .15rem .5rem;
+  font-size: 12px;
+  color: var(--portal-text);
+  cursor: pointer;
+}
+.message-diagram-fix:hover { border-color: var(--portal-danger); }
+.message-diagram-canvas {
+  padding: .8rem .95rem;
+  overflow: auto;
+  max-height: 70vh;
+  background: var(--portal-surface);
+  text-align: center;
+}
+/* applyDiagramScale sets the pixel size; the viewBox scales the drawing. */
+.message-diagram-canvas svg { max-width: none; display: inline-block; }
+.message-diagram-canvas.is-pannable,
+.message-diagram-lightbox-viewport.is-pannable { cursor: grab; }
+.message-diagram-canvas.is-panning,
+.message-diagram-lightbox-viewport.is-panning { cursor: grabbing; user-select: none; }
+/* Lightbox: the same viewport at viewport size, plus full screen and export.
+   Above the modals (1050) and below the toasts (1200). */
+.message-diagram-lightbox { position: fixed; inset: 0; z-index: 1100; }
+.message-diagram-lightbox[hidden] { display: none !important; }
+.message-diagram-lightbox-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, .72); }
+.message-diagram-lightbox-panel {
+  position: absolute;
+  inset: 24px;
+  display: flex;
+  flex-direction: column;
+  background: var(--portal-surface);
+  color: var(--portal-text);
+  border: 1px solid var(--portal-border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, .35);
+}
+.message-diagram-lightbox:fullscreen .message-diagram-lightbox-panel,
+.message-diagram-lightbox.is-fullscreen .message-diagram-lightbox-panel { inset: 0; border: 0; border-radius: 0; }
+.message-diagram-lightbox-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  padding: .5rem .75rem;
+  border-bottom: 1px solid var(--portal-codeblock-border);
+  background: var(--portal-codeblock-toolbar-bg);
+}
+.message-diagram-lightbox-title { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--portal-text-muted); }
+.message-diagram-lightbox-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  /* A flex box with auto margins on the drawing centres it both ways while it
+     is smaller than the viewport, and lets the margins collapse to zero once
+     it overflows, so the top-left corner stays reachable by scrolling
+     (justify-content: center would clip it). */
+  display: flex;
+  outline: none;
+}
+.message-diagram-lightbox-viewport svg { max-width: none; flex: none; margin: auto; display: block; }
+.message-diagram-lightbox-close { font-size: 16px; line-height: 1; padding: .1rem .5rem; }
+body.has-diagram-lightbox { overflow: hidden; }
+@media (max-width: 640px) {
+  .message-diagram-lightbox-panel { inset: 8px; }
+}
+.message-diagram-source {
+  margin: 0;
+  overflow-x: auto;
+  padding: .8rem .95rem;
+  color: var(--portal-codeblock-text);
+  background: var(--portal-codeblock-bg);
+}
+.message-diagram-source code { color: var(--portal-codeblock-text); }
 .message-table-wrap { overflow-x: auto; border: 1px solid var(--portal-border); border-radius: 10px; }
 .message-table-wrap table { margin: 0; border: 0; min-width: 420px; }
 .message-callout { border: 1px solid var(--portal-border); border-radius: 12px; padding: .7rem .85rem; background: var(--portal-surface-soft); }
