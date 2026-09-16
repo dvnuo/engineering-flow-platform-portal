@@ -4756,9 +4756,6 @@ let mermaidLoadPromise = null;
 let mermaidRenderSeq = 0;
 let mermaidInitializedTheme = "";
 let diagramInsertSeq = 0;
-// Below this fit ratio a column-fitted diagram is unreadable, so it opens at
-// natural size with a scrollbar instead.
-const DIAGRAM_FIT_THRESHOLD = 0.7;
 const DIAGRAM_ZOOM_STEP = 1.25;
 const DIAGRAM_ZOOM_MIN = 0.1;
 const DIAGRAM_ZOOM_MAX = 8;
@@ -4829,14 +4826,12 @@ function formatZoomPercent(scale) {
   return `${Math.round(clampDiagramScale(scale) * 100)}%`;
 }
 
-// How a freshly drawn diagram opens in the column: fitted, unless fitting would
-// shrink it below the readable threshold, in which case natural size and a
-// scrollbar. Inline fit never enlarges.
+// A freshly drawn diagram opens fitted to the column, never enlarged; the
+// zoom controls and Expand are there for reading the detail.
 function defaultDiagramScale(fitScale) {
   const fit = Number(fitScale);
-  if (!Number.isFinite(fit) || fit <= 0 || fit >= 1) return { mode: "fit", scale: 1 };
-  if (fit >= DIAGRAM_FIT_THRESHOLD) return { mode: "fit", scale: fit };
-  return { mode: "custom", scale: 1 };
+  if (!Number.isFinite(fit) || fit <= 0) return { mode: "fit", scale: 1 };
+  return { mode: "fit", scale: Math.min(1, fit) };
 }
 
 // A cached SVG carries its render id in element ids, <style> selectors and
