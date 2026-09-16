@@ -20,8 +20,12 @@ def test_create_assistant_has_runtime_type_control():
     assert "runtime-type-radio" in block
     # Labelled "Engine" for members; the field name stays runtime_type.
     assert "<legend>Engine</legend>" in block
-    assert 'value="native"' in block
-    assert 'value="opencode"' in block
+    # The cards come from the server so ENABLED_RUNTIME_TYPES decides what a
+    # member can pick, even before /api/agents/defaults has answered.
+    assert "{% for option in create_runtime_type_options %}" in block
+    assert 'value="{{ option.value }}"' in block
+    assert 'value="native"' not in block
+    assert 'value="opencode"' not in block
 
 
 def test_edit_assistant_shows_runtime_type_as_readonly_wizard_field():
@@ -46,6 +50,8 @@ def test_create_runtime_type_js_helpers_present():
     assert "function populateRuntimeTypeRadioGroup(" in js
     assert "function getCreateDefaultRuntimeType(" in js
     assert "function getCreateRuntimeTypes(" in js
+    # The wizard renders only the engines the defaults payload marks enabled.
+    assert "item?.enabled !== false" in js
     assert 'formData.get("runtime_type")' in js
     assert "runtime_type: runtimeType" in js
     assert "form.dataset.runtimeType" in js
@@ -57,6 +63,8 @@ def test_config_and_schema_use_single_native_runtime_default():
     contract = Path("app/contracts/runtime_type.py").read_text(encoding="utf-8")
     schema = Path("app/schemas/agent.py").read_text(encoding="utf-8")
     assert "DEFAULT_RUNTIME_TYPE" in config
+    assert "ENABLED_RUNTIME_TYPES" in config
+    assert 'enabled_runtime_types: str = Field(default="native"' in config
     assert 'DEFAULT_RUNTIME_TYPE = "native"' in contract
     assert 'ALLOWED_RUNTIME_TYPES = ("native", "opencode")' in contract
     assert 'runtime_type: str = "native"' in schema

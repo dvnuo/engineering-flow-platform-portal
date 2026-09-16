@@ -9,7 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.contracts.llm_catalog import SUPPORTED_REASONING_EFFORTS
-from app.contracts.runtime_type import InvalidRuntimeType, normalize_runtime_type, normalize_runtime_type_or_default
+from app.contracts.runtime_type import (
+    RUNTIME_TYPE_LABELS,
+    InvalidRuntimeType,
+    normalize_enabled_runtime_types,
+    normalize_runtime_type,
+    normalize_runtime_type_or_default,
+    pick_enabled_runtime_type,
+    require_enabled_runtime_type,
+)
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
@@ -50,6 +58,7 @@ DEFAULT_RUNTIME_WORKSPACE_PATH = "/workspace"
 @router.get("/defaults")
 def get_agent_defaults(user=Depends(get_current_user)):
     """Get default configuration for agent creation."""
+    enabled_runtime_types = _enabled_runtime_types()
     return {
         "image_repo": _native_runtime_image_repo(),
         "image_tag": _native_runtime_image_tag(),
@@ -66,20 +75,26 @@ def get_agent_defaults(user=Depends(get_current_user)):
         "memory": settings.default_agent_memory,
         "mount_path": DEFAULT_RUNTIME_WORKSPACE_PATH,
         "default_runtime_type": _default_runtime_type_for_defaults(),
+        # Every supported marker stays in the matrix so an existing assistant
+        # on a runtime this Portal no longer offers still displays correctly;
+        # the create wizard only renders the ``enabled`` ones.
+        "enabled_runtime_types": list(enabled_runtime_types),
         "runtime_types": [
             {
                 "value": "native",
-                "label": "EFP Native Runtime",
+                "label": RUNTIME_TYPE_LABELS["native"],
                 "image_repo": _native_runtime_image_repo(),
                 "image_tag": _native_runtime_image_tag(),
                 "default_mount_path": DEFAULT_RUNTIME_WORKSPACE_PATH,
+                "enabled": "native" in enabled_runtime_types,
             },
             {
                 "value": "opencode",
-                "label": "OpenCode Runtime",
+                "label": RUNTIME_TYPE_LABELS["opencode"],
                 "image_repo": _opencode_runtime_image_repo(),
                 "image_tag": _opencode_runtime_image_tag(),
                 "default_mount_path": DEFAULT_RUNTIME_WORKSPACE_PATH,
+                "enabled": "opencode" in enabled_runtime_types,
             },
         ],
     }
@@ -161,18 +176,31 @@ def _normalize_runtime_type(value: str | None, *, allow_default: bool = False) -
         raise ValueError(str(exc)) from exc
 
 
+def _enabled_runtime_types() -> tuple[str, ...]:
+    return normalize_enabled_runtime_types(settings.enabled_runtime_types)
+
+
+def _require_runtime_type_enabled_or_422(runtime_type: str | None) -> str:
+    try:
+        return require_enabled_runtime_type(runtime_type, _enabled_runtime_types())
+    except InvalidRuntimeType as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
 def _default_runtime_type_from_settings() -> str:
+    """Runtime for a new agent that names none: DEFAULT_RUNTIME_TYPE when it is
+    enabled, otherwise the first enabled marker. An invalid value still raises
+    so create can report the misconfiguration."""
     raw = (settings.default_runtime_type or "").strip()
-    if not raw:
-        return DEFAULT_NATIVE_RUNTIME_TYPE
-    return _normalize_runtime_type(raw)
+    preferred = _normalize_runtime_type(raw) if raw else DEFAULT_NATIVE_RUNTIME_TYPE
+    return pick_enabled_runtime_type(preferred, _enabled_runtime_types())
 
 
 def _default_runtime_type_for_defaults() -> str:
     try:
         return _default_runtime_type_from_settings()
     except ValueError:
-        return DEFAULT_NATIVE_RUNTIME_TYPE
+        return pick_enabled_runtime_type(DEFAULT_NATIVE_RUNTIME_TYPE, _enabled_runtime_types())
 
 
 def _native_runtime_image_repo() -> str:
@@ -402,6 +430,17 @@ async def create_agent_simple(
             detail="Assistant type not found or no longer offered",
         )
 
+    try:
+        require_enabled_runtime_type(assistant_type.runtime_type, _enabled_runtime_types())
+    except InvalidRuntimeType as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Assistant type '{assistant_type.name}' uses the '{assistant_type.runtime_type}' engine, "
+                "which this Portal does not currently offer for new assistants."
+            ),
+        ) from exc
+
     create_payload = AgentCreateRequest(
         name=payload.name,
         description=assistant_type.description,
@@ -430,6 +469,10 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Invalid DEFAULT_RUNTIME_TYPE: {exc}",
         ) from exc
+    if "runtime_type" in payload.model_fields_set:
+        # An explicit choice must be one this Portal offers; an omitted one was
+        # already resolved to an enabled marker above.
+        _require_runtime_type_enabled_or_422(effective_runtime_type)
     effective_image = _resolve_create_image(payload, effective_runtime_type)
     effective_mount_path = _resolve_create_mount_path(payload, effective_runtime_type)
     effective_agent_settings_repo_url = _resolve_create_agent_settings_repo_url(payload)
@@ -526,6 +569,10 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type cannot be null")
         _validate_runtime_type_or_422(changes["runtime_type"])
         runtime_type_changed = _normalize_runtime_type_update_change(agent, changes)
+        if runtime_type_changed:
+            # Moving an assistant onto a runtime is the same policy question as
+            # creating one there; keeping the current runtime is always allowed.
+            _require_runtime_type_enabled_or_422(changes["runtime_type"])
         if runtime_type_changed and "image" not in changes:
             changes["image"] = _default_agent_image_for_runtime(changes["runtime_type"])
     _maybe_add_mount_path_switch_for_runtime_change(agent, changes)

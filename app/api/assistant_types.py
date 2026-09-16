@@ -3,6 +3,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.contracts.runtime_type import (
+    InvalidRuntimeType,
+    normalize_enabled_runtime_types,
+    normalize_runtime_type_or_default,
+    require_enabled_runtime_type,
+)
 from app.db import get_db
 from app.deps import get_current_user, require_admin
 from app.models.assistant_type import AssistantType
@@ -16,6 +23,18 @@ from app.schemas.assistant_type import (
 
 router = APIRouter(prefix="/api/assistant-types", tags=["assistant-types"])
 logger = logging.getLogger(__name__)
+settings = get_settings()
+
+
+def _require_runtime_type_enabled_or_422(runtime_type: str | None) -> str:
+    """A type is a template for new assistants, so it may only name an engine
+    this Portal offers for them (ENABLED_RUNTIME_TYPES)."""
+    try:
+        return require_enabled_runtime_type(
+            runtime_type, normalize_enabled_runtime_types(settings.enabled_runtime_types)
+        )
+    except InvalidRuntimeType as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("", response_model=list[AssistantTypeResponse])
@@ -38,6 +57,7 @@ def create_assistant_type(
     admin=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    _require_runtime_type_enabled_or_422(payload.runtime_type)
     repo = AssistantTypeRepository(db)
     assistant_type = repo.create(
         name=payload.name,
@@ -82,6 +102,12 @@ def update_assistant_type(
             value = normalized
         if field in {"agent_settings_branch", "skill_branch", "description"} and isinstance(value, str):
             value = value.strip() or None
+        if field == "runtime_type" and value is not None:
+            # The edit form sends every field back, so re-stating the current
+            # engine must pass even when it is no longer offered; only a
+            # switch onto another engine is subject to ENABLED_RUNTIME_TYPES.
+            if value != normalize_runtime_type_or_default(assistant_type.runtime_type):
+                value = _require_runtime_type_enabled_or_422(value)
         setattr(assistant_type, field, value)
 
     repo.save(assistant_type)

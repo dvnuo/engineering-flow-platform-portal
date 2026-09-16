@@ -12,7 +12,7 @@ def clean_env(monkeypatch):
         'SECRET_', 'DATABASE_', 'DEBUG', 'AGENTS_', 'K8S_', 
         'GITHUB_', 'JIRA_', 'CONFLUENCE_', 'BOOTSTRAP_',
         'DEFAULT_', 'PORTAL_', 'RUNTIME_', 'ALLOW_INSECURE_', 'DELEGATION_', 'ASSETS_', 'GIT_',
-        'AGENT_TASK_', 'OPENCODE_', 'AI_PLATFORM_', 'REGISTRATION_'
+        'AGENT_TASK_', 'OPENCODE_', 'AI_PLATFORM_', 'REGISTRATION_', 'ENABLED_'
     )
     for key in list(os.environ.keys()):
         if any(key.startswith(p) for p in env_prefixes):
@@ -136,6 +136,8 @@ def test_settings_exposes_runtime_selection_without_source_overlay(monkeypatch):
     monkeypatch.setenv("DEFAULT_AGENT_RUNTIME_BRANCH", "main")
     settings = Settings()
     assert settings.default_runtime_type == "opencode"
+    # The default only names a preferred marker; offering it is a separate opt-in.
+    assert settings.enabled_runtime_types == "native"
     assert settings.default_opencode_runtime_image_repo == "ghcr.io/dvnuo/efp-opencode-runtime"
     assert settings.default_opencode_runtime_image_tag == "1.14.39"
     assert settings.default_opencode_permission_mode == "workspace_full_access"
@@ -254,3 +256,14 @@ def test_settings_agent_resource_env_overrides(monkeypatch):
     assert settings.default_agent_memory == "1Gi"
     assert settings.default_agent_cpu_limit == "2"
     assert settings.default_agent_memory_limit == "4Gi"
+
+
+def test_settings_enabled_runtime_types_defaults_to_native_only():
+    # opencode stays supported for existing agents but is not offered for new
+    # ones unless a deployment opts in.
+    assert Settings().enabled_runtime_types == "native"
+
+
+def test_settings_enabled_runtime_types_env_override(monkeypatch):
+    monkeypatch.setenv("ENABLED_RUNTIME_TYPES", "native,opencode")
+    assert Settings().enabled_runtime_types == "native,opencode"

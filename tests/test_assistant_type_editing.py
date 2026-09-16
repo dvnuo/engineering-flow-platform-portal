@@ -229,3 +229,18 @@ def test_no_configured_repository_says_so():
     html = _render_panel(skill_branches=[], skill_branch_error="", default_skill_repo_url="")
 
     assert "No repository configured" in html
+
+
+def test_engine_select_only_offers_enabled_engines_but_keeps_a_types_current_one():
+    # ENABLED_RUNTIME_TYPES=native: the create form must not offer opencode,
+    # while a type already on opencode keeps it selected so saving another
+    # field cannot silently move the type onto a different engine.
+    html = _render_panel(
+        runtime_types=["native"],
+        assistant_types=[{"id": "legacy", "name": "Legacy", "runtime_type": "opencode"}],
+    )
+
+    assert html.count('<option value="opencode"') == 1  # only that type's own edit select
+    assert '<option value="opencode" selected>opencode (not enabled)</option>' in html
+    assert html.count('<option value="native"') == 2  # its edit select and the create form
+    assert "native (not enabled)" not in html

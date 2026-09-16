@@ -124,9 +124,13 @@
           </label>
           <label class="portal-form-label">
             <span class="portal-form-label">Engine</span>
+            {# A type already on an engine this Portal no longer offers keeps it
+               selectable; otherwise saving any other field would silently move
+               the type onto the first offered engine. #}
+            {% set engine_options = runtime_types if assistant_type.runtime_type in runtime_types else runtime_types + [assistant_type.runtime_type] %}
             <select name="runtime_type" class="portal-form-select">
-              {% for value in runtime_types %}
-              <option value="{{ value }}" {{ "selected" if value == assistant_type.runtime_type else "" }}>{{ value }}</option>
+              {% for value in engine_options %}
+              <option value="{{ value }}" {{ "selected" if value == assistant_type.runtime_type else "" }}>{{ value }}{{ " (not enabled)" if value not in runtime_types else "" }}</option>
               {% endfor %}
             </select>
             <span class="portal-form-hint">Fixed on an assistant once it is created.</span>

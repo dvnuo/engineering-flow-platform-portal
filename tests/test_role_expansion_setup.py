@@ -1,6 +1,8 @@
 """Tests for the onboarding path: assistant types, the connection seed,
 per-connection guidance, and the member-facing reading of startup status.
 """
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -337,3 +339,67 @@ def test_simple_create_rejects_a_hidden_type(admin_client):
     response = client.post("/api/agents/simple", json={"name": "Mine", "assistant_type_id": hidden.id})
 
     assert response.status_code == 404
+
+
+def test_assistant_type_cannot_name_an_engine_that_is_not_offered(admin_client, monkeypatch):
+    # A type is a template for new assistants, so it follows the same
+    # ENABLED_RUNTIME_TYPES policy as creating one directly.
+    client, _db, _admin = admin_client
+    import app.api.assistant_types as assistant_types_api
+
+    monkeypatch.setattr(assistant_types_api.settings, "enabled_runtime_types", "native")
+    refused = client.post("/api/assistant-types", json={"name": "OpenCode Assistant", "runtime_type": "opencode"})
+    assert refused.status_code == 422
+    assert "ENABLED_RUNTIME_TYPES" in refused.json()["detail"]
+
+    monkeypatch.setattr(assistant_types_api.settings, "enabled_runtime_types", "native,opencode")
+    created = client.post("/api/assistant-types", json={"name": "OpenCode Assistant", "runtime_type": "opencode"})
+    assert created.status_code == 200
+    assert created.json()["runtime_type"] == "opencode"
+
+
+def test_a_type_on_a_retired_engine_stays_editable_but_others_cannot_switch_to_it(admin_client, monkeypatch):
+    client, db, _admin = admin_client
+    import app.api.assistant_types as assistant_types_api
+
+    monkeypatch.setattr(assistant_types_api.settings, "enabled_runtime_types", "native")
+    retired = AssistantType(name="Legacy OpenCode", runtime_type="opencode", is_active=True)
+    native = AssistantType(name="Native", runtime_type="native", is_active=True)
+    db.add_all([retired, native])
+    db.commit()
+    db.refresh(retired)
+    db.refresh(native)
+
+    # The edit form sends every field back, so re-stating opencode must pass.
+    kept = client.patch(f"/api/assistant-types/{retired.id}", json={"runtime_type": "opencode", "sort_order": 5})
+    assert kept.status_code == 200
+    assert kept.json()["runtime_type"] == "opencode"
+    assert kept.json()["sort_order"] == 5
+
+    moved = client.patch(f"/api/assistant-types/{native.id}", json={"runtime_type": "opencode"})
+    assert moved.status_code == 422
+    engines = {item["id"]: item["runtime_type"] for item in client.get("/api/assistant-types").json()}
+    assert engines == {retired.id: "opencode", native.id: "native"}
+
+
+def test_simple_create_refuses_a_type_on_an_engine_that_is_not_offered(admin_client, monkeypatch):
+    client, db, _admin = admin_client
+    import app.api.agents as agents_api
+
+    monkeypatch.setattr(agents_api.settings, "enabled_runtime_types", "native")
+    provisioned = []
+    monkeypatch.setattr(
+        agents_api.k8s_service,
+        "create_agent_runtime",
+        lambda agent: provisioned.append(agent.id) or SimpleNamespace(status="running", message=None),
+    )
+    legacy = AssistantType(name="Legacy OpenCode", runtime_type="opencode", is_active=True)
+    db.add(legacy)
+    db.commit()
+    db.refresh(legacy)
+
+    response = client.post("/api/agents/simple", json={"name": "Mine", "assistant_type_id": legacy.id})
+
+    assert response.status_code == 422
+    assert "opencode" in response.json()["detail"]
+    assert provisioned == []

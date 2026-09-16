@@ -22,7 +22,12 @@ from app.contracts.llm_catalog import (
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
 from app.repositories.agent_execution_repo import AgentExecutionRepository
-from app.contracts.runtime_type import ALLOWED_RUNTIME_TYPES
+from app.contracts.runtime_type import (
+    RUNTIME_TYPE_DESCRIPTIONS,
+    RUNTIME_TYPE_LABELS,
+    normalize_enabled_runtime_types,
+    pick_enabled_runtime_type,
+)
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.assistant_type_repo import AssistantTypeRepository
@@ -1707,6 +1712,28 @@ def unauthorized_page(request: Request):
     )
 
 
+def _enabled_runtime_types() -> tuple[str, ...]:
+    return normalize_enabled_runtime_types(get_settings().enabled_runtime_types)
+
+
+def _create_runtime_type_options() -> list[dict]:
+    """Engine cards for the create-assistant wizard as first rendered, before
+    /api/agents/defaults answers: only the markers this Portal offers, with the
+    default preselected. The wizard later re-renders the same set from the
+    defaults payload, so both views obey ENABLED_RUNTIME_TYPES."""
+    enabled = _enabled_runtime_types()
+    preselected = pick_enabled_runtime_type(get_settings().default_runtime_type, enabled)
+    return [
+        {
+            "value": marker,
+            "label": RUNTIME_TYPE_LABELS.get(marker, marker),
+            "description": RUNTIME_TYPE_DESCRIPTIONS.get(marker, ""),
+            "checked": marker == preselected,
+        }
+        for marker in enabled
+    ]
+
+
 @router.get("/app")
 def app_page(request: Request):
     user, access_response = _authorized_web_user(request)
@@ -1726,6 +1753,7 @@ def app_page(request: Request):
             # so it renders with the page rather than on first open.
             "help_groups": help_topics_by_group(),
             "connectors_enabled": bool(get_settings().connectors_enabled),
+            "create_runtime_type_options": _create_runtime_type_options(),
         },
     )
 
@@ -2042,7 +2070,7 @@ async def app_assistant_types_panel(request: Request):
             {
                 "request": request,
                 "assistant_types": AssistantTypeRepository(db).list_all(),
-                "runtime_types": sorted(ALLOWED_RUNTIME_TYPES),
+                "runtime_types": list(_enabled_runtime_types()),
                 "icon_choices": ASSISTANT_TYPE_ICONS,
                 "default_icon": DEFAULT_ASSISTANT_TYPE_ICON,
                 "default_agent_settings_repo_url": settings.default_agent_settings_repo_url or "",

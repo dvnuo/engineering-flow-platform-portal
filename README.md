@@ -103,6 +103,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `DEFAULT_AGENT_CPU_LIMIT` | CPU limit for agent pods (empty disables the limit) | `1` |
 | `DEFAULT_AGENT_MEMORY_LIMIT` | Memory limit for agent pods (empty disables the limit) | `2Gi` |
 | `DEFAULT_RUNTIME_TYPE` | Default runtime marker for new agents when `runtime_type` is omitted; supported values are `native` and `opencode` | `native` |
+| `ENABLED_RUNTIME_TYPES` | Comma-separated runtime markers offered for new agents (the Engine step of the create wizard) and for assistant types: `native`, `opencode`, or both. Unknown markers are ignored and an empty result offers `native`. Existing agents keep their runtime; creating or switching to a marker that is not listed is rejected | `native` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | Default OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | Default OpenCode runtime image tag | `1.14.39` |
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
@@ -118,6 +119,7 @@ Kubernetes runtime provisioning behavior:
 - Portal provisions either the Python EFP native runtime or the OpenCode runtime based on `runtime_type`.
 - The native runtime image comes from `DEFAULT_AGENT_IMAGE_REPO` / `DEFAULT_AGENT_IMAGE_TAG`; the OpenCode runtime image comes from `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` / `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG`.
 - `/api/agents/defaults` exposes `default_runtime_type` and the supported `runtime_types` matrix for agent creation/editing.
+- Only markers listed in `ENABLED_RUNTIME_TYPES` are offered for new agents: the matrix flags each entry with `enabled`, `default_runtime_type` is always an enabled marker, and create or switch requests for a marker that is not enabled return 422.
 - New agents mount `/workspace` by default for both runtimes.
 - Portal has no alternate Python EFP runtime versions, no runtime source overlay, and no runtime/source settings surface.
 - Portal mounts `/app/skills` when a skill repo/default exists.
