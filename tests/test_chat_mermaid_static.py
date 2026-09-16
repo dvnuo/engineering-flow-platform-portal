@@ -84,10 +84,12 @@ def test_diagram_component_starts_on_code_view_and_copies_source():
 
 
 def test_mermaid_is_initialised_strict_without_its_own_error_graphics():
-    fn = _extract_js_function(_chat_ui(), "configureMermaid")
-    assert "startOnLoad: false" in fn
-    assert 'securityLevel: "strict"' in fn
-    assert "suppressErrorRendering: true" in fn
+    source = _chat_ui()
+    config = _extract_js_function(source, "mermaidBaseConfig")
+    assert "startOnLoad: false" in config
+    assert 'securityLevel: "strict"' in config
+    assert "suppressErrorRendering: true" in config
+    assert "mermaid.initialize(mermaidBaseConfig(theme))" in _extract_js_function(source, "configureMermaid")
 
 
 def test_render_failures_fall_back_to_the_code_view():
@@ -101,11 +103,14 @@ def test_render_failures_fall_back_to_the_code_view():
 
 def test_rendered_svg_is_cached_per_theme_and_source():
     source = _chat_ui()
-    render = _extract_js_function(source, "renderMermaidComponent")
+    render = _extract_js_function(source, "renderMermaidSvg")
     assert "mermaidSvgCache.get(key)" in render
-    assert "mermaidSvgCache.set(key, svg)" in render
+    assert "mermaidSvgCache.set(key, entry)" in render
     key = _extract_js_function(source, "mermaidCacheKey")
     assert "theme" in key and "source" in key
+    # Every insert gets its own element id so two copies never share markers.
+    component = _extract_js_function(source, "renderMermaidComponent")
+    assert "withFreshSvgId(entry, `portal-mermaid-view-${diagramInsertSeq}`)" in component
 
 
 def test_theme_change_redraws_diagrams():
@@ -150,3 +155,55 @@ def test_fix_request_lands_in_the_composer_without_sending():
         assert send_path not in fill
     css = _read("app/static/css/app.css")
     assert ".message-diagram-fix {" in css
+
+
+def test_diagram_toolbar_offers_zoom_and_expand_only_on_the_diagram_view():
+    source = _chat_ui()
+    toolbar = _extract_js_function(source, "buildDiagramToolbarHtml")
+    assert "buildDiagramZoomControlsHtml()" in toolbar
+    assert "data-diagram-expand" in toolbar
+    zoom = _extract_js_function(source, "buildDiagramZoomControlsHtml")
+    for action in ("out", "reset", "in", "fit"):
+        assert f'data-diagram-zoom="{action}"' in zoom
+    css = _read("app/static/css/app.css")
+    assert '.message-diagram[data-view="code"] .message-diagram-zoom' in css
+    assert '.message-diagram[data-view="code"] .message-diagram-expand { display: none; }' in css
+
+
+def test_diagrams_open_fitted_unless_that_makes_them_unreadable():
+    source = _chat_ui()
+    assert re.search(r"const DIAGRAM_FIT_THRESHOLD = 0\.[5-8]\d*;", source)
+    choice = _extract_js_function(source, "defaultDiagramScale")
+    assert "DIAGRAM_FIT_THRESHOLD" in choice
+    render = _extract_js_function(source, "renderMermaidComponent")
+    assert "defaultDiagramScale(diagramFitScale(canvas))" in render
+    scale = _extract_js_function(source, "applyDiagramScale")
+    assert 'svg.style.maxWidth = "none"' in scale, "mermaid's max-width would otherwise cap the zoom"
+    assert "svg.style.width" in scale and "svg.style.height" in scale
+
+
+def test_column_resizes_refit_only_diagrams_still_in_fit_mode():
+    source = _chat_ui()
+    refit = _extract_js_function(source, "refitDiagramViewports")
+    assert '.message-diagram-canvas[data-zoom-mode="fit"]' in refit
+    observer = _extract_js_function(source, "ensureDiagramRefitObserver")
+    assert "diagramRefitObserver.observe(dom.messageList)" in observer
+    assert "ensureDiagramRefitObserver();" in _extract_js_function(source, "renderMermaidComponent"), "bound on the first drawn diagram, not at script load"
+
+
+def test_lightbox_offers_full_screen_tab_and_exports_and_closes_on_escape():
+    source = _chat_ui()
+    box = _extract_js_function(source, "ensureDiagramLightbox")
+    for hook in ("data-lightbox-fullscreen", "data-lightbox-open-tab", 'data-lightbox-download="svg"', 'data-lightbox-download="png"', "data-lightbox-copy-png", "data-lightbox-copy-source", "data-lightbox-close"):
+        assert hook in box, hook
+    assert 'event.key === "Escape"' in box
+    assert "requestFullscreen" in _extract_js_function(source, "toggleDiagramFullscreen")
+    assert "URL.createObjectURL" in _extract_js_function(source, "triggerDiagramDownload")
+    # Exports draw with SVG text labels: HTML labels taint the canvas and travel badly.
+    export = _extract_js_function(source, "renderMermaidSvg")
+    assert "htmlLabels: false" in export
+    png = _extract_js_function(source, "downloadDiagram")
+    assert 'downloadDiagram("svg")' in png, "a failed PNG export falls back to the SVG"
+    css = _read("app/static/css/app.css")
+    assert ".message-diagram-lightbox { position: fixed; inset: 0; z-index: 1100; }" in css
+    assert ":fullscreen .message-diagram-lightbox-panel" in css

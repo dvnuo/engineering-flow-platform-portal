@@ -4745,10 +4745,29 @@ function enhanceMarkdownBlock(root) {
 // <meta name="portal-mermaid-src"> in base.html carries its versioned URL.
 // Rendered SVG is cached per theme + source because renderMarkdown rebuilds a
 // message's innerHTML on every pass and would otherwise lay the graph out again.
+//
+// Sizing: mermaid draws at a natural pixel size and, left alone, shrinks the
+// whole SVG to the column, which turns a wide flowchart into unreadable text.
+// Every viewport (the inline canvas, the lightbox) therefore gets an explicit
+// scale: Fit to the column, or a zoom the reader chose, with scrolling and
+// drag-to-pan for whatever does not fit.
 const mermaidSvgCache = new Map();
 let mermaidLoadPromise = null;
 let mermaidRenderSeq = 0;
 let mermaidInitializedTheme = "";
+let diagramInsertSeq = 0;
+// Below this fit ratio a column-fitted diagram is unreadable, so it opens at
+// natural size with a scrollbar instead.
+const DIAGRAM_FIT_THRESHOLD = 0.7;
+const DIAGRAM_ZOOM_STEP = 1.25;
+const DIAGRAM_ZOOM_MIN = 0.1;
+const DIAGRAM_ZOOM_MAX = 8;
+// Fit in the lightbox may enlarge a small diagram, but not into a poster.
+const DIAGRAM_LIGHTBOX_FIT_MAX = 2.5;
+const DIAGRAM_PNG_MAX_PIXELS = 16e6;
+let diagramLightbox = null;
+let diagramLightboxState = null;
+let diagramRefitTimer = 0;
 
 function normalizeFenceLanguage(lang) {
   const first = String(lang || "").trim().split(/\s+/)[0] || "";
@@ -4781,6 +4800,261 @@ function diagramErrorSummary(error) {
   return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 }
 
+// ----- pure sizing helpers (covered by tests/test_chat_mermaid_node.py) -----
+
+// Natural pixel size of a mermaid SVG: the viewBox is authoritative, the
+// width/height attributes are a fallback, and mermaid's width="100%" is not a size.
+function parseSvgNaturalSize(viewBox, widthAttr, heightAttr) {
+  const parts = String(viewBox || "").trim().split(/[\s,]+/).map(Number);
+  if (parts.length === 4 && parts.every((n) => Number.isFinite(n)) && parts[2] > 0 && parts[3] > 0) {
+    return { width: parts[2], height: parts[3] };
+  }
+  const pixels = (value) => {
+    const text = String(value ?? "").trim();
+    return /^\d+(\.\d+)?(px)?$/.test(text) ? parseFloat(text) : NaN;
+  };
+  const width = pixels(widthAttr);
+  const height = pixels(heightAttr);
+  if (width > 0 && height > 0) return { width, height };
+  return null;
+}
+
+function clampDiagramScale(scale) {
+  const value = Number(scale);
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  return Math.min(DIAGRAM_ZOOM_MAX, Math.max(DIAGRAM_ZOOM_MIN, value));
+}
+
+function formatZoomPercent(scale) {
+  return `${Math.round(clampDiagramScale(scale) * 100)}%`;
+}
+
+// How a freshly drawn diagram opens in the column: fitted, unless fitting would
+// shrink it below the readable threshold, in which case natural size and a
+// scrollbar. Inline fit never enlarges.
+function defaultDiagramScale(fitScale) {
+  const fit = Number(fitScale);
+  if (!Number.isFinite(fit) || fit <= 0 || fit >= 1) return { mode: "fit", scale: 1 };
+  if (fit >= DIAGRAM_FIT_THRESHOLD) return { mode: "fit", scale: fit };
+  return { mode: "custom", scale: 1 };
+}
+
+// A cached SVG carries its render id in element ids, <style> selectors and
+// marker url(#...) references. Two copies with one id in a document (the same
+// diagram twice, or the lightbox next to the inline canvas) share markers, and
+// a hidden first copy takes the arrowheads with it, so each insert gets its own.
+function withFreshSvgId(entry, freshId) {
+  const svg = String(entry?.svg || "");
+  const id = String(entry?.id || "");
+  if (!id) return svg;
+  return svg.split(id).join(freshId);
+}
+
+function diagramExportFilename(source, extension) {
+  const first = String(source || "").trim().split(/\s+/)[0] || "";
+  const kind = first.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "diagram";
+  return `mermaid-${kind}.${extension}`;
+}
+
+function diagramTitle(source) {
+  return String(source || "").split("\n").map((line) => line.trim()).find((line) => line) || "Diagram";
+}
+
+// ----- viewports: the inline canvas and the lightbox share this -------------
+
+function diagramViewportSvg(viewport) {
+  return viewport?.querySelector?.("svg") || null;
+}
+
+function diagramZoomRoot(viewport) {
+  return viewport?.closest?.(".message-diagram, .message-diagram-lightbox") || null;
+}
+
+function diagramNaturalSize(viewport) {
+  const svg = diagramViewportSvg(viewport);
+  if (!svg) return null;
+  const cachedWidth = Number(viewport.dataset.naturalWidth);
+  const cachedHeight = Number(viewport.dataset.naturalHeight);
+  if (cachedWidth > 0 && cachedHeight > 0) return { width: cachedWidth, height: cachedHeight };
+  let size = parseSvgNaturalSize(svg.getAttribute("viewBox"), svg.getAttribute("width"), svg.getAttribute("height"));
+  if (!size) {
+    try {
+      const box = svg.getBBox();
+      if (box.width > 0 && box.height > 0) size = { width: box.width, height: box.height };
+    } catch (error) {
+      /* detached or unsupported */
+    }
+  }
+  if (!size) return null;
+  viewport.dataset.naturalWidth = String(size.width);
+  viewport.dataset.naturalHeight = String(size.height);
+  return size;
+}
+
+function diagramFitScale(viewport, { both = false } = {}) {
+  const size = diagramNaturalSize(viewport);
+  if (!size) return 1;
+  const style = getComputedStyle(viewport);
+  const padX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  const padY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+  const availableWidth = Math.max(0, viewport.clientWidth - padX);
+  if (!availableWidth) return 1;
+  let fit = availableWidth / size.width;
+  if (both) {
+    const availableHeight = Math.max(0, viewport.clientHeight - padY);
+    if (availableHeight) fit = Math.min(fit, availableHeight / size.height);
+  }
+  return fit;
+}
+
+function applyDiagramScale(viewport, scale, mode) {
+  const svg = diagramViewportSvg(viewport);
+  const size = diagramNaturalSize(viewport);
+  if (!svg || !size) return;
+  const value = clampDiagramScale(scale);
+  // mermaid pins max-width to the natural width and width to 100%; explicit
+  // pixel sizes plus the viewBox scale the drawing, text included.
+  svg.style.maxWidth = "none";
+  svg.style.width = `${Math.round(size.width * value)}px`;
+  svg.style.height = `${Math.round(size.height * value)}px`;
+  viewport.dataset.zoomScale = String(value);
+  viewport.dataset.zoomMode = mode === "fit" ? "fit" : "custom";
+  viewport.classList.toggle("is-pannable", viewport.scrollWidth > viewport.clientWidth || viewport.scrollHeight > viewport.clientHeight);
+}
+
+function syncDiagramZoomControls(viewport) {
+  const root = diagramZoomRoot(viewport);
+  if (!root) return;
+  const scale = Number(viewport.dataset.zoomScale) || 1;
+  const level = root.querySelector(".message-diagram-zoom-level");
+  if (level) level.textContent = formatZoomPercent(scale);
+  const fit = root.querySelector('[data-diagram-zoom="fit"]');
+  if (fit) fit.classList.toggle("is-active", viewport.dataset.zoomMode === "fit");
+  const out = root.querySelector('[data-diagram-zoom="out"]');
+  if (out) out.disabled = scale <= DIAGRAM_ZOOM_MIN + 1e-6;
+  const zoomIn = root.querySelector('[data-diagram-zoom="in"]');
+  if (zoomIn) zoomIn.disabled = scale >= DIAGRAM_ZOOM_MAX - 1e-6;
+}
+
+// Zoom around an anchor (the cursor for wheel zoom, the centre for buttons) so
+// the point under the pointer stays put.
+function setDiagramZoom(viewport, scale, mode, anchor = null) {
+  const before = Number(viewport.dataset.zoomScale) || 1;
+  const rect = viewport.getBoundingClientRect();
+  const anchorX = anchor ? anchor.x - rect.left : viewport.clientWidth / 2;
+  const anchorY = anchor ? anchor.y - rect.top : viewport.clientHeight / 2;
+  const contentX = viewport.scrollLeft + anchorX;
+  const contentY = viewport.scrollTop + anchorY;
+  applyDiagramScale(viewport, scale, mode);
+  const after = Number(viewport.dataset.zoomScale) || 1;
+  const ratio = after / before;
+  viewport.scrollLeft = contentX * ratio - anchorX;
+  viewport.scrollTop = contentY * ratio - anchorY;
+  syncDiagramZoomControls(viewport);
+}
+
+function zoomDiagram(viewport, factor, anchor = null) {
+  const current = Number(viewport.dataset.zoomScale) || 1;
+  setDiagramZoom(viewport, current * factor, "custom", anchor);
+}
+
+function fitDiagram(viewport, { both = false, allowUpscale = false } = {}) {
+  let fit = diagramFitScale(viewport, { both });
+  fit = allowUpscale ? Math.min(DIAGRAM_LIGHTBOX_FIT_MAX, fit) : Math.min(1, fit);
+  applyDiagramScale(viewport, fit, "fit");
+  viewport.scrollLeft = 0;
+  viewport.scrollTop = 0;
+  syncDiagramZoomControls(viewport);
+}
+
+function handleDiagramZoomAction(viewport, action, fitOptions = {}) {
+  if (!diagramViewportSvg(viewport)) return;
+  if (action === "in") zoomDiagram(viewport, DIAGRAM_ZOOM_STEP);
+  else if (action === "out") zoomDiagram(viewport, 1 / DIAGRAM_ZOOM_STEP);
+  else if (action === "reset") setDiagramZoom(viewport, 1, "custom");
+  else if (action === "fit") fitDiagram(viewport, fitOptions);
+}
+
+// Ctrl/⌘ + wheel zooms around the cursor; a plain wheel keeps scrolling. Drag
+// pans whatever overflows, with pointer capture so a fast drag past the edge
+// keeps working.
+function bindDiagramViewport(viewport) {
+  if (!viewport || viewport.dataset.boundViewport === "1") return;
+  viewport.dataset.boundViewport = "1";
+  viewport.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    if (!diagramViewportSvg(viewport)) return;
+    event.preventDefault();
+    zoomDiagram(viewport, event.deltaY < 0 ? DIAGRAM_ZOOM_STEP : 1 / DIAGRAM_ZOOM_STEP, { x: event.clientX, y: event.clientY });
+  }, { passive: false });
+  let drag = null;
+  viewport.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.pointerType === "touch") return;
+    if (!(viewport.scrollWidth > viewport.clientWidth || viewport.scrollHeight > viewport.clientHeight)) return;
+    if (event.target instanceof Element && event.target.closest("a, button")) return;
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+    try { viewport.setPointerCapture(event.pointerId); } catch (error) { /* capture is best effort */ }
+    viewport.classList.add("is-panning");
+    event.preventDefault();
+  });
+  viewport.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    viewport.scrollLeft = drag.left - (event.clientX - drag.x);
+    viewport.scrollTop = drag.top - (event.clientY - drag.y);
+  });
+  const endDrag = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    drag = null;
+    viewport.classList.remove("is-panning");
+    try { viewport.releasePointerCapture(event.pointerId); } catch (error) { /* already released */ }
+  };
+  viewport.addEventListener("pointerup", endDrag);
+  viewport.addEventListener("pointercancel", endDrag);
+}
+
+// Column width changes (tool panel pinned, window resized) refit every diagram
+// that is still in Fit mode; a chosen zoom is left alone.
+function refitDiagramViewports() {
+  document.querySelectorAll('.message-diagram-canvas[data-zoom-mode="fit"]').forEach((canvas) => {
+    if (canvas.hidden || !canvas.isConnected) return;
+    applyDiagramScale(canvas, Math.min(1, diagramFitScale(canvas)), "fit");
+    syncDiagramZoomControls(canvas);
+  });
+  const lightboxViewport = diagramLightbox && !diagramLightbox.hidden ? diagramLightbox.querySelector(".message-diagram-lightbox-viewport") : null;
+  if (lightboxViewport && lightboxViewport.dataset.zoomMode === "fit") fitDiagram(lightboxViewport, { both: true, allowUpscale: true });
+}
+
+function scheduleDiagramRefit() {
+  clearTimeout(diagramRefitTimer);
+  diagramRefitTimer = setTimeout(() => {
+    diagramRefitTimer = 0;
+    refitDiagramViewports();
+  }, 120);
+}
+
+window.addEventListener("resize", scheduleDiagramRefit);
+let diagramRefitObserver = null;
+
+// Bound on the first drawn diagram rather than at load: the transcript element
+// may not exist yet when this script is evaluated, and no diagram means no
+// refit to schedule.
+function ensureDiagramRefitObserver() {
+  if (diagramRefitObserver || typeof ResizeObserver !== "function" || !dom.messageList) return;
+  diagramRefitObserver = new ResizeObserver(scheduleDiagramRefit);
+  diagramRefitObserver.observe(dom.messageList);
+}
+
+function buildDiagramZoomControlsHtml() {
+  return (
+    '<div class="message-diagram-zoom" role="group" aria-label="Zoom">'
+    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="out" title="Zoom out" aria-label="Zoom out">−</button>'
+    + '<button type="button" class="message-diagram-zoom-level" data-diagram-zoom="reset" title="Reset to 100%">100%</button>'
+    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
+    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="fit" title="Fit to width">Fit</button>'
+    + '</div>'
+  );
+}
+
 function buildDiagramToolbarHtml() {
   return (
     '<div class="message-codeblock-toolbar message-diagram-toolbar">'
@@ -4790,6 +5064,8 @@ function buildDiagramToolbarHtml() {
     + '<button type="button" class="message-diagram-switch-btn" data-diagram-view="diagram" aria-pressed="false" disabled>Diagram</button>'
     + '<button type="button" class="message-diagram-switch-btn is-active" data-diagram-view="code" aria-pressed="true">Code</button>'
     + '</div>'
+    + buildDiagramZoomControlsHtml()
+    + '<button type="button" class="message-diagram-tool message-diagram-expand" data-diagram-expand title="Open large: zoom, full screen, download">Expand</button>'
     + '<button type="button" class="message-codeblock-copy message-diagram-copy" title="Copy Mermaid source">Copy</button>'
     + '</div>'
     + '</div>'
@@ -4870,6 +5146,15 @@ function buildDiagramFixButton(component, message) {
   return button;
 }
 
+function flashCopied(button, idleLabel) {
+  button.textContent = "Copied";
+  button.classList.add("is-copied");
+  window.setTimeout(() => {
+    button.textContent = idleLabel;
+    button.classList.remove("is-copied");
+  }, 1400);
+}
+
 // Wraps a <pre><code class="language-mermaid"> in the diagram component. The
 // component starts on the Code view with Diagram disabled; renderMermaidDiagrams
 // flips it once the SVG exists, so a half-streamed fence never shows a blank box.
@@ -4885,24 +5170,24 @@ function buildDiagramComponent(code) {
   pre.parentNode.insertBefore(component, pre);
   pre.classList.add("message-diagram-source");
   component.appendChild(pre);
+  const canvas = component.querySelector(".message-diagram-canvas");
+  bindDiagramViewport(canvas);
   component.querySelectorAll("[data-diagram-view]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.disabled) return;
       setDiagramView(component, button.dataset.diagramView);
     });
   });
+  component.querySelectorAll("[data-diagram-zoom]").forEach((button) => {
+    button.addEventListener("click", () => handleDiagramZoomAction(canvas, button.dataset.diagramZoom));
+  });
+  component.querySelector("[data-diagram-expand]")?.addEventListener("click", () => openDiagramLightbox(component));
   const copyButton = component.querySelector(".message-diagram-copy");
   copyButton?.addEventListener("click", async () => {
     // Always the Mermaid source, whichever view is showing: that is what pastes
     // into a README, a pull request, or Gliffy's Mermaid import.
     const copied = await copyText(diagramSource(component));
-    if (!copied) return;
-    copyButton.textContent = "Copied";
-    copyButton.classList.add("is-copied");
-    window.setTimeout(() => {
-      copyButton.textContent = "Copy";
-      copyButton.classList.remove("is-copied");
-    }, 1400);
+    if (copied) flashCopied(copyButton, "Copy");
   });
   return component;
 }
@@ -4935,9 +5220,8 @@ function ensureMermaidLoaded() {
   return mermaidLoadPromise;
 }
 
-function configureMermaid(mermaid, theme) {
-  if (mermaidInitializedTheme === theme) return;
-  mermaid.initialize({
+function mermaidBaseConfig(theme) {
+  return {
     startOnLoad: false,
     // strict encodes HTML in labels and disables click handlers. The source
     // comes from the model, so never loosen it.
@@ -4947,31 +5231,56 @@ function configureMermaid(mermaid, theme) {
     suppressErrorRendering: true,
     theme,
     fontFamily: "inherit",
-  });
+  };
+}
+
+function configureMermaid(mermaid, theme) {
+  if (mermaidInitializedTheme === theme) return;
+  mermaid.initialize(mermaidBaseConfig(theme));
   mermaidInitializedTheme = theme;
+}
+
+// Draw (or fetch from cache) one diagram. The exportable variant uses SVG text
+// labels instead of HTML <foreignObject> labels: a browser refuses to export a
+// canvas that drew a foreignObject, and other tools open plain SVG text more
+// reliably, so downloads and images come from this variant.
+async function renderMermaidSvg(mermaid, theme, source, { exportable = false } = {}) {
+  const key = mermaidCacheKey(theme, source) + (exportable ? "\nexport" : "");
+  const cached = mermaidSvgCache.get(key);
+  if (cached) return cached;
+  if (exportable) {
+    mermaid.initialize({ ...mermaidBaseConfig(theme), htmlLabels: false, flowchart: { htmlLabels: false }, class: { htmlLabels: false } });
+    mermaidInitializedTheme = "";
+  } else {
+    configureMermaid(mermaid, theme);
+  }
+  mermaidRenderSeq += 1;
+  const id = `portal-mermaid-${mermaidRenderSeq}`;
+  const result = await mermaid.render(id, source);
+  const svg = String(result?.svg || "");
+  if (!svg) throw new Error("the renderer produced no output");
+  const entry = { id, svg };
+  mermaidSvgCache.set(key, entry);
+  return entry;
 }
 
 async function renderMermaidComponent(mermaid, component, theme) {
   const source = diagramSource(component);
-  const key = mermaidCacheKey(theme, source);
-  let svg = mermaidSvgCache.get(key) || "";
-  if (!svg) {
-    try {
-      mermaidRenderSeq += 1;
-      const result = await mermaid.render(`portal-mermaid-${mermaidRenderSeq}`, source);
-      svg = String(result?.svg || "");
-      if (!svg) throw new Error("the renderer produced no output");
-      mermaidSvgCache.set(key, svg);
-    } catch (error) {
-      if (component.isConnected) setDiagramError(component, diagramErrorSummary(error));
-      return;
-    }
+  let entry;
+  try {
+    entry = await renderMermaidSvg(mermaid, theme, source);
+  } catch (error) {
+    if (component.isConnected) setDiagramError(component, diagramErrorSummary(error));
+    return;
   }
   // renderMarkdown may have rebuilt the transcript while the graph was laid out.
   if (!component.isConnected) return;
   const canvas = component.querySelector(".message-diagram-canvas");
   if (!canvas) return;
-  canvas.innerHTML = svg;
+  diagramInsertSeq += 1;
+  canvas.innerHTML = withFreshSvgId(entry, `portal-mermaid-view-${diagramInsertSeq}`);
+  delete canvas.dataset.naturalWidth;
+  delete canvas.dataset.naturalHeight;
   component.dataset.diagramState = "rendered";
   component.dataset.diagramTheme = theme;
   const status = component.querySelector(".message-diagram-status");
@@ -4981,7 +5290,12 @@ async function renderMermaidComponent(mermaid, component, theme) {
   }
   const diagramButton = component.querySelector('[data-diagram-view="diagram"]');
   if (diagramButton) diagramButton.disabled = false;
+  // The canvas has to be visible before its width can be measured for Fit.
   setDiagramView(component, "diagram");
+  ensureDiagramRefitObserver();
+  const choice = defaultDiagramScale(diagramFitScale(canvas));
+  applyDiagramScale(canvas, choice.scale, choice.mode);
+  syncDiagramZoomControls(canvas);
 }
 
 async function renderMermaidDiagrams(scope = document) {
@@ -5024,6 +5338,263 @@ function rerenderMermaidDiagrams(scope = document) {
     }
   });
   if (stale) renderMermaidDiagrams(scope);
+  if (diagramLightboxState?.component && diagramLightbox && !diagramLightbox.hidden) closeDiagramLightbox();
+}
+
+// ----- lightbox: large view, full screen, open in tab, SVG / PNG ------------
+
+function ensureDiagramLightbox() {
+  if (diagramLightbox) return diagramLightbox;
+  const box = document.createElement("div");
+  box.className = "message-diagram-lightbox";
+  box.hidden = true;
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-label", "Diagram");
+  box.innerHTML = (
+    '<div class="message-diagram-lightbox-backdrop" data-lightbox-close></div>'
+    + '<div class="message-diagram-lightbox-panel">'
+    + '<div class="message-diagram-lightbox-toolbar">'
+    + '<span class="message-diagram-lightbox-title">Diagram</span>'
+    + '<div class="message-diagram-actions">'
+    + buildDiagramZoomControlsHtml()
+    + '<button type="button" class="message-diagram-tool" data-lightbox-fullscreen title="Full screen (F)">Full screen</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-open-tab title="Open the SVG in a new tab">Open in tab</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-download="svg" title="Download as SVG">SVG</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-download="png" title="Download as PNG">PNG</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-copy-png title="Copy as an image for Slack or slides">Copy PNG</button>'
+    + '<button type="button" class="message-codeblock-copy message-diagram-copy" data-lightbox-copy-source title="Copy Mermaid source">Copy source</button>'
+    + '<button type="button" class="message-diagram-tool message-diagram-lightbox-close" data-lightbox-close title="Close (Esc)" aria-label="Close">×</button>'
+    + '</div>'
+    + '</div>'
+    + '<div class="message-diagram-lightbox-viewport" tabindex="0" aria-label="Diagram, drag to pan, Ctrl + wheel to zoom"></div>'
+    + '</div>'
+  );
+  document.body.appendChild(box);
+  const viewport = box.querySelector(".message-diagram-lightbox-viewport");
+  bindDiagramViewport(viewport);
+  box.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("[data-lightbox-close]")) { closeDiagramLightbox(); return; }
+    const zoom = target.closest("[data-diagram-zoom]");
+    if (zoom) { handleDiagramZoomAction(viewport, zoom.dataset.diagramZoom, { both: true, allowUpscale: true }); return; }
+    if (target.closest("[data-lightbox-fullscreen]")) { toggleDiagramFullscreen(); return; }
+    if (target.closest("[data-lightbox-open-tab]")) { openDiagramInTab(); return; }
+    const download = target.closest("[data-lightbox-download]");
+    if (download) { downloadDiagram(download.dataset.lightboxDownload); return; }
+    if (target.closest("[data-lightbox-copy-png]")) { copyDiagramPng(target.closest("[data-lightbox-copy-png]")); return; }
+    const copySource = target.closest("[data-lightbox-copy-source]");
+    if (copySource) {
+      copyText(diagramSource(diagramLightboxState?.component)).then((copied) => { if (copied) flashCopied(copySource, "Copy source"); });
+    }
+  });
+  box.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); closeDiagramLightbox(); return; }
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    const actions = { "+": "in", "=": "in", "-": "out", "0": "fit", "1": "reset" };
+    const action = actions[event.key];
+    if (action) { event.preventDefault(); handleDiagramZoomAction(viewport, action, { both: true, allowUpscale: true }); return; }
+    if (event.key === "f" || event.key === "F") { event.preventDefault(); toggleDiagramFullscreen(); }
+  });
+  document.addEventListener("fullscreenchange", () => {
+    const active = document.fullscreenElement === box;
+    box.classList.toggle("is-fullscreen", active);
+    const button = box.querySelector("[data-lightbox-fullscreen]");
+    if (button) button.textContent = active ? "Exit full screen" : "Full screen";
+    scheduleDiagramRefit();
+  });
+  diagramLightbox = box;
+  return box;
+}
+
+function openDiagramLightbox(component) {
+  if (!component || component.dataset.diagramState !== "rendered") return;
+  const theme = component.dataset.diagramTheme || currentMermaidTheme();
+  const source = diagramSource(component);
+  const entry = mermaidSvgCache.get(mermaidCacheKey(theme, source));
+  if (!entry) return;
+  const box = ensureDiagramLightbox();
+  const viewport = box.querySelector(".message-diagram-lightbox-viewport");
+  viewport.innerHTML = withFreshSvgId(entry, "portal-mermaid-lightbox");
+  delete viewport.dataset.naturalWidth;
+  delete viewport.dataset.naturalHeight;
+  box.querySelector(".message-diagram-lightbox-title").textContent = diagramTitle(source);
+  diagramLightboxState = { component, theme, source, restoreFocus: document.activeElement };
+  box.hidden = false;
+  document.body.classList.add("has-diagram-lightbox");
+  fitDiagram(viewport, { both: true, allowUpscale: true });
+  viewport.focus({ preventScroll: true });
+}
+
+function closeDiagramLightbox() {
+  if (!diagramLightbox || diagramLightbox.hidden) return;
+  if (document.fullscreenElement === diagramLightbox && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+  diagramLightbox.hidden = true;
+  document.body.classList.remove("has-diagram-lightbox");
+  const restore = diagramLightboxState?.restoreFocus;
+  diagramLightboxState = null;
+  if (restore && typeof restore.focus === "function" && restore.isConnected) restore.focus({ preventScroll: true });
+}
+
+function toggleDiagramFullscreen() {
+  const box = diagramLightbox;
+  if (!box || box.hidden) return;
+  if (document.fullscreenElement === box) {
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    return;
+  }
+  const request = box.requestFullscreen || box.webkitRequestFullscreen;
+  if (typeof request !== "function") {
+    showToast("Full screen is not available in this browser");
+    return;
+  }
+  // Browsers report a refusal either as a rejected promise or, in embedded
+  // views without the permission, by throwing; both end in the same toast.
+  let outcome;
+  try {
+    outcome = Promise.resolve(request.call(box));
+  } catch (error) {
+    outcome = Promise.reject(error);
+  }
+  outcome.catch(() => showToast("The browser blocked full screen", { variant: "error" }));
+}
+
+function portalSurfaceColor(theme) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue("--portal-surface").trim();
+  return value || (theme === "dark" ? "#111827" : "#ffffff");
+}
+
+// A standalone copy of an SVG: natural pixel size instead of mermaid's 100%,
+// a real font stack instead of "inherit", and the page's surface colour so a
+// dark-theme diagram does not land on a white canvas.
+function standaloneSvgText(svgMarkup, theme) {
+  const holder = document.createElement("div");
+  holder.innerHTML = svgMarkup;
+  const svg = holder.querySelector("svg");
+  if (!svg) return "";
+  const size = parseSvgNaturalSize(svg.getAttribute("viewBox"), svg.getAttribute("width"), svg.getAttribute("height"));
+  svg.removeAttribute("style");
+  if (size) {
+    svg.setAttribute("width", String(Math.round(size.width)));
+    svg.setAttribute("height", String(Math.round(size.height)));
+  }
+  if (!svg.getAttribute("xmlns")) svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  svg.style.backgroundColor = portalSurfaceColor(theme);
+  const text = new XMLSerializer().serializeToString(svg)
+    .replace(/font-family:\s*inherit/g, "font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${text}`;
+}
+
+async function exportableDiagramSvg() {
+  const state = diagramLightboxState;
+  if (!state) throw new Error("no diagram is open");
+  const mermaid = await ensureMermaidLoaded();
+  const entry = await renderMermaidSvg(mermaid, state.theme, state.source, { exportable: true });
+  const text = standaloneSvgText(entry.svg, state.theme);
+  if (!text) throw new Error("the diagram could not be exported");
+  const holder = document.createElement("div");
+  holder.innerHTML = entry.svg;
+  const svg = holder.querySelector("svg");
+  const size = svg ? parseSvgNaturalSize(svg.getAttribute("viewBox"), svg.getAttribute("width"), svg.getAttribute("height")) : null;
+  return { text, size: size || { width: 1200, height: 800 } };
+}
+
+function triggerDiagramDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function openDiagramInTab() {
+  try {
+    const { text } = await exportableDiagramSvg();
+    const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml;charset=utf-8" }));
+    const opened = window.open(url, "_blank", "noopener");
+    if (!opened) showToast("The browser blocked the new tab; allow pop-ups for Portal", { variant: "error" });
+    // The tab has loaded long before this; a later reload of it would need a fresh copy.
+    window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
+  } catch (error) {
+    showToast(`Could not open the diagram: ${diagramErrorSummary(error)}`, { variant: "error" });
+  }
+}
+
+async function diagramPngBlob() {
+  const { text, size } = await exportableDiagramSvg();
+  const state = diagramLightboxState;
+  // Twice the natural size for crisp text, within what a canvas will still hold.
+  const ratio = Math.max(1, Math.min(2, Math.sqrt(DIAGRAM_PNG_MAX_PIXELS / (size.width * size.height))));
+  const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml;charset=utf-8" }));
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("the SVG could not be rasterised"));
+      image.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(size.width * ratio));
+    canvas.height = Math.max(1, Math.round(size.height * ratio));
+    const context = canvas.getContext("2d");
+    context.fillStyle = portalSurfaceColor(state?.theme);
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve, reject) => {
+      try {
+        canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("the browser produced no image"))), "image/png");
+      } catch (error) {
+        reject(new Error("the browser refused to export this diagram as an image"));
+      }
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function downloadDiagram(format) {
+  const state = diagramLightboxState;
+  if (!state) return;
+  try {
+    if (format === "png") {
+      const blob = await diagramPngBlob();
+      triggerDiagramDownload(blob, diagramExportFilename(state.source, "png"));
+      return;
+    }
+    const { text } = await exportableDiagramSvg();
+    triggerDiagramDownload(new Blob([text], { type: "image/svg+xml;charset=utf-8" }), diagramExportFilename(state.source, "svg"));
+  } catch (error) {
+    if (format === "png") {
+      // Some diagram types keep HTML labels, which taint the canvas; the SVG
+      // still carries everything.
+      showToast(`PNG export failed (${diagramErrorSummary(error)}); downloading the SVG instead`, { variant: "error" });
+      downloadDiagram("svg");
+      return;
+    }
+    showToast(`Could not export the diagram: ${diagramErrorSummary(error)}`, { variant: "error" });
+  }
+}
+
+async function copyDiagramPng(button) {
+  if (!diagramLightboxState) return;
+  if (typeof ClipboardItem !== "function" || !navigator.clipboard?.write) {
+    showToast("This browser cannot copy images; download the PNG instead");
+    return;
+  }
+  try {
+    const blob = await diagramPngBlob();
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    if (button) flashCopied(button, "Copy PNG");
+  } catch (error) {
+    showToast(`Could not copy the image: ${diagramErrorSummary(error)}`, { variant: "error" });
+  }
 }
 
 function renderMarkdown(scope = document, { highlight = true } = {}) {
