@@ -1184,31 +1184,61 @@ function ensureChatSessionId(agentId = state.selectedAgentId) {
   return sessionId;
 }
 
-const SUPPORTED_UPLOAD_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/csv",
-  "text/plain",
-]);
-
-const SUPPORTED_UPLOAD_EXTENSIONS = new Set([
+// ===== Chat upload policy =====
+// Which files the composer accepts. The server renders the configured
+// allowlist (Settings.chat_upload_extensions / EFP_CHAT_UPLOAD_EXTENSIONS) and
+// the size cap (EFP_MAX_UPLOAD_MB) into #upload-input's data-chat-upload-policy
+// attribute; the literal below is only the fallback for a page without it.
+const DEFAULT_UPLOAD_EXTENSIONS = new Set([
   "jpg", "jpeg", "png", "webp", "gif",
   "pdf", "docx", "xlsx", "csv", "txt",
 ]);
 
-const AUTO_PARSE_EXTENSIONS = new Set(["pdf", "docx", "xlsx", "csv", "txt"]);
-const AUTO_PARSE_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/csv",
-  "text/plain",
-]);
+// Sent to the model as images; every other allowed extension is text.
+const IMAGE_UPLOAD_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
+
+let cachedChatUploadPolicy = null;
+
+function normalizeUploadPolicyList(values) {
+  const normalized = new Set();
+  for (const value of Array.isArray(values) ? values : []) {
+    const token = String(value || "").trim().toLowerCase().replace(/^\.+/, "");
+    if (token) normalized.add(token);
+  }
+  return normalized;
+}
+
+function readChatUploadPolicyFromDom() {
+  if (typeof document === "undefined") return null;
+  const raw = document.getElementById("upload-input")?.dataset?.chatUploadPolicy || "";
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const extensions = normalizeUploadPolicyList(parsed?.extensions);
+    if (!extensions.size) return null;
+    const maxUploadMb = Number(parsed?.max_upload_mb);
+    return {
+      extensions,
+      maxUploadMb: Number.isFinite(maxUploadMb) && maxUploadMb > 0 ? maxUploadMb : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getChatUploadPolicy() {
+  if (!cachedChatUploadPolicy) {
+    cachedChatUploadPolicy = readChatUploadPolicyFromDom() || {
+      extensions: new Set(DEFAULT_UPLOAD_EXTENSIONS),
+      maxUploadMb: null,
+    };
+  }
+  return cachedChatUploadPolicy;
+}
+
+function describeChatUploadPolicy() {
+  return Array.from(getChatUploadPolicy().extensions).join(", ");
+}
 
 function fileExtensionFromName(name) {
   const normalized = String(name || "").trim().toLowerCase();
@@ -1217,22 +1247,55 @@ function fileExtensionFromName(name) {
 }
 
 function isRuntimeSupportedUpload(file) {
-  // Upload allowlist accepts either explicit MIME from browser or filename extension fallback.
+  // The extension decides, exactly as the Portal proxy and the runtime judge
+  // it; a name without an extension is refused on both ends too.
   if (!file) return false;
-  const mime = String(file.type || "").toLowerCase();
   const ext = fileExtensionFromName(file.name);
-  if (SUPPORTED_UPLOAD_MIME_TYPES.has(mime)) return true;
-  return SUPPORTED_UPLOAD_EXTENSIONS.has(ext);
+  return !!ext && getChatUploadPolicy().extensions.has(ext);
+}
+
+function uploadTooLargeMessage(file) {
+  const policy = getChatUploadPolicy();
+  if (!policy.maxUploadMb || !file || typeof file.size !== "number") return "";
+  if (file.size <= policy.maxUploadMb * 1024 * 1024) return "";
+  const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+  return `File too large: ${file.name} (${sizeMb} MB). Maximum size is ${policy.maxUploadMb}MB.`;
 }
 
 function shouldAutoParseUploadedFile(pf, uploadedData) {
-  // Auto-parse is intentionally document-only (never image/*), and allows MIME-or-extension matching.
+  // Auto-parse is intentionally document-only (never image/*): every non-image
+  // the runtime accepted is projected to text before the message is sent.
   const fromData = String(uploadedData?.content_type || "").toLowerCase();
   const fromPf = String(pf?.file?.type || "").toLowerCase();
   const mime = fromData || fromPf;
   if (mime.startsWith("image/")) return false;
   const ext = fileExtensionFromName(uploadedData?.filename || pf?.name || pf?.file?.name || "");
-  return AUTO_PARSE_MIME_TYPES.has(mime) || AUTO_PARSE_EXTENSIONS.has(ext);
+  if (!mime && IMAGE_UPLOAD_EXTENSIONS.has(ext)) return false;
+  return true;
+}
+
+function uploadErrorMessageFromXhr(xhr) {
+  // The Portal proxy answers with FastAPI {"detail"}; the runtime with
+  // {"success": false, "error"}. Surface the words, not just the status.
+  const fallback = "HTTP " + xhr.status;
+  const raw = String(xhr.responseText || "").trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    const detail = parsed?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (Array.isArray(detail)) {
+      const items = detail
+        .map((item) => (typeof item === "string" ? item : item?.msg))
+        .filter((item) => typeof item === "string" && item.trim());
+      if (items.length) return items.join(", ");
+    }
+    if (typeof parsed?.error === "string" && parsed.error.trim()) return parsed.error.trim();
+    if (typeof parsed?.message === "string" && parsed.message.trim()) return parsed.message.trim();
+  } catch {
+    // Not JSON: fall through to the status code.
+  }
+  return fallback;
 }
 
 async function parseUploadedPendingFile(pf, agentId, sessionId) {
@@ -1257,11 +1320,16 @@ async function parseUploadedPendingFile(pf, agentId, sessionId) {
 function filterRuntimeSupportedUploads(files) {
   const accepted = [];
   for (const file of Array.from(files || [])) {
-    if (isRuntimeSupportedUpload(file)) {
-      accepted.push(file);
-    } else {
-      showToast("Unsupported file type. Supported: images, pdf, docx, xlsx, csv, txt.");
+    if (!isRuntimeSupportedUpload(file)) {
+      showToast(`Unsupported file type: ${file?.name || "file"}. Supported: ${describeChatUploadPolicy()}.`, { variant: "error" });
+      continue;
     }
+    const tooLarge = uploadTooLargeMessage(file);
+    if (tooLarge) {
+      showToast(tooLarge, { variant: "error" });
+      continue;
+    }
+    accepted.push(file);
   }
   return accepted;
 }
@@ -1488,7 +1556,7 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
           }
           resolve(data);
         } catch { reject(new Error('Invalid response')); }
-      } else { reject(new Error('HTTP ' + xhr.status)); }
+      } else { reject(new Error(uploadErrorMessageFromXhr(xhr))); }
     });
     xhr.addEventListener('error', () => { reject(new Error('Network error')); });
     xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });

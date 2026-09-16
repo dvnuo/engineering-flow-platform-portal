@@ -943,6 +943,7 @@ class K8sService:
 
     def _build_agent_container_env(self, agent=None):
         from kubernetes import client
+        from app.utils.chat_upload_policy import build_chat_upload_policy
 
         env = []
         base_url = (self.settings.portal_internal_base_url or "").strip()
@@ -986,6 +987,15 @@ class K8sService:
             env.append(client.V1EnvVar(name="EFP_WORKSPACE_DIR", value=workspace_dir))
             env.append(client.V1EnvVar(name="EFP_SKILLS_DIR", value=self._skills_assets_dir()))
             env.append(client.V1EnvVar(name="EFP_CONFIG", value=self._efp_config_path(agent)))
+            # Chat attachment contract shared with the Portal composer: the
+            # same per-file cap and the same extension allowlist, so what the
+            # file picker offers is what the runtime accepts.
+            upload_policy = build_chat_upload_policy(
+                getattr(self.settings, "chat_upload_extensions", ""),
+                getattr(self.settings, "max_upload_mb", 25),
+            )
+            env.append(client.V1EnvVar(name="EFP_MAX_UPLOAD_MB", value=str(upload_policy.max_upload_mb)))
+            env.append(client.V1EnvVar(name="EFP_CHAT_UPLOAD_EXTENSIONS", value=upload_policy.env_value))
             env.append(client.V1EnvVar(name="MOBILE_AUTO_STATE_DIR", value=self._mobile_state_dir(agent)))
             env.append(client.V1EnvVar(name="MOBILE_AUTO_ARTIFACTS_DIR", value=self._mobile_artifacts_dir(agent)))
             env.append(client.V1EnvVar(name="BROWSERSTACK_LOCAL_BINARY", value="/usr/local/bin/BrowserStackLocal"))

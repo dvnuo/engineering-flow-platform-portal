@@ -1,7 +1,16 @@
-import re
+"""The composer's upload allowlist has one source: Settings.chat_upload_extensions.
+
+The template renders it into the file picker, chat_ui.js reads it back from
+the DOM, the upload proxy enforces it and agent pods receive it as
+EFP_CHAT_UPLOAD_EXTENSIONS. These tests pin that the JS fallback and the
+default accept list still equal the historical hardcoded contract.
+"""
+
 from pathlib import Path
 
 from _js_extract_helpers import _extract_js_set_values
+
+from app.utils.chat_upload_policy import DEFAULT_CHAT_UPLOAD_EXTENSIONS, build_chat_upload_policy
 
 
 def _chat_ui_source() -> str:
@@ -12,44 +21,44 @@ def _app_template_source() -> str:
     return Path("app/templates/app.html").read_text(encoding="utf-8")
 
 
-def test_upload_accept_contract_stays_aligned_with_portal_supported_types():
+def test_js_fallback_allowlist_matches_the_portal_default():
     js = _chat_ui_source()
+
+    assert _extract_js_set_values(js, "DEFAULT_UPLOAD_EXTENSIONS") == set(DEFAULT_CHAT_UPLOAD_EXTENSIONS)
+    assert _extract_js_set_values(js, "IMAGE_UPLOAD_EXTENSIONS") == {"jpg", "jpeg", "png", "webp", "gif"}
+    # The old per-file hardcoded sets are gone: one source of truth.
+    for stale in ("SUPPORTED_UPLOAD_MIME_TYPES", "SUPPORTED_UPLOAD_EXTENSIONS", "AUTO_PARSE_EXTENSIONS", "AUTO_PARSE_MIME_TYPES"):
+        assert stale not in js
+
+
+def test_js_reads_the_policy_rendered_into_the_upload_input():
+    js = _chat_ui_source()
+
+    assert 'document.getElementById("upload-input")?.dataset?.chatUploadPolicy' in js
+    assert "function getChatUploadPolicy()" in js
+    assert "getChatUploadPolicy().extensions.has(ext)" in js
+    assert "describeChatUploadPolicy()" in js
+    assert "uploadTooLargeMessage(file)" in js
+    assert "reject(new Error(uploadErrorMessageFromXhr(xhr)))" in js
+    assert "Supported: images, pdf, docx, xlsx, csv, txt." not in js
+
+
+def test_template_renders_accept_and_policy_from_settings():
     html = _app_template_source()
-    supported_mime_types = _extract_js_set_values(js, "SUPPORTED_UPLOAD_MIME_TYPES")
-    supported_extensions = _extract_js_set_values(js, "SUPPORTED_UPLOAD_EXTENSIONS")
 
-    required_mime_types = {
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-        "image/gif",
+    assert 'accept="{{ chat_upload_policy.accept }}"' in html
+    assert 'data-chat-upload-policy="{{ chat_upload_policy_json }}"' in html
+    assert 'accept="image/jpeg' not in html
+
+
+def test_default_accept_keeps_the_historical_contract():
+    policy = build_chat_upload_policy(None, 25)
+    accept_tokens = {token.strip() for token in policy.accept.split(",") if token.strip()}
+
+    assert accept_tokens == {
+        ".jpg", ".jpeg", ".png", ".webp", ".gif",
+        ".pdf", ".docx", ".xlsx", ".csv", ".txt",
+        "image/jpeg", "image/png", "image/webp", "image/gif",
     }
-    required_extensions = {".pdf", ".docx", ".xlsx", ".csv", ".txt"}
-
-    for mime in required_mime_types:
-        assert f'"{mime}"' in js
-    for ext in required_extensions:
-        assert f'"{ext[1:]}"' in js
-
-    accept_match = re.search(r'id="upload-input"[^>]*accept="([^"]+)"', html)
-    assert accept_match, "Expected upload-input accept contract in app template"
-    accept_tokens = {token.strip() for token in accept_match.group(1).split(",") if token.strip()}
-
-    js_supported_accept_tokens = supported_mime_types | {f".{ext}" for ext in supported_extensions}
-    expected_accept_tokens = required_mime_types | required_extensions
-    assert accept_tokens == expected_accept_tokens
-    assert accept_tokens.issubset(js_supported_accept_tokens)
     assert "*" not in accept_tokens
-
-
-def test_upload_and_auto_parse_sets_stay_aligned_for_document_types():
-    js = _chat_ui_source()
-    supported_mime_types = _extract_js_set_values(js, "SUPPORTED_UPLOAD_MIME_TYPES")
-    supported_extensions = _extract_js_set_values(js, "SUPPORTED_UPLOAD_EXTENSIONS")
-    auto_parse_mime_types = _extract_js_set_values(js, "AUTO_PARSE_MIME_TYPES")
-    auto_parse_extensions = _extract_js_set_values(js, "AUTO_PARSE_EXTENSIONS")
-
-    assert auto_parse_mime_types.issubset(supported_mime_types)
-    assert auto_parse_extensions.issubset(supported_extensions)
-    assert all(not mime.startswith("image/") for mime in auto_parse_mime_types)
-    assert all(ext not in {"jpg", "jpeg", "png", "webp", "gif"} for ext in auto_parse_extensions)
+    assert policy.env_value == "jpg,jpeg,png,webp,gif,pdf,docx,xlsx,csv,txt"

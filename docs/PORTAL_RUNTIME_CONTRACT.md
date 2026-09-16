@@ -115,3 +115,10 @@ Runtime responsibility:
   - nested layout: `DEFAULT_SKILL_REPO_SUBDIR=skills`
 - `GIT_TOKEN` remains initContainer-only for asset clone and is not injected into the main runtime container by default.
 - Private business-repo checkout must be authorized by runtime-side provider/runtime-profile credentials (for example GitHub provider token), not by broad Portal/K8s git token injection into runtime.
+
+## 14) Chat attachment contract
+- The chatbox uploads each attached file to the runtime before the message is sent, then passes the returned ids in the chat request's `attachments` array. Attachments are one-shot: the runtime deletes them when the run finishes.
+- Portal routes: `POST /a/{agent_id}/api/files/upload?session_id=...` (dedicated proxy: enforces `EFP_MAX_UPLOAD_MB` and the extension allowlist before forwarding) and `GET /a/{agent_id}/api/files/{file_id}/preview`; `POST .../api/files/parse`, `GET .../api/files/{file_id}` and `DELETE .../api/files/{file_id}` go through the generic proxy.
+- Runtime routes (both runtimes): `POST /api/files/upload` (multipart `file` part → `201 {"success": true, "file_id", "filename", "content_type", "size"}`; `413` over the cap, `415` for a disallowed extension or unparseable bytes), `POST /api/files/parse` (`{"file_id"}`), `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}`, `DELETE /api/files/{file_id}`. A file bound to a session is only visible with that `session_id`.
+- The allowlist is Portal-owned: `EFP_CHAT_UPLOAD_EXTENSIONS` (default `jpg,jpeg,png,webp,gif,pdf,docx,xlsx,csv,txt`) renders the composer's file picker, is checked by the upload proxy, and is set together with `EFP_MAX_UPLOAD_MB` on every agent pod so the runtime accepts exactly the same set. Images go to the model as images; other formats are projected to text; a listed binary format the runtime cannot parse is rejected at upload (`415`).
+- A runtime that answers `404` on `/api/files/upload` predates this contract; the Portal reports that as `502` with an explicit "restart on a current runtime image" message.
