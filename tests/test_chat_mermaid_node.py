@@ -32,7 +32,7 @@ HELPERS = (
 )
 
 # Module constants the sizing helpers read; extracted so the test tracks the real values.
-CONSTANT_RE = re.compile(r"^const (DIAGRAM_FIT_THRESHOLD|DIAGRAM_ZOOM_MIN|DIAGRAM_ZOOM_MAX) = [^;]+;$", re.M)
+CONSTANT_RE = re.compile(r"^const (DIAGRAM_ZOOM_MIN|DIAGRAM_ZOOM_MAX) = [^;]+;$", re.M)
 
 
 def _node_bin() -> str:
@@ -46,7 +46,7 @@ def _node_bin() -> str:
 def test_mermaid_helpers_classify_fences_and_summarise_errors():
     src = SRC.read_text(encoding="utf-8")
     constants = CONSTANT_RE.findall(src)
-    assert len(constants) == 3, "DIAGRAM_FIT_THRESHOLD / DIAGRAM_ZOOM_MIN / DIAGRAM_ZOOM_MAX must stay top-level consts"
+    assert len(constants) == 2, "DIAGRAM_ZOOM_MIN / DIAGRAM_ZOOM_MAX must stay top-level consts"
     helpers_js = "\n".join(match.group(0) for match in CONSTANT_RE.finditer(src)) + "\n" + "\n".join(_extract_js_function(src, name) for name in HELPERS)
     script = (
         helpers_js
@@ -110,9 +110,9 @@ def test_mermaid_helpers_classify_fences_and_summarise_errors():
             assert.equal(clampDiagramScale(99), DIAGRAM_ZOOM_MAX);
             assert.equal(clampDiagramScale("nope"), 1);
             assert.equal(formatZoomPercent(0.6789), "68%");
-            // A column that shows 90% of the drawing keeps Fit; 40% is unreadable, so 100% + scroll.
+            // Always Fit, never enlarged: a wide drawing opens small and the reader zooms.
             assert.deepEqual(defaultDiagramScale(0.9), { mode: "fit", scale: 0.9 });
-            assert.deepEqual(defaultDiagramScale(DIAGRAM_FIT_THRESHOLD - 0.01), { mode: "custom", scale: 1 });
+            assert.deepEqual(defaultDiagramScale(0.24), { mode: "fit", scale: 0.24 });
             assert.deepEqual(defaultDiagramScale(1.7), { mode: "fit", scale: 1 });
             assert.deepEqual(defaultDiagramScale(NaN), { mode: "fit", scale: 1 });
 

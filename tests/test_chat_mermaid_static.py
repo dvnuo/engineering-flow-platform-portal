@@ -170,11 +170,11 @@ def test_diagram_toolbar_offers_zoom_and_expand_only_on_the_diagram_view():
     assert '.message-diagram[data-view="code"] .message-diagram-expand { display: none; }' in css
 
 
-def test_diagrams_open_fitted_unless_that_makes_them_unreadable():
+def test_diagrams_open_fitted_to_the_column():
     source = _chat_ui()
-    assert re.search(r"const DIAGRAM_FIT_THRESHOLD = 0\.[5-8]\d*;", source)
     choice = _extract_js_function(source, "defaultDiagramScale")
-    assert "DIAGRAM_FIT_THRESHOLD" in choice
+    assert 'return { mode: "fit", scale: Math.min(1, fit) };' in choice, "always Fit, never enlarged"
+    assert "DIAGRAM_FIT_THRESHOLD" not in source
     render = _extract_js_function(source, "renderMermaidComponent")
     assert "defaultDiagramScale(diagramFitScale(canvas))" in render
     scale = _extract_js_function(source, "applyDiagramScale")
