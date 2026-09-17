@@ -39,6 +39,11 @@
   async function loadPersonalization(agentId) {
     if (cache.has(agentId)) return cache.get(agentId);
     let payload = { welcome: null, cards: [] };
+    // Only a definite answer is remembered. The proxy answers 409 for an
+    // assistant that is paused or still starting, and caching that as "no
+    // personalization" kept the generic greeting for the life of the page --
+    // including after the assistant had been woken and could have answered.
+    let settled = false;
     try {
       const response = await fetch(`/a/${encodeURIComponent(agentId)}/api/personalization`);
       if (response.ok) {
@@ -49,13 +54,16 @@
             cards: Array.isArray(parsed.cards) ? parsed.cards : [],
           };
         }
+        settled = true;
+      } else if (response.status === 404) {
+        // A runtime without the endpoint has nothing to offer, now or later.
+        settled = true;
       }
     } catch (error) {
-      // An assistant that is still starting, or a behavior pack without a
-      // portal/ directory, simply has no personalization. Keep the generic
-      // welcome rather than showing an error where a greeting belongs.
+      // Network trouble. Keep the generic welcome rather than showing an
+      // error where a greeting belongs, and ask again on the next rebuild.
     }
-    cache.set(agentId, payload);
+    if (settled) cache.set(agentId, payload);
     return payload;
   }
 

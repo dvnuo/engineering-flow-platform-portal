@@ -1869,6 +1869,13 @@ function syncComposerMode() {
   if (showingComposer) dom.chatInput?.focus();
 }
 
+// The server's estimate of a start rides along with every status reading
+// (startup.typical_seconds, from agent_startup_status.py); the banner shows the
+// same number. 40 is only for a reading that predates the field.
+function typicalStartSeconds(agentId = state.selectedAgentId) {
+  return Number(state.agentStatus?.get?.(agentId)?.startup?.typical_seconds) || 40;
+}
+
 function updateChatInputPlaceholder() {
   if (!dom.chatInput) return;
 
@@ -1893,7 +1900,7 @@ function updateChatInputPlaceholder() {
   const status = getSelectedAgentStatus();
   if (status !== "running" && canWakeSelectedAssistant(getSelectedAgent(), status)) {
     dom.chatInput.placeholder = status === "stopped"
-      ? "Paused. Sending a message starts it first (about 40 seconds)."
+      ? `Paused. Sending a message starts it first (about ${typicalStartSeconds()} seconds).`
       : "Starting up. Your message is sent once it is ready.";
     return;
   }
@@ -5887,9 +5894,90 @@ function focusComposer() {
   try { dom.chatInput.setSelectionRange(length, length); } catch { /* noop */ }
 }
 
+// The generic greeting for a chat with no messages yet. An assistant whose
+// behavior pack ships portal/welcome.md gets that text painted over this row
+// by assistant_personalization.js; this is what everyone else sees. Built in
+// one place: app.html used to carry a second copy, and that copy -- author
+// "Assistant", timestamp "Ready" -- was what a paused assistant showed before
+// any script had run.
+const DEFAULT_WELCOME_MARKDOWN = "👋 Welcome! Ask me anything.";
+
 function defaultWelcomeMessage() {
   const welcomeAgentName = getSelectedAssistantDisplayName();
-  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="👋 Welcome! Ask me anything."></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${escapeHtmlAttr(DEFAULT_WELCOME_MARKDOWN)}"></div></article></div>`;
+}
+
+/* ===== paused assistant ====================================================
+ *
+ * A stopped assistant keeps the chat view so that a message can wake it, but
+ * its sessions live in the runtime and cannot be fetched while it is down. The
+ * transcript used to fall back to the greeting for that case, which reads as
+ * "ready for a fresh chat": the banner said paused, the composer said paused,
+ * and the transcript said welcome. This row says what is true instead -- no
+ * conversation is loaded -- and what sending a message will do.
+ *
+ * It is a placeholder like the loading skeleton, not a welcome. It carries no
+ * data-welcome, so the personalization does not paint a greeting over it, and
+ * every real paint (history, a new chat) replaces it.
+ */
+function assistantPausedMessage(agent, status) {
+  const name = agent?.name || getSelectedAssistantDisplayName();
+  const health = agentHealth(agent);
+  let markdown;
+  if (status === "stopped" && canWriteAgent(agent)) {
+    markdown = `**${name} is paused**, so no conversation is loaded yet. Sending a message starts it and opens a new chat. Earlier conversations are kept under Sessions.`;
+  } else if (status === "stopped") {
+    markdown = `**${name} is paused.** Chat will open here once it is started.`;
+  } else if (status === "restarting") {
+    markdown = `**${name} is restarting.** Chat will open here once it is ready.`;
+  } else if (["creating", "starting", "pending"].includes(status)) {
+    markdown = `**${name} is starting.** Chat will open here once it is ready.`;
+  } else {
+    markdown = `**${name} is not running.** Chat will open here once it is started.`;
+  }
+  return `<div class="message-row message-row-assistant" data-assistant-paused="1" data-assistant-status="${escapeHtmlAttr(status)}"><div class="message-meta"><span class="message-author">${escapeHtml(name)}</span><span class="message-timestamp">${escapeHtml(health.label)}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${escapeHtmlAttr(markdown)}"></div></article></div>`;
+}
+
+function transcriptShowsPausedState() {
+  return Boolean(dom.messageList?.querySelector('[data-assistant-paused="1"]'));
+}
+
+// True when nothing anyone said is on screen: an empty list, the loading
+// skeleton, the paused row, or the greeting of a chat that has not begun.
+function transcriptShowsNoConversation() {
+  if (!dom.messageList) return false;
+  return Array.from(dom.messageList.querySelectorAll(".message-row")).every((row) => (
+    row.dataset.conversationLoading === "1"
+    || row.dataset.assistantPaused === "1"
+    || row.dataset.welcome === "1"
+  ));
+}
+
+function showAssistantPausedState(agent = getSelectedAgent(), status = getSelectedAgentStatus()) {
+  if (!dom.messageList || !agent) return;
+  dom.messageList.innerHTML = assistantPausedMessage(agent, status);
+  renderMarkdown(dom.messageList);
+  scrollToBottom({ force: true });
+}
+
+// The header badge and the composer placeholder follow every status reading;
+// without this the row kept saying "paused" through the whole start.
+function refreshAssistantPausedState() {
+  const row = dom.messageList?.querySelector('[data-assistant-paused="1"]');
+  if (!row) return;
+  const agent = getSelectedAgent();
+  const status = getSelectedAgentStatus();
+  if (!agent || status === "running" || row.dataset.assistantStatus === status) return;
+  showAssistantPausedState(agent, status);
+}
+
+// A start that found no session to restore, or a runtime that answered with
+// nothing, would otherwise leave the paused row (or, on first load, an empty
+// list) on screen for a running assistant.
+function settleTranscriptAfterStart(agentId) {
+  if (state.selectedAgentId !== agentId || !dom.messageList) return;
+  const hasRows = Boolean(dom.messageList.querySelector(".message-row"));
+  if (!hasRows || transcriptShowsPausedState()) clearMessageListToWelcome();
 }
 
 /* ===== transcript ownership =================================================
@@ -6032,7 +6120,7 @@ function clearMessageListToWelcome() {
 
 function removeWelcomeMessageIfPresent() {
   if (!dom.messageList) return;
-  const welcome = dom.messageList.querySelector('[data-welcome="1"]');
+  const welcome = dom.messageList.querySelector('[data-welcome="1"], [data-assistant-paused="1"]');
   if (!welcome) return;
 
   const onlyWelcome = dom.messageList.children.length === 1;
@@ -7092,12 +7180,18 @@ async function syncSelectedAgentState() {
   // Nothing to receive events from, and the socket would otherwise keep
   // reconnecting to a runtime that is gone.
   if (!running && state.eventWsAgentId === agent.id) disconnectEventSocket();
+  // The runtime holds the sessions, so there is nothing to load for a paused
+  // assistant. A conversation already on screen stays (it was auto-stopped
+  // underneath the reader); anything less becomes the paused row rather than
+  // a greeting that promises a fresh chat is ready.
+  if (showChat && !running && transcriptShowsNoConversation()) showAssistantPausedState(agent, status);
 
   if (running) {
     const chatState = ensureChatState(agent.id);
     if (chatState?.needsReload && chatState.sessionId) {
       await loadSessionForAgent(agent.id, chatState.sessionId, { render: true });
       ensureEventSocketForSelectedAgent();
+      settleTranscriptAfterStart(agent.id);
       return;
     }
     const lastSessionId = getLastSessionId(agent.id);
@@ -7110,6 +7204,7 @@ async function syncSelectedAgentState() {
     } else {
       await loadLastSessionFromRemote(agent.id);
     }
+    settleTranscriptAfterStart(agent.id);
   }
 }
 
@@ -13071,6 +13166,7 @@ function applyLocalAgentStatus(agentId, status, lastError = "", { render = true 
     if (agent) renderAgentActions(agent, normalizedStatus);
     syncSelectedAgentChatActionControls();
     updateChatInputPlaceholder();
+    refreshAssistantPausedState();
   }
   if (render && !syncAgentListStatus([agentId])) renderAgentList();
 }
