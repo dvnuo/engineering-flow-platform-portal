@@ -203,6 +203,23 @@ class Settings(BaseSettings):
     # and the ingress proxy-body-size annotation, or the smallest of the three
     # wins.
     max_upload_mb: int = Field(default=25, validation_alias="EFP_MAX_UPLOAD_MB")
+    # Chat composer attachment allowlist: comma-separated file extensions
+    # (case-insensitive, leading dots optional) the chatbox accepts for
+    # "attach a file and ask the model about it". It drives the composer's
+    # file picker and client-side check, is enforced by the upload proxy, and
+    # is handed to every agent pod as EFP_CHAT_UPLOAD_EXTENSIONS together with
+    # EFP_MAX_UPLOAD_MB so the runtime accepts the same set. The default is
+    # non-visual on purpose: the default model has no vision, so images
+    # (jpg/jpeg/png/webp/gif) are only offered when a deployment adds them for
+    # a model that can see. pdf/docx/xlsx/pptx/csv go through their parsers, a
+    # zip is projected as its listing plus the text files inside, and any
+    # UTF-8 text format (txt, md, log, json, yaml, xml, source files, ...) is
+    # projected as text. A listed binary format the runtime cannot parse is
+    # still rejected at upload time. See app/utils/chat_upload_policy.py.
+    chat_upload_extensions: str = Field(
+        default="pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml",
+        validation_alias="EFP_CHAT_UPLOAD_EXTENSIONS",
+    )
 
     delegation_rules_worker_enabled: bool = Field(default=True, validation_alias="DELEGATION_RULES_WORKER_ENABLED")
     delegation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="DELEGATION_RULES_WORKER_INTERVAL_SECONDS")

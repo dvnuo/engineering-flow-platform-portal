@@ -73,4 +73,16 @@ def test_composer_upload_input_accept_contract_is_present_in_template():
     assert 'id="upload-input"' in html
     assert 'type="file"' in html
     assert "multiple" in html
-    assert 'accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.docx,.xlsx,.csv,.txt"' in html
+    # The accept list is rendered from Settings.chat_upload_extensions
+    # (EFP_CHAT_UPLOAD_EXTENSIONS) rather than hardcoded in the template.
+    assert 'accept="{{ chat_upload_policy.accept }}"' in html
+    assert 'data-chat-upload-policy="{{ chat_upload_policy_json }}"' in html
+    assert 'accept="image/jpeg' not in html
+
+
+def test_agent_file_upload_route_enforces_the_chat_upload_policy():
+    source = _web_source()
+
+    assert "upload_policy = get_chat_upload_policy()" in source
+    assert "if not upload_policy.is_allowed(file_field.filename):" in source
+    assert "status_code=415, detail=upload_policy.rejection_detail(file_field.filename)" in source

@@ -72,4 +72,10 @@ The selected Kubernetes expression runs 17 tests and deselects 41. Validation us
 
 ## Limits of the evidence
 
-The screenshots and local checks do not verify production SSO/Copilot authorization, live model replies, external Jira/GitHub/other integrations, Kubernetes deployment, real runtime files/sessions/context, successful background execution, or an installed browser bridge. Those need a configured environment and suitable test accounts. The guides explain their workflows and success checks, but do not represent instructions as completed live-service tests. Full CI, a Docker build, and production deployment were not run for this documentation-only change.
+The screenshots and local checks do not verify production SSO/Copilot authorization, live model replies, external Jira/GitHub/other integrations, Kubernetes deployment, real runtime files/sessions/context, successful background execution, or an installed browser bridge. Those need a configured environment and suitable test accounts. The guides explain their workflows and success checks, but do not represent instructions as completed live-service tests. The initial local review did not run the full suite or a Docker build; later PR CI results are recorded below. Production deployment was not performed.
+
+## Integration with updated master
+
+Before merging the documentation PR, `master` advanced to `78701fa` with the chat attachment changes from PR #456. Both the local connector contract and the new chat attachment contract were preserved. The beginner and operations upload guidance was updated for the configurable extension allowlist, non-visual defaults (which still include PDF), retained transcript attachment chips, and explicit upload errors. The original screenshots remain captures of `021baaa`; they have not been relabeled as captures of the newer revision.
+
+The PR's original GitHub test, Docker smoke, and image-build checks passed. After resolving the conflict, 40 selected documentation-contract, upload-policy, proxy, attachment-chip, file, and Kubernetes upload-environment tests passed locally. The earlier validation totals above describe the original documentation review, not a claim of live-runtime validation after the upstream merge.

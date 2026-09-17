@@ -71,6 +71,7 @@ from app.services.session_context_preview import merge_runtime_sessions_with_met
 from app.services.work_overview import WorkOverviewService
 from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
+from app.utils.chat_upload_policy import get_chat_upload_policy
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 from app.utils.sso_auth import login_user_by_code, sso_authorize_url, sso_enabled, sso_redirect_uri
@@ -1740,6 +1741,7 @@ def app_page(request: Request):
     if access_response is not None:
         return access_response
 
+    chat_upload_policy = get_chat_upload_policy()
     return templates.TemplateResponse(
         "app.html",
         {
@@ -1754,6 +1756,11 @@ def app_page(request: Request):
             "help_groups": help_topics_by_group(),
             "connectors_enabled": bool(get_settings().connectors_enabled),
             "create_runtime_type_options": _create_runtime_type_options(),
+            # What the composer may attach (EFP_CHAT_UPLOAD_EXTENSIONS /
+            # EFP_MAX_UPLOAD_MB): the file picker's accept list and the JSON
+            # chat_ui.js reads for its client-side check.
+            "chat_upload_policy": chat_upload_policy,
+            "chat_upload_policy_json": chat_upload_policy.to_client_json(),
         },
     )
 
@@ -2568,6 +2575,13 @@ async def agent_files_upload(agent_id: str, request: Request):
         if not file_field:
             raise HTTPException(status_code=400, detail="No file provided")
 
+        # Same allowlist the composer shows (EFP_CHAT_UPLOAD_EXTENSIONS), so a
+        # file the picker would not offer is refused here with the same words
+        # instead of a runtime round-trip.
+        upload_policy = get_chat_upload_policy()
+        if not upload_policy.is_allowed(file_field.filename):
+            raise HTTPException(status_code=415, detail=upload_policy.rejection_detail(file_field.filename))
+
         # Read file content
         content = await file_field.read()
 
@@ -2576,7 +2590,7 @@ async def agent_files_upload(agent_id: str, request: Request):
 
         # Prepare files for upload
         files = {"file": (file_field.filename, content, file_field.content_type)}
-        
+
         query_items = _filter_runtime_file_upload_query_items(request)
 
         status_code, content, content_type = await _forward_runtime_multipart(
@@ -2588,8 +2602,25 @@ async def agent_files_upload(agent_id: str, request: Request):
             files=files,
         )
 
+        if status_code == 404:
+            # The runtime image predates the chat attachment API (it was
+            # missing from the native runtime between the v2 rewrite and its
+            # restoration); say so instead of echoing a bare "Not Found".
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Upload failed: this assistant's runtime does not expose the chat "
+                    "attachment API. Restart the assistant on a current runtime image."
+                ),
+            )
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Upload failed: {content.decode('utf-8', errors='ignore')}")
+            detail = _normalize_runtime_error_detail(content)
+            if detail.startswith("Runtime error: "):
+                detail = detail[len("Runtime error: "):]
+            # Size and type verdicts are for the user to act on, not gateway
+            # failures: keep the runtime's status so the composer can show them.
+            passthrough_status = status_code if status_code in (400, 413, 415) else 502
+            raise HTTPException(status_code=passthrough_status, detail=f"Upload failed: {detail}")
 
         return Response(content=content, media_type=content_type, status_code=status_code)
     finally:

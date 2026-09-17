@@ -4,9 +4,9 @@ This guide takes you from your first sign-in to everyday work with assistants, f
 
 **Audience:** members and administrators of Engineering Flow Platform Portal. If you need to install Portal, begin with the [Operations Guide](OPERATIONS_GUIDE.md), then return here.
 
-**Version:** reviewed against GitHub `master` commit `021baaafdc3f2406540b467596c6ba961ad821d5` on September 17, 2026. Buttons and available capabilities can vary with your account, enabled engine, runtime version, and administrator's settings.
+**Version:** reviewed against GitHub `master` commit `021baaafdc3f2406540b467596c6ba961ad821d5` on September 17, 2026, with upload guidance updated for `78701fa`. Buttons and available capabilities can vary with your account, enabled engine, runtime version, and administrator's settings.
 
-**About the screenshots:** these are actual captures of that Portal revision running locally with a separate demonstration database and a fictional `guide-admin` account. No real service credentials, Kubernetes runtime, model response, or browser bridge were used. The pictures demonstrate the interface and setup forms; a `Running` label in this local mode is not proof of a working AI connection. Runtime-dependent steps below describe what to do on a configured deployment. See [screenshot provenance](screenshots/README.md).
+**About the screenshots:** these are actual captures of Portal revision `021baaa` running locally with a separate demonstration database and a fictional `guide-admin` account. They predate the attachment-card update in `78701fa`. No real service credentials, Kubernetes runtime, model response, or browser bridge were used. The pictures demonstrate the interface and setup forms; a `Running` label in this local mode is not proof of a working AI connection. Runtime-dependent steps below describe what to do on a configured deployment. See [screenshot provenance](screenshots/README.md).
 
 ## Contents
 
@@ -275,12 +275,18 @@ There are two different file workflows:
 
 | Workflow | Use it for | Steps |
 | --- | --- | --- |
-| Chat attachments | A document, image, or other input for your next message | Click **Attach**, choose the file, wait for upload to finish, then send a message explaining what to do with it |
+| Chat attachments | A document or other allowed input for your next message | Click **Attach**, choose the file, wait for upload and text extraction to finish, then send a message explaining what to do with it |
 | Server files | Files in the assistant's runtime workspace | Click **Files**, browse folders, preview supported files, and use upload/download controls |
 
-You can also drag files into the supported chat drop area. Paste images when your browser and the composer support it. Remove the attachment chip before sending if you selected the wrong input.
+The default chat attachment types are `pdf`, `docx`, `xlsx`, `csv`, `txt`, `log`, `pptx`, `zip`, `md`, `yaml`, `yml`, `json`, and `xml`. Images, audio, and video are not enabled by default. Your administrator can change the allowed extensions; the file picker and any rejection message reflect your deployment's list. A filename must have an allowed extension. Changing an unsupported binary file's extension does not make it readable.
 
-**Wait for upload completion.** A selected local filename does not mean the runtime has received the file. The default Portal upload limit is 25 MB, but the runtime and ingress can impose a lower effective limit. Ask an administrator about a consistent upload-limit change instead of repeatedly retrying an oversized file.
+You can also drag allowed files into the supported chat drop area. Paste images only when your deployment enables their types, the selected model supports vision, and your browser supports pasting them. Remove the attachment card before sending if you selected the wrong input.
+
+**Wait for upload and processing to finish.** The attachment card shows its filename, an **Uploading** progress state, and then **Extracting text** for non-image files. A successful card shows a checkmark, type, and size. If it says **text not extracted**, inspect the error and use a readable export or ask your administrator to check runtime support; upload success alone does not prove the model can read the contents. A failed card shows the upload error.
+
+On a compatible runtime, documents are converted to text, a ZIP supplies its file listing and readable text entries, and allowed text files are read as UTF-8. Image understanding requires a vision-capable model. After sending, a linked file card in the conversation opens or downloads the retained attachment; text, PDFs, and images may open in a new tab, while active markup such as XML downloads.
+
+The default Portal upload limit is 25 MB per file, but the runtime and ingress can impose a lower effective limit. Ask an administrator about a consistent upload-limit change instead of repeatedly retrying an oversized file.
 
 In **Files**, select the desired items before clicking **Download** or **Delete**. Deletion requires confirmation and is not reversible through Portal. File links returned in chat can open previews or workspace files; an unsupported file format may need downloading for a local application.
 
@@ -546,7 +552,7 @@ Start with the failing layer: Portal login, assistant startup, model connection,
 | Jira/GitHub test fails | Check the selected instance, token, enabled state, and account permissions | The endpoint or managed settings need changing |
 | Skills do not load | Confirm the assistant runtime is reachable | Skill repo clone/branch/layout or runtime capability is wrong |
 | A setting changed several assistants | Inspect which profile they share | Restore/correct that profile and coordinate restarts |
-| Attachment fails | Check size, upload completion, and assistant connection | Portal/runtime/ingress upload limits disagree |
+| Attachment fails | Read the card's error; check the allowed extension, size, and assistant connection | Upload limits disagree, text extraction is unsupported, or the runtime image needs an update to provide the chat attachment API |
 | Reply stops or page reconnects | Reopen the same session and inspect pending work | Avoid resending a write until you know whether it completed |
 | Task stays queued/running | Open details; inspect the target assistant and recent errors | Worker/reconciliation/runtime services need operator attention |
 | Delegation creates no tasks | Check enabled state, source readiness, scope, timezone, preview, and recent runs | The worker is off, credentials fail, or the selected skill is unavailable |

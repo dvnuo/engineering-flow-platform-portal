@@ -144,6 +144,8 @@ The configured bootstrap administrator is created when missing and automatically
 | `DEFAULT_AGENT_MEMORY` | Memory request for a new agent pod (empty leaves the request unset) | `512Mi` |
 | `DEFAULT_AGENT_CPU_LIMIT` | CPU limit for agent pods (empty disables the limit) | `1` |
 | `DEFAULT_AGENT_MEMORY_LIMIT` | Memory limit for agent pods (empty disables the limit) | `2Gi` |
+| `EFP_MAX_UPLOAD_MB` | Per-file size cap for chatbox attachments and workspace uploads; passed to every agent pod so the runtime enforces the same cap (the ingress `proxy-body-size` must allow it too) | `25` |
+| `EFP_CHAT_UPLOAD_EXTENSIONS` | Comma-separated file extensions the chatbox may attach (case-insensitive, dots optional); drives the composer's file picker, is enforced by the upload proxy, and is passed to every agent pod. The default is non-visual because the default model has no vision: add `jpg,jpeg,png,webp,gif` for a model that can see and they reach it as images. `pdf`, `docx`, `xlsx`, `pptx`, `csv` go through their parsers, a `zip` is projected as its listing plus the text files inside, and any text format (`txt`, `md`, `log`, `json`, `yaml`, `xml`, source files, ...; UTF-8 or GB18030/GBK) is projected as text; a listed binary format the runtime cannot parse is still rejected at upload. Running assistants pick up a change after a restart | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml` |
 | `DEFAULT_RUNTIME_TYPE` | Default runtime marker for new agents when `runtime_type` is omitted; supported values are `native` and `opencode` | `native` |
 | `ENABLED_RUNTIME_TYPES` | Comma-separated runtime markers offered for new agents (the Engine step of the create wizard) and for assistant types: `native`, `opencode`, or both. Unknown markers are ignored and an empty result offers `native`. Existing agents keep their runtime; creating or switching to a marker that is not listed is rejected | `native` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | Default OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
@@ -160,7 +162,6 @@ The configured bootstrap administrator is created when missing and automatically
 | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | Download link template for the EFP browser bridge packages shown in Connectors → Local browser; `{platform}` expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64` (a URL without it hands one package to every system); empty serves `app/static/downloads/efp-browser-bridge-{platform}.zip`, the zips built by `scripts/browser-bridge/package.sh` in the tools repository | (empty) |
 | `LOCAL_BROWSER_CLI_VERSION` | Version label shown next to that download | (empty) |
 | `LOCAL_BROWSER_START_URL` | First tab of the EFP browser window whenever the bridge opens or reopens it: an absolute http(s) URL, or a path such as `/app` resolved against this Portal's origin; empty opens the Portal origin | (empty) |
-| `EFP_MAX_UPLOAD_MB` | Attachment and workspace upload limit; align Portal, runtime, and ingress limits | `25` |
 | `IDLE_AGENT_STOP_WORKER_ENABLED` | Automatically stop assistants with no recent user traffic | `true` |
 | `AGENT_IDLE_STOP_AFTER_SECONDS` | Idle time before an assistant is stopped | `259200` (3 days) |
 

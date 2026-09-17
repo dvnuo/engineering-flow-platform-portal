@@ -1184,31 +1184,164 @@ function ensureChatSessionId(agentId = state.selectedAgentId) {
   return sessionId;
 }
 
-const SUPPORTED_UPLOAD_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/csv",
-  "text/plain",
+// ===== Chat upload policy =====
+// Which files the composer accepts. The server renders the configured
+// allowlist (Settings.chat_upload_extensions / EFP_CHAT_UPLOAD_EXTENSIONS) and
+// the size cap (EFP_MAX_UPLOAD_MB) into #upload-input's data-chat-upload-policy
+// attribute; the literal below is only the fallback for a page without it.
+const DEFAULT_UPLOAD_EXTENSIONS = new Set([
+  "pdf", "docx", "xlsx", "csv", "txt", "log", "pptx", "zip",
+  "md", "yaml", "yml", "json", "xml",
 ]);
 
-const SUPPORTED_UPLOAD_EXTENSIONS = new Set([
-  "jpg", "jpeg", "png", "webp", "gif",
-  "pdf", "docx", "xlsx", "csv", "txt",
-]);
+// Sent to the model as images when a deployment allows them (the default
+// list is non-visual); every other allowed extension is text.
+const IMAGE_UPLOAD_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
 
-const AUTO_PARSE_EXTENSIONS = new Set(["pdf", "docx", "xlsx", "csv", "txt"]);
-const AUTO_PARSE_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/csv",
-  "text/plain",
-]);
+// ===== Attachment chips =====
+// One look for every file a member attaches: the composer's pending cards,
+// the optimistic user bubble and the transcript rebuilt from history all go
+// through attachmentKind() for the icon and the type label.
+function attachmentKind(name, contentType) {
+  const table = [
+    { family: "pdf", icon: "file-text", exts: ["pdf"] },
+    { family: "doc", icon: "file-text", exts: ["doc", "docx", "rtf", "odt"] },
+    { family: "sheet", icon: "file-spreadsheet", exts: ["xls", "xlsx", "xlsm", "csv", "tsv", "ods"] },
+    { family: "slides", icon: "presentation", exts: ["ppt", "pptx", "odp"] },
+    { family: "archive", icon: "file-archive", exts: ["zip", "tar", "gz", "tgz", "7z", "rar", "jar"] },
+    { family: "data", icon: "file-json-2", exts: ["json", "jsonl", "ndjson", "ipynb"] },
+    { family: "data", icon: "file-code-2", exts: ["yaml", "yml", "xml", "toml", "ini", "cfg", "conf", "properties", "env"] },
+    { family: "code", icon: "file-code-2", exts: ["py", "js", "mjs", "ts", "tsx", "jsx", "java", "kt", "go", "rs", "c", "h", "cpp", "hpp", "cs", "rb", "php", "swift", "scala", "sql", "sh", "bash", "ps1", "bat", "groovy", "gradle", "dart", "lua", "r", "css", "scss", "html", "htm", "vue"] },
+    { family: "text", icon: "file-text", exts: ["txt", "md", "markdown", "log", "rst", "adoc", "tex"] },
+    { family: "image", icon: "image", exts: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic"] },
+  ];
+  const ext = fileExtensionFromName(name);
+  const mime = String(contentType || "").toLowerCase();
+  for (const entry of table) {
+    if (entry.exts.includes(ext)) return { family: entry.family, icon: entry.icon, label: ext.toUpperCase() };
+  }
+  if (mime.startsWith("image/")) return { family: "image", icon: "image", label: ext ? ext.toUpperCase() : "IMAGE" };
+  if (mime.startsWith("text/")) return { family: "text", icon: "file-text", label: ext ? ext.toUpperCase() : "TEXT" };
+  return { family: "file", icon: "file", label: ext ? ext.toUpperCase() : "FILE" };
+}
+
+function attachmentSizeText(size) {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return "";
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  if (size >= 1024) return `${Math.max(1, Math.round(size / 102.4) / 10)} KB`;
+  return `${Math.round(size)} B`;
+}
+
+// Uploaded attachments stay on the runtime for the session's lifetime, so a
+// chip in the transcript can open the file: text, pdf and images render in a
+// new tab, anything else downloads.
+function attachmentFileUrl(attachment) {
+  const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+  const fileId = isObj ? String(attachment.file_id || attachment.fileId || "").trim() : "";
+  const agentId = typeof state !== "undefined" && state ? String(state.selectedAgentId || "") : "";
+  if (!fileId || !agentId) return "";
+  const sessionId = typeof currentSessionIdForSelectedAgent === "function"
+    ? String(currentSessionIdForSelectedAgent() || "")
+    : "";
+  const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  return `/a/${encodeURIComponent(agentId)}/api/files/${encodeURIComponent(fileId)}${query}`;
+}
+
+// The optimistic bubble builds markup; the history rebuild builds nodes (its
+// node harness has no innerHTML). Both carry the same icon, name and meta.
+function attachmentChipHtml(attachment, displayName) {
+  const kind = attachmentKind(displayName, attachment?.content_type || attachment?.contentType || "");
+  const metaText = formatAttachmentMetaText(Object.assign({}, attachment || {}, { name: displayName }));
+  const metaHtml = metaText ? `<span class="message-attachment-meta">${escapeHtml(metaText)}</span>` : "";
+  const iconHtml = `<span class="portal-attachment-icon is-${kind.family}" aria-hidden="true"><i data-lucide="${kind.icon}"></i></span>`;
+  const bodyHtml = `<span class="message-attachment-body"><span class="message-attachment-name">${escapeHtml(displayName)}</span>${metaHtml}</span>`;
+  const url = attachmentFileUrl(attachment);
+  if (url) {
+    return `<a class="message-attachment-file is-clickable" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr("Open " + displayName)}">${iconHtml}${bodyHtml}</a>`;
+  }
+  return `<div class="message-attachment-file" title="${escapeHtmlAttr(displayName)}">${iconHtml}${bodyHtml}</div>`;
+}
+
+function buildAttachmentChipNode(attachment, displayName) {
+  const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+  const contentType = isObj ? String(attachment.content_type || attachment.contentType || "") : "";
+  const kind = attachmentKind(displayName, contentType);
+  const url = attachmentFileUrl(isObj ? attachment : null);
+  const chip = document.createElement(url ? "a" : "div");
+  chip.className = url ? "message-attachment-file is-clickable" : "message-attachment-file";
+  if (url) {
+    chip.href = url;
+    chip.target = "_blank";
+    chip.rel = "noopener noreferrer";
+    chip.title = `Open ${displayName}`;
+  } else {
+    chip.title = displayName;
+  }
+  const icon = document.createElement("span");
+  icon.className = `portal-attachment-icon is-${kind.family}`;
+  const glyph = document.createElement("i");
+  if (glyph.dataset) glyph.dataset.lucide = kind.icon;
+  icon.appendChild(glyph);
+  const body = document.createElement("span");
+  body.className = "message-attachment-body";
+  const nameNode = document.createElement("span");
+  nameNode.className = "message-attachment-name";
+  nameNode.textContent = displayName;
+  body.appendChild(nameNode);
+  const metaText = formatAttachmentMetaText(isObj ? attachment : { name: displayName });
+  if (metaText) {
+    const meta = document.createElement("span");
+    meta.className = "message-attachment-meta";
+    meta.textContent = metaText;
+    body.appendChild(meta);
+  }
+  chip.appendChild(icon);
+  chip.appendChild(body);
+  return chip;
+}
+
+let cachedChatUploadPolicy = null;
+
+function normalizeUploadPolicyList(values) {
+  const normalized = new Set();
+  for (const value of Array.isArray(values) ? values : []) {
+    const token = String(value || "").trim().toLowerCase().replace(/^\.+/, "");
+    if (token) normalized.add(token);
+  }
+  return normalized;
+}
+
+function readChatUploadPolicyFromDom() {
+  if (typeof document === "undefined") return null;
+  const raw = document.getElementById("upload-input")?.dataset?.chatUploadPolicy || "";
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const extensions = normalizeUploadPolicyList(parsed?.extensions);
+    if (!extensions.size) return null;
+    const maxUploadMb = Number(parsed?.max_upload_mb);
+    return {
+      extensions,
+      maxUploadMb: Number.isFinite(maxUploadMb) && maxUploadMb > 0 ? maxUploadMb : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getChatUploadPolicy() {
+  if (!cachedChatUploadPolicy) {
+    cachedChatUploadPolicy = readChatUploadPolicyFromDom() || {
+      extensions: new Set(DEFAULT_UPLOAD_EXTENSIONS),
+      maxUploadMb: null,
+    };
+  }
+  return cachedChatUploadPolicy;
+}
+
+function describeChatUploadPolicy() {
+  return Array.from(getChatUploadPolicy().extensions).join(", ");
+}
 
 function fileExtensionFromName(name) {
   const normalized = String(name || "").trim().toLowerCase();
@@ -1217,22 +1350,55 @@ function fileExtensionFromName(name) {
 }
 
 function isRuntimeSupportedUpload(file) {
-  // Upload allowlist accepts either explicit MIME from browser or filename extension fallback.
+  // The extension decides, exactly as the Portal proxy and the runtime judge
+  // it; a name without an extension is refused on both ends too.
   if (!file) return false;
-  const mime = String(file.type || "").toLowerCase();
   const ext = fileExtensionFromName(file.name);
-  if (SUPPORTED_UPLOAD_MIME_TYPES.has(mime)) return true;
-  return SUPPORTED_UPLOAD_EXTENSIONS.has(ext);
+  return !!ext && getChatUploadPolicy().extensions.has(ext);
+}
+
+function uploadTooLargeMessage(file) {
+  const policy = getChatUploadPolicy();
+  if (!policy.maxUploadMb || !file || typeof file.size !== "number") return "";
+  if (file.size <= policy.maxUploadMb * 1024 * 1024) return "";
+  const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+  return `File too large: ${file.name} (${sizeMb} MB). Maximum size is ${policy.maxUploadMb}MB.`;
 }
 
 function shouldAutoParseUploadedFile(pf, uploadedData) {
-  // Auto-parse is intentionally document-only (never image/*), and allows MIME-or-extension matching.
+  // Auto-parse is intentionally document-only (never image/*): every non-image
+  // the runtime accepted is projected to text before the message is sent.
   const fromData = String(uploadedData?.content_type || "").toLowerCase();
   const fromPf = String(pf?.file?.type || "").toLowerCase();
   const mime = fromData || fromPf;
   if (mime.startsWith("image/")) return false;
   const ext = fileExtensionFromName(uploadedData?.filename || pf?.name || pf?.file?.name || "");
-  return AUTO_PARSE_MIME_TYPES.has(mime) || AUTO_PARSE_EXTENSIONS.has(ext);
+  if (!mime && IMAGE_UPLOAD_EXTENSIONS.has(ext)) return false;
+  return true;
+}
+
+function uploadErrorMessageFromXhr(xhr) {
+  // The Portal proxy answers with FastAPI {"detail"}; the runtime with
+  // {"success": false, "error"}. Surface the words, not just the status.
+  const fallback = "HTTP " + xhr.status;
+  const raw = String(xhr.responseText || "").trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    const detail = parsed?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (Array.isArray(detail)) {
+      const items = detail
+        .map((item) => (typeof item === "string" ? item : item?.msg))
+        .filter((item) => typeof item === "string" && item.trim());
+      if (items.length) return items.join(", ");
+    }
+    if (typeof parsed?.error === "string" && parsed.error.trim()) return parsed.error.trim();
+    if (typeof parsed?.message === "string" && parsed.message.trim()) return parsed.message.trim();
+  } catch {
+    // Not JSON: fall through to the status code.
+  }
+  return fallback;
 }
 
 async function parseUploadedPendingFile(pf, agentId, sessionId) {
@@ -1257,11 +1423,16 @@ async function parseUploadedPendingFile(pf, agentId, sessionId) {
 function filterRuntimeSupportedUploads(files) {
   const accepted = [];
   for (const file of Array.from(files || [])) {
-    if (isRuntimeSupportedUpload(file)) {
-      accepted.push(file);
-    } else {
-      showToast("Unsupported file type. Supported: images, pdf, docx, xlsx, csv, txt.");
+    if (!isRuntimeSupportedUpload(file)) {
+      showToast(`Unsupported file type: ${file?.name || "file"}. Supported: ${describeChatUploadPolicy()}.`, { variant: "error" });
+      continue;
     }
+    const tooLarge = uploadTooLargeMessage(file);
+    if (tooLarge) {
+      showToast(tooLarge, { variant: "error" });
+      continue;
+    }
+    accepted.push(file);
   }
   return accepted;
 }
@@ -1412,40 +1583,54 @@ function renderInputPreview() {
 
   container.classList.remove('hidden');
   container.innerHTML = chatState.pendingFiles.map(pf => {
-    let content = '';
+    const name = pf.name || pf.file?.name || '';
+    const kind = attachmentKind(name, pf.uploadedData?.content_type || pf.file?.type || '');
+    const sizeText = attachmentSizeText(pf.uploadedData?.size ?? pf.file?.size);
     let statusBadge = '';
-
-    // Status badge
     let progressBar = '';
+    let metaText = '';
+    let cardState = '';
+    let tooltip = '';
+
     if (pf.status === 'uploading') {
       const hasPct = typeof pf.uploadProgress === 'number';
       const pct = hasPct ? Math.max(0, Math.min(100, Math.round(pf.uploadProgress))) : 0;
-      const pctLabel = hasPct ? ` (${pct}%)` : '';
+      const pctLabel = hasPct ? ` ${pct}%` : '';
       statusBadge = `<span class="input-preview-badge is-uploading" title="Uploading${pctLabel}" aria-hidden="true">⏳</span>`;
       progressBar = `<div class="input-preview-progress" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(148,163,184,0.35);border-bottom-left-radius:inherit;border-bottom-right-radius:inherit;overflow:hidden;"><div style="height:100%;width:${pct}%;background:#3b82f6;transition:width .15s ease;"></div></div>`;
+      metaText = `Uploading…${pctLabel}`;
+      cardState = 'is-uploading';
     } else if (pf.status === 'parsing') {
-      const safeParseError = escapeHtmlAttr(pf.parseError || '');
-      statusBadge = `<span class="input-preview-badge is-uploading" aria-hidden="true" title="${safeParseError || "Processing file"}">🧠</span>`;
+      statusBadge = '<span class="input-preview-badge is-uploading" aria-hidden="true" title="Extracting text">🧠</span>';
+      metaText = 'Extracting text…';
+      cardState = 'is-parsing';
     } else if (pf.status === 'uploaded') {
       statusBadge = '<span class="input-preview-badge is-success" aria-hidden="true">✓</span>';
+      metaText = [kind.label, sizeText].filter(Boolean).join(' · ');
+      if (pf.parseError) {
+        metaText = `${metaText} · text not extracted`;
+        tooltip = pf.parseError;
+      }
+      cardState = 'is-uploaded';
     } else if (pf.status === 'failed') {
       statusBadge = '<span class="input-preview-badge is-error" aria-hidden="true">✗</span>';
+      metaText = pf.error ? `Failed: ${pf.error}` : 'Upload failed';
+      tooltip = pf.error || '';
+      cardState = 'is-failed';
     }
 
-    if (pf.isImage && pf.previewUrl) {
-      const safeAlt = ((pf.name || pf.file?.name || '')).replace(/[<>"'&]/g, '');
-      content = `<img src="${pf.previewUrl}" alt="${safeAlt}" class="w-full h-full object-cover" />`;
-    } else if (pf.isImage) {
-      content = `<div class="file-icon"><span>...</span></div>`;
-    } else {
-      const safeName = (pf.name || '').replace(/[<>"'&]/g, '');
-      content = `<div class="file-icon"><span>📄</span><span style="font-size:10px">${safeName}</span></div>`;
-    }
+    const hasThumb = !!(pf.isImage && pf.previewUrl);
+    const visual = hasThumb
+      ? `<img src="${escapeHtmlAttr(pf.previewUrl)}" alt="${escapeHtmlAttr(name)}" class="input-preview-thumb" />`
+      : `<span class="portal-attachment-icon is-${kind.family}" aria-hidden="true"><i data-lucide="${kind.icon}"></i></span>`;
     const safeId = (pf.id || '').replace(/[<>"'&]/g, '');
     const safePreviewUrl = escapeHtmlAttr(pf.previewUrl || '');
-    const safePreviewName = escapeHtmlAttr(pf.name || '');
-    return `<div class="input-preview-card" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}">${statusBadge}${content}<button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button>${progressBar}</div>`;
+    const safePreviewName = escapeHtmlAttr(name);
+    const titleAttr = ` title="${escapeHtmlAttr(tooltip || name)}"`;
+    const cardClass = `input-preview-card ${cardState}${hasThumb ? ' is-image' : ''}`;
+    return `<div class="${cardClass}" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}"${titleAttr}><span class="input-preview-visual">${visual}${statusBadge}</span><span class="input-preview-body"><span class="input-preview-name">${escapeHtml(name)}</span><span class="input-preview-meta">${escapeHtml(metaText)}</span></span><button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button>${progressBar}</div>`;
   }).join('');
+  renderIcons(container);
 }
 
 async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
@@ -1488,7 +1673,7 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
           }
           resolve(data);
         } catch { reject(new Error('Invalid response')); }
-      } else { reject(new Error('HTTP ' + xhr.status)); }
+      } else { reject(new Error(uploadErrorMessageFromXhr(xhr))); }
     });
     xhr.addEventListener('error', () => { reject(new Error('Network error')); });
     xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });
@@ -2236,7 +2421,7 @@ function buildUserMessageArticle(text, attachments = [], options = {}) {
       if (a.type === 'image') {
         return `<img src="${safeUrl}" class="message-attachment-thumb" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
       }
-      return `<div class="message-attachment-file" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="false">📄 ${safeName}</div>`;
+      return attachmentChipHtml(a, safeName);
     }).join('')}</div>`;
   }
 
@@ -7212,18 +7397,16 @@ function notifyAgentCompletion(agentId, agentName, status, summary = "") {
 }
 
 function formatAttachmentMetaText(attachment) {
+  // "PDF · 2 KB": the type label from the file name (falling back to the
+  // MIME type) and the size, for the chip's second line.
   if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) return "";
   const contentType = String(attachment.content_type || attachment.contentType || "").trim();
-  const rawSize = attachment.size;
-  let sizeText = "";
-  if (typeof rawSize === "number" && Number.isFinite(rawSize) && rawSize >= 0) {
-    if (rawSize >= 1024) {
-      sizeText = `${Math.max(1, Math.round(rawSize / 102.4) / 10)} KB`;
-    } else {
-      sizeText = `${Math.round(rawSize)} B`;
-    }
-  }
-  return [contentType, sizeText].filter(Boolean).join(" · ");
+  const name = String(attachment.name || attachment.filename || attachment.file_name || "").trim();
+  const kind = attachmentKind(name, contentType);
+  // No extension and no MIME type: say nothing rather than a made-up "FILE".
+  const label = fileExtensionFromName(name) ? kind.label : contentType;
+  const sizeText = attachmentSizeText(attachment.size);
+  return [label, sizeText].filter(Boolean).join(" · ");
 }
 
 function buildAttachmentsFromChatState(agentId, chatState) {
@@ -7438,11 +7621,15 @@ async function submitChatForSelectedAgent() {
       type: pf.isImage ? "image" : "file",
       previewUrl: pf.previewUrl,
       url: pf.uploadedData?.url,
+      file_id: pf.file_id || "",
+      content_type: pf.uploadedData?.content_type || pf.file?.type || "",
+      size: pf.uploadedData?.size ?? pf.file?.size,
     }));
     dom.messageList.insertAdjacentHTML(
       "beforeend",
       buildUserMessageArticle(displayMessage, displayAttachments, { clientRequestId })
     );
+    if (displayAttachments.length) renderIcons(dom.messageList.lastElementChild);
     dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(clientRequestId));
     chatState.inflightEventStream = {
       id: clientRequestId,
@@ -10981,10 +11168,9 @@ function renderChatHistory(messages, metadata = {}) {
           const fileId = isObj ? String(attachment.file_id || attachment.fileId || attachment.id || attachment.filename || "attachment") : String(attachment || "");
           const fileName = isObj ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment") : fileId;
           if (type === "image" && imageUrl) { const img = document.createElement("img"); img.src = imageUrl; img.className = "message-attachment-thumb"; img.alt = fileName; img.dataset.fileId = fileId; attachmentDiv.appendChild(img); return; }
-          const fileChip = document.createElement("div"); fileChip.className = "message-attachment-file";
-          const metaText = formatAttachmentMetaText(attachment); const baseText = `📄 ${fileName || fileId || "attachment"}`; fileChip.textContent = metaText ? `${baseText} · ${metaText}` : baseText;
-          attachmentDiv.appendChild(fileChip);
+          attachmentDiv.appendChild(buildAttachmentChipNode(attachment, fileName || fileId || "attachment"));
         });
+        if (typeof renderIcons === "function") renderIcons(attachmentDiv);
         article.appendChild(attachmentDiv);
       }
       container.appendChild(article); dom.messageList.appendChild(container);

@@ -112,6 +112,11 @@ def _extract_js_function(js_text: str, function_name: str) -> str:
 def _extract_render_chat_history_dependencies(js_text: str) -> str:
     """Extract renderChatHistory with direct helper dependencies for Node harness tests."""
     helper_names = [
+        "fileExtensionFromName",
+        "attachmentKind",
+        "attachmentSizeText",
+        "attachmentFileUrl",
+        "buildAttachmentChipNode",
         "formatAttachmentMetaText",
         "getHistoryUserVisibleContent",
         "getAssistantDisplayGroupKey",
@@ -143,6 +148,11 @@ def _extract_render_chat_history_bundle(js_text: str) -> str:
         "getSelectedAssistantDisplayName",
         "getHistoryMessageDisplayName",
         "getHistoryUserVisibleContent",
+        "fileExtensionFromName",
+        "attachmentKind",
+        "attachmentSizeText",
+        "attachmentFileUrl",
+        "buildAttachmentChipNode",
         "formatAttachmentMetaText",
         "getAssistantDisplayGroupKey",
         "questionAnswerFromMessage",

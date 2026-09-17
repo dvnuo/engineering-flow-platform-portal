@@ -1,6 +1,6 @@
 # Portal Operations and Development Guide
 
-This guide is for someone installing, administering, upgrading, or developing Engineering Flow Platform Portal for the first time. It describes the implementation at Git commit `021baaafdc3f2406540b467596c6ba961ad821d5`. Commands are instructions to run in your own environment, not a claim that your environment has already been deployed or tested.
+This guide is for someone installing, administering, upgrading, or developing Engineering Flow Platform Portal for the first time. It describes the implementation at Git commit `021baaafdc3f2406540b467596c6ba961ad821d5`, with upload guidance updated for `78701fa`. Screenshots remain captures of `021baaa`. Commands are instructions to run in your own environment, not a claim that your environment has already been deployed or tested.
 
 For illustrated instructions on signing in, creating assistants, chatting, files, tasks, delegations, connections, and administration, start with the [Beginner Guide](BEGINNER_GUIDE.md). This companion explains what must run behind those screens.
 
@@ -540,12 +540,23 @@ Private business repositories used during an assistant task are checked out by t
 | `AGENTS_NAMESPACE` | `efp-agents` | Assistant object namespace |
 | `AGENTS_VOLUME_SUB_PATH_PREFIX` | `efp-agents` | Prefix for assistant paths on the shared volume |
 | `EFP_MAX_UPLOAD_MB` | `25` | Portal attachment/workspace upload ceiling |
+| `EFP_CHAT_UPLOAD_EXTENSIONS` | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml` | Chat attachment extension allowlist; separate from workspace file uploads |
 
 An empty CPU or memory request leaves that request unset. Set requests at or below their limits. Resource requests influence scheduling; they do not themselves reserve a separate machine for each assistant.
 
 The code uses the shared claim `efp-agents-efs-pvc`; if it already exists, assistant creation does not resize it to a new assistant's disk setting. Defaults also do not automatically mutate every existing assistant or resize an existing claim. New assistants use `/workspace`; the presence of `DEFAULT_AGENT_MOUNT_PATH` in the settings class does not make it an effective creation override in this revision. Workspace files survive assistant runtime deletion on the shared volume, but deletion removes the Portal assistant and related runtime objects; retained files are not a complete recoverable assistant record. Prefer Stop for a temporary pause.
 
-Increasing the upload ceiling requires matching the Portal setting, the runtime's effective limit, and every ingress/proxy limit. The lowest enforced limit wins. Verify the actual runtime deployment configuration instead of assuming that changing a Portal variable propagates every runtime setting.
+Increasing the upload ceiling requires matching the Portal setting, the runtime's effective limit, and every ingress/proxy limit. The lowest enforced limit wins. Portal now injects `EFP_MAX_UPLOAD_MB` and the normalized `EFP_CHAT_UPLOAD_EXTENSIONS` into assistant pod environments. After changing deployment configuration, restart Portal and recreate or roll out affected runtime pods through the supported lifecycle controls; refresh browser pages and verify the effective pod values and runtime support. Existing pod environments do not update automatically.
+
+### Chat attachment policy
+
+`EFP_CHAT_UPLOAD_EXTENSIONS` controls the chat file picker, the browser's checks, and the Portal upload proxy. It uses filename extensions, case-insensitively; MIME types alone do not grant admission. Use a comma-separated list such as `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml`. Leading dots are optional, duplicates are removed, and an empty or entirely invalid value restores the default list rather than disabling uploads. Files without an extension are rejected.
+
+The default list includes PDF and common document/text formats, but excludes images, audio, and video. Add `jpg,jpeg,png,webp,gif` to the full list only for a deployment whose runtime and selected models support images. A configured list replaces the default list; preserve the existing entries you still want. Known image MIME types are added to the picker automatically; there is no separate MIME allowlist setting.
+
+Runtime compatibility still matters: supported documents are parsed to text, ZIP files provide a listing and readable text entries, and other allowed extensions are treated as text using the encodings supported by the runtime. Adding a binary extension to the allowlist does not supply a parser. Test an allowed document with the deployed runtime, check the composer's extraction result, and ask a simple question about its contents. For a newly enabled image type, test it with a vision-capable model as well. The workspace **Files** upload workflow is separate from this chat allowlist.
+
+Transcript attachment links preserve the runtime's inline/download choice, but the Portal forces active markup such as HTML, SVG, and XML to download. An older runtime without the chat attachment API produces an explanatory upload error; update its image and restart the assistant.
 
 ### OpenCode-specific controls and capability alignment
 
@@ -766,6 +777,9 @@ When changing database models, create and review the corresponding Alembic migra
 | Runtime proxy cannot resolve `svc.cluster.local` | Portal outside the cluster may lack cluster DNS/routing. Use a supported reachable service arrangement; for NodePort export the reachable Kubernetes node IP in the Portal process environment, not just `.env`. |
 | Chat disconnects during long work | Check ingress/proxy timeouts and streaming/WebSocket support, then runtime logs. A responsive health endpoint does not prove a stream stayed open. |
 | Upload returns HTTP 413 | Align `EFP_MAX_UPLOAD_MB`, the runtime's limit, and all proxy body-size limits. |
+| Chat upload returns HTTP 415 or reports an unsupported type | Check the filename extension against `EFP_CHAT_UPLOAD_EXTENSIONS`, then verify the runtime parser supports that format. Images need explicit enablement and a vision-capable model. |
+| Upload says the runtime does not expose the chat attachment API | Deploy a compatible current runtime image and restart the assistant. |
+| Attachment uploads but says text not extracted | Inspect the extraction error, confirm runtime parser support, and try a readable UTF-8 text export to isolate format-specific failures. |
 | Local browser package returns 404 | Supply the bridge archive or configure the correct platform download URL. The Portal source does not include all built packages. |
 | Connector saves but cannot verify/run | Check the local bridge process/port, allowed Portal origin, Chromium local-network permission, EFP Chrome window, and the originating Portal tab. The browser performs the local connection test. |
 | Delegation does not run | Check rule enabled state, source credentials, schedule/timezone preview, worker enabled state, and rule run/event history. |
