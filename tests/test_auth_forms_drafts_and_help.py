@@ -88,9 +88,8 @@ def test_help_surface_is_reachable_and_explains_portal_vocabulary():
     assert "function openHelpTopic(" in CHAT_JS
 
     concepts = get_topic("concepts")
-    headings = {heading for heading, _ in concepts.body}
     for concept in ("Assistant", "Task", "Delegation", "Connections"):
-        assert concept in headings, concept
+        assert f"## {concept}" in concepts.body, concept
 
     assert get_topic("shortcuts") is not None
 

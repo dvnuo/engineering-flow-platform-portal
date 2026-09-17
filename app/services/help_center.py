@@ -1,19 +1,39 @@
 """Topics for the in-app help centre.
 
-Connection topics are derived from CONNECTION_GUIDANCE rather than restated, so
-the three short steps shown beside a field in Connections and the full guide
-here cannot drift apart. The guide adds what does not fit next to a form field:
-what the connection is for, what goes wrong, and how to tell.
+The prose lives in app/help/*.md, one file per topic, so editing a guide is
+editing a markdown file; app/help/README.md documents the front matter. This
+module only lists the files and merges in what a topic shares with a form.
 
-Everything else is a concept a member has to learn once. Kept here rather than
-in a template so a topic is data, and the sub-menu can be built from it.
+Connection and connector topics are derived from CONNECTION_GUIDANCE and
+CONNECTOR_GUIDANCE rather than restated, so the short steps shown beside a
+field in Connections (and the troubleshooting lines under a Connector) and the
+full guide here cannot drift apart. The markdown file adds what does not fit
+next to a form field: what the connection is for, what goes wrong, and how to
+tell.
+
+The markdown is rendered in the browser (renderHelpMarkdown in chat_ui.js)
+with the markdown-it build chat already loads, so a guide can hold tables,
+code fences and mermaid diagrams. The files are read on every request: there
+is nothing to restart after an edit.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+import logging
+from dataclasses import dataclass
+from pathlib import Path
 
 from app.services.connection_guidance import CONNECTION_GUIDANCE, CONNECTOR_GUIDANCE
+
+logger = logging.getLogger(__name__)
+
+HELP_DIR = Path(__file__).resolve().parent.parent / "help"
+
+# The authoring notes for the directory, not a topic.
+NON_TOPIC_FILES = frozenset({"README.md"})
+
+GROUP_ORDER = ("Getting started", "Connections", "Connectors", "Working")
+DEFAULT_ICON = "circle-help"
+DEFAULT_ORDER = 100
 
 
 @dataclass(frozen=True)
@@ -22,401 +42,190 @@ class HelpTopic:
     title: str
     summary: str
     group: str
-    icon: str = "circle-help"
+    icon: str = DEFAULT_ICON
+    # Markdown, rendered client-side.
+    body: str = ""
+    # Shared with the form the topic describes; only derived topics have these.
     steps: tuple[str, ...] = ()
-    body: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    troubleshooting: tuple[str, ...] = ()
     help_url: str | None = None
     help_label: str | None = None
     connection_section: str | None = None
-    shortcuts: tuple[tuple[str, str], ...] = field(default=())
+    order: int = DEFAULT_ORDER
 
 
-GROUP_ORDER = ("Getting started", "Connections", "Connectors", "Working")
+@dataclass(frozen=True)
+class HelpDocument:
+    """One markdown file: its front matter and the body after it."""
+
+    id: str
+    meta: dict[str, str]
+    body: str
 
 
-# Per-connection detail that has no room beside a form field: what the
-# connection buys you, and the failure people actually hit.
-CONNECTION_DETAIL: dict[str, dict[str, Any]] = {
-    "llm": {
-        "icon": "sparkles",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "Every answer an assistant gives comes from a model provider. Without this, "
-                    "an assistant starts but cannot reply.",
-                    "Your administrator chooses which provider is available. You authorize your "
-                    "own access to it.",
-                ),
-            ),
-            (
-                "If it stops working",
-                (
-                    "Authorization can expire. The symptom is a run that fails immediately with a "
-                    "credentials error rather than a slow or wrong answer.",
-                    "Re-run the authorization here; you do not need to recreate the assistant.",
-                ),
-            ),
-        ),
-    },
-    "jira": {
-        "icon": "clipboard-list",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "Reading tickets, posting comments, and creating issues. The assistant acts as "
-                    "you, so anything it writes shows your name.",
-                    "It can only see projects your own account can see.",
-                ),
-            ),
-            (
-                "Getting the token right",
-                (
-                    "The username is your Atlassian account email, not your display name.",
-                    "The token is an API token from your Atlassian account, not your password. "
-                    "Passwords are rejected by Atlassian for API access.",
-                    "Your administrator has already filled in the site URL and API version.",
-                ),
-            ),
-            (
-                "If it stops working",
-                (
-                    "Atlassian tokens can be revoked or expire. A task that fails with a "
-                    "credentials error is usually this.",
-                    "A permissions error instead means the token is fine but your account cannot "
-                    "reach that project — ask the project administrator.",
-                ),
-            ),
-        ),
-    },
-    "confluence": {
-        "icon": "file-text",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "Reading pages for context and publishing results back as pages.",
-                    "Anything published shows you as the author, with a footer noting it was "
-                    "generated by an assistant.",
-                ),
-            ),
-            (
-                "It shares Jira's token",
-                (
-                    "Confluence and Jira both use Atlassian API tokens. If you already created one "
-                    "for Jira, paste the same value here.",
-                    "The username is again your Atlassian account email.",
-                ),
-            ),
-        ),
-    },
-    "github": {
-        "icon": "git-branch",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "Reading repositories, opening pull requests, and leaving review comments.",
-                    "Pull requests are authored by you, so branch protection and review rules apply "
-                    "exactly as they would normally.",
-                ),
-            ),
-            (
-                "Choosing scopes",
-                (
-                    "A token needs repo scope to read private repositories and open pull requests.",
-                    "On GitHub Enterprise, create the token on your company's GitHub host and leave "
-                    "the API base URL as your administrator set it.",
-                ),
-            ),
-        ),
-    },
-    "jenkins": {
-        "icon": "server-cog",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "Reading build results and console output so an assistant can diagnose a "
-                    "failing job.",
-                    "It reads builds; it does not trigger them.",
-                ),
-            ),
-        ),
-    },
-    "mobile": {
-        "icon": "clipboard-check",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "Running and inspecting mobile automation sessions on real devices.",
-                    "Only needed if you work on mobile test automation.",
-                ),
-            ),
-        ),
-    },
-    "aws": {
-        "icon": "cloud",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "Inspecting AMIs, instances, and CloudWatch logs during a rollout.",
-                    "Read-oriented: an assistant reports what it finds rather than changing "
-                    "infrastructure.",
-                ),
-            ),
-        ),
-    },
-    "proxy": {
-        "icon": "shield",
-        "body": (
-            (
-                "When you need this",
-                (
-                    "Only if your network requires a proxy to reach the internet. If assistants "
-                    "work without it, leave it off.",
-                    "Your administrator will tell you the URL if it is needed.",
-                ),
-            ),
-        ),
-    },
-    "git": {
-        "icon": "git-branch",
-        "body": (
-            (
-                "What this is for",
-                (
-                    "The name and email stamped on commits an assistant makes for you.",
-                    "This is not a credential. It only labels authorship, so use the same values "
-                    "you use for your own commits.",
-                ),
-            ),
-        ),
-    },
-}
+def split_front_matter(text: str) -> tuple[dict[str, str], str]:
+    """Split a leading ``---`` block of ``key: value`` lines from the body.
+
+    Deliberately not YAML: a topic needs five scalar keys, and a parser for
+    that would be the only YAML dependency in the portal. Unknown keys are kept
+    so a file can carry notes; a file without the block is all body.
+    """
+
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text.strip("\n")
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            break
+    else:
+        return {}, text.strip("\n")
+    meta: dict[str, str] = {}
+    for line in lines[1:index]:
+        key, separator, value = line.partition(":")
+        if not separator or not key.strip():
+            continue
+        meta[key.strip().lower()] = value.strip().strip("'\"")
+    return meta, "\n".join(lines[index + 1 :]).strip("\n")
 
 
-CONCEPT_TOPICS: tuple[HelpTopic, ...] = (
-    HelpTopic(
-        id="getting-started",
-        title="Creating your first assistant",
-        summary="What an assistant is and how to get one working.",
-        group="Getting started",
-        icon="rocket",
-        steps=(
-            "Choose an assistant type — the kind of work you do. Your administrator defines these.",
-            "Give it a name. Everything else is filled in for you.",
-            "Open Connections and supply your own credentials for the services you need.",
-        ),
-        body=(
-            (
-                "What an assistant is",
-                (
-                    "A running workspace you chat with. It keeps its own conversation history and "
-                    "files, and it acts using your credentials.",
-                    "Assistants are personal. Creating your own from a shared type is the normal "
-                    "way to work; you do not share one with a colleague.",
-                ),
-            ),
-            (
-                "Simple and advanced",
-                (
-                    "Simple mode asks for a name and a type. That is enough for almost everyone.",
-                    "Advanced setup exposes the engine and the behavior and skill branches. Use it "
-                    "only if you have been told to.",
-                ),
-            ),
-        ),
-    ),
-    HelpTopic(
-        id="concepts",
-        title="Assistants, tasks, and automations",
-        summary="The three things worth understanding once.",
-        group="Getting started",
-        icon="compass",
-        body=(
-            (
-                "Assistant",
-                (
-                    "A workspace you chat with, running with your credentials.",
-                ),
-            ),
-            (
-                "Task",
-                (
-                    "Work handed to an assistant to run on its own, tracked to completion instead "
-                    "of held in a chat. Use it when the work is long enough that you would rather "
-                    "do something else meanwhile.",
-                ),
-            ),
-            (
-                "Delegation",
-                (
-                    "A rule that starts work automatically — on a GitHub review request, a Jira "
-                    "assignment, or a timer.",
-                ),
-            ),
-            (
-                "Connections",
-                (
-                    "Your own credentials for Jira, Confluence, GitHub, and the rest. The platform "
-                    "never holds them on your behalf; your administrator fills in only where each "
-                    "service lives.",
-                ),
-            ),
-        ),
-    ),
-    HelpTopic(
-        id="asking-and-answering",
-        title="When an assistant asks you something",
-        summary="Questions, approvals, and what happens if you ignore them.",
-        group="Working",
-        icon="message-circle-question",
-        body=(
-            (
-                "It asks instead of guessing",
-                (
-                    "When a request is missing something — which ticket, which project, whether to "
-                    "actually write — the assistant stops and asks rather than assuming.",
-                    "The question appears in the conversation with the options it can see. Pick "
-                    "one, or type your own answer.",
-                ),
-            ),
-            (
-                "Approvals",
-                (
-                    "Before writing outside its workspace — creating Jira issues, publishing pages, "
-                    "opening pull requests — an assistant asks for approval and shows what it is "
-                    "about to do.",
-                    "Rejecting is safe. It stops rather than finding another way.",
-                ),
-            ),
-            (
-                "If you close the page",
-                (
-                    "The question is remembered. Reopening the assistant brings it back rather than "
-                    "leaving the work stuck.",
-                ),
-            ),
-        ),
-    ),
-    HelpTopic(
-        id="when-something-fails",
-        title="When something fails",
-        summary="Reading a failure and knowing whose problem it is.",
-        group="Working",
-        icon="triangle-alert",
-        body=(
-            (
-                "Temporary provider failures",
-                (
-                    "The model provider occasionally fails for a moment. These are retried "
-                    "automatically; if one still reaches you, sending the message again usually "
-                    "works.",
-                ),
-            ),
-            (
-                "Credential failures",
-                (
-                    "A run that fails immediately with a credentials error means a token expired or "
-                    "was revoked. Open Connections and reconnect that service.",
-                ),
-            ),
-            (
-                "An assistant that will not start",
-                (
-                    "If it reports that connection settings are not ready, its Connections need "
-                    "filling in. Anything mentioning images or capacity is a platform problem — "
-                    "contact your administrator.",
-                ),
-            ),
-        ),
-    ),
-    HelpTopic(
-        id="shortcuts",
-        title="Keyboard shortcuts",
-        summary="The handful worth remembering.",
-        group="Working",
-        icon="keyboard",
-        shortcuts=(
-            ("{mod} + K", "Focus the message box"),
-            ("/", "Focus the message box"),
-            ("{mod} + Shift + O", "Start a new chat"),
-            ("Enter", "Send"),
-            ("Shift + Enter", "New line"),
-            ("Esc", "Stop the current run, or close the open dialog"),
-        ),
-    ),
-)
+def load_documents(directory: Path | None = None) -> dict[str, HelpDocument]:
+    """Every topic file, keyed by id (the file name without .md)."""
+
+    directory = HELP_DIR if directory is None else directory
+    documents: dict[str, HelpDocument] = {}
+    if not directory.is_dir():
+        logger.warning("help directory %s is missing; the help centre is empty", directory)
+        return documents
+    for path in sorted(directory.glob("*.md")):
+        if path.name in NON_TOPIC_FILES:
+            continue
+        try:
+            # utf-8-sig: a BOM from a Windows editor must not end up in the front matter.
+            text = path.read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            logger.warning("help topic %s could not be read: %s", path.name, exc)
+            continue
+        meta, body = split_front_matter(text)
+        documents[path.stem] = HelpDocument(id=path.stem, meta=meta, body=body)
+    return documents
 
 
-def _connection_topics() -> tuple[HelpTopic, ...]:
+def _order_of(meta: dict[str, str]) -> int:
+    try:
+        return int(meta.get("order", DEFAULT_ORDER))
+    except ValueError:
+        return DEFAULT_ORDER
+
+
+def topic_id_for_connection(section: str) -> str:
+    """The help topic a Connections section links out to."""
+
+    return f"connect-{section}"
+
+
+def topic_id_for_connector(key: str) -> str:
+    """The help topic a Connector panel links out to."""
+
+    return f"{key.replace('_', '-')}-connector"
+
+
+def _connection_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
     topics = []
     for section, guidance in CONNECTION_GUIDANCE.items():
-        detail = CONNECTION_DETAIL.get(section, {})
+        document = documents.pop(topic_id_for_connection(section), None)
+        meta = document.meta if document else {}
         topics.append(
             HelpTopic(
-                id=f"connect-{section}",
+                id=topic_id_for_connection(section),
                 title=guidance["title"],
                 summary=guidance["summary"],
                 group="Connections",
-                icon=detail.get("icon", "plug"),
+                icon=meta.get("icon") or "plug",
+                body=document.body if document else "",
                 steps=tuple(guidance.get("steps") or ()),
-                body=tuple(detail.get("body") or ()),
                 help_url=guidance.get("help_url"),
                 help_label=guidance.get("help_label"),
                 connection_section=section,
+                order=_order_of(meta),
             )
         )
-    return tuple(topics)
+    return topics
 
 
-def _connector_topics() -> tuple[HelpTopic, ...]:
-    """Connectors (Local browser, …) get one guide each, derived like connections."""
+def _connector_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
+    """Connectors (Local browser, ...) get one guide each, derived like connections."""
 
     topics = []
     for key, guidance in CONNECTOR_GUIDANCE.items():
-        body = (
-            (
-                "What this is for",
-                (
-                    "The assistant drives a separate Chrome window that belongs to EFP on your PC. "
-                    "It uses that window's logins, so internal sites work without sharing credentials.",
-                    "Nothing runs unless a chat is open in this browser tab and the Browser toggle is on.",
-                ),
-            ),
-            ("If it stops working", tuple(guidance.get("troubleshooting") or ())),
-        )
+        document = documents.pop(topic_id_for_connector(key), None)
+        meta = document.meta if document else {}
         topics.append(
             HelpTopic(
-                id=f"{key.replace('_', '-')}-connector",
+                id=topic_id_for_connector(key),
                 title=guidance["title"],
                 summary=guidance["summary"],
                 group="Connectors",
-                icon="globe",
+                icon=meta.get("icon") or "globe",
+                body=document.body if document else "",
                 steps=tuple(guidance.get("steps") or ()),
-                body=body,
+                troubleshooting=tuple(guidance.get("troubleshooting") or ()),
                 help_url=guidance.get("help_url"),
                 help_label=guidance.get("help_label"),
+                order=_order_of(meta),
             )
         )
-    return tuple(topics)
+    return topics
+
+
+def _concept_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
+    """Every file that is not a derived topic; its front matter is the listing."""
+
+    topics = []
+    for document in documents.values():
+        title = document.meta.get("title", "").strip()
+        group = document.meta.get("group", "").strip()
+        if not title or not group:
+            logger.warning(
+                "help topic %s.md needs title and group in its front matter; skipped", document.id
+            )
+            continue
+        topics.append(
+            HelpTopic(
+                id=document.id,
+                title=title,
+                summary=document.meta.get("summary", "").strip(),
+                group=group,
+                icon=document.meta.get("icon") or DEFAULT_ICON,
+                body=document.body,
+                order=_order_of(document.meta),
+            )
+        )
+    topics.sort(key=lambda topic: (topic.order, topic.title.lower()))
+    return topics
 
 
 def all_topics() -> tuple[HelpTopic, ...]:
-    return CONCEPT_TOPICS + _connection_topics() + _connector_topics()
+    documents = load_documents()
+    connections = _connection_topics(documents)
+    connectors = _connector_topics(documents)
+    concepts = _concept_topics(documents)
+    return tuple(concepts + connections + connectors)
 
 
 def topics_by_group() -> list[tuple[str, list[HelpTopic]]]:
-    """Topics grouped for the sub-menu, in a deliberate order."""
+    """Topics grouped for the sub-menu.
 
-    grouped: dict[str, list[HelpTopic]] = {name: [] for name in GROUP_ORDER}
+    The known groups come in a deliberate order, then any group a markdown
+    file introduced; within a group, by ``order`` (stable, so derived topics
+    keep the guidance order).
+    """
+
+    grouped: dict[str, list[HelpTopic]] = {}
     for topic in all_topics():
         grouped.setdefault(topic.group, []).append(topic)
-    return [(name, grouped[name]) for name in GROUP_ORDER if grouped.get(name)]
+    names = [name for name in GROUP_ORDER if grouped.get(name)]
+    names += [name for name in grouped if name not in GROUP_ORDER]
+    return [(name, sorted(grouped[name], key=lambda topic: topic.order)) for name in names]
 
 
 def get_topic(topic_id: str | None) -> HelpTopic | None:
@@ -429,10 +238,15 @@ def get_topic(topic_id: str | None) -> HelpTopic | None:
 
 
 def default_topic() -> HelpTopic:
-    return CONCEPT_TOPICS[0]
+    """What opens when Help is opened without a topic: the first of the first group."""
 
-
-def topic_id_for_connection(section: str) -> str:
-    """The help topic a Connections section links out to."""
-
-    return f"connect-{section}"
+    for _name, topics in topics_by_group():
+        if topics:
+            return topics[0]
+    return HelpTopic(
+        id="help",
+        title="Help",
+        summary="No help topics are installed.",
+        group=GROUP_ORDER[0],
+        body="Add a markdown file to app/help to publish a topic here.",
+    )

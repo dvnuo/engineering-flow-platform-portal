@@ -195,6 +195,7 @@ function initialPortalSectionTitle(section) {
   if (section === "connectors") return "Connectors";
   if (section === "delegations") return "Delegations";
   if (section === "users") return "Administration";
+  if (section === "help") return "Help";
   return "Assistants";
 }
 
@@ -204,7 +205,15 @@ function initialPortalStatusText(section) {
   if (section === "connectors") return "Local devices and tools your assistants can use";
   if (section === "delegations") return "Manage delegations";
   if (section === "users") return "Manage members, roles, access, and usage";
+  if (section === "help") return "Guides for setting up and working with assistants";
   return "Ready";
+}
+
+// The eyebrow above the side pane's title: whose things the pane lists.
+function portalSectionEyebrow(section) {
+  if (section === "users" || section === "help") return "Portal";
+  if (section === "tasks" || section === "delegations") return "Workspace";
+  return "My Space";
 }
 
 function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
@@ -247,11 +256,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   if (normalized === "delegations") dom.addDelegationBtn?.classList.remove("hidden");
 
   const title = initialPortalSectionTitle(normalized);
-  if (dom.secondaryPaneEyebrow) {
-    dom.secondaryPaneEyebrow.textContent = normalized === "users"
-      ? "Portal"
-      : (normalized === "assistants" ? "My Space" : "Workspace");
-  }
+  if (dom.secondaryPaneEyebrow) dom.secondaryPaneEyebrow.textContent = portalSectionEyebrow(normalized);
   if (dom.secondaryPaneTitle) dom.secondaryPaneTitle.textContent = title;
 
   const assistantOnlyControls = [
@@ -10073,7 +10078,7 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
         item.classList.toggle("is-active", item.dataset.helpTopicNav === activeHelpTopicId);
       });
     }
-    applyPlatformShortcutLabels(dom.workspaceDetailContent);
+    renderHelpMarkdown(dom.workspaceDetailContent);
     syncMainHeader();
     renderIcons();
   } catch (error) {
@@ -10082,17 +10087,50 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
   }
 }
 
-// The shortcut table ships with a {mod} placeholder so the server does not have
-// to guess the reader's platform.
-function applyPlatformShortcutLabels(root) {
-  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "\u2318" : "Ctrl";
-  root?.querySelectorAll("[data-help-shortcut]").forEach((element) => {
-    const text = element.textContent || "";
-    element.innerHTML = text
-      .replace(/\{mod\}/g, modifier)
-      .split("+")
-      .map((part) => `<kbd>${safe(part.trim())}</kbd>`)
-      .join(" + ");
+// A topic's prose is a markdown file (app/help/<id>.md) that the panel hands
+// over in data-help-markdown. It is rendered here rather than on the server so
+// a guide gets the same tables, code fences and ```mermaid diagrams as a reply,
+// from the markdown-it build already loaded for chat. Its own instance, though:
+// the files are hard-wrapped prose, and the chat renderer's breaks: true would
+// turn every wrapped line into a <br>.
+let helpMarkdownRenderer = null;
+
+function helpMarkdown() {
+  if (helpMarkdownRenderer) return helpMarkdownRenderer;
+  helpMarkdownRenderer = window.markdownit({
+    html: false,
+    linkify: true,
+    typographer: true,
+    highlight: md.options.highlight,
+  });
+  // Other sites and the app's own #/ routes (a guide linking to another guide,
+  // or to Connections) may become links; nothing else.
+  helpMarkdownRenderer.validateLink = (text) => {
+    const target = String(text || "");
+    return new RegExp("^https?://", "i").test(target) || target.startsWith("#/");
+  };
+  return helpMarkdownRenderer;
+}
+
+function renderHelpMarkdown(scope) {
+  // The files say {mod} for the modifier key; the server cannot know the
+  // reader's platform.
+  const modifier = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl";
+  scope?.querySelectorAll("[data-help-markdown]").forEach((el) => {
+    const text = String(el.dataset.helpMarkdown || "").replaceAll("{mod}", modifier);
+    el.innerHTML = helpMarkdown().render(text);
+    enhanceMarkdownBlock(el);
+    // enhanceMarkdownBlock sends every link to a new tab; an in-app route
+    // belongs in this one, where the router picks the hash change up.
+    el.querySelectorAll('a[href^="#/"]').forEach((anchor) => {
+      anchor.removeAttribute("target");
+      anchor.removeAttribute("rel");
+    });
+    el.querySelectorAll("pre code").forEach((code) => {
+      if (code.classList.contains("hljs") || isMermaidCodeElement(code)) return;
+      hljs.highlightElement(code);
+    });
+    renderMermaidDiagrams(el);
   });
 }
 
@@ -10501,6 +10539,9 @@ function renderSecondaryPaneHeader() {
   } else if (state.activeNavSection === "connectors") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Connectors";
+  } else if (state.activeNavSection === "help") {
+    dom.secondaryPaneEyebrow.textContent = "Portal";
+    dom.secondaryPaneTitle.textContent = "Help";
   } else {
     dom.secondaryPaneEyebrow.textContent = "Portal";
     dom.secondaryPaneTitle.textContent = "Administration";
