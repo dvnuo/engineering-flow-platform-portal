@@ -53,26 +53,29 @@ def test_upload_policy_comes_from_the_dom_with_a_default_fallback():
             r"""
             const assert = require("node:assert/strict");
 
-            // 1) No policy on the page: the default allowlist applies, by extension only.
+            // 1) No policy on the page: the default (non-visual) allowlist applies, by extension only.
             globalThis.document = { getElementById: () => null };
             assert.equal(isRuntimeSupportedUpload({ name: "report.PDF", type: "" }), true);
-            assert.equal(isRuntimeSupportedUpload({ name: "shot.png", type: "image/png" }), true);
-            assert.equal(isRuntimeSupportedUpload({ name: "notes.md", type: "text/markdown" }), false);
+            assert.equal(isRuntimeSupportedUpload({ name: "deck.pptx", type: "" }), true);
+            assert.equal(isRuntimeSupportedUpload({ name: "bundle.zip", type: "application/zip" }), true);
+            assert.equal(isRuntimeSupportedUpload({ name: "notes.md", type: "text/markdown" }), true);
+            assert.equal(isRuntimeSupportedUpload({ name: "shot.png", type: "image/png" }), false);
             assert.equal(isRuntimeSupportedUpload({ name: "README", type: "text/plain" }), false);
             assert.equal(isRuntimeSupportedUpload(null), false);
             assert.ok(describeChatUploadPolicy().split(", ").includes("pdf"));
             assert.equal(uploadTooLargeMessage({ name: "huge.pdf", size: 10 ** 9 }), "");
 
-            // 2) The server-rendered policy wins over the fallback.
+            // 2) The server-rendered policy wins over the fallback (here it adds png for a vision model).
             cachedChatUploadPolicy = null;
-            const rendered = { extensions: [".MD", "txt", "Json"], accept: ".md,.txt,.json", max_upload_mb: 2 };
+            const rendered = { extensions: [".MD", "txt", "Json", "png"], accept: ".md,.txt,.json,.png,image/png", max_upload_mb: 2 };
             globalThis.document = {
               getElementById: (id) => (id === "upload-input" ? { dataset: { chatUploadPolicy: JSON.stringify(rendered) } } : null),
             };
             assert.equal(isRuntimeSupportedUpload({ name: "notes.MD", type: "" }), true);
             assert.equal(isRuntimeSupportedUpload({ name: "config.json", type: "application/json" }), true);
+            assert.equal(isRuntimeSupportedUpload({ name: "shot.png", type: "image/png" }), true);
             assert.equal(isRuntimeSupportedUpload({ name: "report.pdf", type: "application/pdf" }), false);
-            assert.equal(describeChatUploadPolicy(), "md, txt, json");
+            assert.equal(describeChatUploadPolicy(), "md, txt, json, png");
             assert.equal(
               uploadTooLargeMessage({ name: "big.txt", size: 3 * 1024 * 1024 }),
               "File too large: big.txt (3.0 MB). Maximum size is 2MB."
@@ -84,7 +87,7 @@ def test_upload_policy_comes_from_the_dom_with_a_default_fallback():
               cachedChatUploadPolicy = null;
               globalThis.document = { getElementById: () => ({ dataset: { chatUploadPolicy: raw } }) };
               assert.equal(isRuntimeSupportedUpload({ name: "sheet.xlsx" }), true, raw);
-              assert.equal(isRuntimeSupportedUpload({ name: "notes.md" }), false, raw);
+              assert.equal(isRuntimeSupportedUpload({ name: "shot.png" }), false, raw);
             }
 
             // 4) Auto-parse: never images, every other accepted file.

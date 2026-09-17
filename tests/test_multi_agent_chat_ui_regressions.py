@@ -1329,12 +1329,20 @@ const article = row.children[1];
 const attachmentsContainer = article.children[1];
 const imageNodeCount = attachmentsContainer.children.filter((node) => node.className === "message-attachment-thumb").length;
 const fileNodes = attachmentsContainer.children.filter((node) => node.className === "message-attachment-file");
-const fileTexts = fileNodes.map((node) => node.textContent);
+// A chip is icon tile + body (name span, optional meta span); the harness DOM
+// has no computed textContent, so read the body's parts.
+const chipText = (node) => node.children
+  .filter((child) => child.className === "message-attachment-body")
+  .flatMap((body) => body.children.map((part) => part.textContent))
+  .join(" · ");
+const fileTexts = fileNodes.map(chipText);
+const fileIcons = fileNodes.map((node) => node.children[0].children[0].dataset.lucide);
 
 console.log(JSON.stringify({{
   imageNodeCount,
   fileNodeCount: fileNodes.length,
   fileTexts,
+  fileIcons,
   chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
   articleDatasetAttachments: article.dataset.attachments || null,
   attachmentDivDatasetAttachments: attachmentsContainer.dataset.attachments || null,
@@ -1344,8 +1352,10 @@ console.log(JSON.stringify({{
     data = json.loads(completed.stdout)
     assert data["imageNodeCount"] == 1
     assert data["fileNodeCount"] == 2
-    assert any(text.startswith("📄 file_legacy_ref") for text in data["fileTexts"])
-    assert any(text.startswith("📄 spec.pdf · application/pdf · 2 KB") for text in data["fileTexts"])
+    # A bare legacy id has no extension and no MIME type, so no made-up meta.
+    assert "file_legacy_ref" in data["fileTexts"]
+    assert "spec.pdf · PDF · 2 KB" in data["fileTexts"]
+    assert data["fileIcons"] == ["file", "file-text"]
     assert "attachmentHistory" not in data["chatStateKeys"]
     assert data["articleDatasetAttachments"] in ("", None)
     assert data["attachmentDivDatasetAttachments"] in ("", None)
@@ -1442,7 +1452,8 @@ renderChatHistory([
 
 const firstUserArticle = appendedRows[0].children[1];
 const firstUserText = firstUserArticle.children[0].textContent;
-const firstUserChipText = firstUserArticle.children[1].children[0].textContent;
+const firstUserChip = firstUserArticle.children[1].children[0];
+const firstUserChipText = firstUserChip.children[1].children.map((part) => part.textContent).join(" · ");
 const assistantArticle = appendedRows[1].children[1];
 const secondUserText = appendedRows[2].children[1].children[0].textContent;
 const forbidden = [
@@ -1466,7 +1477,7 @@ console.log(JSON.stringify({{
     completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["firstUserText"] == "/jira-bulk-create-from-csv example: https://jira.company.com/browse/MMGFX-13887"
-    assert data["firstUserChipText"].startswith("📄 cases.csv · text/csv · 123 B")
+    assert data["firstUserChipText"] == "cases.csv · CSV · 123 B"
     assert data["hiddenFlag"] == "1"
     assert data["hasForbiddenText"] is False
     assert data["secondUserText"] == "normal chat"

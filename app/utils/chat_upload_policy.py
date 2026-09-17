@@ -20,8 +20,11 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
+# Non-visual by design: the default model has no vision, so images are not
+# offered unless a deployment adds them (jpg, jpeg, png, webp, gif) to
+# EFP_CHAT_UPLOAD_EXTENSIONS for a model that can see.
 DEFAULT_CHAT_UPLOAD_EXTENSIONS: Tuple[str, ...] = (
-    "jpg", "jpeg", "png", "webp", "gif", "pdf", "docx", "xlsx", "csv", "txt",
+    "pdf", "docx", "xlsx", "csv", "txt", "log", "pptx", "zip", "md", "yaml", "yml", "json", "xml",
 )
 DEFAULT_MAX_UPLOAD_MB = 25
 
@@ -42,15 +45,21 @@ DOCUMENT_EXTENSION_MIME_TYPES = {
     "pdf": "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "zip": "application/zip",
     "csv": "text/csv",
     "txt": "text/plain",
     "log": "text/plain",
     "md": "text/markdown",
     "markdown": "text/markdown",
+    "rst": "text/x-rst",
     "tsv": "text/tab-separated-values",
     "json": "application/json",
+    "jsonl": "application/x-ndjson",
+    "ipynb": "application/json",
     "yaml": "application/yaml",
     "yml": "application/yaml",
+    "toml": "application/toml",
     "xml": "application/xml",
     "html": "text/html",
     "htm": "text/html",

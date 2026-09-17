@@ -51,14 +51,20 @@ def test_template_renders_accept_and_policy_from_settings():
     assert 'accept="image/jpeg' not in html
 
 
-def test_default_accept_keeps_the_historical_contract():
+def test_default_accept_is_non_visual():
+    # The default model has no vision, so the default picker offers documents,
+    # data and archives only; a deployment adds image types for a model that
+    # can see, and the image MIME entries appear in accept only then.
     policy = build_chat_upload_policy(None, 25)
     accept_tokens = {token.strip() for token in policy.accept.split(",") if token.strip()}
 
     assert accept_tokens == {
-        ".jpg", ".jpeg", ".png", ".webp", ".gif",
-        ".pdf", ".docx", ".xlsx", ".csv", ".txt",
-        "image/jpeg", "image/png", "image/webp", "image/gif",
+        ".pdf", ".docx", ".xlsx", ".csv", ".txt", ".log", ".pptx", ".zip",
+        ".md", ".yaml", ".yml", ".json", ".xml",
     }
+    assert not any(token.startswith("image/") for token in accept_tokens)
     assert "*" not in accept_tokens
-    assert policy.env_value == "jpg,jpeg,png,webp,gif,pdf,docx,xlsx,csv,txt"
+    assert policy.env_value == "pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml"
+
+    with_images = build_chat_upload_policy("png,pdf", 25)
+    assert with_images.accept == ".png,.pdf,image/png"

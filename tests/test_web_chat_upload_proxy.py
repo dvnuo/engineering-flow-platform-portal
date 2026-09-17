@@ -73,8 +73,14 @@ def test_upload_proxy_rejects_an_extension_off_the_allowlist_before_forwarding(m
 
     assert response.status_code == 415
     assert response.json()["detail"] == (
-        "File type .exe is not allowed. Allowed: jpg, jpeg, png, webp, gif, pdf, docx, xlsx, csv, txt"
+        "File type .exe is not allowed. Allowed: pdf, docx, xlsx, csv, txt, log, pptx, zip, md, yaml, yml, json, xml"
     )
+    assert captured == {}
+
+    # Images are off the default list (the default model has no vision).
+    response = _upload(client, "shot.png", b"\x89PNG", "image/png")
+    assert response.status_code == 415
+    assert response.json()["detail"].startswith("File type .png is not allowed.")
     assert captured == {}
 
     response = _upload(client, "README", b"no extension")

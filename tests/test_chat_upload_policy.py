@@ -81,7 +81,8 @@ def test_settings_default_and_env_override(monkeypatch):
     from app.config import Settings
 
     monkeypatch.delenv("EFP_CHAT_UPLOAD_EXTENSIONS", raising=False)
-    assert Settings().chat_upload_extensions == "jpg,jpeg,png,webp,gif,pdf,docx,xlsx,csv,txt"
+    assert Settings().chat_upload_extensions == "pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml"
+    assert parse_chat_upload_extensions(Settings().chat_upload_extensions) == list(DEFAULT_CHAT_UPLOAD_EXTENSIONS)
 
     monkeypatch.setenv("EFP_CHAT_UPLOAD_EXTENSIONS", " md; TXT ")
     assert parse_chat_upload_extensions(Settings().chat_upload_extensions) == ["md", "txt"]
