@@ -187,6 +187,38 @@ def _select_streaming_response_headers(upstream_headers) -> dict[str, str]:
     return selected
 
 
+# Types a browser would run scripts or styles from when shown inline. A chat
+# attachment of one of these is always handed out as a download, so an
+# uploaded page can never execute with the viewer's Portal session.
+ACTIVE_MARKUP_CONTENT_TYPES = frozenset({
+    "text/html",
+    "application/xhtml+xml",
+    "image/svg+xml",
+    "application/xml",
+    "text/xml",
+})
+
+
+def _harden_attachment_response_headers(content_type: str | None, upstream_headers) -> dict[str, str]:
+    """Headers for a chat attachment served through the proxy.
+
+    Keeps the runtime's Content-Disposition (inline for text, pdf, images;
+    attachment on request), forces a download for active markup, and adds
+    nosniff so a text/plain body is never promoted to HTML.
+    """
+    headers: dict[str, str] = {}
+    for key, value in dict(upstream_headers or {}).items():
+        if str(key).lower() == "content-disposition" and value:
+            headers["Content-Disposition"] = str(value)
+    base_type = str(content_type or "").split(";")[0].strip().lower()
+    disposition = headers.get("Content-Disposition", "")
+    if base_type in ACTIVE_MARKUP_CONTENT_TYPES and not disposition.lower().startswith("attachment"):
+        params = disposition.split(";", 1)[1] if ";" in disposition else ' filename="download"'
+        headers["Content-Disposition"] = "attachment;" + params
+    headers["X-Content-Type-Options"] = "nosniff"
+    return headers
+
+
 def _select_download_response_headers(upstream_headers) -> dict[str, str]:
     # Downloads must keep the filename and length (browser progress), unlike
     # SSE which strips them.
@@ -673,9 +705,10 @@ async def proxy_agent(
         )
         if wants_disposition:
             # forward() already reduced the upstream headers to a sanitized
-            # Content-Disposition (inline or attachment); use it as is.
+            # Content-Disposition (inline or attachment); harden it so markup
+            # never renders under the Portal's origin whatever the runtime sent.
             status_code, content, content_type, upstream_headers = forwarded
-            passthrough_headers = dict(upstream_headers or {})
+            passthrough_headers = _harden_attachment_response_headers(content_type, upstream_headers)
         else:
             status_code, content, content_type = forwarded
         if is_direct_chat_execution:
