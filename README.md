@@ -3,7 +3,21 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115.0-green.svg)](https://fastapi.tiangolo.com/)
 
-Portal is the web interface for Engineering Flow Platform. It provides agent management, chat UI, and integration with EFP runtime.
+Portal is the web interface and control plane for Engineering Flow Platform. Members create assistants, chat, manage connections, and delegate work. An EFP Native or OpenCode runtime executes the work.
+
+## Documentation
+
+| Start here | What it covers |
+|---|---|
+| [Beginner Guide](docs/BEGINNER_GUIDE.md) | Complete English walkthrough with screenshots: sign-in, assistants, chat, files, connections, connectors, tasks, delegations, administration, and troubleshooting. |
+| [Operations Guide](docs/OPERATIONS_GUIDE.md) | Installation, configuration, upgrades, backups, runtime provisioning, and operational checks. |
+| [Kubernetes deployment](k8s/README.md) | The manifests supplied with this repository. |
+| [Portal / Runtime Contract](docs/PORTAL_RUNTIME_CONTRACT.md) | Runtime boundaries, configuration, routing, sessions, and assets. |
+| [Connectors Contract](docs/CONNECTORS_CONTRACT.md) | Portal, runtime, and local browser bridge protocol. |
+| [Phase 5 Productization](docs/PHASE5_PRODUCTIZATION.md) | Capability snapshots, session metadata, and task supersession. |
+| [Integration smoke checks](integration/README.md) | Portal contract checks and their limits. |
+
+See the [full documentation index](docs/README.md) for troubleshooting, screenshot provenance, and the documentation review record. The application also includes **Help**, setup guidance in connection panels, and a first-run tour.
 
 ---
 
@@ -11,11 +25,14 @@ Portal is the web interface for Engineering Flow Platform. It provides agent man
 
 - **Agent Management** - Create, start, stop, delete, share agents
 - **Web Chat UI** - Chat with EFP agents via reverse proxy
-- **Settings Panel** - Configure LLM, Jira, Confluence, GitHub integrations per agent
+- **Connections** - Reusable runtime profiles for GitHub Copilot or AI Platform, Jira, Confluence, GitHub, AWS, Jenkins, BrowserStack, proxy, and Git identity
 - **File Management** - Upload files, preview attachments
 - **Session History** - View past conversations
 - **Usage Tracking** - Monitor agent usage and costs
-- **Skills Panel** - Browse available agent skills
+- **Skills** - Discover available workflows by typing `/` in chat or choosing a task/delegation skill
+- **Tasks and Delegations** - Run tasks and configure work triggered by schedules or supported external sources
+- **Local Browser Connector** - Let a compatible runtime use a managed Chrome window on the member's computer
+- **Administration** - Manage member access, assistant types, and default connections
 - **Diagrams** - A `` ```mermaid `` fence in an assistant reply renders inline with a Diagram | Code switch; Copy hands back the source for a README, a pull request, or Confluence Gliffy's Mermaid import
 
 ---
@@ -25,13 +42,23 @@ Portal is the web interface for Engineering Flow Platform. It provides agent man
 ### Prerequisites
 
 - Python 3.11+
-- SQLite
+- Git, to obtain the source
+- SQLite support included in the standard Python distribution
+
+This starts the Portal UI and database. `K8S_ENABLED=false` does not start a local assistant runtime. Working chat, runtime files, and tools require a separately reachable runtime; production assistant provisioning uses Kubernetes. See the [Operations Guide](docs/OPERATIONS_GUIDE.md).
 
 ### Setup
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Run in the repository root. On Windows, see the PowerShell commands below.
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+
+# Use your own values and keep them out of source control.
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+read -r -s -p "Initial administrator password: " BOOTSTRAP_ADMIN_PASSWORD
+export BOOTSTRAP_ADMIN_PASSWORD
 
 # Apply schema migrations (required for both first-time setup and upgrades)
 alembic upgrade head
@@ -40,15 +67,29 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
+On Windows PowerShell, use:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:SECRET_KEY = (& .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))")
+$bootstrapCredential = Get-Credential -UserName admin -Message "Choose the initial Portal administrator password"
+$env:BOOTSTRAP_ADMIN_PASSWORD = $bootstrapCredential.GetNetworkCredential().Password
+.\.venv\Scripts\alembic.exe upgrade head
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+Environment variables above last only for the current shell. For subsequent starts, persist a stable `SECRET_KEY` and the required settings in a private `.env` file or your deployment's secret store. Protect the `.env` file and never commit it.
+
 For local Python development, migrations are still a manual prerequisite (`alembic upgrade head`) before starting `uvicorn`.
 
-Access `http://localhost:8000/login`
+Open `http://localhost:8000/admlogin` to sign in as the bootstrap administrator. Members use `/login`, which offers enabled external sign-in methods. The password form appears there only when both SSO and Copilot login are disabled.
 
 **Admin account** (first startup - requires env vars):
 - Username: Set `BOOTSTRAP_ADMIN_USERNAME=admin` (defaults to `admin`)
 - Password: Set `BOOTSTRAP_ADMIN_PASSWORD` to a strong initial password
 
-The configured bootstrap administrator is created as the first administrator and automatically added to the allowlist. Additional initial usernames can be seeded with `PORTAL_USER_ALLOWLIST=alice,bob`; administrators can then manage the allowlist, roles, and member usage from **Administration → User Management**. There are two roles: `user` (owns and runs their own assistants) and `admin` (full access to every assistant, plus member management). A `viewer` role previously existed but was never enforced, so it was removed; migration `20260825_0033` folds any remaining viewers into `user`. Registration and every authenticated request require an allowlist entry, so removing a member from the allowlist revokes existing sessions immediately.
+The configured bootstrap administrator is created when missing and automatically added to the allowlist. Seed additional usernames with `PORTAL_USER_ALLOWLIST=alice,bob`, or manage access, roles, and usage in **Administration → User Management**. Members are created on their first SSO or GitHub Copilot sign-in; self-service password registration has been removed. Every authenticated request requires an active allowlist entry, so removing a member's access blocks subsequent requests from existing sessions. The roles are `user` and `admin`; administrators can manage every assistant. Migration `20260825_0033` converts the retired `viewer` role to `user`.
 
 ## Configuration
 
@@ -58,17 +99,18 @@ The configured bootstrap administrator is created as the first administrator and
 |----------|-------------|---------|
 | `DATABASE_URL` | SQLite database path | `sqlite:///./portal.db` |
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
+| `EFP_CONFIG_KEY` | Optional field-encryption key for credentials in profile Kubernetes Secrets; runtime agents need the matching key. This does not encrypt the Portal database | (empty) |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
-| `PORTAL_USER_ALLOWLIST` | Comma, semicolon, or newline-separated usernames seeded into the registration allowlist on startup (`REGISTRATION_ALLOWLIST` is accepted as an alias) | (empty) |
+| `PORTAL_USER_ALLOWLIST` | Comma, semicolon, or newline-separated usernames seeded into the access allowlist on startup (`REGISTRATION_ALLOWLIST` is accepted as a legacy alias) | (empty) |
 | `PORTAL_SUPPORT_CONTACT` | Shown on the "not on the allowlist" page so a blocked user knows who can grant access (a name, team channel, or `mailto:`/`https:` link) | (empty) |
 | `BASE_URI` | Public origin of the portal (no trailing slash); required with SSO so the callback `BASE_URI/auth` matches the redirect URI registered at the IdP | (empty) |
-| `SSO_ISSUER_URL` | OpenID Connect issuer / Keycloak realm base URL, e.g. `https://sso.example.com/realms/persons`. Empty disables SSO and `/login` serves the password form; `/admlogin` always serves the form | (empty) |
+| `SSO_ISSUER_URL` | OpenID Connect issuer / Keycloak realm base URL, e.g. `https://sso.example.com/realms/persons`. Empty disables SSO; `/login` shows the password form only if Copilot login is also disabled. `/admlogin` always offers the password form | (empty) |
 | `SSO_INTERNAL_ISSUER_URL` | Issuer base the portal calls server-side for the token exchange, when it reaches the IdP through a different host than the browser (e.g. `http://keycloak.sso.svc.cluster.local:8080/realms/persons`); empty uses `SSO_ISSUER_URL` | (empty) |
 | `SSO_CLIENT_ID` | OIDC client id | `webapp` |
 | `SSO_CLIENT_SECRET` | OIDC client secret, only for confidential clients | (empty) |
 | `SSO_SCOPE` | Scope requested on the authorize redirect | `read write` |
-| `SSO_VERIFY_TLS` | Verify the IdP's TLS certificate during the token exchange; set `false` only for an internal CA that is not in the container trust store | `true` |
+| `SSO_VERIFY_TLS` | Verify the IdP's TLS certificate during the token exchange. Install your internal CA in the trust store when needed; disabling verification is suitable only for isolated diagnosis | `true` |
 | `GITHUB_USERNAME_SUFFIX` | Enterprise suffix on GitHub logins (`_emucompany` in `12345678_emucompany`); it is stripped so the portal username is the employee id, matching the allowlist and SSO. Empty keeps the GitHub login | (empty) |
 | `GITHUB_PROXY_URL` | How the portal reaches github.com for the Copilot device flow and user lookup: empty honours `HTTP(S)_PROXY`/`NO_PROXY` from the pod environment, `direct` ignores them, or an explicit proxy URL such as `http://proxy.corp:3128` | (empty) |
 | `GITHUB_HTTP_TIMEOUT_SECONDS` | Timeout for those github.com calls | `30` |
@@ -96,7 +138,7 @@ The configured bootstrap administrator is created as the first administrator and
 | `AGENTS_NAMESPACE` | Agents namespace | `efp-agents` |
 | `K8S_STORAGE_CLASS` | Storage class for PVC | `local-path` |
 | `K8S_PVC_ACCESS_MODES` | PVC access modes | `["ReadWriteOnce"]` |
-| `DEFAULT_AGENT_IMAGE_REPO` | Default agent image repository | - |
+| `DEFAULT_AGENT_IMAGE_REPO` | Default native agent image repository | `ghcr.io/dvnuo/engineering-flow-platform` |
 | `DEFAULT_AGENT_IMAGE_TAG` | Default agent image tag | `latest` |
 | `DEFAULT_AGENT_CPU` | CPU request for a new agent pod (empty leaves the request unset) | `250m` |
 | `DEFAULT_AGENT_MEMORY` | Memory request for a new agent pod (empty leaves the request unset) | `512Mi` |
@@ -106,12 +148,23 @@ The configured bootstrap administrator is created as the first administrator and
 | `ENABLED_RUNTIME_TYPES` | Comma-separated runtime markers offered for new agents (the Engine step of the create wizard) and for assistant types: `native`, `opencode`, or both. Unknown markers are ignored and an empty result offers `native`. Existing agents keep their runtime; creating or switching to a marker that is not listed is rejected | `native` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_REPO` | Default OpenCode runtime image repository | `ghcr.io/dvnuo/efp-opencode-runtime` |
 | `DEFAULT_OPENCODE_RUNTIME_IMAGE_TAG` | Default OpenCode runtime image tag | `1.14.39` |
+| `DEFAULT_AGENT_SETTINGS_REPO_URL` | Default behavior repository, containing `AGENTS.md` and `instructions/` | `https://github.com/dvnuo/engineering-flow-platform-agents` |
+| `DEFAULT_AGENT_SETTINGS_BRANCH` | Behavior repository branch | `master` |
+| `DEFAULT_AGENT_SETTINGS_REPO_SUBDIR` | Directory containing the behavior package; empty uses the repository root | (empty) |
+| `DEFAULT_AGENT_SETTINGS_ASSET_VERSION` | Behavior package rollout marker; changing it forces a reclone on rollout | (empty) |
+| `DEFAULT_SKILL_REPO_URL` | Default skills repository | `https://github.com/dvnuo/engineering-flow-platform-skills` |
+| `DEFAULT_SKILL_BRANCH` | Skills repository branch | `master` |
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
 | `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
 | `CONNECTORS_ENABLED` | Show the Connectors menu and the `/api/connectors` routes (per-member connectors such as the local browser bridge; see `docs/CONNECTORS_CONTRACT.md`) | `true` |
 | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | Download link template for the EFP browser bridge packages shown in Connectors → Local browser; `{platform}` expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64` (a URL without it hands one package to every system); empty serves `app/static/downloads/efp-browser-bridge-{platform}.zip`, the zips built by `scripts/browser-bridge/package.sh` in the tools repository | (empty) |
 | `LOCAL_BROWSER_CLI_VERSION` | Version label shown next to that download | (empty) |
 | `LOCAL_BROWSER_START_URL` | First tab of the EFP browser window whenever the bridge opens or reopens it: an absolute http(s) URL, or a path such as `/app` resolved against this Portal's origin; empty opens the Portal origin | (empty) |
+| `EFP_MAX_UPLOAD_MB` | Attachment and workspace upload limit; align Portal, runtime, and ingress limits | `25` |
+| `IDLE_AGENT_STOP_WORKER_ENABLED` | Automatically stop assistants with no recent user traffic | `true` |
+| `AGENT_IDLE_STOP_AFTER_SECONDS` | Idle time before an assistant is stopped | `259200` (3 days) |
+
+This table highlights commonly used settings. [app/config.py](app/config.py) is the complete source of defaults; the [Operations Guide](docs/OPERATIONS_GUIDE.md) explains deployment-specific settings, worker intervals, and credentials.
 
 For K8s init clone (GitHub/GitHub Enterprise HTTPS), Portal uses token-only auth: `GIT_TOKEN` is injected via secret key mapping, and `GIT_ASKPASS` responds to username prompts with fixed `x-access-token` (no username setting and no credential-in-URL rewrite). The Kubernetes manifests also expose `efp-portal-secret.GIT_TOKEN` to the Portal main container as `GIT_REPO_AUTH_PAT` so `/api/git-repos/branches` can list private repository branches during agent creation.
 
@@ -127,7 +180,6 @@ Kubernetes runtime provisioning behavior:
 - Runtime owns on-demand checkout flows such as `/create-pull-request in git repo <url> from branch <head> to <base>`.
 - Skills repo is cloned by Portal initContainers into `/app/skills`.
 - Portal does not parse skills and does not copy only `SKILL.md`; it provisions the full selected skill package tree.
-- Runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, and permission behavior.
 - Root-layout skill repos should contain entries such as `<skill-name>/SKILL.md`, `<skill-name>/scripts/...`, `<skill-name>/templates/...`, `<skill-name>/reference/...`, or `<skill-name>/examples/...`.
 - Nested skill repo layouts can be enabled with `DEFAULT_SKILL_REPO_SUBDIR=skills`, which copies `repo/skills/.` directly into `/app/skills` instead of nesting it as `/app/skills/skills`.
 - `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.
@@ -135,13 +187,10 @@ Kubernetes runtime provisioning behavior:
 - `GIT_TOKEN` is used by git-clone initContainers. Portal's main container receives the Portal secret token as `GIT_REPO_AUTH_PAT` for branch listing only; agent runtime main containers still do not receive the broad clone token.
 - Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
 - Runtime profiles are the Portal-owned control-plane source for Jira, Confluence, GitHub, and git user config. Portal stores and forwards those sections; the Python runtime writes `ATLASSIAN_CONFIG` / Atlassian CLI config, `gh` hosts config, and git user config inside the runtime container.
-- Portal remains the control plane; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and runtime tool availability (built-in tool surface + runtime profile + permission policy), not Portal repo/branch/mount driven.
+- Behavior repositories provision `AGENTS.md`, `instructions/`, and optional `portal/` personalization assets into the workspace. See the [assets contract](docs/PORTAL_RUNTIME_CONTRACT.md#4-assets-contract).
+- Portal remains the control plane; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and runtime tool availability (built-in tools + runtime profile + permission policy).
 
 Local default is `K8S_ENABLED=false`. Kubernetes manifests set `K8S_ENABLED=true` explicitly. For production Kubernetes, configure storage class/access mode via env or manifests.
-
-Runtime/control-plane contract: `docs/PORTAL_RUNTIME_CONTRACT.md`.
-
-Phase 5 productization closure notes (upgrade path + capability snapshot contract): `docs/PHASE5_PRODUCTIZATION.md`.
 
 ### Phase 5 control-plane contract
 
@@ -225,31 +274,37 @@ app/
 
 Portal proxies requests to EFP runtime at `/a/{agent_id}/*`:
 
-- `/a/{agent_id}/api/chat` - Chat API
+- `/a/{agent_id}/api/chat/stream` - Streaming chat (SSE), used by the chat UI
+- `/a/{agent_id}/api/chat` - Non-streaming chat API
 - `/a/{agent_id}/api/files/*` - File operations
 - `/a/{agent_id}/api/events` - WebSocket events
 
 The proxy validates:
-- Agent exists and belongs to user (or is shared)
+- User has active allowlist access; the agent belongs to them, is public, or they are an administrator
 - Agent is in `running` state
+- Workspace file operations and session mutations require the owner or an administrator
 
 ---
 
 ## Settings Panel
 
-Each agent can configure:
+Assistants bind to a reusable **Connections** profile. In Kubernetes deployments, changing a profile updates its Secret and restarts bound running assistants so their runtime reads the new configuration. Stopped assistants receive it at their next start.
 
 ### LLM Configuration
-- Provider selection (OpenAI, GitHub Copilot, Anthropic)
-- Model selection
-- API key
+- Provider selection: **GitHub Copilot** or **AI Platform**
+- Model, default thinking level, and default context size
+- Copilot authorization/API key, or AI Platform username, password, and usercase
+
+Choose from the model catalog offered for the selected provider; standalone OpenAI and Anthropic providers are not offered. AI Platform service endpoints are deployment-managed.
 
 ### Integrations
-- **Jira** - Multiple instances supported
-  - Basic Auth (username + API token)
-- **Confluence** - Multiple instances supported
-  - Username + API token
+- **Jira**, **Confluence**, and **Jenkins** - Multiple named instances and their applicable credentials
 - **GitHub** - Personal access token
+- **AWS** - Configured organizational credentials
+- **Mobile / BrowserStack** - REST/Appium credentials and local-testing options
+- **Proxy**, **Git identity**, and **Debug** settings
+
+Follow the field-specific **Setup guide** in each panel or the [Beginner Guide](docs/BEGINNER_GUIDE.md). Runtime images must include the corresponding tools.
 
 ### File Upload
 
@@ -267,48 +322,27 @@ file: <binary>
 
 ### Kubernetes
 
-For the git-clone deployment pattern used in this repo, mount runtime code and migration assets from the same cloned revision (`/app/app`, `/app/alembic`, and `/app/alembic.ini`) so Alembic revisions always match application code.
+Use [k8s/README.md](k8s/README.md) and the [Operations Guide](docs/OPERATIONS_GUIDE.md) to configure storage, secrets, service accounts, and ingress before applying the deployment. The main manifest is [k8s/efp-portal-deployment.yaml](k8s/efp-portal-deployment.yaml); the alternative is [k8s/portal-git-clone/efp-portal-deployment.yaml](k8s/portal-git-clone/efp-portal-deployment.yaml). They define the same deployment, so choose one.
 
-```yaml
-# See k8s/portal-deployment-nfs.yaml for full example
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: portal
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: portal
-  template:
-    spec:
-      containers:
-      - name: portal
-        image: ghcr.io/dvnuo/engineering-flow-platform-portal:latest
-        ports:
-        - containerPort: 8000
-        env:
-        - name: K8S_ENABLED
-          value: "true"
-        - name: SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: portal-secrets
-              key: secret-key
-```
+These manifests use a git-clone overlay. Mount application code and migration assets from the same cloned revision (`/app/app`, `/app/alembic`, and `/app/alembic.ini`) so Alembic revisions match application code. An image tag alone does not pin application code if the initContainer still follows a moving branch.
 
 ### Docker
 
-Container startup runs `alembic upgrade head` automatically before launching Uvicorn.
+Container startup runs `alembic upgrade head` automatically before launching Uvicorn. Create a private `.env` containing `SECRET_KEY` and `BOOTSTRAP_ADMIN_PASSWORD` before this example; add any further deployment settings there.
 
 ```bash
 docker run -d \
   --name portal \
   -p 8000:8000 \
+  --env-file .env \
   -e K8S_ENABLED=false \
-  -e SECRET_KEY=your-secret \
+  -e DATABASE_URL=sqlite:////data/portal.db \
+  -e FORWARDED_ALLOW_IPS=127.0.0.1 \
+  -v portal-data:/data \
   ghcr.io/dvnuo/engineering-flow-platform-portal:latest
 ```
+
+The named volume retains the database when the container is replaced. Open `/admlogin` for the initial administrator. For production, choose a tested image version and configure trusted proxy addresses to match your ingress. This example runs Portal only; it does not provision assistant containers.
 
 ---
 
@@ -340,12 +374,17 @@ Access `http://localhost:8000/app`
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/login` | GET | Login page |
-| `/register` | GET | Registration page |
-| `/api/auth/login` | POST | Login |
-| `/api/auth/register` | POST | Register |
+| `/login` | GET | Enabled external sign-in methods; password fallback when both are disabled |
+| `/admlogin` | GET | Administrator/password sign-in page |
+| `/login/sso` | GET | Start configured company SSO flow |
+| `/auth` | GET | SSO callback |
+| `/api/auth/copilot/start` | POST | Start Copilot device sign-in |
+| `/api/auth/copilot/check` | POST | Check device authorization and establish the session |
+| `/api/auth/login` | POST | Password login for an existing account |
 | `/api/auth/logout` | POST | Logout |
 | `/api/auth/me` | GET | Get current user |
+
+`/register` redirects to `/login`. There is no `/api/auth/register` route.
 
 ### Agents
 
@@ -369,8 +408,12 @@ Access `http://localhost:8000/app`
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/a/{agent_id}/api/chat` | POST | Chat with agent |
+| `/a/{agent_id}/api/chat/stream` | POST | Stream chat response using SSE |
+| `/a/{agent_id}/api/events` | WebSocket | Runtime progress, permission, question, and connector events |
 | `/a/{agent_id}/api/files/upload` | POST | Upload file |
-| `/a/{agent_id}/api/files/{id}/preview` | GET | Preview file |
+| `/a/{agent_id}/api/files/{id}` | GET | Retrieve an attachment |
+
+This is an entrypoint list, not the full API reference. The running Portal exposes OpenAPI at `/docs` and `/openapi.json`; runtime-owned endpoints are described by the runtime and the [Portal / Runtime Contract](docs/PORTAL_RUNTIME_CONTRACT.md).
 
 ---
 

@@ -1,5 +1,7 @@
 # Portal Runtime / Control-Plane Contract
 
+For a member walkthrough, read the [Beginner Guide](BEGINNER_GUIDE.md). For installation and deployment, read the [Operations Guide](OPERATIONS_GUIDE.md). This document describes the integration boundary implemented by Portal.
+
 ## 1) Portal role
 - Portal is the control plane: UI, proxy, agent/resource registry, and policy/runtime-profile coordination.
 - Portal does **not** execute tools/skills itself, and does not own runtime-internal recovery algorithms.
@@ -9,13 +11,16 @@
 - User-facing proxy route: `/a/{agent_id}/api/*`.
 - Portal targets runtime service port `:8000`.
 - For chat UX, Portal should prefer `POST /a/{agent_id}/api/chat/stream` (SSE) over waiting for long blocking JSON responses.
+- The chat UI uses SSE for response text and a WebSocket at `/a/{agent_id}/api/events` for runtime activity, including tool, permission, question, and connector events. Reverse proxies must support both streaming and WebSocket upgrades.
+- Portal checks the member's session and active allowlist entry, agent visibility/ownership, and running state. Administrators can access all agents. Workspace file operations and mutating session endpoints require an owner or administrator even when an agent is shared.
+- User-facing proxy requests cannot reach runtime `api/internal/*`, removed SSH endpoints, or the removed direct `api/config` / `api/config/save` settings surface.
 
 ## 3) Runtime selection
 - Portal supports two runtime markers: `native` and `opencode`.
 - `native` provisions the Python `dvnuo/engineering-flow-platform` runtime image configured by Portal. `opencode` provisions the OpenCode-compatible runtime image configured by Portal.
 - Missing, blank, or legacy stored runtime markers normalize to `native` where Portal serializes existing agent state. Invalid non-empty request values are rejected at request boundaries.
 - `/api/agents/defaults` returns `default_runtime_type` and a `runtime_types` matrix with each supported runtime marker, label, configured default image, and default mount path.
-- Creating an agent without an explicit `runtime_type` uses `DEFAULT_RUNTIME_TYPE` when it is valid. If `DEFAULT_RUNTIME_TYPE` is blank, Portal falls back to `native`; if it is invalid, `/api/agents/defaults` displays `native` as the fallback and create reports a clear server configuration error.
+- Creating an agent without an explicit `runtime_type` uses a valid `DEFAULT_RUNTIME_TYPE` when that marker is enabled, otherwise the first enabled marker. A blank value prefers `native` if enabled. An invalid non-empty setting makes create report a server configuration error; `/api/agents/defaults` still displays an enabled fallback.
 - `ENABLED_RUNTIME_TYPES` (default `native`) lists the markers this Portal offers for new agents and for assistant types. `/api/agents/defaults` keeps every supported marker in `runtime_types`, each with an `enabled` flag, and adds the `enabled_runtime_types` list; `default_runtime_type` is always an enabled marker (the configured default when it is enabled, otherwise the first enabled one). Creating an agent or an assistant type with a marker that is not enabled is rejected with 422. Existing agents keep their runtime.
 - Switching an existing agent between `native` and `opencode` is allowed. The target marker must be enabled (`ENABLED_RUNTIME_TYPES`); otherwise the request is rejected with 422. When `runtime_type` changes and the request does not explicitly set `image`, Portal updates the agent image to that runtime's configured default image.
 - Both runtimes default to `/workspace` as the workspace mount path.
@@ -29,6 +34,7 @@
 - Nested layouts are selected with `DEFAULT_SKILL_REPO_SUBDIR`, for example `DEFAULT_SKILL_REPO_SUBDIR=skills` copies `repo/skills/.` directly into `/app/skills`.
 - `DEFAULT_SKILL_ASSET_VERSION` is a rollout marker only. Changing it updates Deployment template annotations so pods restart and the skills initContainer reclones same-branch content.
 - Workspace default: `/workspace`.
+- Behavior assets are provisioned separately from skills. `DEFAULT_AGENT_SETTINGS_REPO_URL`, `DEFAULT_AGENT_SETTINGS_BRANCH`, and `DEFAULT_AGENT_SETTINGS_REPO_SUBDIR` select a package containing required `AGENTS.md` and `instructions/`. The initContainer copies these into the workspace and mirrors instructions into `<workspace>/.efp/instructions/`. Optional `portal/` files provide runtime-served welcome text and starter cards. `DEFAULT_AGENT_SETTINGS_ASSET_VERSION` is the corresponding rollout marker. Agent-specific repository selections can override defaults.
 - Portal does not support a runtime source overlay. It runs the configured runtime image and does not clone runtime source into `/app/src` or `/app/.git`.
 - Portal does not configure external tools repositories, branches, or mounts. Runtime built-in tools are runtime-owned.
 
@@ -36,6 +42,7 @@
 - Portal K8s provisioning owns image, workspace, skill asset, and env wiring; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and recovery behavior.
 - For `native`, Portal sets `EFP_RUNTIME_SESSION_ROOT` under the configured workspace mount (`<workspace>/.efp/runtime`) so runtime sessions, checkpoints, todos, and chat artifacts persist on the agent PVC across pod restarts.
 - For `opencode`, Portal keeps using the adapter/OpenCode state mounts (`EFP_ADAPTER_STATE_DIR` and `OPENCODE_DATA_DIR`) for compatibility state and upstream OpenCode data.
+- Runtime profile saves update a per-profile Kubernetes Secret (`config.json`) and restart bound running agents. Runtimes project the canonical profile at boot; stopped agents apply it on the next start. Readiness uses `/ready` on port 8000 after runtime profile projection succeeds.
 
 ## 6) Trace / observability contract
 - Portal request middleware creates/binds `X-Trace-Id`.
@@ -56,7 +63,7 @@
 
 ## 7) Migrations / startup
 - `alembic upgrade head` is required.
-- Container startup runs migrations.
+- The supplied Dockerfile's startup command runs migrations before Uvicorn. Direct local Uvicorn startup requires running migrations explicitly first. Application startup verifies schema readiness; it does not create missing tables automatically.
 - Do not use `Base.metadata.create_all` as a startup shortcut.
 - `runtime_type` DB `server_default` is only a backfill migration concern, not a head schema default contract.
 
@@ -78,7 +85,8 @@ Runtime responsibility:
 
 ## 10) Runtime profile/config contract
 - Runtime profiles are Portal-owned only for concise integration context: `llm`, `proxy`, `jira`, `confluence`, `github`, `aws`, `jenkins`, `mobile-auto`, `git`, and `debug`.
-- Portal stores and forwards LLM provider/model/Copilot API key fields that it owns.
+- The supported Portal providers are `github_copilot` and `ai_platform`. Portal stores and forwards provider, model, thinking/context defaults, Copilot API key, or AI Platform user credentials. AI Platform host/URI settings are supplied by deployment configuration when the runtime config is materialized. Provider/model normalization and any runtime-specific projection are Portal's responsibility; model execution is the runtime's responsibility.
+- LLM provider/model/Copilot API key fields remain part of the supported profile contract alongside AI Platform credentials.
 - Portal stores and forwards proxy and external integration sections that it owns. For the Python EFP runtime this includes enough config for runtime-side file generation:
   - `jira.enabled` and `jira.instances[]` with `name`, `url` (accepted from `url` or `base_url`), `username` (accepted from `username` or `email`), `password`, `token` (accepted from `token` or `api_token`), `project` (accepted from `project` or `project_key`), `api_version`, and per-instance `enabled`.
   - `confluence.enabled` and `confluence.instances[]` with `name`, `url` (accepted from `url` or `base_url`), `username` (accepted from `username` or `email`), `password`, `token` (accepted from `token` or `api_token`), `space` (accepted from `space` or `space_key`), and per-instance `enabled`.
@@ -86,9 +94,9 @@ Runtime responsibility:
   - `mobile-auto.enabled`, `mobile-auto.defaults`, and `mobile-auto.browserstack` fields for BrowserStack REST/Appium credentials, proxy, BrowserStackLocal mode, and local binary path.
   - `git.user.name` and `git.user.email`.
 - The Python runtime consumes the applied profile config and writes its own external tool files: `ATLASSIAN_CONFIG` / `~/.config/atlassian/config.json` for the `engineering-flow-platform-tools` `jira` and `confluence` CLIs, GitHub CLI host config for `gh`, mobile-auto BrowserStack config in `EFP_CONFIG`, and git user config for `git`.
-- Portal must not write those runtime files itself and must not execute `jira`, `confluence`, `gh`, `mobile-auto`, `BrowserStackLocal`, or `git` commands.
+- Portal does not write those runtime tool files or execute agent business tasks through `jira`, `confluence`, `gh`, `mobile-auto`, `BrowserStackLocal`, or `git`. Portal does perform control-plane operations such as authenticated connection tests and `git ls-remote` branch discovery; Kubernetes initContainers clone the selected behavior/skill assets.
 - Portal drops low-level runtime internals for tools, skills, loop control, context shaping, compaction, prompt assembly, structured output, and runtime mode.
-- Runtime profile apply payloads and trusted chat metadata carry the sanitized profile context under `config` / `runtime_profile.config`.
+- Runtime profile projection and trusted chat metadata carry the sanitized profile context under `config` / `runtime_profile.config`. Profile Secrets store canonical configuration in `config.json`; runtimes project it at boot. If `EFP_CONFIG_KEY` is configured, sensitive values in that Secret are encrypted and the runtime requires the same key. This field encryption does not imply encryption of the Portal database.
 - Browser-provided chat `metadata` is untrusted. Portal replaces it with server-owned runtime profile/config/authorization metadata.
 - Trusted chat metadata also carries `portal_user` (`{id, username, display_name}`) for the signed-in member, built server-side from the session user. The runtime renders it into the model's system prompt so "my"/"me" resolves to the member rather than to the shared Jira/Confluence service account; browser-supplied `portal_user` / `portal_user_id` / `portal_user_name` values are dropped.
 
@@ -100,11 +108,24 @@ Runtime responsibility:
 - Portal may keep control-plane fallback aliases to avoid mapping gaps, but aliases must not imply a tools repo, tools index, any Portal-managed tools directory/env or external-tools manifest.
 
 ## 12) Runtime session API contract
-- Portal currently proxies runtime session list/delete/chatlog endpoints:
-  - `GET /a/{agent_id}/api/sessions`
-  - `DELETE /a/{agent_id}/api/sessions/{session_id}`
-  - `GET /a/{agent_id}/api/sessions/{session_id}/chatlog`
-- Runtime summary, revert, and unrevert UI work needs stable runtime endpoint names and methods before Portal should add dedicated controls.
+
+All paths below have the Portal prefix `/a/{agent_id}`. Session contents remain runtime-owned; the Portal metadata registry is not a transcript store.
+
+Core full proxy routes include `GET /a/{agent_id}/api/sessions`, `DELETE /a/{agent_id}/api/sessions/{session_id}`, and `GET /a/{agent_id}/api/sessions/{session_id}/chatlog`.
+
+| Method | Runtime path | Portal use |
+|---|---|---|
+| GET | `/api/sessions` | List conversations |
+| GET | `/api/sessions/{session_id}` | Load a conversation and recovery metadata |
+| GET | `/api/sessions/{session_id}/chatlog` | Retrieve the runtime chat log |
+| DELETE | `/api/sessions/{session_id}` | Delete a conversation |
+| POST | `/api/sessions/{session_id}/rename` | Rename with `{ "name": "..." }` |
+| GET | `/api/sessions/{session_id}/context-usage` | Approximate context usage and compaction eligibility |
+| POST | `/api/sessions/{session_id}/compact` | Compact older turns when supported |
+| POST | `/api/sessions/{session_id}/messages/{message_id}/edit/async` | Edit an earlier user turn and submit it again |
+| POST | `/api/sessions/{session_id}/messages/{message_id}/delete-from-here` | Remove that turn and later turns |
+
+The runtime reports whether manual compaction is supported and eligible. The UI disables it for unsupported, busy, or unauthorized sessions. Native runtime compaction is expected to create a recovery checkpoint first. Portal displays runtime recovery metadata and reconnects to active requests; it does not implement checkpoint recovery itself. Standalone summary, revert, and unrevert controls are not currently provided; the compaction action is the current UI for summarizing older conversation turns.
 
 ## 13) On-demand repository checkout contract
 - Portal does **not** parse slash commands and does **not** clone user-requested business repositories during pod startup.
@@ -115,3 +136,7 @@ Runtime responsibility:
   - nested layout: `DEFAULT_SKILL_REPO_SUBDIR=skills`
 - `GIT_TOKEN` remains initContainer-only for asset clone and is not injected into the main runtime container by default.
 - Private business-repo checkout must be authorized by runtime-side provider/runtime-profile credentials (for example GitHub provider token), not by broad Portal/K8s git token injection into runtime.
+
+## 14) Local connector contract
+
+The browser submits top-level connector hints with an interactive chat request. Portal validates them against the signed-in member's saved connector settings before injecting trusted runtime metadata. A compatible runtime requests the local action over events; the originating Portal browser tab calls its loopback bridge and sends the result back through Portal. The runtime pod does not call the member's loopback address directly. See the [Connectors Contract](CONNECTORS_CONTRACT.md) for envelopes and endpoints.
