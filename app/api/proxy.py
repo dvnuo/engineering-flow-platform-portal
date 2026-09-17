@@ -657,7 +657,11 @@ async def proxy_agent(
                 background=BackgroundTask(_close_download),
             )
 
-        status_code, content, content_type = await proxy_service.forward(
+        # A chat attachment opened from the transcript keeps the runtime's
+        # Content-Disposition (inline vs download, and the original name).
+        passthrough_headers: dict[str, str] = {}
+        wants_disposition = request.method.upper() == "GET" and normalized_subpath.startswith("api/files/")
+        forwarded = await proxy_service.forward(
             agent=agent,
             method=request.method,
             subpath=subpath,
@@ -665,7 +669,15 @@ async def proxy_agent(
             body=request_body,
             headers=forward_headers,
             extra_headers=extra_headers,
+            return_response_headers=wants_disposition,
         )
+        if wants_disposition:
+            # forward() already reduced the upstream headers to a sanitized
+            # Content-Disposition (inline or attachment); use it as is.
+            status_code, content, content_type, upstream_headers = forwarded
+            passthrough_headers = dict(upstream_headers or {})
+        else:
+            status_code, content, content_type = forwarded
         if is_direct_chat_execution:
             finish_chat_response_best_effort(
                 db,
@@ -686,7 +698,7 @@ async def proxy_agent(
         safe_error = sanitize_exception_message(exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Proxy upstream failure: {safe_error}") from exc
 
-    return Response(status_code=status_code, content=content, media_type=content_type)
+    return Response(status_code=status_code, content=content, media_type=content_type, headers=passthrough_headers or None)
 
 
 @router.websocket("/a/{agent_id}/api/events")

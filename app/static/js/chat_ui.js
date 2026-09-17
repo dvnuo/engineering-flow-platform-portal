@@ -1232,28 +1232,51 @@ function attachmentSizeText(size) {
   return `${Math.round(size)} B`;
 }
 
+// Uploaded attachments stay on the runtime for the session's lifetime, so a
+// chip in the transcript can open the file: text, pdf and images render in a
+// new tab, anything else downloads.
+function attachmentFileUrl(attachment) {
+  const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+  const fileId = isObj ? String(attachment.file_id || attachment.fileId || "").trim() : "";
+  const agentId = typeof state !== "undefined" && state ? String(state.selectedAgentId || "") : "";
+  if (!fileId || !agentId) return "";
+  const sessionId = typeof currentSessionIdForSelectedAgent === "function"
+    ? String(currentSessionIdForSelectedAgent() || "")
+    : "";
+  const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  return `/a/${encodeURIComponent(agentId)}/api/files/${encodeURIComponent(fileId)}${query}`;
+}
+
 // The optimistic bubble builds markup; the history rebuild builds nodes (its
 // node harness has no innerHTML). Both carry the same icon, name and meta.
-function attachmentChipHtml(attachment, displayName, previewUrl) {
+function attachmentChipHtml(attachment, displayName) {
   const kind = attachmentKind(displayName, attachment?.content_type || attachment?.contentType || "");
   const metaText = formatAttachmentMetaText(Object.assign({}, attachment || {}, { name: displayName }));
   const metaHtml = metaText ? `<span class="message-attachment-meta">${escapeHtml(metaText)}</span>` : "";
-  const clickableClass = previewUrl ? " is-clickable" : "";
-  const previewAttrs = previewUrl
-    ? ` data-preview-url="${escapeHtmlAttr(previewUrl)}" data-preview-name="${escapeHtmlAttr(displayName)}" data-is-image="false"`
-    : "";
   const iconHtml = `<span class="portal-attachment-icon is-${kind.family}" aria-hidden="true"><i data-lucide="${kind.icon}"></i></span>`;
   const bodyHtml = `<span class="message-attachment-body"><span class="message-attachment-name">${escapeHtml(displayName)}</span>${metaHtml}</span>`;
-  return `<div class="message-attachment-file${clickableClass}" title="${escapeHtmlAttr(displayName)}"${previewAttrs}>${iconHtml}${bodyHtml}</div>`;
+  const url = attachmentFileUrl(attachment);
+  if (url) {
+    return `<a class="message-attachment-file is-clickable" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr("Open " + displayName)}">${iconHtml}${bodyHtml}</a>`;
+  }
+  return `<div class="message-attachment-file" title="${escapeHtmlAttr(displayName)}">${iconHtml}${bodyHtml}</div>`;
 }
 
 function buildAttachmentChipNode(attachment, displayName) {
   const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
   const contentType = isObj ? String(attachment.content_type || attachment.contentType || "") : "";
   const kind = attachmentKind(displayName, contentType);
-  const chip = document.createElement("div");
-  chip.className = "message-attachment-file";
-  chip.title = displayName;
+  const url = attachmentFileUrl(isObj ? attachment : null);
+  const chip = document.createElement(url ? "a" : "div");
+  chip.className = url ? "message-attachment-file is-clickable" : "message-attachment-file";
+  if (url) {
+    chip.href = url;
+    chip.target = "_blank";
+    chip.rel = "noopener noreferrer";
+    chip.title = `Open ${displayName}`;
+  } else {
+    chip.title = displayName;
+  }
   const icon = document.createElement("span");
   icon.className = `portal-attachment-icon is-${kind.family}`;
   const glyph = document.createElement("i");
@@ -2398,7 +2421,7 @@ function buildUserMessageArticle(text, attachments = [], options = {}) {
       if (a.type === 'image') {
         return `<img src="${safeUrl}" class="message-attachment-thumb" alt="${safeNameAttr}" data-preview-url="${safeUrl}" data-preview-name="${safeNameAttr}" data-is-image="true" />`;
       }
-      return attachmentChipHtml(a, safeName, a.previewUrl || a.url || '');
+      return attachmentChipHtml(a, safeName);
     }).join('')}</div>`;
   }
 
@@ -7598,6 +7621,7 @@ async function submitChatForSelectedAgent() {
       type: pf.isImage ? "image" : "file",
       previewUrl: pf.previewUrl,
       url: pf.uploadedData?.url,
+      file_id: pf.file_id || "",
       content_type: pf.uploadedData?.content_type || pf.file?.type || "",
       size: pf.uploadedData?.size ?? pf.file?.size,
     }));

@@ -1287,7 +1287,9 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .message-attachment-thumb { max-width: 128px; max-height: 128px; border-radius: 10px; border: 1px solid var(--portal-border); cursor: pointer; }
 .message-attachment-file { display: inline-flex; align-items: center; gap: 8px; max-width: 280px; padding: 6px 10px 6px 6px; border-radius: 12px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); font-size: 12px; color: var(--portal-text); }
-.message-attachment-file.is-clickable { cursor: pointer; }
+.message-attachment-file.is-clickable { cursor: pointer; text-decoration: none; }
+a.message-attachment-file { color: var(--portal-text); }
+.message-attachment-file.is-clickable:hover { border-color: var(--portal-accent); background: var(--portal-accent-soft); }
 .message-attachment-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .message-attachment-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .message-attachment-meta { font-size: 11px; color: var(--portal-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

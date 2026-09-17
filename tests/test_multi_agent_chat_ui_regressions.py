@@ -1312,6 +1312,7 @@ const document = {{
   dispatchEvent() {{ return true; }},
 }};
 {render_history_bundle}
+function currentSessionIdForSelectedAgent() {{ return "s-1"; }}
 renderChatHistory([
   {{
     role: "user",
@@ -1320,6 +1321,7 @@ renderChatHistory([
       {{ type: "image", previewUrl: "blob:image-1", file_id: "img-1", name: "diagram.png" }},
       "file_legacy_ref",
       {{ type: "file", filename: "spec.pdf", content_type: "application/pdf", size: 2048 }},
+      {{ type: "file", file_id: "f-log", name: "app.log", content_type: "text/plain", size: 233, parsed: true }},
     ],
   }},
 ], {{}});
@@ -1328,7 +1330,8 @@ const row = dom.messageList.children[0];
 const article = row.children[1];
 const attachmentsContainer = article.children[1];
 const imageNodeCount = attachmentsContainer.children.filter((node) => node.className === "message-attachment-thumb").length;
-const fileNodes = attachmentsContainer.children.filter((node) => node.className === "message-attachment-file");
+const fileNodes = attachmentsContainer.children.filter((node) => String(node.className).startsWith("message-attachment-file"));
+const fileLinks = fileNodes.map((node) => ({{ tag: node.tag, href: node.href || null, target: node.target || null }}));
 // A chip is icon tile + body (name span, optional meta span); the harness DOM
 // has no computed textContent, so read the body's parts.
 const chipText = (node) => node.children
@@ -1343,6 +1346,7 @@ console.log(JSON.stringify({{
   fileNodeCount: fileNodes.length,
   fileTexts,
   fileIcons,
+  fileLinks,
   chatStateKeys: Object.keys(state.chatStatesByAgent.get("agent-A")),
   articleDatasetAttachments: article.dataset.attachments || null,
   attachmentDivDatasetAttachments: attachmentsContainer.dataset.attachments || null,
@@ -1351,11 +1355,16 @@ console.log(JSON.stringify({{
     completed = _run_node_script(node_bin, script)
     data = json.loads(completed.stdout)
     assert data["imageNodeCount"] == 1
-    assert data["fileNodeCount"] == 2
+    assert data["fileNodeCount"] == 3
     # A bare legacy id has no extension and no MIME type, so no made-up meta.
     assert "file_legacy_ref" in data["fileTexts"]
     assert "spec.pdf · PDF · 2 KB" in data["fileTexts"]
-    assert data["fileIcons"] == ["file", "file-text"]
+    assert "app.log · LOG · 233 B" in data["fileTexts"]
+    assert data["fileIcons"] == ["file", "file-text", "file-text"]
+    # Only an attachment the runtime still holds (it has a file_id) opens as a link.
+    assert data["fileLinks"][0] == {"tag": "div", "href": None, "target": None}
+    assert data["fileLinks"][1] == {"tag": "div", "href": None, "target": None}
+    assert data["fileLinks"][2] == {"tag": "a", "href": "/a/agent-A/api/files/f-log?session_id=s-1", "target": "_blank"}
     assert "attachmentHistory" not in data["chatStateKeys"]
     assert data["articleDatasetAttachments"] in ("", None)
     assert data["attachmentDivDatasetAttachments"] in ("", None)
