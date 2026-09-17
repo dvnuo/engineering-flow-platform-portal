@@ -1,3 +1,7 @@
+{#- One help topic. The prose is app/help/<id>.md, handed to the browser in
+    data-help-markdown and rendered there by renderHelpMarkdown (chat_ui.js).
+    The steps and troubleshooting lines come from connection_guidance, shared
+    with the form the topic describes. -#}
 <div id="help-topic-panel" class="portal-panel-stack portal-help-topic" data-help-topic="{{ topic.id }}">
   <div class="portal-panel-header">
     <div>
@@ -10,7 +14,7 @@
   <section class="portal-panel-section">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>{{ "Steps" if topic.connection_section else "How to start" }}</h6>
+      <h6>Steps</h6>
     </div>
     <ol class="portal-help-steps">
       {% for step in topic.steps %}<li>{{ step }}</li>{% endfor %}
@@ -25,30 +29,21 @@
   </section>
   {% endif %}
 
-  {% for heading, paragraphs in topic.body %}
+  {% if topic.body %}
   <section class="portal-panel-section">
-    <div class="portal-settings-section-title">
-      <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>{{ heading }}</h6>
-    </div>
-    {% for paragraph in paragraphs %}
-    <p class="portal-help-paragraph">{{ paragraph }}</p>
-    {% endfor %}
+    <div class="message-markdown portal-help-body" data-help-markdown="{{ topic.body }}"></div>
   </section>
-  {% endfor %}
+  {% endif %}
 
-  {% if topic.shortcuts %}
+  {% if topic.troubleshooting %}
   <section class="portal-panel-section">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>Shortcuts</h6>
+      <h6>If it stops working</h6>
     </div>
-    <dl class="portal-help-shortcuts">
-      {% for keys, description in topic.shortcuts %}
-      <dt data-help-shortcut>{{ keys }}</dt>
-      <dd>{{ description }}</dd>
-      {% endfor %}
-    </dl>
+    <ul class="portal-help-steps">
+      {% for line in topic.troubleshooting %}<li>{{ line }}</li>{% endfor %}
+    </ul>
   </section>
   {% endif %}
 

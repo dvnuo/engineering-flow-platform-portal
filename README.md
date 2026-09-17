@@ -252,6 +252,7 @@ app/
 ├── web.py            # Web routes & API
 ├── api/              # API endpoints
 │   └── auth.py       # Authentication
+├── help/             # Help centre topics, one markdown file each (see help/README.md)
 ├── models/           # SQLAlchemy models
 ├── repositories/     # Data access layer
 ├── schemas/          # Pydantic schemas

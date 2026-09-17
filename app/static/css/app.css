@@ -2694,7 +2694,8 @@ a.message-attachment-file { color: var(--portal-text); }
   gap: 16px;
 }
 
-.portal-admin-nav-row {
+.portal-admin-nav-row,
+.portal-help-nav-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -2702,11 +2703,13 @@ a.message-attachment-file { color: var(--portal-text); }
   color: var(--portal-text-secondary);
 }
 
-.portal-admin-nav-row > svg:first-child {
+.portal-admin-nav-row > svg:first-child,
+.portal-help-nav-row > svg:first-child {
   color: var(--portal-accent);
 }
 
-.portal-admin-nav-row.is-active {
+.portal-admin-nav-row.is-active,
+.portal-help-nav-row.is-active {
   border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 60%);
   background: var(--portal-accent-soft);
   color: var(--portal-text);
@@ -5143,43 +5146,6 @@ a.message-attachment-file { color: var(--portal-text); }
   .portal-tooltip { transition: none; }
 }
 
-.portal-help-list {
-  margin: 0;
-  display: grid;
-  gap: .35rem .9rem;
-  font-size: .86rem;
-}
-
-.portal-help-list dt {
-  font-weight: 600;
-  color: var(--portal-text);
-}
-
-.portal-help-list dd {
-  margin: 0 0 .5rem;
-  color: var(--portal-text-secondary);
-  line-height: 1.5;
-}
-
-.portal-help-keys {
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-}
-
-.portal-help-keys dd { margin-bottom: .2rem; }
-
-.portal-help-panel kbd {
-  display: inline-block;
-  padding: .1rem .35rem;
-  border: 1px solid var(--portal-border);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  background: var(--portal-surface-muted, var(--portal-surface));
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: .76rem;
-  line-height: 1.3;
-}
-
 .portal-access-username {
   padding: .05rem .3rem;
   border: 1px solid var(--portal-border);
@@ -6152,14 +6118,11 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
   color: var(--portal-text-muted);
 }
 
-.portal-help-nav-row.is-active {
-  background: var(--portal-accent-soft);
-  color: var(--portal-text);
-}
-
 .portal-help-steps {
   margin: 0;
   padding-left: 22px;
+  /* Tailwind preflight strips list markers; the steps are numbered on purpose. */
+  list-style: decimal;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -6167,27 +6130,62 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
   max-width: 68ch;
 }
 
-.portal-help-paragraph {
-  margin: 0 0 8px;
-  color: var(--portal-text-secondary);
-  line-height: 1.65;
-  max-width: 68ch;
-}
-
-.portal-help-paragraph:last-child { margin-bottom: 0; }
+ul.portal-help-steps { list-style: disc; }
 
 .portal-help-external { align-self: flex-start; margin-top: 4px; }
 
-.portal-help-shortcuts {
-  margin: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px 20px;
-  align-items: baseline;
+/* The topic body is markdown (app/help/*.md) rendered by renderHelpMarkdown.
+   It borrows .message-markdown for code, tables and links; the rules below make
+   its headings read like the panel's other section titles. */
+.portal-help-body {
+  color: var(--portal-text-secondary);
+  max-width: 72ch;
 }
 
-.portal-help-shortcuts dt { white-space: nowrap; }
-.portal-help-shortcuts dd { margin: 0; color: var(--portal-text-secondary); font-size: 0.9rem; }
+.portal-help-body h1,
+.portal-help-body h2,
+.portal-help-body h3,
+.portal-help-body h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--portal-text);
+}
+
+.portal-help-body h1::before,
+.portal-help-body h2::before {
+  content: "";
+  width: 4px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--portal-accent);
+  flex-shrink: 0;
+}
+
+.portal-help-body > :first-child { margin-top: 0; }
+.portal-help-body > :last-child { margin-bottom: 0; }
+
+.portal-help-body p {
+  margin: 0 0 8px;
+  line-height: 1.65;
+}
+
+.portal-help-body ul,
+.portal-help-body ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+  list-style: disc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.portal-help-body ol { list-style: decimal; }
+
+.portal-help-body li + li { margin-top: 0; }
 
 .portal-help-footer {
   display: flex;
