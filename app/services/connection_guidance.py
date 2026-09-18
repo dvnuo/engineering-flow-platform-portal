@@ -185,7 +185,7 @@ CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
         "title": "Local browser connector",
         "summary": "Lets an assistant read and operate pages in a Chrome window on your own PC, with your logins.",
         "steps": [
-            "Download the EFP browser bridge package for your system from Connectors → Local browser (Windows, macOS, or Linux; it holds only the browser program, the installer, and a README) and unzip it in your user folder.",
+            "Download the EFP browser bridge package for your system from Connectors → Local browser (Windows, macOS, or Linux; it holds only the browser program, the installer, and a README) and unzip it into the bin folder of your home directory (%USERPROFILE%\\bin on Windows, ~/bin on macOS or Linux), overwriting any files already there.",
             "Run the installer in the unzipped folder (double-click install-bridge.cmd on Windows and enter the Portal address when it asks; ./install-bridge.sh <portal origin> on macOS or Linux), then click Start bridge on the panel and allow the efp-bridge link when Chrome asks. A Chrome window titled EFP opens with the Portal as its only tab.",
             "Click Test connection. It lists the tabs of the EFP browser window; sign in to your work sites in that window once.",
             "Switch Enabled on and save. New chats show a Browser toggle in the composer.",
