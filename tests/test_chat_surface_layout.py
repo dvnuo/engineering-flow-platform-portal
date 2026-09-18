@@ -244,7 +244,7 @@ def test_the_transcript_is_held_still_while_a_conversation_is_fetched():
     assert "showConversationLoading();" in selection
     assert "clearMessageListToWelcome();\n\n  await setActiveNavSection" not in js
     # Not every path through a selection ends in a transcript.
-    assert "if (conversationIsLoading()) clearMessageListToWelcome();" in selection
+    assert "if (conversationIsLoading()) showFreshConversationForSelectedAgent();" in selection
 
 
 def test_the_three_fetches_a_conversation_needs_run_together():
