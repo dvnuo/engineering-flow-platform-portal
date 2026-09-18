@@ -33,7 +33,7 @@
       <h6>Step 1 · Download the bridge</h6>
     </div>
     <p class="portal-panel-note">
-      Download the EFP browser bridge{% if cli_version %} (version {{ cli_version }}){% endif %} for your system and unzip it anywhere in your user folder, for example <code>%LOCALAPPDATA%\efp\browser-bridge</code> (Windows) or <code>~/efp/browser-bridge</code> (macOS, Linux). No administrator rights are needed. The package holds only the <code>browser</code> program, the installer for that system, and a README.
+      Download the EFP browser bridge{% if cli_version %} (version {{ cli_version }}){% endif %} for your system and unzip it into the <code>bin</code> folder of your home directory: <code>%USERPROFILE%\bin</code> (Windows) or <code>~/bin</code> (macOS, Linux). Create the folder if it is missing and overwrite any files already there. No administrator rights are needed. The package holds only the <code>browser</code> program, the installer for that system, and a README.
     </p>
     <div class="portal-setup-guide-links">
       <a class="portal-btn is-primary" href="{{ download_url }}" download data-connector-download-primary data-platform="{{ primary_platform }}">
