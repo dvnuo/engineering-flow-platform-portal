@@ -6167,7 +6167,7 @@ function refreshAssistantPausedState() {
 function settleTranscriptAfterStart(agentId) {
   if (state.selectedAgentId !== agentId || !dom.messageList) return;
   const hasRows = Boolean(dom.messageList.querySelector(".message-row"));
-  if (!hasRows || transcriptShowsPausedState()) clearMessageListToWelcome();
+  if (!hasRows || transcriptShowsPausedState()) showFreshConversationForSelectedAgent();
 }
 
 /* ===== transcript ownership =================================================
@@ -6305,6 +6305,29 @@ function clearMessageListToWelcome() {
   } catch (error) {
     /* a listener throwing must not break clearing the transcript */
   }
+}
+
+/**
+ * Paint the greeting for a conversation that has not begun, and claim the
+ * transcript for it.
+ *
+ * The claim is the point. The greeting used to be painted without one, so the
+ * transcript stayed owned by whatever was shown before: nothing at all on a
+ * fresh page, another assistant's conversation, or the session just deleted.
+ * The first message sent into that greeting then failed every ownership check
+ * -- its timeline, its streamed text and its reply were all routed to the
+ * background (unread badge, toast) as a run finishing out of view, while the
+ * placeholder row on screen kept saying Thinking until the page was reloaded.
+ * A new assistant, whose start restores nothing, hit this on its very first
+ * message.
+ *
+ * Only for a greeting painted outside a load: `loadSessionForAgent` claims
+ * for the session it fetched, and re-claiming with no session would supersede
+ * that token. `startNewChatForSelectedAgent` makes the same claim itself.
+ */
+function showFreshConversationForSelectedAgent() {
+  beginTranscript(state.selectedAgentId, "");
+  clearMessageListToWelcome();
 }
 
 
@@ -7121,7 +7144,7 @@ async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   // Not every path through the selection ends in a transcript -- a stopped
   // assistant shows the home view, for one. The placeholder must never be
   // what is left on screen.
-  if (conversationIsLoading()) clearMessageListToWelcome();
+  if (conversationIsLoading()) showFreshConversationForSelectedAgent();
   if (updateRoute && !isApplyingPortalRoute) {
     commitPortalRoute({ section: "assistants", agentId });
   }
@@ -11942,7 +11965,7 @@ async function deleteSessionForAgent(agentId, sessionId) {
           else chatState.inflightAgentTimeline = null;
         }
         removeTemporaryAssistantRows({ forceAll: true });
-        clearMessageListToWelcome();
+        showFreshConversationForSelectedAgent();
         resetChatInputHeight();
         setChatStatus("Session deleted");
       }
@@ -13322,7 +13345,7 @@ async function clearChat() {
       else chatState.inflightAgentTimeline = null;
     }
     removeTemporaryAssistantRows({ forceAll: true });
-    clearMessageListToWelcome();
+    showFreshConversationForSelectedAgent();
     resetChatInputHeight();
     setChatStatus("Chat cleared");
   } catch (error) {

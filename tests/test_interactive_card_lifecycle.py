@@ -498,7 +498,7 @@ def test_the_work_still_happens_where_the_route_expects_it():
     js = CHAT_UI.read_text(encoding="utf-8")
     work = _extract_js_function(js, "performAgentSelection")
 
-    assert "clearMessageListToWelcome();" in work
+    assert "showFreshConversationForSelectedAgent();" in work
     assert 'commitPortalRoute({ section: "assistants", agentId })' in work
 
 

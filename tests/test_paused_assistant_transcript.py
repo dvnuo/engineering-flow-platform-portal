@@ -114,7 +114,7 @@ def test_a_start_that_restored_nothing_clears_the_row():
 
     settle = _extract_js_function(js, "settleTranscriptAfterStart")
     assert "state.selectedAgentId !== agentId" in settle
-    assert "clearMessageListToWelcome();" in settle
+    assert "showFreshConversationForSelectedAgent();" in settle
 
 
 def test_a_lone_paused_row_makes_way_for_the_first_message():
