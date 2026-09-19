@@ -16,10 +16,19 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "github",
     "aws",
     "jenkins",
+    "nexus",
+    "splunk",
+    "appd",
+    "pgsql",
     "mobile-auto",
     "git",
     "debug",
 }
+
+# The troubleshooting CLIs (nexus, splunk, appd, pgsql) share one section
+# shape: an enabled flag, a default instance name and a list of named
+# instances the assistant addresses with --instance.
+TROUBLESHOOTING_INSTANCE_SECTIONS = ("nexus", "splunk", "appd", "pgsql")
 
 PORTAL_MANAGED_FIELD_TREE = {
     "llm": {
@@ -96,6 +105,26 @@ PORTAL_MANAGED_FIELD_TREE = {
         "url": True,
         "username": True,
         "password": True,
+    },
+    "nexus": {
+        "enabled": True,
+        "instances": True,
+        "default_instance": True,
+    },
+    "splunk": {
+        "enabled": True,
+        "instances": True,
+        "default_instance": True,
+    },
+    "appd": {
+        "enabled": True,
+        "instances": True,
+        "default_instance": True,
+    },
+    "pgsql": {
+        "enabled": True,
+        "instances": True,
+        "default_instance": True,
     },
     "mobile-auto": {
         "enabled": True,
@@ -288,8 +317,168 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             space = str(item.get("space") or item.get("space_key") or "").strip()
             if space:
                 sanitized_item["space"] = space
+        if kind == "splunk":
+            for key in ("default_index", "default_earliest"):
+                cleaned = str(item.get(key) or "").strip()
+                if cleaned:
+                    sanitized_item[key] = cleaned
+            max_results = sanitize_runtime_profile_bounded_int(
+                item.get("max_results"), SPLUNK_MAX_RESULTS_MIN, SPLUNK_MAX_RESULTS_MAX
+            )
+            if max_results is not None:
+                sanitized_item["max_results"] = max_results
+        if kind == "appd":
+            account = str(item.get("account") or "").strip()
+            if account:
+                sanitized_item["account"] = account
+            auth_type = str(item.get("auth_type") or "").strip().lower()
+            if auth_type in APPD_AUTH_TYPES:
+                sanitized_item["auth_type"] = auth_type
         sanitized_instances.append(sanitized_item)
     return sanitized_instances
+
+
+# What the splunk CLI accepts for --count, so a typo cannot ask for a million
+# events; what the appd CLI knows how to sign in with; what psycopg accepts for
+# sslmode (a plain "disable" is deliberately not offered).
+SPLUNK_MAX_RESULTS_MIN = 1
+SPLUNK_MAX_RESULTS_MAX = 10000
+APPD_AUTH_TYPES = ("api_client", "basic_password")
+PGSQL_SSL_MODES = ("require", "verify-ca", "verify-full", "prefer")
+PGSQL_DEFAULT_PORT = 5432
+PORT_MIN = 1
+PORT_MAX = 65535
+
+
+def sanitize_runtime_profile_bounded_int(value, minimum: int, maximum: int) -> int | None:
+    """Return ``value`` as an int inside [minimum, maximum], else None.
+
+    Accepts the string a form posts as well as a JSON number; a bool is never a
+    count, and neither is "12.5".
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value.isdigit():
+            return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if minimum <= parsed <= maximum:
+        return parsed
+    return None
+
+
+def dedupe_runtime_profile_instances_by_name(instances: list[dict]) -> list[dict]:
+    """Keep the rows that carry a name, one per name (case-insensitive, first wins).
+
+    The troubleshooting CLIs address an instance with --instance <name>, so a
+    nameless row can never be reached and two rows with one name would be
+    ambiguous; both are dropped rather than stored half-usable.
+    """
+    kept: list[dict] = []
+    seen: set[str] = set()
+    for item in instances:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(item)
+    return kept
+
+
+def sanitize_runtime_profile_named_instance_section(value, *, kind: str) -> dict:
+    """Sanitize a nexus/splunk/appd section: enabled, default_instance, instances[]."""
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    default_instance = str(value.get("default_instance") or "").strip()
+    if default_instance:
+        out["default_instance"] = default_instance
+    if "instances" in value:
+        out["instances"] = dedupe_runtime_profile_instances_by_name(
+            sanitize_runtime_profile_external_instances(value.get("instances"), kind=kind)
+        )
+    return out
+
+
+def sanitize_runtime_profile_nexus(value) -> dict:
+    return sanitize_runtime_profile_named_instance_section(value, kind="nexus")
+
+
+def sanitize_runtime_profile_splunk(value) -> dict:
+    return sanitize_runtime_profile_named_instance_section(value, kind="splunk")
+
+
+def sanitize_runtime_profile_appd(value) -> dict:
+    return sanitize_runtime_profile_named_instance_section(value, kind="appd")
+
+
+def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
+    """Return the usable PostgreSQL instance rows.
+
+    A row needs a name, a host, a database and a username; the pgsql CLI cannot
+    open a connection without them, so a row missing one is dropped rather than
+    stored half-formed. The port is kept only when it is a real TCP port, and
+    sslmode only when psycopg would accept it.
+    """
+    if not isinstance(value, list):
+        return []
+    instances: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        host = str(item.get("host") or item.get("hostname") or "").strip()
+        database = str(item.get("database") or item.get("dbname") or "").strip()
+        username = str(item.get("username") or item.get("user") or "").strip()
+        if not (name and host and database and username):
+            continue
+        instance: dict = {"name": name, "host": host}
+        port = sanitize_runtime_profile_bounded_int(item.get("port"), PORT_MIN, PORT_MAX)
+        if port is not None:
+            instance["port"] = port
+        instance["database"] = database
+        instance["username"] = username
+        password = str(item.get("password") or "").strip()
+        if password:
+            instance["password"] = password
+        sslmode = str(item.get("sslmode") or "").strip().lower()
+        if sslmode in PGSQL_SSL_MODES:
+            instance["sslmode"] = sslmode
+        if "enabled" in item:
+            instance["enabled"] = _runtime_profile_bool(item.get("enabled"))
+        instances.append(instance)
+    return dedupe_runtime_profile_instances_by_name(instances)
+
+
+def sanitize_runtime_profile_pgsql(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    if "enabled" in value:
+        out["enabled"] = _runtime_profile_bool(value.get("enabled"))
+    default_instance = str(value.get("default_instance") or "").strip()
+    if default_instance:
+        out["default_instance"] = default_instance
+    if "instances" in value:
+        out["instances"] = sanitize_runtime_profile_pgsql_instances(value.get("instances"))
+    return out
+
+
+TROUBLESHOOTING_SECTION_SANITIZERS = {
+    "nexus": sanitize_runtime_profile_nexus,
+    "splunk": sanitize_runtime_profile_splunk,
+    "appd": sanitize_runtime_profile_appd,
+    "pgsql": sanitize_runtime_profile_pgsql,
+}
 
 
 def sanitize_runtime_profile_jira(value) -> dict:
@@ -731,6 +920,9 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
         sanitized["aws"] = sanitize_runtime_profile_aws(sanitized.get("aws"))
     if "jenkins" in sanitized:
         sanitized["jenkins"] = sanitize_runtime_profile_jenkins(sanitized.get("jenkins"))
+    for section, sanitizer in TROUBLESHOOTING_SECTION_SANITIZERS.items():
+        if section in sanitized:
+            sanitized[section] = sanitizer(sanitized.get(section))
     if "mobile-auto" in sanitized:
         sanitized["mobile-auto"] = sanitize_runtime_profile_mobile(sanitized.get("mobile-auto"))
     if "proxy" in sanitized:
@@ -797,7 +989,7 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
-    for section in ("jira", "confluence", "jenkins"):
+    for section in ("jira", "confluence", "jenkins", *TROUBLESHOOTING_INSTANCE_SECTIONS):
         cfg = redacted.get(section)
         if not isinstance(cfg, dict):
             continue
@@ -820,8 +1012,10 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
             inst_copy = inst.copy()
             inst_copy["password_present"] = bool(str(inst_copy.pop("password", "")).strip())
             token_values = [str(inst_copy.pop(key, "")).strip() for key in ("token", "api_token", "access_token")]
-            token_present = any(token_values)
-            inst_copy["token_present"] = token_present
+            # A PostgreSQL row signs in with a password only; saying
+            # token_present: false on it would suggest a token it cannot take.
+            if section != "pgsql":
+                inst_copy["token_present"] = any(token_values)
             redacted_instances.append(inst_copy)
         cfg["instances"] = redacted_instances
     return redacted

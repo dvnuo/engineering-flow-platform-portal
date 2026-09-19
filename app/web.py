@@ -38,16 +38,25 @@ from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
+    APPD_AUTH_TYPES,
     AWS_AUTH_PROVIDERS,
     AWS_SESSION_DURATION_MAX_SECONDS,
     AWS_SESSION_DURATION_MIN_SECONDS,
     JENKINS_DEFAULT_INSTANCE_NAME,
+    PGSQL_SSL_MODES,
+    PORT_MAX,
+    PORT_MIN,
+    SPLUNK_MAX_RESULTS_MAX,
+    SPLUNK_MAX_RESULTS_MIN,
+    TROUBLESHOOTING_INSTANCE_SECTIONS,
     dump_runtime_profile_config_json,
     normalize_aws_account_id,
     normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
+    sanitize_runtime_profile_bounded_int,
     sanitize_runtime_profile_config_dict,
 )
+from app.services.runtime_profile_audit import audit_runtime_profile_change
 from app.services.auth_service import parse_session_token, set_session_cookie
 from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
 from app.services.k8s_service import K8sService
@@ -866,6 +875,14 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
     raw_aws = raw_config.get("aws") if isinstance(raw_config.get("aws"), dict) else {}
     raw_jenkins = raw_config.get("jenkins") if isinstance(raw_config.get("jenkins"), dict) else {}
+    # nexus / splunk / appd / pgsql: the section and its instance rows, exposed
+    # as <section> and <section>_instances exactly like jenkins.
+    troubleshooting_view: dict = {}
+    for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
+        section_config = effective_config.get(section) if isinstance(effective_config.get(section), dict) else {}
+        section_instances = section_config.get("instances") if isinstance(section_config.get("instances"), list) else []
+        troubleshooting_view[section] = section_config
+        troubleshooting_view[f"{section}_instances"] = [item for item in section_instances if isinstance(item, dict)]
     raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
     raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
     mobile = effective_config.get("mobile-auto") if isinstance(effective_config.get("mobile-auto"), dict) else {}
@@ -903,6 +920,8 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "aws_accounts": _aws_account_view_rows(raw_aws),
         "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "raw_jenkins": raw_jenkins,
+        **troubleshooting_view,
+        "troubleshooting_cards": TROUBLESHOOTING_CARD_LAYOUT,
         "git": effective_config.get("git") if isinstance(effective_config.get("git"), dict) else {},
         "raw_git": raw_git,
         "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
@@ -1113,6 +1132,93 @@ AWS_ACCOUNT_SEED_FIELDS = ["enabled", "name", "account_id", "role", "regions"]
 AWS_ACCOUNT_API_ONLY_FIELDS = frozenset({"role_arn", "profile"})
 AWS_ACCOUNT_FORM_FIELDS = AWS_ACCOUNT_SEED_FIELDS + sorted(AWS_ACCOUNT_API_ONLY_FIELDS)
 
+# The troubleshooting CLIs' instance cards: what each card posts, in the order
+# the templates render them (nexus/splunk/appd rows carry a url, pgsql rows a
+# host), what the section is called in an error, and which fields a row cannot
+# do without -- the sanitizer drops a row missing one, so the form reports it.
+TROUBLESHOOTING_INSTANCE_FIELDS = {
+    "nexus": ["enabled", "name", "url", "username", "password", "token"],
+    "splunk": ["enabled", "name", "url", "username", "password", "token", "default_index", "default_earliest", "max_results"],
+    "appd": ["enabled", "name", "url", "account", "auth_type", "username", "password", "token"],
+    "pgsql": ["enabled", "name", "host", "port", "database", "username", "password", "sslmode"],
+}
+TROUBLESHOOTING_SECTION_LABELS = {
+    "nexus": "Nexus",
+    "splunk": "Splunk",
+    "appd": "AppDynamics",
+    "pgsql": "PostgreSQL",
+}
+TROUBLESHOOTING_REQUIRED_INSTANCE_FIELDS = {
+    "nexus": ("url",),
+    "splunk": ("url",),
+    "appd": ("url",),
+    "pgsql": ("host", "database", "username"),
+}
+TROUBLESHOOTING_INSTANCE_SECRET_FIELDS = frozenset({"password", "token"})
+
+# How a card lays its fields out: two per row, "" for an empty slot. The
+# server-rendered card (partials/runtime_profile_instance_cards.html) and the
+# card chat_ui.js builds for "+ Add ..." are both driven by these tables; the
+# JS copies (INSTANCE_GROUP_CARD_ROWS, INSTANCE_GROUP_FIELD_SPECS and the group
+# entries of INSTANCE_GROUP_PLACEHOLDERS) are held equal to these by a test.
+TROUBLESHOOTING_CARD_ROWS = {
+    "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
+    "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"]],
+    "appd": [["name", "url"], ["account", "auth_type"], ["username", "password"], ["token", ""]],
+    "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", ""]],
+}
+TROUBLESHOOTING_CARD_FIELD_SPECS = {
+    "password": {"type": "password"},
+    "token": {"type": "password"},
+    "port": {"type": "number", "min": PORT_MIN, "max": PORT_MAX},
+    "max_results": {"type": "number", "min": SPLUNK_MAX_RESULTS_MIN, "max": SPLUNK_MAX_RESULTS_MAX},
+    "auth_type": {
+        "type": "select",
+        "options": [["api_client", "API client"], ["basic_password", "Basic (username and password)"]],
+    },
+    "sslmode": {"type": "select", "options": [[mode, mode] for mode in PGSQL_SSL_MODES]},
+}
+TROUBLESHOOTING_CARD_PLACEHOLDERS = {
+    "nexus": {
+        "name": "Name",
+        "url": "URL (e.g. https://nexus.example.com)",
+        "username": "Username",
+        "password": "Password",
+        "token": "User token",
+    },
+    "splunk": {
+        "name": "Name",
+        "url": "Management API URL (e.g. https://splunk.example.com:8089)",
+        "username": "Username",
+        "password": "Password",
+        "token": "Authentication token",
+        "default_index": "Default index, e.g. app_prod",
+        "default_earliest": "Default earliest, e.g. -1h",
+        "max_results": "Max results (1-10000)",
+    },
+    "appd": {
+        "name": "Name",
+        "url": "Controller URL (e.g. https://appd-controller.example.com)",
+        "account": "Account, e.g. customer1",
+        "username": "API client name or username",
+        "password": "Password (Basic sign-in)",
+        "token": "Client secret (API client)",
+    },
+    "pgsql": {
+        "name": "Name",
+        "host": "Host, e.g. orders-uat.example.com",
+        "port": "5432",
+        "database": "Database",
+        "username": "Username (read-only role)",
+        "password": "Password",
+    },
+}
+TROUBLESHOOTING_CARD_LAYOUT = {
+    "rows": TROUBLESHOOTING_CARD_ROWS,
+    "specs": TROUBLESHOOTING_CARD_FIELD_SPECS,
+    "placeholders": TROUBLESHOOTING_CARD_PLACEHOLDERS,
+}
+
 
 def _seed_config_from_form(form) -> dict:
     """Build the seed from the Default Connections form.
@@ -1196,6 +1302,14 @@ def _seed_config_from_form(form) -> dict:
     )
     if flag("jenkins_enabled") or jenkins_instances:
         seed["jenkins"] = {"enabled": flag("jenkins_enabled"), "instances": jenkins_instances}
+
+    for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
+        instances = _seed_parse_instances(form, section, TROUBLESHOOTING_INSTANCE_FIELDS[section])
+        default_instance = text(f"{section}_default_instance")
+        if flag(f"{section}_enabled") or instances or default_instance:
+            seed[section] = {"enabled": flag(f"{section}_enabled"), "instances": instances}
+            if default_instance:
+                seed[section]["default_instance"] = default_instance
 
     proxy: dict = {}
     for key in ("url", "username", "password"):
@@ -1382,6 +1496,93 @@ def _settings_aws_default_account_error(aws_cfg: dict) -> Optional[str]:
         if str(account.get("account_id") or "").strip() == default_account:
             return None
     return f"Default AWS account {default_account} must be the name or 12-digit id of one of the accounts listed below."
+
+
+def _settings_parse_troubleshooting_instances(
+    form, section: str, existing_instances: list
+) -> tuple[list[dict], Optional[str]]:
+    """Read the nexus/splunk/appd/pgsql instance cards, refusing rows the sanitizer would drop.
+
+    The generic parser keeps a row by its name or URL and the sanitizer then
+    drops anything it cannot address (no name), cannot reach (no URL, or for
+    PostgreSQL no host/database/username) or cannot tell apart (a name used
+    twice). Those come back as an error naming the row instead of vanishing on
+    save. Blank secrets keep the stored value, matched by the row's original
+    name, exactly like the jira/jenkins cards.
+    """
+    label = TROUBLESHOOTING_SECTION_LABELS[section]
+    fields = TROUBLESHOOTING_INSTANCE_FIELDS[section]
+    count_text = (form.get(f"{section}_instance_count") or "0").strip()
+    try:
+        count = max(0, int(count_text))
+    except ValueError:
+        count = 0
+    for index in range(count):
+        if (form.get(f"{section}_instances_{index}_name") or "").strip():
+            continue
+        typed = any(
+            (form.get(f"{section}_instances_{index}_{field}") or "").strip()
+            for field in fields
+            if field not in ("enabled", "name")
+        )
+        if typed:
+            return [], f"{label} instance {index + 1} needs a name; the assistant addresses it with --instance."
+
+    rows = _settings_parse_instances(
+        form,
+        section,
+        fields,
+        existing_instances=existing_instances,
+        preserve_blank_fields=set(TROUBLESHOOTING_INSTANCE_SECRET_FIELDS),
+        clearable_fields=set(TROUBLESHOOTING_INSTANCE_SECRET_FIELDS),
+    )
+    seen_names: set[str] = set()
+    for row in rows:
+        # No quotes around the name: the panel autoescapes them into entities.
+        name = str(row.get("name") or "").strip()
+        name_key = name.lower()
+        if name_key in seen_names:
+            return [], f"{label} instance names must be unique; {name} is listed more than once."
+        seen_names.add(name_key)
+        for field in TROUBLESHOOTING_REQUIRED_INSTANCE_FIELDS[section]:
+            if not str(row.get(field) or "").strip():
+                wanted = "a URL" if field == "url" else f"a {field}"
+                return [], f"{label} instance {name} needs {wanted}."
+        if section == "pgsql":
+            port_text = str(row.get("port") or "").strip()
+            if port_text and sanitize_runtime_profile_bounded_int(port_text, PORT_MIN, PORT_MAX) is None:
+                return [], f"{label} instance {name} needs a port between {PORT_MIN} and {PORT_MAX}."
+            sslmode = str(row.get("sslmode") or "").strip().lower()
+            if sslmode and sslmode not in PGSQL_SSL_MODES:
+                return [], f"{label} instance {name} needs an SSL mode of {', '.join(PGSQL_SSL_MODES)}."
+        if section == "splunk":
+            max_results_text = str(row.get("max_results") or "").strip()
+            if max_results_text and (
+                sanitize_runtime_profile_bounded_int(max_results_text, SPLUNK_MAX_RESULTS_MIN, SPLUNK_MAX_RESULTS_MAX) is None
+            ):
+                return [], (
+                    f"{label} instance {name} needs a max results count between "
+                    f"{SPLUNK_MAX_RESULTS_MIN} and {SPLUNK_MAX_RESULTS_MAX}."
+                )
+        if section == "appd":
+            auth_type = str(row.get("auth_type") or "").strip().lower()
+            if auth_type and auth_type not in APPD_AUTH_TYPES:
+                return [], f"{label} instance {name} needs an auth type of {' or '.join(APPD_AUTH_TYPES)}."
+    return rows, None
+
+
+def _settings_troubleshooting_default_instance_error(section: str, section_cfg: dict) -> Optional[str]:
+    """The default instance has to be one of the configured rows, by name."""
+    default_instance = str(section_cfg.get("default_instance") or "").strip()
+    if not default_instance:
+        return None
+    instances = section_cfg.get("instances") if isinstance(section_cfg.get("instances"), list) else []
+    wanted = default_instance.lower()
+    for item in instances:
+        if isinstance(item, dict) and str(item.get("name") or "").strip().lower() == wanted:
+            return None
+    label = TROUBLESHOOTING_SECTION_LABELS[section]
+    return f"Default {label} instance {default_instance} must be the name of one of the instances listed below."
 
 
 def _settings_finalize_config_payload(config_payload: dict) -> dict:
@@ -1693,6 +1894,32 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         # partial post can never wipe an unmigrated profile's credentials.
         jenkins.pop("automation", None)
         config_payload["jenkins"] = jenkins
+
+    # nexus / splunk / appd / pgsql share the jenkins shape: one block each,
+    # driven by the same instance-card parser. A post without the rows (an
+    # older panel, a partial form) keeps the stored ones.
+    for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
+        if not is_section_touched(section):
+            continue
+        existing_section = config_payload.get(section) if isinstance(config_payload.get(section), dict) else {}
+        section_cfg = dict(existing_section)
+        section_cfg["enabled"] = as_bool(form.get(f"{section}_enabled"))
+        if f"{section}_default_instance" in form:
+            default_instance = (form.get(f"{section}_default_instance") or "").strip()
+            if default_instance:
+                section_cfg["default_instance"] = default_instance
+            else:
+                section_cfg.pop("default_instance", None)
+        if f"{section}_instance_count" in form:
+            existing_rows = existing_section.get("instances") if isinstance(existing_section.get("instances"), list) else []
+            rows, rows_error = _settings_parse_troubleshooting_instances(form, section, existing_rows)
+            if rows_error:
+                return config_payload, rows_error
+            section_cfg["instances"] = rows
+        default_error = _settings_troubleshooting_default_instance_error(section, section_cfg)
+        if default_error:
+            return config_payload, default_error
+        config_payload[section] = section_cfg
 
     if is_section_touched("git"):
         git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
@@ -3017,6 +3244,14 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             runtime_profile.config_json = new_config_json
             runtime_profile.revision = (runtime_profile.revision or 0) + 1
             runtime_profile = profile_repo.save(runtime_profile)
+            audit_runtime_profile_change(
+                db,
+                action="update_runtime_profile",
+                profile_id=runtime_profile.id,
+                user_id=user.id,
+                before=config_base,
+                after=parse_runtime_profile_config_json(new_config_json, fallback_to_empty=True),
+            )
             status_type, status_message = _apply_runtime_profile_save(db, runtime_profile)
         else:
             status_type, status_message = ("success", "Connections saved.")
@@ -3043,7 +3278,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         db.close()
 
 
-_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github"}
+_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "appd", "pgsql"}
 
 
 def _validate_managed_test_target(target: str) -> str:
@@ -3217,6 +3452,14 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
             description=(form.get("description") or "").strip() or None,
             config_json=dump_runtime_profile_config_json(sanitized_config),
             is_default=is_default,
+        )
+        audit_runtime_profile_change(
+            db,
+            action="update_runtime_profile",
+            profile_id=updated.id,
+            user_id=user.id,
+            before=config_base,
+            after=parse_runtime_profile_config_json(updated.config_json, fallback_to_empty=True),
         )
 
         status_type = "success"

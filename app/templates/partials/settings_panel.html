@@ -1,3 +1,4 @@
+{% from "partials/runtime_profile_instance_cards.html" import troubleshooting_instance_cards %}
 <div class="portal-panel-stack" id="settings-panel-root" data-agent-id="{{ agent_id }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/agents/{{ agent_id }}/settings/test">
   <!-- Please select an assistant first -->
   {% if read_only %}
@@ -38,6 +39,10 @@
     <input type="hidden" name="__touch_mobile" value="0" data-touch-flag="mobile" />
     <input type="hidden" name="__touch_aws" value="0" data-touch-flag="aws" />
     <input type="hidden" name="__touch_jenkins" value="0" data-touch-flag="jenkins" />
+    <input type="hidden" name="__touch_nexus" value="0" data-touch-flag="nexus" />
+    <input type="hidden" name="__touch_splunk" value="0" data-touch-flag="splunk" />
+    <input type="hidden" name="__touch_appd" value="0" data-touch-flag="appd" />
+    <input type="hidden" name="__touch_pgsql" value="0" data-touch-flag="pgsql" />
     <input type="hidden" name="__touch_git" value="0" data-touch-flag="git" />
     <input type="hidden" name="__touch_debug" value="0" data-touch-flag="debug" />
     {% if status_message %}
@@ -263,6 +268,88 @@
       <input type="hidden" name="jenkins_instance_count" value="{{ jenkins_instances|length }}" data-instance-count="jenkins" />
       <div class="space-y-2" data-instance-container="jenkins">{% for inst in jenkins_instances %}<div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="jenkins"><input type="hidden" data-original-field="name" value="{{ inst.get('name','') }}" /><input type="hidden" data-original-field="url" value="{{ inst.get('url','') }}" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable Jenkins instance {{ loop.index }}" {% if inst.get('enabled', True) %}checked{% endif %} /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>{% if inst.get('enabled', True) %}Enabled{% else %}Disabled{% endif %}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jenkins">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://jenkins.example.com)" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Username" class="portal-form-input" /><input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API token" class="portal-form-input" /><div></div></div></div></div>{% endfor %}</div>
       <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="jenkins">+ Add Jenkins Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="jenkins">Test Jenkins</button><div class="portal-inline-state" data-test-result="jenkins"></div></div>
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="nexus" data-managed-section="nexus">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+          <div class="portal-settings-section-title">
+            <span class="portal-section-accent" aria-hidden="true"></span>
+            <h6>Nexus Repository</h6>
+          </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Nexus">
+              <input type="checkbox" name="nexus_enabled" {% if nexus.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="nexus_default_instance" value="{{ nexus.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      {{ troubleshooting_instance_cards('nexus', 'Nexus', nexus_instances, troubleshooting_cards) }}
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="nexus">+ Add Nexus Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="nexus">Test Nexus</button><div class="portal-inline-state" data-test-result="nexus"></div></div>
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="splunk" data-managed-section="splunk">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+          <div class="portal-settings-section-title">
+            <span class="portal-section-accent" aria-hidden="true"></span>
+            <h6>Splunk</h6>
+          </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Splunk">
+              <input type="checkbox" name="splunk_enabled" {% if splunk.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="splunk_default_instance" value="{{ splunk.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      {{ troubleshooting_instance_cards('splunk', 'Splunk', splunk_instances, troubleshooting_cards) }}
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="splunk">+ Add Splunk Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="splunk">Test Splunk</button><div class="portal-inline-state" data-test-result="splunk"></div></div>
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="appd" data-managed-section="appd">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+          <div class="portal-settings-section-title">
+            <span class="portal-section-accent" aria-hidden="true"></span>
+            <h6>AppDynamics</h6>
+          </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable AppDynamics">
+              <input type="checkbox" name="appd_enabled" {% if appd.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="appd_default_instance" value="{{ appd.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      {{ troubleshooting_instance_cards('appd', 'AppDynamics', appd_instances, troubleshooting_cards) }}
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="appd">+ Add AppDynamics Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="appd">Test AppDynamics</button><div class="portal-inline-state" data-test-result="appd"></div></div>
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="pgsql" data-managed-section="pgsql">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+          <div class="portal-settings-section-title">
+            <span class="portal-section-accent" aria-hidden="true"></span>
+            <h6>PostgreSQL</h6>
+          </div>
+      </div>
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable PostgreSQL">
+              <input type="checkbox" name="pgsql_enabled" {% if pgsql.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="pgsql_default_instance" value="{{ pgsql.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      <div class="portal-inline-note">One row per database. Use a read-only role; every query the assistant runs is wrapped in a read-only transaction.</div>
+      {{ troubleshooting_instance_cards('pgsql', 'PostgreSQL', pgsql_instances, troubleshooting_cards) }}
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="pgsql">+ Add PostgreSQL Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="pgsql">Test PostgreSQL</button><div class="portal-inline-state" data-test-result="pgsql"></div></div>
     </section>
 
     <section class="portal-panel-section" data-managed-section="git">

@@ -234,6 +234,101 @@
       ]) }}
     </section>
 
+    <section class="portal-panel-section" data-instance-group="nexus">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Nexus Repository</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer Nexus">
+          <input type="checkbox" name="nexus_enabled" {% if seed.get('nexus', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer Nexus Repository to members</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="nexus_default_instance" value="{{ seed.get('nexus', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      {{ instance_group('nexus', 'Nexus', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'main'},
+          {'key': 'url', 'label': 'URL', 'placeholder': 'https://nexus.example.com'},
+          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared user token', 'type': 'password', 'placeholder': 'Optional'}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="splunk">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Splunk</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer Splunk">
+          <input type="checkbox" name="splunk_enabled" {% if seed.get('splunk', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer Splunk to members</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="splunk_default_instance" value="{{ seed.get('splunk', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      {{ instance_group('splunk', 'Splunk', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'prod'},
+          {'key': 'url', 'label': 'Management API URL', 'placeholder': 'https://splunk-api.example.com:8089'},
+          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared authentication token', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'default_index', 'label': 'Default index', 'placeholder': 'app_prod'},
+          {'key': 'default_earliest', 'label': 'Default earliest', 'placeholder': '-1h'},
+          {'key': 'max_results', 'label': 'Max results', 'type': 'number', 'placeholder': '1000'}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="appd">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>AppDynamics</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer AppDynamics">
+          <input type="checkbox" name="appd_enabled" {% if seed.get('appd', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer AppDynamics to members</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="appd_default_instance" value="{{ seed.get('appd', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      {{ instance_group('appd', 'AppDynamics', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'prod'},
+          {'key': 'url', 'label': 'Controller URL', 'placeholder': 'https://appd-controller.example.com'},
+          {'key': 'account', 'label': 'Account', 'placeholder': 'customer1'},
+          {'key': 'auth_type', 'label': 'Sign-in', 'type': 'select', 'options': [
+              {'value': 'api_client', 'label': 'API client'}, {'value': 'basic_password', 'label': 'Basic (username and password)'}]},
+          {'key': 'username', 'label': 'Shared API client name or username', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password (Basic)', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared client secret (API client)', 'type': 'password', 'placeholder': 'Optional'}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="pgsql">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>PostgreSQL</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer PostgreSQL">
+          <input type="checkbox" name="pgsql_enabled" {% if seed.get('pgsql', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer PostgreSQL to members</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="pgsql_default_instance" value="{{ seed.get('pgsql', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      <p class="portal-panel-note">One row per database. Seed a read-only role; every query the assistant runs is wrapped in a read-only transaction.</p>
+      {{ instance_group('pgsql', 'PostgreSQL', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'orders-uat'},
+          {'key': 'host', 'label': 'Host', 'placeholder': 'orders-uat.example.com'},
+          {'key': 'port', 'label': 'Port', 'type': 'number', 'placeholder': '5432'},
+          {'key': 'database', 'label': 'Database', 'placeholder': 'orders'},
+          {'key': 'username', 'label': 'Shared username (read-only role)', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'sslmode', 'label': 'SSL mode', 'type': 'select', 'options': [
+              {'value': 'require', 'label': 'require'}, {'value': 'verify-ca', 'label': 'verify-ca'},
+              {'value': 'verify-full', 'label': 'verify-full'}, {'value': 'prefer', 'label': 'prefer'}]}
+      ]) }}
+    </section>
+
     <section class="portal-panel-section">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Network proxy</h6></div>
