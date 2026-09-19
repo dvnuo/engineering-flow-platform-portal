@@ -255,6 +255,43 @@ def test_an_unknown_pgsql_sslmode_is_dropped(value):
     assert "sslmode" not in section["instances"][0]
 
 
+@pytest.mark.parametrize("value", ["0", "301", "abc", "", None, True, "12.5", -5])
+def test_an_out_of_range_pgsql_statement_timeout_is_dropped(value):
+    # Out of range means the CLI default (30s) applies, not an unusable budget.
+    section = sanitize_runtime_profile_pgsql(
+        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "statement_timeout_seconds": value}]}
+    )
+    assert "statement_timeout_seconds" not in section["instances"][0]
+
+
+@pytest.mark.parametrize("value", ["0", "100001", "many", "", None, True, -1])
+def test_an_out_of_range_pgsql_max_rows_is_dropped(value):
+    section = sanitize_runtime_profile_pgsql(
+        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "max_rows": value}]}
+    )
+    assert "max_rows" not in section["instances"][0]
+
+
+@pytest.mark.parametrize(
+    "field,value,expected",
+    [
+        ("statement_timeout_seconds", 1, 1),
+        ("statement_timeout_seconds", "300", 300),
+        ("statement_timeout_seconds", " 10 ", 10),
+        ("max_rows", 1, 1),
+        ("max_rows", "100000", 100000),
+        ("max_rows", " 500 ", 500),
+    ],
+)
+def test_pgsql_query_bounds_inside_the_range_are_kept_as_ints(field, value, expected):
+    # They ride to the runtime as EFP_PGSQL_INSTANCES_0_STATEMENT_TIMEOUT_SECONDS
+    # and _MAX_ROWS, which the pgsql CLI reads as ints.
+    section = sanitize_runtime_profile_pgsql(
+        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", field: value}]}
+    )
+    assert section["instances"][0][field] == expected
+
+
 @pytest.mark.parametrize("value", ["oauth", "", None, 3])
 def test_an_unknown_appd_auth_type_is_dropped(value):
     section = sanitize_runtime_profile_appd({"instances": [{"name": "p", "url": "https://a", "auth_type": value}]})
@@ -838,6 +875,10 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
                 "database": "orders",
                 "username": "efp_readonly",
                 "sslmode": "require",
+                # Rendered but left blank: a non-credential field keeps the empty
+                # string, the same as port or sslmode would.
+                "statement_timeout_seconds": "",
+                "max_rows": "",
             }
         ],
     }

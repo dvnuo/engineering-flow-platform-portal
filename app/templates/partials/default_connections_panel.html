@@ -325,7 +325,9 @@
           {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
           {'key': 'sslmode', 'label': 'SSL mode', 'type': 'select', 'options': [
               {'value': 'require', 'label': 'require'}, {'value': 'verify-ca', 'label': 'verify-ca'},
-              {'value': 'verify-full', 'label': 'verify-full'}, {'value': 'prefer', 'label': 'prefer'}]}
+              {'value': 'verify-full', 'label': 'verify-full'}, {'value': 'prefer', 'label': 'prefer'}]},
+          {'key': 'statement_timeout_seconds', 'label': 'Statement timeout (seconds)', 'type': 'number', 'placeholder': '30'},
+          {'key': 'max_rows', 'label': 'Max rows per query', 'type': 'number', 'placeholder': '5000'}
       ]) }}
     </section>
 

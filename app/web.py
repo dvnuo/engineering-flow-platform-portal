@@ -43,7 +43,11 @@ from app.schemas.runtime_profile import (
     AWS_SESSION_DURATION_MAX_SECONDS,
     AWS_SESSION_DURATION_MIN_SECONDS,
     JENKINS_DEFAULT_INSTANCE_NAME,
+    PGSQL_MAX_ROWS_MAX,
+    PGSQL_MAX_ROWS_MIN,
     PGSQL_SSL_MODES,
+    PGSQL_STATEMENT_TIMEOUT_MAX,
+    PGSQL_STATEMENT_TIMEOUT_MIN,
     PORT_MAX,
     PORT_MIN,
     SPLUNK_MAX_RESULTS_MAX,
@@ -1140,7 +1144,10 @@ TROUBLESHOOTING_INSTANCE_FIELDS = {
     "nexus": ["enabled", "name", "url", "username", "password", "token"],
     "splunk": ["enabled", "name", "url", "username", "password", "token", "default_index", "default_earliest", "max_results"],
     "appd": ["enabled", "name", "url", "account", "auth_type", "username", "password", "token"],
-    "pgsql": ["enabled", "name", "host", "port", "database", "username", "password", "sslmode"],
+    "pgsql": [
+        "enabled", "name", "host", "port", "database", "username", "password", "sslmode",
+        "statement_timeout_seconds", "max_rows",
+    ],
 }
 TROUBLESHOOTING_SECTION_LABELS = {
     "nexus": "Nexus",
@@ -1165,7 +1172,10 @@ TROUBLESHOOTING_CARD_ROWS = {
     "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
     "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"]],
     "appd": [["name", "url"], ["account", "auth_type"], ["username", "password"], ["token", ""]],
-    "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", ""]],
+    "pgsql": [
+        ["name", "host"], ["port", "database"], ["username", "password"],
+        ["sslmode", "statement_timeout_seconds"], ["max_rows", ""],
+    ],
 }
 TROUBLESHOOTING_CARD_FIELD_SPECS = {
     "password": {"type": "password"},
@@ -1177,6 +1187,12 @@ TROUBLESHOOTING_CARD_FIELD_SPECS = {
         "options": [["api_client", "API client"], ["basic_password", "Basic (username and password)"]],
     },
     "sslmode": {"type": "select", "options": [[mode, mode] for mode in PGSQL_SSL_MODES]},
+    "statement_timeout_seconds": {
+        "type": "number",
+        "min": PGSQL_STATEMENT_TIMEOUT_MIN,
+        "max": PGSQL_STATEMENT_TIMEOUT_MAX,
+    },
+    "max_rows": {"type": "number", "min": PGSQL_MAX_ROWS_MIN, "max": PGSQL_MAX_ROWS_MAX},
 }
 TROUBLESHOOTING_CARD_PLACEHOLDERS = {
     "nexus": {
@@ -1211,6 +1227,8 @@ TROUBLESHOOTING_CARD_PLACEHOLDERS = {
         "database": "Database",
         "username": "Username (read-only role)",
         "password": "Password",
+        "statement_timeout_seconds": "Statement timeout in seconds (default 30)",
+        "max_rows": "Max rows per query (default 5000)",
     },
 }
 TROUBLESHOOTING_CARD_LAYOUT = {
@@ -1555,6 +1573,25 @@ def _settings_parse_troubleshooting_instances(
             sslmode = str(row.get("sslmode") or "").strip().lower()
             if sslmode and sslmode not in PGSQL_SSL_MODES:
                 return [], f"{label} instance {name} needs an SSL mode of {', '.join(PGSQL_SSL_MODES)}."
+            timeout_text = str(row.get("statement_timeout_seconds") or "").strip()
+            if timeout_text and (
+                sanitize_runtime_profile_bounded_int(
+                    timeout_text, PGSQL_STATEMENT_TIMEOUT_MIN, PGSQL_STATEMENT_TIMEOUT_MAX
+                )
+                is None
+            ):
+                return [], (
+                    f"{label} instance {name} needs a statement timeout between "
+                    f"{PGSQL_STATEMENT_TIMEOUT_MIN} and {PGSQL_STATEMENT_TIMEOUT_MAX} seconds."
+                )
+            max_rows_text = str(row.get("max_rows") or "").strip()
+            if max_rows_text and (
+                sanitize_runtime_profile_bounded_int(max_rows_text, PGSQL_MAX_ROWS_MIN, PGSQL_MAX_ROWS_MAX) is None
+            ):
+                return [], (
+                    f"{label} instance {name} needs a max rows value between "
+                    f"{PGSQL_MAX_ROWS_MIN} and {PGSQL_MAX_ROWS_MAX}."
+                )
         if section == "splunk":
             max_results_text = str(row.get("max_results") or "").strip()
             if max_results_text and (

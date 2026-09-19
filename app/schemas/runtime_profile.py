@@ -346,6 +346,13 @@ SPLUNK_MAX_RESULTS_MAX = 10000
 APPD_AUTH_TYPES = ("api_client", "basic_password")
 PGSQL_SSL_MODES = ("require", "verify-ca", "verify-full", "prefer")
 PGSQL_DEFAULT_PORT = 5432
+# Per-instance query bounds. Both are optional: the pgsql CLI falls back to 30
+# seconds and 5000 rows. They exist so a production database can be given a
+# tighter budget than a UAT one without touching the runtime image.
+PGSQL_STATEMENT_TIMEOUT_MIN = 1
+PGSQL_STATEMENT_TIMEOUT_MAX = 300
+PGSQL_MAX_ROWS_MIN = 1
+PGSQL_MAX_ROWS_MAX = 100000
 PORT_MIN = 1
 PORT_MAX = 65535
 
@@ -427,7 +434,9 @@ def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
     A row needs a name, a host, a database and a username; the pgsql CLI cannot
     open a connection without them, so a row missing one is dropped rather than
     stored half-formed. The port is kept only when it is a real TCP port, and
-    sslmode only when psycopg would accept it.
+    sslmode only when the pgsql CLI would accept it. The statement timeout and
+    row cap are optional and bounded; out-of-range values are left out so the
+    CLI's own defaults apply rather than an unusable budget being stored.
     """
     if not isinstance(value, list):
         return []
@@ -453,6 +462,18 @@ def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
         sslmode = str(item.get("sslmode") or "").strip().lower()
         if sslmode in PGSQL_SSL_MODES:
             instance["sslmode"] = sslmode
+        statement_timeout = sanitize_runtime_profile_bounded_int(
+            item.get("statement_timeout_seconds"),
+            PGSQL_STATEMENT_TIMEOUT_MIN,
+            PGSQL_STATEMENT_TIMEOUT_MAX,
+        )
+        if statement_timeout is not None:
+            instance["statement_timeout_seconds"] = statement_timeout
+        max_rows = sanitize_runtime_profile_bounded_int(
+            item.get("max_rows"), PGSQL_MAX_ROWS_MIN, PGSQL_MAX_ROWS_MAX
+        )
+        if max_rows is not None:
+            instance["max_rows"] = max_rows
         if "enabled" in item:
             instance["enabled"] = _runtime_profile_bool(item.get("enabled"))
         instances.append(instance)

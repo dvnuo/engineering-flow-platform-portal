@@ -12784,7 +12784,9 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
     "port": "5432",
     "database": "Database",
     "username": "Username (read-only role)",
-    "password": "Password"
+    "password": "Password",
+    "statement_timeout_seconds": "Statement timeout in seconds (default 30)",
+    "max_rows": "Max rows per query (default 5000)"
   }
 };
 
@@ -12795,7 +12797,7 @@ const INSTANCE_GROUP_CARD_ROWS = {
   "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
   "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"]],
   "appd": [["name", "url"], ["account", "auth_type"], ["username", "password"], ["token", ""]],
-  "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", ""]]
+  "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", "statement_timeout_seconds"], ["max_rows", ""]]
 };
 
 const INSTANCE_GROUP_FIELD_SPECS = {
@@ -12804,7 +12806,9 @@ const INSTANCE_GROUP_FIELD_SPECS = {
   "port": { "type": "number", "min": 1, "max": 65535 },
   "max_results": { "type": "number", "min": 1, "max": 10000 },
   "auth_type": { "type": "select", "options": [["api_client", "API client"], ["basic_password", "Basic (username and password)"]] },
-  "sslmode": { "type": "select", "options": [["require", "require"], ["verify-ca", "verify-ca"], ["verify-full", "verify-full"], ["prefer", "prefer"]] }
+  "sslmode": { "type": "select", "options": [["require", "require"], ["verify-ca", "verify-ca"], ["verify-full", "verify-full"], ["prefer", "prefer"]] },
+  "statement_timeout_seconds": { "type": "number", "min": 1, "max": 300 },
+  "max_rows": { "type": "number", "min": 1, "max": 100000 }
 };
 
 // What one card in a group is called in its title. Most groups list product
