@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.schemas.runtime_profile import PGSQL_DEFAULT_PORT
 from app.services.ai_platform_config import materialize_ai_platform_llm_config
 
 
@@ -27,9 +28,219 @@ class RuntimeProfileTestService:
             return await self._test_jira(config)
         if target == "confluence":
             return await self._test_confluence(config)
+        if target == "jenkins":
+            return await self._test_jenkins(config)
+        if target == "nexus":
+            return await self._test_nexus(config)
+        if target == "splunk":
+            return await self._test_splunk(config)
+        if target == "appd":
+            return await self._test_appd(config)
+        if target == "pgsql":
+            return await self._test_pgsql(config)
         if target == "llm":
             return await self._test_llm(config, runtime_type=runtime_type)
         return False, f"Unsupported test target: {target}"
+
+    # ------------------------------------------------------------------
+    # Instance sections tested against their default instance
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _default_instance(section_cfg: dict) -> dict | None:
+        """The instance a test runs against: the named default, else the first.
+
+        Mirrors the CLI, which uses the section's default_instance when a
+        command carries no --instance. A disabled default is skipped, since
+        the assistant could not use it either.
+        """
+        instances = [item for item in (section_cfg.get("instances") or []) if isinstance(item, dict)]
+        usable = [item for item in instances if item.get("enabled") is not False]
+        wanted = str(section_cfg.get("default_instance") or "").strip().lower()
+        if wanted:
+            for item in usable:
+                if str(item.get("name") or "").strip().lower() == wanted:
+                    return item
+        return usable[0] if usable else (instances[0] if instances else None)
+
+    @staticmethod
+    def _basic_auth_header(username: str, secret: str) -> dict:
+        encoded = base64.b64encode(f"{username}:{secret}".encode("utf-8")).decode("ascii")
+        return {"Authorization": f"Basic {encoded}"}
+
+    @staticmethod
+    def _instance_label(instance: dict, fallback: str) -> str:
+        return str(instance.get("name") or fallback)
+
+    async def _test_jenkins(self, config: dict) -> tuple[bool, str]:
+        jenkins_cfg = config.get("jenkins") if isinstance(config.get("jenkins"), dict) else {}
+        if not bool(jenkins_cfg.get("enabled")):
+            return False, "Jenkins test requires jenkins.enabled=true."
+        instance = self._default_instance(jenkins_cfg)
+        base_url = str((instance or {}).get("url") or "").strip().rstrip("/")
+        if not instance or not base_url:
+            return False, "No usable Jenkins instance found. Provide a URL, and a username with an API token or password."
+
+        username = str(instance.get("username") or "").strip()
+        secret = str(instance.get("token") or instance.get("password") or "").strip()
+        headers = self._basic_auth_header(username, secret) if username and secret else {}
+        ok, message, data = await self._http_request(
+            method="GET",
+            url=f"{base_url}/whoAmI/api/json",
+            headers={**headers, "Accept": "application/json"},
+            timeout=15.0,
+        )
+        if not ok:
+            return False, message
+        who = data if isinstance(data, dict) else {}
+        name = self._instance_label(instance, base_url)
+        # whoAmI answers 200 for anonymous callers too; say which it was so a
+        # rejected credential that Jenkins quietly downgraded is not read as OK.
+        if who.get("authenticated") is True:
+            return True, f"Jenkins connection OK for {name} as {who.get('name') or username or 'unknown user'}."
+        return True, f"Jenkins reachable for {name}, but the request was not authenticated (anonymous access)."
+
+    async def _test_nexus(self, config: dict) -> tuple[bool, str]:
+        nexus_cfg = config.get("nexus") if isinstance(config.get("nexus"), dict) else {}
+        if not bool(nexus_cfg.get("enabled")):
+            return False, "Nexus test requires nexus.enabled=true."
+        instance = self._default_instance(nexus_cfg)
+        base_url = str((instance or {}).get("url") or "").strip().rstrip("/")
+        if not instance or not base_url:
+            return False, "No usable Nexus instance found. Provide a URL; add a username with a token or password unless anonymous reads are allowed."
+
+        username = str(instance.get("username") or "").strip()
+        secret = str(instance.get("token") or instance.get("password") or "").strip()
+        headers = self._basic_auth_header(username, secret) if username and secret else {}
+        ok, message, data = await self._http_request(
+            method="GET",
+            url=f"{base_url}/service/rest/v1/repositories",
+            headers={**headers, "Accept": "application/json"},
+            timeout=15.0,
+        )
+        if not ok:
+            return False, message
+        name = self._instance_label(instance, base_url)
+        count = len(data) if isinstance(data, list) else 0
+        mode = "authenticated" if headers else "anonymous"
+        return True, f"Nexus connection OK for {name} ({mode}): {count} repositories visible."
+
+    async def _test_splunk(self, config: dict) -> tuple[bool, str]:
+        splunk_cfg = config.get("splunk") if isinstance(config.get("splunk"), dict) else {}
+        if not bool(splunk_cfg.get("enabled")):
+            return False, "Splunk test requires splunk.enabled=true."
+        instance = self._default_instance(splunk_cfg)
+        base_url = str((instance or {}).get("url") or "").strip().rstrip("/")
+        if not instance or not base_url:
+            return False, "No usable Splunk instance found. Provide the management API URL (port 8089) and a token or username+password."
+
+        token = str(instance.get("token") or "").strip()
+        username = str(instance.get("username") or "").strip()
+        password = str(instance.get("password") or "").strip()
+        if token:
+            headers = {"Authorization": f"Bearer {token}"}
+        elif username and password:
+            headers = self._basic_auth_header(username, password)
+        else:
+            return False, "Splunk test needs an authentication token, or a username and password."
+        ok, message, data = await self._http_request(
+            method="GET",
+            url=f"{base_url}/services/authentication/current-context?output_mode=json",
+            headers={**headers, "Accept": "application/json"},
+            timeout=15.0,
+        )
+        if not ok:
+            return False, message
+        name = self._instance_label(instance, base_url)
+        entries = (data or {}).get("entry") if isinstance(data, dict) else None
+        who = ""
+        if isinstance(entries, list) and entries and isinstance(entries[0], dict):
+            content = entries[0].get("content") if isinstance(entries[0].get("content"), dict) else {}
+            who = str(content.get("username") or entries[0].get("name") or "").strip()
+        return True, f"Splunk connection OK for {name} as {who or username or 'token user'}."
+
+    async def _test_appd(self, config: dict) -> tuple[bool, str]:
+        appd_cfg = config.get("appd") if isinstance(config.get("appd"), dict) else {}
+        if not bool(appd_cfg.get("enabled")):
+            return False, "AppDynamics test requires appd.enabled=true."
+        instance = self._default_instance(appd_cfg)
+        base_url = str((instance or {}).get("url") or "").strip().rstrip("/")
+        if not instance or not base_url:
+            return False, "No usable AppDynamics instance found. Provide the controller URL, account, and an API client or user."
+
+        account = str(instance.get("account") or "").strip()
+        username = str(instance.get("username") or "").strip()
+        if not account or not username:
+            return False, "AppDynamics test needs the account name and an API client name or username."
+        name = self._instance_label(instance, base_url)
+        auth_type = str(instance.get("auth_type") or "api_client").strip().lower()
+        applications_url = f"{base_url}/controller/rest/applications?output=JSON"
+
+        if auth_type == "basic_password":
+            password = str(instance.get("password") or "").strip()
+            if not password:
+                return False, "AppDynamics basic sign-in needs a password."
+            login = username if "@" in username else f"{username}@{account}"
+            headers = self._basic_auth_header(login, password)
+        else:
+            secret = str(instance.get("token") or "").strip()
+            if not secret:
+                return False, "AppDynamics API client sign-in needs the client secret (stored as the token)."
+            ok, message, data = await self._http_request(
+                method="POST",
+                url=f"{base_url}/controller/api/oauth/access_token",
+                headers={"Accept": "application/json"},
+                form_payload={
+                    "grant_type": "client_credentials",
+                    "client_id": username if "@" in username else f"{username}@{account}",
+                    "client_secret": secret,
+                },
+                timeout=15.0,
+            )
+            if not ok:
+                return False, f"AppDynamics API client sign-in failed: {message}"
+            access_token = str((data or {}).get("access_token") or "").strip() if isinstance(data, dict) else ""
+            if not access_token:
+                return False, "AppDynamics API client sign-in did not return an access token."
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+        ok, message, data = await self._http_request(
+            method="GET",
+            url=applications_url,
+            headers={**headers, "Accept": "application/json"},
+            timeout=15.0,
+        )
+        if not ok:
+            return False, message
+        count = len(data) if isinstance(data, list) else 0
+        return True, f"AppDynamics connection OK for {name}: {count} applications visible."
+
+    async def _test_pgsql(self, config: dict) -> tuple[bool, str]:
+        """Reachability only: the Portal often cannot see the database at all,
+        and the credentials are exercised where they are used, inside the
+        runtime, by `pgsql auth test`."""
+        pgsql_cfg = config.get("pgsql") if isinstance(config.get("pgsql"), dict) else {}
+        if not bool(pgsql_cfg.get("enabled")):
+            return False, "PostgreSQL test requires pgsql.enabled=true."
+        instance = self._default_instance(pgsql_cfg)
+        host = str((instance or {}).get("host") or "").strip()
+        if not instance or not host:
+            return False, "No usable PostgreSQL instance found. Provide a host, database and username."
+        try:
+            port = int(instance.get("port") or PGSQL_DEFAULT_PORT)
+        except (TypeError, ValueError):
+            port = PGSQL_DEFAULT_PORT
+        name = self._instance_label(instance, host)
+        try:
+            with socket.create_connection((host, port), timeout=5):
+                pass
+        except OSError as exc:
+            return False, f"PostgreSQL connection failed for {name} at {host}:{port}: {exc}"
+        return (
+            True,
+            f"PostgreSQL TCP reachability OK for {name}: {host}:{port}. "
+            "Credentials are verified inside the runtime by `pgsql auth test`.",
+        )
 
     async def _test_proxy(self, config: dict) -> tuple[bool, str]:
         proxy_cfg = config.get("proxy") if isinstance(config.get("proxy"), dict) else {}
@@ -316,9 +527,40 @@ class RuntimeProfileTestService:
         payload: dict | None,
         timeout: float,
     ) -> tuple[bool, str, dict | None]:
+        ok, message, data = await self._http_request(
+            method=method,
+            url=url,
+            headers=headers,
+            json_payload=payload,
+            timeout=timeout,
+        )
+        return ok, message, data if isinstance(data, dict) else None
+
+    async def _http_request(
+        self,
+        method: str,
+        url: str,
+        headers: dict,
+        timeout: float,
+        json_payload: dict | None = None,
+        form_payload: dict | None = None,
+    ):
+        """One request; returns (ok, message, parsed JSON of any shape or None).
+
+        Nexus and AppDynamics answer with JSON lists, and the AppDynamics OAuth
+        step posts a form rather than JSON, which is why this sits under the
+        dict-only helper the older tests use. The failure message carries the
+        status and the server's own error text, never the request headers.
+        """
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.request(method=method, url=url, headers=headers, json=payload)
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=json_payload,
+                    data=form_payload,
+                )
         except Exception as exc:
             return False, f"Request failed: {exc}", None
 
@@ -334,6 +576,6 @@ class RuntimeProfileTestService:
                 detail = str(data.get("error") or data.get("message") or data.get("detail") or "")
             if not detail:
                 detail = response.text[:240]
-            return False, f"HTTP {response.status_code}: {detail}", data if isinstance(data, dict) else None
+            return False, f"HTTP {response.status_code}: {detail}", data
 
-        return True, "ok", data if isinstance(data, dict) else None
+        return True, "ok", data

@@ -16,6 +16,12 @@ from app.schemas.runtime_profile import (
     RuntimeProfileSourceResponse,
     RuntimeProfileUpdateRequest,
 )
+from app.services.runtime_profile_audit import (
+    CREATE_RUNTIME_PROFILE,
+    DELETE_RUNTIME_PROFILE,
+    UPDATE_RUNTIME_PROFILE,
+    audit_runtime_profile_change,
+)
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
 
@@ -52,6 +58,14 @@ def create_runtime_profile(payload: RuntimeProfileCreateRequest, user=Depends(ge
         description=payload.description,
         config_json=config_json,
         is_default=payload.is_default,
+    )
+    audit_runtime_profile_change(
+        db,
+        action=CREATE_RUNTIME_PROFILE,
+        profile_id=profile.id,
+        user_id=user.id,
+        before={},
+        after=parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True),
     )
     try:
         runtime_profile_secret_service.sync_profile_secret(profile)
@@ -104,10 +118,23 @@ def get_runtime_profile(profile_id: str, user=Depends(get_current_user), db: Ses
 @router.patch("/{profile_id}", response_model=RuntimeProfileResponse)
 async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     service = RuntimeProfileService(db)
+    # Snapshot the config before the update so the audit row can name the
+    # sections and secret fields that changed (names only, never values).
+    before = parse_runtime_profile_config_json(
+        service.validate_profile_belongs_to_user(user, profile_id).config_json, fallback_to_empty=True
+    )
     profile, config_changed = service.update_for_user(
         user,
         profile_id,
         **payload.model_dump(exclude_unset=True),
+    )
+    audit_runtime_profile_change(
+        db,
+        action=UPDATE_RUNTIME_PROFILE,
+        profile_id=profile.id,
+        user_id=user.id,
+        before=before,
+        after=parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True),
     )
 
     if config_changed:
@@ -124,7 +151,21 @@ async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateR
 
 @router.delete("/{profile_id}")
 def delete_runtime_profile(profile_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    RuntimeProfileService(db).delete_for_user(user, profile_id)
+    service = RuntimeProfileService(db)
+    # Read the config before the row goes: a deleted instance's attributes
+    # expire on commit and cannot be loaded back.
+    before = parse_runtime_profile_config_json(
+        service.validate_profile_belongs_to_user(user, profile_id).config_json, fallback_to_empty=True
+    )
+    service.delete_for_user(user, profile_id)
+    audit_runtime_profile_change(
+        db,
+        action=DELETE_RUNTIME_PROFILE,
+        profile_id=profile_id,
+        user_id=user.id,
+        before=before,
+        after={},
+    )
     try:
         runtime_profile_secret_service.delete_profile_secret(profile_id)
     except Exception:
