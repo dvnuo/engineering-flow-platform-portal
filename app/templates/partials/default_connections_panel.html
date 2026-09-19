@@ -1,7 +1,9 @@
-{% macro instance_group(group, label, fields) -%}
-<input type="hidden" name="{{ group }}_instance_count" value="{{ (seed.get(group, {}).get('instances') or [])|length }}" data-instance-count="{{ group }}" />
+{% macro instance_group(group, label, fields, items=none) -%}
+{# items: the rows to render when they do not live at seed[group].instances (the AWS account matrix). #}
+{% set rows = items if items is not none else (seed.get(group, {}).get('instances') or []) %}
+<input type="hidden" name="{{ group }}_instance_count" value="{{ rows|length }}" data-instance-count="{{ group }}" />
 <div class="space-y-2" data-instance-container="{{ group }}">
-  {% for inst in (seed.get(group, {}).get('instances') or []) %}
+  {% for inst in rows %}
   <div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="{{ group }}">
     <div class="portal-settings-instance-head">
       <div class="portal-settings-instance-head-main">
@@ -254,7 +256,7 @@
       </div>
     </section>
 
-    <section class="portal-panel-section">
+    <section class="portal-panel-section" data-instance-group="aws_accounts">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>AWS</h6></div>
       </div>
@@ -265,11 +267,39 @@
         </label>
         <span>Offer AWS to members</span>
       </div>
+      {% set seed_aws = seed.get('aws', {}) %}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ seed.get('aws', {}).get('domain', '') }}" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="aws_username" value="{{ seed.get('aws', {}).get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="aws_password" value="{{ seed.get('aws', {}).get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ seed_aws.get('domain', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="aws_username" value="{{ seed_aws.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="aws_password" value="{{ seed_aws.get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
       </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Provider</span>
+          <select name="aws_provider" class="portal-form-select">
+            {# Blank leaves the member's profile on the runtime default (adfs-assume) without seeding a value. #}
+            <option value="">Leave unset &mdash; adfs-assume</option>
+            {% for option in aws_auth_providers %}
+            <option value="{{ option }}" {% if seed_aws.get('provider') == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="portal-form-label"><span class="portal-form-label">ADFS IdP URL (saml2aws)</span><input type="text" name="aws_idp_url" value="{{ seed_aws.get('idp_url', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Source profile (assume-role)</span><input type="text" name="aws_source_profile" value="{{ seed_aws.get('source_profile', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Default account</span><input type="text" name="aws_default_account" value="{{ seed_aws.get('default_account', '') }}" placeholder="Account name or id" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Default region</span><input type="text" name="aws_default_region" value="{{ seed_aws.get('default_region', '') }}" placeholder="e.g. ap-east-1" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Session duration (seconds)</span><input type="number" name="aws_session_duration_seconds" value="{{ seed_aws.get('session_duration_seconds', '') }}" min="900" max="43200" step="1" placeholder="3600" class="portal-form-input" /></label>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Kubeconfig path</span><input type="text" name="aws_kubeconfig_path" value="{{ seed_aws.get('kubeconfig_path', '') }}" placeholder="~/.efp/kube/config" class="portal-form-input" /></label>
+      <p class="portal-panel-note">One row per AWS account members may sign in to; the name becomes the AWS CLI profile the assistant uses.</p>
+      {{ instance_group('aws_accounts', 'AWS account', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'cps-dev'},
+          {'key': 'account_id', 'label': 'Account id', 'placeholder': '12 digits'},
+          {'key': 'role', 'label': 'Role', 'placeholder': 'ADFS-ReadOnly'},
+          {'key': 'regions', 'label': 'Regions', 'placeholder': 'ap-east-1, eu-west-1'}
+      ], seed_aws_accounts) }}
     </section>
 
     <section class="portal-panel-section">

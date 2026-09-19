@@ -38,8 +38,12 @@ from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
+    AWS_AUTH_PROVIDERS,
+    AWS_SESSION_DURATION_MAX_SECONDS,
+    AWS_SESSION_DURATION_MIN_SECONDS,
     JENKINS_DEFAULT_INSTANCE_NAME,
     dump_runtime_profile_config_json,
+    normalize_aws_account_id,
     normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_config_dict,
@@ -817,6 +821,27 @@ async def _forward_runtime_multipart(
     )
 
 
+def _aws_account_view_rows(aws_section) -> list[dict]:
+    """Account rows of an aws section, shaped for the instance cards.
+
+    The stored shape keeps ``regions`` as a list; the card has one text input
+    for them, so they are joined the way the member types them back in.
+    """
+    accounts = aws_section.get("accounts") if isinstance(aws_section, dict) else None
+    rows: list[dict] = []
+    for item in accounts if isinstance(accounts, list) else []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        regions = item.get("regions")
+        if isinstance(regions, (list, tuple)):
+            row["regions"] = ", ".join(str(region or "").strip() for region in regions if str(region or "").strip())
+        else:
+            row["regions"] = str(regions or "").strip()
+        rows.append(row)
+    return rows
+
+
 def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | None = None) -> dict:
     raw_config = dict(raw_config_data or {})
     raw_config.pop("ssh", None)
@@ -875,6 +900,8 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_mobile_browserstack": raw_mobile_browserstack,
         "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
         "raw_aws": raw_aws,
+        "aws_accounts": _aws_account_view_rows(raw_aws),
+        "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "raw_jenkins": raw_jenkins,
         "git": effective_config.get("git") if isinstance(effective_config.get("git"), dict) else {},
         "raw_git": raw_git,
@@ -1063,6 +1090,30 @@ def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
     return instances
 
 
+# The aws section's plain text fields, in the order the forms post them. The
+# password is one of them: the seed and the member's form both read it as a
+# field, and only the member's form has "leave blank to keep" semantics.
+AWS_SEED_TEXT_FIELDS = (
+    "domain",
+    "username",
+    "password",
+    "provider",
+    "idp_url",
+    "source_profile",
+    "default_account",
+    "default_region",
+    "kubeconfig_path",
+)
+# Instance-card prefix of the account matrix: aws_accounts_instance_count and
+# aws_accounts_instances_{i}_{field}, exactly like the jira/jenkins rows.
+AWS_ACCOUNTS_FORM_PREFIX = "aws_accounts"
+# What an account card posts. role_arn and profile are API-only (no input on
+# the card) and ride along on a member's save so it cannot silently drop them.
+AWS_ACCOUNT_SEED_FIELDS = ["enabled", "name", "account_id", "role", "regions"]
+AWS_ACCOUNT_API_ONLY_FIELDS = frozenset({"role_arn", "profile"})
+AWS_ACCOUNT_FORM_FIELDS = AWS_ACCOUNT_SEED_FIELDS + sorted(AWS_ACCOUNT_API_ONLY_FIELDS)
+
+
 def _seed_config_from_form(form) -> dict:
     """Build the seed from the Default Connections form.
 
@@ -1153,8 +1204,18 @@ def _seed_config_from_form(form) -> dict:
         seed["proxy"] = {"enabled": flag("proxy_enabled"), **proxy}
 
     aws: dict = {}
-    for key in ("domain", "username", "password"):
+    for key in AWS_SEED_TEXT_FIELDS:
         put(aws, key, f"aws_{key}")
+    session_duration = text("aws_session_duration_seconds")
+    if session_duration.isdigit() and (
+        AWS_SESSION_DURATION_MIN_SECONDS <= int(session_duration) <= AWS_SESSION_DURATION_MAX_SECONDS
+    ):
+        aws["session_duration_seconds"] = int(session_duration)
+    # Only the fields the seed form renders: the API-only ones would otherwise
+    # be stored as "" and show up in the stored-value dump as if seeded.
+    aws_accounts = _seed_parse_instances(form, AWS_ACCOUNTS_FORM_PREFIX, AWS_ACCOUNT_SEED_FIELDS)
+    if aws_accounts:
+        aws["accounts"] = aws_accounts
     if flag("aws_enabled") or aws:
         seed["aws"] = {"enabled": flag("aws_enabled"), **aws}
 
@@ -1260,6 +1321,67 @@ def _settings_parse_instances(
     return instances
 
 
+
+
+def _settings_parse_aws_accounts(form, existing_accounts: list) -> tuple[list[dict], Optional[str]]:
+    """Read the AWS account cards, refusing rows the sanitizer would drop.
+
+    The generic parser keeps a row by its name, so a card with only an account
+    id typed in, a malformed id, or a name used twice would otherwise vanish
+    on save with no word to the member. Those come back as an error naming the
+    row instead; the sanitizer still normalizes what passes (regions, enabled).
+    """
+    count_text = (form.get(f"{AWS_ACCOUNTS_FORM_PREFIX}_instance_count") or "0").strip()
+    try:
+        count = max(0, int(count_text))
+    except ValueError:
+        count = 0
+    for index in range(count):
+        name = (form.get(f"{AWS_ACCOUNTS_FORM_PREFIX}_instances_{index}_name") or "").strip()
+        if name:
+            continue
+        typed = any(
+            (form.get(f"{AWS_ACCOUNTS_FORM_PREFIX}_instances_{index}_{field}") or "").strip()
+            for field in ("account_id", "role", "regions")
+        )
+        if typed:
+            return [], f"AWS account {index + 1} needs a name; it becomes the AWS CLI profile the assistant uses."
+
+    rows = _settings_parse_instances(
+        form,
+        AWS_ACCOUNTS_FORM_PREFIX,
+        AWS_ACCOUNT_FORM_FIELDS,
+        existing_instances=existing_accounts,
+        preserve_blank_fields=set(AWS_ACCOUNT_API_ONLY_FIELDS),
+    )
+    seen_names: set[str] = set()
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        # No quotes around the name: the panel autoescapes them into entities.
+        if not normalize_aws_account_id(row.get("account_id")):
+            return [], f"AWS account {name} needs a 12-digit account id."
+        name_key = name.lower()
+        if name_key in seen_names:
+            return [], f"AWS account names must be unique; {name} is listed more than once."
+        seen_names.add(name_key)
+    return rows, None
+
+
+def _settings_aws_default_account_error(aws_cfg: dict) -> Optional[str]:
+    """The default account has to be one of the configured rows, by name or id."""
+    default_account = str(aws_cfg.get("default_account") or "").strip()
+    if not default_account:
+        return None
+    accounts = aws_cfg.get("accounts") if isinstance(aws_cfg.get("accounts"), list) else []
+    wanted = default_account.lower()
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        if str(account.get("name") or "").strip().lower() == wanted:
+            return None
+        if str(account.get("account_id") or "").strip() == default_account:
+            return None
+    return f"Default AWS account {default_account} must be the name or 12-digit id of one of the accounts listed below."
 
 
 def _settings_finalize_config_payload(config_payload: dict) -> dict:
@@ -1487,17 +1609,51 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         config_payload["mobile-auto"] = mobile_cfg
 
     if is_section_touched("aws"):
-        aws_cfg = {"enabled": as_bool(form.get("aws_enabled"))}
-        for field, form_field in (
-            ("domain", "aws_domain"),
-            ("username", "aws_username"),
-            ("password", "aws_password"),
-        ):
+        # Start from the stored section: a field the form did not post keeps
+        # its value, so a partial post (an older panel, a client that only
+        # knows the directory account) cannot wipe the account matrix. The
+        # sanitizer drops anything the tree does not know on the way out.
+        existing_aws = config_payload.get("aws") if isinstance(config_payload.get("aws"), dict) else {}
+        aws_cfg = dict(existing_aws)
+        aws_cfg["enabled"] = as_bool(form.get("aws_enabled"))
+        for field in AWS_SEED_TEXT_FIELDS:
+            form_field = f"aws_{field}"
             if form_field not in form:
                 continue
             value = (form.get(form_field) or "").strip()
+            if field == "provider":
+                value = value.lower()
             if value:
                 aws_cfg[field] = value
+            else:
+                # A posted blank clears the field, the password included: the
+                # form renders the stored password back into its input, so a
+                # blank one is the member emptying it, not leaving it alone.
+                aws_cfg.pop(field, None)
+        if "aws_provider" in form and aws_cfg.get("provider") and aws_cfg["provider"] not in AWS_AUTH_PROVIDERS:
+            return config_payload, "AWS provider must be adfs-assume, saml2aws, or assume-role."
+        if "aws_session_duration_seconds" in form:
+            duration_text = (form.get("aws_session_duration_seconds") or "").strip()
+            if not duration_text:
+                aws_cfg.pop("session_duration_seconds", None)
+            else:
+                if not duration_text.isdigit() or not (
+                    AWS_SESSION_DURATION_MIN_SECONDS <= int(duration_text) <= AWS_SESSION_DURATION_MAX_SECONDS
+                ):
+                    return config_payload, (
+                        "AWS session duration must be a whole number of seconds between "
+                        f"{AWS_SESSION_DURATION_MIN_SECONDS} and {AWS_SESSION_DURATION_MAX_SECONDS}."
+                    )
+                aws_cfg["session_duration_seconds"] = int(duration_text)
+        if f"{AWS_ACCOUNTS_FORM_PREFIX}_instance_count" in form:
+            existing_accounts = existing_aws.get("accounts") if isinstance(existing_aws.get("accounts"), list) else []
+            accounts, accounts_error = _settings_parse_aws_accounts(form, existing_accounts)
+            if accounts_error:
+                return config_payload, accounts_error
+            aws_cfg["accounts"] = accounts
+        default_account_error = _settings_aws_default_account_error(aws_cfg)
+        if default_account_error:
+            return config_payload, default_account_error
         config_payload["aws"] = aws_cfg
 
     if is_section_touched("jenkins"):
@@ -2020,6 +2176,8 @@ def _default_connections_context(
     return {
         "request": request,
         "seed": seed,
+        "seed_aws_accounts": _aws_account_view_rows(seed.get("aws")),
+        "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),
         "guidance": all_guidance(),

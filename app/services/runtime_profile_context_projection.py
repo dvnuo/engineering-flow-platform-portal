@@ -37,7 +37,13 @@ RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "EFP_JENKINS_USERNAME and EFP_JENKINS_PASSWORD hold the credentials of the DEFAULT Jenkins instance only, so do not "
     "reuse them against a different instance; run `jenkins auth login --instance <name>` for the others. "
     "When the user provides a Jenkins controller URL or pipeline/job, configure or log in to that controller at that time and pass the password through stdin, never by echoing it. "
-    "For AWS, prefer `aws --output json` for inspection and avoid changing cloud resources unless the user asks. "
+    "For AWS, run `aws-auth account list --json` to see the configured accounts and `aws-auth login --account <name> --json` "
+    "(or `aws-auth login --all --json`) before the first aws call; each account's credentials live in the AWS CLI profile named "
+    "after the account, so pass `--profile <name>` to every aws command and `--output json` for inspection. "
+    "Run `aws-auth eks kubeconfig --account <name> --cluster <cluster> --json` before kubectl and pass `--context <name>/<cluster>` "
+    "on every kubectl command; keep kubectl read-only (get, describe, logs --tail, events, top, explain) and never apply, delete, "
+    "edit, patch, scale, rollout, exec, port-forward, or read secrets. When aws or kubectl reports an expired or missing token, "
+    "run `aws-auth login --account <name> --json` again. Avoid changing cloud resources unless the user asks. "
     "Run write operations with --dry-run before executing them. Use --yes only for destructive "
     "operations after the user explicitly confirms. Runtime profile credentials are applied in "
     "the runtime container through CLIs or environment variables; if a CLI returns auth_failed, report a runtime profile "
@@ -157,10 +163,26 @@ def _has_git_config(config: dict[str, Any]) -> bool:
     return bool(str(user.get("name") or user.get("email") or "").strip())
 
 
+def _has_usable_aws_account(aws: dict[str, Any]) -> bool:
+    accounts = aws.get("accounts")
+    if not isinstance(accounts, list):
+        return False
+    for account in accounts:
+        if not isinstance(account, dict) or account.get("enabled") is False:
+            continue
+        if str(account.get("account_id") or "").strip() or str(account.get("role_arn") or "").strip():
+            return True
+    return False
+
+
 def _has_enabled_aws_config(config: dict[str, Any]) -> bool:
     aws = config.get("aws")
     if not isinstance(aws, dict) or aws.get("enabled") is not True:
         return False
+    if str(aws.get("provider") or "").strip().lower() == "assume-role":
+        # assume-role chains from a source profile already in the runtime, so
+        # there is no directory password; what it needs is a role to assume.
+        return _has_usable_aws_account(aws)
     domain = str(aws.get("domain") or "").strip()
     username = str(aws.get("username") or "").strip()
     password = str(aws.get("password") or "").strip()

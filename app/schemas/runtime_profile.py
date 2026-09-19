@@ -1,4 +1,5 @@
 import json
+import re
 from copy import deepcopy
 from datetime import datetime
 
@@ -72,6 +73,16 @@ PORTAL_MANAGED_FIELD_TREE = {
         "username": True,
         "password": True,
         "domain": True,
+        # aws-auth account matrix: which provider signs in, and one entry per
+        # AWS account the CLI may assume a role in.
+        "provider": True,
+        "idp_url": True,
+        "source_profile": True,
+        "default_account": True,
+        "default_region": True,
+        "session_duration_seconds": True,
+        "kubeconfig_path": True,
+        "accounts": True,
     },
     "jenkins": {
         "enabled": True,
@@ -366,16 +377,132 @@ def sanitize_runtime_profile_github(value) -> dict:
     return out
 
 
+# How the aws-auth CLI in the runtime signs in, first one the default.
+# adfs-assume and saml2aws use the directory account (domain/username/password);
+# assume-role starts from the credentials of an AWS CLI profile already present
+# in the runtime.
+AWS_AUTH_PROVIDERS = ("adfs-assume", "saml2aws", "assume-role")
+# STS bounds for an assumed-role session: 15 minutes to 12 hours.
+AWS_SESSION_DURATION_MIN_SECONDS = 900
+AWS_SESSION_DURATION_MAX_SECONDS = 43200
+AWS_ACCOUNT_ID_LENGTH = 12
+
+
+def normalize_aws_account_id(value) -> str:
+    """Return the account id as a 12-digit string, or "" when it is not one.
+
+    Stored as a string on purpose: an id with leading zeros would lose them as
+    a number, and the runtime compares it textually against role ARNs.
+    """
+    cleaned = str(value or "").strip()
+    if len(cleaned) == AWS_ACCOUNT_ID_LENGTH and cleaned.isdigit():
+        return cleaned
+    return ""
+
+
+def sanitize_runtime_profile_aws_regions(value) -> list[str]:
+    """Normalize a region list that may arrive as a list or a typed string.
+
+    The form posts one comma-separated string per account; the JSON API and
+    the runtime's canonical shape carry a list. Both end up as a de-duplicated
+    list of the non-blank entries, in the order they were given.
+    """
+    if isinstance(value, str):
+        raw_items = re.split(r"[,\s]+", value)
+    elif isinstance(value, (list, tuple)):
+        raw_items = list(value)
+    else:
+        return []
+    regions: list[str] = []
+    for item in raw_items:
+        cleaned = str(item or "").strip()
+        if cleaned and cleaned not in regions:
+            regions.append(cleaned)
+    return regions
+
+
+def sanitize_runtime_profile_aws_session_duration(value) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value.isdigit():
+            return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if AWS_SESSION_DURATION_MIN_SECONDS <= parsed <= AWS_SESSION_DURATION_MAX_SECONDS:
+        return parsed
+    return None
+
+
+def sanitize_runtime_profile_aws_accounts(value) -> list[dict]:
+    """Return the usable account rows of an aws section.
+
+    A row needs a name (it becomes the AWS CLI profile the assistant passes as
+    --profile) and a 12-digit account id; anything else is dropped rather than
+    stored half-formed, because the runtime would refuse it anyway. Names are
+    unique case-insensitively, the first occurrence wins.
+    """
+    if not isinstance(value, list):
+        return []
+    accounts: list[dict] = []
+    seen_names: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        account_id = normalize_aws_account_id(item.get("account_id"))
+        if not name or not account_id:
+            continue
+        name_key = name.lower()
+        if name_key in seen_names:
+            continue
+        seen_names.add(name_key)
+        account: dict = {"name": name, "account_id": account_id}
+        for key in ("role", "role_arn", "profile"):
+            cleaned = str(item.get(key) or "").strip()
+            if cleaned:
+                account[key] = cleaned
+        regions = sanitize_runtime_profile_aws_regions(item.get("regions"))
+        if regions:
+            account["regions"] = regions
+        if "enabled" in item:
+            account["enabled"] = _runtime_profile_bool(item.get("enabled"))
+        accounts.append(account)
+    return accounts
+
+
 def sanitize_runtime_profile_aws(value) -> dict:
     if not isinstance(value, dict):
         return {}
     out: dict = {}
     if "enabled" in value:
         out["enabled"] = _runtime_profile_bool(value.get("enabled"))
-    for key in ("domain", "username", "password"):
+    provider = str(value.get("provider") or "").strip().lower()
+    if provider in AWS_AUTH_PROVIDERS:
+        out["provider"] = provider
+    for key in (
+        "domain",
+        "username",
+        "password",
+        "idp_url",
+        "source_profile",
+        "default_account",
+        "default_region",
+        "kubeconfig_path",
+    ):
         cleaned = str(value.get(key) or "").strip()
         if cleaned:
             out[key] = cleaned
+    session_duration = sanitize_runtime_profile_aws_session_duration(value.get("session_duration_seconds"))
+    if session_duration is not None:
+        out["session_duration_seconds"] = session_duration
+    # The key is kept whenever it was sent, so an empty list can clear the
+    # matrix; a section that never mentioned accounts stays without the key.
+    if "accounts" in value:
+        out["accounts"] = sanitize_runtime_profile_aws_accounts(value.get("accounts"))
     return out
 
 

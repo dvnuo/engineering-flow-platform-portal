@@ -89,10 +89,11 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
     },
     "aws": {
         "title": "Connect AWS",
-        "summary": "Lets the assistant inspect AMIs, instances, and CloudWatch logs.",
+        "summary": "Lets the assistant inspect AWS accounts and EKS clusters through the read-only roles you list here.",
         "steps": [
-            "Use the AWS account your team already uses for this environment.",
-            "Ask your administrator which domain value to enter if you are unsure.",
+            "Enter the directory account aws-auth signs in with: the domain, username and password your team uses for AWS.",
+            "Choose the provider your organisation uses. adfs-assume is the default; only saml2aws needs the IdP URL, and only assume-role needs a source profile.",
+            "Add one row per AWS account with its 12-digit account id, a read-only role and the regions it uses, then name one of them as the default account.",
         ],
         "help_url": None,
         "help_label": None,

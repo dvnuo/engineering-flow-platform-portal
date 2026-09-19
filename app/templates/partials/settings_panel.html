@@ -209,7 +209,7 @@
       </div>
     </section>
 
-    <section class="portal-panel-section" data-managed-section="aws">
+    <section class="portal-panel-section" data-instance-group="aws_accounts" data-managed-section="aws">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
           <div class="portal-settings-section-title">
             <span class="portal-section-accent" aria-hidden="true"></span>
@@ -228,6 +228,22 @@
         <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="aws_username" value="{{ raw_aws.get('username', '') }}" class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="aws_password" value="{{ raw_aws.get('password', '') }}" class="portal-form-input" /></label>
       </div>
+      {% set aws_provider = raw_aws.get('provider') or 'adfs-assume' %}
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="aws_provider" class="portal-form-select">{% for option in aws_auth_providers %}<option value="{{ option }}" {% if aws_provider == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <label class="portal-form-label"><span class="portal-form-label">ADFS IdP URL (saml2aws)</span><input type="text" name="aws_idp_url" value="{{ raw_aws.get('idp_url', '') }}" placeholder="https://adfs.example.com/adfs/ls/IdpInitiatedSignOn.aspx?loginToRp=urn:amazon:webservices" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Source profile (assume-role)</span><input type="text" name="aws_source_profile" value="{{ raw_aws.get('source_profile', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Default account</span><input type="text" name="aws_default_account" value="{{ raw_aws.get('default_account', '') }}" placeholder="Account name or id" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Default region</span><input type="text" name="aws_default_region" value="{{ raw_aws.get('default_region', '') }}" placeholder="e.g. ap-east-1" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Session duration (seconds)</span><input type="number" name="aws_session_duration_seconds" value="{{ raw_aws.get('session_duration_seconds', '') }}" min="900" max="43200" step="1" placeholder="3600" class="portal-form-input" /></label>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Kubeconfig path</span><input type="text" name="aws_kubeconfig_path" value="{{ raw_aws.get('kubeconfig_path', '') }}" placeholder="~/.efp/kube/config" class="portal-form-input" /></label>
+      <div class="portal-inline-note">One row per AWS account the assistant may sign in to. The name becomes the AWS CLI profile it passes as <code>--profile</code>; list a read-only role.</div>
+      <input type="hidden" name="aws_accounts_instance_count" value="{{ aws_accounts|length }}" data-instance-count="aws_accounts" />
+      <div class="space-y-2" data-instance-container="aws_accounts">{% for acct in aws_accounts %}<div class="portal-settings-instance-card{% if not acct.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="aws_accounts"><input type="hidden" data-original-field="name" value="{{ acct.get('name','') }}" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account {{ loop.index }}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable AWS account instance {{ loop.index }}" {% if acct.get('enabled', True) %}checked{% endif %} /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>{% if acct.get('enabled', True) %}Enabled{% else %}Disabled{% endif %}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ acct.get('name','') }}" placeholder="Account name, e.g. cps-dev" class="portal-form-input" /><input type="text" data-field="account_id" value="{{ acct.get('account_id','') }}" placeholder="12-digit AWS account id" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="{{ acct.get('role','') }}" placeholder="IAM role, e.g. ADFS-ReadOnly" class="portal-form-input" /><input type="text" data-field="regions" value="{{ acct.get('regions','') }}" placeholder="Regions, e.g. ap-east-1, eu-west-1" class="portal-form-input" /></div></div></div>{% endfor %}</div>
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="aws_accounts">+ Add AWS Account</button>
     </section>
 
     <section class="portal-panel-section" data-instance-group="jenkins" data-managed-section="jenkins">
