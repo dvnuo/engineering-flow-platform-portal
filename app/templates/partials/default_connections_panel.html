@@ -279,30 +279,6 @@
       ]) }}
     </section>
 
-    <section class="portal-panel-section" data-instance-group="appd">
-      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>AppDynamics</h6></div>
-      </div>
-      <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer AppDynamics">
-          <input type="checkbox" name="appd_enabled" {% if seed.get('appd', {}).get('enabled') %}checked{% endif %} />
-          <span class="toggle-slider"></span>
-        </label>
-        <span>Offer AppDynamics to members</span>
-      </div>
-      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="appd_default_instance" value="{{ seed.get('appd', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
-      {{ instance_group('appd', 'AppDynamics', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'prod'},
-          {'key': 'url', 'label': 'Controller URL', 'placeholder': 'https://appd-controller.example.com'},
-          {'key': 'account', 'label': 'Account', 'placeholder': 'customer1'},
-          {'key': 'auth_type', 'label': 'Sign-in', 'type': 'select', 'options': [
-              {'value': 'api_client', 'label': 'API client'}, {'value': 'basic_password', 'label': 'Basic (username and password)'}]},
-          {'key': 'username', 'label': 'Shared API client name or username', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password (Basic)', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'token', 'label': 'Shared client secret (API client)', 'type': 'password', 'placeholder': 'Optional'}
-      ]) }}
-    </section>
-
     <section class="portal-panel-section" data-instance-group="pgsql">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>PostgreSQL</h6></div>

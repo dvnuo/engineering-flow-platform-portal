@@ -26,7 +26,6 @@ def _assert_cli_instruction_texts(instruction_texts):
         "jenkins",
         "nexus",
         "splunk",
-        "appd",
         "pgsql",
         "mobile-auto",
         "git",

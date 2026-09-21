@@ -12736,12 +12736,12 @@ async function refreshComposerModelProfile(agentId) {
 const managedSettingsActionSelector = "[data-settings-action]";
 // keep regression guard text for static test:
 
-const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "nexus": "Nexus", "splunk": "Splunk", "appd": "AppDynamics", "pgsql": "PostgreSQL" };
+const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL" };
 
 // Per-product placeholder copy for a freshly added instance card. Kept as a
 // plain lookup table (not inline ternaries) so it stays in step with the
 // server-rendered cards in the runtime-profile/settings panel templates.
-// The nexus/splunk/appd/pgsql entries are copies of TROUBLESHOOTING_CARD_PLACEHOLDERS
+// The nexus/splunk/pgsql entries are copies of TROUBLESHOOTING_CARD_PLACEHOLDERS
 // in app/web.py, which renders the saved cards; a test holds the two equal.
 const INSTANCE_GROUP_PLACEHOLDERS = {
   "jira": { "url": "URL (e.g. https://yourcompany.atlassian.net)", "username": "Email" },
@@ -12772,14 +12772,6 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
     "app": "App the saved searches live in, e.g. search",
     "owner": "Namespace owner; blank means any"
   },
-  "appd": {
-    "name": "Name",
-    "url": "Controller URL (e.g. https://appd-controller.example.com)",
-    "account": "Account, e.g. customer1",
-    "username": "API client name or username",
-    "password": "Password (Basic sign-in)",
-    "token": "Client secret (API client)"
-  },
   "pgsql": {
     "name": "Name",
     "host": "Host, e.g. orders-uat.example.com",
@@ -12798,7 +12790,6 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
 const INSTANCE_GROUP_CARD_ROWS = {
   "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
   "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"], ["app", "owner"]],
-  "appd": [["name", "url"], ["account", "auth_type"], ["username", "password"], ["token", ""]],
   "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", "statement_timeout_seconds"], ["max_rows", ""]]
 };
 
@@ -12807,7 +12798,6 @@ const INSTANCE_GROUP_FIELD_SPECS = {
   "token": { "type": "password" },
   "port": { "type": "number", "min": 1, "max": 65535 },
   "max_results": { "type": "number", "min": 1, "max": 10000 },
-  "auth_type": { "type": "select", "options": [["api_client", "API client"], ["basic_password", "Basic (username and password)"]] },
   "sslmode": { "type": "select", "options": [["require", "require"], ["verify-ca", "verify-ca"], ["verify-full", "verify-full"], ["prefer", "prefer"]] },
   "statement_timeout_seconds": { "type": "number", "min": 1, "max": 300 },
   "max_rows": { "type": "number", "min": 1, "max": 100000 }
@@ -12852,7 +12842,7 @@ function troubleshootingFieldHtml(group, field) {
   return `<input type="${spec.type || "text"}" data-field="${field}" value="" placeholder="${placeholder}" class="portal-form-input" />`;
 }
 
-// A nexus/splunk/appd/pgsql card: the jenkins head, then the group's rows.
+// A nexus/splunk/pgsql card: the jenkins head, then the group's rows.
 // Rows identified by a URL carry an original-url field like jenkins; pgsql
 // rows have no URL and are matched on save by name alone.
 function troubleshootingCardHtml(group, label) {
@@ -13328,7 +13318,6 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "aws_accounts");
   normalizeInstanceInputs(root, "nexus");
   normalizeInstanceInputs(root, "splunk");
-  normalizeInstanceInputs(root, "appd");
   normalizeInstanceInputs(root, "pgsql");
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");

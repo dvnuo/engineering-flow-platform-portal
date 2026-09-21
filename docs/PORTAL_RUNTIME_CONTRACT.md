@@ -84,7 +84,7 @@ Runtime responsibility:
 - Return non-success completion states such as `blocked`, `incomplete`, `empty_final`, or `error` when no final visible text is available.
 
 ## 10) Runtime profile/config contract
-- Runtime profiles are Portal-owned only for concise integration context: `llm`, `proxy`, `jira`, `confluence`, `github`, `aws`, `jenkins`, `nexus`, `splunk`, `appd`, `pgsql`, `mobile-auto`, `git`, and `debug`.
+- Runtime profiles are Portal-owned only for concise integration context: `llm`, `proxy`, `jira`, `confluence`, `github`, `aws`, `jenkins`, `nexus`, `splunk`, `pgsql`, `mobile-auto`, `git`, and `debug`.
 - The supported Portal providers are `github_copilot` and `ai_platform`. Portal stores and forwards provider, model, thinking/context defaults, Copilot API key, or AI Platform user credentials. AI Platform host/URI settings are supplied by deployment configuration when the runtime config is materialized. Provider/model normalization and any runtime-specific projection are Portal's responsibility; model execution is the runtime's responsibility.
 - LLM provider/model/Copilot API key fields remain part of the supported profile contract alongside AI Platform credentials.
 - Portal stores and forwards proxy and external integration sections that it owns. For the Python EFP runtime this includes enough config for runtime-side file generation:
@@ -93,7 +93,6 @@ Runtime responsibility:
   - `github.enabled`, `github.api_token` (accepted from `api_token`, `token`, or `access_token`), and `github.base_url`.
   - `nexus.enabled`, `nexus.default_instance` and `nexus.instances[]` with `name` (required, unique), `url`, `username`, `password` or `token`, and per-instance `enabled`.
   - `splunk.enabled`, `splunk.default_instance` and `splunk.instances[]` with `name`, `url` (the management API, port 8089), `token` or `username`+`password`, `default_index`, `default_earliest`, `max_results` (1..10000), and per-instance `enabled`.
-  - `appd.enabled`, `appd.default_instance` and `appd.instances[]` with `name`, `url` (the controller), `account`, `auth_type` (`api_client` with `username`+`token` holding the client secret, or `basic_password` with `username`+`password`), and per-instance `enabled`.
   - `pgsql.enabled`, `pgsql.default_instance` and `pgsql.instances[]` with `name`, `host`, `port` (1..65535), `database`, `username`, `password`, `sslmode` (`require`, `verify-ca`, `verify-full`, `prefer`), and per-instance `enabled`. Secrets live only under `password` / `token`.
   - `mobile-auto.enabled`, `mobile-auto.defaults`, and `mobile-auto.browserstack` fields for BrowserStack REST/Appium credentials, proxy, BrowserStackLocal mode, and local binary path.
   - `git.user.name` and `git.user.email`.

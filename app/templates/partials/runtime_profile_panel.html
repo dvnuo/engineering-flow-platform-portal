@@ -39,7 +39,6 @@
     <input type="hidden" name="__touch_jenkins" value="0" data-touch-flag="jenkins" />
     <input type="hidden" name="__touch_nexus" value="0" data-touch-flag="nexus" />
     <input type="hidden" name="__touch_splunk" value="0" data-touch-flag="splunk" />
-    <input type="hidden" name="__touch_appd" value="0" data-touch-flag="appd" />
     <input type="hidden" name="__touch_pgsql" value="0" data-touch-flag="pgsql" />
     <input type="hidden" name="__touch_git" value="0" data-touch-flag="git" />
     <input type="hidden" name="__touch_debug" value="0" data-touch-flag="debug" />
@@ -319,27 +318,6 @@
       {{ troubleshooting_instance_cards('splunk', 'Splunk', splunk_instances, troubleshooting_cards) }}
       <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="splunk">+ Add Splunk Instance</button>
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="splunk">Test Splunk</button><div class="portal-inline-state" data-test-result="splunk"></div></div>
-    </section>
-
-    <section class="portal-panel-section" data-instance-group="appd" id="profile-section-appd" data-managed-section="appd">
-      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-          <div class="portal-settings-section-title">
-            <span class="portal-section-accent" aria-hidden="true"></span>
-            <h6>AppDynamics</h6>
-          </div>
-      </div>
-      {{ setup_guide('appd') }}
-      <div class="portal-checkbox-row">
-          <label class="toggle-switch" aria-label="Enable AppDynamics">
-              <input type="checkbox" name="appd_enabled" {% if appd.get('enabled') %}checked{% endif %} />
-              <span class="toggle-slider"></span>
-          </label>
-          <span>Enabled</span>
-      </div>
-      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="appd_default_instance" value="{{ appd.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
-      {{ troubleshooting_instance_cards('appd', 'AppDynamics', appd_instances, troubleshooting_cards) }}
-      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="appd">+ Add AppDynamics Instance</button>
-      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="appd">Test AppDynamics</button><div class="portal-inline-state" data-test-result="appd"></div></div>
     </section>
 
     <section class="portal-panel-section" data-instance-group="pgsql" id="profile-section-pgsql" data-managed-section="pgsql">

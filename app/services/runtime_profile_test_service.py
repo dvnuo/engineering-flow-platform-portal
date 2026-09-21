@@ -34,8 +34,6 @@ class RuntimeProfileTestService:
             return await self._test_nexus(config)
         if target == "splunk":
             return await self._test_splunk(config)
-        if target == "appd":
-            return await self._test_appd(config)
         if target == "pgsql":
             return await self._test_pgsql(config)
         if target == "llm":
@@ -158,62 +156,6 @@ class RuntimeProfileTestService:
             content = entries[0].get("content") if isinstance(entries[0].get("content"), dict) else {}
             who = str(content.get("username") or entries[0].get("name") or "").strip()
         return True, f"Splunk connection OK for {name} as {who or username or 'token user'}."
-
-    async def _test_appd(self, config: dict) -> tuple[bool, str]:
-        appd_cfg = config.get("appd") if isinstance(config.get("appd"), dict) else {}
-        if not bool(appd_cfg.get("enabled")):
-            return False, "AppDynamics test requires appd.enabled=true."
-        instance = self._default_instance(appd_cfg)
-        base_url = str((instance or {}).get("url") or "").strip().rstrip("/")
-        if not instance or not base_url:
-            return False, "No usable AppDynamics instance found. Provide the controller URL, account, and an API client or user."
-
-        account = str(instance.get("account") or "").strip()
-        username = str(instance.get("username") or "").strip()
-        if not account or not username:
-            return False, "AppDynamics test needs the account name and an API client name or username."
-        name = self._instance_label(instance, base_url)
-        auth_type = str(instance.get("auth_type") or "api_client").strip().lower()
-        applications_url = f"{base_url}/controller/rest/applications?output=JSON"
-
-        if auth_type == "basic_password":
-            password = str(instance.get("password") or "").strip()
-            if not password:
-                return False, "AppDynamics basic sign-in needs a password."
-            login = username if "@" in username else f"{username}@{account}"
-            headers = self._basic_auth_header(login, password)
-        else:
-            secret = str(instance.get("token") or "").strip()
-            if not secret:
-                return False, "AppDynamics API client sign-in needs the client secret (stored as the token)."
-            ok, message, data = await self._http_request(
-                method="POST",
-                url=f"{base_url}/controller/api/oauth/access_token",
-                headers={"Accept": "application/json"},
-                form_payload={
-                    "grant_type": "client_credentials",
-                    "client_id": username if "@" in username else f"{username}@{account}",
-                    "client_secret": secret,
-                },
-                timeout=15.0,
-            )
-            if not ok:
-                return False, f"AppDynamics API client sign-in failed: {message}"
-            access_token = str((data or {}).get("access_token") or "").strip() if isinstance(data, dict) else ""
-            if not access_token:
-                return False, "AppDynamics API client sign-in did not return an access token."
-            headers = {"Authorization": f"Bearer {access_token}"}
-
-        ok, message, data = await self._http_request(
-            method="GET",
-            url=applications_url,
-            headers={**headers, "Accept": "application/json"},
-            timeout=15.0,
-        )
-        if not ok:
-            return False, message
-        count = len(data) if isinstance(data, list) else 0
-        return True, f"AppDynamics connection OK for {name}: {count} applications visible."
 
     async def _test_pgsql(self, config: dict) -> tuple[bool, str]:
         """Reachability only: the Portal often cannot see the database at all,
@@ -543,14 +485,13 @@ class RuntimeProfileTestService:
         headers: dict,
         timeout: float,
         json_payload: dict | None = None,
-        form_payload: dict | None = None,
     ):
         """One request; returns (ok, message, parsed JSON of any shape or None).
 
-        Nexus and AppDynamics answer with JSON lists, and the AppDynamics OAuth
-        step posts a form rather than JSON, which is why this sits under the
-        dict-only helper the older tests use. The failure message carries the
-        status and the server's own error text, never the request headers.
+        Nexus answers with a JSON list rather than an object, which is why this
+        sits under the dict-only helper the older tests use. The failure message
+        carries the status and the server's own error text, never the request
+        headers.
         """
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -559,7 +500,6 @@ class RuntimeProfileTestService:
                     url=url,
                     headers=headers,
                     json=json_payload,
-                    data=form_payload,
                 )
         except Exception as exc:
             return False, f"Request failed: {exc}", None

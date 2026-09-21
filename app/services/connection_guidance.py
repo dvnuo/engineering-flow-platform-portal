@@ -99,18 +99,6 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
         "help_label": None,
         "user_fields": ["token"],
     },
-    "appd": {
-        "title": "Connect AppDynamics",
-        "summary": "Lets the assistant read application health, slow or failing transaction snapshots and health-rule violations. Read-only.",
-        "steps": [
-            "Enter the controller URL, for example https://appd-controller.example.com, and the account name shown on its login page.",
-            "Create an API Client in the controller (Administration, API Clients) with a read-only role; enter its name as the username and its client secret as the token.",
-            "Or choose Basic and enter a read-only user's name and password instead.",
-        ],
-        "help_url": None,
-        "help_label": None,
-        "user_fields": ["username", "token"],
-    },
     "pgsql": {
         "title": "Connect PostgreSQL",
         "summary": "Lets the assistant inspect a database's schema and query it. The role and endpoint you enter decide whether it can also change anything.",

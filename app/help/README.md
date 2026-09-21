@@ -39,7 +39,7 @@ order: 10
 ## Connection and connector topics
 
 `connect-<section>.md` (llm, jira, confluence, github, jenkins, nexus, splunk,
-appd, pgsql, mobile, aws, proxy, git) and `<connector>-connector.md`
+pgsql, mobile, aws, proxy, git) and `<connector>-connector.md`
 (local-browser) hold the long-form
 guide for a Connections section or a Connector. Their title, summary, setup
 steps, setup link and troubleshooting lines come from

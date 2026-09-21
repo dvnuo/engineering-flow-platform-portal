@@ -18,17 +18,16 @@ ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "jenkins",
     "nexus",
     "splunk",
-    "appd",
     "pgsql",
     "mobile-auto",
     "git",
     "debug",
 }
 
-# The troubleshooting CLIs (nexus, splunk, appd, pgsql) share one section
+# The troubleshooting CLIs (nexus, splunk, pgsql) share one section
 # shape: an enabled flag, a default instance name and a list of named
 # instances the assistant addresses with --instance.
-TROUBLESHOOTING_INSTANCE_SECTIONS = ("nexus", "splunk", "appd", "pgsql")
+TROUBLESHOOTING_INSTANCE_SECTIONS = ("nexus", "splunk", "pgsql")
 
 PORTAL_MANAGED_FIELD_TREE = {
     "llm": {
@@ -112,11 +111,6 @@ PORTAL_MANAGED_FIELD_TREE = {
         "default_instance": True,
     },
     "splunk": {
-        "enabled": True,
-        "instances": True,
-        "default_instance": True,
-    },
-    "appd": {
         "enabled": True,
         "instances": True,
         "default_instance": True,
@@ -333,23 +327,15 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             )
             if max_results is not None:
                 sanitized_item["max_results"] = max_results
-        if kind == "appd":
-            account = str(item.get("account") or "").strip()
-            if account:
-                sanitized_item["account"] = account
-            auth_type = str(item.get("auth_type") or "").strip().lower()
-            if auth_type in APPD_AUTH_TYPES:
-                sanitized_item["auth_type"] = auth_type
         sanitized_instances.append(sanitized_item)
     return sanitized_instances
 
 
 # What the splunk CLI accepts for --count, so a typo cannot ask for a million
-# events; what the appd CLI knows how to sign in with; what psycopg accepts for
-# sslmode (a plain "disable" is deliberately not offered).
+# events; what psycopg accepts for sslmode (a plain "disable" is deliberately
+# not offered).
 SPLUNK_MAX_RESULTS_MIN = 1
 SPLUNK_MAX_RESULTS_MAX = 10000
-APPD_AUTH_TYPES = ("api_client", "basic_password")
 PGSQL_SSL_MODES = ("require", "verify-ca", "verify-full", "prefer")
 PGSQL_DEFAULT_PORT = 5432
 # Per-instance query bounds. Both are optional: the pgsql CLI falls back to 30
@@ -406,7 +392,7 @@ def dedupe_runtime_profile_instances_by_name(instances: list[dict]) -> list[dict
 
 
 def sanitize_runtime_profile_named_instance_section(value, *, kind: str) -> dict:
-    """Sanitize a nexus/splunk/appd section: enabled, default_instance, instances[]."""
+    """Sanitize a nexus/splunk section: enabled, default_instance, instances[]."""
     if not isinstance(value, dict):
         return {}
     out: dict = {}
@@ -428,10 +414,6 @@ def sanitize_runtime_profile_nexus(value) -> dict:
 
 def sanitize_runtime_profile_splunk(value) -> dict:
     return sanitize_runtime_profile_named_instance_section(value, kind="splunk")
-
-
-def sanitize_runtime_profile_appd(value) -> dict:
-    return sanitize_runtime_profile_named_instance_section(value, kind="appd")
 
 
 def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
@@ -503,7 +485,6 @@ def sanitize_runtime_profile_pgsql(value) -> dict:
 TROUBLESHOOTING_SECTION_SANITIZERS = {
     "nexus": sanitize_runtime_profile_nexus,
     "splunk": sanitize_runtime_profile_splunk,
-    "appd": sanitize_runtime_profile_appd,
     "pgsql": sanitize_runtime_profile_pgsql,
 }
 

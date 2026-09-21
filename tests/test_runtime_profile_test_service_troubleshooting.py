@@ -1,14 +1,13 @@
-"""Test-connection checks for jenkins, nexus, splunk, appd and pgsql.
+"""Test-connection checks for jenkins, nexus, splunk and pgsql.
 
 Each check runs against the section's default instance (or the first usable
 one) with the credentials the profile holds, through a mocked httpx transport
-so the exact request -- path, auth header, form body -- is what is asserted.
+so the exact request -- path, auth header -- is what is asserted.
 PostgreSQL is reachability only: the Portal rarely sees the database, and the
 sign-in is verified inside the runtime by `pgsql auth test`.
 """
 import asyncio
 import base64
-from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -65,7 +64,7 @@ def test_default_instance_is_the_named_one_else_the_first_usable():
 
 @pytest.mark.parametrize(
     "target,section",
-    [("jenkins", "jenkins"), ("nexus", "nexus"), ("splunk", "splunk"), ("appd", "appd"), ("pgsql", "pgsql")],
+    [("jenkins", "jenkins"), ("nexus", "nexus"), ("splunk", "splunk"), ("pgsql", "pgsql")],
 )
 def test_run_test_dispatches_each_target_and_requires_the_section_enabled(target, section):
     ok, message = _run(RuntimeProfileTestService().run_test(target, {section: {"enabled": False}}))
@@ -240,156 +239,6 @@ def test_splunk_transport_errors_are_reported_without_the_token(monkeypatch):
     assert ok is False
     assert "certificate verify failed" in message
     assert "splunk-token" not in message
-
-
-# --------------------------------------------------------------------- appd
-
-
-def test_appd_api_client_exchanges_the_secret_then_lists_applications(monkeypatch):
-    def handler(request):
-        if request.url.path == "/controller/api/oauth/access_token":
-            assert request.method == "POST"
-            assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
-            form = parse_qs(request.content.decode("utf-8"))
-            assert form == {
-                "grant_type": ["client_credentials"],
-                "client_id": ["efp-reader@customer1"],
-                "client_secret": ["client-secret"],
-            }
-            return httpx.Response(200, json={"access_token": "short-lived", "expires_in": 300})
-        assert request.url.path == "/controller/rest/applications"
-        assert request.url.params["output"] == "JSON"
-        assert request.headers["Authorization"] == "Bearer short-lived"
-        return httpx.Response(200, json=[{"name": "orders"}, {"name": "payments"}])
-
-    seen = _mock_http(monkeypatch, handler)
-    ok, message = _run(
-        RuntimeProfileTestService()._test_appd(
-            {
-                "appd": {
-                    "enabled": True,
-                    "instances": [
-                        {
-                            "name": "prod",
-                            "url": "https://appd-controller.example.test",
-                            "account": "customer1",
-                            "auth_type": "api_client",
-                            "username": "efp-reader",
-                            "token": "client-secret",
-                        }
-                    ],
-                }
-            }
-        )
-    )
-    assert ok is True, message
-    assert message == "AppDynamics connection OK for prod: 2 applications visible."
-    assert [request.url.path for request in seen] == ["/controller/api/oauth/access_token", "/controller/rest/applications"]
-
-
-def test_appd_api_client_is_the_default_and_keeps_an_account_qualified_name(monkeypatch):
-    def handler(request):
-        if request.url.path == "/controller/api/oauth/access_token":
-            form = parse_qs(request.content.decode("utf-8"))
-            assert form["client_id"] == ["efp-reader@customer1"]
-            return httpx.Response(200, json={"access_token": "t"})
-        return httpx.Response(200, json=[])
-
-    _mock_http(monkeypatch, handler)
-    ok, _message = _run(
-        RuntimeProfileTestService()._test_appd(
-            {
-                "appd": {
-                    "enabled": True,
-                    "instances": [{"name": "p", "url": "https://a", "account": "customer1", "username": "efp-reader@customer1", "token": "s"}],
-                }
-            }
-        )
-    )
-    assert ok is True
-
-
-def test_appd_reports_a_failed_exchange_and_never_calls_the_controller(monkeypatch):
-    def handler(request):
-        assert request.url.path == "/controller/api/oauth/access_token"
-        return httpx.Response(401, json={"error": "invalid_client"})
-
-    seen = _mock_http(monkeypatch, handler)
-    ok, message = _run(
-        RuntimeProfileTestService()._test_appd(
-            {"appd": {"enabled": True, "instances": [{"name": "p", "url": "https://a", "account": "c", "username": "u", "token": "wrong"}]}}
-        )
-    )
-    assert ok is False
-    assert message == "AppDynamics API client sign-in failed: HTTP 401: invalid_client"
-    assert len(seen) == 1
-    assert "wrong" not in message
-
-
-def test_appd_exchange_without_a_token_in_the_answer_fails(monkeypatch):
-    _mock_http(monkeypatch, lambda request: httpx.Response(200, json={"token_type": "Bearer"}))
-    ok, message = _run(
-        RuntimeProfileTestService()._test_appd(
-            {"appd": {"enabled": True, "instances": [{"name": "p", "url": "https://a", "account": "c", "username": "u", "token": "s"}]}}
-        )
-    )
-    assert ok is False and "did not return an access token" in message
-
-
-def test_appd_basic_password_signs_in_as_username_at_account(monkeypatch):
-    def handler(request):
-        assert request.url.path == "/controller/rest/applications"
-        assert _basic(request) == "efp-reader@customer1:pw"
-        return httpx.Response(200, json=[{"name": "orders"}])
-
-    seen = _mock_http(monkeypatch, handler)
-    ok, message = _run(
-        RuntimeProfileTestService()._test_appd(
-            {
-                "appd": {
-                    "enabled": True,
-                    "instances": [
-                        {"name": "p", "url": "https://a/", "account": "customer1", "auth_type": "basic_password", "username": "efp-reader", "password": "pw"}
-                    ],
-                }
-            }
-        )
-    )
-    assert ok is True, message
-    assert message == "AppDynamics connection OK for p: 1 applications visible."
-    assert len(seen) == 1
-
-
-def test_appd_basic_password_keeps_a_username_that_already_names_the_account(monkeypatch):
-    def handler(request):
-        assert _basic(request) == "reader@customer1:pw"
-        return httpx.Response(200, json=[])
-
-    _mock_http(monkeypatch, handler)
-    ok, _message = _run(
-        RuntimeProfileTestService()._test_appd(
-            {
-                "appd": {
-                    "enabled": True,
-                    "instances": [
-                        {"name": "p", "url": "https://a", "account": "customer1", "auth_type": "basic_password", "username": "reader@customer1", "password": "pw"}
-                    ],
-                }
-            }
-        )
-    )
-    assert ok is True
-
-
-def test_appd_says_which_credential_is_missing():
-    service = RuntimeProfileTestService()
-    base = {"name": "p", "url": "https://a", "account": "customer1", "username": "u"}
-    ok, message = _run(service._test_appd({"appd": {"enabled": True, "instances": [{**base, "auth_type": "basic_password"}]}}))
-    assert ok is False and "needs a password" in message
-    ok, message = _run(service._test_appd({"appd": {"enabled": True, "instances": [{**base, "auth_type": "api_client"}]}}))
-    assert ok is False and "client secret" in message
-    ok, message = _run(service._test_appd({"appd": {"enabled": True, "instances": [{"name": "p", "url": "https://a", "token": "s"}]}}))
-    assert ok is False and "account name" in message
 
 
 # -------------------------------------------------------------------- pgsql

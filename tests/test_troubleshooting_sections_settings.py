@@ -1,9 +1,9 @@
 """Behaviour tests for the troubleshooting-CLI runtime-profile sections.
 
-nexus, splunk, appd (AppDynamics) and pgsql (PostgreSQL) share the jenkins
-shape -- enabled, default_instance, instances[] addressed by name -- and each
-carries what its CLI needs (a URL, or for PostgreSQL a host/database/username,
-plus Splunk's search defaults and AppDynamics' account and sign-in type).
+nexus, splunk and pgsql (PostgreSQL) share the jenkins shape -- enabled,
+default_instance, instances[] addressed by name -- and each carries what its
+CLI needs (a URL, or for PostgreSQL a host/database/username, plus Splunk's
+search defaults).
 Covers the whole Portal path: schema sanitizer, public redaction, per-profile
 Secret encryption, the settings form parser and its validation, the end-to-end
 save through both member panels, the admin seed form, the projection rule that
@@ -35,7 +35,6 @@ from app.schemas.runtime_profile import (
     PORTAL_MANAGED_FIELD_TREE,
     TROUBLESHOOTING_INSTANCE_SECTIONS,
     redact_runtime_profile_config_for_public_response,
-    sanitize_runtime_profile_appd,
     sanitize_runtime_profile_config_dict,
     sanitize_runtime_profile_nexus,
     sanitize_runtime_profile_pgsql,
@@ -61,8 +60,8 @@ from app.web import (
     _settings_view_payload,
 )
 
-SECTIONS = ("nexus", "splunk", "appd", "pgsql")
-LABELS = {"nexus": "Nexus", "splunk": "Splunk", "appd": "AppDynamics", "pgsql": "PostgreSQL"}
+SECTIONS = ("nexus", "splunk", "pgsql")
+LABELS = {"nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL"}
 
 # The canonical shapes the runtimes' CLIs read, one instance each.
 CANONICAL = {
@@ -84,21 +83,6 @@ CANONICAL = {
                 "default_index": "app_prod",
                 "default_earliest": "-1h",
                 "max_results": 1000,
-                "enabled": True,
-            }
-        ],
-    },
-    "appd": {
-        "enabled": True,
-        "default_instance": "prod",
-        "instances": [
-            {
-                "name": "prod",
-                "url": "https://appd-controller.example.test",
-                "account": "customer1",
-                "auth_type": "api_client",
-                "username": "efp-reader",
-                "token": "client-secret",
                 "enabled": True,
             }
         ],
@@ -165,12 +149,6 @@ def test_sanitizer_normalizes_typed_values_and_aliases():
                     }
                 ],
             },
-            "appd": {
-                "enabled": 1,
-                "instances": [
-                    {"name": "prod", "uri": "https://appd.example.test", "account": " customer1 ", "auth_type": " API_CLIENT ", "email": "efp-reader", "token": "s"}
-                ],
-            },
             "pgsql": {
                 "enabled": True,
                 "instances": [
@@ -194,9 +172,6 @@ def test_sanitizer_normalizes_typed_values_and_aliases():
             }
         ],
     }
-    assert sanitized["appd"]["instances"] == [
-        {"name": "prod", "url": "https://appd.example.test", "username": "efp-reader", "token": "s", "account": "customer1", "auth_type": "api_client"}
-    ]
     assert sanitized["pgsql"]["instances"] == [
         {"name": "db", "host": "db.example.test", "port": 5433, "database": "orders", "username": "ro", "sslmode": "verify-full", "enabled": False}
     ]
@@ -310,20 +285,14 @@ def test_splunk_namespace_is_kept_and_needs_an_app():
     assert "app" not in orphan["instances"][0]
 
 
-@pytest.mark.parametrize("value", ["oauth", "", None, 3])
-def test_an_unknown_appd_auth_type_is_dropped(value):
-    section = sanitize_runtime_profile_appd({"instances": [{"name": "p", "url": "https://a", "auth_type": value}]})
-    assert "auth_type" not in section["instances"][0]
-
-
 def test_secrets_are_stored_only_under_password_and_token():
-    # The AppDynamics client secret rides under `token`; a `client_secret` key
-    # is not a field the tree knows and must never survive.
+    # A secret rides under `password` or `token`; a `client_secret` key is not
+    # a field the tree knows and must never survive.
     sanitized = sanitize_runtime_profile_config_dict(
-        {"appd": {"enabled": True, "instances": [{"name": "p", "url": "https://a", "client_secret": "leak", "token": "kept"}]}}
+        {"nexus": {"enabled": True, "instances": [{"name": "p", "url": "https://a", "client_secret": "leak", "token": "kept"}]}}
     )
     assert "leak" not in json.dumps(sanitized)
-    assert sanitized["appd"]["instances"][0]["token"] == "kept"
+    assert sanitized["nexus"]["instances"][0]["token"] == "kept"
 
 
 def test_instances_key_is_kept_only_when_it_was_sent():
@@ -340,7 +309,7 @@ def test_instances_key_is_kept_only_when_it_was_sent():
 def test_public_response_never_leaks_instance_secrets():
     redacted = redact_runtime_profile_config_for_public_response({s: _copy(CANONICAL[s]) for s in SECTIONS})
     dumped = json.dumps(redacted)
-    for secret in ("nexus-pass", "splunk-token", "client-secret", "pg-pass"):
+    for secret in ("nexus-pass", "splunk-token", "pg-pass"):
         assert secret not in dumped
 
     nexus = redacted["nexus"]["instances"][0]
@@ -348,8 +317,6 @@ def test_public_response_never_leaks_instance_secrets():
     assert "password" not in nexus
     splunk = redacted["splunk"]["instances"][0]
     assert splunk["token_present"] is True and splunk["default_index"] == "app_prod"
-    appd = redacted["appd"]["instances"][0]
-    assert appd["token_present"] is True and appd["account"] == "customer1" and appd["auth_type"] == "api_client"
     pgsql = redacted["pgsql"]["instances"][0]
     assert pgsql["password_present"] is True
     # A PostgreSQL row has no token; saying token_present on it would mislead.
@@ -365,11 +332,10 @@ def test_instance_secrets_are_encrypted_in_the_profile_secret(monkeypatch):
 
     encrypted = encrypt_sensitive_fields(config)
     dumped = json.dumps(encrypted)
-    for secret in ("nexus-pass", "splunk-token", "client-secret", "pg-pass"):
+    for secret in ("nexus-pass", "splunk-token", "pg-pass"):
         assert secret not in dumped
     assert encrypted["nexus"]["instances"][0]["password"].startswith(ENC_PREFIX)
     assert encrypted["splunk"]["instances"][0]["token"].startswith(ENC_PREFIX)
-    assert encrypted["appd"]["instances"][0]["token"].startswith(ENC_PREFIX)
     assert encrypted["pgsql"]["instances"][0]["password"].startswith(ENC_PREFIX)
     # Non-secret fields stay readable.
     assert encrypted["pgsql"]["instances"][0]["host"] == "orders-uat.example.test"
@@ -420,24 +386,6 @@ def _splunk_form(**overrides):
     return form
 
 
-def _appd_form(**overrides):
-    form = {
-        "__touch_appd": "1",
-        "appd_enabled": "on",
-        "appd_default_instance": "prod",
-        "appd_instance_count": "1",
-        "appd_instances_0_enabled": "1",
-        "appd_instances_0_name": "prod",
-        "appd_instances_0_url": "https://appd-controller.example.test",
-        "appd_instances_0_account": "customer1",
-        "appd_instances_0_auth_type": "api_client",
-        "appd_instances_0_username": "efp-reader",
-        "appd_instances_0_token": "client-secret",
-    }
-    form.update(overrides)
-    return form
-
-
 def _pgsql_form(**overrides):
     form = {
         "__touch_pgsql": "1",
@@ -458,7 +406,7 @@ def _pgsql_form(**overrides):
     return form
 
 
-FORMS = {"nexus": _nexus_form, "splunk": _splunk_form, "appd": _appd_form, "pgsql": _pgsql_form}
+FORMS = {"nexus": _nexus_form, "splunk": _splunk_form, "pgsql": _pgsql_form}
 
 
 def test_settings_form_builds_the_nexus_section_from_the_indexed_fields():
@@ -476,7 +424,7 @@ def test_settings_form_builds_the_nexus_section_from_the_indexed_fields():
     }
 
 
-@pytest.mark.parametrize("section", ("splunk", "appd", "pgsql"))
+@pytest.mark.parametrize("section", ("splunk", "pgsql"))
 def test_settings_form_builds_the_canonical_section(section):
     merged, error = _settings_merge_payload({}, FORMS[section]())
 
@@ -603,14 +551,10 @@ def test_settings_form_rejects_a_splunk_max_results_outside_the_bounds(count):
     assert "splunk" not in merged
 
 
-def test_settings_form_rejects_an_unknown_sslmode_or_auth_type():
+def test_settings_form_rejects_an_unknown_sslmode():
     merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_sslmode="disable"))
     assert error == "PostgreSQL instance orders-uat needs an SSL mode of require, verify-ca, verify-full, prefer."
     assert "pgsql" not in merged
-
-    merged, error = _settings_merge_payload({}, _appd_form(appd_instances_0_auth_type="oauth"))
-    assert error == "AppDynamics instance prod needs an auth type of api_client or basic_password."
-    assert "appd" not in merged
 
 
 def test_settings_form_rejects_a_default_instance_that_names_no_row():
@@ -713,10 +657,10 @@ def test_end_to_end_settings_save_persists_the_sections_through_the_assistant_pa
 
 
 def test_the_test_routes_know_every_section():
-    assert {"jenkins", "nexus", "splunk", "appd", "pgsql"} <= _MANAGED_TEST_TARGETS
+    assert {"jenkins", "nexus", "splunk", "pgsql"} <= _MANAGED_TEST_TARGETS
 
 
-@pytest.mark.parametrize("target", ["jenkins", "nexus", "splunk", "appd", "pgsql"])
+@pytest.mark.parametrize("target", ["jenkins", "nexus", "splunk", "pgsql"])
 def test_the_profile_test_route_runs_the_target_against_the_submitted_form(monkeypatch, target):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
@@ -749,8 +693,7 @@ def test_the_profile_test_route_runs_the_target_against_the_submitted_form(monke
         ("nexus", {"enabled": True, "instances": []}, False),
         ("splunk", {"enabled": True, "instances": [{"name": "p", "url": "https://s:8089", "token": "t"}]}, True),
         ("splunk", {"enabled": True, "instances": [{"name": "p", "token": "t"}]}, False),
-        ("appd", {"enabled": True, "instances": [{"name": "p", "url": "https://a", "account": "c"}]}, True),
-        ("appd", {"enabled": True}, False),
+        ("splunk", {"enabled": True}, False),
         ("pgsql", {"enabled": True, "instances": [{"name": "d", "host": "h", "database": "o", "username": "u"}]}, True),
         ("pgsql", {"enabled": True, "instances": [{"name": "d", "host": "h", "enabled": False}]}, False),
         ("pgsql", {"enabled": True, "instances": [{"name": "d", "database": "o", "username": "u"}]}, False),
@@ -780,11 +723,12 @@ def test_cli_instructions_teach_each_troubleshooting_cli_verbatim():
     expected = (
         "Use nexus for Nexus Repository artifacts (`nexus repo list --json`, `nexus component search --repository <repo> "
         "--name <artifact> --version <ver> --json`), splunk for log searches (`splunk search run --query \"index=<idx> ...\" "
-        "--earliest -1h --count 100 --json`; always give a time range and a count), appd for AppDynamics (`appd app list --json`, "
-        "`appd snapshot list --app <app> --duration-mins 60 --errors-only --json`, `appd violation list --app <app> "
-        "--duration-mins 60 --json`), and pgsql for PostgreSQL (`pgsql schema tables --json`, `pgsql query --sql \"select ...\" "
-        "--limit 200 --json`; queries run in a read-only transaction). For every nexus, splunk, appd, and pgsql command add --json "
-        "and use --instance when several instances are configured. "
+        "--earliest -1h --count 100 --json`; always give a time range and a count), and pgsql for PostgreSQL "
+        "(`pgsql schema tables --json`, `pgsql query --sql \"select ...\" --limit 200 --json`; "
+        "`pgsql exec` applies statements that change data, and whether that succeeds is decided by the database role "
+        "and endpoint this profile configures, not by the CLI). "
+        "For every nexus, splunk, and pgsql command add --json and use --instance when "
+        "several instances are configured. "
     )
     assert expected in text
     # Placed after the AWS guidance and before the generic write-safety rule.
@@ -829,8 +773,6 @@ def test_guidance_and_help_describe_what_the_connection_can_do(section):
 def test_guidance_says_what_to_enter():
     assert "8089" in " ".join(CONNECTION_GUIDANCE["splunk"]["steps"])
     assert "token" in " ".join(CONNECTION_GUIDANCE["splunk"]["steps"]).lower()
-    appd_steps = " ".join(CONNECTION_GUIDANCE["appd"]["steps"])
-    assert "API Client" in appd_steps and "secret" in appd_steps and "account" in appd_steps
     pgsql_steps = " ".join(CONNECTION_GUIDANCE["pgsql"]["steps"])
     assert "5432" in pgsql_steps and "role is the control" in pgsql_steps
     readme = Path("app/help/README.md").read_text(encoding="utf-8")
@@ -841,7 +783,6 @@ def test_guidance_says_what_to_enter():
 def test_seed_labels_and_default_config_cover_the_sections():
     assert SEED_SECTION_LABELS["nexus"] == "Nexus"
     assert SEED_SECTION_LABELS["splunk"] == "Splunk"
-    assert SEED_SECTION_LABELS["appd"] == "AppDynamics"
     assert SEED_SECTION_LABELS["pgsql"] == "PostgreSQL"
     defaults = RuntimeProfileService.default_profile_config()
     for section in SECTIONS:
@@ -855,7 +796,7 @@ def test_seed_labels_and_default_config_cover_the_sections():
 
 def test_default_connections_form_offers_the_sections_and_reads_them_back():
     html = _default_connections_html(seed={s: _copy(CANONICAL[s]) for s in SECTIONS})
-    for section, heading in (("nexus", "Nexus Repository"), ("splunk", "Splunk"), ("appd", "AppDynamics"), ("pgsql", "PostgreSQL")):
+    for section, heading in (("nexus", "Nexus Repository"), ("splunk", "Splunk"), ("pgsql", "PostgreSQL")):
         assert f"<h6>{heading}</h6>" in html, section
         assert f'data-instance-container="{section}"' in html
         assert f'name="{section}_instance_count" value="1"' in html
@@ -864,7 +805,6 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
     assert 'value="orders-uat.example.test"' in html
     assert 'value="app_prod"' in html
     assert '<option value="require" selected>require</option>' in html
-    assert '<option value="api_client" selected>API client</option>' in html
 
     config = _seed_config_from_form(
         FormData(
@@ -885,7 +825,6 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
                 ("splunk_instances_0_url", "https://splunk-api.example.test:8089"),
                 ("splunk_instances_0_token", "shared-token"),
                 ("splunk_instances_0_max_results", "500"),
-                ("appd_instance_count", "0"),
                 ("nexus_instance_count", "0"),
             ]
         )
@@ -913,7 +852,7 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
     # A seeded credential alone is enough to store the section, toggle off.
     assert config["splunk"]["enabled"] is False
     assert config["splunk"]["instances"][0]["token"] == "shared-token"
-    assert "appd" not in config and "nexus" not in config
+    assert "nexus" not in config
     # The seed becomes a member's first profile through the sanitizer, which
     # turns the typed numbers into the runtime's int shape.
     sanitized = sanitize_runtime_profile_config_dict(config)
@@ -1100,7 +1039,7 @@ def test_add_instance_row_builds_the_card_for_every_troubleshooting_group():
         "app/templates/partials/default_connections_panel.html",
     ],
 )
-def test_every_panel_renders_the_four_groups(template):
+def test_every_panel_renders_the_three_groups(template):
     groups = _instance_groups_in_template(template)
     assert set(SECTIONS) <= groups
     # The seed form builds its add button inside the instance_group macro, so
@@ -1143,8 +1082,6 @@ def test_tooltips_cover_the_new_inputs_and_beat_the_generic_instance_hints():
         '[data-instance-item="splunk"] [data-field="default_index"]',
         '[data-instance-item="splunk"] [data-field="default_earliest"]',
         '[data-instance-item="splunk"] [data-field="max_results"]',
-        '[data-instance-item="appd"] [data-field="account"]',
-        '[data-instance-item="appd"] [data-field="auth_type"]',
         '[data-instance-item="pgsql"] [data-field="host"]',
         '[data-instance-item="pgsql"] [data-field="port"]',
         '[data-instance-item="pgsql"] [data-field="database"]',

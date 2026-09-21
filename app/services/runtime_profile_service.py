@@ -59,7 +59,6 @@ SEED_SECTION_LABELS = {
     "jenkins": "Jenkins",
     "nexus": "Nexus",
     "splunk": "Splunk",
-    "appd": "AppDynamics",
     "pgsql": "PostgreSQL",
     "proxy": "Proxy",
     "aws": "AWS",
@@ -126,10 +125,6 @@ class RuntimeProfileService:
                 "instances": [],
             },
             "splunk": {
-                "enabled": False,
-                "instances": [],
-            },
-            "appd": {
                 "enabled": False,
                 "instances": [],
             },

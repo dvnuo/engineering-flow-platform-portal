@@ -38,7 +38,6 @@ from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
-    APPD_AUTH_TYPES,
     AWS_AUTH_PROVIDERS,
     AWS_SESSION_DURATION_MAX_SECONDS,
     AWS_SESSION_DURATION_MIN_SECONDS,
@@ -879,7 +878,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
     raw_aws = raw_config.get("aws") if isinstance(raw_config.get("aws"), dict) else {}
     raw_jenkins = raw_config.get("jenkins") if isinstance(raw_config.get("jenkins"), dict) else {}
-    # nexus / splunk / appd / pgsql: the section and its instance rows, exposed
+    # nexus / splunk / pgsql: the section and its instance rows, exposed
     # as <section> and <section>_instances exactly like jenkins.
     troubleshooting_view: dict = {}
     for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
@@ -1137,7 +1136,7 @@ AWS_ACCOUNT_API_ONLY_FIELDS = frozenset({"role_arn", "profile"})
 AWS_ACCOUNT_FORM_FIELDS = AWS_ACCOUNT_SEED_FIELDS + sorted(AWS_ACCOUNT_API_ONLY_FIELDS)
 
 # The troubleshooting CLIs' instance cards: what each card posts, in the order
-# the templates render them (nexus/splunk/appd rows carry a url, pgsql rows a
+# the templates render them (nexus/splunk rows carry a url, pgsql rows a
 # host), what the section is called in an error, and which fields a row cannot
 # do without -- the sanitizer drops a row missing one, so the form reports it.
 TROUBLESHOOTING_INSTANCE_FIELDS = {
@@ -1146,7 +1145,6 @@ TROUBLESHOOTING_INSTANCE_FIELDS = {
         "enabled", "name", "url", "username", "password", "token",
         "default_index", "default_earliest", "max_results", "app", "owner",
     ],
-    "appd": ["enabled", "name", "url", "account", "auth_type", "username", "password", "token"],
     "pgsql": [
         "enabled", "name", "host", "port", "database", "username", "password", "sslmode",
         "statement_timeout_seconds", "max_rows",
@@ -1155,13 +1153,11 @@ TROUBLESHOOTING_INSTANCE_FIELDS = {
 TROUBLESHOOTING_SECTION_LABELS = {
     "nexus": "Nexus",
     "splunk": "Splunk",
-    "appd": "AppDynamics",
     "pgsql": "PostgreSQL",
 }
 TROUBLESHOOTING_REQUIRED_INSTANCE_FIELDS = {
     "nexus": ("url",),
     "splunk": ("url",),
-    "appd": ("url",),
     "pgsql": ("host", "database", "username"),
 }
 TROUBLESHOOTING_INSTANCE_SECRET_FIELDS = frozenset({"password", "token"})
@@ -1177,7 +1173,6 @@ TROUBLESHOOTING_CARD_ROWS = {
         ["name", "url"], ["username", "password"], ["token", "default_index"],
         ["default_earliest", "max_results"], ["app", "owner"],
     ],
-    "appd": [["name", "url"], ["account", "auth_type"], ["username", "password"], ["token", ""]],
     "pgsql": [
         ["name", "host"], ["port", "database"], ["username", "password"],
         ["sslmode", "statement_timeout_seconds"], ["max_rows", ""],
@@ -1188,10 +1183,6 @@ TROUBLESHOOTING_CARD_FIELD_SPECS = {
     "token": {"type": "password"},
     "port": {"type": "number", "min": PORT_MIN, "max": PORT_MAX},
     "max_results": {"type": "number", "min": SPLUNK_MAX_RESULTS_MIN, "max": SPLUNK_MAX_RESULTS_MAX},
-    "auth_type": {
-        "type": "select",
-        "options": [["api_client", "API client"], ["basic_password", "Basic (username and password)"]],
-    },
     "sslmode": {"type": "select", "options": [[mode, mode] for mode in PGSQL_SSL_MODES]},
     "statement_timeout_seconds": {
         "type": "number",
@@ -1219,14 +1210,6 @@ TROUBLESHOOTING_CARD_PLACEHOLDERS = {
         "max_results": "Max results (1-10000)",
         "app": "App the saved searches live in, e.g. search",
         "owner": "Namespace owner; blank means any",
-    },
-    "appd": {
-        "name": "Name",
-        "url": "Controller URL (e.g. https://appd-controller.example.com)",
-        "account": "Account, e.g. customer1",
-        "username": "API client name or username",
-        "password": "Password (Basic sign-in)",
-        "token": "Client secret (API client)",
     },
     "pgsql": {
         "name": "Name",
@@ -1527,7 +1510,7 @@ def _settings_aws_default_account_error(aws_cfg: dict) -> Optional[str]:
 def _settings_parse_troubleshooting_instances(
     form, section: str, existing_instances: list
 ) -> tuple[list[dict], Optional[str]]:
-    """Read the nexus/splunk/appd/pgsql instance cards, refusing rows the sanitizer would drop.
+    """Read the nexus/splunk/pgsql instance cards, refusing rows the sanitizer would drop.
 
     The generic parser keeps a row by its name or URL and the sanitizer then
     drops anything it cannot address (no name), cannot reach (no URL, or for
@@ -1609,10 +1592,6 @@ def _settings_parse_troubleshooting_instances(
                     f"{label} instance {name} needs a max results count between "
                     f"{SPLUNK_MAX_RESULTS_MIN} and {SPLUNK_MAX_RESULTS_MAX}."
                 )
-        if section == "appd":
-            auth_type = str(row.get("auth_type") or "").strip().lower()
-            if auth_type and auth_type not in APPD_AUTH_TYPES:
-                return [], f"{label} instance {name} needs an auth type of {' or '.join(APPD_AUTH_TYPES)}."
     return rows, None
 
 
@@ -1940,7 +1919,7 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         jenkins.pop("automation", None)
         config_payload["jenkins"] = jenkins
 
-    # nexus / splunk / appd / pgsql share the jenkins shape: one block each,
+    # nexus / splunk / pgsql share the jenkins shape: one block each,
     # driven by the same instance-card parser. A post without the rows (an
     # older panel, a partial form) keeps the stored ones.
     for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
@@ -3323,7 +3302,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         db.close()
 
 
-_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "appd", "pgsql"}
+_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "pgsql"}
 
 
 def _validate_managed_test_target(target: str) -> str:
