@@ -23,6 +23,12 @@ dashboards, and it never writes to an index.
   request gives none, in Splunk's relative form such as `-1h` or `-24h`.
   **Max results** caps how many events a search may return (1 to 10000).
 - **Name** is how the assistant addresses this instance with `--instance`.
+- **App** is the Splunk app the saved searches, macros and lookups you
+  want the assistant to see belong to. Leave it blank only if they are
+  global. It is the name in the URL when you browse them in Splunk, for
+  example `search` in `/en-US/app/search/`. Without it the assistant looks
+  at the global namespace and reports that it found nothing. **Owner**
+  goes with it and is usually left blank, meaning any owner the role sees.
 
 ## If it stops working
 

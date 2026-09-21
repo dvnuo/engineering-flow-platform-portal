@@ -12768,7 +12768,9 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
     "token": "Authentication token",
     "default_index": "Default index, e.g. app_prod",
     "default_earliest": "Default earliest, e.g. -1h",
-    "max_results": "Max results (1-10000)"
+    "max_results": "Max results (1-10000)",
+    "app": "App the saved searches live in, e.g. search",
+    "owner": "Namespace owner; blank means any"
   },
   "appd": {
     "name": "Name",
@@ -12795,7 +12797,7 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
 // in app/web.py, which drive the server-rendered card; a test holds them equal.
 const INSTANCE_GROUP_CARD_ROWS = {
   "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
-  "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"]],
+  "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"], ["app", "owner"]],
   "appd": [["name", "url"], ["account", "auth_type"], ["username", "password"], ["token", ""]],
   "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", "statement_timeout_seconds"], ["max_rows", ""]]
 };

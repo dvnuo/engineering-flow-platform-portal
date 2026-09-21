@@ -318,10 +318,16 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
             if space:
                 sanitized_item["space"] = space
         if kind == "splunk":
-            for key in ("default_index", "default_earliest"):
+            # app and owner are the Splunk namespace: with an app set, the CLI
+            # addresses /servicesNS/<owner>/<app>/ instead of /services/, which
+            # is how saved searches, macros and lookups defined in an app are
+            # found. An owner is meaningless without an app, so it is dropped.
+            for key in ("default_index", "default_earliest", "app", "owner"):
                 cleaned = str(item.get(key) or "").strip()
                 if cleaned:
                     sanitized_item[key] = cleaned
+            if "app" not in sanitized_item:
+                sanitized_item.pop("owner", None)
             max_results = sanitize_runtime_profile_bounded_int(
                 item.get("max_results"), SPLUNK_MAX_RESULTS_MIN, SPLUNK_MAX_RESULTS_MAX
             )

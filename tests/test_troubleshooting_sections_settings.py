@@ -292,6 +292,24 @@ def test_pgsql_query_bounds_inside_the_range_are_kept_as_ints(field, value, expe
     assert section["instances"][0][field] == expected
 
 
+def test_splunk_namespace_is_kept_and_needs_an_app():
+    # Saved searches, macros and lookups belong to a Splunk app; without it the
+    # CLI addresses the global namespace and reports nothing.
+    section = sanitize_runtime_profile_splunk(
+        {"instances": [{"name": "p", "url": "https://s", "app": " cmb_search ", "owner": " user001 "}]}
+    )
+    assert section["instances"][0]["app"] == "cmb_search"
+    assert section["instances"][0]["owner"] == "user001"
+
+    # An owner without an app addresses nothing, so it is dropped rather than
+    # stored as a setting that cannot take effect.
+    orphan = sanitize_runtime_profile_splunk(
+        {"instances": [{"name": "p", "url": "https://s", "owner": "user001"}]}
+    )
+    assert "owner" not in orphan["instances"][0]
+    assert "app" not in orphan["instances"][0]
+
+
 @pytest.mark.parametrize("value", ["oauth", "", None, 3])
 def test_an_unknown_appd_auth_type_is_dropped(value):
     section = sanitize_runtime_profile_appd({"instances": [{"name": "p", "url": "https://a", "auth_type": value}]})

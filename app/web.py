@@ -1142,7 +1142,10 @@ AWS_ACCOUNT_FORM_FIELDS = AWS_ACCOUNT_SEED_FIELDS + sorted(AWS_ACCOUNT_API_ONLY_
 # do without -- the sanitizer drops a row missing one, so the form reports it.
 TROUBLESHOOTING_INSTANCE_FIELDS = {
     "nexus": ["enabled", "name", "url", "username", "password", "token"],
-    "splunk": ["enabled", "name", "url", "username", "password", "token", "default_index", "default_earliest", "max_results"],
+    "splunk": [
+        "enabled", "name", "url", "username", "password", "token",
+        "default_index", "default_earliest", "max_results", "app", "owner",
+    ],
     "appd": ["enabled", "name", "url", "account", "auth_type", "username", "password", "token"],
     "pgsql": [
         "enabled", "name", "host", "port", "database", "username", "password", "sslmode",
@@ -1170,7 +1173,10 @@ TROUBLESHOOTING_INSTANCE_SECRET_FIELDS = frozenset({"password", "token"})
 # entries of INSTANCE_GROUP_PLACEHOLDERS) are held equal to these by a test.
 TROUBLESHOOTING_CARD_ROWS = {
     "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
-    "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"]],
+    "splunk": [
+        ["name", "url"], ["username", "password"], ["token", "default_index"],
+        ["default_earliest", "max_results"], ["app", "owner"],
+    ],
     "appd": [["name", "url"], ["account", "auth_type"], ["username", "password"], ["token", ""]],
     "pgsql": [
         ["name", "host"], ["port", "database"], ["username", "password"],
@@ -1211,6 +1217,8 @@ TROUBLESHOOTING_CARD_PLACEHOLDERS = {
         "default_index": "Default index, e.g. app_prod",
         "default_earliest": "Default earliest, e.g. -1h",
         "max_results": "Max results (1-10000)",
+        "app": "App the saved searches live in, e.g. search",
+        "owner": "Namespace owner; blank means any",
     },
     "appd": {
         "name": "Name",
