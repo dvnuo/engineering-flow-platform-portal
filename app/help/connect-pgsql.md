@@ -3,22 +3,26 @@ icon: database
 ---
 ## What this is for
 
-Letting the assistant look inside a PostgreSQL database while it
-troubleshoots: which tables and columns exist, and what a query returns. It
-uses the `pgsql` CLI, and every query runs inside a read-only transaction
-with a row limit, so nothing it does can change data.
+Letting the assistant work with a PostgreSQL database: which tables and
+columns exist, what a query returns, and, where you allow it, applying a
+change you asked for. It uses the `pgsql` CLI, with a row limit and a
+statement timeout on every call.
 
-It does not create, alter or drop anything, and it does not run
-administrative commands.
+What the assistant can do here is decided by what you enter below, not by
+the tool. Give it a read-only role, or point it at a read replica, and it
+can only read: a write is refused by the server itself. Give it a role that
+may write, and it can write. Configure one instance per level of access you
+want, and name them so the difference is obvious.
 
 ## What to enter
 
 - **Host**, **port** (5432 unless your DBA says otherwise) and **database**
   name a single database; add one row per database.
-- **Username** and **password** should be a read-only role: a login granted
-  `SELECT` on the schemas you want the assistant to see and nothing else.
-  Even though every query is wrapped in a read-only transaction, the role
-  is the guarantee that holds if that ever fails.
+- **Username** and **password** are the control. For troubleshooting, use a
+  role granted `SELECT` on the schemas you want the assistant to see and
+  nothing else; that role is what makes the instance read-only, and it holds
+  whatever the assistant is asked to do. Use a role with write privileges
+  only for an instance you intend the assistant to change things through.
 - **SSL mode** is `require` unless the server presents a certificate you can
   verify, in which case `verify-ca` or `verify-full` is safer. `prefer` is
   for databases that do not offer TLS at all.

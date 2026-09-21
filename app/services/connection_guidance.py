@@ -113,10 +113,11 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
     },
     "pgsql": {
         "title": "Connect PostgreSQL",
-        "summary": "Lets the assistant inspect a database's schema and run read-only queries. Every query runs in a read-only transaction.",
+        "summary": "Lets the assistant inspect a database's schema and query it. The role and endpoint you enter decide whether it can also change anything.",
         "steps": [
             "Enter the host, port (5432 unless your DBA says otherwise) and database name.",
-            "Use a read-only role: a login with SELECT on the schemas you want the assistant to see and nothing else.",
+            "The role is the control: a login with SELECT and nothing else makes this instance read-only, whatever the assistant is asked to do.",
+            "Use a role that may write only for an instance you intend the assistant to change things through.",
             "Keep SSL on require unless the server offers a CA you can verify.",
         ],
         "help_url": None,

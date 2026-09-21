@@ -780,10 +780,19 @@ def test_cli_instructions_teach_each_troubleshooting_cli_verbatim():
 
 
 @pytest.mark.parametrize("section", SECTIONS)
-def test_guidance_and_help_describe_a_read_only_connection(section):
+def test_guidance_and_help_describe_what_the_connection_can_do(section):
     guidance = CONNECTION_GUIDANCE[section]
     assert guidance["title"].startswith("Connect ")
-    assert "read-only" in guidance["summary"].lower()
+    summary = guidance["summary"].lower()
+    if section == "pgsql":
+        # pgsql is not read-only by construction: the role and the endpoint an
+        # admin enters decide that, so the guidance has to say so rather than
+        # promise something the tool does not enforce.
+        assert "role" in summary and "decide" in summary
+        steps = " ".join(guidance["steps"]).lower()
+        assert "select and nothing else" in steps and "read-only" in steps
+    else:
+        assert "read-only" in summary
     assert len(guidance["steps"]) >= 3
     assert guidance["user_fields"]
 
@@ -804,7 +813,8 @@ def test_guidance_says_what_to_enter():
     assert "token" in " ".join(CONNECTION_GUIDANCE["splunk"]["steps"]).lower()
     appd_steps = " ".join(CONNECTION_GUIDANCE["appd"]["steps"])
     assert "API Client" in appd_steps and "secret" in appd_steps and "account" in appd_steps
-    assert "read-only role" in " ".join(CONNECTION_GUIDANCE["pgsql"]["steps"])
+    pgsql_steps = " ".join(CONNECTION_GUIDANCE["pgsql"]["steps"])
+    assert "5432" in pgsql_steps and "role is the control" in pgsql_steps
     readme = Path("app/help/README.md").read_text(encoding="utf-8")
     for section in SECTIONS:
         assert section in readme
