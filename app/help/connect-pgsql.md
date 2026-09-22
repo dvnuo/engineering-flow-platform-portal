@@ -6,7 +6,11 @@ icon: database
 Letting the assistant work with a PostgreSQL database: which tables and
 columns exist, what a query returns, and, where you allow it, applying a
 change you asked for. It uses the `pgsql` CLI, with a row limit and a
-statement timeout on every call.
+statement timeout on every query. Bulk export and import are the exception:
+they stream between the database and a file inside the assistant's own
+container, past the row limit, because an extract that stops at 200 rows is
+not an extract. They are bounded by a size cap and their own timeout, and a
+role that cannot write still cannot import.
 
 What the assistant can do here is decided by what you enter below, not by
 the tool. Give it a read-only role, or point it at a read replica, and it
