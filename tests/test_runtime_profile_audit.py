@@ -146,6 +146,148 @@ def test_api_create_update_and_delete_write_audit_rows(monkeypatch):
         cleanup()
 
 
+# ------------------------------------------- the audit must not touch the save
+
+
+def test_the_diff_never_mutates_the_configs_it_inspects():
+    """The audit reads the live config dicts, so it must not write to them.
+
+    _secret_values_by_path walks the same objects the caller is about to
+    persist or has just persisted. If it ever assigned into them -- blanking a
+    password to keep it out of the row, say -- the damage would land in the
+    saved config, which is the one thing an audit module must never do.
+    """
+    before = json.loads(json.dumps(BEFORE))
+    after = json.loads(json.dumps(BEFORE))
+    after["aws"]["password"] = "new-adfs"
+    before_pristine = json.loads(json.dumps(before))
+    after_pristine = json.loads(json.dumps(after))
+
+    runtime_profile_config_changes(before, after)
+
+    assert before == before_pristine
+    assert after == after_pristine
+    assert before["aws"]["password"] == "old-adfs"
+    assert after["aws"]["password"] == "new-adfs"
+    assert after["splunk"]["instances"][0]["token"] == "old-splunk"
+
+
+def test_a_failing_audit_leaves_the_saved_profile_and_its_password_intact(monkeypatch):
+    """An audit that blows up must cost nothing but the row.
+
+    The row is written after the profile is committed, and the handler rolls
+    back only its own failed INSERT. This drives a real save through the API
+    with AuditRepository.create raising, then reads the profile back out of
+    the database to prove the config -- password included -- is exactly what
+    was posted.
+    """
+    from app.repositories import audit_repo as audit_repo_module
+
+    client, db, _u1, _u2, _set_user, cleanup = _build_api_client(monkeypatch)
+    try:
+        config = {
+            "pgsql": {
+                "enabled": True,
+                "instances": [{"name": "db", "host": "h", "database": "o", "username": "u", "password": "pg-secret"}],
+            }
+        }
+
+        def explode(self, *args, **kwargs):
+            raise RuntimeError("audit table is gone")
+
+        monkeypatch.setattr(audit_repo_module.AuditRepository, "create", explode)
+
+        created = client.post(
+            "/api/runtime-profiles",
+            json={"name": "Survives", "config_json": json.dumps(config)},
+        )
+        assert created.status_code == 200, created.text
+        profile_id = created.json()["id"]
+
+        stored = json.loads(db.get(RuntimeProfile, profile_id).config_json)
+        assert stored["pgsql"]["instances"][0]["password"] == "pg-secret"
+        assert stored == config
+        assert _audit_rows(db, "create_runtime_profile") == []
+
+        # The same on update: the new password lands, the old row does not.
+        config["pgsql"]["instances"][0]["password"] = "pg-rotated"
+        updated = client.patch(
+            f"/api/runtime-profiles/{profile_id}",
+            json={"config_json": json.dumps(config)},
+        )
+        assert updated.status_code == 200, updated.text
+
+        db.expire_all()
+        stored = json.loads(db.get(RuntimeProfile, profile_id).config_json)
+        assert stored["pgsql"]["instances"][0]["password"] == "pg-rotated"
+        assert _audit_rows(db, "update_runtime_profile") == []
+    finally:
+        cleanup()
+
+
+def test_the_audit_does_not_change_what_gets_persisted(monkeypatch):
+    """The saved config is the same whether the audit works or explodes.
+
+    This is the property that matters: the audit observes the save, it is not
+    part of it. The same create and the same two updates run twice -- once
+    normally, once with AuditRepository.create raising -- and the stored
+    config_json is compared byte for byte. A module that blanked a password,
+    reordered a section or dropped a key on its way through would show up
+    here as a difference between the two runs.
+
+    The blanked-password step is deliberate: the portal drops a blank secret
+    rather than storing it, so an empty password box cannot wipe a stored
+    credential (the same rule master applies to jenkins and jira). That is the
+    sanitizer's decision, and this pins that the audit does not alter it.
+    """
+    from app.repositories import audit_repo as audit_repo_module
+
+    filled = {"nexus": {"enabled": True, "instances": [{"name": "main", "url": "https://n", "password": "keep-me"}]}}
+    rotated = json.loads(json.dumps(filled))
+    rotated["nexus"]["instances"][0]["password"] = "rotated"
+    blanked = json.loads(json.dumps(filled))
+    blanked["nexus"]["instances"][0]["password"] = ""
+
+    def run(break_audit: bool) -> list[str]:
+        client, db, _u1, _u2, _set_user, cleanup = _build_api_client(monkeypatch)
+        try:
+            if break_audit:
+                def explode(self, *args, **kwargs):
+                    raise RuntimeError("audit table is gone")
+
+                monkeypatch.setattr(audit_repo_module.AuditRepository, "create", explode)
+
+            created = client.post("/api/runtime-profiles", json={"name": "Same", "config_json": json.dumps(filled)})
+            assert created.status_code == 200, created.text
+            profile_id = created.json()["id"]
+            stored = [db.get(RuntimeProfile, profile_id).config_json]
+
+            for payload in (rotated, blanked):
+                res = client.patch(f"/api/runtime-profiles/{profile_id}", json={"config_json": json.dumps(payload)})
+                assert res.status_code == 200, res.text
+                db.expire_all()
+                stored.append(db.get(RuntimeProfile, profile_id).config_json)
+
+            if break_audit:
+                assert _audit_rows(db, "create_runtime_profile") == []
+                assert _audit_rows(db, "update_runtime_profile") == []
+            else:
+                assert len(_audit_rows(db, "create_runtime_profile")) == 1
+                assert len(_audit_rows(db, "update_runtime_profile")) == 2
+            return stored
+        finally:
+            cleanup()
+
+    with_audit = run(break_audit=False)
+    without_audit = run(break_audit=True)
+
+    assert with_audit == without_audit
+    # And the saves themselves did what was asked, in both runs.
+    assert json.loads(with_audit[0])["nexus"]["instances"][0]["password"] == "keep-me"
+    assert json.loads(with_audit[1])["nexus"]["instances"][0]["password"] == "rotated"
+    assert "password" not in json.loads(with_audit[2])["nexus"]["instances"][0]
+
+
 def test_api_refusals_leave_no_audit_row(monkeypatch):
     client, db, _u1, u2, set_user, cleanup = _build_api_client(monkeypatch)
     try:
