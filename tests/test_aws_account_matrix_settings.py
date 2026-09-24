@@ -660,7 +660,9 @@ def test_the_aws_group_is_registered_and_initialized_by_the_js():
         "role": "IAM role, e.g. ADFS-ReadOnly",
         "regions": "Regions, e.g. ap-east-1, eu-west-1",
     }
-    assert _js_object_literal(js, "INSTANCE_GROUP_ITEM_TITLES") == {"aws_accounts": "Account"}
+    # The table names what a card is called per group; the AWS group's entry
+    # is what this test pins, other groups may add their own.
+    assert _js_object_literal(js, "INSTANCE_GROUP_ITEM_TITLES")["aws_accounts"] == "Account"
 
 
 def test_adding_or_removing_an_account_row_touches_the_aws_section_not_the_group():

@@ -373,6 +373,14 @@
           {'key': 'role', 'label': 'Role', 'placeholder': 'ADFS-ReadOnly'},
           {'key': 'regions', 'label': 'Regions', 'placeholder': 'ap-east-1, eu-west-1'}
       ], seed_aws_accounts) }}
+      <p class="portal-panel-note">Clusters reached through a private endpoint (AWS PrivateLink) instead of the address AWS reports; the account is the name or id of one of the rows above.</p>
+      {{ instance_group('aws_eks_clusters', 'EKS cluster', [
+          {'key': 'account', 'label': 'Account', 'placeholder': 'cps-dev'},
+          {'key': 'cluster', 'label': 'Cluster', 'placeholder': 'cps-dev-eks'},
+          {'key': 'region', 'label': 'Region (optional)', 'placeholder': 'eu-west-1'},
+          {'key': 'private_endpoint', 'label': 'Private endpoint', 'placeholder': 'https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com'},
+          {'key': 'tls_server_name', 'label': 'TLS server name (optional)', 'placeholder': 'Normally empty'}
+      ], seed_aws_eks_clusters) }}
     </section>
 
     <section class="portal-panel-section">

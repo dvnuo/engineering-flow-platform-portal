@@ -54,6 +54,7 @@ from app.schemas.runtime_profile import (
     TROUBLESHOOTING_INSTANCE_SECTIONS,
     dump_runtime_profile_config_json,
     normalize_aws_account_id,
+    normalize_eks_private_endpoint,
     normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_bounded_int,
@@ -854,6 +855,12 @@ def _aws_account_view_rows(aws_section) -> list[dict]:
     return rows
 
 
+def _aws_eks_cluster_view_rows(aws_section) -> list[dict]:
+    """Private-endpoint rows of an aws section, one per card, as stored."""
+    clusters = aws_section.get("eks_clusters") if isinstance(aws_section, dict) else None
+    return [dict(item) for item in (clusters if isinstance(clusters, list) else []) if isinstance(item, dict)]
+
+
 def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | None = None) -> dict:
     raw_config = dict(raw_config_data or {})
     raw_config.pop("ssh", None)
@@ -921,6 +928,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
         "raw_aws": raw_aws,
         "aws_accounts": _aws_account_view_rows(raw_aws),
+        "aws_eks_clusters": _aws_eks_cluster_view_rows(raw_aws),
         "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "raw_jenkins": raw_jenkins,
         **troubleshooting_view,
@@ -1134,6 +1142,13 @@ AWS_ACCOUNTS_FORM_PREFIX = "aws_accounts"
 AWS_ACCOUNT_SEED_FIELDS = ["enabled", "name", "account_id", "role", "regions"]
 AWS_ACCOUNT_API_ONLY_FIELDS = frozenset({"role_arn", "profile"})
 AWS_ACCOUNT_FORM_FIELDS = AWS_ACCOUNT_SEED_FIELDS + sorted(AWS_ACCOUNT_API_ONLY_FIELDS)
+# EKS clusters reached through a private endpoint (AWS PrivateLink) instead
+# of the address describe-cluster reports: one card per cluster, posted as
+# aws_eks_clusters_instance_count and aws_eks_clusters_instances_{i}_{field}.
+# No field is a credential, so the seed form and the member's form read the
+# cards the same way.
+AWS_EKS_CLUSTERS_FORM_PREFIX = "aws_eks_clusters"
+AWS_EKS_CLUSTER_FIELDS = ["enabled", "account", "cluster", "region", "private_endpoint", "tls_server_name"]
 
 # The troubleshooting CLIs' instance cards: what each card posts, in the order
 # the templates render them (nexus/splunk rows carry a url, pgsql rows a
@@ -1339,6 +1354,9 @@ def _seed_config_from_form(form) -> dict:
     aws_accounts = _seed_parse_instances(form, AWS_ACCOUNTS_FORM_PREFIX, AWS_ACCOUNT_SEED_FIELDS)
     if aws_accounts:
         aws["accounts"] = aws_accounts
+    aws_eks_clusters = _parse_aws_eks_cluster_cards(form)
+    if aws_eks_clusters:
+        aws["eks_clusters"] = aws_eks_clusters
     if flag("aws_enabled") or aws:
         seed["aws"] = {"enabled": flag("aws_enabled"), **aws}
 
@@ -1487,6 +1505,68 @@ def _settings_parse_aws_accounts(form, existing_accounts: list) -> tuple[list[di
         if name_key in seen_names:
             return [], f"AWS account names must be unique; {name} is listed more than once."
         seen_names.add(name_key)
+    return rows, None
+
+
+def _parse_aws_eks_cluster_cards(form, prefix: str = AWS_EKS_CLUSTERS_FORM_PREFIX) -> list[dict]:
+    """Read the EKS private-endpoint cards as posted.
+
+    Nothing on these cards is a credential, so a blank field means blank and
+    the seed form and the member's form share this reader. A card with every
+    text field empty is one that was added and left alone, and is dropped.
+    """
+    try:
+        count = max(0, int((form.get(f"{prefix}_instance_count") or "0").strip()))
+    except ValueError:
+        count = 0
+    rows: list[dict] = []
+    for index in range(count):
+        row: dict = {}
+        for field in AWS_EKS_CLUSTER_FIELDS:
+            name = f"{prefix}_instances_{index}_{field}"
+            if field == "enabled":
+                row[field] = str(form.get(name) or "").lower() in {"1", "true", "on", "yes"}
+                continue
+            row[field] = (form.get(name) or "").strip()
+        if any(row[field] for field in AWS_EKS_CLUSTER_FIELDS if field != "enabled"):
+            rows.append(row)
+    return rows
+
+
+def _settings_parse_aws_eks_clusters(form, accounts: list) -> tuple[list[dict], Optional[str]]:
+    """Validate the EKS private-endpoint cards against the account matrix.
+
+    A row the runtime could not act on is refused with a message naming the
+    card rather than dropped on save: an account that is not in the matrix
+    above, a missing cluster name, or an address that is not an https URL.
+    The account may be given as the matrix name or the 12-digit id, the two
+    forms aws-auth accepts.
+    """
+    rows = _parse_aws_eks_cluster_cards(form)
+    known: set[str] = set()
+    for account in accounts if isinstance(accounts, list) else []:
+        if isinstance(account, dict):
+            known.add(str(account.get("name") or "").strip().lower())
+            known.add(normalize_aws_account_id(account.get("account_id")))
+    known.discard("")
+    seen: set[tuple[str, str, str]] = set()
+    for index, row in enumerate(rows, start=1):
+        label = f"EKS cluster {index}"
+        if not row["account"]:
+            return [], f"{label} needs the account it belongs to: the name or 12-digit id of one of the AWS accounts above."
+        account_key = normalize_aws_account_id(row["account"]) or row["account"].lower()
+        if account_key not in known:
+            return [], f"{label}: {row['account']} is not one of the AWS accounts above, by name or 12-digit id."
+        if not row["cluster"]:
+            return [], f"{label} needs the EKS cluster name."
+        endpoint = normalize_eks_private_endpoint(row["private_endpoint"])
+        if not endpoint:
+            return [], f"{label} needs an https address for its private endpoint, such as https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com."
+        row["private_endpoint"] = endpoint
+        key = (account_key, row["region"].lower(), row["cluster"])
+        if key in seen:
+            return [], f"{label} repeats {row['cluster']} for the same account and region."
+        seen.add(key)
     return rows, None
 
 
@@ -1876,6 +1956,13 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             if accounts_error:
                 return config_payload, accounts_error
             aws_cfg["accounts"] = accounts
+        if f"{AWS_EKS_CLUSTERS_FORM_PREFIX}_instance_count" in form:
+            eks_clusters, eks_error = _settings_parse_aws_eks_clusters(
+                form, aws_cfg.get("accounts") if isinstance(aws_cfg.get("accounts"), list) else []
+            )
+            if eks_error:
+                return config_payload, eks_error
+            aws_cfg["eks_clusters"] = eks_clusters
         default_account_error = _settings_aws_default_account_error(aws_cfg)
         if default_account_error:
             return config_payload, default_account_error
@@ -2428,6 +2515,7 @@ def _default_connections_context(
         "request": request,
         "seed": seed,
         "seed_aws_accounts": _aws_account_view_rows(seed.get("aws")),
+        "seed_aws_eks_clusters": _aws_eks_cluster_view_rows(seed.get("aws")),
         "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),

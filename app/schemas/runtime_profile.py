@@ -1,5 +1,6 @@
 import json
 import re
+from urllib.parse import urlparse, urlunparse
 from copy import deepcopy
 from datetime import datetime
 
@@ -91,6 +92,9 @@ PORTAL_MANAGED_FIELD_TREE = {
         "session_duration_seconds": True,
         "kubeconfig_path": True,
         "accounts": True,
+        # Clusters reached through a private endpoint (AWS PrivateLink)
+        # instead of the address describe-cluster reports.
+        "eks_clusters": True,
     },
     "jenkins": {
         "enabled": True,
@@ -671,6 +675,63 @@ def sanitize_runtime_profile_aws_accounts(value) -> list[dict]:
     return accounts
 
 
+def normalize_eks_private_endpoint(value) -> str:
+    """Return a private endpoint as an https URL without a trailing slash, or "".
+
+    A bare host is accepted and given the scheme. Anything that is not https,
+    has no host, or carries credentials comes back empty, because kubectl
+    could not use it as an API server address.
+    """
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return ""
+    if "://" not in cleaned:
+        cleaned = "https://" + cleaned
+    parsed = urlparse(cleaned)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return ""
+    return urlunparse(("https", parsed.netloc, parsed.path.rstrip("/"), "", "", ""))
+
+
+def sanitize_runtime_profile_aws_eks_clusters(value) -> list[dict]:
+    """Return the usable private-endpoint rows of an aws section.
+
+    A row needs an account, a cluster name and an https address; anything else
+    is dropped rather than stored half-formed, since the runtime could not
+    match it to a cluster. The account is stored as given, a matrix name or a
+    12-digit id, the two forms aws-auth accepts. It is not checked against the
+    matrix here: the settings form does that with a message the member sees,
+    and a row whose account was renamed later is harmless, it matches nothing.
+    """
+    if not isinstance(value, list):
+        return []
+    rows: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        account = str(item.get("account") or "").strip()
+        cluster = str(item.get("cluster") or "").strip()
+        endpoint = normalize_eks_private_endpoint(item.get("private_endpoint"))
+        if not account or not cluster or not endpoint:
+            continue
+        region = str(item.get("region") or "").strip().lower()
+        key = (normalize_aws_account_id(account) or account.lower(), region, cluster)
+        if key in seen:
+            continue
+        seen.add(key)
+        row: dict = {"account": account, "cluster": cluster, "private_endpoint": endpoint}
+        if region:
+            row["region"] = region
+        tls_server_name = str(item.get("tls_server_name") or "").strip()
+        if tls_server_name:
+            row["tls_server_name"] = tls_server_name
+        if "enabled" in item:
+            row["enabled"] = _runtime_profile_bool(item.get("enabled"))
+        rows.append(row)
+    return rows
+
+
 def sanitize_runtime_profile_aws(value) -> dict:
     if not isinstance(value, dict):
         return {}
@@ -700,6 +761,10 @@ def sanitize_runtime_profile_aws(value) -> dict:
     # matrix; a section that never mentioned accounts stays without the key.
     if "accounts" in value:
         out["accounts"] = sanitize_runtime_profile_aws_accounts(value.get("accounts"))
+    # The same rule for the private-endpoint rows: kept whenever sent, so an
+    # empty list clears them.
+    if "eks_clusters" in value:
+        out["eks_clusters"] = sanitize_runtime_profile_aws_eks_clusters(value.get("eks_clusters"))
     return out
 
 

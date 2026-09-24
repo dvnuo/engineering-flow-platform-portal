@@ -12736,7 +12736,7 @@ async function refreshComposerModelProfile(agentId) {
 const managedSettingsActionSelector = "[data-settings-action]";
 // keep regression guard text for static test:
 
-const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL" };
+const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "aws_eks_clusters": "EKS cluster", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL" };
 
 // Per-product placeholder copy for a freshly added instance card. Kept as a
 // plain lookup table (not inline ternaries) so it stays in step with the
@@ -12752,6 +12752,13 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
     "account_id": "12-digit AWS account id",
     "role": "IAM role, e.g. ADFS-ReadOnly",
     "regions": "Regions, e.g. ap-east-1, eu-west-1"
+  },
+  "aws_eks_clusters": {
+    "account": "Account name or id, e.g. cps-dev",
+    "cluster": "EKS cluster name",
+    "region": "Region (optional)",
+    "private_endpoint": "https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com",
+    "tls_server_name": "TLS server name (optional)"
   },
   "nexus": {
     "name": "Name",
@@ -12805,7 +12812,7 @@ const INSTANCE_GROUP_FIELD_SPECS = {
 
 // What one card in a group is called in its title. Most groups list product
 // instances; the AWS group lists accounts.
-const INSTANCE_GROUP_ITEM_TITLES = { "aws_accounts": "Account" };
+const INSTANCE_GROUP_ITEM_TITLES = { "aws_accounts": "Account", "aws_eks_clusters": "EKS cluster" };
 
 function instanceGroupLabel(group) {
   return INSTANCE_GROUP_LABELS[group] || String(group || "");
@@ -12821,6 +12828,15 @@ function instanceGroupItemTitle(group) {
 function awsAccountCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_accounts;
   return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${placeholders.name}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${placeholders.account_id}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${placeholders.role}" class="portal-form-input" /><input type="text" data-field="regions" value="" placeholder="${placeholders.regions}" class="portal-form-input" /></div></div>`;
+}
+
+// The EKS private-endpoint card: one cluster reached through PrivateLink,
+// belonging to one of the account rows. Must stay structurally identical to
+// the server-rendered card in partials/runtime_profile_panel.html +
+// settings_panel.html.
+function awsEksClusterCardHtml(label) {
+  const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_eks_clusters;
+  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">EKS cluster</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><input type="text" data-field="account" value="" placeholder="${placeholders.account}" class="portal-form-input" /><input type="text" data-field="cluster" value="" placeholder="${placeholders.cluster}" class="portal-form-input" /><input type="text" data-field="region" value="" placeholder="${placeholders.region}" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${placeholders.private_endpoint}" class="portal-form-input" /><input type="text" data-field="tls_server_name" value="" placeholder="${placeholders.tls_server_name}" class="portal-form-input" /></div></div>`;
 }
 
 // One field of a troubleshooting-CLI card, from the layout tables above. Must
@@ -12908,6 +12924,13 @@ function addInstanceRow(root, group) {
 
   if (group === "aws_accounts") {
     div.innerHTML = awsAccountCardHtml(instanceGroupLabel(group));
+    container.append(div);
+    normalizeInstanceInputs(root, group);
+    return;
+  }
+
+  if (group === "aws_eks_clusters") {
+    div.innerHTML = awsEksClusterCardHtml(instanceGroupLabel(group));
     container.append(div);
     normalizeInstanceInputs(root, group);
     return;
@@ -13316,6 +13339,7 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "confluence");
   normalizeInstanceInputs(root, "jenkins");
   normalizeInstanceInputs(root, "aws_accounts");
+  normalizeInstanceInputs(root, "aws_eks_clusters");
   normalizeInstanceInputs(root, "nexus");
   normalizeInstanceInputs(root, "splunk");
   normalizeInstanceInputs(root, "pgsql");

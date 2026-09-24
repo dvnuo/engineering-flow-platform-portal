@@ -183,6 +183,13 @@
     ['[data-instance-item="aws_accounts"] [data-field="role"]', "IAM role to assume in this account. Choose a read-only one."],
     ['[data-instance-item="aws_accounts"] [data-field="regions"]', "Regions to use in this account, comma separated"],
     ['[data-instance-item="aws_accounts"] [data-field="enabled"]', "Turn this account on or off without deleting its row"],
+    ['[data-action="add-instance"][data-group="aws_eks_clusters"]', "Add an EKS cluster that is reached through a PrivateLink endpoint"],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="account"]', "The AWS account this cluster belongs to: the name or 12-digit id of one of the rows above"],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="cluster"]', "The EKS cluster name"],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="region"]', "Only needed when the same cluster name exists in several regions of this account"],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="private_endpoint"]', "The PrivateLink address kubectl connects to instead of the endpoint AWS reports"],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="tls_server_name"]', "Leave empty: the certificate is verified under the cluster's own hostname. Set only if the platform team says the certificate carries another name."],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="enabled"]', "Turn this row on or off without deleting it"],
     // Troubleshooting CLIs (nexus, splunk, pgsql). Scoped before the
     // generic card hints: their name is the --instance the assistant passes,
     // their username is rarely an email, and pgsql has no token at all.

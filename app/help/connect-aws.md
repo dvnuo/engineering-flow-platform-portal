@@ -25,6 +25,32 @@ Each row is one AWS account the assistant may sign in to:
 Switch a row off to keep it without offering it to assistants. The default
 account is the one used when a request does not name an account.
 
+## Clusters behind PrivateLink
+
+An EKS cluster whose API server endpoint is private cannot be reached at the
+address AWS reports for it; from another VPC it is reached through a
+PrivateLink interface endpoint. List each such cluster here, one row per
+cluster, and the assistant's `kubectl` context is pointed at that address
+automatically:
+
+- **Account** is the name or 12-digit id of one of the account rows above.
+- **Cluster** is the EKS cluster name.
+- **Region** is optional, for a cluster name that exists in several regions
+  of the same account.
+- **Private endpoint** is the PrivateLink address, for example
+  `https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com`.
+- **TLS server name** can stay empty. The API server's certificate is issued
+  for the cluster's own hostname, not for the PrivateLink one, so the
+  assistant verifies it under the cluster's hostname by default. Set this
+  only if the platform team tells you the certificate carries another name.
+
+Before adding a row, an assistant (or you, in the runtime) can check the
+address with `aws-auth eks endpoint --account <name> --cluster <cluster>
+--private-endpoint <address> --json`. It reports whether the address answers
+and whether the certificate it presents is the cluster's own. An endpoint
+that terminates TLS with a certificate of its own is not supported by this
+row; the check says so.
+
 ## Providers
 
 - **adfs-assume** (the default) signs in to ADFS with the domain, username
