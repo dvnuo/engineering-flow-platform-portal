@@ -382,6 +382,10 @@
           {'key': 'cluster', 'label': 'Cluster', 'placeholder': 'cps-dev-eks'},
           {'key': 'region', 'label': 'Region (optional)', 'type': 'select', 'options': aws_region_options_optional},
           {'key': 'private_endpoint', 'label': 'Private endpoint', 'placeholder': 'https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com'},
+          {'key': 'server_ca', 'label': 'Certificate authority', 'type': 'select', 'options': [
+              {'value': 'cluster', 'label': 'Cluster CA (endpoint passes TLS through)'},
+              {'value': 'system', 'label': 'System trust store (endpoint has its own certificate)'}
+          ]},
           {'key': 'tls_server_name', 'label': 'TLS server name (optional)', 'placeholder': 'Normally empty'}
       ], seed_aws_eks_clusters) }}
     </section>

@@ -39,6 +39,7 @@ from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     AWS_AUTH_PROVIDERS,
+    AWS_EKS_SERVER_CA_MODES,
     AWS_REGIONS,
     AWS_SESSION_DURATION_MAX_SECONDS,
     AWS_SESSION_DURATION_MIN_SECONDS,
@@ -1238,7 +1239,7 @@ AWS_ACCOUNT_FORM_FIELDS = AWS_ACCOUNT_SEED_FIELDS + sorted(AWS_ACCOUNT_API_ONLY_
 # No field is a credential, so the seed form and the member's form read the
 # cards the same way.
 AWS_EKS_CLUSTERS_FORM_PREFIX = "aws_eks_clusters"
-AWS_EKS_CLUSTER_FIELDS = ["enabled", "account", "cluster", "region", "private_endpoint", "tls_server_name"]
+AWS_EKS_CLUSTER_FIELDS = ["enabled", "account", "cluster", "region", "private_endpoint", "server_ca", "tls_server_name"]
 
 # The troubleshooting CLIs' instance cards: what each card posts, in the order
 # the templates render them (nexus/splunk rows carry a url, pgsql rows a
@@ -1662,6 +1663,9 @@ def _settings_parse_aws_eks_clusters(form, accounts: list) -> tuple[list[dict], 
         if not endpoint:
             return [], f"{label} needs an https address for its private endpoint, such as https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com."
         row["private_endpoint"] = endpoint
+        if row["server_ca"] and row["server_ca"].lower() not in AWS_EKS_SERVER_CA_MODES:
+            return [], f"{label}: the certificate authority must be cluster or system, not {row['server_ca']}."
+        row["server_ca"] = row["server_ca"].lower()
         key = (account_key, row["region"].lower(), row["cluster"])
         if key in seen:
             return [], f"{label} repeats {row['cluster']} for the same account and region."

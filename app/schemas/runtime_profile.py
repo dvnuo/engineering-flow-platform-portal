@@ -593,6 +593,12 @@ AWS_ACCOUNT_ID_LENGTH = 12
 # list lives in app/static/js/chat_ui.js as AWS_REGIONS; a test holds the two
 # equal.
 AWS_REGIONS = ("ap-east-1", "eu-west-1", "us-east-1")
+# Whose certificate answers at an EKS private endpoint: "cluster" when the
+# endpoint passes TLS through to the API server (the cluster CA stays
+# embedded), "system" when the endpoint terminates TLS with a certificate of
+# its own that the runtime's trust store already holds (the embedded CA is
+# removed). The runtime defaults an unset value to cluster.
+AWS_EKS_SERVER_CA_MODES = ("cluster", "system")
 
 
 def normalize_aws_account_id(value) -> str:
@@ -737,6 +743,9 @@ def sanitize_runtime_profile_aws_eks_clusters(value) -> list[dict]:
         tls_server_name = str(item.get("tls_server_name") or "").strip()
         if tls_server_name:
             row["tls_server_name"] = tls_server_name
+        server_ca = str(item.get("server_ca") or "").strip().lower()
+        if server_ca in AWS_EKS_SERVER_CA_MODES:
+            row["server_ca"] = server_ca
         if "enabled" in item:
             row["enabled"] = _runtime_profile_bool(item.get("enabled"))
         rows.append(row)

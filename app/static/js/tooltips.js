@@ -188,7 +188,8 @@
     ['[data-instance-item="aws_eks_clusters"] [data-field="cluster"]', "The EKS cluster name"],
     ['[data-instance-item="aws_eks_clusters"] [data-field="region"]', "Only needed when the same cluster name exists in several regions of this account"],
     ['[data-instance-item="aws_eks_clusters"] [data-field="private_endpoint"]', "The PrivateLink address kubectl connects to instead of the endpoint AWS reports"],
-    ['[data-instance-item="aws_eks_clusters"] [data-field="tls_server_name"]', "Leave empty: the certificate is verified under the cluster's own hostname. Set only if the platform team says the certificate carries another name."],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="server_ca"]', "Whose certificate answers at the private endpoint: the cluster's own (the endpoint passes TLS through; keep the cluster CA) or the endpoint's own (it terminates TLS; the runtime's trust store verifies it). The assistant's aws-auth eks endpoint command tells which."],
+    ['[data-instance-item="aws_eks_clusters"] [data-field="tls_server_name"]', "Leave empty: the certificate is verified under the cluster's hostname (cluster CA) or the endpoint's hostname (system trust store). Set only if the platform team says the certificate carries another name."],
     ['[data-instance-item="aws_eks_clusters"] [data-field="enabled"]', "Turn this row on or off without deleting it"],
     // Troubleshooting CLIs (nexus, splunk, pgsql). Scoped before the
     // generic card hints: their name is the --instance the assistant passes,

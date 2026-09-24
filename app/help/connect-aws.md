@@ -41,17 +41,27 @@ automatically:
   name that exists in several regions of the same account.
 - **Private endpoint** is the PrivateLink address, for example
   `https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com`.
-- **TLS server name** can stay empty. The API server's certificate is issued
-  for the cluster's own hostname, not for the PrivateLink one, so the
-  assistant verifies it under the cluster's hostname by default. Set this
-  only if the platform team tells you the certificate carries another name.
+- **Certificate authority** says whose certificate answers at that address.
+  *Cluster CA* is for an endpoint that passes TLS straight through to the API
+  server: the certificate is the cluster's own, and the assistant keeps the
+  cluster CA and verifies it under the cluster's hostname.
+  *System trust store* is for an endpoint that terminates TLS with a
+  certificate of its own, issued for the endpoint's name by a CA the runtime
+  already trusts:
+  the assistant then drops the embedded cluster CA and verifies the way any
+  HTTPS client would. Verification is never switched off in either case.
+- **TLS server name** can stay empty: the certificate is verified under the
+  cluster's hostname (cluster CA) or the endpoint's hostname (system trust
+  store). Set it only if the platform team tells you the certificate carries
+  another name.
 
 Before adding a row, an assistant (or you, in the runtime) can check the
 address with `aws-auth eks endpoint --account <name> --cluster <cluster>
---private-endpoint <address> --json`. It reports whether the address answers
-and whether the certificate it presents is the cluster's own. An endpoint
-that terminates TLS with a certificate of its own is not supported by this
-row; the check says so.
+--private-endpoint <address> --json`. It reports whether the address answers,
+whether the certificate it presents is the cluster's own or one the runtime
+trusts, and which certificate authority setting that calls for. A
+certificate nothing trusts means the platform's CA is missing from the
+runtime image; the check says so rather than guessing.
 
 ## Providers
 

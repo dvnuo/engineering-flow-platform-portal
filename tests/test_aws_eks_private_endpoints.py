@@ -38,6 +38,7 @@ from tests.test_jenkins_multi_instance_settings import (
 from tests.test_web_runtime_profile_settings import _bind_profile, _build_client
 
 from app.schemas.runtime_profile import (
+    AWS_EKS_SERVER_CA_MODES,
     AWS_REGIONS,
     PORTAL_MANAGED_FIELD_TREE,
     normalize_eks_private_endpoint,
@@ -57,6 +58,7 @@ EKS_ROWS = [
         "region": "eu-west-1",
         "private_endpoint": "https://vpce-prod.example.test",
         "tls_server_name": "prod.internal.example.test",
+        "server_ca": "system",
         "enabled": False,
     },
 ]
@@ -173,6 +175,7 @@ def _clusters_form(count=2, **overrides):
             "aws_eks_clusters_instances_1_cluster": "cps-prod-eks",
             "aws_eks_clusters_instances_1_region": "eu-west-1",
             "aws_eks_clusters_instances_1_private_endpoint": "vpce-prod.example.test/",
+            "aws_eks_clusters_instances_1_server_ca": "System",
             "aws_eks_clusters_instances_1_tls_server_name": "prod.internal.example.test",
         }
     )
@@ -192,6 +195,7 @@ def test_settings_form_builds_the_rows_and_normalizes_the_endpoint():
             "cluster": "cps-prod-eks",
             "region": "eu-west-1",
             "private_endpoint": "https://vpce-prod.example.test",
+            "server_ca": "system",
             "tls_server_name": "prod.internal.example.test",
         },
     ]
@@ -335,6 +339,7 @@ def test_end_to_end_profile_save_persists_the_rows_and_reloads_them_into_the_pan
                 "cluster": "cps-prod-eks",
                 "region": "eu-west-1",
                 "private_endpoint": "https://vpce-prod.example.test",
+                "server_ca": "system",
                 "tls_server_name": "prod.internal.example.test",
             },
         ]
@@ -396,7 +401,11 @@ def test_settings_panel_renders_one_card_per_cluster(monkeypatch):
     assert cards[1]["disabled_class"] is True
     assert "checked" not in cards[1]["fields"]["enabled"]
     assert cards[1]["fields"]["tls_server_name"]["value"] == "prod.internal.example.test"
-    assert sorted(cards[0]["fields"]) == ["account", "cluster", "enabled", "private_endpoint", "region", "tls_server_name"]
+    assert sorted(cards[0]["fields"]) == ["account", "cluster", "enabled", "private_endpoint", "region", "server_ca", "tls_server_name"]
+    # Whose certificate answers at the endpoint is a choice of two, defaulting to the cluster CA.
+    assert [value for value, _sel, _label in _options(html, "aws_eks_clusters", 0, "server_ca")] == ["cluster", "system"]
+    assert _selected_options(html, "aws_eks_clusters", 0, "server_ca") == ["cluster"]
+    assert _selected_options(html, "aws_eks_clusters", 1, "server_ca") == ["system"]
 
 
 def test_the_cluster_cards_sit_inside_the_aws_section():
@@ -547,6 +556,10 @@ def test_sanitizer_drops_regions_no_dropdown_offers():
             {"aws_eks_clusters_instances_1_region": "eu-central-1"},
             "EKS cluster 2 names region eu-central-1, which is not supported; choose from ap-east-1, eu-west-1, us-east-1.",
         ),
+        (
+            {"aws_eks_clusters_instances_1_server_ca": "corporate"},
+            "EKS cluster 2: the certificate authority must be cluster or system, not corporate.",
+        ),
     ],
 )
 def test_settings_form_refuses_a_region_no_dropdown_offers(overrides, message):
@@ -653,4 +666,47 @@ def test_default_connections_page_uses_the_same_dropdowns():
     assert _selected_options(html, "aws_eks_clusters", 1, "account") == ["gone"]
     assert _selected_options(html, "aws_eks_clusters", 0, "region") == ["us-east-1"]
     assert 'placeholder="e.g. ap-east-1"' not in html
+
+
+# ------------------------------------------------- whose certificate answers
+
+
+def test_sanitizer_keeps_a_known_server_ca_and_drops_the_rest():
+    rows = sanitize_runtime_profile_aws(
+        {
+            "eks_clusters": [
+                {"account": "cps-dev", "cluster": "a", "private_endpoint": VPCE, "server_ca": " System "},
+                {"account": "cps-dev", "cluster": "b", "private_endpoint": VPCE, "server_ca": "cluster"},
+                {"account": "cps-dev", "cluster": "c", "private_endpoint": VPCE, "server_ca": "corporate"},
+                {"account": "cps-dev", "cluster": "d", "private_endpoint": VPCE},
+            ]
+        }
+    )["eks_clusters"]
+    assert [row.get("server_ca") for row in rows] == ["system", "cluster", None, None]
+    assert AWS_EKS_SERVER_CA_MODES == ("cluster", "system")
+
+
+def test_default_connections_page_offers_the_certificate_authority_choice():
+    seed = {
+        "aws": {
+            "enabled": True,
+            "accounts": [{"name": "cps-dev", "account_id": "818354133892"}],
+            "eks_clusters": [
+                {"account": "cps-dev", "cluster": "a", "private_endpoint": VPCE, "server_ca": "system"},
+                {"account": "cps-dev", "cluster": "b", "private_endpoint": VPCE},
+            ],
+        }
+    }
+    html = _default_connections_html(seed=seed)
+    assert [value for value, _sel, _label in _options(html, "aws_eks_clusters", 0, "server_ca")] == ["cluster", "system"]
+    assert _selected_options(html, "aws_eks_clusters", 0, "server_ca") == ["system"]
+    # An unset value selects nothing here, which the browser shows as the first option: cluster.
+    assert _selected_options(html, "aws_eks_clusters", 1, "server_ca") == []
+
+
+def test_help_page_explains_both_certificate_authorities():
+    body = get_topic("connect-aws").body
+    assert "Certificate authority" in body
+    assert "System trust store" in body
+    assert "not supported" not in body
 
