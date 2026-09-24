@@ -39,6 +39,7 @@ from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     AWS_AUTH_PROVIDERS,
+    AWS_REGIONS,
     AWS_SESSION_DURATION_MAX_SECONDS,
     AWS_SESSION_DURATION_MIN_SECONDS,
     JENKINS_DEFAULT_INSTANCE_NAME,
@@ -851,14 +852,71 @@ def _aws_account_view_rows(aws_section) -> list[dict]:
             row["regions"] = ", ".join(str(region or "").strip() for region in regions if str(region or "").strip())
         else:
             row["regions"] = str(regions or "").strip()
+        # The card is a multi-select, which needs the list back.
+        row["region_list"] = _split_regions(row["regions"])
         rows.append(row)
     return rows
 
 
+def _split_regions(value) -> list[str]:
+    """Region tokens of a list or a comma/space separated string, in order."""
+    parts = [str(v or "") for v in value] if isinstance(value, (list, tuple)) else [str(value or "")]
+    out: list[str] = []
+    for part in parts:
+        for token in part.replace(",", " ").split():
+            if token not in out:
+                out.append(token)
+    return out
+
+
+def _aws_account_option_names(aws_section) -> list[str]:
+    """The account names an EKS card may pick from, in matrix order."""
+    accounts = aws_section.get("accounts") if isinstance(aws_section, dict) else None
+    names: list[str] = []
+    for account in accounts if isinstance(accounts, list) else []:
+        name = str(account.get("name") or "").strip() if isinstance(account, dict) else ""
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _aws_eks_cluster_view_rows(aws_section) -> list[dict]:
-    """Private-endpoint rows of an aws section, one per card, as stored."""
-    clusters = aws_section.get("eks_clusters") if isinstance(aws_section, dict) else None
-    return [dict(item) for item in (clusters if isinstance(clusters, list) else []) if isinstance(item, dict)]
+    """Private-endpoint rows of an aws section, one per card.
+
+    The card's account is a dropdown of the account rows, so each row also
+    says which option to select (a row stored by 12-digit id selects that
+    account's name) and whether its account is still listed at all. A row
+    whose account is gone is shown as such rather than silently re-pointed;
+    the save then reports it.
+    """
+    if not isinstance(aws_section, dict):
+        return []
+    accounts = aws_section.get("accounts") if isinstance(aws_section.get("accounts"), list) else []
+    by_key: dict[str, str] = {}
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        name = str(account.get("name") or "").strip()
+        if not name:
+            continue
+        by_key.setdefault(name.lower(), name)
+        account_id = normalize_aws_account_id(account.get("account_id"))
+        if account_id:
+            by_key.setdefault(account_id, name)
+    clusters = aws_section.get("eks_clusters")
+    rows: list[dict] = []
+    for item in clusters if isinstance(clusters, list) else []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        raw = str(item.get("account") or "").strip()
+        listed = by_key.get(normalize_aws_account_id(raw) or raw.lower())
+        if listed:
+            row["account"] = listed
+        row["account_option"] = listed or raw
+        row["account_listed"] = bool(listed) or not raw
+        rows.append(row)
+    return rows
 
 
 def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | None = None) -> dict:
@@ -929,6 +987,8 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_aws": raw_aws,
         "aws_accounts": _aws_account_view_rows(raw_aws),
         "aws_eks_clusters": _aws_eks_cluster_view_rows(raw_aws),
+        "aws_account_options": _aws_account_option_names(raw_aws),
+        "aws_regions": list(AWS_REGIONS),
         "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "raw_jenkins": raw_jenkins,
         **troubleshooting_view,
@@ -1083,6 +1143,36 @@ def _runtime_profile_panel_context(
         "profile_running_bound_agent_count": running_count,
         **view_data,
     }
+
+
+def _form_values(form, name) -> list[str]:
+    """Every value posted under name, split on commas as well.
+
+    A <select multiple> posts one value per chosen option under the same
+    name; an older page (and most tests) post one comma-separated string.
+    Both come back as the list of non-blank entries, in the order posted.
+    """
+    if hasattr(form, "getlist"):
+        posted = list(form.getlist(name))
+    else:
+        value = form.get(name)
+        posted = list(value) if isinstance(value, (list, tuple)) else ([] if value is None else [value])
+    return _split_regions(posted)
+
+
+def _with_joined_values(form, prefix: str, field: str):
+    """A copy of form whose <prefix>_instances_<i>_<field> entries are joined.
+
+    The row parsers read each field with form.get(), which for a multi-valued
+    key returns only the last value posted. Joining the values into the one
+    comma-separated string those parsers already understand keeps them
+    unchanged; every other key is copied as it is.
+    """
+    merged = {key: form.get(key) for key in form.keys()}
+    for key in list(merged):
+        if key.startswith(f"{prefix}_instances_") and key.endswith(f"_{field}"):
+            merged[key] = ", ".join(_form_values(form, key))
+    return merged
 
 
 def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
@@ -1351,7 +1441,9 @@ def _seed_config_from_form(form) -> dict:
         aws["session_duration_seconds"] = int(session_duration)
     # Only the fields the seed form renders: the API-only ones would otherwise
     # be stored as "" and show up in the stored-value dump as if seeded.
-    aws_accounts = _seed_parse_instances(form, AWS_ACCOUNTS_FORM_PREFIX, AWS_ACCOUNT_SEED_FIELDS)
+    aws_accounts = _seed_parse_instances(
+        _with_joined_values(form, AWS_ACCOUNTS_FORM_PREFIX, "regions"), AWS_ACCOUNTS_FORM_PREFIX, AWS_ACCOUNT_SEED_FIELDS
+    )
     if aws_accounts:
         aws["accounts"] = aws_accounts
     aws_eks_clusters = _parse_aws_eks_cluster_cards(form)
@@ -1472,6 +1564,7 @@ def _settings_parse_aws_accounts(form, existing_accounts: list) -> tuple[list[di
     on save with no word to the member. Those come back as an error naming the
     row instead; the sanitizer still normalizes what passes (regions, enabled).
     """
+    form = _with_joined_values(form, AWS_ACCOUNTS_FORM_PREFIX, "regions")
     count_text = (form.get(f"{AWS_ACCOUNTS_FORM_PREFIX}_instance_count") or "0").strip()
     try:
         count = max(0, int(count_text))
@@ -1505,6 +1598,9 @@ def _settings_parse_aws_accounts(form, existing_accounts: list) -> tuple[list[di
         if name_key in seen_names:
             return [], f"AWS account names must be unique; {name} is listed more than once."
         seen_names.add(name_key)
+        for region in _split_regions(row.get("regions")):
+            if region.lower() not in AWS_REGIONS:
+                return [], f"AWS account {name} names region {region}, which is not supported; choose from {', '.join(AWS_REGIONS)}."
     return rows, None
 
 
@@ -1559,6 +1655,9 @@ def _settings_parse_aws_eks_clusters(form, accounts: list) -> tuple[list[dict], 
             return [], f"{label}: {row['account']} is not one of the AWS accounts above, by name or 12-digit id."
         if not row["cluster"]:
             return [], f"{label} needs the EKS cluster name."
+        if row["region"] and row["region"].lower() not in AWS_REGIONS:
+            return [], f"{label} names region {row['region']}, which is not supported; choose from {', '.join(AWS_REGIONS)}."
+        row["region"] = row["region"].lower()
         endpoint = normalize_eks_private_endpoint(row["private_endpoint"])
         if not endpoint:
             return [], f"{label} needs an https address for its private endpoint, such as https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com."
@@ -1937,6 +2036,8 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 aws_cfg.pop(field, None)
         if "aws_provider" in form and aws_cfg.get("provider") and aws_cfg["provider"] not in AWS_AUTH_PROVIDERS:
             return config_payload, "AWS provider must be adfs-assume, saml2aws, or assume-role."
+        if "aws_default_region" in form and aws_cfg.get("default_region") and aws_cfg["default_region"].lower() not in AWS_REGIONS:
+            return config_payload, f"AWS default region must be one of {', '.join(AWS_REGIONS)}."
         if "aws_session_duration_seconds" in form:
             duration_text = (form.get("aws_session_duration_seconds") or "").strip()
             if not duration_text:
@@ -2498,6 +2599,21 @@ async def app_users_panel(request: Request):
 SEED_PROVIDER_LABELS = {"github_copilot": "GitHub Copilot", "ai_platform": "AI Platform"}
 
 
+def _seed_aws_account_options(aws_section) -> list[dict]:
+    """Options of the seed page's EKS account dropdown: a blank, the account
+    rows, and any account an EKS row still names that is no longer a row, so
+    that value stays visible and selectable instead of vanishing on save."""
+    options = [{"value": "", "label": "Choose an account"}]
+    names = _aws_account_option_names(aws_section)
+    options.extend({"value": name, "label": name} for name in names)
+    for row in _aws_eks_cluster_view_rows(aws_section):
+        if row.get("account_option") and not row.get("account_listed"):
+            stale = row["account_option"]
+            if all(option["value"] != stale for option in options):
+                options.append({"value": stale, "label": f"{stale} (not listed above)"})
+    return options
+
+
 def _default_connections_context(
     request: Request,
     db,
@@ -2516,6 +2632,8 @@ def _default_connections_context(
         "seed": seed,
         "seed_aws_accounts": _aws_account_view_rows(seed.get("aws")),
         "seed_aws_eks_clusters": _aws_eks_cluster_view_rows(seed.get("aws")),
+        "seed_aws_account_options": _seed_aws_account_options(seed.get("aws")),
+        "aws_regions": list(AWS_REGIONS),
         "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),

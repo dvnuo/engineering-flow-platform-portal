@@ -441,7 +441,7 @@ def test_end_to_end_profile_save_persists_the_matrix_and_reloads_it_into_the_pan
         assert cards[0]["fields"]["name"]["value"] == "cps-dev"
         assert cards[0]["fields"]["account_id"]["value"] == "818354133892"
         assert cards[0]["fields"]["role"]["value"] == "ADFS-ReadOnly"
-        assert cards[0]["fields"]["regions"]["value"] == "ap-east-1, eu-west-1"
+        assert _selected_options(html, "aws_accounts", 0, "regions") == ["ap-east-1", "eu-west-1"]
         assert cards[0]["attrs"]["data-original-field"] == ["name"]
         assert cards[1]["disabled_class"] is True and "Disabled" in cards[1]["text"]
         assert '<option value="saml2aws" selected>saml2aws</option>' in html
@@ -535,6 +535,52 @@ def test_cli_instructions_tell_the_assistant_how_to_sign_in_and_address_each_acc
 # --------------------------------------------------------------------------
 
 
+def _card_html(html, group, index):
+    """The markup of the index-th card of a group."""
+    pieces = html.split(f'data-instance-item="{group}"')
+    assert len(pieces) > index + 1, f"no card {index} for {group}"
+    return pieces[index + 1]
+
+
+def _options(html, group, index, field):
+    """(value, selected, label) of every option in a card's select field."""
+    card = _card_html(html, group, index)
+    match = re.search(rf'<select[^>]*data-field="{field}"[^>]*>(.*?)</select>', card, flags=re.S)
+    assert match, f"card {index} of {group} has no <select data-field={field!r}>"
+    return [
+        (value, bool(selected), label.strip())
+        for value, selected, label in re.findall(r'<option value="([^"]*)"\s*(selected)?\s*>(.*?)</option>', match.group(1), flags=re.S)
+    ]
+
+
+def _selected_options(html, group, index, field):
+    return [value for value, selected, _label in _options(html, group, index, field) if selected]
+
+
+def _section_select_options(html, name):
+    """(value, selected) of every option in a section-level select."""
+    match = re.search(rf'<select name="{name}"[^>]*>(.*?)</select>', html, flags=re.S)
+    assert match, f"no <select name={name!r}>"
+    return [(value, bool(selected)) for value, selected in re.findall(r'<option value="([^"]*)"\s*(selected)?\s*>', match.group(1))]
+
+
+def _js_array_literal(js, const_name):
+    """Read a JSON-compatible `const NAME = [...];` list out of chat_ui.js."""
+    marker = f"const {const_name} = "
+    start = js.index(marker) + len(marker)
+    assert js[start] == "[", f"{const_name} is not an array literal"
+    return json.loads(js[start : js.index("];", start) + 1])
+
+
+def _expand_region_slots(js, rendered):
+    """Expand the region helpers a card literal calls, the way the JS does."""
+    regions = _js_array_literal(js, "AWS_REGIONS")
+    options = "".join(f'<option value="{region}">{region}</option>' for region in regions)
+    rendered = rendered.replace("${AWS_REGIONS.length}", str(len(regions)))
+    rendered = rendered.replace('${regionOptionsHtml("Any region")}', '<option value="">Any region</option>' + options)
+    return rendered.replace("${regionOptionsHtml()}", options)
+
+
 def _aws_matrix_profile():
     return {"aws": json.loads(json.dumps(FULL_AWS_SECTION))}
 
@@ -549,7 +595,11 @@ def test_settings_panel_renders_one_card_per_account(monkeypatch):
     assert 'data-action="add-instance" data-group="aws_accounts"' in html
     assert cards[0]["fields"]["name"]["value"] == "cps-dev"
     assert cards[0]["fields"]["account_id"]["value"] == "818354133892"
-    assert cards[0]["fields"]["regions"]["value"] == "ap-east-1, eu-west-1"
+    # Regions are a multi-select of the supported regions, not a text box.
+    assert "multiple" in cards[0]["fields"]["regions"]
+    assert [value for value, _sel, _label in _options(html, "aws_accounts", 0, "regions")] == ["ap-east-1", "eu-west-1", "us-east-1"]
+    assert _selected_options(html, "aws_accounts", 0, "regions") == ["ap-east-1", "eu-west-1"]
+    assert _selected_options(html, "aws_accounts", 1, "regions") == ["eu-west-1"]
     assert "Account 1" in cards[0]["text"]
     assert cards[0]["fields"]["enabled"]["aria-label"] == "Enable AWS account instance 1"
     assert cards[1]["disabled_class"] is True
@@ -614,6 +664,7 @@ def _js_account_card_html():
     for key, copy in placeholders.items():
         rendered = rendered.replace("${placeholders." + key + "}", copy)
     rendered = rendered.replace("${label}", _js_object_literal(js, "INSTANCE_GROUP_LABELS")["aws_accounts"])
+    rendered = _expand_region_slots(js, rendered)
     assert "${" not in rendered, "unresolved template slot in awsAccountCardHtml literal"
     # normalizeInstanceInputs renumbers the freshly appended card.
     rendered = rendered.replace(
@@ -658,7 +709,6 @@ def test_the_aws_group_is_registered_and_initialized_by_the_js():
         "name": "Account name, e.g. cps-dev",
         "account_id": "12-digit AWS account id",
         "role": "IAM role, e.g. ADFS-ReadOnly",
-        "regions": "Regions, e.g. ap-east-1, eu-west-1",
     }
     # The table names what a card is called per group; the AWS group's entry
     # is what this test pins, other groups may add their own.
@@ -719,7 +769,9 @@ def test_default_connections_form_offers_the_matrix_and_reads_it_back():
     )
     assert 'data-instance-container="aws_accounts"' in html
     assert 'name="aws_accounts_instance_count" value="1"' in html
-    assert 'value="ap-east-1, eu-west-1"' in html
+    # Regions are a multi-select of the supported regions with the stored ones chosen.
+    assert _selected_options(html, "aws_accounts", 0, "regions") == ["ap-east-1", "eu-west-1"]
+    assert [value for value, _sel, _label in _options(html, "aws_accounts", 0, "regions")] == ["ap-east-1", "eu-west-1", "us-east-1"]
     assert 'value="818354133892"' in html
     assert '<option value="saml2aws" selected>saml2aws</option>' in html
     # Leaving the provider unset seeds nothing, like the LLM provider.

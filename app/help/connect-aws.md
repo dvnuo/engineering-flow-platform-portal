@@ -20,7 +20,9 @@ Each row is one AWS account the assistant may sign in to:
 - **Account id** is the 12-digit AWS account number.
 - **Role** is the IAM role to assume there. Choose a read-only one; the
   assistant can only do what the role allows.
-- **Regions** are the regions it should look in, comma separated.
+- **Regions** are the regions it is used in, chosen from `ap-east-1`,
+  `eu-west-1` and `us-east-1`; the first chosen is the default for cluster
+  commands.
 
 Switch a row off to keep it without offering it to assistants. The default
 account is the one used when a request does not name an account.
@@ -33,10 +35,10 @@ PrivateLink interface endpoint. List each such cluster here, one row per
 cluster, and the assistant's `kubectl` context is pointed at that address
 automatically:
 
-- **Account** is the name or 12-digit id of one of the account rows above.
+- **Account** is chosen from the account rows above.
 - **Cluster** is the EKS cluster name.
-- **Region** is optional, for a cluster name that exists in several regions
-  of the same account.
+- **Region** is optional, chosen from the same three regions, for a cluster
+  name that exists in several regions of the same account.
 - **Private endpoint** is the PrivateLink address, for example
   `https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com`.
 - **TLS server name** can stay empty. The API server's certificate is issued

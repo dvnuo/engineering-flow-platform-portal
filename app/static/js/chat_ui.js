@@ -12738,6 +12738,46 @@ const managedSettingsActionSelector = "[data-settings-action]";
 
 const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "aws_eks_clusters": "EKS cluster", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL" };
 
+// The regions a profile may name, offered in every region dropdown (account
+// rows, the section default, EKS private-endpoint rows). Must stay equal to
+// AWS_REGIONS in app/schemas/runtime_profile.py; a test holds the two equal.
+const AWS_REGIONS = ["ap-east-1", "eu-west-1", "us-east-1"];
+
+// The <option>s of a region dropdown; blankLabel adds a "none" choice first.
+function regionOptionsHtml(blankLabel) {
+  const options = blankLabel ? [`<option value="">${blankLabel}</option>`] : [];
+  AWS_REGIONS.forEach((region) => options.push(`<option value="${region}">${region}</option>`));
+  return options.join("");
+}
+
+// The EKS private-endpoint cards pick their account from the account rows
+// above, so their dropdowns are rebuilt from those rows whenever the rows
+// change: on load, as a name is typed, when a row is removed, and when a new
+// EKS card is added. A value that no longer matches a row stays selected but
+// is labelled as such, so the save reports it instead of re-pointing it.
+function refreshEksAccountOptions(root) {
+  if (!root) return;
+  const names = [];
+  root.querySelectorAll('[data-instance-item="aws_accounts"] [data-field="name"]').forEach((input) => {
+    const name = String(input.value || "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  });
+  root.querySelectorAll('[data-instance-item="aws_eks_clusters"] select[data-field="account"]').forEach((select) => {
+    const current = select.value;
+    select.replaceChildren();
+    const add = (value, label, selected) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = selected;
+      select.append(option);
+    };
+    add("", "Choose an account", current === "");
+    names.forEach((name) => add(name, name, name === current));
+    if (current && !names.includes(current)) add(current, `${current} (not listed above)`, true);
+  });
+}
+
 // Per-product placeholder copy for a freshly added instance card. Kept as a
 // plain lookup table (not inline ternaries) so it stays in step with the
 // server-rendered cards in the runtime-profile/settings panel templates.
@@ -12750,13 +12790,10 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
   "aws_accounts": {
     "name": "Account name, e.g. cps-dev",
     "account_id": "12-digit AWS account id",
-    "role": "IAM role, e.g. ADFS-ReadOnly",
-    "regions": "Regions, e.g. ap-east-1, eu-west-1"
+    "role": "IAM role, e.g. ADFS-ReadOnly"
   },
   "aws_eks_clusters": {
-    "account": "Account name or id, e.g. cps-dev",
     "cluster": "EKS cluster name",
-    "region": "Region (optional)",
     "private_endpoint": "https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com",
     "tls_server_name": "TLS server name (optional)"
   },
@@ -12827,7 +12864,7 @@ function instanceGroupItemTitle(group) {
 // rendered card in partials/runtime_profile_panel.html + settings_panel.html.
 function awsAccountCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_accounts;
-  return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${placeholders.name}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${placeholders.account_id}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${placeholders.role}" class="portal-form-input" /><input type="text" data-field="regions" value="" placeholder="${placeholders.regions}" class="portal-form-input" /></div></div>`;
+  return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${placeholders.name}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${placeholders.account_id}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${placeholders.role}" class="portal-form-input" /><select multiple size="${AWS_REGIONS.length}" data-field="regions" class="portal-form-select">${regionOptionsHtml()}</select></div></div>`;
 }
 
 // The EKS private-endpoint card: one cluster reached through PrivateLink,
@@ -12836,7 +12873,7 @@ function awsAccountCardHtml(label) {
 // settings_panel.html.
 function awsEksClusterCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_eks_clusters;
-  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">EKS cluster</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><input type="text" data-field="account" value="" placeholder="${placeholders.account}" class="portal-form-input" /><input type="text" data-field="cluster" value="" placeholder="${placeholders.cluster}" class="portal-form-input" /><input type="text" data-field="region" value="" placeholder="${placeholders.region}" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${placeholders.private_endpoint}" class="portal-form-input" /><input type="text" data-field="tls_server_name" value="" placeholder="${placeholders.tls_server_name}" class="portal-form-input" /></div></div>`;
+  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">EKS cluster</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><select data-field="account" class="portal-form-select"><option value="">Choose an account</option></select><input type="text" data-field="cluster" value="" placeholder="${placeholders.cluster}" class="portal-form-input" /><select data-field="region" class="portal-form-select">${regionOptionsHtml("Any region")}</select></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${placeholders.private_endpoint}" class="portal-form-input" /><input type="text" data-field="tls_server_name" value="" placeholder="${placeholders.tls_server_name}" class="portal-form-input" /></div></div>`;
 }
 
 // One field of a troubleshooting-CLI card, from the layout tables above. Must
@@ -12933,6 +12970,7 @@ function addInstanceRow(root, group) {
     div.innerHTML = awsEksClusterCardHtml(instanceGroupLabel(group));
     container.append(div);
     normalizeInstanceInputs(root, group);
+    refreshEksAccountOptions(root);
     return;
   }
 
@@ -13340,6 +13378,7 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "jenkins");
   normalizeInstanceInputs(root, "aws_accounts");
   normalizeInstanceInputs(root, "aws_eks_clusters");
+  refreshEksAccountOptions(root);
   normalizeInstanceInputs(root, "nexus");
   normalizeInstanceInputs(root, "splunk");
   normalizeInstanceInputs(root, "pgsql");
@@ -13377,6 +13416,10 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("input", (event) => {
     const section = sectionNameForElement(event.target);
     if (section) markManagedSectionTouched(root, section);
+    // A renamed account row has to show up in the EKS cards' account dropdowns.
+    if (event.target?.dataset?.field === "name" && event.target.closest?.('[data-instance-item="aws_accounts"]')) {
+      refreshEksAccountOptions(root);
+    }
   });
   root.addEventListener("click", async (event) => {
     // The touched section is the one the button sits in, not the group name:
@@ -13398,6 +13441,7 @@ function initializeManagedSettingsRoot(root) {
       const touchedSection = sectionNameForElement(removeBtn) || group;
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(root, group);
+      if (group === "aws_accounts") refreshEksAccountOptions(root);
       markManagedSectionTouched(root, touchedSection);
       return;
     }

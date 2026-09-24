@@ -15,7 +15,17 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_aws_account_matrix_settings import FULL_AWS_SECTION, _matrix_form
+from starlette.datastructures import FormData
+
+from tests.test_aws_account_matrix_settings import (
+    FULL_AWS_SECTION,
+    _expand_region_slots,
+    _js_array_literal,
+    _matrix_form,
+    _options,
+    _section_select_options,
+    _selected_options,
+)
 from tests.test_default_connections_form import _panel_html as _default_connections_html
 from tests.test_jenkins_multi_instance_settings import (
     _initialized_instance_groups,
@@ -28,6 +38,7 @@ from tests.test_jenkins_multi_instance_settings import (
 from tests.test_web_runtime_profile_settings import _bind_profile, _build_client
 
 from app.schemas.runtime_profile import (
+    AWS_REGIONS,
     PORTAL_MANAGED_FIELD_TREE,
     normalize_eks_private_endpoint,
     sanitize_runtime_profile_aws,
@@ -285,7 +296,23 @@ def test_seed_form_reads_the_rows_as_typed():
 
 def test_view_payload_carries_the_rows_for_the_cards():
     payload = _settings_view_payload({"aws": _aws_with_clusters()})
-    assert payload["aws_eks_clusters"] == EKS_ROWS
+    rows = payload["aws_eks_clusters"]
+    names = {account["name"] for account in FULL_AWS_SECTION["accounts"]}
+    by_id = {account["account_id"]: account["name"] for account in FULL_AWS_SECTION["accounts"]}
+
+    def shown(account):
+        # A row stored by 12-digit id is shown, and re-posted, as that account's name.
+        return by_id.get(account, account)
+
+    # The stored row, plus what the account dropdown needs: which option to
+    # select and whether that account is still one of the rows above.
+    stripped = [{k: v for k, v in row.items() if k not in ("account_option", "account_listed")} for row in rows]
+    assert stripped == [dict(row, account=shown(row["account"])) for row in EKS_ROWS]
+    assert [(row["account_option"], row["account_listed"]) for row in rows] == [
+        (shown(row["account"]), shown(row["account"]) in names) for row in EKS_ROWS
+    ]
+    assert payload["aws_account_options"] == [account["name"] for account in FULL_AWS_SECTION["accounts"]]
+    assert payload["aws_regions"] == list(AWS_REGIONS)
     assert _settings_view_payload({"aws": {"enabled": True}})["aws_eks_clusters"] == []
 
 
@@ -316,7 +343,7 @@ def test_end_to_end_profile_save_persists_the_rows_and_reloads_them_into_the_pan
         cards = [card for card in _parse_cards(html) if card["group"] == "aws_eks_clusters"]
         assert len(cards) == 2
         assert 'name="aws_eks_clusters_instance_count" value="2"' in html
-        assert cards[0]["fields"]["account"]["value"] == "cps-dev"
+        assert _selected_options(html, "aws_eks_clusters", 0, "account") == ["cps-dev"]
         assert cards[0]["fields"]["private_endpoint"]["value"] == VPCE
         assert cards[1]["fields"]["tls_server_name"]["value"] == "prod.internal.example.test"
         assert cards[1]["disabled_class"] is True and "Disabled" in cards[1]["text"]
@@ -359,10 +386,11 @@ def test_settings_panel_renders_one_card_per_cluster(monkeypatch):
     assert len(cards) == 2
     assert 'name="aws_eks_clusters_instance_count" value="2"' in html
     assert 'data-action="add-instance" data-group="aws_eks_clusters"' in html
-    assert cards[0]["fields"]["account"]["value"] == "cps-dev"
+    assert _selected_options(html, "aws_eks_clusters", 0, "account") == ["cps-dev"]
     assert cards[0]["fields"]["cluster"]["value"] == "cps-dev-eks"
     assert cards[0]["fields"]["private_endpoint"]["value"] == VPCE
-    assert cards[0]["fields"]["region"]["value"] == ""
+    assert _selected_options(html, "aws_eks_clusters", 0, "region") == []  # "Any region"
+    assert _selected_options(html, "aws_eks_clusters", 1, "region") == ["eu-west-1"]
     assert "EKS cluster 1" in cards[0]["text"]
     assert cards[0]["fields"]["enabled"]["aria-label"] == "Enable EKS cluster instance 1"
     assert cards[1]["disabled_class"] is True
@@ -400,8 +428,14 @@ def test_agent_and_runtime_profile_panels_render_the_same_cluster_card(monkeypat
         assert agent_card["text"] == profile_card["text"]
 
 
-def _js_cluster_card_html():
-    """Evaluate awsEksClusterCardHtml's template literal in Python, from the JS tables."""
+def _js_cluster_card_html(account_names=(), selected=""):
+    """Evaluate awsEksClusterCardHtml's template literal in Python, from the JS tables.
+
+    A freshly added card is handed to refreshEksAccountOptions right away,
+    which fills the account dropdown from the account rows; account_names
+    and selected reproduce that step, so the comparison is with the card as
+    the member actually sees it.
+    """
     js = _js_source()
     start = js.index("function awsEksClusterCardHtml(")
     body = js[start : js.index("\nfunction ", start + 1)]
@@ -412,6 +446,7 @@ def _js_cluster_card_html():
     for key, copy in placeholders.items():
         rendered = rendered.replace("${placeholders." + key + "}", copy)
     rendered = rendered.replace("${label}", _js_object_literal(js, "INSTANCE_GROUP_LABELS")["aws_eks_clusters"])
+    rendered = _expand_region_slots(js, rendered)
     assert "${" not in rendered, "unresolved template slot in awsEksClusterCardHtml literal"
     # normalizeInstanceInputs renumbers the freshly appended card.
     rendered = rendered.replace(
@@ -419,13 +454,23 @@ def _js_cluster_card_html():
         '<span class="portal-settings-instance-title">EKS cluster 1</span>',
     )
     rendered = rendered.replace('aria-label="Enable EKS cluster instance"', 'aria-label="Enable EKS cluster instance 1"')
+    filled = '<option value="">Choose an account</option>' + "".join(
+        f'<option value="{name}"{" selected" if name == selected else ""}>{name}</option>' for name in account_names
+    )
+    rendered = rendered.replace('<option value="">Choose an account</option>', filled, 1)
     return f'<div class="portal-settings-instance-card" data-instance-item="aws_eks_clusters">{rendered}</div>'
 
 
 def test_js_added_cluster_card_matches_the_server_rendered_card(monkeypatch):
-    config = {"aws": {"enabled": True, "eks_clusters": [{"account": "cps-dev", "cluster": "cps-dev-eks", "private_endpoint": VPCE, "enabled": True}]}}
+    config = {
+        "aws": {
+            "enabled": True,
+            "accounts": [{"name": "cps-dev", "account_id": "818354133892"}],
+            "eks_clusters": [{"account": "cps-dev", "cluster": "cps-dev-eks", "private_endpoint": VPCE, "enabled": True}],
+        }
+    }
     server_card = next(c for c in _parse_cards(_render_panel(monkeypatch, config)) if c["group"] == "aws_eks_clusters")
-    js_card = next(c for c in _parse_cards(_js_cluster_card_html()) if c["group"] == "aws_eks_clusters")
+    js_card = next(c for c in _parse_cards(_js_cluster_card_html(account_names=("cps-dev",), selected="cps-dev")) if c["group"] == "aws_eks_clusters")
 
     assert _shape(js_card) == _shape(server_card)
     assert sorted(js_card["fields"]) == sorted(server_card["fields"])
@@ -463,3 +508,149 @@ def test_help_page_explains_the_rows():
     assert "Clusters behind PrivateLink" in topic.body
     assert "aws-auth eks endpoint" in topic.body
     assert "tls_server_name" not in topic.body  # the page speaks the form's language, not the CLI's
+
+
+# ------------------------------------------------- dropdowns, not text boxes
+
+
+def test_python_and_js_offer_the_same_regions():
+    assert list(AWS_REGIONS) == ["ap-east-1", "eu-west-1", "us-east-1"]
+    assert _js_array_literal(_js_source(), "AWS_REGIONS") == list(AWS_REGIONS)
+
+
+def test_sanitizer_drops_regions_no_dropdown_offers():
+    out = sanitize_runtime_profile_aws(
+        {
+            "default_region": "us-west-2",
+            "accounts": [{"name": "cps-dev", "account_id": "818354133892", "regions": ["us-west-2", "EU-WEST-1", "ap-east-1"]}],
+            "eks_clusters": [
+                {"account": "cps-dev", "cluster": "elsewhere", "region": "us-west-2", "private_endpoint": VPCE},
+                {"account": "cps-dev", "cluster": "here", "region": "US-EAST-1", "private_endpoint": VPCE},
+            ],
+        }
+    )
+    assert "default_region" not in out
+    assert out["accounts"][0]["regions"] == ["eu-west-1", "ap-east-1"]
+    assert [(row["cluster"], row["region"]) for row in out["eks_clusters"]] == [("here", "us-east-1")]
+    assert sanitize_runtime_profile_aws({"default_region": "AP-EAST-1"})["default_region"] == "ap-east-1"
+
+
+@pytest.mark.parametrize(
+    "overrides,message",
+    [
+        ({"aws_default_region": "us-west-2"}, "AWS default region must be one of ap-east-1, eu-west-1, us-east-1."),
+        (
+            {"aws_accounts_instances_0_regions": "ap-east-1, us-west-2"},
+            "AWS account cps-dev names region us-west-2, which is not supported; choose from ap-east-1, eu-west-1, us-east-1.",
+        ),
+        (
+            {"aws_eks_clusters_instances_1_region": "eu-central-1"},
+            "EKS cluster 2 names region eu-central-1, which is not supported; choose from ap-east-1, eu-west-1, us-east-1.",
+        ),
+    ],
+)
+def test_settings_form_refuses_a_region_no_dropdown_offers(overrides, message):
+    merged, error = _settings_merge_payload({}, _clusters_form(**overrides))
+    assert error == message
+    assert "aws" not in merged
+
+
+def test_settings_form_reads_a_multi_select_regions_post():
+    # A <select multiple> posts one value per chosen option under one name;
+    # the last value alone must not win.
+    pairs = [(key, value) for key, value in _matrix_form().items() if key != "aws_accounts_instances_0_regions"]
+    pairs += [("aws_accounts_instances_0_regions", "us-east-1"), ("aws_accounts_instances_0_regions", "ap-east-1")]
+    merged, error = _settings_merge_payload({}, FormData(pairs))
+    assert error is None
+    assert merged["aws"]["accounts"][0]["regions"] == ["us-east-1", "ap-east-1"]
+    assert merged["aws"]["accounts"][1]["regions"] == ["eu-west-1"]
+
+
+def test_seed_form_reads_a_multi_select_regions_post():
+    seed = _seed_config_from_form(
+        FormData(
+            [
+                ("aws_enabled", "on"),
+                ("aws_accounts_instance_count", "1"),
+                ("aws_accounts_instances_0_enabled", "1"),
+                ("aws_accounts_instances_0_name", "cps-dev"),
+                ("aws_accounts_instances_0_account_id", "818354133892"),
+                ("aws_accounts_instances_0_regions", "eu-west-1"),
+                ("aws_accounts_instances_0_regions", "us-east-1"),
+            ]
+        )
+    )
+    assert seed["aws"]["accounts"][0]["regions"] == "eu-west-1, us-east-1"
+
+
+def test_region_dropdowns_offer_only_the_supported_regions(monkeypatch):
+    section = _aws_with_clusters()
+    section["default_region"] = "us-east-1"
+    html = _render_panel(monkeypatch, {"aws": section})
+
+    assert _section_select_options(html, "aws_default_region") == [("", False), ("ap-east-1", False), ("eu-west-1", False), ("us-east-1", True)]
+    assert [value for value, _sel, _label in _options(html, "aws_eks_clusters", 0, "region")] == ["", "ap-east-1", "eu-west-1", "us-east-1"]
+    assert _selected_options(html, "aws_eks_clusters", 1, "region") == ["eu-west-1"]
+    # No free-text region input is left anywhere on the page.
+    assert 'placeholder="e.g. ap-east-1"' not in html
+    assert 'data-field="regions" value=' not in html and 'data-field="region" value=' not in html
+
+
+def test_account_dropdown_lists_the_account_rows_and_flags_a_missing_one(monkeypatch):
+    section = json.loads(json.dumps(FULL_AWS_SECTION))
+    section["eks_clusters"] = [
+        {"account": "cps-dev", "cluster": "a", "private_endpoint": VPCE},
+        # Stored by 12-digit id: selects that account's name.
+        {"account": section["accounts"][1]["account_id"], "cluster": "b", "private_endpoint": VPCE},
+        # Its account row was removed since: shown as such, not re-pointed.
+        {"account": "gone", "cluster": "c", "private_endpoint": VPCE},
+    ]
+    html = _render_panel(monkeypatch, {"aws": section})
+    names = [account["name"] for account in section["accounts"]]
+
+    assert [value for value, _sel, _label in _options(html, "aws_eks_clusters", 0, "account")] == [""] + names
+    assert _selected_options(html, "aws_eks_clusters", 0, "account") == ["cps-dev"]
+    assert _selected_options(html, "aws_eks_clusters", 1, "account") == [names[1]]
+    assert _selected_options(html, "aws_eks_clusters", 2, "account") == ["gone"]
+    assert ("gone", True, "gone (not listed above)") in _options(html, "aws_eks_clusters", 2, "account")
+    # Saving that page reports the gap instead of dropping the row.
+    merged, error = _settings_merge_payload({}, _clusters_form(aws_eks_clusters_instances_0_account="gone"))
+    assert error == "EKS cluster 1: gone is not one of the AWS accounts above, by name or 12-digit id."
+    assert "aws" not in merged
+
+
+def test_js_keeps_the_account_dropdown_in_step_with_the_account_rows():
+    js = _js_source()
+    assert "function refreshEksAccountOptions(root)" in js
+    init = js[js.index("function initializeManagedSettingsRoot(") :]
+    init = init[: init.index("\n}")]
+    assert "refreshEksAccountOptions(root);" in init, "the dropdowns must be filled on load"
+    handlers = js[js.index('root.addEventListener("input"') : js.index("const scrollBtn")]
+    assert 'dataset?.field === "name"' in handlers and "refreshEksAccountOptions(root)" in handlers, "typing an account name must refresh them"
+    assert 'if (group === "aws_accounts") refreshEksAccountOptions(root);' in handlers, "removing an account row must refresh them"
+    add = js[js.index('if (group === "aws_eks_clusters") {') :]
+    add = add[: add.index("return;")]
+    assert "refreshEksAccountOptions(root);" in add, "a new EKS card must be filled"
+
+
+def test_default_connections_page_uses_the_same_dropdowns():
+    seed = {
+        "aws": {
+            "enabled": True,
+            "default_region": "eu-west-1",
+            "accounts": [{"name": "cps-dev", "account_id": "818354133892", "regions": ["ap-east-1", "us-east-1"]}],
+            "eks_clusters": [
+                {"account": "cps-dev", "cluster": "a", "region": "us-east-1", "private_endpoint": VPCE},
+                {"account": "gone", "cluster": "c", "private_endpoint": VPCE},
+            ],
+        }
+    }
+    html = _default_connections_html(seed=seed)
+    assert _section_select_options(html, "aws_default_region") == [("", False), ("ap-east-1", False), ("eu-west-1", True), ("us-east-1", False)]
+    assert _selected_options(html, "aws_accounts", 0, "regions") == ["ap-east-1", "us-east-1"]
+    assert [value for value, _sel, _label in _options(html, "aws_eks_clusters", 0, "account")] == ["", "cps-dev", "gone"]
+    assert _selected_options(html, "aws_eks_clusters", 0, "account") == ["cps-dev"]
+    assert _selected_options(html, "aws_eks_clusters", 1, "account") == ["gone"]
+    assert _selected_options(html, "aws_eks_clusters", 0, "region") == ["us-east-1"]
+    assert 'placeholder="e.g. ap-east-1"' not in html
+

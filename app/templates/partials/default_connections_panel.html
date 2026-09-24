@@ -22,9 +22,10 @@
         {% if field.type == 'select' %}
         <label class="portal-form-label">
           <span class="portal-form-label">{{ field.label }}</span>
-          <select data-field="{{ field.key }}" class="portal-form-select">
+          <select data-field="{{ field.key }}" class="portal-form-select"{% if field.multiple %} multiple size="{{ field.options|length }}"{% endif %}>
             {% for option in field.options %}
-            <option value="{{ option.value }}" {% if (inst.get(field.key) or '') == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {# A multi-select reads its chosen values from the row's list field (field.list_key). #}
+            <option value="{{ option.value }}" {% if field.multiple %}{% if option.value in (inst.get(field.list_key or field.key) or []) %}selected{% endif %}{% elif (inst.get(field.key) or '') == option.value %}selected{% endif %}>{{ option.label }}</option>
             {% endfor %}
           </select>
         </label>
@@ -341,6 +342,8 @@
         <span>Offer AWS to members</span>
       </div>
       {% set seed_aws = seed.get('aws', {}) %}
+      {% set aws_region_options = [] %}{% for region in aws_regions %}{% set _ = aws_region_options.append({'value': region, 'label': region}) %}{% endfor %}
+      {% set aws_region_options_optional = [{'value': '', 'label': 'Any region'}] + aws_region_options %}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ seed_aws.get('domain', '') }}" class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="aws_username" value="{{ seed_aws.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
@@ -362,7 +365,7 @@
       </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <label class="portal-form-label"><span class="portal-form-label">Default account</span><input type="text" name="aws_default_account" value="{{ seed_aws.get('default_account', '') }}" placeholder="Account name or id" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Default region</span><input type="text" name="aws_default_region" value="{{ seed_aws.get('default_region', '') }}" placeholder="e.g. ap-east-1" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Default region</span><select name="aws_default_region" class="portal-form-select"><option value="">Leave unset</option>{% for region in aws_regions %}<option value="{{ region }}" {% if seed_aws.get('default_region', '') == region %}selected{% endif %}>{{ region }}</option>{% endfor %}</select></label>
         <label class="portal-form-label"><span class="portal-form-label">Session duration (seconds)</span><input type="number" name="aws_session_duration_seconds" value="{{ seed_aws.get('session_duration_seconds', '') }}" min="900" max="43200" step="1" placeholder="3600" class="portal-form-input" /></label>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">Kubeconfig path</span><input type="text" name="aws_kubeconfig_path" value="{{ seed_aws.get('kubeconfig_path', '') }}" placeholder="~/.efp/kube/config" class="portal-form-input" /></label>
@@ -371,13 +374,13 @@
           {'key': 'name', 'label': 'Name', 'placeholder': 'cps-dev'},
           {'key': 'account_id', 'label': 'Account id', 'placeholder': '12 digits'},
           {'key': 'role', 'label': 'Role', 'placeholder': 'ADFS-ReadOnly'},
-          {'key': 'regions', 'label': 'Regions', 'placeholder': 'ap-east-1, eu-west-1'}
+          {'key': 'regions', 'label': 'Regions', 'type': 'select', 'multiple': True, 'list_key': 'region_list', 'options': aws_region_options}
       ], seed_aws_accounts) }}
       <p class="portal-panel-note">Clusters reached through a private endpoint (AWS PrivateLink) instead of the address AWS reports; the account is the name or id of one of the rows above.</p>
       {{ instance_group('aws_eks_clusters', 'EKS cluster', [
-          {'key': 'account', 'label': 'Account', 'placeholder': 'cps-dev'},
+          {'key': 'account', 'label': 'Account', 'type': 'select', 'options': seed_aws_account_options},
           {'key': 'cluster', 'label': 'Cluster', 'placeholder': 'cps-dev-eks'},
-          {'key': 'region', 'label': 'Region (optional)', 'placeholder': 'eu-west-1'},
+          {'key': 'region', 'label': 'Region (optional)', 'type': 'select', 'options': aws_region_options_optional},
           {'key': 'private_endpoint', 'label': 'Private endpoint', 'placeholder': 'https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com'},
           {'key': 'tls_server_name', 'label': 'TLS server name (optional)', 'placeholder': 'Normally empty'}
       ], seed_aws_eks_clusters) }}

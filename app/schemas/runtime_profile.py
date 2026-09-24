@@ -587,6 +587,12 @@ AWS_AUTH_PROVIDERS = ("adfs-assume", "saml2aws", "assume-role")
 AWS_SESSION_DURATION_MIN_SECONDS = 900
 AWS_SESSION_DURATION_MAX_SECONDS = 43200
 AWS_ACCOUNT_ID_LENGTH = 12
+# The regions a profile may name, anywhere a region is entered: the account
+# rows, the section default, and the EKS private-endpoint rows. The Portal
+# offers exactly these in its dropdowns and refuses anything else. The same
+# list lives in app/static/js/chat_ui.js as AWS_REGIONS; a test holds the two
+# equal.
+AWS_REGIONS = ("ap-east-1", "eu-west-1", "us-east-1")
 
 
 def normalize_aws_account_id(value) -> str:
@@ -604,9 +610,11 @@ def normalize_aws_account_id(value) -> str:
 def sanitize_runtime_profile_aws_regions(value) -> list[str]:
     """Normalize a region list that may arrive as a list or a typed string.
 
-    The form posts one comma-separated string per account; the JSON API and
-    the runtime's canonical shape carry a list. Both end up as a de-duplicated
-    list of the non-blank entries, in the order they were given.
+    The form posts one value per chosen option (joined into a comma-separated
+    string on the way in); the JSON API and the runtime's canonical shape
+    carry a list. Both end up as a de-duplicated list of the supported
+    regions, in the order they were given; a region outside AWS_REGIONS is
+    dropped, since no dropdown could have produced it.
     """
     if isinstance(value, str):
         raw_items = re.split(r"[,\s]+", value)
@@ -616,8 +624,8 @@ def sanitize_runtime_profile_aws_regions(value) -> list[str]:
         return []
     regions: list[str] = []
     for item in raw_items:
-        cleaned = str(item or "").strip()
-        if cleaned and cleaned not in regions:
+        cleaned = str(item or "").strip().lower()
+        if cleaned in AWS_REGIONS and cleaned not in regions:
             regions.append(cleaned)
     return regions
 
@@ -716,6 +724,9 @@ def sanitize_runtime_profile_aws_eks_clusters(value) -> list[dict]:
         if not account or not cluster or not endpoint:
             continue
         region = str(item.get("region") or "").strip().lower()
+        if region and region not in AWS_REGIONS:
+            # A row scoped to a region no dropdown offers is half-formed.
+            continue
         key = (normalize_aws_account_id(account) or account.lower(), region, cluster)
         if key in seen:
             continue
@@ -754,6 +765,10 @@ def sanitize_runtime_profile_aws(value) -> dict:
         cleaned = str(value.get(key) or "").strip()
         if cleaned:
             out[key] = cleaned
+    if out.get("default_region"):
+        out["default_region"] = out["default_region"].lower()
+        if out["default_region"] not in AWS_REGIONS:
+            out.pop("default_region")
     session_duration = sanitize_runtime_profile_aws_session_duration(value.get("session_duration_seconds"))
     if session_duration is not None:
         out["session_duration_seconds"] = session_duration
