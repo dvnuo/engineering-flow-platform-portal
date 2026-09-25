@@ -13259,8 +13259,8 @@ async function startCopilotAuth(root) {
           return;
         }
 
-        setCopilotResultSummary(root, "Authorization complete. API Key field has been filled. Click Save Settings to persist.", "success");
-        showToast("Authorization complete. API Key field has been filled. Click Save Settings to persist.");
+        setCopilotResultSummary(root, "Authorization complete. API Key field has been filled. Click Save to keep it.", "success");
+        showToast("Authorization complete. API Key field has been filled. Click Save to keep it.");
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
         const errorMessage = check.message || check.error || "Authorization failed";
         finishCopilotAuthWithMessage(root, errorMessage);
@@ -13348,18 +13348,6 @@ function initializeManagedSettingsRoot(root) {
       normalizeInstanceInputs(root, group);
       if (group === "aws_accounts") refreshEksAccountOptions(root);
       markManagedSectionTouched(root, touchedSection);
-      return;
-    }
-    const scrollBtn = event.target.closest("[data-scroll-to-section]");
-    if (scrollBtn) {
-      event.preventDefault();
-      // Deliberately not an anchor href: the app owns location.hash for its
-      // own routing, so "#profile-section-jira" would be parsed as a route,
-      // rejected, and bounce the member to Assistants.
-      const target = document.getElementById(scrollBtn.dataset.scrollToSection);
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
-      target?.classList.add("is-scroll-target");
-      window.setTimeout(() => target?.classList.remove("is-scroll-target"), 1400);
       return;
     }
     const testBtn = event.target.closest("[data-test-target]");

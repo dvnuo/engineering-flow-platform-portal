@@ -12,7 +12,7 @@
       <div class="space-y-2" data-provider-fields="github_copilot">
       <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>
       {% set copilot_auth_help = [
-        "Generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save Settings to persist it.",
+        "Generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save to keep it.",
         "GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.",
       ] %}
       {% include "partials/copilot_auth_card.html" %}
@@ -27,4 +27,5 @@
         </div>
         <div class="portal-inline-note">Connection endpoints and transport headers are managed centrally by the Portal configuration.</div>
       </div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="llm">Test model provider</button><div class="portal-inline-state" data-test-result="llm"></div></div>
     </section>

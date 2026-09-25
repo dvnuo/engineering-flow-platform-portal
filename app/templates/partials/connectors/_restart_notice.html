@@ -1,6 +1,7 @@
 {#
   Running assistants still on older connector settings: saving skipped their
-  restart because they were busy. pending_restart_agents: [{id, name}].
+  restart because they were busy, or they were moved onto this member's
+  settings by the single-settings migration. pending_restart_agents: [{id, name}].
 #}
 {% if pending_restart_agents %}
 <section class="portal-panel-section portal-restart-notice" data-restart-notice>
@@ -9,8 +10,8 @@
     <strong>Restart to apply your latest connector changes</strong>
   </div>
   <p class="portal-panel-note">
-    {% if pending_restart_agents|length == 1 %}This assistant was{% else %}These assistants were{% endif %}
-    busy when you saved, so {% if pending_restart_agents|length == 1 %}it is{% else %}they are{% endif %} still using the previous settings.
+    {% if pending_restart_agents|length == 1 %}This assistant is{% else %}These assistants are{% endif %}
+    still running with the settings from before your latest change.
     Restarting interrupts anything {% if pending_restart_agents|length == 1 %}it is{% else %}they are{% endif %} doing right now.
   </p>
   <ul class="portal-restart-notice-list">

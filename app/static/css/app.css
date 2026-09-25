@@ -5491,67 +5491,7 @@ a.message-attachment-file { color: var(--portal-text); }
   line-height: 1.45;
 }
 
-/* -- connections checklist and setup guides ------------------------------- */
-
-.portal-connection-checklist { display: flex; flex-direction: column; gap: 10px; }
-
-.portal-connection-checklist-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.portal-connection-checklist-count {
-  font-size: 0.82rem;
-  color: var(--portal-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.portal-connection-checklist-track {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--portal-surface-soft);
-  overflow: hidden;
-}
-
-.portal-connection-checklist-track i {
-  display: block;
-  height: 100%;
-  background: var(--portal-accent);
-  transition: width var(--portal-transition);
-}
-
-.portal-connection-checklist.is-complete .portal-connection-checklist-track i {
-  background: var(--portal-success);
-}
-
-.portal-connection-checklist-items { display: flex; flex-wrap: wrap; gap: 6px; }
-
-.portal-connection-checklist-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--portal-border);
-  background: var(--portal-surface);
-  color: var(--portal-text-secondary);
-  font-size: 0.82rem;
-  text-decoration: none;
-  transition: border-color var(--portal-transition), color var(--portal-transition);
-}
-
-.portal-connection-checklist-item:hover {
-  border-color: var(--portal-accent);
-  color: var(--portal-text);
-}
-
-.portal-connection-checklist-item.is-connected {
-  color: var(--portal-success);
-  border-color: rgba(22, 163, 74, 0.35);
-}
+/* -- connector setup guides ------------------------------------------------ */
 
 .portal-setup-guide { margin-top: 2px; }
 
@@ -6011,20 +5951,16 @@ html[data-theme="dark"] .portal-onboarding { background: rgba(2, 6, 23, 0.62); }
 
 html[data-theme="dark"] .portal-interactive-card,
 html[data-theme="dark"] .portal-starter-card,
-html[data-theme="dark"] .portal-assistant-type-card,
-html[data-theme="dark"] .portal-connection-checklist-item {
+html[data-theme="dark"] .portal-assistant-type-card {
   background: var(--portal-surface-muted);
 }
 
-html[data-theme="dark"] .portal-connection-checklist-item.is-connected,
 html[data-theme="dark"] .portal-startup-phases li.is-done {
   border-color: rgba(74, 222, 128, 0.35);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .portal-onboarding-dots li,
-  .portal-connection-checklist-track i,
-  .portal-connection-checklist-item,
   .portal-assistant-type-card,
   .portal-question-option,
   .portal-starter-card {
@@ -6226,20 +6162,6 @@ ul.portal-help-steps { list-style: disc; }
 }
 
 .portal-setup-guide-links { display: flex; flex-wrap: wrap; gap: 14px; }
-
-/* Brief highlight so a jump from the checklist lands somewhere visible. */
-.is-scroll-target {
-  animation: portal-scroll-target 1.4s ease-out;
-}
-
-@keyframes portal-scroll-target {
-  0% { background: var(--portal-accent-soft); }
-  100% { background: transparent; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .is-scroll-target { animation: none; outline: 2px solid var(--portal-accent); outline-offset: 4px; }
-}
 
 /* Login page: sign-in method choice + GitHub Copilot device flow. */
 .login-card--methods { padding: 1.5rem 1.4rem 1.3rem; gap: 1.1rem; box-shadow: var(--portal-shadow-lg); animation: portal-auth-card-in .45s cubic-bezier(.22,.61,.36,1) both; }

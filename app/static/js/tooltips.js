@@ -157,6 +157,7 @@
     ['input[name="llm_ai_platform_username"]', "AI Platform account username"],
     ['input[name="llm_ai_platform_password"]', "AI Platform account password"],
     ['input[name="llm_ai_platform_usercase"]', "AI Platform usercase identifier issued to your team"],
+    ['[data-test-target="llm"]', "Send a one-word request to the model provider with these settings"],
 
     // --- connectors: integrations ---
     ['input[name="jira_enabled"]', "Let your assistants read and update Jira"],

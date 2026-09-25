@@ -81,4 +81,6 @@ def verify_connector(
         )
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return ConnectorVerifyResponse.model_validate(result)
