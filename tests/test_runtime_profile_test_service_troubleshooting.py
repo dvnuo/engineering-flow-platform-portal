@@ -299,6 +299,49 @@ def test_pgsql_defaults_the_port_and_reports_a_refused_connection(monkeypatch):
     assert message == "PostgreSQL connection failed for db at db.example.test:5432: connection refused"
 
 
+def test_pgsql_probe_does_not_stall_the_event_loop(monkeypatch):
+    """The connect runs in a thread: other requests keep being served while an
+    unreachable database takes its time to fail."""
+    import asyncio
+    import time
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def slow_connect(address, timeout=None):
+        time.sleep(0.6)
+        return _Conn()
+
+    monkeypatch.setattr(test_service_module.socket, "create_connection", slow_connect)
+
+    async def scenario():
+        stop = asyncio.Event()
+
+        async def ticker():
+            worst, last = 0.0, time.monotonic()
+            while not stop.is_set():
+                await asyncio.sleep(0.02)
+                now = time.monotonic()
+                worst, last = max(worst, now - last), now
+            return worst
+
+        ticking = asyncio.create_task(ticker())
+        await asyncio.sleep(0.05)
+        ok, _message = await RuntimeProfileTestService()._test_pgsql(
+            {"pgsql": {"enabled": True, "instances": [{"name": "db", "host": "db.example.test"}]}}
+        )
+        stop.set()
+        return ok, await ticking
+
+    ok, worst_stall = asyncio.run(scenario())
+    assert ok is True
+    assert worst_stall < 0.3, f"the event loop stalled for {worst_stall:.2f}s"
+
+
 def test_pgsql_needs_an_instance_with_a_host():
     ok, message = _run(RuntimeProfileTestService()._test_pgsql({"pgsql": {"enabled": True, "instances": [{"name": "db"}]}}))
     assert ok is False and "No usable PostgreSQL instance" in message

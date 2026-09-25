@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import socket
 from urllib.parse import urlparse
@@ -174,8 +175,7 @@ class RuntimeProfileTestService:
             port = PGSQL_DEFAULT_PORT
         name = self._instance_label(instance, host)
         try:
-            with socket.create_connection((host, port), timeout=5):
-                pass
+            await asyncio.to_thread(self._tcp_connect, host, port)
         except OSError as exc:
             return False, f"PostgreSQL connection failed for {name} at {host}:{port}: {exc}"
         return (
@@ -183,6 +183,18 @@ class RuntimeProfileTestService:
             f"PostgreSQL TCP reachability OK for {name}: {host}:{port}. "
             "Credentials are verified inside the runtime by `pgsql auth test`.",
         )
+
+    @staticmethod
+    def _tcp_connect(host: str, port: int) -> None:
+        """Open and close one TCP connection, in a worker thread.
+
+        socket.create_connection blocks for as long as an unreachable host takes
+        to fail, and its DNS lookup is not bounded by the timeout at all. Run on
+        the event loop, that stalls every request the Portal is serving, and an
+        unreachable database is the common case here, not the exception.
+        """
+        with socket.create_connection((host, port), timeout=5):
+            pass
 
     async def _test_proxy(self, config: dict) -> tuple[bool, str]:
         proxy_cfg = config.get("proxy") if isinstance(config.get("proxy"), dict) else {}
