@@ -1,4 +1,4 @@
-"""Per-connection setup instructions shown next to each Connections section.
+"""Setup instructions shown in each settings connector's panel (Connectors menu).
 
 The seed fills in *what* a member's connection points at; this fills in *where
 to get the credential and what to paste*. Both halves are needed before "pick a
@@ -162,7 +162,7 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
 
 
 # Sections a member has to complete before the assistant can do useful work.
-# Reported as a checklist so Connections reads as a task with an end, not an
+# Reported as a checklist so setup reads as a task with an end, not an
 # open-ended form.
 TRACKED_SECTIONS = ("llm", "jira", "confluence", "github")
 
@@ -215,7 +215,7 @@ def _section_is_offered(section: str, config: dict) -> bool:
     return bool(isinstance(instances, list) and instances)
 
 
-# Connectors are not runtime-profile sections (they never enter a pod), so they
+# Local connectors run on the member's own PC and never enter a pod, so they
 # get their own table. The panel under Connectors and the Help topic render the
 # same entry, which is why the steps and the troubleshooting lines live here.
 CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
@@ -245,7 +245,7 @@ CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
 
 
 def connection_checklist(config: dict) -> dict[str, Any]:
-    """Build the Connections progress checklist for one profile config."""
+    """Build the setup progress checklist for a member's settings."""
 
     config = config if isinstance(config, dict) else {}
     sections = []

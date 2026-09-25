@@ -49,11 +49,11 @@
 
   {% if topic.connection_section %}
   <div class="portal-help-footer">
-    <button type="button" class="portal-btn is-primary" data-help-open-connections>
-      <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
-      Open Connections
+    <button type="button" class="portal-btn is-primary" data-help-open-connections="{{ topic.connector_type or '' }}">
+      <i data-lucide="plug-zap" class="w-4 h-4"></i>
+      Open {{ topic.connector_label or "Connectors" }}
     </button>
-    <span class="portal-panel-note">Fill this in on your own connection profile.</span>
+    <span class="portal-panel-note">Set it up once in Connectors; every assistant of yours uses it.</span>
   </div>
   {% endif %}
 </div>

@@ -30,7 +30,7 @@ order: 10
 ```
 
 - `title` — the sub-menu label and the page heading. Required.
-- `group` — `Getting started`, `Connections`, `Connectors` or `Working`. A new
+- `group` — `Getting started`, `Connectors` or `Working`. A new
   name creates a new group, listed after those. Required.
 - `summary` — one line shown under the label.
 - `icon` — a [lucide](https://lucide.dev/icons) icon name.
@@ -41,7 +41,7 @@ order: 10
 `connect-<section>.md` (llm, jira, confluence, github, jenkins, nexus, splunk,
 pgsql, mobile, aws, proxy, git) and `<connector>-connector.md`
 (local-browser) hold the long-form
-guide for a Connections section or a Connector. Their title, summary, setup
+guide for a connector. Their title, summary, setup
 steps, setup link and troubleshooting lines come from
 `app/services/connection_guidance.py`, which the form next to the field also
 renders, so the two cannot drift apart. The file adds only `icon` and the

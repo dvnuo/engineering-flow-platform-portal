@@ -49,7 +49,7 @@ from app.services.runtime_profile_context_projection import (
     _has_enabled_external_cli_config,
     project_canonical_for_runtime,
 )
-from app.services.runtime_profile_service import SEED_SECTION_LABELS, RuntimeProfileService
+from app.services.runtime_profile_service import RuntimeProfileService
 from app.web import (
     _MANAGED_TEST_TARGETS,
     TROUBLESHOOTING_CARD_FIELD_SPECS,
@@ -780,10 +780,7 @@ def test_guidance_says_what_to_enter():
         assert section in readme
 
 
-def test_seed_labels_and_default_config_cover_the_sections():
-    assert SEED_SECTION_LABELS["nexus"] == "Nexus"
-    assert SEED_SECTION_LABELS["splunk"] == "Splunk"
-    assert SEED_SECTION_LABELS["pgsql"] == "PostgreSQL"
+def test_default_config_covers_the_sections():
     defaults = RuntimeProfileService.default_profile_config()
     for section in SECTIONS:
         assert defaults[section] == {"enabled": False, "instances": []}

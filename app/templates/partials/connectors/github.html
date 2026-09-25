@@ -1,0 +1,16 @@
+{% from "partials/connectors/_macros.html" import setup_guide with context %}
+<section class="portal-panel-section" id="profile-section-github" data-managed-section="github">
+      {{ setup_guide('github') }}
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable GitHub">
+              <input type="checkbox" name="github_enabled" {% if github.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">GitHub API Base URL</span><input type="text" name="github_base_url" value="{{ github.get('base_url', '') }}" placeholder="https://api.github.com" class="portal-form-input" /><span class="portal-form-hint">Leave blank to use the public GitHub API default.</span></label><label class="portal-form-label"><span class="portal-form-label">API Token</span><input type="password" name="github_api_token" value="{{ raw_github.get('api_token', '') }}" placeholder="GitHub token" class="portal-form-input" /></label></div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="github">Test GitHub</button><div class="portal-inline-state" data-test-result="github"></div></div>
+    </section>
+
+<section class="portal-panel-section" id="profile-section-git" data-managed-section="git"><div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Commit identity</h6></div>
+      {{ setup_guide('git') }}<div class="grid grid-cols-2 gap-3"><label class="portal-form-label"><span class="portal-form-label">User Name</span><input type="text" name="git_user_name" value="{{ raw_git.get('user', {}).get('name', '') }}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">User Email</span><input type="text" name="git_user_email" value="{{ raw_git.get('user', {}).get('email', '') }}" class="portal-form-input" /></label></div></section>

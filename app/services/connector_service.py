@@ -1,9 +1,12 @@
 """Per-member connector settings (docs/CONNECTORS_CONTRACT.md §7).
 
-Every registry type is always present in a member's list, falling back to
-"disabled with defaults" when no row exists, so the Connectors menu can render
-from one call. ``enabled_connectors_for_user`` is the hot path the chat proxy
-uses on every request and stays a single query.
+Every registry type is always present in a member's list so the Connectors
+menu renders from one call. Local connectors fall back to "disabled with
+defaults" when the member has no ``user_connectors`` row; settings connectors
+read their state from the member's settings row (``runtime_profiles``) and
+never return its values here -- their panels render the form server-side.
+``enabled_connectors_for_user`` is the hot path the chat proxy uses on every
+request and stays a single query.
 """
 from __future__ import annotations
 
@@ -19,10 +22,15 @@ from app.config import get_settings
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_connector_repo import UserConnectorRepository
 from app.services.connector_registry import (
+    KIND_LOCAL,
     LOCAL_BROWSER_PLATFORMS,
+    STATE_CONNECTED,
+    STATE_NOT_SET_UP,
+    STATE_OFF,
     ConnectorSpec,
     get_connector_spec,
     list_connector_specs,
+    state_label,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,31 +69,90 @@ def _iso(value: datetime | None) -> str | None:
     return value.replace(microsecond=0).isoformat() + "Z"
 
 
-def _entry(spec: ConnectorSpec, row) -> dict[str, Any]:
+def _local_entry(spec: ConnectorSpec, row) -> dict[str, Any]:
+    enabled = bool(row.enabled) if row is not None else False
+    state = STATE_CONNECTED if enabled else (STATE_OFF if row is not None else STATE_NOT_SET_UP)
     return {
         "type": spec.type,
         "label": spec.label,
         "kind": spec.kind,
         "category": spec.category,
         "description": spec.description,
-        "enabled": bool(row.enabled) if row is not None else False,
+        "icon": spec.icon,
+        "enabled": enabled,
+        "state": state,
+        "status_label": "Enabled" if enabled else "Not enabled",
         "config": _safe_config(spec, row.config_json if row is not None else None),
         "settings": spec.server_settings(),
         "last_verified_at": _iso(row.last_verified_at) if row is not None else None,
     }
 
 
+def settings_entry(spec: ConnectorSpec, member_config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """List entry of a settings connector, read from the member's settings.
+
+    Values stay out: the entry says what state the connector is in, never what
+    it holds.
+    """
+
+    state = spec.state_of(member_config or {})
+    return {
+        "type": spec.type,
+        "label": spec.label,
+        "kind": spec.kind,
+        "category": spec.category,
+        "description": spec.description,
+        "icon": spec.icon,
+        "enabled": state == STATE_CONNECTED,
+        "state": state,
+        "status_label": state_label(spec, state),
+        "config": {},
+        "settings": {},
+        "last_verified_at": None,
+    }
+
+
+def member_settings(db: Session, user) -> dict[str, Any]:
+    """The member's stored settings (creating the row from the seed on first use)."""
+
+    from app.schemas.runtime_profile import parse_runtime_profile_config_json
+    from app.services.runtime_profile_service import RuntimeProfileService
+
+    profile = RuntimeProfileService(db).get_or_create_for_user(user)
+    return parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+
+
+def local_connectors_enabled() -> bool:
+    return bool(get_settings().connectors_enabled)
+
+
 def list_for_user(db: Session, user) -> list[dict[str, Any]]:
+    specs = list_connector_specs(include_local=local_connectors_enabled())
     rows = {row.connector_type: row for row in UserConnectorRepository(db).list_by_owner(user.id)}
-    return [_entry(spec, rows.get(spec.type)) for spec in list_connector_specs()]
+    member_config = member_settings(db, user) if any(spec.is_settings for spec in specs) else {}
+    return [
+        settings_entry(spec, member_config) if spec.is_settings else _local_entry(spec, rows.get(spec.type))
+        for spec in specs
+    ]
 
 
 def get_for_user(db: Session, user, connector_type: str) -> dict[str, Any]:
     """Return the member's entry for ``connector_type``; KeyError when unknown."""
 
     spec = get_connector_spec(connector_type)
+    if spec.is_settings:
+        return settings_entry(spec, member_settings(db, user))
+    if not local_connectors_enabled():
+        raise KeyError(connector_type)
     row = UserConnectorRepository(db).get(user.id, spec.type)
-    return _entry(spec, row)
+    return _local_entry(spec, row)
+
+
+def _require_local(spec: ConnectorSpec) -> None:
+    if spec.kind != KIND_LOCAL:
+        raise ValueError(f"{spec.label} is set up in its Connectors panel, not through this API.")
+    if not local_connectors_enabled():
+        raise KeyError(spec.type)
 
 
 def update_for_user(
@@ -99,6 +166,7 @@ def update_for_user(
     """Validate and store the member's settings; ValueError on bad config."""
 
     spec = get_connector_spec(connector_type)
+    _require_local(spec)
     normalized = spec.normalized_config(config)
     row = UserConnectorRepository(db).upsert(
         user.id,
@@ -113,7 +181,7 @@ def update_for_user(
         user_id=user.id,
         details={"enabled": bool(enabled), "config_keys": sorted(normalized.keys())},
     )
-    return _entry(spec, row)
+    return _local_entry(spec, row)
 
 
 def record_verification(
@@ -125,6 +193,7 @@ def record_verification(
     details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     spec = get_connector_spec(connector_type)
+    _require_local(spec)
     payload = {"ok": bool(ok), "at": _iso(datetime.utcnow()), "details": dict(details or {})}
     row = UserConnectorRepository(db).mark_verified(
         user.id,
@@ -145,6 +214,8 @@ def enabled_connectors_for_user(db: Session, user_id: int | None) -> dict[str, d
         try:
             spec = get_connector_spec(row.connector_type)
         except KeyError:
+            continue
+        if spec.kind != KIND_LOCAL:
             continue
         result[spec.type] = _safe_config(spec, row.config_json)
     return result
@@ -198,6 +269,8 @@ __all__ = [
     "local_browser_download_links",
     "local_browser_download_url",
     "local_browser_start_url",
+    "member_settings",
     "record_verification",
+    "settings_entry",
     "update_for_user",
 ]

@@ -1,0 +1,15 @@
+{% from "partials/connectors/_macros.html" import setup_guide with context %}
+<section class="portal-panel-section" data-instance-group="jenkins" id="profile-section-jenkins" data-managed-section="jenkins">
+      {{ setup_guide('jenkins') }}
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Jenkins">
+              <input type="checkbox" name="jenkins_enabled" {% if jenkins.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <input type="hidden" name="jenkins_instance_count" value="{{ jenkins_instances|length }}" data-instance-count="jenkins" />
+      <div class="space-y-2" data-instance-container="jenkins">{% for inst in jenkins_instances %}<div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="jenkins"><input type="hidden" data-original-field="name" value="{{ inst.get('name','') }}" /><input type="hidden" data-original-field="url" value="{{ inst.get('url','') }}" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable Jenkins instance {{ loop.index }}" {% if inst.get('enabled', True) %}checked{% endif %} /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>{% if inst.get('enabled', True) %}Enabled{% else %}Disabled{% endif %}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="jenkins">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="{{ inst.get('name','') }}" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="{{ inst.get('url','') }}" placeholder="URL (e.g. https://jenkins.example.com)" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="{{ inst.get('username','') }}" placeholder="Username" class="portal-form-input" /><input type="password" data-field="password" value="{{ inst.get('password','') }}" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="{{ inst.get('token','') }}" placeholder="API token" class="portal-form-input" /><div></div></div></div></div>{% endfor %}</div>
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="jenkins">+ Add Jenkins Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="jenkins">Test Jenkins</button><div class="portal-inline-state" data-test-result="jenkins"></div></div>
+    </section>

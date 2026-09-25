@@ -45,7 +45,6 @@ const dom = {
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
   delegationsMenuBtn: document.getElementById("delegations-menu-btn"),
-  runtimeProfilesMenuBtn: document.getElementById("runtime-profiles-menu-btn"),
   connectorsMenuBtn: document.getElementById("connectors-menu-btn"),
   portalShell: document.querySelector(".portal-shell"),
   secondaryDrawerBackdrop: document.getElementById("secondary-drawer-backdrop"),
@@ -57,7 +56,6 @@ const dom = {
   secondaryPaneActions: document.getElementById("secondary-pane-actions"),
   assistantsNavSection: document.getElementById("assistants-nav-section"),
   tasksNavSection: document.getElementById("tasks-nav-section"),
-  runtimeProfilesNavSection: document.getElementById("runtime-profiles-nav-section"),
   connectorsNavSection: document.getElementById("connectors-nav-section"),
   connectorNavList: document.getElementById("connector-nav-list"),
   delegationsNavSection: document.getElementById("delegations-nav-section"),
@@ -71,13 +69,11 @@ const dom = {
   taskStatusFilter: document.getElementById("task-status-filter"),
   taskFilterSummary: document.getElementById("task-filter-summary"),
   taskNavList: document.getElementById("task-nav-list"),
-  runtimeProfileNavList: document.getElementById("runtime-profile-nav-list"),
   delegationOwnerFilter: document.getElementById("delegation-owner-filter"),
   delegationSourceFilter: document.getElementById("delegation-source-filter"),
   delegationFilterSummary: document.getElementById("delegation-filter-summary"),
   delegationRuleNavList: document.getElementById("delegation-rule-nav-list"),
   addTaskBtn: document.getElementById("add-task-btn"),
-  addRuntimeProfileBtn: document.getElementById("add-runtime-profile-btn"),
   addDelegationBtn: document.getElementById("add-delegation-btn"),
   headerAddAllowlistBtn: document.getElementById("header-add-allowlist-btn"),
   headerAddAssistantTypeBtn: document.getElementById("header-add-assistant-type-btn"),
@@ -100,12 +96,6 @@ const dom = {
   homeCreateAgentBtn: document.getElementById("home-create-agent-btn"),
   homeOpenTasksBtn: document.getElementById("home-open-tasks-btn"),
   homeOpenDelegationsBtn: document.getElementById("home-open-delegations-btn"),
-  createRuntimeProfileModal: document.getElementById("create-runtime-profile-modal"),
-  createRuntimeProfileForm: document.getElementById("create-runtime-profile-form"),
-  createRuntimeProfileMsg: document.getElementById("create-runtime-profile-msg"),
-  createRuntimeProfileSource: document.getElementById("create-runtime-profile-source"),
-  createRuntimeProfileSourceDetail: document.getElementById("create-runtime-profile-source-detail"),
-  closeCreateRuntimeProfileModal: document.getElementById("close-create-runtime-profile-modal"),
   addAgentBtn: document.getElementById("add-agent-btn"),
   editForm: document.getElementById("edit-form"),
 };
@@ -154,19 +144,21 @@ const PORTAL_ROUTE_SECTIONS = new Set([
   "assistants",
   "tasks",
   "help",
-  "runtime-profiles",
   "connectors",
   "delegations",
   "users",
 ]);
 const DEFAULT_PORTAL_ROUTE_SECTION = "assistants";
+// Links saved before Connections became Connectors still open the right place.
+const LEGACY_PORTAL_ROUTE_SECTIONS = { "runtime-profiles": "connectors" };
+
+function canonicalPortalRouteSection(section) {
+  return LEGACY_PORTAL_ROUTE_SECTIONS[section] || section;
+}
 
 function isPortalRouteSectionAvailable(section) {
   if (!PORTAL_ROUTE_SECTIONS.has(section)) return false;
   if (section === "users") return Boolean(dom.usersMenuBtn);
-  // Connectors is feature-gated server-side; the rail button only renders when
-  // CONNECTORS_ENABLED is on.
-  if (section === "connectors") return Boolean(dom.connectorsMenuBtn);
   return true;
 }
 
@@ -180,7 +172,7 @@ function initialPortalRouteSectionFromHash(hash = window.location.hash) {
   const pathPart = queryIndex >= 0 ? routeText.slice(0, queryIndex) : routeText;
   const encodedSection = pathPart.split("/")[0] || "";
   try {
-    const section = decodeURIComponent(encodedSection);
+    const section = canonicalPortalRouteSection(decodeURIComponent(encodedSection));
     return isPortalRouteSectionAvailable(section) ? section : DEFAULT_PORTAL_ROUTE_SECTION;
   } catch (_error) {
     return DEFAULT_PORTAL_ROUTE_SECTION;
@@ -191,7 +183,6 @@ const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
 
 function initialPortalSectionTitle(section) {
   if (section === "tasks") return "Tasks";
-  if (section === "runtime-profiles") return "Connections";
   if (section === "connectors") return "Connectors";
   if (section === "delegations") return "Delegations";
   if (section === "users") return "Administration";
@@ -201,8 +192,7 @@ function initialPortalSectionTitle(section) {
 
 function initialPortalStatusText(section) {
   if (section === "tasks") return "Task health, workload, and recent activity";
-  if (section === "runtime-profiles") return "Browse and manage your connection profiles";
-  if (section === "connectors") return "Local devices and tools your assistants can use";
+  if (section === "connectors") return "Everything your assistants can connect to";
   if (section === "delegations") return "Manage delegations";
   if (section === "users") return "Manage members, roles, access, and usage";
   if (section === "help") return "Guides for setting up and working with assistants";
@@ -221,7 +211,6 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   const railButtons = {
     assistants: dom.railAssistantsBtn,
     tasks: dom.tasksMenuBtn,
-    "runtime-profiles": dom.runtimeProfilesMenuBtn,
     connectors: dom.connectorsMenuBtn,
     delegations: dom.delegationsMenuBtn,
     users: dom.usersMenuBtn,
@@ -230,7 +219,6 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   const navSections = {
     assistants: dom.assistantsNavSection,
     tasks: dom.tasksNavSection,
-    "runtime-profiles": dom.runtimeProfilesNavSection,
     connectors: dom.connectorsNavSection,
     delegations: dom.delegationsNavSection,
     users: dom.usersNavSection,
@@ -246,13 +234,11 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   const actionButtons = [
     dom.addAgentBtn,
     dom.addTaskBtn,
-    dom.addRuntimeProfileBtn,
     dom.addDelegationBtn,
   ];
   actionButtons.forEach((button) => button?.classList.add("hidden"));
   if (normalized === "assistants") dom.addAgentBtn?.classList.remove("hidden");
   if (normalized === "tasks") dom.addTaskBtn?.classList.remove("hidden");
-  if (normalized === "runtime-profiles") dom.addRuntimeProfileBtn?.classList.remove("hidden");
   if (normalized === "delegations") dom.addDelegationBtn?.classList.remove("hidden");
 
   const title = initialPortalSectionTitle(normalized);
@@ -504,8 +490,6 @@ const state = {
   selectedTaskId: null,
   serverFilesRootPath: null,
   serverFilesCurrentPath: null,
-  runtimeProfiles: [],
-  selectedRuntimeProfileId: null,
   connectors: [],
   selectedConnectorType: null,
   delegations: [],
@@ -536,7 +520,6 @@ function parsePortalHashRoute(hash = window.location.hash) {
     section: DEFAULT_PORTAL_ROUTE_SECTION,
     agentId: "",
     taskId: "",
-    runtimeProfileId: "",
     connectorType: "",
     delegationRuleId: "",
     userManagementView: "",
@@ -554,7 +537,8 @@ function parsePortalHashRoute(hash = window.location.hash) {
   const pathPart = queryIndex >= 0 ? routeText.slice(0, queryIndex) : routeText;
   const queryString = queryIndex >= 0 ? routeText.slice(queryIndex + 1) : "";
   const encodedParts = pathPart.split("/");
-  const section = safeDecodeRouteComponent(encodedParts[0]);
+  const decodedSection = safeDecodeRouteComponent(encodedParts[0]);
+  const section = decodedSection === null ? null : canonicalPortalRouteSection(decodedSection);
   if (!section || !isPortalRouteSectionAvailable(section)) return fallback;
 
   const parsed = {
@@ -569,13 +553,15 @@ function parsePortalHashRoute(hash = window.location.hash) {
 
   const decodedId = safeDecodeRouteComponent(encodedParts[1] || "");
   if (decodedId === null) return fallback;
+  if (decodedSection !== section) {
+    // A legacy #/runtime-profiles/<id> names a profile, not a connector.
+    return parsed;
+  }
 
   if (section === "assistants") {
     parsed.agentId = decodedId;
   } else if (section === "tasks") {
     parsed.taskId = decodedId;
-  } else if (section === "runtime-profiles") {
-    parsed.runtimeProfileId = decodedId;
   } else if (section === "connectors") {
     parsed.connectorType = decodedId;
   } else if (section === "delegations") {
@@ -600,11 +586,6 @@ function portalHashForRoute(route = {}) {
   if (section === "tasks") {
     const taskId = route.taskId ? String(route.taskId) : "";
     return taskId ? `#/tasks/${encodeURIComponent(taskId)}` : "#/tasks";
-  }
-
-  if (section === "runtime-profiles") {
-    const runtimeProfileId = route.runtimeProfileId ? String(route.runtimeProfileId) : "";
-    return runtimeProfileId ? `#/runtime-profiles/${encodeURIComponent(runtimeProfileId)}` : "#/runtime-profiles";
   }
 
   if (section === "connectors") {
@@ -638,10 +619,6 @@ function currentPortalRouteFromState() {
 
   if (section === "tasks") {
     return { section, taskId: state.selectedTaskId || "" };
-  }
-
-  if (section === "runtime-profiles") {
-    return { section, runtimeProfileId: state.selectedRuntimeProfileId || "" };
   }
 
   if (section === "connectors") {
@@ -679,8 +656,6 @@ function replacePortalRouteFromState() {
 function clearPortalSectionDetailSelection(section) {
   if (section === "tasks") {
     state.selectedTaskId = null;
-  } else if (section === "runtime-profiles") {
-    state.selectedRuntimeProfileId = null;
   } else if (section === "connectors") {
     state.selectedConnectorType = null;
   } else if (section === "delegations") {
@@ -706,7 +681,6 @@ async function openPortalSection(section, {
 
   const hadDetailSelection = (
     (section === "tasks" && !!state.selectedTaskId) ||
-    (section === "runtime-profiles" && !!state.selectedRuntimeProfileId) ||
     (section === "connectors" && !!state.selectedConnectorType) ||
     (section === "delegations" && !!state.selectedDelegationRuleId) ||
     (section === "users" && !!state.selectedUserManagementView)
@@ -716,7 +690,7 @@ async function openPortalSection(section, {
   // not a specific detail item.
   clearPortalSectionDetailSelection(section);
 
-  const opensDetailByDefault = section === "runtime-profiles" || section === "connectors";
+  const opensDetailByDefault = section === "connectors";
 
   if (!isApplyingPortalRoute && !opensDetailByDefault) {
     commitPortalRoute(portalSectionRoute(section), { replace });
@@ -751,16 +725,11 @@ async function applyPortalRouteFromHash({ replaceInvalid = false } = {}) {
     }
   }
 
-  const shouldNormalizeRuntimeProfileLandingRoute =
-    route.valid &&
-    route.section === "runtime-profiles" &&
-    !route.runtimeProfileId &&
-    state.selectedRuntimeProfileId;
-  if (shouldNormalizeRuntimeProfileLandingRoute) {
-    commitPortalRoute(
-      { section: "runtime-profiles", runtimeProfileId: state.selectedRuntimeProfileId },
-      { replace: true }
-    );
+  // A legacy #/runtime-profiles link lands on Connectors; rewrite the address.
+  const landedOnLegacySection = route.valid && route.hadHash
+    && !String(route.raw || "").replace(/^#\/?/, "").startsWith(route.section);
+  if (landedOnLegacySection) {
+    commitPortalRoute(currentPortalRouteFromState(), { replace: true });
     return;
   }
 
@@ -804,21 +773,6 @@ async function applyPortalRoute(route, { replaceInvalid = false } = {}) {
       await openTaskDetailInMain(route.taskId, { updateRoute: false });
     } else {
       await setActiveNavSection("tasks", {
-        toggleIfSame: false,
-        updateRoute: false,
-        preferSectionLanding: true,
-      });
-    }
-    return;
-  }
-
-  if (route.section === "runtime-profiles") {
-    if (route.runtimeProfileId) {
-      await setActiveNavSection("runtime-profiles", { toggleIfSame: false, updateRoute: false });
-      await refreshRuntimeProfileList({ preserveSelection: true });
-      await openRuntimeProfileInMain(route.runtimeProfileId, { ensureSection: false, updateRoute: false });
-    } else {
-      await setActiveNavSection("runtime-profiles", {
         toggleIfSame: false,
         updateRoute: false,
         preferSectionLanding: true,
@@ -6466,6 +6420,10 @@ function agentScope(agent) {
   return Number(agent?.owner_user_id) === state.currentUserId ? "mine" : "shared";
 }
 
+function agentSettingsRestartPending(agent) {
+  return Boolean(state.agentStatus.get(agent?.id)?.settings_restart_pending);
+}
+
 function agentRuntimeStatus(agent) {
   return String(state.agentStatus.get(agent?.id)?.status || agent?.status || "stopped").trim().toLowerCase() || "stopped";
 }
@@ -6494,15 +6452,6 @@ function agentHealth(agent) {
       label: "Needs attention",
       detail: lastError ? compactText(lastError, 120) : "The runtime reported an error.",
       action: writable ? (status === "running" ? "Restart" : "Start") : "",
-    };
-  }
-  if (!agent?.runtime_profile_id) {
-    return {
-      key: "attention",
-      tone: "warning",
-      label: "Needs setup",
-      detail: "This assistant has no connection profile.",
-      action: writable ? "Edit setup" : "",
     };
   }
   if (status === "restarting") {
@@ -6543,6 +6492,17 @@ function agentHealth(agent) {
       detail: "Pausing the runtime.",
       action: "",
       busy: true,
+    };
+  }
+  if (status === "running" && agentSettingsRestartPending(agent)) {
+    // Saving a connector restarts idle assistants; this one was busy, so it
+    // still runs with the previous settings until someone restarts it.
+    return {
+      key: "ready",
+      tone: "warning",
+      label: "Restart to apply",
+      detail: "Your connector settings changed since this assistant started. Restart it when it is free to use them.",
+      action: writable ? "Restart" : "",
     };
   }
   if (status === "running") {
@@ -7199,7 +7159,7 @@ function announceStartupWatch(agent) {
 // waiting for the next full refresh. Renders the list once, not once per agent.
 async function applyAgentStatusSnapshot(entries, { source = "poll" } = {}) {
   const agentsById = new Map((state.mineAgents || []).map((agent) => [agent.id, agent]));
-  const readingOf = (agent) => `${agentRuntimeStatus(agent)}|${String(agent?.last_error || state.agentStatus.get(agent?.id)?.last_error || "").trim()}`;
+  const readingOf = (agent) => `${agentRuntimeStatus(agent)}|${agentSettingsRestartPending(agent)}|${String(agent?.last_error || state.agentStatus.get(agent?.id)?.last_error || "").trim()}`;
   let selectedPrevious = null;
   let selectedCurrent = null;
   const changed = [];
@@ -8663,7 +8623,7 @@ const COMPLETION_FAILURE_HINTS = [
   {
     match: /\b401\b|unauthorized|token is required|token exchange failed/i,
     headline: "The model provider rejected your credentials",
-    detail: "Your access may have expired. Reconnect the provider in Connections.",
+    detail: "Your access may have expired. Reconnect it in Connectors → Model provider.",
   },
   {
     match: /timed out|timeout/i,
@@ -10570,7 +10530,6 @@ async function openOverviewAgent(agentId) {
 
 function getSecondaryPaneLabel() {
   if (state.activeNavSection === "tasks") return "Tasks";
-  if (state.activeNavSection === "runtime-profiles") return "Connections";
   if (state.activeNavSection === "connectors") return "Connectors";
   if (state.activeNavSection === "delegations") return "Delegations";
   if (state.activeNavSection === "users") return "Administration";
@@ -10631,11 +10590,9 @@ function renderSecondaryPaneHeader() {
   if (!dom.secondaryPaneEyebrow || !dom.secondaryPaneTitle || !dom.secondaryPaneActions) return;
   const addAgentBtn = dom.addAgentBtn;
   const addTaskBtn = dom.addTaskBtn;
-  const addRuntimeProfileBtn = dom.addRuntimeProfileBtn;
   const addDelegationBtn = dom.addDelegationBtn;
   if (addAgentBtn) addAgentBtn.classList.add("hidden");
   if (addTaskBtn) addTaskBtn.classList.add("hidden");
-  if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.add("hidden");
   if (addDelegationBtn) addDelegationBtn.classList.add("hidden");
 
   if (state.activeNavSection === "assistants") {
@@ -10650,10 +10607,6 @@ function renderSecondaryPaneHeader() {
     dom.secondaryPaneEyebrow.textContent = "Workspace";
     dom.secondaryPaneTitle.textContent = "Delegations";
     if (addDelegationBtn) addDelegationBtn.classList.remove("hidden");
-  } else if (state.activeNavSection === "runtime-profiles") {
-    dom.secondaryPaneEyebrow.textContent = "My Space";
-    dom.secondaryPaneTitle.textContent = "Connections";
-    if (addRuntimeProfileBtn) addRuntimeProfileBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "connectors") {
     dom.secondaryPaneEyebrow.textContent = "My Space";
     dom.secondaryPaneTitle.textContent = "Connectors";
@@ -10723,8 +10676,8 @@ const ADMIN_PANEL_HEADINGS = {
     status: "Presets members choose from when creating an assistant",
   },
   "default-connections": {
-    title: "Default Connections",
-    status: "The connection shape every new member inherits",
+    title: "Default connectors",
+    status: "Connector settings every new member starts with",
   },
 };
 
@@ -10775,10 +10728,7 @@ function syncMainHeader() {
       setChatStatus(heading.status);
     } else if (state.activeNavSection === "connectors") {
       dom.embedTitle.textContent = "Connectors";
-      setChatStatus("Local devices and tools your assistants can use");
-    } else {
-      dom.embedTitle.textContent = "Connections";
-      setChatStatus("Browse and manage your connection profiles");
+      setChatStatus("Everything your assistants can connect to");
     }
   }
 }
@@ -10809,10 +10759,6 @@ function syncDefaultMainViewForSection(section) {
     loadTaskOverviewPanel();
     return;
   }
-  if (section === "runtime-profiles") {
-    renderWorkspaceDetailPlaceholder("Select a connection profile from the left sidebar.", "runtime-profiles-placeholder");
-    return;
-  }
   if (section === "connectors") {
     renderWorkspaceDetailPlaceholder("Select a connector from the left sidebar.", "connectors-placeholder");
     return;
@@ -10836,10 +10782,9 @@ async function setActiveNavSection(section, {
   const sidebarWasCollapsed = state.secondaryPaneCollapsed;
   const validSections = typeof PORTAL_ROUTE_SECTIONS !== "undefined"
     ? PORTAL_ROUTE_SECTIONS
-    : new Set(["assistants", "tasks", "runtime-profiles", "connectors", "delegations", "users"]);
+    : new Set(["assistants", "tasks", "connectors", "delegations", "users"]);
   if (!validSections.has(section)) return;
   if (section === "users" && !dom.usersMenuBtn) return;
-  if (section === "connectors" && !dom.connectorsMenuBtn) return;
 
   if (preferSectionLanding) {
     clearPortalSectionDetailSelection(section);
@@ -10859,7 +10804,6 @@ async function setActiveNavSection(section, {
 
   dom.railAssistantsBtn?.classList.toggle("is-active", state.activeNavSection === "assistants");
   dom.tasksMenuBtn?.classList.toggle("is-active", state.activeNavSection === "tasks");
-  dom.runtimeProfilesMenuBtn?.classList.toggle("is-active", state.activeNavSection === "runtime-profiles");
   dom.connectorsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "connectors");
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
   dom.usersMenuBtn?.classList.toggle("is-active", state.activeNavSection === "users");
@@ -10867,7 +10811,6 @@ async function setActiveNavSection(section, {
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
-  dom.runtimeProfilesNavSection?.classList.toggle("hidden", state.activeNavSection !== "runtime-profiles");
   dom.connectorsNavSection?.classList.toggle("hidden", state.activeNavSection !== "connectors");
   dom.delegationsNavSection?.classList.toggle("hidden", state.activeNavSection !== "delegations");
   dom.usersNavSection?.classList.toggle("hidden", state.activeNavSection !== "users");
@@ -10915,8 +10858,6 @@ async function setActiveNavSection(section, {
       showAssistantDefaultMainView();
     } else if (section === "tasks") {
       showTasksLoadingMainView();
-    } else if (section === "runtime-profiles") {
-      renderWorkspaceDetailPlaceholder("Loading connection profiles…", "runtime-profiles-loading");
     } else if (section === "connectors") {
       renderWorkspaceDetailPlaceholder("Loading connectors…", "connectors-loading");
     } else if (section === "delegations") {
@@ -10926,40 +10867,6 @@ async function setActiveNavSection(section, {
 
   if (state.activeNavSection === "users" && preferSectionLanding) {
     await openUsersInMain({ ensureSection: false, updateRoute: false });
-  }
-
-  if (state.activeNavSection === "runtime-profiles" && shouldRefreshVisibleSection) {
-    await refreshRuntimeProfileList({ preserveSelection: !preferSectionLanding });
-    if (state.activeNavSection === "runtime-profiles" && !state.secondaryPaneCollapsed) {
-      if (preferSectionLanding) {
-        const targetProfile = state.runtimeProfiles[0] || null;
-        const targetProfileId = targetProfile ? targetProfile.id : null;
-        state.selectedRuntimeProfileId = targetProfileId;
-        renderRuntimeProfileList();
-        if (targetProfileId) {
-          await loadRuntimeProfilePanelContent(targetProfileId, { updateRoute: false });
-          if (updateRoute && !isApplyingPortalRoute) {
-            commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: targetProfileId });
-          }
-        } else {
-          renderWorkspaceDetailPlaceholder("No connection profiles found.", "runtime-profiles-placeholder");
-        }
-      } else {
-        const defaultProfile = state.runtimeProfiles.find((item) => item.is_default);
-        const preferredProfile = defaultProfile || state.runtimeProfiles[0] || null;
-        let targetProfileId = null;
-        if (didSwitchSection || didRevealPane) {
-          targetProfileId = preferredProfile ? preferredProfile.id : null;
-          state.selectedRuntimeProfileId = targetProfileId;
-        }
-
-        if (targetProfileId) {
-          await loadRuntimeProfilePanelContent(targetProfileId, { updateRoute: false });
-        } else {
-          renderWorkspaceDetailPlaceholder("No connection profiles found.", "runtime-profiles-placeholder");
-        }
-      }
-    }
   }
 
   if (state.activeNavSection === "connectors" && shouldRefreshVisibleSection) {
@@ -12780,7 +12687,7 @@ function refreshEksAccountOptions(root) {
 
 // Per-product placeholder copy for a freshly added instance card. Kept as a
 // plain lookup table (not inline ternaries) so it stays in step with the
-// server-rendered cards in the runtime-profile/settings panel templates.
+// server-rendered cards in the connector form templates (partials/connectors/).
 // The nexus/splunk/pgsql entries are copies of TROUBLESHOOTING_CARD_PLACEHOLDERS
 // in app/web.py, which renders the saved cards; a test holds the two equal.
 const INSTANCE_GROUP_PLACEHOLDERS = {
@@ -12861,7 +12768,7 @@ function instanceGroupItemTitle(group) {
 
 // The AWS account card: no URL/credentials, one row per account the aws-auth
 // CLI may assume a role in. Must stay structurally identical to the server-
-// rendered card in partials/runtime_profile_panel.html + settings_panel.html.
+// rendered card in partials/connectors/aws.html.
 function awsAccountCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_accounts;
   return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${placeholders.name}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${placeholders.account_id}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${placeholders.role}" class="portal-form-input" /><select multiple size="${AWS_REGIONS.length}" data-field="regions" class="portal-form-select">${regionOptionsHtml()}</select></div></div>`;
@@ -12869,8 +12776,7 @@ function awsAccountCardHtml(label) {
 
 // The EKS private-endpoint card: one cluster reached through PrivateLink,
 // belonging to one of the account rows. Must stay structurally identical to
-// the server-rendered card in partials/runtime_profile_panel.html +
-// settings_panel.html.
+// the server-rendered card in partials/connectors/aws.html.
 function awsEksClusterCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_eks_clusters;
   return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">EKS cluster</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><select data-field="account" class="portal-form-select"><option value="">Choose an account</option></select><input type="text" data-field="cluster" value="" placeholder="${placeholders.cluster}" class="portal-form-input" /><select data-field="region" class="portal-form-select">${regionOptionsHtml("Any region")}</select></div><div class="grid grid-cols-3 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${placeholders.private_endpoint}" class="portal-form-input" /><select data-field="server_ca" class="portal-form-select"><option value="cluster" selected>Cluster CA (endpoint passes TLS through)</option><option value="system">System trust store (endpoint has its own certificate)</option></select><input type="text" data-field="tls_server_name" value="" placeholder="${placeholders.tls_server_name}" class="portal-form-input" /></div></div>`;
@@ -12983,7 +12889,7 @@ function addInstanceRow(root, group) {
   }
 
   // Must stay structurally identical to the server-rendered card in
-  // partials/runtime_profile_panel.html + partials/settings_panel.html,
+  // partials/connectors/ (jira.html, confluence.html, jenkins.html),
   // otherwise a freshly added row looks different from the saved ones.
   const scopedFieldHtml = group === "jira"
     ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
@@ -13398,7 +13304,6 @@ function initializeManagedSettingsRoot(root) {
     const message = (settingsStatus.textContent || "").trim();
     if (kind === "success" && message) {
       showToast(message);
-      if (root.id === "settings-panel-root") closeToolPanel();
     }
     if (kind === "error" && typeof settingsStatus.focus === "function") settingsStatus.focus();
   }
@@ -13483,37 +13388,11 @@ function initializeManagedSettingsRoot(root) {
 }
 
 function initializeManagedSettingsPanels() {
-  initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
-  initializeManagedSettingsRoot(document.getElementById("runtime-profile-panel-root"));
-  // Default Connections reuses the same instance add/remove, model-select, and
+  // One settings connector panel (Connectors menu) at a time.
+  initializeManagedSettingsRoot(document.getElementById("connector-settings-panel-root"));
+  // Default connectors reuses the same instance add/remove, model-select, and
   // Copilot-authorization machinery; it seeds the shared values those fields hold.
   initializeManagedSettingsRoot(document.getElementById("default-connections-panel-root"));
-}
-
-function initializeSettingsPanel() {
-  initializeManagedSettingsRoot(document.getElementById("settings-panel-root"));
-}
-
-async function openSettings() {
-  if (!state.selectedAgentId) return;
-  const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
-  if (!canWriteAgent(agent)) {
-    setToolPanel("Settings", `<div class="portal-inline-state is-error">You do not have permission to modify this assistant's settings.</div>`);
-    return;
-  }
-
-
-  setToolPanel("Settings", '<div class="portal-inline-state">Loading settings…</div>');
-
-  try {
-    await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/settings/panel`, {
-      target: "#tool-panel-body",
-      swap: "innerHTML",
-    });
-    initializeSettingsPanel();
-  } catch (error) {
-    setToolPanel("Settings", `Failed: ${safe(error.message)}`);
-  }
 }
 
 async function setModalFeedback(el, kind, text) {
@@ -13893,20 +13772,6 @@ async function removeAgent(agent) {
   }
 }
 
-async function loadRuntimeProfiles(force = false) {
-  if (!force && state.runtimeProfiles && state.runtimeProfiles.length > 0) {
-    return state.runtimeProfiles;
-  }
-  try {
-    const profiles = await api('/api/runtime-profiles/options');
-    state.runtimeProfiles = Array.isArray(profiles) ? profiles : [];
-    return state.runtimeProfiles;
-  } catch (_err) {
-    state.runtimeProfiles = [];
-    return [];
-  }
-}
-
 async function loadAgentDefaults(force = false) {
   if (!force && state.agentDefaults) {
     return state.agentDefaults;
@@ -13916,7 +13781,7 @@ async function loadAgentDefaults(force = false) {
   return defaults;
 }
 
-const CREATE_AGENT_STEPS = ["runtime", "profile", "instructions", "skills", "review"];
+const CREATE_AGENT_STEPS = ["runtime", "instructions", "skills", "review"];
 
 function createAgentStepIndex(step) {
   const index = CREATE_AGENT_STEPS.indexOf(step);
@@ -13929,12 +13794,6 @@ function createAgentFieldValue(form, name) {
 
 function createAgentRuntimeType(form, defaults) {
   return normalizeRuntimeTypeValue(createAgentFieldValue(form, "runtime_type"), defaults || state.agentDefaults || {});
-}
-
-function createAgentSelectedProfileLabel(form) {
-  const select = form?.elements?.["runtime_profile_id"];
-  if (!select || !select.value) return "";
-  return select.options?.[select.selectedIndex]?.textContent || select.value;
 }
 
 function setCreateAgentRepoFeedback(elementId, kind, message) {
@@ -14007,15 +13866,6 @@ async function refreshCreateRepoBranches(kind) {
   }
 }
 
-function syncCreateRuntimeProfileState(form) {
-  const profiles = state.runtimeProfiles || [];
-  const hasProfiles = profiles.length > 0;
-  const select = form?.elements?.["runtime_profile_id"];
-  if (select) select.disabled = !hasProfiles;
-  const emptyEl = document.getElementById("create-runtime-profile-empty");
-  emptyEl?.classList.toggle("hidden", hasProfiles);
-}
-
 function renderCreateAgentReview(form, defaults) {
   const reviewEl = document.getElementById("create-agent-review");
   if (!reviewEl) return;
@@ -14025,7 +13875,6 @@ function renderCreateAgentReview(form, defaults) {
     ["Assistant Name", createAgentFieldValue(form, "name") || "Untitled"],
     ["Runtime Type", runtimeType],
     ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
-    ["Connections", createAgentSelectedProfileLabel(form) || "Not selected"],
     ["Instructions Repository", createAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
     ["Instructions Branch", createAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
     ["Skill Repository", createAgentFieldValue(form, "skill_repo_url") || "Configured default"],
@@ -14058,7 +13907,6 @@ function setCreateAgentStep(form, step) {
       indicator.removeAttribute("aria-current");
     }
   });
-  syncCreateRuntimeProfileState(form);
   const actions = form.querySelector(".create-agent-wizard-actions");
   actions?.classList.toggle("is-review", normalizedStep === "review");
   const backButton = form.querySelector("[data-create-back]");
@@ -14080,22 +13928,6 @@ function validateCreateAgentStep(form) {
       return false;
     }
   }
-  if (step === "profile") {
-    if (!(state.runtimeProfiles || []).length) {
-      if (msgEl) {
-        msgEl.textContent = "Create a connection profile first.";
-        setModalFeedback(msgEl, "error", msgEl.textContent);
-      }
-      return false;
-    }
-    if (!createAgentFieldValue(form, "runtime_profile_id")) {
-      if (msgEl) {
-        msgEl.textContent = "Choose a connection profile.";
-        setModalFeedback(msgEl, "error", msgEl.textContent);
-      }
-      return false;
-    }
-  }
   return true;
 }
 
@@ -14106,7 +13938,7 @@ function moveCreateAgentStep(form, direction) {
   setCreateAgentStep(form, CREATE_AGENT_STEPS[nextIndex]);
 }
 
-const EDIT_AGENT_STEPS = ["runtime", "profile", "instructions", "skills", "review"];
+const EDIT_AGENT_STEPS = ["runtime", "instructions", "skills", "review"];
 
 function editAgentStepIndex(step) {
   const index = EDIT_AGENT_STEPS.indexOf(step);
@@ -14120,10 +13952,6 @@ function editAgentFieldValue(form, name) {
 function editAgentRuntimeType(form, defaults) {
   const runtimeType = form?.dataset?.runtimeType || "native";
   return normalizeRuntimeTypeValue(runtimeType, defaults || state.agentDefaults || {});
-}
-
-function editAgentSelectedProfileLabel(form) {
-  return createAgentSelectedProfileLabel(form);
 }
 
 function setEditAgentRepoFeedback(elementId, kind, message) {
@@ -14160,15 +13988,6 @@ async function refreshEditRepoBranches(kind) {
   }
 }
 
-function syncEditRuntimeProfileState(form) {
-  const profiles = state.runtimeProfiles || [];
-  const hasProfiles = profiles.length > 0;
-  const select = form?.elements?.["runtime_profile_id"];
-  if (select) select.disabled = !hasProfiles;
-  const emptyEl = document.getElementById("edit-runtime-profile-empty");
-  emptyEl?.classList.toggle("hidden", hasProfiles);
-}
-
 function editRuntimeTypeLabel(form, defaults) {
   const runtimeType = editAgentRuntimeType(form, defaults);
   const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
@@ -14191,7 +14010,6 @@ function renderEditAgentReview(form, defaults) {
     ["Assistant Name", editAgentFieldValue(form, "name") || "Untitled"],
     ["Runtime Type", editRuntimeTypeLabel(form, defaults)],
     ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
-    ["Connections", editAgentSelectedProfileLabel(form) || "Not selected"],
     ["Instructions Repository", editAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
     ["Instructions Branch", editAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
     ["Skill Repository", editAgentFieldValue(form, "skill_repo_url") || "Configured default"],
@@ -14223,7 +14041,6 @@ function setEditAgentStep(form, step) {
       indicator.removeAttribute("aria-current");
     }
   });
-  syncEditRuntimeProfileState(form);
   updateEditRuntimeTypeDisplay(form, state.agentDefaults || {});
   const actions = form.querySelector(".edit-agent-wizard-actions");
   actions?.classList.toggle("is-review", normalizedStep === "review");
@@ -14243,22 +14060,6 @@ function validateEditAgentStep(form) {
     const nameInput = form?.elements?.["name"];
     if (nameInput && !nameInput.checkValidity()) {
       nameInput.reportValidity();
-      return false;
-    }
-  }
-  if (step === "profile") {
-    if (!(state.runtimeProfiles || []).length) {
-      if (msgEl) {
-        msgEl.textContent = "Create a connection profile first.";
-        setModalFeedback(msgEl, "error", msgEl.textContent);
-      }
-      return false;
-    }
-    if (!editAgentFieldValue(form, "runtime_profile_id")) {
-      if (msgEl) {
-        msgEl.textContent = "Choose a connection profile.";
-        setModalFeedback(msgEl, "error", msgEl.textContent);
-      }
       return false;
     }
   }
@@ -14404,151 +14205,19 @@ function applyCreateAgentDefaults(form, defaults) {
     branchInput.defaultValue = branchDefault;
     populateBranchSelect("create-skill-branch-select", [], branchDefault, branchDefault);
   }
-  const runtimeProfileSelect = form.elements["runtime_profile_id"];
-  if (runtimeProfileSelect) {
-    const defaultRuntimeProfileId = defaults?.default_runtime_profile_id || "";
-    if (defaultRuntimeProfileId) runtimeProfileSelect.value = defaultRuntimeProfileId;
-  }
   const runtimeTypeGroup = document.getElementById("create-runtime-type-select");
   populateRuntimeTypeRadioGroup(runtimeTypeGroup, defaults, getCreateDefaultRuntimeType(defaults));
   updateCreateRuntimeTypeHint(form, defaults);
   setCreateAgentStep(form, "runtime");
 }
 
-function populateRuntimeProfileSelect(selectEl, selectedId = '') {
-  if (!selectEl) return;
-  const profiles = state.runtimeProfiles || [];
-  if (!profiles.length) {
-    selectEl.innerHTML = '<option value="" disabled selected>No connection profiles available</option>';
-    selectEl.disabled = true;
-    return;
-  }
-  selectEl.disabled = false;
-  selectEl.innerHTML = profiles.map((profile) => {
-    const selected = selectedId && selectedId === profile.id ? ' selected' : '';
-    const suffix = profile.is_default ? ' (Default)' : '';
-    return `<option value="${escapeHtmlAttr(profile.id)}"${selected}>${safe((profile.name || 'Connection profile') + suffix)}</option>`;
-  }).join('');
-  if (!selectedId) {
-    const defaultProfile = profiles.find((item) => item.is_default);
-    selectEl.value = (defaultProfile || profiles[0]).id;
-  }
-}
-
-// The server owns this list: which sources exist, what each is called, and the
-// order -- the first entry is the recommended one. The dialog renders what it
-// is given. Only the "copy" group gets a heading; the entries above it read
-// fine straight off the field label.
-const SOURCE_GROUP_LABELS = { copy: "Copy one of my profiles" };
-
-async function populateRuntimeProfileSourceSelect(selectEl, detailEl) {
-  if (!selectEl) return;
-  let sources = [];
-  try {
-    sources = await api("/api/runtime-profiles/sources");
-  } catch (_err) {
-    sources = [];
-  }
-  if (!Array.isArray(sources) || !sources.length) {
-    // Creation must never be blocked by this select, so fall back to the one
-    // source that always works.
-    sources = [{ value: "blank", label: "Nothing - I'll set it up myself", detail: "", group: "start" }];
-  }
-
-  const byGroup = new Map();
-  sources.forEach((source) => {
-    const group = source.group || "start";
-    if (!byGroup.has(group)) byGroup.set(group, []);
-    byGroup.get(group).push(source);
-  });
-
-  selectEl.innerHTML = Array.from(byGroup.entries())
-    .map(([group, items]) => {
-      const options = items
-        .map(
-          (item) =>
-            `<option value="${escapeHtmlAttr(item.value)}" data-detail="${escapeHtmlAttr(item.detail || "")}">${safe(item.label || item.value)}</option>`
-        )
-        .join("");
-      const label = SOURCE_GROUP_LABELS[group];
-      return label ? `<optgroup label="${escapeHtmlAttr(label)}">${options}</optgroup>` : options;
-    })
-    .join("");
-  // The server put the recommended source first: their company's shared setup
-  // when an admin has one, otherwise an empty profile.
-  selectEl.selectedIndex = 0;
-  syncRuntimeProfileSourceDetail(selectEl, detailEl);
-}
-
-function syncRuntimeProfileSourceDetail(selectEl, detailEl) {
-  if (!detailEl) return;
-  const option = selectEl?.selectedOptions?.[0];
-  detailEl.textContent = option?.dataset?.detail || "";
-}
-
-function renderRuntimeProfileList(errorMessage = "") {
-  if (!dom.runtimeProfileNavList) return;
-  if (errorMessage) {
-    dom.runtimeProfileNavList.innerHTML = `<div class="portal-inline-state is-error">${safe(errorMessage)}</div>`;
-    return;
-  }
-  if (!state.runtimeProfiles.length) {
-    dom.runtimeProfileNavList.innerHTML = '<div class="portal-list-state">No connection profiles found.</div>';
-    return;
-  }
-  dom.runtimeProfileNavList.innerHTML = "";
-  state.runtimeProfiles.forEach((profile) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = `portal-list-row${state.selectedRuntimeProfileId === profile.id ? " is-active" : ""}`;
-    row.innerHTML = `
-      <div class="portal-list-title">${safe(profile.name || 'Connection profile')}</div>
-      <div class="portal-list-meta">Version ${safe(String(profile.revision || 1))}${profile.is_default ? ' · Default' : ''}</div>
-    `;
-    row.addEventListener("click", async () => {
-      state.selectedRuntimeProfileId = profile.id;
-      renderRuntimeProfileList();
-      await openRuntimeProfileInMain(profile.id);
-    });
-    dom.runtimeProfileNavList.append(row);
-  });
-}
-
-async function loadRuntimeProfilePanelContent(profileId, { updateRoute = true } = {}) {
-  if (!profileId) return;
-  state.selectedRuntimeProfileId = profileId;
-  renderRuntimeProfileList();
-  await htmx.ajax("GET", `/app/runtime-profiles/${encodeURIComponent(profileId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
-  if (typeof initializeManagedSettingsPanels === "function") initializeManagedSettingsPanels();
-  setMainView("detail");
-  dom.workspaceDetailContent.dataset.workspaceState = "runtime-profile-detail";
-  syncMainHeader();
-}
-
-async function openRuntimeProfileInMain(profileId, { ensureSection = true, updateRoute = true } = {}) {
-  if (!profileId) return;
-  if (ensureSection) {
-    await setActiveNavSection("runtime-profiles", { toggleIfSame: false, updateRoute: false });
-  }
-  await loadRuntimeProfilePanelContent(profileId, { updateRoute: false });
-  if (updateRoute && !isApplyingPortalRoute) {
-    commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: profileId });
-  }
-}
-
-async function refreshRuntimeProfileList({ preserveSelection = true } = {}) {
-  await loadRuntimeProfiles(true);
-  const previousSelected = state.selectedRuntimeProfileId;
-  if (!preserveSelection || !state.runtimeProfiles.some((item) => item.id === previousSelected)) {
-    state.selectedRuntimeProfileId = (state.runtimeProfiles.find((item) => item.is_default) || state.runtimeProfiles[0] || {}).id || null;
-  }
-  renderRuntimeProfileList();
-}
-
 // ===== connectors (Connectors menu) =====
-// Connectors are per-member capabilities outside the pod (docs/CONNECTORS_CONTRACT.md).
-// The list comes from the registry merged with the member's state; each type
-// renders its own htmx panel and the bridge module (static/js/connectors/) binds it.
+// Connectors are the one place a member sets up what their assistants can reach
+// (docs/CONNECTORS_CONTRACT.md). The list comes from the registry merged with
+// the member's state, grouped by category. Settings connectors (model provider,
+// Jira, GitHub, ...) render a server-side form bound by
+// initializeManagedSettingsPanels; local ones (the browser bridge) are bound by
+// their page module under static/js/connectors/.
 
 async function loadConnectorsList(force = false) {
   if (!force && Array.isArray(state.connectors) && state.connectors.length > 0) {
@@ -14574,14 +14243,27 @@ function renderConnectorList(errorMessage = "") {
     return;
   }
   dom.connectorNavList.innerHTML = "";
+  let currentCategory = null;
   state.connectors.forEach((connector) => {
+    if (connector.category && connector.category !== currentCategory) {
+      currentCategory = connector.category;
+      const heading = document.createElement("div");
+      heading.className = "portal-list-group-label";
+      heading.textContent = connector.category;
+      dom.connectorNavList.append(heading);
+    }
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `portal-list-row${state.selectedConnectorType === connector.type ? " is-active" : ""}`;
-    const status = connector.enabled ? "Enabled" : "Not enabled";
+    row.className = `portal-list-row portal-connector-row${state.selectedConnectorType === connector.type ? " is-active" : ""}`;
+    row.dataset.connectorType = connector.type;
+    const connectorState = String(connector.state || (connector.enabled ? "connected" : "not_set_up"));
+    const status = connector.status_label || (connector.enabled ? "Enabled" : "Not enabled");
     row.innerHTML = `
-      <div class="portal-list-title">${safe(connector.label || connector.type)}</div>
-      <div class="portal-list-meta">${safe(status)}${connector.category ? ` · ${safe(connector.category)}` : ""}</div>
+      <span class="portal-connector-row-icon" aria-hidden="true"><i data-lucide="${escapeHtmlAttr(connector.icon || "plug")}" class="w-4 h-4"></i></span>
+      <span class="portal-connector-row-text">
+        <span class="portal-list-title">${safe(connector.label || connector.type)}</span>
+        <span class="portal-list-meta portal-connector-row-state is-${escapeHtmlAttr(connectorState)}">${safe(status)}</span>
+      </span>
     `;
     row.addEventListener("click", async () => {
       state.selectedConnectorType = connector.type;
@@ -14590,6 +14272,7 @@ function renderConnectorList(errorMessage = "") {
     });
     dom.connectorNavList.append(row);
   });
+  renderIcons();
 }
 
 async function loadConnectorPanelContent(connectorType, { updateRoute = true } = {}) {
@@ -14597,6 +14280,7 @@ async function loadConnectorPanelContent(connectorType, { updateRoute = true } =
   state.selectedConnectorType = connectorType;
   renderConnectorList();
   await htmx.ajax("GET", `/app/connectors/${encodeURIComponent(connectorType)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
+  if (typeof initializeManagedSettingsPanels === "function") initializeManagedSettingsPanels();
   if (window.portalConnectors && typeof window.portalConnectors.initPanel === "function") {
     window.portalConnectors.initPanel();
   }
@@ -16206,7 +15890,7 @@ async function cancelAgentTask(taskId) {
 }
 
 async function openEditDialog(agent) {
-  await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults()]);
+  await loadAgentDefaults();
   const form = document.getElementById("edit-form");
   if (form && form.elements) {
     if (form.elements["id"]) form.elements["id"].value = agent.id ?? "";
@@ -16231,8 +15915,6 @@ async function openEditDialog(agent) {
         state.agentDefaults?.default_skill_branch || "",
       );
     }
-    if (form.elements["runtime_profile_id"]) populateRuntimeProfileSelect(form.elements["runtime_profile_id"], agent.runtime_profile_id || "");
-    syncEditRuntimeProfileState(form);
     setEditAgentStep(form, "runtime");
   }
 
@@ -16252,7 +15934,7 @@ async function openEditDialog(agent) {
 //
 // The four big modals were opened and closed from ~20 scattered call sites and
 // had picked up four different behaviours: Create Assistant, Edit Assistant and
-// Create Runtime Profile answered neither Escape nor a backdrop click and never
+// the old Create Profile dialog answered neither Escape nor a backdrop click and never
 // focused a field, while Edit Message did all three (and leaked a keydown
 // listener every time it was closed any other way).
 //
@@ -16262,7 +15944,6 @@ async function openEditDialog(agent) {
 const MANAGED_MODALS = [
   { modalId: "create-modal", closeId: "close-create-modal" },
   { modalId: "edit-modal", closeId: "close-edit-modal" },
-  { modalId: "create-runtime-profile-modal", closeId: "close-create-runtime-profile-modal" },
   { modalId: "message-edit-modal", closeId: "close-message-edit-modal" },
 ];
 const MODAL_FOCUSABLE = 'a[href], button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -17027,14 +16708,12 @@ function bindEvents() {
     const agentSettingsBranch = formData.get("agent_settings_branch")?.trim();
     const repoUrl = formData.get("skill_repo_url")?.trim();
     const branch = formData.get("skill_branch")?.trim();
-    const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
 
     // Always include agent settings and skill fields; empty values mean "use configured default".
     if (agentSettingsRepoUrl !== undefined) updates.agent_settings_repo_url = agentSettingsRepoUrl || null;
     if (agentSettingsBranch !== undefined) updates.agent_settings_branch = agentSettingsBranch || null;
     if (repoUrl !== undefined) updates.skill_repo_url = repoUrl || null;
     if (branch !== undefined) updates.skill_branch = branch || null;
-    updates.runtime_profile_id = runtimeProfileId || null;
 
     const msgEl = document.getElementById("edit-msg");
     msgEl.textContent = "Saving...";
@@ -17485,7 +17164,7 @@ function bindEvents() {
   // Picking something from the drawer should reveal it, not leave the list on top.
   dom.portalSecondaryPane?.addEventListener("click", (event) => {
     if (!isSecondaryDrawerViewport()) return;
-    if (!event.target.closest(".portal-agent-row, .portal-list-row, [data-task-id], [data-delegation-rule-id], [data-runtime-profile-id]")) return;
+    if (!event.target.closest(".portal-agent-row, .portal-list-row, [data-task-id], [data-delegation-rule-id]")) return;
     closeSecondaryDrawer();
   });
   // Crossing the breakpoint must not strand the pane in the wrong mode.
@@ -17843,35 +17522,37 @@ function bindEvents() {
       return;
     }
 
-    const deleteProfileBtn = event.target.closest("[data-delete-runtime-profile]");
-    if (deleteProfileBtn) {
+    const restartForSettingsBtn = event.target.closest("[data-restart-agent-id]");
+    if (restartForSettingsBtn) {
       event.preventDefault();
-      const profileId = deleteProfileBtn.dataset.deleteRuntimeProfile || "";
-      if (!profileId) return;
-      if (!(await showConfirm({ title: "Delete connection profile", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
+      const agentId = restartForSettingsBtn.dataset.restartAgentId || "";
+      if (!agentId) return;
+      if (!(await showConfirm({
+        title: "Restart assistant",
+        message: "Anything it is working on right now is interrupted.",
+        confirmText: "Restart",
+      }))) return;
+      restartForSettingsBtn.disabled = true;
       try {
-        const resp = await fetch(`/api/runtime-profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
-        if (!resp.ok) throw new Error(await handleErrorResponse(resp));
-        await refreshRuntimeProfileList({ preserveSelection: false });
-        await loadRuntimeProfiles(true);
-        const next = state.runtimeProfiles.find((item) => item.is_default) || state.runtimeProfiles[0];
-        if (next?.id) {
-          await openRuntimeProfileInMain(next.id);
-        } else {
-          renderWorkspaceDetailPlaceholder("No connection profiles found.", "runtime-profiles-placeholder");
-        }
+        await action(`/api/agents/${encodeURIComponent(agentId)}/restart`);
+        restartForSettingsBtn.closest("li")?.remove();
       } catch (err) {
-        showToast(err.message, { variant: 'error' });
+        restartForSettingsBtn.disabled = false;
       }
     }
   });
 
   dom.helpBtn?.addEventListener("click", () => openPortalSection("help"));
-  // A connection guide ends with the action it describes, so the reader does
-  // not have to find their way back to Connections on their own.
+  // A connector guide ends with the action it describes, so the reader does
+  // not have to find their way back to Connectors on their own.
   dom.workspaceDetailContent?.addEventListener("click", (event) => {
-    if (event.target.closest("[data-help-open-connections]")) {
-      openPortalSection("runtime-profiles");
+    const opener = event.target.closest("[data-help-open-connections]");
+    if (!opener) return;
+    const connectorType = opener.dataset.helpOpenConnections || "";
+    if (connectorType) {
+      openConnectorInMain(connectorType);
+    } else {
+      openPortalSection("connectors");
     }
   });
   document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
@@ -17891,7 +17572,6 @@ function bindEvents() {
       showToast(`Open task create failed: ${error.message}`, { variant: 'error' });
     }
   });
-  dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"));
   dom.connectorsMenuBtn?.addEventListener("click", () => openPortalSection("connectors"));
   // The connector panel saves through its own bundle; keep the sidebar's
   // "Enabled / Not enabled" line in step without a full section reload.
@@ -17911,66 +17591,13 @@ function bindEvents() {
     applyToolPanelState();
   });
 
-  dom.addRuntimeProfileBtn?.addEventListener("click", async () => {
-    endSingleSubmit(dom.createRuntimeProfileForm, { closeButton: dom.closeCreateRuntimeProfileModal });
-    dom.createRuntimeProfileModal?.classList.remove("hidden");
-    dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "false");
-    if (dom.createRuntimeProfileMsg) setModalFeedback(dom.createRuntimeProfileMsg, "", "");
-    // Read on open rather than cached: an admin may have filled in Default
-    // Connections, or the member added a profile, since the page loaded.
-    await populateRuntimeProfileSourceSelect(dom.createRuntimeProfileSource, dom.createRuntimeProfileSourceDetail);
-  });
-
-  dom.createRuntimeProfileSource?.addEventListener("change", () => {
-    syncRuntimeProfileSourceDetail(dom.createRuntimeProfileSource, dom.createRuntimeProfileSourceDetail);
-  });
-
-  dom.closeCreateRuntimeProfileModal?.addEventListener("click", () => {
-    if (dom.createRuntimeProfileForm?.dataset.submitting === "true") return;
-    dom.createRuntimeProfileModal?.classList.add("hidden");
-    dom.createRuntimeProfileModal?.setAttribute("aria-hidden", "true");
-  });
-
-  dom.createRuntimeProfileForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: dom.closeCreateRuntimeProfileModal })) return;
-    const formData = new FormData(form);
-    try {
-      const resp = await fetch('/api/runtime-profiles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: String(formData.get('name') || '').trim(),
-          description: String(formData.get('description') || '').trim() || null,
-          is_default: String(formData.get('is_default') || '').toLowerCase() === 'on',
-          source: String(formData.get('source') || 'blank').trim() || 'blank',
-        }),
-      });
-      if (!resp.ok) throw new Error(await handleErrorResponse(resp));
-      const created = await resp.json();
-      await refreshRuntimeProfileList({ preserveSelection: false });
-      await loadRuntimeProfiles(true);
-      state.selectedRuntimeProfileId = created.id;
-      renderRuntimeProfileList();
-      await openRuntimeProfileInMain(created.id);
-      form.reset();
-      dom.createRuntimeProfileModal?.classList.add('hidden');
-      dom.createRuntimeProfileModal?.setAttribute('aria-hidden', 'true');
-      endSingleSubmit(form, { closeButton: dom.closeCreateRuntimeProfileModal });
-    } catch (err) {
-      if (dom.createRuntimeProfileMsg) setModalFeedback(dom.createRuntimeProfileMsg, 'error', err.message);
-      endSingleSubmit(form, { closeButton: dom.closeCreateRuntimeProfileModal });
-    }
-  });
-
   // Simple mode is the default door: name plus a type, everything else filled
   // in from the admin-curated preset. Advanced mode is the same five-step
   // wizard as before, reachable from inside the simple dialog. If simple mode
   // cannot open -- no assistant types configured -- fall through to advanced so
   // creation is never blocked.
   async function openAdvancedCreateModal() {
-    const [, defaults] = await Promise.all([loadRuntimeProfiles(true), loadAgentDefaults(true)]);
+    const defaults = await loadAgentDefaults(true);
     const createForm = document.getElementById("create-form");
     if (createForm) {
       endSingleSubmit(createForm, { closeButton: document.getElementById("close-create-modal") });
@@ -17982,10 +17609,7 @@ function bindEvents() {
       createMsg.textContent = "";
       setModalFeedback(createMsg, "", createMsg.textContent);
     }
-    const createSelect = document.getElementById("create-runtime-profile-select");
-    populateRuntimeProfileSelect(createSelect, "");
     if (createForm) {
-      syncCreateRuntimeProfileState(createForm);
       setCreateAgentStep(createForm, "runtime");
     }
     document.getElementById("create-modal")?.classList.remove("hidden");
@@ -18055,7 +17679,6 @@ function bindEvents() {
     const agentSettingsBranch = (formData.get("agent_settings_branch") || "").toString().trim();
     const repoUrl = (formData.get("skill_repo_url") || "").toString().trim();
     const branch = (formData.get("skill_branch") || "").toString().trim();
-    const runtimeProfileId = (formData.get("runtime_profile_id") || "").toString().trim();
     const runtimeType = normalizeRuntimeTypeValue(formData.get("runtime_type"), state.agentDefaults || {});
 
     const msgEl = document.getElementById("create-msg");
@@ -18080,7 +17703,6 @@ function bindEvents() {
         cpu: defaults.cpu,
         memory: defaults.memory,
         mount_path: runtimeConfig?.default_mount_path || defaults.mount_path,
-        runtime_profile_id: runtimeProfileId || null,
       };
 
       msgEl.textContent = "Creating...";
@@ -18172,9 +17794,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  document.body.addEventListener("runtimeProfilesChanged", async () => {
-    await refreshRuntimeProfileList({ preserveSelection: true });
-    await loadRuntimeProfiles(true);
+  // A connector save (HX-Trigger) changes its state line in the list and may
+  // leave busy assistants waiting for a restart.
+  document.body.addEventListener("connectorsChanged", async () => {
+    if (state.activeNavSection === "connectors") {
+      await refreshConnectorList({ preserveSelection: true });
+    }
+    await pollAgentStatuses({ force: true });
   });
 
   bindEvents();
@@ -18762,4 +18388,4 @@ function saveSystemPromptSection(agentId, section) {
   });
 }
 
-// provider.retry UX copy: Provider API retrying. Check the connection profile LLM API key/base URL/proxy.
+// provider.retry UX copy: Provider API retrying. Check the Model provider and Proxy connectors.

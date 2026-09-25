@@ -37,6 +37,10 @@ class Agent(Base):
     endpoint_path: Mapped[Optional[str]] = mapped_column(String(255))
     agent_type: Mapped[str] = mapped_column(String(32), nullable=False, default="workspace")
     runtime_profile_id: Mapped[Optional[str]] = mapped_column(ForeignKey("runtime_profiles.id"), nullable=True, index=True)
+    # Revision of the owner's profile the pod was last started with. Lower than
+    # the profile's revision means the member changed a connector since, and the
+    # assistant needs a restart to use it; None means unknown (nothing shown).
+    profile_revision_applied: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text)
     # Last user-driven use (proxy/chat/task) or start; drives idle auto-stop.
     last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)

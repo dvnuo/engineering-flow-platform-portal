@@ -7,6 +7,7 @@ REQUIRED_AGENT_COLUMNS = (
     "agent_settings_repo_url",
     "agent_settings_branch",
     "agent_settings_subdir",
+    "profile_revision_applied",
 )
 REQUIRED_RUNTIME_PROFILE_COLUMNS = (
     "owner_user_id",

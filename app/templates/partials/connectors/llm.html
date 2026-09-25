@@ -1,0 +1,30 @@
+{% from "partials/connectors/_macros.html" import setup_guide with context %}
+<section class="portal-panel-section" id="profile-section-llm" data-managed-section="llm">
+      {{ setup_guide('llm') }}
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Provider</span><select name="llm_provider" id="llm_provider" class="portal-form-select"><option value="github_copilot" {{ 'selected' if raw_llm.get('provider') != 'ai_platform' else '' }}>GitHub Copilot</option><option value="ai_platform" {{ 'selected' if raw_llm.get('provider') == 'ai_platform' else '' }}>AI Platform</option></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="llm_model" id="llm_model" class="portal-form-select" data-current-value="{{ raw_llm.get('model', '') }}" data-initial-value="{{ raw_llm.get('model', '') }}"></select></label>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Default thinking level</span><select name="llm_reasoning_effort" class="portal-form-select"><option value="low" {{ 'selected' if llm.get('reasoning_effort') == 'low' else '' }}>Low</option><option value="medium" {{ 'selected' if llm.get('reasoning_effort') == 'medium' else '' }}>Medium</option><option value="high" {{ 'selected' if llm.get('reasoning_effort') == 'high' else '' }}>High</option><option value="xhigh" {{ 'selected' if llm.get('reasoning_effort') == 'xhigh' else '' }}>Extra high</option><option value="max" {{ 'selected' if llm.get('reasoning_effort') == 'max' else '' }}>Max</option></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Default context size</span><select name="llm_max_context_tokens" class="portal-form-select"><option value="64000" {{ 'selected' if llm.get('max_context_tokens') == 64000 else '' }}>64K</option><option value="256000" {{ 'selected' if llm.get('max_context_tokens') == 256000 else '' }}>256K</option><option value="1000000" {{ 'selected' if llm.get('max_context_tokens') == 1000000 else '' }}>1M</option></select></label>
+      </div>
+      <div class="space-y-2" data-provider-fields="github_copilot">
+      <label class="portal-form-label"><span class="portal-form-label">API Key</span><input type="password" name="llm_api_key" value="{{ raw_llm.get('api_key', '') }}" placeholder="API key" class="portal-form-input" /></label>
+      {% set copilot_auth_help = [
+        "Generate a GitHub Copilot token. After authorization completes, Portal fills the API Key field. Click Save Settings to persist it.",
+        "GitHub Copilot authorization always uses github.com, independent of the GitHub API Base URL.",
+      ] %}
+      {% include "partials/copilot_auth_card.html" %}
+      </div>
+      {% set ap = raw_llm.get('ai_platform', {}) %}
+      {% set ap_auth = ap.get('auth', {}) %}
+      <div class="space-y-2 hidden" data-provider-fields="ai_platform">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="llm_ai_platform_username" value="{{ ap_auth.get('username', '') }}" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="llm_ai_platform_password" value="{{ ap_auth.get('password', '') }}" placeholder="Password" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">Usercase</span><input type="text" name="llm_ai_platform_usercase" value="{{ ap_auth.get('usercase', '') }}" class="portal-form-input" /></label>
+        </div>
+        <div class="portal-inline-note">Connection endpoints and transport headers are managed centrally by the Portal configuration.</div>
+      </div>
+    </section>

@@ -1,7 +1,7 @@
 /*
  * GitHub Copilot sign-in on the login page.
  *
- * Same device flow the runtime-profile panel uses to connect Copilot, run
+ * Same device flow the Model provider connector uses to connect Copilot, run
  * before there is a session: start a flow, show the one-time code, poll
  * until GitHub reports it authorized. The server turns that authorization
  * into a portal account + session cookie, so the only thing this script

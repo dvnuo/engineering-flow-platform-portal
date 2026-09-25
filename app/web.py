@@ -36,7 +36,6 @@ from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRep
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
-from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     AWS_AUTH_PROVIDERS,
     AWS_EKS_SERVER_CA_MODES,
@@ -54,7 +53,6 @@ from app.schemas.runtime_profile import (
     SPLUNK_MAX_RESULTS_MAX,
     SPLUNK_MAX_RESULTS_MIN,
     TROUBLESHOOTING_INSTANCE_SECTIONS,
-    dump_runtime_profile_config_json,
     normalize_aws_account_id,
     normalize_eks_private_endpoint,
     normalize_jenkins_section_instances,
@@ -69,7 +67,7 @@ from app.services.k8s_service import K8sService
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.assistant_type_icons import ASSISTANT_TYPE_ICONS, DEFAULT_ASSISTANT_TYPE_ICON
-from app.services.connection_guidance import all_guidance, connection_checklist
+from app.services.connection_guidance import all_guidance
 from app.services.help_center import (
     default_topic as default_help_topic,
     get_topic as get_help_topic,
@@ -998,150 +996,81 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_git": raw_git,
         "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
         "raw_proxy": raw_proxy,
-        "debug": effective_config.get("debug") if isinstance(effective_config.get("debug"), dict) else {},
     }
 
 
-def _settings_error_response(
-    request: Request,
-    db,
-    agent_id: str,
-    config_payload: dict,
-    message: str,
-    *,
-    profile_name: str | None = None,
-    profile_revision: int | None = None,
-    profile_bound_agent_count: int = 0,
-    read_only: bool = False,
-):
-    base = config_payload if isinstance(config_payload, dict) else {}
-    view_data = _settings_view_payload(base, RuntimeProfileService.merge_with_managed_defaults(base))
-    summary = _settings_settings_panel_summary(db, agent_id)
-    return templates.TemplateResponse(
-        "partials/settings_panel.html",
-        {
-            "request": request,
-            "agent_id": agent_id,
-            "status_type": "error",
-            "status_message": message,
-            "profile_missing_message": "",
-            "profile_name": profile_name,
-            "profile_revision": profile_revision,
-            "profile_bound_agent_count": profile_bound_agent_count,
-            "read_only": read_only,
-            **summary,
-            **view_data,
-        },
-    )
+def _apply_connector_save(db, runtime_profile) -> tuple[str, str]:
+    """Update the member's Secret and restart their idle running assistants.
 
-
-def _format_utc_timestamp(value) -> str | None:
-    if not value:
-        return None
-    return f"{value.strftime('%Y-%m-%d %H:%M')} UTC"
-
-
-def _is_external_trigger_task(task) -> bool:
-    source = (task.source or "").strip().lower()
-    task_type = (task.task_type or "").strip().lower()
-    external_sources = {"github", "jira", "confluence", "cron", "internal", "delegation"}
-    return source in external_sources or task_type == "agent_async_task"
-
-
-def _task_activity_time(task):
-    return task.finished_at or task.started_at or task.updated_at or task.created_at
-
-
-def _settings_delegation_activity_summary(db, agent_id: str) -> dict[str, str]:
-    tasks = [task for task in AgentTaskRepository(db).list_by_agent(agent_id) if _is_external_trigger_task(task)]
-    if not tasks:
-        return {
-            "last_triggered_task_at_text": "No delegation activity yet.",
-            "last_delegation_task_created_at_text": "No delegation activity yet.",
-            "recent_failed_trigger_summary": "No recent failed triggers.",
-        }
-
-    latest_task = max(tasks, key=lambda task: _task_activity_time(task) or datetime.min)
-    latest_accepted_task = max(tasks, key=lambda task: task.created_at or datetime.min)
-
-    last_triggered_text = _format_utc_timestamp(_task_activity_time(latest_task)) or "No delegation activity yet."
-    last_accepted_text = _format_utc_timestamp(latest_accepted_task.created_at) or "No delegation activity yet."
-
-    failed_tasks = [task for task in tasks if (task.status or "").strip().lower() == "failed" or bool((task.error_message or "").strip())]
-    recent_failed_trigger_summary = "No recent failed triggers."
-    if failed_tasks:
-        latest_failed = max(failed_tasks, key=lambda task: _task_activity_time(task) or datetime.min)
-        summary_text = (
-            (latest_failed.error_message or "").strip()
-            or (latest_failed.summary or "").strip()
-            or f"{latest_failed.task_type} ({latest_failed.status})"
-        )
-        recent_failed_trigger_summary = summary_text
-
-    return {
-        "last_triggered_task_at_text": last_triggered_text,
-        "last_delegation_task_created_at_text": last_accepted_text,
-        "recent_failed_trigger_summary": recent_failed_trigger_summary,
-    }
-
-
-def _settings_settings_panel_summary(db, agent_id: str) -> dict:
-    return _settings_delegation_activity_summary(db, agent_id)
-
-
-def _apply_runtime_profile_save(db, runtime_profile) -> tuple[str, str]:
-    """Update the profile Secret and restart bound running agents.
-
-    Returns (status_type, status_message).
+    Busy assistants are left alone and listed on the panel as "restart to
+    apply". Returns (status_type, status_message).
     """
     try:
         result = runtime_profile_secret_service.apply_profile_save(db, runtime_profile)
     except Exception:
         db.rollback()
-        logger.exception("runtime profile secret save/restart failed profile_id=%s", runtime_profile.id)
+        logger.exception("connector settings rollout failed profile_id=%s", runtime_profile.id)
         return (
             "error",
-            "Your connections were saved, but rolling them out to the assistants failed. Save again to retry.",
+            "Saved, but handing the change to your assistants failed. Save again to retry.",
         )
 
-    running = result.get("running_agent_count", 0)
-    if not running:
-        return ("success", "Connections saved. No assistant is running, so they will pick these up the next time they start.")
-    plural = "" if running == 1 else "s"
-    message = f"Connections saved. Restarting {running} running assistant{plural} to apply version {runtime_profile.revision}."
-    failed = result.get("failed_agent_ids") or []
+    restarted = len(result.get("restarted_agent_ids") or [])
+    pending = len(result.get("pending_agent_ids") or [])
+    failed = len(result.get("failed_agent_ids") or [])
+    parts = ["Saved."]
+    if restarted:
+        parts.append(f"Restarting {restarted} idle assistant{'' if restarted == 1 else 's'} to apply it.")
+    if pending:
+        parts.append(
+            f"{pending} assistant{' is' if pending == 1 else 's are'} busy and keep{'s' if pending == 1 else ''} "
+            "the old settings until you restart."
+        )
+    if not restarted and not pending and not failed:
+        parts.append("Your assistants use it the next time they start.")
     if failed:
-        return ("warning", f"{message} Restart failed for {len(failed)} of them.")
-    return ("success", message)
+        parts.append(f"Restart failed for {failed} assistant{'' if failed == 1 else 's'}; restart {'it' if failed == 1 else 'them'} yourself.")
+        return ("warning", " ".join(parts))
+    return ("success", " ".join(parts))
 
 
-def _runtime_profile_panel_context(
+def _pending_restart_agents(db, runtime_profile) -> list[dict]:
+    """Running assistants on this settings row that still use an older revision."""
+
+    from app.models.agent import Agent
+    from app.services.agent_busy import profile_restart_pending
+
+    agents = db.query(Agent).filter(Agent.runtime_profile_id == runtime_profile.id).order_by(Agent.name.asc()).all()
+    return [
+        {"id": agent.id, "name": agent.name}
+        for agent in agents
+        if profile_restart_pending(agent, runtime_profile.revision)
+    ]
+
+
+def _connector_settings_panel_context(
     request: Request,
-    profile,
-    profile_repo: RuntimeProfileRepository,
+    db,
+    spec,
+    runtime_profile,
     *,
     status_type: str = "",
     status_message: str = "",
 ) -> dict:
-    bound_count = profile_repo.count_bound_agents(profile.id)
-    running_count = profile_repo.count_running_bound_agents(profile.id)
-    raw_config_data = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    from app.services.connector_service import settings_entry
+
+    raw_config_data = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
     config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
     view_data = _settings_view_payload(raw_config_data, config_data)
-    checklist = connection_checklist(config_data)
     return {
         "request": request,
+        "connector": settings_entry(spec, raw_config_data),
+        "connector_template": spec.panel_template,
+        "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
-        "connection_checklist": checklist,
-        "profile_id": profile.id,
         "status_type": status_type,
         "status_message": status_message,
-        "profile_name": profile.name,
-        "profile_description": profile.description or "",
-        "profile_revision": profile.revision,
-        "profile_is_default": bool(profile.is_default),
-        "profile_bound_agent_count": bound_count,
-        "profile_running_bound_agent_count": running_count,
+        "pending_restart_agents": _pending_restart_agents(db, runtime_profile),
         **view_data,
     }
 
@@ -2189,15 +2118,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         elif existing_proxy_password:
             proxy_cfg["password"] = existing_proxy_password
         config_payload["proxy"] = proxy_cfg
-
-    if is_section_touched("debug"):
-        debug_cfg = (config_payload.get("debug") if isinstance(config_payload.get("debug"), dict) else {}).copy()
-        debug_cfg["enabled"] = as_bool(form.get("debug_enabled"))
-        valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-        log_level = (form.get("debug_log_level") or "").strip()
-        if log_level in valid_log_levels:
-            debug_cfg["log_level"] = log_level
-        config_payload["debug"] = debug_cfg
 
     return _settings_finalize_config_payload(config_payload), None
 
@@ -3322,196 +3242,6 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         db.close()
 
 
-@router.get("/app/agents/{agent_id}/settings/panel")
-async def app_agent_settings_panel(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        read_only = not _can_write(agent, user)
-        summary = _settings_settings_panel_summary(db, agent_id)
-
-        runtime_profile = None
-        bound_agent_count = 0
-        running_bound_agent_count = 0
-        if agent.runtime_profile_id:
-            profile_repo = RuntimeProfileRepository(db)
-            runtime_profile = profile_repo.get_by_id(agent.runtime_profile_id)
-            if runtime_profile and runtime_profile.owner_user_id in {user.id, agent.owner_user_id}:
-                bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
-                running_bound_agent_count = profile_repo.count_running_bound_agents(runtime_profile.id)
-            else:
-                runtime_profile = None
-
-        if not runtime_profile:
-            return templates.TemplateResponse(
-                "partials/settings_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "status_type": "",
-                    "status_message": "",
-                    "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
-                    "profile_name": None,
-                    "profile_revision": None,
-                    "profile_bound_agent_count": 0,
-                    "config": {},
-                    "read_only": read_only,
-                    **summary,
-                },
-            )
-
-        raw_config_data = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
-        view_data = _settings_view_payload(raw_config_data, config_data)
-        return templates.TemplateResponse(
-            "partials/settings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "status_type": "",
-                "status_message": "",
-                "profile_missing_message": "",
-                "profile_name": runtime_profile.name,
-                "profile_revision": runtime_profile.revision,
-                "profile_bound_agent_count": bound_agent_count,
-                "profile_running_bound_agent_count": running_bound_agent_count,
-                "read_only": read_only,
-                **summary,
-                **view_data,
-            },
-        )
-    finally:
-        db.close()
-
-
-@router.post("/app/agents/{agent_id}/settings/save")
-async def app_agent_settings_save(request: Request, agent_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    form = await request.form()
-
-    db = SessionLocal()
-    status_type = "success"
-    status_message = "Runtime profile updated. Changes are shared across bound agents."
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        summary = _settings_settings_panel_summary(db, agent_id)
-
-        if not agent.runtime_profile_id:
-            return templates.TemplateResponse(
-                "partials/settings_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "status_type": "error",
-                    "status_message": "Nothing was saved: this assistant has no connection profile yet.",
-                    "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
-                    "profile_name": None,
-                    "profile_revision": None,
-                    "profile_bound_agent_count": 0,
-                    "config": {},
-                    "read_only": False,
-                    **summary,
-                },
-            )
-
-        profile_repo = RuntimeProfileRepository(db)
-        runtime_profile = profile_repo.get_by_id(agent.runtime_profile_id)
-        if not runtime_profile or runtime_profile.owner_user_id not in {user.id, agent.owner_user_id}:
-            return templates.TemplateResponse(
-                "partials/settings_panel.html",
-                {
-                    "request": request,
-                    "agent_id": agent_id,
-                    "status_type": "error",
-                    "status_message": "Nothing was saved: this assistant's connection profile is no longer available.",
-                    "profile_missing_message": "This assistant has no connection profile yet, so there is nothing to configure until one is assigned.",
-                    "profile_name": None,
-                    "profile_revision": None,
-                    "profile_bound_agent_count": 0,
-                    "config": {},
-                    "read_only": False,
-                    **summary,
-                },
-            )
-
-        profile_bound_agent_count = profile_repo.count_bound_agents(runtime_profile.id)
-        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        config_payload, merge_error = _settings_merge_payload(config_base, form)
-        if merge_error:
-            return _settings_error_response(
-                request,
-                db,
-                agent_id,
-                config_payload,
-                merge_error,
-                profile_name=runtime_profile.name,
-                profile_revision=runtime_profile.revision,
-                profile_bound_agent_count=profile_bound_agent_count,
-                read_only=False,
-            )
-
-        sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
-        # Mirror the profile-save path: only bump the revision and restart bound
-        # running agents when the persisted config actually changed. Saving with
-        # no effective change must not disrupt running agents.
-        before_config = runtime_profile.config_json
-        new_config_json = RuntimeProfileService.normalize_persisted_config_json(
-            dump_runtime_profile_config_json(sanitized_config)
-        )
-        config_changed = before_config != new_config_json
-        if config_changed:
-            runtime_profile.config_json = new_config_json
-            runtime_profile.revision = (runtime_profile.revision or 0) + 1
-            runtime_profile = profile_repo.save(runtime_profile)
-            audit_runtime_profile_change(
-                db,
-                action="update_runtime_profile",
-                profile_id=runtime_profile.id,
-                user_id=user.id,
-                before=config_base,
-                after=parse_runtime_profile_config_json(new_config_json, fallback_to_empty=True),
-            )
-            status_type, status_message = _apply_runtime_profile_save(db, runtime_profile)
-        else:
-            status_type, status_message = ("success", "Connections saved.")
-
-        view_data = _settings_view_payload(sanitized_config, RuntimeProfileService.merge_with_managed_defaults(sanitized_config))
-        return templates.TemplateResponse(
-            "partials/settings_panel.html",
-            {
-                "request": request,
-                "agent_id": agent_id,
-                "status_type": status_type,
-                "status_message": status_message,
-                "profile_missing_message": "",
-                "profile_name": runtime_profile.name,
-                "profile_revision": runtime_profile.revision,
-                "profile_bound_agent_count": profile_bound_agent_count,
-                "profile_running_bound_agent_count": profile_repo.count_running_bound_agents(runtime_profile.id),
-                "read_only": False,
-                **summary,
-                **view_data,
-            },
-        )
-    finally:
-        db.close()
-
-
 _MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "pgsql"}
 
 
@@ -3522,59 +3252,6 @@ def _validate_managed_test_target(target: str) -> str:
     return clean_target
 
 
-@router.post("/app/agents/{agent_id}/settings/test/{target}")
-async def app_agent_settings_test(request: Request, agent_id: str, target: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    target = _validate_managed_test_target(target)
-    form = await request.form()
-    db = SessionLocal()
-    try:
-        agent = AgentRepository(db).get_by_id(agent_id)
-        if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        if not agent.runtime_profile_id:
-            raise HTTPException(status_code=404, detail="RuntimeProfile not found")
-
-        runtime_profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
-        if not runtime_profile or runtime_profile.owner_user_id not in {user.id, agent.owner_user_id}:
-            raise HTTPException(status_code=404, detail="RuntimeProfile not found")
-
-        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        config_payload, merge_error = _settings_merge_payload(config_base, form)
-        if merge_error:
-            return JSONResponse({"ok": False, "target": target, "message": merge_error})
-        ok, message = await runtime_profile_test_service.run_test(target, config_payload, runtime_type=getattr(agent, "runtime_type", None))
-        return JSONResponse({"ok": bool(ok), "target": target, "message": message})
-    finally:
-        db.close()
-
-
-@router.get("/app/runtime-profiles/{profile_id}/panel")
-async def app_runtime_profile_panel(request: Request, profile_id: str):
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    db = SessionLocal()
-    try:
-        service = RuntimeProfileService(db)
-        profile = service.get_for_user(user, profile_id)
-        if not profile:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
-        profile_repo = RuntimeProfileRepository(db)
-        return templates.TemplateResponse(
-            "partials/runtime_profile_panel.html",
-            _runtime_profile_panel_context(request, profile, profile_repo),
-        )
-    finally:
-        db.close()
-
-
 @router.get("/app/connectors/{connector_type}/panel")
 async def app_connector_panel(request: Request, connector_type: str):
     """Render the settings panel for one connector type (Connectors menu)."""
@@ -3582,8 +3259,6 @@ async def app_connector_panel(request: Request, connector_type: str):
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-    if not get_settings().connectors_enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connectors are disabled")
 
     from app.services import connector_service
     from app.services.connection_guidance import CONNECTOR_GUIDANCE
@@ -3601,7 +3276,16 @@ async def app_connector_panel(request: Request, connector_type: str):
 
     db = SessionLocal()
     try:
-        connector = connector_service.get_for_user(db, user, spec.type)
+        if spec.is_settings:
+            runtime_profile = RuntimeProfileService(db).get_or_create_for_user(user)
+            return templates.TemplateResponse(
+                "partials/connectors/panel.html",
+                _connector_settings_panel_context(request, db, spec, runtime_profile),
+            )
+        try:
+            connector = connector_service.get_for_user(db, user, spec.type)
+        except KeyError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
     finally:
         db.close()
 
@@ -3628,84 +3312,126 @@ async def app_connector_panel(request: Request, connector_type: str):
     )
 
 
-@router.post("/app/runtime-profiles/{profile_id}/test/{target}")
-async def app_runtime_profile_test(request: Request, profile_id: str, target: str):
+def _settings_connector_spec_or_404(connector_type: str):
+    from app.services.connector_registry import get_connector_spec
+
+    try:
+        spec = get_connector_spec(connector_type)
+    except KeyError:
+        spec = None
+    if spec is None or not spec.is_settings:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+    return spec
+
+
+class _ConnectorFormView:
+    """The posted form with __touch_ flags limited to this connector's sections.
+
+    Whatever a page posts, a connector's save can only rewrite the sections the
+    connector owns; every other section keeps its stored value.
+    """
+
+    def __init__(self, spec, form):
+        self._form = form
+        self._allowed = {f"__touch_{section}" for section in spec.form_sections}
+
+    def _visible(self, key: str) -> bool:
+        return not str(key).startswith("__touch_") or key in self._allowed
+
+    def get(self, key, default=None):
+        return self._form.get(key, default) if self._visible(key) else default
+
+    def getlist(self, key):
+        return self._form.getlist(key) if self._visible(key) else []
+
+    def keys(self):
+        return [key for key in self._form.keys() if self._visible(key)]
+
+    def __contains__(self, key):
+        return self._visible(key) and key in self._form
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def multi_items(self):
+        return [(key, value) for key, value in self._form.multi_items() if self._visible(key)]
+
+    def items(self):
+        return [(key, self._form.get(key)) for key in self.keys()]
+
+
+@router.post("/app/connectors/{connector_type}/test/{target}")
+async def app_connector_test(request: Request, connector_type: str, target: str):
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
+    spec = _settings_connector_spec_or_404(connector_type)
     target = _validate_managed_test_target(target)
-    form = await request.form()
+    if target not in spec.test_targets:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown test target")
+    form = _ConnectorFormView(spec, await request.form())
     db = SessionLocal()
     try:
-        service = RuntimeProfileService(db)
-        profile = service.get_for_user(user, profile_id)
-        if not profile:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
-
-        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+        runtime_profile = RuntimeProfileService(db).get_or_create_for_user(user)
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
 
-        ok, message = await runtime_profile_test_service.run_test(target, config_payload, runtime_type=(form.get("test_runtime_type") or "native"))
+        ok, message = await runtime_profile_test_service.run_test(
+            target, config_payload, runtime_type=(form.get("test_runtime_type") or "native")
+        )
         return JSONResponse({"ok": bool(ok), "target": target, "message": message})
     finally:
         db.close()
 
 
-@router.post("/app/runtime-profiles/{profile_id}/save")
-async def app_runtime_profile_save(request: Request, profile_id: str):
+@router.post("/app/connectors/{connector_type}/save")
+async def app_connector_save(request: Request, connector_type: str):
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
-    form = await request.form()
+    spec = _settings_connector_spec_or_404(connector_type)
+    form = _ConnectorFormView(spec, await request.form())
     db = SessionLocal()
     try:
         service = RuntimeProfileService(db)
-        profile = service.get_for_user(user, profile_id)
-        if not profile:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
-
-        profile_repo = RuntimeProfileRepository(db)
-        config_base = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+        runtime_profile = service.get_or_create_for_user(user)
+        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return templates.TemplateResponse(
-                "partials/runtime_profile_panel.html",
-                _runtime_profile_panel_context(request, profile, profile_repo, status_type="error", status_message=merge_error),
+                "partials/connectors/panel.html",
+                _connector_settings_panel_context(
+                    request, db, spec, runtime_profile, status_type="error", status_message=merge_error
+                ),
             )
 
         sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
-        is_default = str(form.get("is_default") or "").lower() in {"1", "true", "on", "yes"}
-        updated, config_changed = service.update_for_user(
-            user,
-            profile_id,
-            name=(form.get("name") or profile.name).strip(),
-            description=(form.get("description") or "").strip() or None,
-            config_json=dump_runtime_profile_config_json(sanitized_config),
-            is_default=is_default,
-        )
-        audit_runtime_profile_change(
-            db,
-            action="update_runtime_profile",
-            profile_id=updated.id,
-            user_id=user.id,
-            before=config_base,
-            after=parse_runtime_profile_config_json(updated.config_json, fallback_to_empty=True),
-        )
-
-        status_type = "success"
-        status_message = "Connections saved."
+        runtime_profile, config_changed = service.save_config(runtime_profile, sanitized_config)
+        status_type, status_message = "success", "Saved. Nothing changed."
         if config_changed:
-            status_type, status_message = _apply_runtime_profile_save(db, updated)
+            audit_runtime_profile_change(
+                db,
+                action="update_runtime_profile",
+                profile_id=runtime_profile.id,
+                user_id=user.id,
+                before=config_base,
+                after=parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True),
+            )
+            status_type, status_message = _apply_connector_save(db, runtime_profile)
 
         response = templates.TemplateResponse(
-            "partials/runtime_profile_panel.html",
-            _runtime_profile_panel_context(request, updated, profile_repo, status_type=status_type, status_message=status_message),
+            "partials/connectors/panel.html",
+            _connector_settings_panel_context(
+                request, db, spec, runtime_profile, status_type=status_type, status_message=status_message
+            ),
         )
-        response.headers["HX-Trigger"] = "runtimeProfilesChanged"
+        # Refreshes the Connectors list (state labels) and the assistants'
+        # "restart to apply" markers.
+        response.headers["HX-Trigger"] = "connectorsChanged"
         return response
     finally:
         db.close()

@@ -1131,59 +1131,10 @@ def validate_runtime_profile_config_json(value: str | None) -> str:
     return dump_runtime_profile_config_json(decoded)
 
 
-# Where a new profile's config comes from. The browser never sees a profile's
-# credentials -- responses go through redact_runtime_profile_config_for_public_response
-# -- so a copy cannot be assembled client-side. The client names a source and
-# the server does the copying.
-PROFILE_SOURCE_BLANK = "blank"
-PROFILE_SOURCE_DEFAULT_CONNECTIONS = "default_connections"
-PROFILE_SOURCE_PROFILE = "profile"
-PROFILE_SOURCE_PROFILE_PREFIX = PROFILE_SOURCE_PROFILE + ":"
-
-
-def parse_runtime_profile_source(value: Optional[str]) -> tuple[str, str]:
-    """Split a create-source value into ``(kind, profile_id)``.
-
-    ``kind`` is one of the three PROFILE_SOURCE_* kinds; ``profile_id`` is
-    empty unless the source names one.
-    """
-
-    source = (value or PROFILE_SOURCE_BLANK).strip() or PROFILE_SOURCE_BLANK
-    if source in (PROFILE_SOURCE_BLANK, PROFILE_SOURCE_DEFAULT_CONNECTIONS):
-        return source, ""
-    if source.startswith(PROFILE_SOURCE_PROFILE_PREFIX):
-        profile_id = source[len(PROFILE_SOURCE_PROFILE_PREFIX):].strip()
-        if profile_id:
-            return PROFILE_SOURCE_PROFILE, profile_id
-    raise ValueError(
-        "source must be 'blank', 'default_connections', or 'profile:<profile_id>'"
-    )
-
-
-class RuntimeProfileCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = None
-    config_json: str = "{}"
-    is_default: bool = False
-    # "blank" keeps config_json meaningful for API clients that post a config
-    # directly; any other source is resolved server-side and config_json is
-    # ignored, so the two can never disagree about what was created.
-    source: str = PROFILE_SOURCE_BLANK
-
-    _validate_config = field_validator("config_json", mode="before")(validate_runtime_profile_config_json)
-
-    @field_validator("source", mode="before")
-    @classmethod
-    def _validate_source(cls, value: Optional[str]) -> str:
-        parse_runtime_profile_source(value)
-        return (value or PROFILE_SOURCE_BLANK).strip() or PROFILE_SOURCE_BLANK
-
-
 class RuntimeProfileUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    """Replace the member's connector settings in one call (API clients)."""
+
     config_json: Optional[str] = None
-    is_default: Optional[bool] = None
 
     @field_validator("config_json", mode="before")
     @classmethod
@@ -1196,30 +1147,10 @@ class RuntimeProfileUpdateRequest(BaseModel):
 class RuntimeProfileResponse(BaseModel):
     id: str
     owner_user_id: int
-    name: str
-    description: Optional[str] = None
     config_json: str
     revision: int
-    is_default: bool
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
-
-
-class RuntimeProfileOptionResponse(BaseModel):
-    id: str
-    name: str
-    description: Optional[str] = None
-    revision: int
-    is_default: bool
-
-
-class RuntimeProfileSourceResponse(BaseModel):
-    """One entry in the "start from" picker on the create-profile dialog."""
-
-    value: str
-    label: str
-    detail: Optional[str] = None
-    group: str
