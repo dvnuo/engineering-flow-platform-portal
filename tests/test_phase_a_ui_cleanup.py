@@ -24,13 +24,16 @@ def test_app_template_contains_new_portal_shell():
     assert "bundles-menu-btn" not in html
     assert "dashboard-menu-btn" not in html
     assert "home-open-delegations-btn" in html
-    assert "runtime-profiles-menu-btn" in html
+    assert 'id="connectors-menu-btn"' in html
     assert 'id="top-settings"' not in html
-    assert "runtime-profiles-nav-section" in html
-    assert "add-runtime-profile-btn" in html
-    assert "create-runtime-profile-modal" in html
-    assert '<select name="runtime_profile_id" id="create-runtime-profile-select"></select>' in html
-    assert '<select name="runtime_profile_id" id="edit-runtime-profile-select"></select>' in html
+    assert "connectors-nav-section" in html
+    # One settings row per member: no profile list, create modal or picker.
+    assert "runtime-profiles-menu-btn" not in html
+    assert "runtime-profiles-nav-section" not in html
+    assert "add-runtime-profile-btn" not in html
+    assert "create-runtime-profile-modal" not in html
+    assert "create-runtime-profile-select" not in html
+    assert "edit-runtime-profile-select" not in html
     assert '<option value="">None</option>' not in html
     assert "Ask anything..." in html
     assert "portal-modal-feedback" in html
@@ -49,39 +52,28 @@ def test_app_template_contains_new_portal_shell():
     rail_top_start = html.index('<div class="portal-rail-top">')
     rail_top_end = html.index('<div class="portal-rail-bottom">', rail_top_start)
     rail_top = html[rail_top_start:rail_top_end]
-    assert "runtime-profiles-menu-btn" not in rail_top
+    assert "connectors-menu-btn" not in rail_top
 
     rail_bottom_start = html.index('<div class="portal-rail-bottom">')
     rail_bottom_end = html.index('</div>', rail_bottom_start)
     rail_bottom = html[rail_bottom_start:rail_bottom_end]
-    assert "runtime-profiles-menu-btn" in rail_bottom
+    assert "connectors-menu-btn" in rail_bottom
     assert "theme-toggle" in rail_bottom
     assert "logout-btn" in rail_bottom
 
-    create_runtime_modal_start = html.index('id="create-runtime-profile-form"')
-    create_runtime_modal_end = html.index("</form>", create_runtime_modal_start)
-    create_runtime_modal = html[create_runtime_modal_start:create_runtime_modal_end]
-    assert 'name="is_default"' in create_runtime_modal
-    assert "toggle-switch" in create_runtime_modal
-    assert "toggle-slider" in create_runtime_modal
-
-    runtime_panel = Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
-    settings_panel = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
-    assert 'name="is_default"' in runtime_panel
-    assert "toggle-switch" in runtime_panel
-    assert "toggle-slider" in runtime_panel
-    assert 'data-test-base="/app/runtime-profiles/{{ profile_id }}/test"' in runtime_panel
-    assert 'data-test-base="/app/agents/{{ agent_id }}/settings/test"' in settings_panel
-    assert 'data-copilot-auth-base="/api/copilot/auth"' in runtime_panel
-    assert 'data-copilot-auth-base="/api/copilot/auth"' in settings_panel
-    assert 'data-copilot-agent-id' not in runtime_panel
-    assert 'data-copilot-agent-id' not in settings_panel
-    assert 'copilot_proxy_agent_hint' not in runtime_panel
-    assert 'data-current-value="{{ raw_llm.get(\'model\', \'\') }}"' in runtime_panel
-    assert 'data-current-value="{{ raw_llm.get(\'model\', \'\') }}"' in settings_panel
-    assert 'data-test-target="proxy"' in runtime_panel
-    assert 'data-test-target="proxy"' in settings_panel
-    assert "providerModels" not in settings_panel
+    connector_panel = Path("app/templates/partials/connectors/panel.html").read_text(encoding="utf-8")
+    llm_form = Path("app/templates/partials/connectors/llm.html").read_text(encoding="utf-8")
+    proxy_form = Path("app/templates/partials/connectors/proxy.html").read_text(encoding="utf-8")
+    assert "toggle-switch" in proxy_form
+    assert "toggle-slider" in proxy_form
+    assert 'data-test-base="/app/connectors/{{ connector.type }}/test"' in connector_panel
+    assert 'data-copilot-auth-base="/api/copilot/auth"' in connector_panel
+    assert 'data-copilot-agent-id' not in connector_panel
+    assert 'data-copilot-agent-id' not in llm_form
+    assert 'copilot_proxy_agent_hint' not in llm_form
+    assert 'data-current-value="{{ raw_llm.get(\'model\', \'\') }}"' in llm_form
+    assert 'data-test-target="proxy"' in proxy_form
+    assert "providerModels" not in llm_form
 
     css = Path("app/static/css/app.css").read_text(encoding="utf-8")
     assert ".toggle-switch" in css
@@ -92,11 +84,12 @@ def test_chat_submit_primary_path_is_fetch_runtime():
     js = _chat_ui_js_source()
     assert "async function submitChatForSelectedAgent()" in js
     assert 'fetch(`/a/${agentIdAtSend}/api/chat`' in js
-    assert '"runtime-profiles"' in js
-    assert "renderRuntimeProfileList" in js
-    assert "openRuntimeProfileInMain" in js
-    assert "runtimeProfilesChanged" in js
-    assert "No connection profiles available" in js
+    assert '"connectors"' in js
+    assert "renderConnectorList" in js
+    assert "openConnectorInMain" in js
+    assert "connectorsChanged" in js
+    assert "runtimeProfilesChanged" not in js
+    assert "No connectors are available." in js
     assert 'selectEl.innerHTML = \'<option value=\"\">None</option>\'' not in js
     assert 'let messageBackup = ""' not in js
     assert "let pendingFilesBackup = []" not in js
@@ -310,7 +303,10 @@ def test_templates_portalized_for_panel_visual_consistency():
     users_html = Path("app/templates/partials/users_panel.html").read_text(encoding="utf-8")
     skills_html = Path("app/templates/partials/skills_panel.html").read_text(encoding="utf-8")
     delegations_html = Path("app/templates/partials/delegations_panel.html").read_text(encoding="utf-8")
-    settings_html = Path("app/templates/partials/settings_panel.html").read_text(encoding="utf-8")
+    # The member's settings form is now split across the connector panels.
+    connectors_dir = Path("app/templates/partials/connectors")
+    connector_panel_html = (connectors_dir / "panel.html").read_text(encoding="utf-8")
+    settings_html = "\n".join(path.read_text(encoding="utf-8") for path in sorted(connectors_dir.glob("*.html")))
     usage_html = Path("app/templates/partials/usage_panel.html").read_text(encoding="utf-8")
     login_html = Path("app/templates/login.html").read_text(encoding="utf-8")
 
@@ -338,10 +334,10 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "portal-panel-stack" in skills_html
     assert "portal-panel-stack" in delegations_html
     assert ("portal-form-input" in settings_html) or ("portal-panel-section" in settings_html)
-    assert "portal-settings-section-head" in settings_html
+    assert "portal-connector-head" in connector_panel_html
     assert "portal-settings-instance-card" in settings_html
     assert "portal-instance-remove" in settings_html
-    # The settings panel's inline links live in the shared Copilot card it includes.
+    # The model provider form's inline links live in the shared Copilot card it includes.
     copilot_card_html = Path("app/templates/partials/copilot_auth_card.html").read_text(encoding="utf-8")
     assert '{% include "partials/copilot_auth_card.html" %}' in settings_html
     assert "portal-link-inline" in copilot_card_html
@@ -365,7 +361,7 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "border-slate" not in usage_html
     assert "dark:" not in usage_html
     assert 'hx-on::after-request="if(event.detail.successful) { closeToolPanel(); }"' not in settings_html
-    assert 'id="settings-status"' in settings_html
+    assert 'id="settings-status"' in connector_panel_html
     assert "onclick=" not in settings_html
     assert "alert(" not in settings_html
     assert 'data-settings-action="generate-ssh-key"' not in settings_html
@@ -376,14 +372,12 @@ def test_templates_portalized_for_panel_visual_consistency():
     assert "Leave blank to use the public GitHub API default." in settings_html
     assert 'data-settings-action="copy-config"' not in settings_html
     assert 'data-settings-action="paste-config"' not in settings_html
-    assert 'data-agent-id="{{ agent_id }}"' in settings_html
     assert "Settings saved!" not in settings_html
     assert "setTimeout(function(){closeToolPanel();}, 500)" not in settings_html
     assert "onclick=\"if(typeof showToast" not in settings_html
     assert "<label class=\"portal-checkbox-row\">" not in settings_html
-    assert 'data-settings-status' in settings_html
+    assert 'data-settings-status' in connector_panel_html
     assert 'Please select an agent first' not in settings_html
-    assert 'Please select an assistant first' in settings_html
     assert 'text-blue-500' not in settings_html
     assert 'portal-note-500' not in settings_html
     assert 'portal-note-800' not in settings_html

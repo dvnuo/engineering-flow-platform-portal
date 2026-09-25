@@ -87,16 +87,18 @@ def test_portal_hash_route_sections_are_declared():
         "assistants",
         "tasks",
         # Help is routable so a connection guide can be deep-linked from
-        # Connections and survive a reload or a new tab.
+        # Connectors and survive a reload or a new tab.
         "help",
-        "runtime-profiles",
-        # Connectors (per-member capabilities such as the local browser bridge)
-        # are routable so the composer toggle can deep-link into the setup panel.
+        # Connectors (every service an assistant can reach, plus the local
+        # browser bridge) are routable so a panel can be deep-linked.
         "connectors",
         "delegations",
         "users",
     }
     assert "automations" not in _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS")
+    assert "runtime-profiles" not in _extract_js_set_values(js, "PORTAL_ROUTE_SECTIONS")
+    # Old #/runtime-profiles links still land somewhere useful.
+    assert 'const LEGACY_PORTAL_ROUTE_SECTIONS = { "runtime-profiles": "connectors" };' in js
 
 
 def test_refresh_all_prefers_assistant_hash_route_over_local_storage():
@@ -135,14 +137,14 @@ def test_user_actions_commit_hash_routes():
     select_agent = _extract_js_function(js, "performAgentSelection")
     set_active_section = _extract_js_function(js, "setActiveNavSection")
     open_task = _extract_js_function(js, "openTaskDetailInMain")
-    open_runtime_profile = _extract_js_function(js, "openRuntimeProfileInMain")
+    open_connector = _extract_js_function(js, "openConnectorInMain")
     open_delegation = _extract_js_function(js, "openDelegationRulePanel")
 
     assert 'commitPortalRoute({ section: "assistants", agentId })' in select_agent
     assert "commitPortalRoute(" in set_active_section
     assert "currentPortalRouteFromState()" in set_active_section
     assert 'commitPortalRoute({ section: "tasks", taskId })' in open_task
-    assert 'commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: profileId })' in open_runtime_profile
+    assert 'commitPortalRoute({ section: "connectors", connectorType })' in open_connector
     assert 'commitPortalRoute({ section: "delegations", delegationRuleId: ruleId })' in open_delegation
 
 
@@ -152,12 +154,13 @@ def test_rail_clicks_use_section_only_navigation():
 
     assert 'dom.railAssistantsBtn?.addEventListener("click", () => openPortalSection("assistants"))' in bind_events
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => openPortalSection("tasks"))' in bind_events
-    assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => openPortalSection("runtime-profiles"))' in bind_events
+    assert 'dom.connectorsMenuBtn?.addEventListener("click", () => openPortalSection("connectors"))' in bind_events
     assert 'dom.delegationsMenuBtn?.addEventListener("click", () => openPortalSection("delegations"))' in bind_events
     assert 'dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"))' in bind_events
 
     assert 'dom.tasksMenuBtn?.addEventListener("click", () => setActiveNavSection("tasks"))' not in bind_events
-    assert 'dom.runtimeProfilesMenuBtn?.addEventListener("click", () => setActiveNavSection("runtime-profiles"))' not in bind_events
+    assert 'dom.connectorsMenuBtn?.addEventListener("click", () => setActiveNavSection("connectors"))' not in bind_events
+    assert "runtimeProfilesMenuBtn" not in bind_events
     assert 'dom.delegationsMenuBtn?.addEventListener("click", () => setActiveNavSection("delegations"))' not in bind_events
 
 
@@ -198,28 +201,25 @@ def test_return_from_task_detail_routes_back_to_tasks_section():
     )
 
 
-def test_runtime_profiles_section_landing_auto_opens_first_profile():
+def test_connectors_section_landing_auto_opens_first_connector():
     js = _chat_ui_source()
     set_active_section = _extract_js_function(js, "setActiveNavSection")
     route_from_hash = _extract_js_function(js, "applyPortalRouteFromHash")
     open_section = _extract_js_function(js, "openPortalSection")
-    start = set_active_section.index('if (state.activeNavSection === "runtime-profiles"')
+    start = set_active_section.index('if (state.activeNavSection === "connectors" && shouldRefreshVisibleSection)')
     end = set_active_section.index('if (state.activeNavSection === "tasks"', start)
-    runtime_branch = set_active_section[start:end]
-    prefer_branch = runtime_branch[
-        runtime_branch.index("if (preferSectionLanding)") : runtime_branch.index("} else {")
-    ]
+    connectors_branch = set_active_section[start:end]
 
-    assert "preferSectionLanding" in runtime_branch
-    assert "const targetProfile = state.runtimeProfiles[0] || null" in prefer_branch
-    assert "state.selectedRuntimeProfileId = targetProfileId" in prefer_branch
-    assert "await loadRuntimeProfilePanelContent(targetProfileId, { updateRoute: false })" in prefer_branch
-    assert 'commitPortalRoute({ section: "runtime-profiles", runtimeProfileId: targetProfileId })' in prefer_branch
-    assert "Select a runtime profile from the left sidebar." not in prefer_branch
+    assert "const targetType = state.selectedConnectorType || (state.connectors[0] || {}).type || null" in connectors_branch
+    assert "state.selectedConnectorType = targetType" in connectors_branch
+    assert "await loadConnectorPanelContent(targetType, { updateRoute: false })" in connectors_branch
+    assert "preferSectionLanding && updateRoute && !isApplyingPortalRoute" in connectors_branch
+    assert 'commitPortalRoute({ section: "connectors", connectorType: targetType })' in connectors_branch
 
-    assert "shouldNormalizeRuntimeProfileLandingRoute" in route_from_hash
-    assert '{ section: "runtime-profiles", runtimeProfileId: state.selectedRuntimeProfileId }' in route_from_hash
-    assert "const opensDetailByDefault = section === \"runtime-profiles\"" in open_section
+    # A legacy #/runtime-profiles hash is rewritten to the connectors address.
+    assert "landedOnLegacySection" in route_from_hash
+    assert "commitPortalRoute(currentPortalRouteFromState(), { replace: true })" in route_from_hash
+    assert 'const opensDetailByDefault = section === "connectors"' in open_section
     assert "updateRoute: opensDetailByDefault" in open_section
 
 

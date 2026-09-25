@@ -1,0 +1,36 @@
+{#
+  Panel of one settings connector (Connectors menu). The form partial in
+  connector_template holds the fields; the hidden __touch_<section> flags are
+  flipped by chat_ui.js when a field in that section changes, and the server
+  only rewrites touched sections.
+#}
+<div class="portal-panel-stack" id="connector-settings-panel-root" data-connector-type="{{ connector.type }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/connectors/{{ connector.type }}/test">
+  <section class="portal-panel-section portal-connector-head">
+    <div class="portal-connector-head-main">
+      <span class="portal-connector-icon" aria-hidden="true"><i data-lucide="{{ connector.icon }}" class="w-5 h-5"></i></span>
+      <div class="portal-connector-head-text">
+        <h5>{{ connector.label }}</h5>
+        <p class="portal-panel-note">{{ connector.description }}</p>
+      </div>
+      <span class="portal-connector-state is-{{ connector.state }}" data-connector-state="{{ connector.state }}">{{ connector.status_label }}</span>
+    </div>
+  </section>
+
+  {% include "partials/connectors/_restart_notice.html" %}
+
+  <form id="connector-settings-form" hx-post="/app/connectors/{{ connector.type }}/save" hx-target="#workspace-detail-content" hx-swap="innerHTML" class="portal-panel-stack">
+    {% for section in form_sections %}
+    <input type="hidden" name="__touch_{{ section }}" value="0" data-touch-flag="{{ section }}" />
+    {% endfor %}
+    {% if status_message %}
+      <div id="settings-status" class="portal-inline-state {% if status_type == 'error' %}is-error{% elif status_type == 'warning' %}is-warning{% elif status_type == 'success' %}is-success{% endif %}" data-settings-status="{{ status_type }}" tabindex="-1">{{ status_message }}</div>
+    {% endif %}
+
+    {% include connector_template %}
+
+    <div class="portal-connector-save-row">
+      <button type="submit" class="portal-btn is-primary">Save</button>
+      <span class="portal-inline-note">Applies to all your assistants. Idle ones restart to pick it up; one that is busy keeps working and asks you to restart it when you are ready.</span>
+    </div>
+  </form>
+</div>

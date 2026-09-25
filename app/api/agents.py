@@ -36,6 +36,7 @@ from app.schemas.agent import (
 )
 from app.schemas.assistant_type import SimpleAgentCreateRequest
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.agent_busy import profile_restart_pending
 from app.services.agent_startup_status import startup_view
 from app.services.k8s_service import K8sService
 from app.services.inference_settings_service import resolve_agent_inference_profile
@@ -145,17 +146,6 @@ def _delete_agent(repo: AgentRepository, agent, user, db: Session):
     return {"ok": True}
 
 
-def _validate_runtime_profile_reference(
-    db: Session,
-    runtime_profile_id: str | None,
-    current_user_id: int | None = None,
-) -> None:
-    if runtime_profile_id is not None:
-        runtime_profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
-        if not runtime_profile or (current_user_id is not None and runtime_profile.owner_user_id != current_user_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RuntimeProfile not found")
-
-
 def _validate_agent_type_or_422(agent_type: str | None) -> None:
     if agent_type is None:
         return
@@ -219,17 +209,24 @@ def _opencode_runtime_image_tag() -> str:
     return (settings.default_opencode_runtime_image_tag or "1.14.39").strip() or "1.14.39"
 
 
-def _ensure_agent_profile_secrets(db: Session, agent) -> None:
+def _ensure_agent_profile_secrets(db: Session, agent) -> int | None:
     """Best-effort: make sure the Secret the pod env references exists before the
-    pod (re)starts, so the EFP_PROFILE_CONFIG secretKeyRef always resolves."""
+    pod (re)starts, so the EFP_PROFILE_CONFIG secretKeyRef always resolves.
+
+    Returns the settings revision the pod will start with (None when unknown),
+    for ``agent.profile_revision_applied``.
+    """
+    revision = None
     try:
         runtime_profile_secret_service.ensure_none_secret()
         if getattr(agent, "runtime_profile_id", None):
             profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
             if profile:
+                revision = profile.revision
                 runtime_profile_secret_service.sync_profile_secret(profile)
     except Exception:
         logger.exception("failed to ensure runtime profile secret agent_id=%s", getattr(agent, "id", "-"))
+    return revision
 
 
 def _runtime_image_parts(runtime_type: str) -> tuple[str, str]:
@@ -393,9 +390,17 @@ def list_agent_statuses(user=Depends(get_current_user), db: Session = Depends(ge
     for agent in [*repo.list_by_owner(user.id), *repo.list_public()]:
         seen.setdefault(agent.id, agent)
 
+    profile_revisions: dict[str, int | None] = {}
+    profile_repo = RuntimeProfileRepository(db)
     statuses = []
     for agent in seen.values():
         runtime = _refresh_agent_runtime_status(repo, agent, use_cache=True)
+        restart_pending = False
+        if _can_write(agent, user) and agent.runtime_profile_id:
+            if agent.runtime_profile_id not in profile_revisions:
+                profile = profile_repo.get_by_id(agent.runtime_profile_id)
+                profile_revisions[agent.runtime_profile_id] = getattr(profile, "revision", None)
+            restart_pending = profile_restart_pending(agent, profile_revisions[agent.runtime_profile_id])
         statuses.append(
             AgentStatusResponse(
                 id=agent.id,
@@ -404,6 +409,7 @@ def list_agent_statuses(user=Depends(get_current_user), db: Session = Depends(ge
                 memory_usage=runtime.memory_usage,
                 last_error=agent.last_error,
                 startup=startup_view(agent.status, agent.last_error),
+                settings_restart_pending=restart_pending,
             )
         )
     return AgentStatusBatchResponse(statuses=statuses)
@@ -449,18 +455,15 @@ async def create_agent_simple(
         # resolvers fall back to the configured defaults.
         agent_settings_branch=assistant_type.agent_settings_branch,
         skill_branch=assistant_type.skill_branch,
-        runtime_profile_id=RuntimeProfileService(db).ensure_user_has_default_profile(user).id,
     )
     return await create_agent(create_payload, user=user, db=db)
 
 
 @router.post("", response_model=AgentResponse)
 async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    _validate_runtime_profile_reference(db, payload.runtime_profile_id, current_user_id=user.id)
     _validate_agent_type_or_422(payload.agent_type)
-    runtime_profile_id = payload.runtime_profile_id
-    if runtime_profile_id is None:
-        runtime_profile_id = RuntimeProfileService(db).ensure_user_has_default_profile(user).id
+    # Every assistant uses its owner's connector settings.
+    runtime_profile_id = RuntimeProfileService(db).get_or_create_for_user(user).id
 
     try:
         effective_runtime_type = _resolve_create_runtime_type(payload)
@@ -515,10 +518,11 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
 
     # The profile Secret must exist before the Deployment so the pod's
     # EFP_PROFILE_CONFIG secretKeyRef resolves on first start.
-    _ensure_agent_profile_secrets(db, agent)
+    applied_revision = _ensure_agent_profile_secrets(db, agent)
     runtime = k8s_service.create_agent_runtime(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
+    agent.profile_revision_applied = applied_revision
     repo.save(agent)
 
     AuditRepository(db).create(
@@ -550,14 +554,6 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     changes.pop("repo_url", None)
     changes.pop("branch", None)
 
-    if "runtime_profile_id" in changes:
-        if changes["runtime_profile_id"] is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="runtime_profile_id cannot be null; choose one of the user's runtime profiles.",
-            )
-        _validate_runtime_profile_reference(db, changes["runtime_profile_id"], current_user_id=user.id)
-
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")
     if "agent_type" in changes:
@@ -582,12 +578,6 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
 
     repo.save(agent)
 
-    if "runtime_profile_id" in changes:
-        # Rebinding changes the pod's EFP_PROFILE_CONFIG secretKeyRef target;
-        # ensure the new Secret exists before the Deployment env re-render below
-        # rolls the pod onto it.
-        _ensure_agent_profile_secrets(db, agent)
-
     skill_runtime_fields = {"skill_repo_url", "skill_branch"}
     if any(field in changes for field in skill_runtime_fields):
         # Skill assets are materialized by Kubernetes initContainers at Pod start.
@@ -607,7 +597,6 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
 
     k8s_reprovision_fields = {
         "runtime_type",
-        "runtime_profile_id",
         "image",
         "agent_settings_repo_url",
         "agent_settings_branch",
@@ -679,11 +668,13 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     if not can_transition(agent.status, "running"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Cannot start agent from status '{agent.status}'")
 
-    _ensure_agent_profile_secrets(db, agent)
+    applied_revision = _ensure_agent_profile_secrets(db, agent)
     runtime = k8s_service.start_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
     agent.last_activity_at = datetime.utcnow()
+    if runtime.status != "failed":
+        agent.profile_revision_applied = applied_revision
     repo.save(agent)
     runtime_status_cache.invalidate(agent.id)
     AuditRepository(db).create("start_agent", "agent", agent.id, user.id)
@@ -723,7 +714,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
             detail=f"Cannot restart agent from status '{agent.status}'",
         )
 
-    _ensure_agent_profile_secrets(db, agent)
+    applied_revision = _ensure_agent_profile_secrets(db, agent)
     runtime = k8s_service.restart_agent(agent)
     if runtime.status == "failed":
         agent.last_error = runtime.message
@@ -736,6 +727,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     agent.status = "restarting"
     agent.last_error = runtime.message
     agent.last_activity_at = datetime.utcnow()
+    agent.profile_revision_applied = applied_revision
     repo.save(agent)
     runtime_status_cache.invalidate(agent.id)
     AuditRepository(db).create("restart_agent", "agent", agent.id, user.id)
@@ -814,6 +806,11 @@ async def agent_status(agent_id: str, user=Depends(get_current_user), db: Sessio
     applied_profile_revision = None
     if agent.status == "running":
         applied_profile_revision = await _fetch_applied_profile_revision(agent)
+        if applied_profile_revision is not None and agent.profile_revision_applied != applied_profile_revision:
+            # The pod itself says what it booted with; trust it over the
+            # Portal's record (a crash restart re-reads the Secret too).
+            agent.profile_revision_applied = applied_profile_revision
+            repo.save(agent)
 
     return AgentStatusResponse(
         id=agent.id,
@@ -824,4 +821,6 @@ async def agent_status(agent_id: str, user=Depends(get_current_user), db: Sessio
         startup=startup_view(agent.status, agent.last_error),
         desired_profile_revision=desired_profile_revision,
         applied_profile_revision=applied_profile_revision,
+        settings_restart_pending=_can_write(agent, user)
+        and profile_restart_pending(agent, desired_profile_revision),
     )

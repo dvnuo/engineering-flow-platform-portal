@@ -27,7 +27,6 @@ class AgentCreateRequest(BaseModel):
     memory: Optional[str] = None
     description: Optional[str] = None
     agent_type: str = "workspace"
-    runtime_profile_id: Optional[str] = None
 
     @field_validator("agent_type")
     @classmethod
@@ -75,7 +74,6 @@ class AgentUpdateRequest(BaseModel):
     memory: Optional[str] = None
     description: Optional[str] = None
     agent_type: Optional[str] = None
-    runtime_profile_id: Optional[str] = None
 
     @field_validator("agent_type")
     @classmethod
@@ -120,6 +118,9 @@ class AgentStatusResponse(BaseModel):
     last_error: Optional[str] = None
     desired_profile_revision: Optional[int] = None
     applied_profile_revision: Optional[int] = None
+    # Running with connector settings older than the member's current ones; a
+    # restart applies them (the Portal skipped it because the assistant was busy).
+    settings_restart_pending: bool = False
     # Member-facing reading of the same state: what phase startup is in, and
     # what to do when it fails. Raw `status`/`last_error` stay untouched so
     # existing consumers are unaffected.

@@ -1,8 +1,12 @@
 # Connectors Contract (Portal ↔ Runtime ↔ Local bridge)
 
-Status: v1 (protocol_version 1). Companion to the [Portal / Runtime Contract](PORTAL_RUNTIME_CONTRACT.md). The first
-connector type is `local_browser`; every transport-level name below is connector-type
-agnostic so that further types only add a registry entry and a page module.
+Status: v1 (protocol_version 1). Companion to the [Portal / Runtime Contract](PORTAL_RUNTIME_CONTRACT.md). Connectors
+are the one place a member configures what their assistants can reach. There are two kinds (registry:
+`app/services/connector_registry.py`): **settings** connectors for services the assistant signs in to from its pod
+(the model provider, Jira, GitHub, AWS, ...; see §7.1), and **local** connectors for a program on the member's own PC.
+The first local connector type is `local_browser`. Sections 1–6 and 9–11 describe the local transport. Every
+transport-level name there is connector-type agnostic, so further local types only add a registry entry and a
+page module.
 
 For installation and use, see the [Beginner Guide](BEGINNER_GUIDE.md). Portal code implements the page, proxy, and settings portions below. Runtime tool behavior and the loopback HTTP service are companion requirements implemented in the runtime/tools repositories; a Portal-only smoke test cannot validate them end to end.
 
@@ -10,9 +14,9 @@ For installation and use, see the [Beginner Guide](BEGINNER_GUIDE.md). Portal co
 
 | Term | Meaning |
 |---|---|
-| connector | A per-user capability that lives outside the agent pod (a program on the user's PC, or an external service). Stored in Portal table `user_connectors`, keyed by `(owner_user_id, connector_type)`. |
-| connector_type | Stable string id, e.g. `local_browser`. |
-| kind | `local` (needs the chat page as a bridge to the user's machine) or `remote` (Portal/runtime talk to the service directly). v1 implements `local` only. |
+| connector | A per-user capability an assistant can use. A **local** connector's settings are stored in Portal table `user_connectors`, keyed by `(owner_user_id, connector_type)`, and never enter a pod. A **settings** connector's values are sections of the member's single settings row (`runtime_profiles`, §7.1). |
+| connector_type | Stable string id, e.g. `local_browser`, `jira`, `llm`. |
+| kind | `local` (needs the chat page as a bridge to the user's machine) or `settings` (the runtime talks to the service directly with credentials delivered through the pod Secret at boot). |
 | client_id | Random id generated per Portal browser tab (`sessionStorage`). Identifies which tab (and therefore which machine) executes local requests for one chat turn. |
 | bridge | The page-side dispatcher plus the local program it talks to. For `local_browser` the local program is `browser serve` from `engineering-flow-platform-tools`. |
 
@@ -31,7 +35,7 @@ The page adds a **top-level** `connectors` object to `POST /a/{agent_id}/api/cha
 ```
 
 Rules
-- Only connector types the user has **enabled** in Connectors settings are sent.
+- Only local connector types the user has **enabled** in Connectors are sent. Settings connectors never travel in this object; they reach the runtime through the pod Secret (§7.1).
 - The current Local browser page also requires a Chromium browser, the chat's **Browser on** toggle, and a reachable bridge. Keep the originating Portal tab open while a request is running.
 - `client_id`: 1–64 chars, `[A-Za-z0-9_-]`.
 - Absent or invalid `connectors` means "no connectors for this turn".
@@ -203,15 +207,61 @@ the setting changed reopens on the current page.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/connectors` | list of registry types with the current user's state: `[{type, label, kind, category, description, enabled, config, settings, last_verified_at}]`; `settings` holds deployment-level values the page needs (read-only; `local_browser`: `{start_url}` raw from `LOCAL_BROWSER_START_URL`) |
+| GET | `/api/connectors` | list of registry types with the current user's state, ordered by category: `[{type, label, kind, category, description, icon, enabled, state, status_label, config, settings, last_verified_at}]`. `state` is `connected`, `off`, or `not_set_up`; `status_label` is its display text. `settings` holds deployment-level values the page needs (read-only; `local_browser`: `{start_url}` raw from `LOCAL_BROWSER_START_URL`) |
 | GET | `/api/connectors/{type}` | one entry |
-| PUT | `/api/connectors/{type}` | `{ "enabled": true, "config": { … } }`; config validated against the type's schema |
-| POST | `/api/connectors/{type}/verify` | request `{ "ok": true, "details": {…} }` from the page's own probe; response `{ "ok": true, "last_verified_at": "..." }`. Portal remembers the latest successful verification; it does not probe the member's PC itself |
-| GET | `/app/connectors/{type}/panel` | htmx panel |
+| PUT | `/api/connectors/{type}` | local connectors only: `{ "enabled": true, "config": { … } }`; config validated against the type's schema |
+| POST | `/api/connectors/{type}/verify` | local connectors only: request `{ "ok": true, "details": {…} }` from the page's own probe; response `{ "ok": true, "last_verified_at": "..." }`. Portal remembers the latest successful verification; it does not probe the member's PC itself |
+| GET | `/app/connectors/{type}/panel` | htmx panel (both kinds; §7.1 for settings connectors) |
 
 `local_browser` config schema: `{ "auto_enable_in_new_chats": bool (default true), "preferred_port": int 1024–65535 (default 8765) }`.
 
-Unconfigured connectors are listed as disabled with their default settings. Unknown connector types return 404; invalid config keys return 400. A malformed request model can return 422. When `CONNECTORS_ENABLED=false`, the settings API returns 404 and the menu is hidden.
+The API is always served. Unconfigured local connectors are listed as disabled (`state: not_set_up`) with their default settings. Unknown connector types return 404; invalid config keys return 400. A malformed request model can return 422. When `CONNECTORS_ENABLED=false`, local connectors are omitted from the list and `GET`/`PUT`/`verify` on them return 404; the Connectors menu and the settings connectors stay available.
+
+### 7.1 Settings connectors
+
+| type | label | category | settings keys it owns | form sections | tests |
+|---|---|---|---|---|---|
+| `llm` | Model provider | Model | `llm` | `llm` | `llm` |
+| `jira` | Jira | Work tracking & docs | `jira` | `jira` | `jira` |
+| `confluence` | Confluence | Work tracking & docs | `confluence` | `confluence` | `confluence` |
+| `github` | GitHub | Code & delivery | `github`, `git` | `github`, `git` | `github` |
+| `jenkins` | Jenkins | Code & delivery | `jenkins` | `jenkins` | `jenkins` |
+| `nexus` | Nexus Repository | Code & delivery | `nexus` | `nexus` | `nexus` |
+| `aws` | AWS | Cloud & data | `aws` | `aws` | – |
+| `splunk` | Splunk | Cloud & data | `splunk` | `splunk` | `splunk` |
+| `pgsql` | PostgreSQL | Cloud & data | `pgsql` | `pgsql` | `pgsql` |
+| `browserstack` | BrowserStack | Testing | `mobile-auto` | `mobile` | – |
+| `proxy` | Proxy | Network | `proxy` | `proxy` | `proxy` |
+
+Storage: every member has exactly one settings row in `runtime_profiles` (unique `owner_user_id`), created from the
+admin's **Default connectors** seed on first use. Each settings connector reads and writes only its own keys of that
+row's `config_json`. Every assistant the member owns is bound to the row (`agents.runtime_profile_id`).
+
+Delivery: the row is rendered into the Kubernetes Secret `efp-profile-{row id}`, which the assistant's pod reads **at
+boot**. A running pod does not see a change until it restarts. The renderer always writes
+`debug: {enabled: true, log_level: "DEBUG"}`; debug logging is not a connector.
+
+Routes (session-cookie web routes; `{type}` must be a settings connector, otherwise 404):
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET | `/app/connectors/{type}/panel` | `partials/connectors/panel.html` wrapping `partials/connectors/<type>.html`: a header with the connector's state, the restart notice (below), the form, and **Save** |
+| POST | `/app/connectors/{type}/save` | merges the posted form into the stored row. Only the `__touch_<section>` flags for this connector's form sections are honoured, so a save never rewrites another connector's keys. An unchanged save replies "Saved. Nothing changed." without restarting anything. A change bumps the row's `revision`, is audited, updates the Secret, and applies the restart policy. The response is the re-rendered panel (status text starting "Saved.") with header `HX-Trigger: connectorsChanged` |
+| POST | `/app/connectors/{type}/test/{target}` | runs a connection test with the posted (unsaved) form merged over the stored values; JSON `{ok, target, message}`. 404 when `target` is not one of the connector's tests |
+
+Restart policy on save: running assistants bound to the row that are idle are restarted at once. A busy assistant
+(an active task, or an active chat/task execution that reported within the last 2 hours) is not interrupted: it keeps
+its old settings and is reported as pending. Stopped assistants read the new Secret when they next start. Portal
+records the row revision each pod was started with (`agents.profile_revision_applied`). A running assistant with an
+older revision shows **Restart to apply** in the assistant list and status card
+(`settings_restart_pending: true` in `GET /api/agents/status` and `GET /api/agents/{id}/status`), and every settings
+connector panel lists it under "Restart to apply your latest connector changes" with a **Restart** button.
+
+Connectors API behaviour for settings connectors: they are always listed (regardless of `CONNECTORS_ENABLED`), their
+`state` is read from the member's row, and they never return values (`config` and `settings` are `{}`,
+`last_verified_at` is null). `PUT` and `verify` on them return 400; they are edited only through their panels. API
+clients that need the whole document can use `GET`/`PATCH /api/runtime-profile` (see the
+[Operations Guide](OPERATIONS_GUIDE.md#14-explore-the-api)).
 
 ## 8. Configuration
 
@@ -220,7 +270,7 @@ Unconfigured connectors are listed as disabled with their default settings. Unkn
 | Portal env | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | empty → `/static/downloads/efp-browser-bridge-{platform}.zip` | download link template; `{platform}` is one of `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64` (tools `scripts/browser-bridge/package.sh` builds one zip per platform: binary, installer, README). The panel offers the member's own system first (User-Agent, refined by client hints on the page) and lists the rest |
 | Portal env | `LOCAL_BROWSER_CLI_VERSION` | empty | shown on the panel |
 | Portal env | `LOCAL_BROWSER_START_URL` | empty → Portal origin | first tab of the EFP window when the bridge opens or reopens it; absolute http(s) URL or a path resolved against the Portal origin; sent as the link's `url` and as `session.ensure{url}` |
-| Portal env | `CONNECTORS_ENABLED` | `true` | hides the Connectors menu and returns 404 from its settings API when false |
+| Portal env | `CONNECTORS_ENABLED` | `true` | when false, hides the local connectors: omitted from the Connectors list and `/api/connectors`, 404 from their API routes, and no chat **Browser** toggle. The Connectors menu and the settings connectors are unaffected |
 | tools CLI | `EFP_BROWSER_SERVE_PORT`, `EFP_BROWSER_SERVE_ALLOWED_ORIGIN` | 8765, empty | defaults for `browser serve` |
 | runtime | `enable_browser_tool` (Portal-managed runtime field) | false | registers the tool |
 

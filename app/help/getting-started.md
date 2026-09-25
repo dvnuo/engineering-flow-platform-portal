@@ -9,7 +9,7 @@ order: 10
 
 1. Choose an assistant type — the kind of work you do. Your administrator defines these.
 2. Give it a name. Everything else is filled in for you.
-3. Open Connections and supply your own credentials for the services you need.
+3. Open Connectors and supply your own credentials for the services you need.
 
 ## What an assistant is
 

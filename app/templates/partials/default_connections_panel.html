@@ -48,12 +48,10 @@
      data-copilot-auth-base="/api/copilot/auth">
   <div class="portal-panel-header">
     <div>
-      <h5 class="portal-panel-title">Default connections</h5>
+      <h5 class="portal-panel-title">Default connectors</h5>
       <p class="portal-panel-note">
-        What every new member's profile starts from. They open Connections to find these already
-        filled in, and change or complete whatever they need. Members never see the name
-        &ldquo;Default connections&rdquo; &mdash; when they create a profile this is offered as
-        <strong>The setup your admin prepared</strong>, and it is what they land on by default.
+        What every new member's connectors start from. They open Connectors to find these already
+        filled in, and change or complete whatever they need.
       </p>
     </div>
   </div>
@@ -67,7 +65,7 @@
     <strong>Credentials here are shared with every new member.</strong>
     Fill one in only for an account meant to be shared &mdash; a service or team account. Leave it
     blank and the field arrives empty, for the member to fill in with their own. A seeded credential
-    is copied into each new member's profile, where they can see it and change it.
+    is copied into each new member's connectors, where they can see it and change it.
   </div>
 
   <form id="default-connections-form" class="portal-panel-stack"
@@ -353,7 +351,7 @@
         <label class="portal-form-label">
           <span class="portal-form-label">Provider</span>
           <select name="aws_provider" class="portal-form-select">
-            {# Blank leaves the member's profile on the runtime default (adfs-assume) without seeding a value. #}
+            {# Blank leaves the member's AWS connector on the runtime default (adfs-assume) without seeding a value. #}
             <option value="">Leave unset &mdash; adfs-assume</option>
             {% for option in aws_auth_providers %}
             <option value="{{ option }}" {% if seed_aws.get('provider') == option %}selected{% endif %}>{{ option }}</option>
@@ -410,7 +408,7 @@
 
     <div class="flex items-center gap-2">
       <button type="submit" class="portal-btn is-primary">Save defaults</button>
-      <span class="portal-panel-note">Applies to members who join from now on. Existing profiles are left alone.</span>
+      <span class="portal-panel-note">Applies to members who join from now on. Existing members' connectors are left alone.</span>
     </div>
   </form>
 

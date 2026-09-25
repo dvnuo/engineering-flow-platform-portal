@@ -5491,67 +5491,7 @@ a.message-attachment-file { color: var(--portal-text); }
   line-height: 1.45;
 }
 
-/* -- connections checklist and setup guides ------------------------------- */
-
-.portal-connection-checklist { display: flex; flex-direction: column; gap: 10px; }
-
-.portal-connection-checklist-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.portal-connection-checklist-count {
-  font-size: 0.82rem;
-  color: var(--portal-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.portal-connection-checklist-track {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--portal-surface-soft);
-  overflow: hidden;
-}
-
-.portal-connection-checklist-track i {
-  display: block;
-  height: 100%;
-  background: var(--portal-accent);
-  transition: width var(--portal-transition);
-}
-
-.portal-connection-checklist.is-complete .portal-connection-checklist-track i {
-  background: var(--portal-success);
-}
-
-.portal-connection-checklist-items { display: flex; flex-wrap: wrap; gap: 6px; }
-
-.portal-connection-checklist-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--portal-border);
-  background: var(--portal-surface);
-  color: var(--portal-text-secondary);
-  font-size: 0.82rem;
-  text-decoration: none;
-  transition: border-color var(--portal-transition), color var(--portal-transition);
-}
-
-.portal-connection-checklist-item:hover {
-  border-color: var(--portal-accent);
-  color: var(--portal-text);
-}
-
-.portal-connection-checklist-item.is-connected {
-  color: var(--portal-success);
-  border-color: rgba(22, 163, 74, 0.35);
-}
+/* -- connector setup guides ------------------------------------------------ */
 
 .portal-setup-guide { margin-top: 2px; }
 
@@ -6011,20 +5951,16 @@ html[data-theme="dark"] .portal-onboarding { background: rgba(2, 6, 23, 0.62); }
 
 html[data-theme="dark"] .portal-interactive-card,
 html[data-theme="dark"] .portal-starter-card,
-html[data-theme="dark"] .portal-assistant-type-card,
-html[data-theme="dark"] .portal-connection-checklist-item {
+html[data-theme="dark"] .portal-assistant-type-card {
   background: var(--portal-surface-muted);
 }
 
-html[data-theme="dark"] .portal-connection-checklist-item.is-connected,
 html[data-theme="dark"] .portal-startup-phases li.is-done {
   border-color: rgba(74, 222, 128, 0.35);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .portal-onboarding-dots li,
-  .portal-connection-checklist-track i,
-  .portal-connection-checklist-item,
   .portal-assistant-type-card,
   .portal-question-option,
   .portal-starter-card {
@@ -6227,20 +6163,6 @@ ul.portal-help-steps { list-style: disc; }
 
 .portal-setup-guide-links { display: flex; flex-wrap: wrap; gap: 14px; }
 
-/* Brief highlight so a jump from the checklist lands somewhere visible. */
-.is-scroll-target {
-  animation: portal-scroll-target 1.4s ease-out;
-}
-
-@keyframes portal-scroll-target {
-  0% { background: var(--portal-accent-soft); }
-  100% { background: transparent; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .is-scroll-target { animation: none; outline: 2px solid var(--portal-accent); outline-offset: 4px; }
-}
-
 /* Login page: sign-in method choice + GitHub Copilot device flow. */
 .login-card--methods { padding: 1.5rem 1.4rem 1.3rem; gap: 1.1rem; box-shadow: var(--portal-shadow-lg); animation: portal-auth-card-in .45s cubic-bezier(.22,.61,.36,1) both; }
 .portal-auth-brand { display: grid; justify-items: center; text-align: center; gap: .35rem; }
@@ -6406,4 +6328,140 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .portal-connector-tab-list small {
   color: var(--portal-text-muted);
   margin-left: 6px;
+}
+
+/* ===== Connectors list (grouped) and settings connector panels ===== */
+.portal-list-group-label {
+  margin: 14px 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--portal-text-muted);
+}
+
+.portal-list-group-label:first-child {
+  margin-top: 2px;
+}
+
+.portal-connector-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.portal-connector-row-icon,
+.portal-connector-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--portal-radius-sm);
+  background: var(--portal-surface);
+  border: 1px solid var(--portal-border);
+  color: var(--portal-text-secondary);
+}
+
+.portal-connector-row-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.portal-connector-row-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.portal-connector-row-text .portal-list-meta {
+  margin-top: 2px;
+}
+
+.portal-connector-row-state.is-connected,
+.portal-connector-state.is-connected {
+  color: var(--portal-success);
+}
+
+.portal-connector-row-state.is-off,
+.portal-connector-state.is-off {
+  color: var(--portal-warning);
+}
+
+.portal-connector-head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.portal-connector-icon {
+  width: 40px;
+  height: 40px;
+}
+
+.portal-connector-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.portal-connector-head-text h5 {
+  margin: 0 0 2px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--portal-text);
+}
+
+.portal-connector-state {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--portal-border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--portal-text-muted);
+  white-space: nowrap;
+}
+
+.portal-connector-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.portal-connector-save-row .portal-inline-note {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
+.portal-restart-notice {
+  border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 55%);
+  background: color-mix(in srgb, var(--portal-warning) 8%, var(--portal-surface) 92%);
+}
+
+.portal-restart-notice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--portal-text);
+}
+
+.portal-restart-notice-head i {
+  color: var(--portal-warning);
+}
+
+.portal-restart-notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.portal-restart-notice-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }

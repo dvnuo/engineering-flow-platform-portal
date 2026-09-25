@@ -1,6 +1,5 @@
 import json
 
-import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -40,34 +39,6 @@ def test_ensure_user_has_default_profile_creates_default():
     assert saved == {}
 
 
-def test_switch_default_keeps_exactly_one_default():
-    db = _session()
-    user = User(username="u1", password_hash="test", role="user", is_active=True)
-    db.add(user); db.commit(); db.refresh(user)
-    svc = RuntimeProfileService(db)
-    p1 = svc.create_for_user(user, name="Default", description=None, config_json="{}", is_default=True)
-    p2 = svc.create_for_user(user, name="P2", description=None, config_json="{}", is_default=True)
-    rows = svc.list_for_user(user)
-    assert len([r for r in rows if r.is_default]) == 1
-    assert any(r.id == p2.id and r.is_default for r in rows)
-
-
-def test_delete_default_promotes_other_and_last_delete_conflict():
-    db = _session()
-    user = User(username="u1", password_hash="test", role="user", is_active=True)
-    db.add(user); db.commit(); db.refresh(user)
-    svc = RuntimeProfileService(db)
-    p1 = svc.create_for_user(user, name="Default", description=None, config_json="{}", is_default=True)
-    p2 = svc.create_for_user(user, name="P2", description=None, config_json="{}", is_default=False)
-    svc.delete_for_user(user, p1.id)
-    rows = svc.list_for_user(user)
-    assert len(rows) == 1
-    assert rows[0].is_default is True
-
-    with pytest.raises(Exception):
-        svc.delete_for_user(user, rows[0].id)
-
-
 def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
     assert cfg["llm"]["model"] == "gpt-5.6-terra"
@@ -81,7 +52,8 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert "tool_loop" not in cfg["llm"]
     assert "response_flow" not in cfg["llm"]
     assert "system-prompt" not in cfg["llm"]
-    assert cfg["debug"]["log_level"] == "INFO"
+    # Debug is no longer a member setting; the Secret renderer always turns it on.
+    assert "debug" not in cfg
 
     assert "api_key" not in cfg["llm"]
     assert "api_base" not in cfg["llm"]
@@ -97,20 +69,15 @@ def test_default_profile_config_has_safe_managed_defaults():
     assert "automation" not in cfg["confluence"]
 
 
-def test_create_for_user_with_empty_config_stays_canonicalized_sparse():
+def test_save_config_with_empty_config_stays_canonicalized_sparse():
     db = _session()
     user = User(username="u1", password_hash="test", role="user", is_active=True)
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    profile = RuntimeProfileService(db).create_for_user(
-        user,
-        name="Seeded",
-        description="raw on create",
-        config_json="{}",
-        is_default=False,
-    )
+    svc = RuntimeProfileService(db)
+    profile, _changed = svc.save_config(svc.get_or_create_for_user(user), "{}")
     saved = json.loads(profile.config_json)
     assert saved == {}
     assert "proxy" not in saved
@@ -137,20 +104,19 @@ def test_merge_with_managed_defaults_does_not_apply_creation_seed_to_legacy_spar
     assert cfg["llm"]["provider"] == "github_copilot"
 
 
-def test_create_for_user_persists_raw_snapshot_without_hidden_default_injection():
+def test_save_config_persists_raw_snapshot_without_hidden_default_injection():
     db = _session()
     user = User(username="u2", password_hash="test", role="user", is_active=True)
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    profile = RuntimeProfileService(db).create_for_user(
-        user,
-        name="Raw",
-        description=None,
-        config_json=json.dumps({"llm": {"provider": "openai"}}),
-        is_default=False,
+    svc = RuntimeProfileService(db)
+    profile, changed = svc.save_config(
+        svc.get_or_create_for_user(user),
+        json.dumps({"llm": {"provider": "openai"}}),
     )
+    assert changed is True
     db.refresh(profile)
     saved = json.loads(profile.config_json)
 
@@ -236,45 +202,41 @@ def test_sanitize_all_persisted_runtime_profiles_removes_legacy_provider_automat
     assert saved["confluence"]["instances"] == [{"name": "conf", "url": "https://conf.local"}]
 
 
-def test_update_for_user_sanitizes_runtime_profile_config():
+def test_save_config_sanitizes_runtime_profile_config():
     db = _session()
     user = User(username="u-upd", password_hash="test", role="user", is_active=True)
     db.add(user); db.commit(); db.refresh(user)
     svc = RuntimeProfileService(db)
-    profile = svc.create_for_user(user, name="p1", description=None, config_json=json.dumps({"github": {"enabled": True}}), is_default=True)
+    profile, _ = svc.save_config(svc.get_or_create_for_user(user), json.dumps({"github": {"enabled": True}}))
 
-    updated, _changed = svc.update_for_user(
-        user,
-        profile.id,
-        config_json=json.dumps({"github": {"enabled": True, "automation": {"mentions": {"enabled": True}}}}),
+    updated, _changed = svc.save_config(
+        profile,
+        json.dumps({"github": {"enabled": True, "automation": {"mentions": {"enabled": True}}}}),
     )
     saved = json.loads(updated.config_json)
     assert saved == {"github": {"enabled": True}}
 
 
-def test_create_for_user_sanitizes_runtime_profile_config():
+def test_save_config_sanitizes_legacy_automation_from_a_dict():
     db = _session()
     user = User(username="u-create", password_hash="test", role="user", is_active=True)
     db.add(user); db.commit(); db.refresh(user)
     svc = RuntimeProfileService(db)
 
-    profile = svc.create_for_user(
-        user,
-        name="with-legacy-automation",
-        description=None,
-        config_json=json.dumps(
-            {
-                "github": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
-                "jira": {"enabled": True, "automation": {"assignments": {"enabled": True}}},
-                "confluence": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
-            }
-        ),
-        is_default=True,
+    profile, _ = svc.save_config(
+        svc.get_or_create_for_user(user),
+        {
+            "github": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+            "jira": {"enabled": True, "automation": {"assignments": {"enabled": True}}},
+            "confluence": {"enabled": True, "automation": {"mentions": {"enabled": True}}},
+        },
     )
     saved = json.loads(profile.config_json)
     assert saved["github"] == {"enabled": True}
     assert saved["jira"] == {"enabled": True}
     assert saved["confluence"] == {"enabled": True}
+
+
 def test_runtime_profile_json_sanitizer_drops_llm_context_budget_and_projection():
     raw = '{"llm":{"provider":"openai","context_budget":{"tool_loop":{"max_prompt_tokens":32000}},"context_projection":{"enabled":true}}}'
     parsed = parse_runtime_profile_config_json(raw)

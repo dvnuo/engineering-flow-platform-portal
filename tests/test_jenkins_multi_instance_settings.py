@@ -7,11 +7,17 @@ JS-added).
 """
 import json
 from html.parser import HTMLParser
+from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from tests.test_web_runtime_profile_settings import _bind_profile, _build_client
-
+from app.db import Base
+from app.models import Agent, User
+from app.models.runtime_profile import RuntimeProfile
 from app.schemas.runtime_profile import (
     normalize_jenkins_section_instances,
     redact_runtime_profile_config_for_public_response,
@@ -150,6 +156,86 @@ def test_public_response_redacts_an_unmigrated_flat_jenkins_section():
     redacted = redact_runtime_profile_config_for_public_response({"jenkins": dict(LEGACY_FLAT_JENKINS)})
     assert "legacy-password" not in json.dumps(redacted)
     assert redacted["jenkins"]["password_present"] is True
+
+
+# --------------------------------------------------------------------------
+# Web client: the member's one settings row, edited through the connectors
+# --------------------------------------------------------------------------
+
+
+def _build_client(monkeypatch):
+    """A TestClient signed in as the owner of one running assistant.
+
+    The Secret rollout is stubbed; the settings row itself is the real one the
+    connector routes read and write.
+    """
+    from app.main import app
+    import app.web as web_module
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSessionLocal()
+    owner = User(username="owner", password_hash="test", role="admin", is_active=True)
+    db.add(owner)
+    db.commit()
+    db.refresh(owner)
+
+    agent = Agent(
+        name="agent-1",
+        owner_user_id=owner.id,
+        visibility="private",
+        status="running",
+        image="example/image:latest",
+        repo_url=None,
+        branch=None,
+        disk_size_gi=20,
+        mount_path="/root/.efp",
+        namespace="efp-agents",
+        deployment_name="dep",
+        service_name="svc",
+        pvc_name="pvc",
+        endpoint_path="/",
+        agent_type="workspace",
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+
+    monkeypatch.setattr(web_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(
+        web_module,
+        "_current_user_from_cookie",
+        lambda _request: SimpleNamespace(id=owner.id, role="admin", username=owner.username, nickname=owner.username),
+    )
+    monkeypatch.setattr(
+        "app.web.runtime_profile_secret_service.apply_profile_save",
+        lambda _db, _profile: {"restarted_agent_ids": [], "pending_agent_ids": [], "failed_agent_ids": []},
+    )
+
+    def _cleanup():
+        db.close()
+
+    return TestClient(app), db, agent, _cleanup
+
+
+def _bind_profile(db, agent, config=None):
+    """Store ``config`` as the owner's settings row and bind the assistant to it."""
+    rp = RuntimeProfile(
+        owner_user_id=agent.owner_user_id,
+        name="rp",
+        config_json=json.dumps(config or {}),
+        revision=1,
+        is_default=True,
+    )
+    db.add(rp)
+    db.commit()
+    db.refresh(rp)
+    agent.runtime_profile_id = rp.id
+    db.add(agent)
+    db.commit()
+    return rp
 
 
 # --------------------------------------------------------------------------
@@ -303,12 +389,12 @@ def test_touching_jenkins_without_any_instance_fields_keeps_legacy_credentials()
     ]
 
 
-def test_end_to_end_settings_save_persists_multiple_jenkins_instances(monkeypatch):
+def test_end_to_end_connector_save_persists_multiple_jenkins_instances(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {})
         resp = client.post(
-            f"/app/agents/{agent.id}/settings/save",
+            "/app/connectors/jenkins/save",
             data={
                 "__touch_jenkins": "1",
                 "jenkins_enabled": "on",
@@ -325,6 +411,7 @@ def test_end_to_end_settings_save_persists_multiple_jenkins_instances(monkeypatc
             },
         )
         assert resp.status_code == 200
+        assert resp.headers["HX-Trigger"] == "connectorsChanged"
         db.refresh(rp)
         assert json.loads(rp.config_json)["jenkins"] == {
             "enabled": True,
@@ -438,11 +525,12 @@ def _shape(card):
     return card["path"]
 
 
-def _render_panel(monkeypatch, config):
+def _render_panel(monkeypatch, config, connector):
+    """The Connectors-menu panel of ``connector`` over a row holding ``config``."""
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         _bind_profile(db, agent, config)
-        resp = client.get(f"/app/agents/{agent.id}/settings/panel")
+        resp = client.get(f"/app/connectors/{connector}/panel")
         assert resp.status_code == 200
         return resp.text
     finally:
@@ -461,7 +549,7 @@ JENKINS_TWO_INSTANCES = {
 
 
 def test_settings_panel_renders_one_card_per_jenkins_instance(monkeypatch):
-    html = _render_panel(monkeypatch, JENKINS_TWO_INSTANCES)
+    html = _render_panel(monkeypatch, JENKINS_TWO_INSTANCES, "jenkins")
     cards = [card for card in _parse_cards(html) if card["group"] == "jenkins"]
 
     assert len(cards) == 2
@@ -492,7 +580,7 @@ def test_view_payload_exposes_jenkins_instances_for_an_unsanitized_flat_section(
 
 
 def test_settings_panel_prefills_an_unmigrated_flat_jenkins_profile(monkeypatch):
-    html = _render_panel(monkeypatch, {"jenkins": dict(LEGACY_FLAT_JENKINS)})
+    html = _render_panel(monkeypatch, {"jenkins": dict(LEGACY_FLAT_JENKINS)}, "jenkins")
     cards = [card for card in _parse_cards(html) if card["group"] == "jenkins"]
 
     assert len(cards) == 1
@@ -510,7 +598,7 @@ def test_instance_card_head_groups_the_enabled_toggle_with_the_title(monkeypatch
             "instances": [{"name": "one", "url": "https://one.example.com", "enabled": True}],
         }
     }
-    html = _render_panel(monkeypatch, config)
+    html = _render_panel(monkeypatch, config, group)
     card = next(c for c in _parse_cards(html) if c["group"] == group)
 
     tags = [(tag, classes) for tag, classes, _ in card["path"]]
@@ -540,7 +628,7 @@ def test_disabled_instance_card_is_visually_and_textually_marked(monkeypatch, gr
             ],
         }
     }
-    html = _render_panel(monkeypatch, config)
+    html = _render_panel(monkeypatch, config, group)
     enabled_card, disabled_card = [c for c in _parse_cards(html) if c["group"] == group]
 
     assert enabled_card["disabled_class"] is False
@@ -567,24 +655,24 @@ def _read(path):
 
 
 @pytest.mark.parametrize("group", ["jira", "confluence", "jenkins"])
-def test_agent_and_runtime_profile_panels_render_the_same_instance_card(monkeypatch, group):
-    """Both panels share the card markup; a fix in one must land in the other."""
+def test_connector_panel_wraps_the_instance_cards_in_its_own_form(monkeypatch, group):
+    """Each connector's panel carries its section's cards and posts to its own routes."""
+    from app.services.connector_registry import get_connector_spec
+
     config = {
         group: {"enabled": True, "instances": [{"name": "one", "url": "https://one.example.com", "enabled": True}]}
     }
-    client, db, agent, cleanup = _build_client(monkeypatch)
-    try:
-        _bind_profile(db, agent, config)
-        agent_html = client.get(f"/app/agents/{agent.id}/settings/panel").text
-        profile_html = client.get(f"/app/runtime-profiles/{agent.runtime_profile_id}/panel").text
-    finally:
-        cleanup()
+    panel_html = _render_panel(monkeypatch, config, group)
+    assert get_connector_spec(group).panel_template == f"partials/connectors/{group}.html"
+    assert f'hx-post="/app/connectors/{group}/save"' in panel_html
+    assert f'data-test-base="/app/connectors/{group}/test"' in panel_html
+    assert f'id="profile-section-{group}"' in panel_html
+    assert f'name="__touch_{group}" value="0" data-touch-flag="{group}"' in panel_html
 
-    agent_card = next(c for c in _parse_cards(agent_html) if c["group"] == group)
-    profile_card = next(c for c in _parse_cards(profile_html) if c["group"] == group)
-    assert _shape(agent_card) == _shape(profile_card)
-    assert agent_card["fields"] == profile_card["fields"]
-    assert agent_card["text"] == profile_card["text"]
+    cards = [c for c in _parse_cards(panel_html) if c["group"] == group]
+    assert len(cards) == 1
+    assert cards[0]["fields"]["name"]["value"] == "one"
+    assert cards[0]["fields"]["url"]["value"] == "https://one.example.com"
 
 
 @pytest.mark.parametrize("group", ["jira", "confluence", "jenkins"])
@@ -594,7 +682,7 @@ def test_js_added_instance_card_matches_the_server_rendered_card(monkeypatch, gr
     config = {
         group: {"enabled": True, "instances": [{"name": "one", "url": "https://one.example.com", "enabled": True}]}
     }
-    server_card = next(c for c in _parse_cards(_render_panel(monkeypatch, config)) if c["group"] == group)
+    server_card = next(c for c in _parse_cards(_render_panel(monkeypatch, config, group)) if c["group"] == group)
     js_card = next(c for c in _parse_cards(_js_card_html(group)) if c["group"] == group)
 
     assert _shape(js_card) == _shape(server_card)
@@ -719,14 +807,18 @@ def _initialized_instance_groups(js):
     return set(re.findall(r'normalizeInstanceInputs\(root,\s*"([a-z_]+)"\)', body))
 
 
-@pytest.mark.parametrize(
-    "template",
-    [
-        "app/templates/partials/runtime_profile_panel.html",
-        "app/templates/partials/settings_panel.html",
-    ],
-)
-def test_every_rendered_instance_group_is_initialized_by_the_js(template):
+def _connector_templates():
+    """Every settings connector form partial (not the shared panel/macros)."""
+    from pathlib import Path
+
+    return sorted(
+        path.as_posix()
+        for path in Path("app/templates/partials/connectors").glob("*.html")
+        if not path.name.startswith("_") and path.name != "panel.html"
+    )
+
+
+def test_every_rendered_instance_group_is_initialized_by_the_js():
     """Each instance group the template renders must be normalized on load.
 
     The templates deliberately emit instance inputs with NO ``name`` attribute;
@@ -736,12 +828,13 @@ def test_every_rendered_instance_group_is_initialized_by_the_js(template):
     section. Deriving the expected set from the template (rather than hard-coding
     it) also fails when a future group is added without its initializer.
     """
-    rendered_groups = _instance_groups_in_template(template)
+    templates = _connector_templates()
+    rendered_groups = set().union(*(_instance_groups_in_template(template) for template in templates))
     assert "jenkins" in rendered_groups, "Jenkins should render as an instance group"
 
     missing = rendered_groups - _initialized_instance_groups(_js_source())
     assert not missing, (
-        f"{template} renders instance group(s) {sorted(missing)} that "
+        f"the connector forms render instance group(s) {sorted(missing)} that "
         "initializeManagedSettingsRoot never passes to normalizeInstanceInputs; "
         "their inputs would submit no name and saving would wipe them"
     )

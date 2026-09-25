@@ -71,26 +71,28 @@ def test_resolve_github_for_agent_failures():
     agent = _mk_agent(user.id, None)
     db.add(agent); db.commit(); db.refresh(agent)
 
-    with pytest.raises(ProviderConfigResolverError, match="has no connection profile"):
+    with pytest.raises(ProviderConfigResolverError, match="has no connector settings"):
         resolve_github_for_agent(db, agent.id)
 
-    rp_disabled = RuntimeProfile(owner_user_id=user.id, name="rp2", config_json=json.dumps({"github": {"enabled": False}}), is_default=False)
-    db.add(rp_disabled); db.commit(); db.refresh(rp_disabled)
-    agent.runtime_profile_id = rp_disabled.id
+    # One settings row per member: each case rewrites the owner's row.
+    rp = RuntimeProfile(owner_user_id=user.id, name="rp2", config_json=json.dumps({"github": {"enabled": False}}), is_default=True)
+    db.add(rp); db.commit(); db.refresh(rp)
+    agent.runtime_profile_id = rp.id
     db.add(agent); db.commit()
     with pytest.raises(ProviderConfigResolverError, match="GitHub is not enabled"):
         resolve_github_for_agent(db, agent.id)
 
-    rp_missing = RuntimeProfile(owner_user_id=user.id, name="rp3", config_json=json.dumps({"github": {"enabled": True, "base_url": ""}}), is_default=False)
-    db.add(rp_missing); db.commit(); db.refresh(rp_missing)
-    agent.runtime_profile_id = rp_missing.id
-    db.add(agent); db.commit()
+    rp.config_json = json.dumps({"github": {"enabled": True, "base_url": ""}})
+    db.add(rp); db.commit()
     with pytest.raises(ProviderConfigResolverError, match="api_token is missing"):
         resolve_github_for_agent(db, agent.id)
 
-    rp_ent = RuntimeProfile(owner_user_id=user.id, name="rp4", config_json=json.dumps({"github": {"enabled": True, "base_url": "https://github.company.com/api/v3", "api_token": "tok"}}), is_default=False)
-    db.add(rp_ent); db.commit(); db.refresh(rp_ent)
-    agent.runtime_profile_id = rp_ent.id
-    db.add(agent); db.commit()
+    rp.config_json = json.dumps({"github": {"enabled": True, "base_url": "https://github.company.com/api/v3", "api_token": "tok"}})
+    db.add(rp); db.commit()
     cfg = resolve_github_for_agent(db, agent.id)
     assert cfg.base_url == "https://github.company.com/api/v3"
+
+    agent.runtime_profile_id = "missing-profile-id"
+    db.add(agent); db.commit()
+    with pytest.raises(ProviderConfigResolverError, match="has no connector settings"):
+        resolve_github_for_agent(db, agent.id)

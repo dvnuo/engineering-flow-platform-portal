@@ -1,0 +1,15 @@
+{% from "partials/connectors/_macros.html" import setup_guide with context %}
+<section class="portal-panel-section" id="profile-section-mobile" data-managed-section="mobile">
+      {{ setup_guide('mobile') }}
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable BrowserStack Mobile">
+              <input type="checkbox" name="mobile_enabled" {% if mobile.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="mobile_browserstack_username" value="{{ raw_mobile_browserstack.get('username', mobile_browserstack.get('username', '')) }}" placeholder="BrowserStack username" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Access Key</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="BrowserStack access key" class="portal-form-input" /></label>
+      </div>
+    </section>

@@ -48,8 +48,8 @@ FAILURE_HINTS = (
     _Hint(
         r"CreateContainerConfigError|secret .*not found|efp-profile-",
         "Your connection settings aren't ready yet",
-        "This assistant needs its Connections filled in before it can start.",
-        "Open Connections",
+        "Its connector settings weren't ready when it started. Check Connectors, then retry.",
+        "Open Connectors",
         "open_connections",
     ),
     _Hint(
@@ -76,15 +76,15 @@ FAILURE_HINTS = (
     _Hint(
         r"CrashLoopBackOff|back-off restarting",
         "The assistant keeps stopping after it starts",
-        "This is usually a bad value in Connections. Check them, then retry.",
-        "Open Connections",
+        "This is usually a bad value in a connector. Check them, then retry.",
+        "Open Connectors",
         "open_connections",
     ),
     _Hint(
         r"401|403|Unauthorized|Forbidden|authentication",
         "A credential was rejected",
-        "One of your connections has an invalid or expired credential.",
-        "Open Connections",
+        "One of your connectors has an invalid or expired credential.",
+        "Open Connectors",
         "open_connections",
     ),
 )

@@ -36,7 +36,9 @@ def test_edit_assistant_shows_runtime_type_as_readonly_wizard_field():
     assert "<label>Engine</label>" in block
     assert "The engine is fixed after creation." in block
     assert 'data-edit-step-panel="runtime"' in block
-    assert 'data-edit-step-panel="profile"' in block
+    # Connector settings are per member now, so the wizard has no profile step.
+    assert 'data-edit-step-panel="profile"' not in block
+    assert "edit-runtime-profile-select" not in block
     assert 'data-edit-step-panel="instructions"' in block
     assert 'data-edit-step-panel="skills"' in block
     assert 'data-edit-step-panel="review"' in block
