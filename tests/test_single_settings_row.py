@@ -224,7 +224,7 @@ def test_migration_collapses_a_members_profiles_into_the_most_used_one(tmp_path,
         engine = create_engine(database_url)
         now = "2026-09-01 00:00:00.000000"
         with engine.begin() as conn:
-            for user_id, username in ((1, "member"), (2, "single")):
+            for user_id, username in ((1, "member"), (2, "single"), (3, "profileless")):
                 _insert(conn, "users", id=user_id, username=username, password_hash="x", role="user", is_active=True, created_at=now, updated_at=now)
 
             # The default is the most recently updated, but the most used wins.
@@ -238,6 +238,9 @@ def test_migration_collapses_a_members_profiles_into_the_most_used_one(tmp_path,
             _insert_agent(conn, "a-on-default", 1, "p-default", now)
             _insert_agent(conn, "a-none", 1, None, now)
             _insert_agent(conn, "a-single", 2, "p-single", now)
+            # Owner 3 has no profile of their own but the assistant points at
+            # one of owner 1's rows that is about to be archived.
+            _insert_agent(conn, "a-borrowed", 3, "p-unbound", now)
 
         command.upgrade(alembic_cfg, "20260925_0036")
 
@@ -259,6 +262,10 @@ def test_migration_collapses_a_members_profiles_into_the_most_used_one(tmp_path,
             # A member with one profile is left as they were.
             assert agents["a-single"].runtime_profile_id == "p-single"
             assert agents["a-single"].profile_revision_applied == 4
+            # Unbound rather than left pointing at a deleted row; startup gives
+            # its owner a row and binds it.
+            assert agents["a-borrowed"].runtime_profile_id is None
+            assert agents["a-borrowed"].profile_revision_applied == 0
 
             archived = {row.id: row for row in conn.execute(text("SELECT * FROM runtime_profiles_archived"))}
             assert set(archived) == {"p-default", "p-unbound"}

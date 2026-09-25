@@ -161,11 +161,24 @@ def upgrade() -> None:
                     )
                 )
 
+        archived_ids = {
+            profile.id
+            for owner_user_id, owned in by_owner.items()
+            for profile in owned
+            if profile.id != keeper_by_owner[owner_user_id].id
+        }
         for agent in agents:
             keeper = keeper_by_owner.get(agent.owner_user_id)
             if keeper is None:
                 # No profile for this owner yet; Portal startup creates one and
                 # binds the assistant (RuntimeProfileService.ensure_defaults_for_all_users).
+                # Unbind it first when it points at a row that is about to go.
+                if agent.runtime_profile_id in archived_ids:
+                    bind.execute(
+                        agents_table.update()
+                        .where(agents_table.c.id == agent.id)
+                        .values(runtime_profile_id=None, profile_revision_applied=0)
+                    )
                 continue
             if agent.runtime_profile_id == keeper.id:
                 applied = keeper.revision or 1
