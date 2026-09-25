@@ -11,18 +11,19 @@ def test_single_submit_helpers_exist_in_chat_ui_js():
 
 
 # The requirement-bundle modal these once also covered was deleted with the
-# feature in #426; only the runtime-profile and create-assistant modals remain.
+# feature in #426, and the runtime-profile modal went when each member got a
+# single settings row (Connectors); only the create-assistant modal remains.
 def test_create_modal_submit_handlers_use_begin_single_submit():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
-    assert "beginSingleSubmit(form, { pendingText: \"Creating...\", closeButton: dom.closeCreateRuntimeProfileModal })" in js
+    assert "closeCreateRuntimeProfileModal" not in js
     assert "beginSingleSubmit(form, { pendingText: \"Creating...\", closeButton: document.getElementById(\"close-create-modal\") })" in js
 
 
 def test_create_modal_close_handlers_check_submitting_guard():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
-    assert 'if (dom.createRuntimeProfileForm?.dataset.submitting === "true") return;' in js
+    assert "createRuntimeProfileForm" not in js
     assert 'if (document.getElementById("create-form")?.dataset.submitting === "true") return;' in js
 
 

@@ -6,8 +6,8 @@ reports is useless from the runtime while the certificate is still issued for
 it. The aws section therefore lists such clusters, one row each, and the
 runtime's aws-auth CLI points kubectl at the private address. Covers the
 schema sanitizer, the settings form parser and its validation, the seed form,
-the view payload, the end-to-end save, and the rendered cards (server-rendered
-and JS-added) on every panel that edits the section.
+the view payload, the end-to-end save through the AWS connector, and the
+rendered cards (server-rendered on the AWS connector panel, and JS-added).
 """
 import json
 import re
@@ -28,6 +28,8 @@ from tests.test_aws_account_matrix_settings import (
 )
 from tests.test_default_connections_form import _panel_html as _default_connections_html
 from tests.test_jenkins_multi_instance_settings import (
+    _bind_profile,
+    _build_client,
     _initialized_instance_groups,
     _js_object_literal,
     _js_source,
@@ -35,7 +37,6 @@ from tests.test_jenkins_multi_instance_settings import (
     _render_panel,
     _shape,
 )
-from tests.test_web_runtime_profile_settings import _bind_profile, _build_client
 
 from app.schemas.runtime_profile import (
     AWS_EKS_SERVER_CA_MODES,
@@ -323,12 +324,13 @@ def test_view_payload_carries_the_rows_for_the_cards():
 # ------------------------------------------------------------- end to end
 
 
-def test_end_to_end_profile_save_persists_the_rows_and_reloads_them_into_the_panel(monkeypatch):
+def test_end_to_end_connector_save_persists_the_rows_and_reloads_them_into_the_panel(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"aws": {"enabled": False}})
-        resp = client.post(f"/app/runtime-profiles/{rp.id}/save", data={"name": "rp", **_clusters_form()})
+        resp = client.post("/app/connectors/aws/save", data=_clusters_form())
         assert resp.status_code == 200
+        assert resp.headers["HX-Trigger"] == "connectorsChanged"
         db.refresh(rp)
         stored = json.loads(rp.config_json)["aws"]["eks_clusters"]
         assert stored == [
@@ -355,8 +357,8 @@ def test_end_to_end_profile_save_persists_the_rows_and_reloads_them_into_the_pan
 
         # A later save that does not carry the rows keeps them.
         again = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={"name": "rp", "__touch_aws": "1", "aws_enabled": "on", "aws_default_region": "eu-west-1"},
+            "/app/connectors/aws/save",
+            data={"__touch_aws": "1", "aws_enabled": "on", "aws_default_region": "eu-west-1"},
         )
         assert again.status_code == 200
         db.refresh(rp)
@@ -365,13 +367,13 @@ def test_end_to_end_profile_save_persists_the_rows_and_reloads_them_into_the_pan
         cleanup()
 
 
-def test_end_to_end_profile_save_reports_a_bad_row_and_keeps_the_stored_config(monkeypatch):
+def test_end_to_end_connector_save_reports_a_bad_row_and_keeps_the_stored_config(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"aws": {"enabled": True, "domain": "HBEU"}})
         resp = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={"name": "rp", **_clusters_form(aws_eks_clusters_instances_0_account="cps-uat")},
+            "/app/connectors/aws/save",
+            data=_clusters_form(aws_eks_clusters_instances_0_account="cps-uat"),
         )
         assert resp.status_code == 200
         assert "EKS cluster 1: cps-uat is not one of the AWS accounts above, by name or 12-digit id." in resp.text
@@ -385,7 +387,7 @@ def test_end_to_end_profile_save_reports_a_bad_row_and_keeps_the_stored_config(m
 
 
 def test_settings_panel_renders_one_card_per_cluster(monkeypatch):
-    html = _render_panel(monkeypatch, {"aws": _aws_with_clusters()})
+    html = _render_panel(monkeypatch, {"aws": _aws_with_clusters()}, "aws")
     cards = [card for card in _parse_cards(html) if card["group"] == "aws_eks_clusters"]
 
     assert len(cards) == 2
@@ -411,30 +413,22 @@ def test_settings_panel_renders_one_card_per_cluster(monkeypatch):
 def test_the_cluster_cards_sit_inside_the_aws_section():
     # The rows belong to the aws section: touching a card must mark that
     # section, which the server checks before it reads the rows.
-    for rel in ("app/templates/partials/runtime_profile_panel.html", "app/templates/partials/settings_panel.html"):
-        text = Path(rel).read_text(encoding="utf-8")
-        section = text[text.index('data-managed-section="aws"') :]
-        section = section[: section.index("</section>")]
-        assert 'data-instance-container="aws_eks_clusters"' in section, rel
-        assert 'data-instance-count="aws_eks_clusters"' in section, rel
+    rel = "app/templates/partials/connectors/aws.html"
+    text = Path(rel).read_text(encoding="utf-8")
+    section = text[text.index('data-managed-section="aws"') :]
+    section = section[: section.index("</section>")]
+    assert 'data-instance-container="aws_eks_clusters"' in section, rel
+    assert 'data-instance-count="aws_eks_clusters"' in section, rel
 
 
-def test_agent_and_runtime_profile_panels_render_the_same_cluster_card(monkeypatch):
-    client, db, agent, cleanup = _build_client(monkeypatch)
-    try:
-        _bind_profile(db, agent, {"aws": _aws_with_clusters()})
-        agent_html = client.get(f"/app/agents/{agent.id}/settings/panel").text
-        profile_html = client.get(f"/app/runtime-profiles/{agent.runtime_profile_id}/panel").text
-    finally:
-        cleanup()
+def test_the_aws_connector_panel_renders_the_cluster_cards_in_its_own_form(monkeypatch):
+    html = _render_panel(monkeypatch, {"aws": _aws_with_clusters()}, "aws")
 
-    agent_cards = [c for c in _parse_cards(agent_html) if c["group"] == "aws_eks_clusters"]
-    profile_cards = [c for c in _parse_cards(profile_html) if c["group"] == "aws_eks_clusters"]
-    assert len(agent_cards) == len(profile_cards) == 2
-    for agent_card, profile_card in zip(agent_cards, profile_cards):
-        assert _shape(agent_card) == _shape(profile_card)
-        assert agent_card["fields"] == profile_card["fields"]
-        assert agent_card["text"] == profile_card["text"]
+    assert 'hx-post="/app/connectors/aws/save"' in html
+    assert 'name="__touch_aws" value="0" data-touch-flag="aws"' in html
+    assert 'data-touch-flag="aws_eks_clusters"' not in html
+    cards = [c for c in _parse_cards(html) if c["group"] == "aws_eks_clusters"]
+    assert [card["fields"]["cluster"]["value"] for card in cards] == ["cps-dev-eks", "cps-prod-eks"]
 
 
 def _js_cluster_card_html(account_names=(), selected=""):
@@ -478,7 +472,7 @@ def test_js_added_cluster_card_matches_the_server_rendered_card(monkeypatch):
             "eks_clusters": [{"account": "cps-dev", "cluster": "cps-dev-eks", "private_endpoint": VPCE, "enabled": True}],
         }
     }
-    server_card = next(c for c in _parse_cards(_render_panel(monkeypatch, config)) if c["group"] == "aws_eks_clusters")
+    server_card = next(c for c in _parse_cards(_render_panel(monkeypatch, config, "aws")) if c["group"] == "aws_eks_clusters")
     js_card = next(c for c in _parse_cards(_js_cluster_card_html(account_names=("cps-dev",), selected="cps-dev")) if c["group"] == "aws_eks_clusters")
 
     assert _shape(js_card) == _shape(server_card)
@@ -599,7 +593,7 @@ def test_seed_form_reads_a_multi_select_regions_post():
 def test_region_dropdowns_offer_only_the_supported_regions(monkeypatch):
     section = _aws_with_clusters()
     section["default_region"] = "us-east-1"
-    html = _render_panel(monkeypatch, {"aws": section})
+    html = _render_panel(monkeypatch, {"aws": section}, "aws")
 
     assert _section_select_options(html, "aws_default_region") == [("", False), ("ap-east-1", False), ("eu-west-1", False), ("us-east-1", True)]
     assert [value for value, _sel, _label in _options(html, "aws_eks_clusters", 0, "region")] == ["", "ap-east-1", "eu-west-1", "us-east-1"]
@@ -618,7 +612,7 @@ def test_account_dropdown_lists_the_account_rows_and_flags_a_missing_one(monkeyp
         # Its account row was removed since: shown as such, not re-pointed.
         {"account": "gone", "cluster": "c", "private_endpoint": VPCE},
     ]
-    html = _render_panel(monkeypatch, {"aws": section})
+    html = _render_panel(monkeypatch, {"aws": section}, "aws")
     names = [account["name"] for account in section["accounts"]]
 
     assert [value for value, _sel, _label in _options(html, "aws_eks_clusters", 0, "account")] == [""] + names
@@ -638,7 +632,7 @@ def test_js_keeps_the_account_dropdown_in_step_with_the_account_rows():
     init = js[js.index("function initializeManagedSettingsRoot(") :]
     init = init[: init.index("\n}")]
     assert "refreshEksAccountOptions(root);" in init, "the dropdowns must be filled on load"
-    handlers = js[js.index('root.addEventListener("input"') : js.index("const scrollBtn")]
+    handlers = js[js.index('root.addEventListener("input"') : js.index("const testBtn")]
     assert 'dataset?.field === "name"' in handlers and "refreshEksAccountOptions(root)" in handlers, "typing an account name must refresh them"
     assert 'if (group === "aws_accounts") refreshEksAccountOptions(root);' in handlers, "removing an account row must refresh them"
     add = js[js.index('if (group === "aws_eks_clusters") {') :]

@@ -530,16 +530,13 @@ def test_agent_response_schema_includes_runtime_profile_id():
     assert "runtime_profile_id" in fields
 
 
-def test_create_and_update_agent_runtime_profile_validation_and_response(monkeypatch):
+def test_create_and_update_agent_ignore_a_posted_runtime_profile_id(monkeypatch):
+    # Every assistant uses its owner's one settings row; a client can no longer
+    # pick one, so an id in the body is ignored rather than validated.
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-
-        create_missing = client.post(
-            "/api/agents",
-            json={"name": "bad", "image": "example/image:latest", "runtime_profile_id": "missing-rp"},
-        )
-        assert create_missing.status_code == 404
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
 
         from app.models.runtime_profile import RuntimeProfile
 
@@ -550,14 +547,16 @@ def test_create_and_update_agent_runtime_profile_validation_and_response(monkeyp
 
         create_ok = client.post(
             "/api/agents",
-            json={"name": "ok", "image": "example/image:latest", "runtime_profile_id": rp.id},
+            json={"name": "ok", "image": "example/image:latest", "runtime_profile_id": "missing-rp"},
         )
         assert create_ok.status_code == 200
         agent = create_ok.json()
         assert agent["runtime_profile_id"] == rp.id
 
         patch_missing = client.patch(f"/api/agents/{agent['id']}", json={"runtime_profile_id": "missing-rp"})
-        assert patch_missing.status_code == 404
+        assert patch_missing.status_code == 200
+        assert patch_missing.json()["runtime_profile_id"] == rp.id
+        assert db.get(Agent, agent["id"]).runtime_profile_id == rp.id
     finally:
         cleanup()
 
@@ -576,11 +575,13 @@ def test_create_agent_without_runtime_profile_id_uses_user_default_profile(monke
         create_ok = client.post("/api/agents", json={"name": "auto-default", "image": "example/image:latest"})
         assert create_ok.status_code == 200
         assert create_ok.json()["runtime_profile_id"] == default_profile.id
+        # The pod starts with the current settings.
+        assert db.get(Agent, create_ok.json()["id"]).profile_revision_applied == default_profile.revision
     finally:
         cleanup()
 
 
-def test_create_agent_with_other_users_runtime_profile_is_404(monkeypatch):
+def test_create_agent_naming_other_users_runtime_profile_binds_the_callers_own(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
@@ -600,7 +601,10 @@ def test_create_agent_with_other_users_runtime_profile_is_404(monkeypatch):
             "/api/agents",
             json={"name": "bad-foreign", "image": "example/image:latest", "runtime_profile_id": foreign_profile.id},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        bound = resp.json()["runtime_profile_id"]
+        assert bound != foreign_profile.id
+        assert db.get(RuntimeProfile, bound).owner_user_id == 1
     finally:
         cleanup()
 
@@ -624,7 +628,7 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
 
         create_resp = client.post(
             "/api/agents",
-            json={"name": "summary-agent", "image": "example/image:latest", "runtime_profile_id": profile.id},
+            json={"name": "summary-agent", "image": "example/image:latest"},
         )
         assert create_resp.status_code == 200
         agent_id = create_resp.json()["id"]
@@ -732,7 +736,7 @@ def test_agent_chat_model_profile_does_not_infer_provider_model_from_defaults(mo
 
         create_resp = client.post(
             "/api/agents",
-            json={"name": "sparse-model-agent", "image": "example/image:latest", "runtime_profile_id": profile.id},
+            json={"name": "sparse-model-agent", "image": "example/image:latest"},
         )
         assert create_resp.status_code == 200
         agent_id = create_resp.json()["id"]
@@ -753,52 +757,6 @@ def test_agent_chat_model_profile_does_not_infer_provider_model_from_defaults(mo
             "supports_reasoning_effort": False,
             "supports_context_size": False,
         }
-    finally:
-        cleanup()
-
-
-def test_update_runtime_profile_id_ensures_secret_and_rolls_deployment(monkeypatch):
-    client, db, cleanup = _build_agents_client_with_overrides()
-    try:
-        monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-
-        from app.models.runtime_profile import RuntimeProfile
-
-        rp = RuntimeProfile(owner_user_id=1, name="rp-sync", config_json='{"llm": {"provider": "openai"}}', revision=3, is_default=True)
-        db.add(rp)
-        db.commit()
-        db.refresh(rp)
-
-        create_ok = client.post(
-            "/api/agents",
-            json={"name": "sync-agent", "image": "example/image:latest"},
-        )
-        assert create_ok.status_code == 200
-        agent_id = create_ok.json()["id"]
-
-        calls = {"secret": [], "update_runtime": 0}
-
-        def _sync_secret(profile):
-            calls["secret"].append(profile.id)
-
-        def _update_runtime(_agent):
-            calls["update_runtime"] += 1
-            return SimpleNamespace(status="running", message=None)
-
-        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.sync_profile_secret", _sync_secret)
-        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.ensure_none_secret", lambda: None)
-        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _update_runtime)
-
-        apply_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
-        assert apply_resp.status_code == 200
-        # Rebind ensures the target Secret exists and rolls the deployment so
-        # the pod env secretKeyRef points at the new profile Secret.
-        assert calls["secret"] == [rp.id]
-        assert calls["update_runtime"] == 1
-
-        clear_resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": None})
-        assert clear_resp.status_code == 422
-        assert "runtime_profile_id cannot be null" in clear_resp.json()["detail"]
     finally:
         cleanup()
 
@@ -829,6 +787,14 @@ def test_restart_ensures_profile_secret_and_restarts(monkeypatch):
 
         create_ok = client.post("/api/agents", json={"name": "sync-fail-agent", "image": "example/image:latest"})
         agent_id = create_ok.json()["id"]
+        from app.models.runtime_profile import RuntimeProfile
+
+        # The member saved a connector since the agent started.
+        profile = db.get(RuntimeProfile, create_ok.json()["runtime_profile_id"])
+        profile.revision = 5
+        db.add(profile)
+        db.commit()
+
         restart_resp = client.post(f"/api/agents/{agent_id}/restart")
         assert restart_resp.status_code == 200
         assert restart_resp.json()["status"] == "restarting"
@@ -837,6 +803,8 @@ def test_restart_ensures_profile_secret_and_restarts(monkeypatch):
         assert persisted.last_error == "Restart requested: req-1"
         assert calls["restart"] == 1
         assert calls["secret"] >= 1
+        # The restart hands the pod the current settings.
+        assert persisted.profile_revision_applied == 5
     finally:
         cleanup()
 
@@ -1095,29 +1063,38 @@ def test_patch_name_only_does_not_set_skill_rollout_marker(monkeypatch):
         cleanup()
 
 
-def test_patch_runtime_profile_update_ensures_target_secret(monkeypatch):
+def test_patch_cannot_rebind_an_agent_to_another_runtime_profile(monkeypatch):
     client, db, cleanup = _build_agents_client_with_overrides()
     try:
         monkeypatch.setattr("app.api.agents.k8s_service.create_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
-        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", lambda _agent: SimpleNamespace(status="running", message=None))
         from app.models.runtime_profile import RuntimeProfile
 
-        rp = RuntimeProfile(owner_user_id=1, name="rp-agent-aware", config_json='{"llm": {"provider": "openai"}}', revision=1, is_default=True)
-        db.add(rp)
+        other = User(username="other", password_hash="test", role="user", is_active=True)
+        db.add(other)
         db.commit()
-        db.refresh(rp)
-        agent_id = client.post("/api/agents", json={"name": "sync-agent-aware", "image": "example/image:latest"}).json()["id"]
+        db.refresh(other)
+        theirs = RuntimeProfile(owner_user_id=other.id, name="rp-theirs", config_json='{"llm": {"provider": "openai"}}', revision=1, is_default=True)
+        db.add(theirs)
+        db.commit()
+        db.refresh(theirs)
+        created = client.post("/api/agents", json={"name": "sync-agent-aware", "image": "example/image:latest"}).json()
+        agent_id = created["id"]
 
-        calls = {"secret": []}
+        calls = {"secret": [], "update_runtime": 0}
 
-        def _sync_secret(profile):
-            calls["secret"].append(profile.id)
+        def _update_runtime(_agent):
+            calls["update_runtime"] += 1
+            return SimpleNamespace(status="running", message=None)
 
-        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.sync_profile_secret", _sync_secret)
+        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.sync_profile_secret", lambda profile: calls["secret"].append(profile.id))
         monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.ensure_none_secret", lambda: None)
-        resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": rp.id})
+        monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _update_runtime)
+        resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": theirs.id})
         assert resp.status_code == 200
-        assert calls["secret"] == [rp.id]
+        assert resp.json()["runtime_profile_id"] == created["runtime_profile_id"]
+        assert db.get(Agent, agent_id).runtime_profile_id == created["runtime_profile_id"]
+        # Nothing to re-provision: the field is not a change.
+        assert calls == {"secret": [], "update_runtime": 0}
     finally:
         cleanup()
 

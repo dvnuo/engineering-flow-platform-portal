@@ -139,7 +139,8 @@ def test_the_fallback_title_uses_the_renamed_term():
     body = _extract_js_function(_chat_ui(), "syncMainHeader")
 
     assert '"Runtime Profiles"' not in body
-    assert '"Connections"' in body
+    assert '"Connections"' not in body
+    assert 'dom.embedTitle.textContent = "Connectors"' in body
 
 
 # -------------------------------------------------------------- create modal

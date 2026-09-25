@@ -6,10 +6,10 @@ CLI needs (a URL, or for PostgreSQL a host/database/username, plus Splunk's
 search defaults).
 Covers the whole Portal path: schema sanitizer, public redaction, per-profile
 Secret encryption, the settings form parser and its validation, the end-to-end
-save through both member panels, the admin seed form, the projection rule that
+save through each section's connector, the admin seed form, the projection rule that
 decides whether the CLI instructions are worth adding and what they say, the
-guidance and help topics, the test-connection routes, and the rendered cards
-(server-rendered and JS-added).
+guidance and help topics, the connector test routes, and the rendered cards
+(server-rendered in each connector panel, and JS-added).
 """
 import json
 import re
@@ -20,6 +20,8 @@ from starlette.datastructures import FormData
 
 from tests.test_default_connections_form import _panel_html as _default_connections_html
 from tests.test_jenkins_multi_instance_settings import (
+    _bind_profile,
+    _build_client,
     _initialized_instance_groups,
     _instance_groups_in_template,
     _js_object_literal,
@@ -28,7 +30,6 @@ from tests.test_jenkins_multi_instance_settings import (
     _render_panel,
     _shape,
 )
-from tests.test_web_runtime_profile_settings import _bind_profile, _build_client
 
 from app.schemas.runtime_profile import (
     ALLOWED_RUNTIME_PROFILE_SECTIONS,
@@ -483,7 +484,7 @@ def test_settings_form_without_the_rows_keeps_the_stored_ones(section):
 def test_settings_form_untouched_section_is_left_alone(section):
     merged, error = _settings_merge_payload(
         {section: _copy(CANONICAL[section])},
-        {"__touch_debug": "1", "debug_enabled": "on", "debug_log_level": "INFO"},
+        {"__touch_jenkins": "1", "jenkins_enabled": "on"},
     )
     assert error is None
     assert merged[section] == CANONICAL[section]
@@ -581,18 +582,19 @@ def test_view_payload_exposes_each_section_and_its_instances():
 
 
 # --------------------------------------------------------------------------
-# End to end through both save routes
+# End to end through each section's connector
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("section", SECTIONS)
-def test_end_to_end_profile_save_persists_the_section_and_reloads_it_into_the_panel(monkeypatch, section):
+def test_end_to_end_connector_save_persists_the_section_and_reloads_it_into_the_panel(monkeypatch, section):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {section: {"enabled": False}})
         form = FORMS[section](**{f"{section}_instance_count": "1"})
-        resp = client.post(f"/app/runtime-profiles/{rp.id}/save", data={"name": "rp", **form})
+        resp = client.post(f"/app/connectors/{section}/save", data=form)
         assert resp.status_code == 200
+        assert resp.headers["HX-Trigger"] == "connectorsChanged"
         db.refresh(rp)
         assert json.loads(rp.config_json)[section] == CANONICAL[section]
 
@@ -608,8 +610,8 @@ def test_end_to_end_profile_save_persists_the_section_and_reloads_it_into_the_pa
 
         # A later save that posts neither the secrets nor the rows keeps both.
         again = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={"name": "rp", f"__touch_{section}": "1", f"{section}_enabled": "on"},
+            f"/app/connectors/{section}/save",
+            data={f"__touch_{section}": "1", f"{section}_enabled": "on"},
         )
         assert again.status_code == 200
         db.refresh(rp)
@@ -618,14 +620,11 @@ def test_end_to_end_profile_save_persists_the_section_and_reloads_it_into_the_pa
         cleanup()
 
 
-def test_end_to_end_profile_save_reports_a_bad_row_and_keeps_the_stored_config(monkeypatch):
+def test_end_to_end_connector_save_reports_a_bad_row_and_keeps_the_stored_config(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"pgsql": {"enabled": True}})
-        resp = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={"name": "rp", **_pgsql_form(pgsql_instances_0_port="99999")},
-        )
+        resp = client.post("/app/connectors/pgsql/save", data=_pgsql_form(pgsql_instances_0_port="99999"))
         assert resp.status_code == 200
         assert "PostgreSQL instance orders-uat needs a port between 1 and 65535." in resp.text
         db.refresh(rp)
@@ -634,25 +633,30 @@ def test_end_to_end_profile_save_reports_a_bad_row_and_keeps_the_stored_config(m
         cleanup()
 
 
-def test_end_to_end_settings_save_persists_the_sections_through_the_assistant_panel(monkeypatch):
+def test_end_to_end_each_connector_save_rewrites_only_its_own_section(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {})
         data = {}
         for section in SECTIONS:
             data.update(FORMS[section](**{f"{section}_instance_count": "1"}))
-        resp = client.post(f"/app/agents/{agent.id}/settings/save", data=data)
-        assert resp.status_code == 200
-        db.refresh(rp)
-        stored = json.loads(rp.config_json)
-        for section in SECTIONS:
-            assert stored[section] == CANONICAL[section], section
+        # Every section's fields and touch flags are posted, but a connector
+        # only honours the touch flags of the sections it owns.
+        for index, section in enumerate(SECTIONS):
+            resp = client.post(f"/app/connectors/{section}/save", data=data)
+            assert resp.status_code == 200
+            db.refresh(rp)
+            stored = json.loads(rp.config_json)
+            for saved in SECTIONS[: index + 1]:
+                assert stored[saved] == CANONICAL[saved], saved
+            for later in SECTIONS[index + 1 :]:
+                assert later not in stored, later
     finally:
         cleanup()
 
 
 # --------------------------------------------------------------------------
-# Test-connection routes accept the new targets
+# Connector test routes accept the new targets
 # --------------------------------------------------------------------------
 
 
@@ -661,20 +665,20 @@ def test_the_test_routes_know_every_section():
 
 
 @pytest.mark.parametrize("target", ["jenkins", "nexus", "splunk", "pgsql"])
-def test_the_profile_test_route_runs_the_target_against_the_submitted_form(monkeypatch, target):
+def test_the_connector_test_route_runs_the_target_against_the_submitted_form(monkeypatch, target):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
-        rp = _bind_profile(db, agent, {})
+        _bind_profile(db, agent, {})
         # Disabled sections fail fast inside the service, so no network is touched.
-        resp = client.post(f"/app/runtime-profiles/{rp.id}/test/{target}", data={f"__touch_{target}": "1"})
+        resp = client.post(f"/app/connectors/{target}/test/{target}", data={f"__touch_{target}": "1"})
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is False and body["target"] == target
         assert f"{target}.enabled=true" in body["message"]
 
-        agent_resp = client.post(f"/app/agents/{agent.id}/settings/test/{target}", data={})
-        assert agent_resp.status_code == 200
-        assert agent_resp.json()["target"] == target
+        # A connector only runs its own tests.
+        other = "jira"
+        assert client.post(f"/app/connectors/{target}/test/{other}", data={}).status_code == 404
     finally:
         cleanup()
 
@@ -726,7 +730,7 @@ def test_cli_instructions_teach_each_troubleshooting_cli_verbatim():
         "--earliest -1h --count 100 --json`; always give a time range and a count), and pgsql for PostgreSQL "
         "(`pgsql schema tables --json`, `pgsql query --sql \"select ...\" --limit 200 --json`; "
         "`pgsql exec` applies statements that change data, and whether that succeeds is decided by the database role "
-        "and endpoint this profile configures, not by the CLI). "
+        "and endpoint the PostgreSQL connector configures, not by the CLI). "
         "For every nexus, splunk, and pgsql command add --json and use --instance when "
         "several instances are configured. "
     )
@@ -872,7 +876,7 @@ def _one_instance_profile(section):
 
 @pytest.mark.parametrize("section", SECTIONS)
 def test_settings_panel_renders_one_card_per_instance(monkeypatch, section):
-    html = _render_panel(monkeypatch, _one_instance_profile(section))
+    html = _render_panel(monkeypatch, _one_instance_profile(section), section)
     cards = [card for card in _parse_cards(html) if card["group"] == section]
     instance = CANONICAL[section]["instances"][0]
 
@@ -898,22 +902,18 @@ def test_settings_panel_renders_one_card_per_instance(monkeypatch, section):
 
 
 @pytest.mark.parametrize("section", SECTIONS)
-def test_agent_and_runtime_profile_panels_render_the_same_card(monkeypatch, section):
-    client, db, agent, cleanup = _build_client(monkeypatch)
-    try:
-        _bind_profile(db, agent, _one_instance_profile(section))
-        agent_html = client.get(f"/app/agents/{agent.id}/settings/panel").text
-        profile_html = client.get(f"/app/runtime-profiles/{agent.runtime_profile_id}/panel").text
-    finally:
-        cleanup()
+def test_the_connector_panel_carries_the_section_and_its_setup_guide(monkeypatch, section):
+    html = _render_panel(monkeypatch, _one_instance_profile(section), section)
 
-    agent_card = next(c for c in _parse_cards(agent_html) if c["group"] == section)
-    profile_card = next(c for c in _parse_cards(profile_html) if c["group"] == section)
-    assert _shape(agent_card) == _shape(profile_card)
-    assert agent_card["fields"] == profile_card["fields"]
-    assert agent_card["text"] == profile_card["text"]
-    assert f'id="profile-section-{section}"' in profile_html
-    assert f'href="#/help/connect-{section}"' in profile_html
+    assert f'hx-post="/app/connectors/{section}/save"' in html
+    assert f'data-test-base="/app/connectors/{section}/test"' in html
+    assert f'id="profile-section-{section}"' in html
+    assert f'href="#/help/connect-{section}"' in html
+    # Only this connector's section is on the panel.
+    for other in SECTIONS:
+        if other != section:
+            assert f'data-instance-group="{other}"' not in html, other
+            assert f'data-touch-flag="{other}"' not in html, other
 
 
 def _js_troubleshooting_card_html(section):
@@ -992,7 +992,7 @@ def test_js_added_card_matches_the_server_rendered_card(monkeypatch, section):
     minimal["host" if section == "pgsql" else "url"] = "one.example.test" if section == "pgsql" else "https://one.example.test"
     if section == "pgsql":
         minimal.update({"database": "db", "username": "ro"})
-    server_html = _render_panel(monkeypatch, {section: {"enabled": True, "instances": [minimal]}})
+    server_html = _render_panel(monkeypatch, {section: {"enabled": True, "instances": [minimal]}}, section)
     server_card = next(c for c in _parse_cards(server_html) if c["group"] == section)
     js_card = next(c for c in _parse_cards(_js_troubleshooting_card_html(section)) if c["group"] == section)
 
@@ -1029,35 +1029,34 @@ def test_add_instance_row_builds_the_card_for_every_troubleshooting_group():
 
 
 @pytest.mark.parametrize(
-    "template",
+    "template,sections",
     [
-        "app/templates/partials/runtime_profile_panel.html",
-        "app/templates/partials/settings_panel.html",
-        "app/templates/partials/default_connections_panel.html",
+        *((f"app/templates/partials/connectors/{section}.html", (section,)) for section in SECTIONS),
+        ("app/templates/partials/default_connections_panel.html", SECTIONS),
     ],
 )
-def test_every_panel_renders_the_three_groups(template):
+def test_every_panel_renders_its_groups(template, sections):
     groups = _instance_groups_in_template(template)
-    assert set(SECTIONS) <= groups
+    assert set(sections) <= groups
     # The seed form builds its add button inside the instance_group macro, so
     # the rendered page is what carries the literal group name there.
     text = Path(template).read_text(encoding="utf-8")
     rendered = _default_connections_html() if template.endswith("default_connections_panel.html") else text
-    for section in SECTIONS:
+    for section in sections:
         assert f'name="{section}_enabled"' in text
         assert f'name="{section}_default_instance"' in text
         assert f'data-action="add-instance" data-group="{section}"' in rendered
 
 
-def test_both_member_panels_carry_a_test_button_and_a_touch_flag_per_section():
-    for template in ("app/templates/partials/runtime_profile_panel.html", "app/templates/partials/settings_panel.html"):
-        text = Path(template).read_text(encoding="utf-8")
-        for section in ("jenkins", *SECTIONS):
-            assert f'data-test-target="{section}"' in text, (template, section)
-            assert f'data-test-result="{section}"' in text, (template, section)
-        for section in SECTIONS:
-            assert f'name="__touch_{section}" value="0" data-touch-flag="{section}"' in text, (template, section)
-            assert f'data-managed-section="{section}"' in text, (template, section)
+@pytest.mark.parametrize("section", ("jenkins", *SECTIONS))
+def test_each_connector_panel_carries_a_test_button_and_a_touch_flag_for_its_section(monkeypatch, section):
+    text = Path(f"app/templates/partials/connectors/{section}.html").read_text(encoding="utf-8")
+    assert f'data-test-target="{section}"' in text
+    assert f'data-test-result="{section}"' in text
+    assert f'data-managed-section="{section}"' in text
+
+    html = _render_panel(monkeypatch, {}, section)
+    assert f'name="__touch_{section}" value="0" data-touch-flag="{section}"' in html
 
 
 def test_tooltips_cover_the_new_inputs_and_beat_the_generic_instance_hints():

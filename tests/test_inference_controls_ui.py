@@ -29,8 +29,8 @@ def test_task_and_delegation_forms_share_collapsed_run_settings():
     assert "populateInferenceSettingsForForm(form" in script
 
 
-def test_runtime_profile_exposes_compact_default_inference_controls():
-    template = (ROOT / "app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+def test_model_provider_connector_exposes_compact_default_inference_controls():
+    template = (ROOT / "app/templates/partials/connectors/llm.html").read_text(encoding="utf-8")
     script = (ROOT / "app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
     assert 'name="llm_reasoning_effort"' in template

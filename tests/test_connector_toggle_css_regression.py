@@ -4,13 +4,20 @@ import re
 import pytest
 
 
+CONNECTOR_TEMPLATES = Path("app/templates/partials/connectors")
+
+# (template, managed section, enable input, condition that checks it)
 TARGET_SECTIONS = [
-    ("proxy", "proxy_enabled", "Proxy", "proxy.get('enabled')"),
-    ("jira", "jira_enabled", "Jira", "jira.get('enabled')"),
-    ("confluence", "confluence_enabled", "Confluence", "confluence.get('enabled')"),
-    ("github", "github_enabled", "GitHub", "github.get('enabled')"),
-    ("aws", "aws_enabled", "AWS", "aws.get('enabled')"),
-    ("debug", "debug_enabled", "Debug", "debug.get('enabled')"),
+    ("proxy.html", "proxy", "proxy_enabled", "proxy.get('enabled')"),
+    ("jira.html", "jira", "jira_enabled", "jira.get('enabled')"),
+    ("confluence.html", "confluence", "confluence_enabled", "confluence.get('enabled')"),
+    ("github.html", "github", "github_enabled", "github.get('enabled')"),
+    ("aws.html", "aws", "aws_enabled", "aws.get('enabled')"),
+    ("jenkins.html", "jenkins", "jenkins_enabled", "jenkins.get('enabled')"),
+    ("nexus.html", "nexus", "nexus_enabled", "nexus.get('enabled')"),
+    ("splunk.html", "splunk", "splunk_enabled", "splunk.get('enabled')"),
+    ("pgsql.html", "pgsql", "pgsql_enabled", "pgsql.get('enabled')"),
+    ("browserstack.html", "mobile", "mobile_enabled", "mobile.get('enabled')"),
 ]
 
 
@@ -23,36 +30,33 @@ def _section_html(template_html: str, section_name: str) -> str:
     return rest[: end_match.end()]
 
 
-@pytest.mark.parametrize(
-    "template_path",
-    [
-        "app/templates/partials/runtime_profile_panel.html",
-        "app/templates/partials/settings_panel.html",
-    ],
-)
-def test_top_level_runtime_provider_enabled_toggles_render_below_titles(template_path):
-    html = Path(template_path).read_text(encoding="utf-8")
+@pytest.mark.parametrize("template_name,section_name,input_name,checked_condition", TARGET_SECTIONS)
+def test_connector_enable_toggle_is_a_plain_toggle_switch(template_name, section_name, input_name, checked_condition):
+    html = (CONNECTOR_TEMPLATES / template_name).read_text(encoding="utf-8")
+    section = _section_html(html, section_name)
 
-    for section_name, input_name, title, checked_condition in TARGET_SECTIONS:
-        section = _section_html(html, section_name)
+    assert "portal-settings-title-with-toggle" not in section
+    assert "portal-section-enable-switch" not in section
+    assert "portal-section-enable-text" not in section
 
-        assert "portal-settings-section-head--leading-toggle" in section
-        assert "portal-settings-title-with-toggle" not in section
-        assert "portal-section-enable-switch" not in section
-        assert "portal-section-enable-text" not in section
+    assert section.count(f'name="{input_name}"') == 1
+    assert checked_condition in section
 
-        assert section.count(f'name="{input_name}"') == 1
-        assert f"<h6>{title}</h6>" in section
-        assert section.index(f"<h6>{title}</h6>") < section.index(f'name="{input_name}"')
-        assert checked_condition in section
+    input_pos = section.index(f'name="{input_name}"')
+    label_start = section.rfind("<label", 0, input_pos)
+    assert label_start != -1
+    label_open = section[label_start : section.find(">", label_start) + 1]
+    assert "toggle-switch" in label_open
+    assert "portal-section-enable-switch" not in label_open
+    assert "<span>Enabled</span>" in section
 
-        input_pos = section.index(f'name="{input_name}"')
-        label_start = section.rfind("<label", 0, input_pos)
-        assert label_start != -1
-        label_open = section[label_start : section.find(">", label_start) + 1]
-        assert "toggle-switch" in label_open
-        assert "portal-section-enable-switch" not in label_open
-        assert "<span>Enabled</span>" in section
+
+def test_connector_title_renders_above_the_form_fields():
+    # The connector's name is the panel heading; each form partial is included
+    # below it, so the enable toggle sits under the title.
+    panel = (CONNECTOR_TEMPLATES / "panel.html").read_text(encoding="utf-8")
+    assert "<h5>{{ connector.label }}</h5>" in panel
+    assert panel.index("<h5>{{ connector.label }}</h5>") < panel.index("{% include connector_template %}")
 
 
 def test_leading_toggle_css_classes_exist():
@@ -62,20 +66,6 @@ def test_leading_toggle_css_classes_exist():
     assert ".portal-settings-title-with-toggle" in css
     assert ".portal-section-enable-switch" in css
     assert ".portal-section-enable-text" in css
-
-
-def test_create_runtime_profile_modal_retains_toggle_markup():
-    template = Path("app/templates/app.html").read_text(encoding="utf-8")
-    form_match = re.search(
-        r'<form\s+id="create-runtime-profile-form"[^>]*>(?P<body>[\s\S]*?)</form>',
-        template,
-    )
-    assert form_match, "Create Runtime Profile form should exist"
-
-    form_html = form_match.group("body")
-    assert '<label class="toggle-switch">' in form_html
-    assert '<input type="checkbox" name="is_default" />' in form_html
-    assert '<span class="toggle-slider"></span>' in form_html
 
 
 def test_stack_selectors_exclude_toggle_internals_and_slider_has_display_block():
