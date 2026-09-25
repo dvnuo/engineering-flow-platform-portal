@@ -1,0 +1,31 @@
+{#
+  Instance cards for the troubleshooting CLIs (nexus, splunk, pgsql).
+
+  Both member panels (runtime_profile_panel.html and settings_panel.html) render
+  their cards through this one macro, and chat_ui.js builds a freshly added card
+  from the same layout tables (INSTANCE_GROUP_CARD_ROWS / INSTANCE_GROUP_FIELD_SPECS /
+  INSTANCE_GROUP_PLACEHOLDERS), so a saved row and an added row look the same.
+  `cards` is the layout exposed by _settings_view_payload: rows, specs, placeholders.
+#}
+{% macro card_field(group, field, inst, cards) -%}
+{%- if not field -%}
+<div></div>
+{%- else -%}
+{%- set spec = cards.specs.get(field, {}) -%}
+{%- set placeholder = cards.placeholders.get(group, {}).get(field, '') -%}
+{%- if spec.get('type') == 'select' -%}
+<select data-field="{{ field }}" class="portal-form-select">{% for value, text in spec.options %}<option value="{{ value }}"{% if (inst.get(field) or spec.options[0][0]) == value %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>
+{%- elif spec.get('type') == 'number' -%}
+<input type="number" data-field="{{ field }}" value="{{ inst.get(field, '') }}" placeholder="{{ placeholder }}" min="{{ spec.min }}" max="{{ spec.max }}" step="1" class="portal-form-input" />
+{%- else -%}
+<input type="{{ spec.get('type') or 'text' }}" data-field="{{ field }}" value="{{ inst.get(field, '') }}" placeholder="{{ placeholder }}" class="portal-form-input" />
+{%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro troubleshooting_instance_cards(group, label, instances, cards) -%}
+{%- set rows = cards.rows[group] -%}
+{%- set has_url = rows[0][1] == 'url' -%}
+<input type="hidden" name="{{ group }}_instance_count" value="{{ instances|length }}" data-instance-count="{{ group }}" />
+<div class="space-y-2" data-instance-container="{{ group }}">{% for inst in instances %}<div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="{{ group }}"><input type="hidden" data-original-field="name" value="{{ inst.get('name','') }}" />{% if has_url %}<input type="hidden" data-original-field="url" value="{{ inst.get('url','') }}" />{% endif %}<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance {{ loop.index }}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable {{ label }} instance {{ loop.index }}" {% if inst.get('enabled', True) %}checked{% endif %} /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>{% if inst.get('enabled', True) %}Enabled{% else %}Disabled{% endif %}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="{{ group }}">Remove</button></div><div class="portal-settings-instance-body">{% for row in rows %}<div class="grid grid-cols-2 gap-2">{% for field in row %}{{ card_field(group, field, inst, cards) }}{% endfor %}</div>{% endfor %}</div></div>{% endfor %}</div>
+{%- endmacro %}

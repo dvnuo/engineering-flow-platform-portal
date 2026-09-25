@@ -38,8 +38,9 @@ order: 10
 
 ## Connection and connector topics
 
-`connect-<section>.md` (llm, jira, confluence, github, jenkins, mobile, aws,
-proxy, git) and `<connector>-connector.md` (local-browser) hold the long-form
+`connect-<section>.md` (llm, jira, confluence, github, jenkins, nexus, splunk,
+pgsql, mobile, aws, proxy, git) and `<connector>-connector.md`
+(local-browser) hold the long-form
 guide for a Connections section or a Connector. Their title, summary, setup
 steps, setup link and troubleshooting lines come from
 `app/services/connection_guidance.py`, which the form next to the field also

@@ -2689,6 +2689,35 @@ a.message-attachment-file { color: var(--portal-text); }
   color: var(--portal-text);
 }
 
+/* A multi-select (the account regions) is a list, not a dropdown: no chevron
+   and no dropdown padding, and the chosen entries have to read as chosen
+   without focus. The option rule above paints every option in the surface
+   colour, which hides Chromium's own :checked highlight, so it is restored
+   here for this one shape of select; a gradient is used because Chromium
+   drops a plain background-color on a checked option. */
+.portal-form-select[multiple] {
+  background-image: none;
+  padding: 6px 8px;
+  min-height: 0;
+  cursor: default;
+  overflow-y: auto;
+}
+
+.portal-form-select[multiple] option {
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+
+.portal-form-select[multiple] option:checked {
+  background: linear-gradient(
+    0deg,
+    color-mix(in srgb, var(--portal-accent) 18%, var(--portal-surface)) 0%,
+    color-mix(in srgb, var(--portal-accent) 18%, var(--portal-surface)) 100%
+  );
+  color: var(--portal-text);
+  font-weight: 600;
+}
+
 /* Administrator member management */
 .portal-admin-users {
   gap: 16px;

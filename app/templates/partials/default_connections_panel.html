@@ -1,7 +1,9 @@
-{% macro instance_group(group, label, fields) -%}
-<input type="hidden" name="{{ group }}_instance_count" value="{{ (seed.get(group, {}).get('instances') or [])|length }}" data-instance-count="{{ group }}" />
+{% macro instance_group(group, label, fields, items=none) -%}
+{# items: the rows to render when they do not live at seed[group].instances (the AWS account matrix). #}
+{% set rows = items if items is not none else (seed.get(group, {}).get('instances') or []) %}
+<input type="hidden" name="{{ group }}_instance_count" value="{{ rows|length }}" data-instance-count="{{ group }}" />
 <div class="space-y-2" data-instance-container="{{ group }}">
-  {% for inst in (seed.get(group, {}).get('instances') or []) %}
+  {% for inst in rows %}
   <div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="{{ group }}">
     <div class="portal-settings-instance-head">
       <div class="portal-settings-instance-head-main">
@@ -20,9 +22,10 @@
         {% if field.type == 'select' %}
         <label class="portal-form-label">
           <span class="portal-form-label">{{ field.label }}</span>
-          <select data-field="{{ field.key }}" class="portal-form-select">
+          <select data-field="{{ field.key }}" class="portal-form-select"{% if field.multiple %} multiple size="{{ field.options|length }}"{% endif %}>
             {% for option in field.options %}
-            <option value="{{ option.value }}" {% if (inst.get(field.key) or '') == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {# A multi-select reads its chosen values from the row's list field (field.list_key). #}
+            <option value="{{ option.value }}" {% if field.multiple %}{% if option.value in (inst.get(field.list_key or field.key) or []) %}selected{% endif %}{% elif (inst.get(field.key) or '') == option.value %}selected{% endif %}>{{ option.label }}</option>
             {% endfor %}
           </select>
         </label>
@@ -232,6 +235,79 @@
       ]) }}
     </section>
 
+    <section class="portal-panel-section" data-instance-group="nexus">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Nexus Repository</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer Nexus">
+          <input type="checkbox" name="nexus_enabled" {% if seed.get('nexus', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer Nexus Repository to members</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="nexus_default_instance" value="{{ seed.get('nexus', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      {{ instance_group('nexus', 'Nexus', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'main'},
+          {'key': 'url', 'label': 'URL', 'placeholder': 'https://nexus.example.com'},
+          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared user token', 'type': 'password', 'placeholder': 'Optional'}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="splunk">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Splunk</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer Splunk">
+          <input type="checkbox" name="splunk_enabled" {% if seed.get('splunk', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer Splunk to members</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="splunk_default_instance" value="{{ seed.get('splunk', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      {{ instance_group('splunk', 'Splunk', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'prod'},
+          {'key': 'url', 'label': 'Management API URL', 'placeholder': 'https://splunk-api.example.com:8089'},
+          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'token', 'label': 'Shared authentication token', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'default_index', 'label': 'Default index', 'placeholder': 'app_prod'},
+          {'key': 'default_earliest', 'label': 'Default earliest', 'placeholder': '-1h'},
+          {'key': 'max_results', 'label': 'Max results', 'type': 'number', 'placeholder': '1000'}
+      ]) }}
+    </section>
+
+    <section class="portal-panel-section" data-instance-group="pgsql">
+      <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>PostgreSQL</h6></div>
+      </div>
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer PostgreSQL">
+          <input type="checkbox" name="pgsql_enabled" {% if seed.get('pgsql', {}).get('enabled') %}checked{% endif %} />
+          <span class="toggle-slider"></span>
+        </label>
+        <span>Offer PostgreSQL to members</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="pgsql_default_instance" value="{{ seed.get('pgsql', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      <p class="portal-panel-note">One row per database. Seed a read-only role; every query the assistant runs is wrapped in a read-only transaction.</p>
+      {{ instance_group('pgsql', 'PostgreSQL', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'orders-uat'},
+          {'key': 'host', 'label': 'Host', 'placeholder': 'orders-uat.example.com'},
+          {'key': 'port', 'label': 'Port', 'type': 'number', 'placeholder': '5432'},
+          {'key': 'database', 'label': 'Database', 'placeholder': 'orders'},
+          {'key': 'username', 'label': 'Shared username (read-only role)', 'placeholder': 'Optional'},
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
+          {'key': 'sslmode', 'label': 'SSL mode', 'type': 'select', 'options': [
+              {'value': 'require', 'label': 'require'}, {'value': 'verify-ca', 'label': 'verify-ca'},
+              {'value': 'verify-full', 'label': 'verify-full'}, {'value': 'prefer', 'label': 'prefer'}]},
+          {'key': 'statement_timeout_seconds', 'label': 'Statement timeout (seconds)', 'type': 'number', 'placeholder': '30'},
+          {'key': 'max_rows', 'label': 'Max rows per query', 'type': 'number', 'placeholder': '5000'}
+      ]) }}
+    </section>
+
     <section class="portal-panel-section">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Network proxy</h6></div>
@@ -254,7 +330,7 @@
       </div>
     </section>
 
-    <section class="portal-panel-section">
+    <section class="portal-panel-section" data-instance-group="aws_accounts">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>AWS</h6></div>
       </div>
@@ -265,11 +341,53 @@
         </label>
         <span>Offer AWS to members</span>
       </div>
+      {% set seed_aws = seed.get('aws', {}) %}
+      {% set aws_region_options = [] %}{% for region in aws_regions %}{% set _ = aws_region_options.append({'value': region, 'label': region}) %}{% endfor %}
+      {% set aws_region_options_optional = [{'value': '', 'label': 'Any region'}] + aws_region_options %}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ seed.get('aws', {}).get('domain', '') }}" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="aws_username" value="{{ seed.get('aws', {}).get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="aws_password" value="{{ seed.get('aws', {}).get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ seed_aws.get('domain', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="aws_username" value="{{ seed_aws.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="aws_password" value="{{ seed_aws.get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
       </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">Provider</span>
+          <select name="aws_provider" class="portal-form-select">
+            {# Blank leaves the member's profile on the runtime default (adfs-assume) without seeding a value. #}
+            <option value="">Leave unset &mdash; adfs-assume</option>
+            {% for option in aws_auth_providers %}
+            <option value="{{ option }}" {% if seed_aws.get('provider') == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="portal-form-label"><span class="portal-form-label">ADFS IdP URL (saml2aws)</span><input type="text" name="aws_idp_url" value="{{ seed_aws.get('idp_url', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Source profile (assume-role)</span><input type="text" name="aws_source_profile" value="{{ seed_aws.get('source_profile', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">Default account</span><input type="text" name="aws_default_account" value="{{ seed_aws.get('default_account', '') }}" placeholder="Account name or id" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Default region</span><select name="aws_default_region" class="portal-form-select"><option value="">Leave unset</option>{% for region in aws_regions %}<option value="{{ region }}" {% if seed_aws.get('default_region', '') == region %}selected{% endif %}>{{ region }}</option>{% endfor %}</select></label>
+        <label class="portal-form-label"><span class="portal-form-label">Session duration (seconds)</span><input type="number" name="aws_session_duration_seconds" value="{{ seed_aws.get('session_duration_seconds', '') }}" min="900" max="43200" step="1" placeholder="3600" class="portal-form-input" /></label>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Kubeconfig path</span><input type="text" name="aws_kubeconfig_path" value="{{ seed_aws.get('kubeconfig_path', '') }}" placeholder="~/.efp/kube/config" class="portal-form-input" /></label>
+      <p class="portal-panel-note">One row per AWS account members may sign in to; the name becomes the AWS CLI profile the assistant uses.</p>
+      {{ instance_group('aws_accounts', 'AWS account', [
+          {'key': 'name', 'label': 'Name', 'placeholder': 'cps-dev'},
+          {'key': 'account_id', 'label': 'Account id', 'placeholder': '12 digits'},
+          {'key': 'role', 'label': 'Role', 'placeholder': 'ADFS-ReadOnly'},
+          {'key': 'regions', 'label': 'Regions', 'type': 'select', 'multiple': True, 'list_key': 'region_list', 'options': aws_region_options}
+      ], seed_aws_accounts) }}
+      <p class="portal-panel-note">Clusters reached through a private endpoint (AWS PrivateLink) instead of the address AWS reports; the account is the name or id of one of the rows above.</p>
+      {{ instance_group('aws_eks_clusters', 'EKS cluster', [
+          {'key': 'account', 'label': 'Account', 'type': 'select', 'options': seed_aws_account_options},
+          {'key': 'cluster', 'label': 'Cluster', 'placeholder': 'cps-dev-eks'},
+          {'key': 'region', 'label': 'Region (optional)', 'type': 'select', 'options': aws_region_options_optional},
+          {'key': 'private_endpoint', 'label': 'Private endpoint', 'placeholder': 'https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com'},
+          {'key': 'server_ca', 'label': 'Certificate authority', 'type': 'select', 'options': [
+              {'value': 'cluster', 'label': 'Cluster CA (endpoint passes TLS through)'},
+              {'value': 'system', 'label': 'System trust store (endpoint has its own certificate)'}
+          ]},
+          {'key': 'tls_server_name', 'label': 'TLS server name (optional)', 'placeholder': 'Normally empty'}
+      ], seed_aws_eks_clusters) }}
     </section>
 
     <section class="portal-panel-section">

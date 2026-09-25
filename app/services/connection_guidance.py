@@ -75,6 +75,43 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
         "help_label": None,
         "user_fields": ["username", "token"],
     },
+    "nexus": {
+        "title": "Connect Nexus Repository",
+        "summary": "Lets the assistant look up artifacts and their versions in Nexus. Read-only.",
+        "steps": [
+            "Enter the Nexus base URL, for example https://nexus.example.com.",
+            "Add a read-only account: its username with either a user token or the password. Leave both blank for anonymous read access.",
+            "Name each instance; with several, name the one assistants should use by default.",
+        ],
+        "help_url": None,
+        "help_label": None,
+        "user_fields": ["username", "token"],
+    },
+    "splunk": {
+        "title": "Connect Splunk",
+        "summary": "Lets the assistant run searches over your logs when it troubleshoots. Read-only.",
+        "steps": [
+            "Enter the Splunk management API URL with its port, usually https://splunk.example.com:8089 (not the web UI port).",
+            "Create an authentication token in Splunk (Settings, Tokens) and paste it; a username and password work too.",
+            "Optionally set the default index, the default earliest time (for example -1h) and the largest result count a search may return.",
+        ],
+        "help_url": None,
+        "help_label": None,
+        "user_fields": ["token"],
+    },
+    "pgsql": {
+        "title": "Connect PostgreSQL",
+        "summary": "Lets the assistant inspect a database's schema and query it. The role and endpoint you enter decide whether it can also change anything.",
+        "steps": [
+            "Enter the host, port (5432 unless your DBA says otherwise) and database name.",
+            "The role is the control: a login with SELECT and nothing else makes this instance read-only, whatever the assistant is asked to do.",
+            "Use a role that may write only for an instance you intend the assistant to change things through.",
+            "Keep SSL on require unless the server offers a CA you can verify.",
+        ],
+        "help_url": None,
+        "help_label": None,
+        "user_fields": ["username", "password"],
+    },
     "mobile": {
         "title": "Connect BrowserStack",
         "summary": "Lets the assistant run and inspect mobile automation sessions.",
@@ -89,10 +126,11 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
     },
     "aws": {
         "title": "Connect AWS",
-        "summary": "Lets the assistant inspect AMIs, instances, and CloudWatch logs.",
+        "summary": "Lets the assistant inspect AWS accounts and EKS clusters through the read-only roles you list here.",
         "steps": [
-            "Use the AWS account your team already uses for this environment.",
-            "Ask your administrator which domain value to enter if you are unsure.",
+            "Enter the directory account aws-auth signs in with: the domain, username and password your team uses for AWS.",
+            "Choose the provider your organisation uses. adfs-assume is the default; only saml2aws needs the IdP URL, and only assume-role needs a source profile.",
+            "Add one row per AWS account with its 12-digit account id, a read-only role and the regions it uses, then name one of them as the default account.",
         ],
         "help_url": None,
         "help_label": None,

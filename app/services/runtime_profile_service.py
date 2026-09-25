@@ -57,6 +57,9 @@ SEED_SECTION_LABELS = {
     "confluence": "Confluence",
     "github": "GitHub",
     "jenkins": "Jenkins",
+    "nexus": "Nexus",
+    "splunk": "Splunk",
+    "pgsql": "PostgreSQL",
     "proxy": "Proxy",
     "aws": "AWS",
     "git": "Git",
@@ -116,6 +119,18 @@ class RuntimeProfileService:
             },
             "aws": {
                 "enabled": False,
+            },
+            "nexus": {
+                "enabled": False,
+                "instances": [],
+            },
+            "splunk": {
+                "enabled": False,
+                "instances": [],
+            },
+            "pgsql": {
+                "enabled": False,
+                "instances": [],
             },
             "mobile-auto": {
                 "enabled": False,

@@ -12736,19 +12736,176 @@ async function refreshComposerModelProfile(agentId) {
 const managedSettingsActionSelector = "[data-settings-action]";
 // keep regression guard text for static test:
 
-const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins" };
+const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "aws_eks_clusters": "EKS cluster", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL" };
+
+// The regions a profile may name, offered in every region dropdown (account
+// rows, the section default, EKS private-endpoint rows). Must stay equal to
+// AWS_REGIONS in app/schemas/runtime_profile.py; a test holds the two equal.
+const AWS_REGIONS = ["ap-east-1", "eu-west-1", "us-east-1"];
+
+// The <option>s of a region dropdown; blankLabel adds a "none" choice first.
+function regionOptionsHtml(blankLabel) {
+  const options = blankLabel ? [`<option value="">${blankLabel}</option>`] : [];
+  AWS_REGIONS.forEach((region) => options.push(`<option value="${region}">${region}</option>`));
+  return options.join("");
+}
+
+// The EKS private-endpoint cards pick their account from the account rows
+// above, so their dropdowns are rebuilt from those rows whenever the rows
+// change: on load, as a name is typed, when a row is removed, and when a new
+// EKS card is added. A value that no longer matches a row stays selected but
+// is labelled as such, so the save reports it instead of re-pointing it.
+function refreshEksAccountOptions(root) {
+  if (!root) return;
+  const names = [];
+  root.querySelectorAll('[data-instance-item="aws_accounts"] [data-field="name"]').forEach((input) => {
+    const name = String(input.value || "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  });
+  root.querySelectorAll('[data-instance-item="aws_eks_clusters"] select[data-field="account"]').forEach((select) => {
+    const current = select.value;
+    select.replaceChildren();
+    const add = (value, label, selected) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = selected;
+      select.append(option);
+    };
+    add("", "Choose an account", current === "");
+    names.forEach((name) => add(name, name, name === current));
+    if (current && !names.includes(current)) add(current, `${current} (not listed above)`, true);
+  });
+}
 
 // Per-product placeholder copy for a freshly added instance card. Kept as a
 // plain lookup table (not inline ternaries) so it stays in step with the
 // server-rendered cards in the runtime-profile/settings panel templates.
+// The nexus/splunk/pgsql entries are copies of TROUBLESHOOTING_CARD_PLACEHOLDERS
+// in app/web.py, which renders the saved cards; a test holds the two equal.
 const INSTANCE_GROUP_PLACEHOLDERS = {
   "jira": { "url": "URL (e.g. https://yourcompany.atlassian.net)", "username": "Email" },
   "confluence": { "url": "URL (e.g. https://yourcompany.atlassian.net/wiki)", "username": "Email" },
-  "jenkins": { "url": "URL (e.g. https://jenkins.example.com)", "username": "Username" }
+  "jenkins": { "url": "URL (e.g. https://jenkins.example.com)", "username": "Username" },
+  "aws_accounts": {
+    "name": "Account name, e.g. cps-dev",
+    "account_id": "12-digit AWS account id",
+    "role": "IAM role, e.g. ADFS-ReadOnly"
+  },
+  "aws_eks_clusters": {
+    "cluster": "EKS cluster name",
+    "private_endpoint": "https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com",
+    "tls_server_name": "TLS server name (optional)"
+  },
+  "nexus": {
+    "name": "Name",
+    "url": "URL (e.g. https://nexus.example.com)",
+    "username": "Username",
+    "password": "Password",
+    "token": "User token"
+  },
+  "splunk": {
+    "name": "Name",
+    "url": "Management API URL (e.g. https://splunk.example.com:8089)",
+    "username": "Username",
+    "password": "Password",
+    "token": "Authentication token",
+    "default_index": "Default index, e.g. app_prod",
+    "default_earliest": "Default earliest, e.g. -1h",
+    "max_results": "Max results (1-10000)",
+    "app": "App the saved searches live in, e.g. search",
+    "owner": "Namespace owner; blank means any"
+  },
+  "pgsql": {
+    "name": "Name",
+    "host": "Host, e.g. orders-uat.example.com",
+    "port": "5432",
+    "database": "Database",
+    "username": "Username (read-only role)",
+    "password": "Password",
+    "statement_timeout_seconds": "Statement timeout in seconds (default 30)",
+    "max_rows": "Max rows per query (default 5000)"
+  }
 };
+
+// Card layout of the troubleshooting-CLI groups: two fields per row, "" for an
+// empty slot. Copies of TROUBLESHOOTING_CARD_ROWS / TROUBLESHOOTING_CARD_FIELD_SPECS
+// in app/web.py, which drive the server-rendered card; a test holds them equal.
+const INSTANCE_GROUP_CARD_ROWS = {
+  "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
+  "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"], ["app", "owner"]],
+  "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", "statement_timeout_seconds"], ["max_rows", ""]]
+};
+
+const INSTANCE_GROUP_FIELD_SPECS = {
+  "password": { "type": "password" },
+  "token": { "type": "password" },
+  "port": { "type": "number", "min": 1, "max": 65535 },
+  "max_results": { "type": "number", "min": 1, "max": 10000 },
+  "sslmode": { "type": "select", "options": [["require", "require"], ["verify-ca", "verify-ca"], ["verify-full", "verify-full"], ["prefer", "prefer"]] },
+  "statement_timeout_seconds": { "type": "number", "min": 1, "max": 300 },
+  "max_rows": { "type": "number", "min": 1, "max": 100000 }
+};
+
+// What one card in a group is called in its title. Most groups list product
+// instances; the AWS group lists accounts.
+const INSTANCE_GROUP_ITEM_TITLES = { "aws_accounts": "Account", "aws_eks_clusters": "EKS cluster" };
 
 function instanceGroupLabel(group) {
   return INSTANCE_GROUP_LABELS[group] || String(group || "");
+}
+
+function instanceGroupItemTitle(group) {
+  return INSTANCE_GROUP_ITEM_TITLES[group] || "Instance";
+}
+
+// The AWS account card: no URL/credentials, one row per account the aws-auth
+// CLI may assume a role in. Must stay structurally identical to the server-
+// rendered card in partials/runtime_profile_panel.html + settings_panel.html.
+function awsAccountCardHtml(label) {
+  const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_accounts;
+  return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${placeholders.name}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${placeholders.account_id}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${placeholders.role}" class="portal-form-input" /><select multiple size="${AWS_REGIONS.length}" data-field="regions" class="portal-form-select">${regionOptionsHtml()}</select></div></div>`;
+}
+
+// The EKS private-endpoint card: one cluster reached through PrivateLink,
+// belonging to one of the account rows. Must stay structurally identical to
+// the server-rendered card in partials/runtime_profile_panel.html +
+// settings_panel.html.
+function awsEksClusterCardHtml(label) {
+  const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_eks_clusters;
+  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">EKS cluster</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><select data-field="account" class="portal-form-select"><option value="">Choose an account</option></select><input type="text" data-field="cluster" value="" placeholder="${placeholders.cluster}" class="portal-form-input" /><select data-field="region" class="portal-form-select">${regionOptionsHtml("Any region")}</select></div><div class="grid grid-cols-3 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${placeholders.private_endpoint}" class="portal-form-input" /><select data-field="server_ca" class="portal-form-select"><option value="cluster" selected>Cluster CA (endpoint passes TLS through)</option><option value="system">System trust store (endpoint has its own certificate)</option></select><input type="text" data-field="tls_server_name" value="" placeholder="${placeholders.tls_server_name}" class="portal-form-input" /></div></div>`;
+}
+
+// One field of a troubleshooting-CLI card, from the layout tables above. Must
+// render exactly what the card_field macro in
+// partials/runtime_profile_instance_cards.html renders for an empty value.
+function troubleshootingFieldHtml(group, field) {
+  if (!field) return `<div></div>`;
+  const spec = INSTANCE_GROUP_FIELD_SPECS[field] || {};
+  const placeholder = (INSTANCE_GROUP_PLACEHOLDERS[group] || {})[field] || "";
+  if (spec.type === "select") {
+    const options = (spec.options || [])
+      .map(([value, text], index) => `<option value="${value}"${index === 0 ? " selected" : ""}>${text}</option>`)
+      .join("");
+    return `<select data-field="${field}" class="portal-form-select">${options}</select>`;
+  }
+  if (spec.type === "number") {
+    return `<input type="number" data-field="${field}" value="" placeholder="${placeholder}" min="${spec.min}" max="${spec.max}" step="1" class="portal-form-input" />`;
+  }
+  return `<input type="${spec.type || "text"}" data-field="${field}" value="" placeholder="${placeholder}" class="portal-form-input" />`;
+}
+
+// A nexus/splunk/pgsql card: the jenkins head, then the group's rows.
+// Rows identified by a URL carry an original-url field like jenkins; pgsql
+// rows have no URL and are matched on save by name alone.
+function troubleshootingCardHtml(group, label) {
+  const rows = INSTANCE_GROUP_CARD_ROWS[group] || [];
+  const hasUrl = rows.some((row) => row.includes("url"));
+  const originalUrlHtml = hasUrl ? `<input type="hidden" data-original-field="url" value="" />` : "";
+  const bodyHtml = rows
+    .map((row) => `<div class="grid grid-cols-2 gap-2">${row.map((field) => troubleshootingFieldHtml(group, field)).join("")}</div>`)
+    .join("");
+  return `<input type="hidden" data-original-field="name" value="" />${originalUrlHtml}<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body">${bodyHtml}</div>`;
 }
 
 // Keeps the "disabled" affordance in sync with the per-instance toggle: the
@@ -12770,10 +12927,11 @@ function normalizeInstanceInputs(root, group) {
   if (!container || !countInput) return;
 
   const label = instanceGroupLabel(group);
+  const itemTitle = instanceGroupItemTitle(group);
   const items = Array.from(container.querySelectorAll(`[data-instance-item="${group}"]`));
   items.forEach((item, idx) => {
     const title = item.querySelector(".portal-settings-instance-title");
-    if (title) title.textContent = `Instance ${idx + 1}`;
+    if (title) title.textContent = `${itemTitle} ${idx + 1}`;
     const enabledInput = item.querySelector('input[data-field="enabled"]');
     if (enabledInput) enabledInput.setAttribute("aria-label", `Enable ${label} instance ${idx + 1}`);
     syncInstanceEnabledState(item);
@@ -12800,6 +12958,29 @@ function addInstanceRow(root, group) {
   const div = document.createElement("div");
   div.className = "portal-settings-instance-card";
   div.dataset.instanceItem = group;
+
+  if (group === "aws_accounts") {
+    div.innerHTML = awsAccountCardHtml(instanceGroupLabel(group));
+    container.append(div);
+    normalizeInstanceInputs(root, group);
+    return;
+  }
+
+  if (group === "aws_eks_clusters") {
+    div.innerHTML = awsEksClusterCardHtml(instanceGroupLabel(group));
+    container.append(div);
+    normalizeInstanceInputs(root, group);
+    refreshEksAccountOptions(root);
+    return;
+  }
+
+  if (INSTANCE_GROUP_CARD_ROWS[group]) {
+    div.innerHTML = troubleshootingCardHtml(group, instanceGroupLabel(group));
+    container.append(div);
+    normalizeInstanceInputs(root, group);
+    if (window.initPasswordToggles) window.initPasswordToggles(root);
+    return;
+  }
 
   // Must stay structurally identical to the server-rendered card in
   // partials/runtime_profile_panel.html + partials/settings_panel.html,
@@ -13195,6 +13376,12 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "jira");
   normalizeInstanceInputs(root, "confluence");
   normalizeInstanceInputs(root, "jenkins");
+  normalizeInstanceInputs(root, "aws_accounts");
+  normalizeInstanceInputs(root, "aws_eks_clusters");
+  refreshEksAccountOptions(root);
+  normalizeInstanceInputs(root, "nexus");
+  normalizeInstanceInputs(root, "splunk");
+  normalizeInstanceInputs(root, "pgsql");
   window.initPasswordToggles(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -13229,23 +13416,33 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("input", (event) => {
     const section = sectionNameForElement(event.target);
     if (section) markManagedSectionTouched(root, section);
+    // A renamed account row has to show up in the EKS cards' account dropdowns.
+    if (event.target?.dataset?.field === "name" && event.target.closest?.('[data-instance-item="aws_accounts"]')) {
+      refreshEksAccountOptions(root);
+    }
   });
   root.addEventListener("click", async (event) => {
+    // The touched section is the one the button sits in, not the group name:
+    // the AWS account rows (group "aws_accounts") belong to the "aws" section,
+    // whose flag is what the server checks before it reads the rows.
     const addBtn = event.target.closest('[data-action="add-instance"]');
     if (addBtn) {
       event.preventDefault();
       const group = addBtn.dataset.group || "jira";
       addInstanceRow(root, group);
-      markManagedSectionTouched(root, group);
+      markManagedSectionTouched(root, sectionNameForElement(addBtn) || group);
       return;
     }
     const removeBtn = event.target.closest('[data-action="remove-instance"]');
     if (removeBtn) {
       event.preventDefault();
       const group = removeBtn.dataset.group || "jira";
+      // Resolved before the card leaves the DOM; a detached button has no section.
+      const touchedSection = sectionNameForElement(removeBtn) || group;
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(root, group);
-      markManagedSectionTouched(root, group);
+      if (group === "aws_accounts") refreshEksAccountOptions(root);
+      markManagedSectionTouched(root, touchedSection);
       return;
     }
     const scrollBtn = event.target.closest("[data-scroll-to-section]");

@@ -38,12 +38,31 @@ from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
+    AWS_AUTH_PROVIDERS,
+    AWS_EKS_SERVER_CA_MODES,
+    AWS_REGIONS,
+    AWS_SESSION_DURATION_MAX_SECONDS,
+    AWS_SESSION_DURATION_MIN_SECONDS,
     JENKINS_DEFAULT_INSTANCE_NAME,
+    PGSQL_MAX_ROWS_MAX,
+    PGSQL_MAX_ROWS_MIN,
+    PGSQL_SSL_MODES,
+    PGSQL_STATEMENT_TIMEOUT_MAX,
+    PGSQL_STATEMENT_TIMEOUT_MIN,
+    PORT_MAX,
+    PORT_MIN,
+    SPLUNK_MAX_RESULTS_MAX,
+    SPLUNK_MAX_RESULTS_MIN,
+    TROUBLESHOOTING_INSTANCE_SECTIONS,
     dump_runtime_profile_config_json,
+    normalize_aws_account_id,
+    normalize_eks_private_endpoint,
     normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
+    sanitize_runtime_profile_bounded_int,
     sanitize_runtime_profile_config_dict,
 )
+from app.services.runtime_profile_audit import audit_runtime_profile_change
 from app.services.auth_service import parse_session_token, set_session_cookie
 from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
 from app.services.k8s_service import K8sService
@@ -817,6 +836,90 @@ async def _forward_runtime_multipart(
     )
 
 
+def _aws_account_view_rows(aws_section) -> list[dict]:
+    """Account rows of an aws section, shaped for the instance cards.
+
+    The stored shape keeps ``regions`` as a list; the card has one text input
+    for them, so they are joined the way the member types them back in.
+    """
+    accounts = aws_section.get("accounts") if isinstance(aws_section, dict) else None
+    rows: list[dict] = []
+    for item in accounts if isinstance(accounts, list) else []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        regions = item.get("regions")
+        if isinstance(regions, (list, tuple)):
+            row["regions"] = ", ".join(str(region or "").strip() for region in regions if str(region or "").strip())
+        else:
+            row["regions"] = str(regions or "").strip()
+        # The card is a multi-select, which needs the list back.
+        row["region_list"] = _split_regions(row["regions"])
+        rows.append(row)
+    return rows
+
+
+def _split_regions(value) -> list[str]:
+    """Region tokens of a list or a comma/space separated string, in order."""
+    parts = [str(v or "") for v in value] if isinstance(value, (list, tuple)) else [str(value or "")]
+    out: list[str] = []
+    for part in parts:
+        for token in part.replace(",", " ").split():
+            if token not in out:
+                out.append(token)
+    return out
+
+
+def _aws_account_option_names(aws_section) -> list[str]:
+    """The account names an EKS card may pick from, in matrix order."""
+    accounts = aws_section.get("accounts") if isinstance(aws_section, dict) else None
+    names: list[str] = []
+    for account in accounts if isinstance(accounts, list) else []:
+        name = str(account.get("name") or "").strip() if isinstance(account, dict) else ""
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _aws_eks_cluster_view_rows(aws_section) -> list[dict]:
+    """Private-endpoint rows of an aws section, one per card.
+
+    The card's account is a dropdown of the account rows, so each row also
+    says which option to select (a row stored by 12-digit id selects that
+    account's name) and whether its account is still listed at all. A row
+    whose account is gone is shown as such rather than silently re-pointed;
+    the save then reports it.
+    """
+    if not isinstance(aws_section, dict):
+        return []
+    accounts = aws_section.get("accounts") if isinstance(aws_section.get("accounts"), list) else []
+    by_key: dict[str, str] = {}
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        name = str(account.get("name") or "").strip()
+        if not name:
+            continue
+        by_key.setdefault(name.lower(), name)
+        account_id = normalize_aws_account_id(account.get("account_id"))
+        if account_id:
+            by_key.setdefault(account_id, name)
+    clusters = aws_section.get("eks_clusters")
+    rows: list[dict] = []
+    for item in clusters if isinstance(clusters, list) else []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        raw = str(item.get("account") or "").strip()
+        listed = by_key.get(normalize_aws_account_id(raw) or raw.lower())
+        if listed:
+            row["account"] = listed
+        row["account_option"] = listed or raw
+        row["account_listed"] = bool(listed) or not raw
+        rows.append(row)
+    return rows
+
+
 def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | None = None) -> dict:
     raw_config = dict(raw_config_data or {})
     raw_config.pop("ssh", None)
@@ -841,6 +944,14 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     raw_github = raw_config.get("github") if isinstance(raw_config.get("github"), dict) else {}
     raw_aws = raw_config.get("aws") if isinstance(raw_config.get("aws"), dict) else {}
     raw_jenkins = raw_config.get("jenkins") if isinstance(raw_config.get("jenkins"), dict) else {}
+    # nexus / splunk / pgsql: the section and its instance rows, exposed
+    # as <section> and <section>_instances exactly like jenkins.
+    troubleshooting_view: dict = {}
+    for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
+        section_config = effective_config.get(section) if isinstance(effective_config.get(section), dict) else {}
+        section_instances = section_config.get("instances") if isinstance(section_config.get("instances"), list) else []
+        troubleshooting_view[section] = section_config
+        troubleshooting_view[f"{section}_instances"] = [item for item in section_instances if isinstance(item, dict)]
     raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
     raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
     mobile = effective_config.get("mobile-auto") if isinstance(effective_config.get("mobile-auto"), dict) else {}
@@ -875,7 +986,14 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_mobile_browserstack": raw_mobile_browserstack,
         "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
         "raw_aws": raw_aws,
+        "aws_accounts": _aws_account_view_rows(raw_aws),
+        "aws_eks_clusters": _aws_eks_cluster_view_rows(raw_aws),
+        "aws_account_options": _aws_account_option_names(raw_aws),
+        "aws_regions": list(AWS_REGIONS),
+        "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "raw_jenkins": raw_jenkins,
+        **troubleshooting_view,
+        "troubleshooting_cards": TROUBLESHOOTING_CARD_LAYOUT,
         "git": effective_config.get("git") if isinstance(effective_config.get("git"), dict) else {},
         "raw_git": raw_git,
         "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
@@ -1028,6 +1146,36 @@ def _runtime_profile_panel_context(
     }
 
 
+def _form_values(form, name) -> list[str]:
+    """Every value posted under name, split on commas as well.
+
+    A <select multiple> posts one value per chosen option under the same
+    name; an older page (and most tests) post one comma-separated string.
+    Both come back as the list of non-blank entries, in the order posted.
+    """
+    if hasattr(form, "getlist"):
+        posted = list(form.getlist(name))
+    else:
+        value = form.get(name)
+        posted = list(value) if isinstance(value, (list, tuple)) else ([] if value is None else [value])
+    return _split_regions(posted)
+
+
+def _with_joined_values(form, prefix: str, field: str):
+    """A copy of form whose <prefix>_instances_<i>_<field> entries are joined.
+
+    The row parsers read each field with form.get(), which for a multi-valued
+    key returns only the last value posted. Joining the values into the one
+    comma-separated string those parsers already understand keeps them
+    unchanged; every other key is copied as it is.
+    """
+    merged = {key: form.get(key) for key in form.keys()}
+    for key in list(merged):
+        if key.startswith(f"{prefix}_instances_") and key.endswith(f"_{field}"):
+            merged[key] = ", ".join(_form_values(form, key))
+    return merged
+
+
 def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
     """Read instance rows from the Default Connections form.
 
@@ -1061,6 +1209,130 @@ def _seed_parse_instances(form, prefix: str, fields: list[str]) -> list[dict]:
         if row.get("name") or row.get("url"):
             instances.append(row)
     return instances
+
+
+# The aws section's plain text fields, in the order the forms post them. The
+# password is one of them: the seed and the member's form both read it as a
+# field, and only the member's form has "leave blank to keep" semantics.
+AWS_SEED_TEXT_FIELDS = (
+    "domain",
+    "username",
+    "password",
+    "provider",
+    "idp_url",
+    "source_profile",
+    "default_account",
+    "default_region",
+    "kubeconfig_path",
+)
+# Instance-card prefix of the account matrix: aws_accounts_instance_count and
+# aws_accounts_instances_{i}_{field}, exactly like the jira/jenkins rows.
+AWS_ACCOUNTS_FORM_PREFIX = "aws_accounts"
+# What an account card posts. role_arn and profile are API-only (no input on
+# the card) and ride along on a member's save so it cannot silently drop them.
+AWS_ACCOUNT_SEED_FIELDS = ["enabled", "name", "account_id", "role", "regions"]
+AWS_ACCOUNT_API_ONLY_FIELDS = frozenset({"role_arn", "profile"})
+AWS_ACCOUNT_FORM_FIELDS = AWS_ACCOUNT_SEED_FIELDS + sorted(AWS_ACCOUNT_API_ONLY_FIELDS)
+# EKS clusters reached through a private endpoint (AWS PrivateLink) instead
+# of the address describe-cluster reports: one card per cluster, posted as
+# aws_eks_clusters_instance_count and aws_eks_clusters_instances_{i}_{field}.
+# No field is a credential, so the seed form and the member's form read the
+# cards the same way.
+AWS_EKS_CLUSTERS_FORM_PREFIX = "aws_eks_clusters"
+AWS_EKS_CLUSTER_FIELDS = ["enabled", "account", "cluster", "region", "private_endpoint", "server_ca", "tls_server_name"]
+
+# The troubleshooting CLIs' instance cards: what each card posts, in the order
+# the templates render them (nexus/splunk rows carry a url, pgsql rows a
+# host), what the section is called in an error, and which fields a row cannot
+# do without -- the sanitizer drops a row missing one, so the form reports it.
+TROUBLESHOOTING_INSTANCE_FIELDS = {
+    "nexus": ["enabled", "name", "url", "username", "password", "token"],
+    "splunk": [
+        "enabled", "name", "url", "username", "password", "token",
+        "default_index", "default_earliest", "max_results", "app", "owner",
+    ],
+    "pgsql": [
+        "enabled", "name", "host", "port", "database", "username", "password", "sslmode",
+        "statement_timeout_seconds", "max_rows",
+    ],
+}
+TROUBLESHOOTING_SECTION_LABELS = {
+    "nexus": "Nexus",
+    "splunk": "Splunk",
+    "pgsql": "PostgreSQL",
+}
+TROUBLESHOOTING_REQUIRED_INSTANCE_FIELDS = {
+    "nexus": ("url",),
+    "splunk": ("url",),
+    "pgsql": ("host", "database", "username"),
+}
+TROUBLESHOOTING_INSTANCE_SECRET_FIELDS = frozenset({"password", "token"})
+
+# How a card lays its fields out: two per row, "" for an empty slot. The
+# server-rendered card (partials/runtime_profile_instance_cards.html) and the
+# card chat_ui.js builds for "+ Add ..." are both driven by these tables; the
+# JS copies (INSTANCE_GROUP_CARD_ROWS, INSTANCE_GROUP_FIELD_SPECS and the group
+# entries of INSTANCE_GROUP_PLACEHOLDERS) are held equal to these by a test.
+TROUBLESHOOTING_CARD_ROWS = {
+    "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
+    "splunk": [
+        ["name", "url"], ["username", "password"], ["token", "default_index"],
+        ["default_earliest", "max_results"], ["app", "owner"],
+    ],
+    "pgsql": [
+        ["name", "host"], ["port", "database"], ["username", "password"],
+        ["sslmode", "statement_timeout_seconds"], ["max_rows", ""],
+    ],
+}
+TROUBLESHOOTING_CARD_FIELD_SPECS = {
+    "password": {"type": "password"},
+    "token": {"type": "password"},
+    "port": {"type": "number", "min": PORT_MIN, "max": PORT_MAX},
+    "max_results": {"type": "number", "min": SPLUNK_MAX_RESULTS_MIN, "max": SPLUNK_MAX_RESULTS_MAX},
+    "sslmode": {"type": "select", "options": [[mode, mode] for mode in PGSQL_SSL_MODES]},
+    "statement_timeout_seconds": {
+        "type": "number",
+        "min": PGSQL_STATEMENT_TIMEOUT_MIN,
+        "max": PGSQL_STATEMENT_TIMEOUT_MAX,
+    },
+    "max_rows": {"type": "number", "min": PGSQL_MAX_ROWS_MIN, "max": PGSQL_MAX_ROWS_MAX},
+}
+TROUBLESHOOTING_CARD_PLACEHOLDERS = {
+    "nexus": {
+        "name": "Name",
+        "url": "URL (e.g. https://nexus.example.com)",
+        "username": "Username",
+        "password": "Password",
+        "token": "User token",
+    },
+    "splunk": {
+        "name": "Name",
+        "url": "Management API URL (e.g. https://splunk.example.com:8089)",
+        "username": "Username",
+        "password": "Password",
+        "token": "Authentication token",
+        "default_index": "Default index, e.g. app_prod",
+        "default_earliest": "Default earliest, e.g. -1h",
+        "max_results": "Max results (1-10000)",
+        "app": "App the saved searches live in, e.g. search",
+        "owner": "Namespace owner; blank means any",
+    },
+    "pgsql": {
+        "name": "Name",
+        "host": "Host, e.g. orders-uat.example.com",
+        "port": "5432",
+        "database": "Database",
+        "username": "Username (read-only role)",
+        "password": "Password",
+        "statement_timeout_seconds": "Statement timeout in seconds (default 30)",
+        "max_rows": "Max rows per query (default 5000)",
+    },
+}
+TROUBLESHOOTING_CARD_LAYOUT = {
+    "rows": TROUBLESHOOTING_CARD_ROWS,
+    "specs": TROUBLESHOOTING_CARD_FIELD_SPECS,
+    "placeholders": TROUBLESHOOTING_CARD_PLACEHOLDERS,
+}
 
 
 def _seed_config_from_form(form) -> dict:
@@ -1146,6 +1418,14 @@ def _seed_config_from_form(form) -> dict:
     if flag("jenkins_enabled") or jenkins_instances:
         seed["jenkins"] = {"enabled": flag("jenkins_enabled"), "instances": jenkins_instances}
 
+    for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
+        instances = _seed_parse_instances(form, section, TROUBLESHOOTING_INSTANCE_FIELDS[section])
+        default_instance = text(f"{section}_default_instance")
+        if flag(f"{section}_enabled") or instances or default_instance:
+            seed[section] = {"enabled": flag(f"{section}_enabled"), "instances": instances}
+            if default_instance:
+                seed[section]["default_instance"] = default_instance
+
     proxy: dict = {}
     for key in ("url", "username", "password"):
         put(proxy, key, f"proxy_{key}")
@@ -1153,8 +1433,23 @@ def _seed_config_from_form(form) -> dict:
         seed["proxy"] = {"enabled": flag("proxy_enabled"), **proxy}
 
     aws: dict = {}
-    for key in ("domain", "username", "password"):
+    for key in AWS_SEED_TEXT_FIELDS:
         put(aws, key, f"aws_{key}")
+    session_duration = text("aws_session_duration_seconds")
+    if session_duration.isdigit() and (
+        AWS_SESSION_DURATION_MIN_SECONDS <= int(session_duration) <= AWS_SESSION_DURATION_MAX_SECONDS
+    ):
+        aws["session_duration_seconds"] = int(session_duration)
+    # Only the fields the seed form renders: the API-only ones would otherwise
+    # be stored as "" and show up in the stored-value dump as if seeded.
+    aws_accounts = _seed_parse_instances(
+        _with_joined_values(form, AWS_ACCOUNTS_FORM_PREFIX, "regions"), AWS_ACCOUNTS_FORM_PREFIX, AWS_ACCOUNT_SEED_FIELDS
+    )
+    if aws_accounts:
+        aws["accounts"] = aws_accounts
+    aws_eks_clusters = _parse_aws_eks_cluster_cards(form)
+    if aws_eks_clusters:
+        aws["eks_clusters"] = aws_eks_clusters
     if flag("aws_enabled") or aws:
         seed["aws"] = {"enabled": flag("aws_enabled"), **aws}
 
@@ -1260,6 +1555,241 @@ def _settings_parse_instances(
     return instances
 
 
+
+
+def _settings_parse_aws_accounts(form, existing_accounts: list) -> tuple[list[dict], Optional[str]]:
+    """Read the AWS account cards, refusing rows the sanitizer would drop.
+
+    The generic parser keeps a row by its name, so a card with only an account
+    id typed in, a malformed id, or a name used twice would otherwise vanish
+    on save with no word to the member. Those come back as an error naming the
+    row instead; the sanitizer still normalizes what passes (regions, enabled).
+    """
+    form = _with_joined_values(form, AWS_ACCOUNTS_FORM_PREFIX, "regions")
+    count_text = (form.get(f"{AWS_ACCOUNTS_FORM_PREFIX}_instance_count") or "0").strip()
+    try:
+        count = max(0, int(count_text))
+    except ValueError:
+        count = 0
+    for index in range(count):
+        name = (form.get(f"{AWS_ACCOUNTS_FORM_PREFIX}_instances_{index}_name") or "").strip()
+        if name:
+            continue
+        typed = any(
+            (form.get(f"{AWS_ACCOUNTS_FORM_PREFIX}_instances_{index}_{field}") or "").strip()
+            for field in ("account_id", "role", "regions")
+        )
+        if typed:
+            return [], f"AWS account {index + 1} needs a name; it becomes the AWS CLI profile the assistant uses."
+
+    rows = _settings_parse_instances(
+        form,
+        AWS_ACCOUNTS_FORM_PREFIX,
+        AWS_ACCOUNT_FORM_FIELDS,
+        existing_instances=existing_accounts,
+        preserve_blank_fields=set(AWS_ACCOUNT_API_ONLY_FIELDS),
+    )
+    seen_names: set[str] = set()
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        # No quotes around the name: the panel autoescapes them into entities.
+        if not normalize_aws_account_id(row.get("account_id")):
+            return [], f"AWS account {name} needs a 12-digit account id."
+        name_key = name.lower()
+        if name_key in seen_names:
+            return [], f"AWS account names must be unique; {name} is listed more than once."
+        seen_names.add(name_key)
+        for region in _split_regions(row.get("regions")):
+            if region.lower() not in AWS_REGIONS:
+                return [], f"AWS account {name} names region {region}, which is not supported; choose from {', '.join(AWS_REGIONS)}."
+    return rows, None
+
+
+def _parse_aws_eks_cluster_cards(form, prefix: str = AWS_EKS_CLUSTERS_FORM_PREFIX) -> list[dict]:
+    """Read the EKS private-endpoint cards as posted.
+
+    Nothing on these cards is a credential, so a blank field means blank and
+    the seed form and the member's form share this reader. A card with every
+    text field empty is one that was added and left alone, and is dropped.
+    """
+    try:
+        count = max(0, int((form.get(f"{prefix}_instance_count") or "0").strip()))
+    except ValueError:
+        count = 0
+    rows: list[dict] = []
+    for index in range(count):
+        row: dict = {}
+        for field in AWS_EKS_CLUSTER_FIELDS:
+            name = f"{prefix}_instances_{index}_{field}"
+            if field == "enabled":
+                row[field] = str(form.get(name) or "").lower() in {"1", "true", "on", "yes"}
+                continue
+            row[field] = (form.get(name) or "").strip()
+        if any(row[field] for field in AWS_EKS_CLUSTER_FIELDS if field != "enabled"):
+            rows.append(row)
+    return rows
+
+
+def _settings_parse_aws_eks_clusters(form, accounts: list) -> tuple[list[dict], Optional[str]]:
+    """Validate the EKS private-endpoint cards against the account matrix.
+
+    A row the runtime could not act on is refused with a message naming the
+    card rather than dropped on save: an account that is not in the matrix
+    above, a missing cluster name, or an address that is not an https URL.
+    The account may be given as the matrix name or the 12-digit id, the two
+    forms aws-auth accepts.
+    """
+    rows = _parse_aws_eks_cluster_cards(form)
+    known: set[str] = set()
+    for account in accounts if isinstance(accounts, list) else []:
+        if isinstance(account, dict):
+            known.add(str(account.get("name") or "").strip().lower())
+            known.add(normalize_aws_account_id(account.get("account_id")))
+    known.discard("")
+    seen: set[tuple[str, str, str]] = set()
+    for index, row in enumerate(rows, start=1):
+        label = f"EKS cluster {index}"
+        if not row["account"]:
+            return [], f"{label} needs the account it belongs to: the name or 12-digit id of one of the AWS accounts above."
+        account_key = normalize_aws_account_id(row["account"]) or row["account"].lower()
+        if account_key not in known:
+            return [], f"{label}: {row['account']} is not one of the AWS accounts above, by name or 12-digit id."
+        if not row["cluster"]:
+            return [], f"{label} needs the EKS cluster name."
+        if row["region"] and row["region"].lower() not in AWS_REGIONS:
+            return [], f"{label} names region {row['region']}, which is not supported; choose from {', '.join(AWS_REGIONS)}."
+        row["region"] = row["region"].lower()
+        endpoint = normalize_eks_private_endpoint(row["private_endpoint"])
+        if not endpoint:
+            return [], f"{label} needs an https address for its private endpoint, such as https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com."
+        row["private_endpoint"] = endpoint
+        if row["server_ca"] and row["server_ca"].lower() not in AWS_EKS_SERVER_CA_MODES:
+            return [], f"{label}: the certificate authority must be cluster or system, not {row['server_ca']}."
+        row["server_ca"] = row["server_ca"].lower()
+        key = (account_key, row["region"].lower(), row["cluster"])
+        if key in seen:
+            return [], f"{label} repeats {row['cluster']} for the same account and region."
+        seen.add(key)
+    return rows, None
+
+
+def _settings_aws_default_account_error(aws_cfg: dict) -> Optional[str]:
+    """The default account has to be one of the configured rows, by name or id."""
+    default_account = str(aws_cfg.get("default_account") or "").strip()
+    if not default_account:
+        return None
+    accounts = aws_cfg.get("accounts") if isinstance(aws_cfg.get("accounts"), list) else []
+    wanted = default_account.lower()
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        if str(account.get("name") or "").strip().lower() == wanted:
+            return None
+        if str(account.get("account_id") or "").strip() == default_account:
+            return None
+    return f"Default AWS account {default_account} must be the name or 12-digit id of one of the accounts listed below."
+
+
+def _settings_parse_troubleshooting_instances(
+    form, section: str, existing_instances: list
+) -> tuple[list[dict], Optional[str]]:
+    """Read the nexus/splunk/pgsql instance cards, refusing rows the sanitizer would drop.
+
+    The generic parser keeps a row by its name or URL and the sanitizer then
+    drops anything it cannot address (no name), cannot reach (no URL, or for
+    PostgreSQL no host/database/username) or cannot tell apart (a name used
+    twice). Those come back as an error naming the row instead of vanishing on
+    save. Blank secrets keep the stored value, matched by the row's original
+    name, exactly like the jira/jenkins cards.
+    """
+    label = TROUBLESHOOTING_SECTION_LABELS[section]
+    fields = TROUBLESHOOTING_INSTANCE_FIELDS[section]
+    count_text = (form.get(f"{section}_instance_count") or "0").strip()
+    try:
+        count = max(0, int(count_text))
+    except ValueError:
+        count = 0
+    for index in range(count):
+        if (form.get(f"{section}_instances_{index}_name") or "").strip():
+            continue
+        typed = any(
+            (form.get(f"{section}_instances_{index}_{field}") or "").strip()
+            for field in fields
+            if field not in ("enabled", "name")
+        )
+        if typed:
+            return [], f"{label} instance {index + 1} needs a name; the assistant addresses it with --instance."
+
+    rows = _settings_parse_instances(
+        form,
+        section,
+        fields,
+        existing_instances=existing_instances,
+        preserve_blank_fields=set(TROUBLESHOOTING_INSTANCE_SECRET_FIELDS),
+        clearable_fields=set(TROUBLESHOOTING_INSTANCE_SECRET_FIELDS),
+    )
+    seen_names: set[str] = set()
+    for row in rows:
+        # No quotes around the name: the panel autoescapes them into entities.
+        name = str(row.get("name") or "").strip()
+        name_key = name.lower()
+        if name_key in seen_names:
+            return [], f"{label} instance names must be unique; {name} is listed more than once."
+        seen_names.add(name_key)
+        for field in TROUBLESHOOTING_REQUIRED_INSTANCE_FIELDS[section]:
+            if not str(row.get(field) or "").strip():
+                wanted = "a URL" if field == "url" else f"a {field}"
+                return [], f"{label} instance {name} needs {wanted}."
+        if section == "pgsql":
+            port_text = str(row.get("port") or "").strip()
+            if port_text and sanitize_runtime_profile_bounded_int(port_text, PORT_MIN, PORT_MAX) is None:
+                return [], f"{label} instance {name} needs a port between {PORT_MIN} and {PORT_MAX}."
+            sslmode = str(row.get("sslmode") or "").strip().lower()
+            if sslmode and sslmode not in PGSQL_SSL_MODES:
+                return [], f"{label} instance {name} needs an SSL mode of {', '.join(PGSQL_SSL_MODES)}."
+            timeout_text = str(row.get("statement_timeout_seconds") or "").strip()
+            if timeout_text and (
+                sanitize_runtime_profile_bounded_int(
+                    timeout_text, PGSQL_STATEMENT_TIMEOUT_MIN, PGSQL_STATEMENT_TIMEOUT_MAX
+                )
+                is None
+            ):
+                return [], (
+                    f"{label} instance {name} needs a statement timeout between "
+                    f"{PGSQL_STATEMENT_TIMEOUT_MIN} and {PGSQL_STATEMENT_TIMEOUT_MAX} seconds."
+                )
+            max_rows_text = str(row.get("max_rows") or "").strip()
+            if max_rows_text and (
+                sanitize_runtime_profile_bounded_int(max_rows_text, PGSQL_MAX_ROWS_MIN, PGSQL_MAX_ROWS_MAX) is None
+            ):
+                return [], (
+                    f"{label} instance {name} needs a max rows value between "
+                    f"{PGSQL_MAX_ROWS_MIN} and {PGSQL_MAX_ROWS_MAX}."
+                )
+        if section == "splunk":
+            max_results_text = str(row.get("max_results") or "").strip()
+            if max_results_text and (
+                sanitize_runtime_profile_bounded_int(max_results_text, SPLUNK_MAX_RESULTS_MIN, SPLUNK_MAX_RESULTS_MAX) is None
+            ):
+                return [], (
+                    f"{label} instance {name} needs a max results count between "
+                    f"{SPLUNK_MAX_RESULTS_MIN} and {SPLUNK_MAX_RESULTS_MAX}."
+                )
+    return rows, None
+
+
+def _settings_troubleshooting_default_instance_error(section: str, section_cfg: dict) -> Optional[str]:
+    """The default instance has to be one of the configured rows, by name."""
+    default_instance = str(section_cfg.get("default_instance") or "").strip()
+    if not default_instance:
+        return None
+    instances = section_cfg.get("instances") if isinstance(section_cfg.get("instances"), list) else []
+    wanted = default_instance.lower()
+    for item in instances:
+        if isinstance(item, dict) and str(item.get("name") or "").strip().lower() == wanted:
+            return None
+    label = TROUBLESHOOTING_SECTION_LABELS[section]
+    return f"Default {label} instance {default_instance} must be the name of one of the instances listed below."
 
 
 def _settings_finalize_config_payload(config_payload: dict) -> dict:
@@ -1487,17 +2017,60 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         config_payload["mobile-auto"] = mobile_cfg
 
     if is_section_touched("aws"):
-        aws_cfg = {"enabled": as_bool(form.get("aws_enabled"))}
-        for field, form_field in (
-            ("domain", "aws_domain"),
-            ("username", "aws_username"),
-            ("password", "aws_password"),
-        ):
+        # Start from the stored section: a field the form did not post keeps
+        # its value, so a partial post (an older panel, a client that only
+        # knows the directory account) cannot wipe the account matrix. The
+        # sanitizer drops anything the tree does not know on the way out.
+        existing_aws = config_payload.get("aws") if isinstance(config_payload.get("aws"), dict) else {}
+        aws_cfg = dict(existing_aws)
+        aws_cfg["enabled"] = as_bool(form.get("aws_enabled"))
+        for field in AWS_SEED_TEXT_FIELDS:
+            form_field = f"aws_{field}"
             if form_field not in form:
                 continue
             value = (form.get(form_field) or "").strip()
+            if field == "provider":
+                value = value.lower()
             if value:
                 aws_cfg[field] = value
+            else:
+                # A posted blank clears the field, the password included: the
+                # form renders the stored password back into its input, so a
+                # blank one is the member emptying it, not leaving it alone.
+                aws_cfg.pop(field, None)
+        if "aws_provider" in form and aws_cfg.get("provider") and aws_cfg["provider"] not in AWS_AUTH_PROVIDERS:
+            return config_payload, "AWS provider must be adfs-assume, saml2aws, or assume-role."
+        if "aws_default_region" in form and aws_cfg.get("default_region") and aws_cfg["default_region"].lower() not in AWS_REGIONS:
+            return config_payload, f"AWS default region must be one of {', '.join(AWS_REGIONS)}."
+        if "aws_session_duration_seconds" in form:
+            duration_text = (form.get("aws_session_duration_seconds") or "").strip()
+            if not duration_text:
+                aws_cfg.pop("session_duration_seconds", None)
+            else:
+                if not duration_text.isdigit() or not (
+                    AWS_SESSION_DURATION_MIN_SECONDS <= int(duration_text) <= AWS_SESSION_DURATION_MAX_SECONDS
+                ):
+                    return config_payload, (
+                        "AWS session duration must be a whole number of seconds between "
+                        f"{AWS_SESSION_DURATION_MIN_SECONDS} and {AWS_SESSION_DURATION_MAX_SECONDS}."
+                    )
+                aws_cfg["session_duration_seconds"] = int(duration_text)
+        if f"{AWS_ACCOUNTS_FORM_PREFIX}_instance_count" in form:
+            existing_accounts = existing_aws.get("accounts") if isinstance(existing_aws.get("accounts"), list) else []
+            accounts, accounts_error = _settings_parse_aws_accounts(form, existing_accounts)
+            if accounts_error:
+                return config_payload, accounts_error
+            aws_cfg["accounts"] = accounts
+        if f"{AWS_EKS_CLUSTERS_FORM_PREFIX}_instance_count" in form:
+            eks_clusters, eks_error = _settings_parse_aws_eks_clusters(
+                form, aws_cfg.get("accounts") if isinstance(aws_cfg.get("accounts"), list) else []
+            )
+            if eks_error:
+                return config_payload, eks_error
+            aws_cfg["eks_clusters"] = eks_clusters
+        default_account_error = _settings_aws_default_account_error(aws_cfg)
+        if default_account_error:
+            return config_payload, default_account_error
         config_payload["aws"] = aws_cfg
 
     if is_section_touched("jenkins"):
@@ -1537,6 +2110,32 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         # partial post can never wipe an unmigrated profile's credentials.
         jenkins.pop("automation", None)
         config_payload["jenkins"] = jenkins
+
+    # nexus / splunk / pgsql share the jenkins shape: one block each,
+    # driven by the same instance-card parser. A post without the rows (an
+    # older panel, a partial form) keeps the stored ones.
+    for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
+        if not is_section_touched(section):
+            continue
+        existing_section = config_payload.get(section) if isinstance(config_payload.get(section), dict) else {}
+        section_cfg = dict(existing_section)
+        section_cfg["enabled"] = as_bool(form.get(f"{section}_enabled"))
+        if f"{section}_default_instance" in form:
+            default_instance = (form.get(f"{section}_default_instance") or "").strip()
+            if default_instance:
+                section_cfg["default_instance"] = default_instance
+            else:
+                section_cfg.pop("default_instance", None)
+        if f"{section}_instance_count" in form:
+            existing_rows = existing_section.get("instances") if isinstance(existing_section.get("instances"), list) else []
+            rows, rows_error = _settings_parse_troubleshooting_instances(form, section, existing_rows)
+            if rows_error:
+                return config_payload, rows_error
+            section_cfg["instances"] = rows
+        default_error = _settings_troubleshooting_default_instance_error(section, section_cfg)
+        if default_error:
+            return config_payload, default_error
+        config_payload[section] = section_cfg
 
     if is_section_touched("git"):
         git_cfg = (config_payload.get("git") if isinstance(config_payload.get("git"), dict) else {}).copy()
@@ -2004,6 +2603,21 @@ async def app_users_panel(request: Request):
 SEED_PROVIDER_LABELS = {"github_copilot": "GitHub Copilot", "ai_platform": "AI Platform"}
 
 
+def _seed_aws_account_options(aws_section) -> list[dict]:
+    """Options of the seed page's EKS account dropdown: a blank, the account
+    rows, and any account an EKS row still names that is no longer a row, so
+    that value stays visible and selectable instead of vanishing on save."""
+    options = [{"value": "", "label": "Choose an account"}]
+    names = _aws_account_option_names(aws_section)
+    options.extend({"value": name, "label": name} for name in names)
+    for row in _aws_eks_cluster_view_rows(aws_section):
+        if row.get("account_option") and not row.get("account_listed"):
+            stale = row["account_option"]
+            if all(option["value"] != stale for option in options):
+                options.append({"value": stale, "label": f"{stale} (not listed above)"})
+    return options
+
+
 def _default_connections_context(
     request: Request,
     db,
@@ -2020,6 +2634,11 @@ def _default_connections_context(
     return {
         "request": request,
         "seed": seed,
+        "seed_aws_accounts": _aws_account_view_rows(seed.get("aws")),
+        "seed_aws_eks_clusters": _aws_eks_cluster_view_rows(seed.get("aws")),
+        "seed_aws_account_options": _seed_aws_account_options(seed.get("aws")),
+        "aws_regions": list(AWS_REGIONS),
+        "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),
         "guidance": all_guidance(),
@@ -2859,6 +3478,14 @@ async def app_agent_settings_save(request: Request, agent_id: str):
             runtime_profile.config_json = new_config_json
             runtime_profile.revision = (runtime_profile.revision or 0) + 1
             runtime_profile = profile_repo.save(runtime_profile)
+            audit_runtime_profile_change(
+                db,
+                action="update_runtime_profile",
+                profile_id=runtime_profile.id,
+                user_id=user.id,
+                before=config_base,
+                after=parse_runtime_profile_config_json(new_config_json, fallback_to_empty=True),
+            )
             status_type, status_message = _apply_runtime_profile_save(db, runtime_profile)
         else:
             status_type, status_message = ("success", "Connections saved.")
@@ -2885,7 +3512,7 @@ async def app_agent_settings_save(request: Request, agent_id: str):
         db.close()
 
 
-_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github"}
+_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "pgsql"}
 
 
 def _validate_managed_test_target(target: str) -> str:
@@ -3059,6 +3686,14 @@ async def app_runtime_profile_save(request: Request, profile_id: str):
             description=(form.get("description") or "").strip() or None,
             config_json=dump_runtime_profile_config_json(sanitized_config),
             is_default=is_default,
+        )
+        audit_runtime_profile_change(
+            db,
+            action="update_runtime_profile",
+            profile_id=updated.id,
+            user_id=user.id,
+            before=config_base,
+            after=parse_runtime_profile_config_json(updated.config_json, fallback_to_empty=True),
         )
 
         status_type = "success"

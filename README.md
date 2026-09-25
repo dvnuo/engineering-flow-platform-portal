@@ -25,7 +25,7 @@ See the [full documentation index](docs/README.md) for troubleshooting, screensh
 
 - **Agent Management** - Create, start, stop, delete, share agents
 - **Web Chat UI** - Chat with EFP agents via reverse proxy
-- **Connections** - Reusable runtime profiles for GitHub Copilot or AI Platform, Jira, Confluence, GitHub, AWS, Jenkins, BrowserStack, proxy, and Git identity
+- **Connections** - Reusable runtime profiles for GitHub Copilot or AI Platform, Jira, Confluence, GitHub, AWS, Jenkins, Nexus, Splunk, PostgreSQL, BrowserStack, proxy, and Git identity
 - **File Management** - Upload files, preview attachments
 - **Session History** - View past conversations
 - **Usage Tracking** - Monitor agent usage and costs
@@ -301,6 +301,7 @@ Choose from the model catalog offered for the selected provider; standalone Open
 
 ### Integrations
 - **Jira**, **Confluence**, and **Jenkins** - Multiple named instances and their applicable credentials
+- **Nexus**, **Splunk**, and **PostgreSQL** - Read-only troubleshooting instances (artifact lookups, log searches, schema and query inspection), addressed by name with `--instance`
 - **GitHub** - Personal access token
 - **AWS** - Configured organizational credentials
 - **Mobile / BrowserStack** - REST/Appium credentials and local-testing options

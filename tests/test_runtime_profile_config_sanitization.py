@@ -17,7 +17,23 @@ def _assert_cli_instruction_texts(instruction_texts):
     assert isinstance(instruction_texts, list)
     assert len(instruction_texts) == 1
     text = instruction_texts[0]
-    for expected in ["bash", "jira", "confluence", "gh", "aws", "jenkins", "mobile-auto", "git", "--json", "--dry-run", "--yes", "auth_failed"]:
+    for expected in [
+        "bash",
+        "jira",
+        "confluence",
+        "gh",
+        "aws",
+        "jenkins",
+        "nexus",
+        "splunk",
+        "pgsql",
+        "mobile-auto",
+        "git",
+        "--json",
+        "--dry-run",
+        "--yes",
+        "auth_failed",
+    ]:
         assert expected in text
 
 
