@@ -14421,6 +14421,7 @@ const DELEGATION_SOURCE_OPTIONS = [
   ["github_pr_mention", "GitHub PR Mention"],
   ["jira_assignee", "Jira Assignee"],
   ["jira_mention", "Jira Mention"],
+  ["jira_status", "Jira Status Change"],
   ["timer", "Timer"],
 ];
 
@@ -14456,6 +14457,7 @@ function delegationInputLabel(source) {
   if (normalized === "github_pr_mention") return "PR URL + comment";
   if (normalized === "jira_assignee") return "Jira URL";
   if (normalized === "jira_mention") return "Jira URL + comment";
+  if (normalized === "jira_status") return "Jira URL (moved to a status)";
   if (normalized === "timer") return "Cron schedule";
   return "Source payload";
 }
@@ -14657,7 +14659,7 @@ function delegationSourceConditionFieldsHtml(source, scope = {}, conditions = {}
         <label class="portal-form-label"><span class="portal-form-label">Jira instance</span>${delegationJiraInstanceSelectHtml(scope, preview)}</label>
         <label class="portal-form-label"><span class="portal-form-label">Project key</span><input class="portal-form-input" name="condition_project_key" value="${escapeHtmlAttr(conditions.project_key || "")}" placeholder="EFP" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Issue type</span><input class="portal-form-input" name="condition_issue_type" value="${escapeHtmlAttr(conditions.issue_type || "")}" placeholder="Bug" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Include statuses</span><input class="portal-form-input" name="condition_status_include" value="${escapeHtmlAttr(delegationCsv(conditions.status_include))}" placeholder="To Do, In Progress" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${source === "jira_status" ? "Starts when an issue moves to" : "Include statuses"}</span><input class="portal-form-input" name="condition_status_include" value="${escapeHtmlAttr(delegationCsv(conditions.status_include))}" placeholder="${source === "jira_status" ? "Ready for Test" : "To Do, In Progress"}" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Exclude statuses</span><input class="portal-form-input" name="condition_status_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.status_exclude))}" placeholder="Done" /></label>
       </div>
       <details class="portal-collapsible portal-delegation-advanced">

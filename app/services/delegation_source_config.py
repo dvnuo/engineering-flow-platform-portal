@@ -12,13 +12,14 @@ from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 
 
 GITHUB_DELEGATION_SOURCES = {"github_pr_review", "github_pr_mention"}
-JIRA_DELEGATION_SOURCES = {"jira_assignee", "jira_mention"}
+JIRA_DELEGATION_SOURCES = {"jira_assignee", "jira_mention", "jira_status"}
 TIMER_DELEGATION_SOURCES = {"timer"}
 DELEGATION_SOURCE_PROVIDER = {
     "github_pr_review": "github",
     "github_pr_mention": "github",
     "jira_assignee": "jira",
     "jira_mention": "jira",
+    "jira_status": "jira",
     "timer": "timer",
 }
 
