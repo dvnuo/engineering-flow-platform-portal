@@ -5795,7 +5795,9 @@ function renderMarkdown(scope = document, { highlight = true } = {}) {
     if (!highlight) return;
     el.querySelectorAll("pre code").forEach((code) => {
       if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
-      if (isMermaidCodeElement(code) || isEfpCardCodeElement(code)) return;
+      if (isMermaidCodeElement(code)) return;
+      // A card body left as code (not valid JSON yet) is not a language.
+      if (isEfpCardCodeElement(code)) return;
       hljs.highlightElement(code);
       code.dataset.highlighted = "1";
     });
