@@ -274,8 +274,10 @@ def test_efp_cards_paths_and_decision_text_in_node():
           scenario: "buy-currency", example: "JPY", status: "failed", platform: "android", device: "Pixel 8",
           video: "video.mp4", screenshots: [{ label: "confirm", file: "01-confirm.png" }], failure_screenshot: "screenshot.png",
           session_url: "javascript:alert(1)", error: { code: "assertion_failed", message: "total <b>wrong</b>" }, fallback_hits: [{}],
+          script: "../../../../scripts/FX-12/android/buy-currency_JPY.yaml",
         }, "mobile/runs/t1/cases/buy-currency_JPY");
         assert.equal(ev.video, "mobile/runs/t1/cases/buy-currency_JPY/video.mp4");
+        assert.equal(ev.script, "mobile/scripts/FX-12/android/buy-currency_JPY.yaml");
         assert.equal(ev.screenshots[0].path, "mobile/runs/t1/cases/buy-currency_JPY/screenshot.png");
         assert.equal(ev.sessionUrl, "");
         const html = C.evidenceCardHtml(ev, "agent-1");
@@ -284,11 +286,13 @@ def test_efp_cards_paths_and_decision_text_in_node():
         assert.ok(!html.includes("javascript:"), "non-http links are dropped");
         assert.ok(html.includes('<video class="efp-evidence-video"'));
         assert.ok(html.includes("drifted"));
+        assert.ok(html.includes(">Script</a>") && html.includes("path=mobile%2Fscripts%2FFX-12%2Fandroid%2Fbuy-currency_JPY.yaml"));
 
         const summary = C.matrixSummary([{ status: "passed" }, { status: "failed" }, { status: "running" }, { status: "queued" }]);
         assert.deepEqual(summary, { total: 4, passed: 1, failed: 1, running: 1, queued: 1 });
-        const matrix = C.matrixHtml({ suite: "fx-buy", rows: [{ id: "a#USD", case: "a", example: "USD", status: "passed", evidence: "cases/a_USD/evidence.json", classification: "drift" }] }, { agentId: "agent-1" }, "mobile/runs/t1");
+        const matrix = C.matrixHtml({ suite: "fx-buy", rows: [{ id: "a#USD", case: "a", example: "USD", status: "passed", evidence: "cases/a_USD/evidence.json", classification: "drift", script: "../../scripts/FX-12/android/a_USD.yaml" }] }, { agentId: "agent-1" }, "mobile/runs/t1");
         assert.ok(matrix.includes('data-efp-evidence-toggle="mobile/runs/t1/cases/a_USD/evidence.json"'));
+        assert.ok(matrix.includes("path=mobile%2Fscripts%2FFX-12%2Fandroid%2Fa_USD.yaml"));
         assert.ok(matrix.includes("Script drift"));
 
         const review = C.reviewHtml({ title: "FX <1>", items: [{ id: "S1", title: "Buy", type: "negative", warnings: ["no expected fee"] }, { id: "S2", selected: false }] }, {});

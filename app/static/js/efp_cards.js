@@ -206,6 +206,7 @@
       durationMs: ev.duration_ms,
       sessionUrl: safeHttpUrl(ev.session_url),
       video: ev.video ? resolve(ev.video) : "",
+      script: ev.script ? resolve(ev.script) : "",
       screenshots,
       error: errorText(ev.error),
       classification: ev.classification || "",
@@ -231,6 +232,7 @@
       : "";
     const actions = [
       ev.sessionUrl ? `<a class="portal-link-inline" href="${esc(ev.sessionUrl)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "",
+      ev.script && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, ev.script))}" target="_blank" rel="noopener" title="${esc(ev.script)}">Script</a>` : "",
       ev.source && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, ev.source))}" target="_blank" rel="noopener">evidence.json</a>` : "",
       linksHtml(ev.links),
     ].filter(Boolean).join(" ");
@@ -317,11 +319,13 @@
     const body = rows.map((row, index) => {
       const evidencePath = row.evidence ? resolvePath(baseDir, row.evidence) : "";
       const videoPath = row.video ? resolvePath(baseDir, row.video) : "";
+      const scriptPath = row.script ? resolvePath(baseDir, row.script) : "";
       const session = safeHttpUrl(row.session_url);
       const actions = [
         evidencePath ? `<button type="button" class="composer-pill-btn" data-efp-evidence-toggle="${esc(evidencePath)}" data-row="${index}">Evidence</button>` : "",
         videoPath && ctx.agentId ? `<a class="portal-link-inline" href="${esc(streamUrl(ctx.agentId, videoPath))}" target="_blank" rel="noopener">Video</a>` : "",
         session ? `<a class="portal-link-inline" href="${esc(session)}" target="_blank" rel="noopener noreferrer">Session</a>` : "",
+        scriptPath && ctx.agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(ctx.agentId, scriptPath))}" target="_blank" rel="noopener" title="${esc(scriptPath)}">Script</a>` : "",
         linksHtml(row.links),
       ].filter(Boolean).join(" ");
       const note = [row.error, row.note].filter(Boolean).map((text) => `<div class="efp-matrix-note">${esc(text)}</div>`).join("");
