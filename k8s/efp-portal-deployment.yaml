@@ -107,6 +107,14 @@ spec:
               value: ""
             - name: SSO_PROXY_URL
               value: ""
+            # Egress for Portal's own BrowserStack calls (app package uploads,
+            # the hosted Appium Inspector's WebDriver proxy); same modes.
+            - name: BROWSERSTACK_PROXY_URL
+              value: ""
+            # Largest app build (apk, aab, ipa) a member can upload; keep the
+            # app-packages ingress body size above it.
+            - name: EFP_MAX_APP_PACKAGE_MB
+              value: "500"
             - name: K8S_KUBECONFIG
               value: ""
             - name: K8S_GIT_TOKEN_KEY

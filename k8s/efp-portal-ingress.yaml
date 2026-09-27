@@ -30,3 +30,33 @@ spec:
                 name: efp-portal-service
                 port:
                   number: 80
+---
+# App packages: mobile builds (apk, aab, ipa) members upload to BrowserStack
+# through Portal, up to EFP_MAX_APP_PACKAGE_MB (500 by default). A separate
+# Ingress so only this path takes large bodies; request buffering is off so
+# the upload streams through Portal (which spools it to disk) instead of
+# nginx first writing it out.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: efp-portal-app-packages-ingress
+  namespace: default
+  labels:
+    app: efp-portal-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "520m"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api/app-packages
+            pathType: Prefix
+            backend:
+              service:
+                name: efp-portal-service
+                port:
+                  number: 80

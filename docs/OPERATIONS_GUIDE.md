@@ -552,10 +552,15 @@ Private business repositories used during an assistant task are checked out by t
 | `AGENTS_VOLUME_SUB_PATH_PREFIX` | `efp-agents` | Prefix for assistant paths on the shared volume |
 | `EFP_MAX_UPLOAD_MB` | `25` | Portal attachment/workspace upload ceiling |
 | `EFP_CHAT_UPLOAD_EXTENSIONS` | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml` | Chat attachment extension allowlist; separate from workspace file uploads |
+| `EFP_MAX_APP_PACKAGE_MB` | `500` | Largest mobile app build a member can upload to BrowserStack through Connectors > BrowserStack > App packages |
+| `EFP_APPIUM_INSPECTOR_DIR` | `/opt/appium-inspector` in the image | The Appium Inspector web build Portal serves at `/inspector/`; empty or missing turns the hosted Inspector off |
+| `BROWSERSTACK_PROXY_URL` | empty | Egress for Portal's own BrowserStack calls (app package uploads, the Inspector's WebDriver proxy); same modes as `GITHUB_PROXY_URL` |
 
 An empty CPU or memory request leaves that request unset. Set requests at or below their limits. Resource requests influence scheduling; they do not themselves reserve a separate machine for each assistant.
 
 The code uses the shared claim `efp-agents-efs-pvc`; if it already exists, assistant creation does not resize it to a new assistant's disk setting. Defaults also do not automatically mutate every existing assistant or resize an existing claim. New assistants use `/workspace`; the presence of `DEFAULT_AGENT_MOUNT_PATH` in the settings class does not make it an effective creation override in this revision. Workspace files survive assistant runtime deletion on the shared volume, but deletion removes the Portal assistant and related runtime objects; retained files are not a complete recoverable assistant record. Prefer Stop for a temporary pause.
+
+App package uploads are separate from the upload ceiling above: Portal spools the file to a temporary file (bounded by `EFP_MAX_APP_PACKAGE_MB`, so it needs that much free disk) and streams it to BrowserStack, and the supplied `k8s/efp-portal-ingress.yaml` routes `/api/app-packages` through its own Ingress with a 520 MB body limit and request buffering off. Portal must reach `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443 for app packages and the hosted Inspector; assistant pods need the same for `mobile-auto`. The image bundles the Appium Inspector web build at build time (`APPIUM_INSPECTOR_VERSION`, `NPM_REGISTRY` build arguments); a build without registry access leaves it out and members record with the desktop Inspector.
 
 Increasing the upload ceiling requires matching the Portal setting, the runtime's effective limit, and every ingress/proxy limit. The lowest enforced limit wins. Portal now injects `EFP_MAX_UPLOAD_MB` and the normalized `EFP_CHAT_UPLOAD_EXTENSIONS` into assistant pod environments. After changing deployment configuration, restart Portal and recreate or roll out affected runtime pods through the supported lifecycle controls; refresh browser pages and verify the effective pod values and runtime support. Existing pod environments do not update automatically.
 
