@@ -1,6 +1,7 @@
 import json
 import logging
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.runtime_profile import RuntimeProfile
@@ -171,13 +172,21 @@ class RuntimeProfileService:
         profile = self.repo.get_for_owner(user.id)
         if profile:
             return profile
-        return self.repo.create(
-            owner_user_id=user.id,
-            name=DEFAULT_PROFILE_NAME,
-            description=DEFAULT_PROFILE_DESCRIPTION,
-            config_json=self._seeded_default_config_json(),
-            is_default=True,
-        )
+        try:
+            return self.repo.create(
+                owner_user_id=user.id,
+                name=DEFAULT_PROFILE_NAME,
+                description=DEFAULT_PROFILE_DESCRIPTION,
+                config_json=self._seeded_default_config_json(),
+                is_default=True,
+            )
+        except IntegrityError:
+            # Another request created it first (uq_runtime_profiles_owner).
+            self.db.rollback()
+            profile = self.repo.get_for_owner(user.id)
+            if profile is None:
+                raise
+            return profile
 
     # Older call sites say "default profile"; there is only one now.
     ensure_user_has_default_profile = get_or_create_for_user

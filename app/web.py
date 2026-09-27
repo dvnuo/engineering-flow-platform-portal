@@ -1018,6 +1018,13 @@ def _apply_connector_save(db, runtime_profile) -> tuple[str, str]:
     restarted = len(result.get("restarted_agent_ids") or [])
     pending = len(result.get("pending_agent_ids") or [])
     failed = len(result.get("failed_agent_ids") or [])
+    if (
+        not runtime_profile_secret_service.k8s_service.enabled
+        and result.get("running_agent_count")
+        and not (restarted or pending or failed)
+    ):
+        # Nothing restarts without Kubernetes; the panel's notice lists them.
+        return ("success", "Saved. Restart your running assistants to use it.")
     parts = ["Saved."]
     if restarted:
         parts.append(f"Restarting {restarted} idle assistant{'' if restarted == 1 else 's'} to apply it.")

@@ -608,12 +608,17 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         "memory",
     }
     if any(field in changes for field in k8s_reprovision_fields):
+        # The re-rendered pod template references the owner's settings Secret,
+        # which may never have been written for a row created at startup.
+        applied_revision = _ensure_agent_profile_secrets(db, agent)
         runtime = k8s_service.update_agent_runtime(agent)
         if runtime.status == "failed":
             agent.last_error = runtime.message
             repo.save(agent)
         else:
             agent.last_error = None
+            if (agent.status or "").lower() == "running":
+                agent.profile_revision_applied = applied_revision
             repo.save(agent)
 
     AuditRepository(db).create(
@@ -765,7 +770,12 @@ def delete_agent_runtime(agent_id: str, user=Depends(get_current_user), db: Sess
 
 
 async def _fetch_applied_profile_revision(agent) -> int | None:
-    """Best-effort read of the revision the runtime actually booted with."""
+    """Best-effort read of the revision the runtime actually booted with.
+
+    Revisions only compare within one settings row: a pod that booted from
+    another row (an assistant the single-settings migration moved) reports 0,
+    so it still reads as "restart to apply".
+    """
     try:
         status_code, content, _ = await asyncio.wait_for(
             proxy_service.forward(
@@ -781,6 +791,9 @@ async def _fetch_applied_profile_revision(agent) -> int | None:
         if status_code != 200:
             return None
         data = json.loads(content.decode("utf-8"))
+        booted_profile_id = data.get("runtime_profile_id")
+        if booted_profile_id and str(booted_profile_id) != str(getattr(agent, "runtime_profile_id", "") or ""):
+            return 0
         revision = data.get("revision")
         return int(revision) if revision is not None else None
     except Exception:

@@ -447,3 +447,102 @@ def test_single_status_reports_settings_restart_pending(monkeypatch):
             assert response.json()["settings_restart_pending"] is pending, agent_id
     finally:
         cleanup()
+
+
+# ------------------------------------------------------------ review fixes
+
+
+def _ready_forward(payload):
+    async def forward(**_kwargs):
+        return 200, json.dumps(payload).encode("utf-8"), {}
+
+    return forward
+
+
+@pytest.mark.parametrize(
+    "ready_payload, expected",
+    [
+        ({"ready": True, "runtime_profile_id": "p-current", "revision": 7}, 7),
+        # Booted from another row (moved by the migration): revisions do not
+        # compare across rows, so it reads as not applied yet.
+        ({"ready": True, "runtime_profile_id": "p-archived", "revision": 9}, 0),
+        # Older runtimes that do not report the id keep the old behaviour.
+        ({"ready": True, "revision": 4}, 4),
+    ],
+)
+def test_ready_revision_only_counts_for_the_current_settings_row(monkeypatch, ready_payload, expected):
+    import asyncio
+
+    import app.api.agents as agents_api
+
+    monkeypatch.setattr(agents_api.proxy_service, "forward", _ready_forward(ready_payload))
+    agent = SimpleNamespace(id="a", runtime_profile_id="p-current")
+
+    assert asyncio.run(agents_api._fetch_applied_profile_revision(agent)) == expected
+
+
+def test_copilot_sign_in_bumps_the_revision_so_busy_assistants_are_flagged():
+    from app.services.agent_busy import profile_restart_pending
+    from app.services.external_login_service import sync_copilot_token_to_default_profile
+
+    db = _session()
+    user = _user(db, "copilot")
+    profile = RuntimeProfileService(db).get_or_create_for_user(user)
+    busy = _agent(db, "busy", user.id, runtime_profile_id=profile.id, profile_revision_applied=profile.revision)
+    before = profile.revision
+
+    profile, changed = sync_copilot_token_to_default_profile(db, user, "ghu_new_token")
+
+    assert changed is True
+    assert profile.revision == before + 1
+    assert json.loads(profile.config_json)["llm"]["api_key"] == "ghu_new_token"
+    assert profile_restart_pending(busy, profile.revision) is True
+
+    # The same token again is not a change.
+    profile, changed = sync_copilot_token_to_default_profile(db, user, "ghu_new_token")
+    assert changed is False
+    assert profile.revision == before + 1
+    db.close()
+
+
+def test_get_or_create_rereads_when_another_request_created_the_row(monkeypatch):
+    db = _session()
+    user = _user(db, "racer")
+    service = RuntimeProfileService(db)
+    winner = RuntimeProfile(owner_user_id=user.id, name="Default", config_json="{}", revision=1, is_default=True)
+    db.add(winner)
+    db.commit()
+
+    calls = {"n": 0}
+    real_get = service.repo.get_for_owner
+
+    def first_miss(owner_user_id):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else real_get(owner_user_id)
+
+    monkeypatch.setattr(service.repo, "get_for_owner", first_miss)
+
+    assert service.get_or_create_for_user(user).id == winner.id
+    db.close()
+
+
+def test_saving_without_kubernetes_asks_for_a_restart_of_running_assistants(monkeypatch):
+    from app import web
+
+    monkeypatch.setattr(
+        web.runtime_profile_secret_service,
+        "apply_profile_save",
+        lambda _db, _profile: {
+            "bound_agent_count": 2,
+            "running_agent_count": 1,
+            "restarted_agent_ids": [],
+            "pending_agent_ids": [],
+            "failed_agent_ids": [],
+        },
+    )
+    monkeypatch.setattr(web.runtime_profile_secret_service.k8s_service, "enabled", False)
+
+    status_type, message = web._apply_connector_save(None, SimpleNamespace(id="p"))
+
+    assert status_type == "success"
+    assert message == "Saved. Restart your running assistants to use it."
