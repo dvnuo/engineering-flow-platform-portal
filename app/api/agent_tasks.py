@@ -18,7 +18,8 @@ from app.schemas.agent_task import (
     CreateAgentTaskFollowupRequest,
 )
 from app.repositories.audit_repo import AuditRepository
-from app.services.efp_cards import REVIEW_DECISIONS, review_decision_text
+from app.models.agent_task import AgentTask
+from app.services.efp_cards import MOBILE_RUN_SKILLS, REVIEW_DECISIONS, review_decision_text, scenario_progress
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.inference_settings_service import normalize_agent_inference_overrides
 from app.services.agent_execution_registry import (
@@ -497,7 +498,24 @@ def list_my_tasks(
         owner=owner,
         query=q,
     )
-    return [_task_list_item_response(task, user) for task in tasks]
+    items = [_task_list_item_response(task, user) for task in tasks]
+    _attach_scenario_progress(db, items)
+    return items
+
+
+def _attach_scenario_progress(db: Session, items: list[AgentTaskListItemResponse]) -> None:
+    """Pass/fail counts for the scenario-run tasks of a list page.
+
+    The list query leaves result payloads out on purpose; only the few
+    scenario-run tasks on the page have theirs read, in one query.
+    """
+    ids = [item.id for item in items if _normalize_skill_name(item.skill_name) in MOBILE_RUN_SKILLS]
+    if not ids:
+        return
+    payloads = dict(db.query(AgentTask.id, AgentTask.result_payload_json).filter(AgentTask.id.in_(ids)).all())
+    for item in items:
+        if item.id in payloads:
+            item.scenario_progress = scenario_progress(payloads[item.id])
 
 
 @router.get("/api/agent-tasks/{task_id}", response_model=AgentTaskResponse)

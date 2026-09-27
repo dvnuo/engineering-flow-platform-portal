@@ -339,6 +339,28 @@ def test_scripts_are_loaded_in_order():
     assert "js/mobile_testing.js" in html
 
 
+def test_task_list_api_adds_scenario_progress_to_run_tasks(monkeypatch):
+    client, db, agent, cleanup = _async_client()
+    try:
+        agent_id = agent.id
+        owner_id = agent.owner_user_id
+        payload = json.dumps({"output_payload": {"final_response": 'Done.\n\n```efp-matrix\n{"path": "mobile/runs/t/matrix.json", "summary": {"total": 4, "passed": 3, "failed": 1, "running": 0, "queued": 0}}\n```'}})
+        db.add(AgentTask(id="task-run-progress", assignee_agent_id=agent_id, source="portal", task_type="agent_async_task", skill_name="/run-mobile-scenarios", status="done", owner_user_id=owner_id, created_by_user_id=owner_id, result_payload_json=payload))
+        db.add(AgentTask(id="task-other", assignee_agent_id=agent_id, source="portal", task_type="agent_async_task", skill_name="write-product-requirements", status="done", owner_user_id=owner_id, created_by_user_id=owner_id, result_payload_json=payload))
+        db.commit()
+        rows = {row["id"]: row for row in client.get("/api/my/tasks").json()}
+        assert rows["task-run-progress"]["scenario_progress"] == {"total": 4, "passed": 3, "failed": 1, "running": 0, "queued": 0}
+        assert rows["task-other"]["scenario_progress"] is None
+    finally:
+        cleanup()
+
+
+def test_task_nav_rows_render_scenario_progress():
+    source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert "${taskNavScenarioProgressHtml(task.scenario_progress)}" in source
+    assert "function taskNavScenarioProgressHtml(progress)" in source
+
+
 def test_scenario_progress_for_task_cards(monkeypatch):
     from app.services.efp_cards import scenario_progress
 

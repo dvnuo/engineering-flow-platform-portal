@@ -89,9 +89,11 @@
 
   function packageRowHtml(pkg) {
     const platform = pkg.platform === "ios" ? "iOS" : "Android";
+    const days = Number(pkg.days_left);
+    const left = !Number.isFinite(days) ? "" : days < 1 ? "Expires today" : days === 1 ? "1 day left" : `${days} days left`;
     const expiry = pkg.expired
       ? `<span class="portal-status-badge is-error">Expired</span>`
-      : `<span class="portal-status-badge ${pkg.expiring_soon ? "is-warning" : "is-neutral"}" title="BrowserStack deletes uploads after 30 days">${esc(pkg.days_left)} days left</span>`;
+      : (left ? `<span class="portal-status-badge ${pkg.expiring_soon ? "is-warning" : "is-neutral"}" title="BrowserStack deletes uploads after 30 days">${esc(left)}</span>` : "");
     const meta = [platform, formatSize(pkg.size_bytes), formatDate(pkg.uploaded_at)].filter(Boolean).join(" · ");
     return `
       <div class="portal-app-package-row" data-app-package-id="${esc(pkg.id)}">
@@ -383,6 +385,44 @@
       event.preventDefault();
       removeRow(remove);
     }
+  });
+
+  const NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+  // The server refuses the same rows, but a refused save re-renders the
+  // panel from what is stored and the typed values are gone; checking here
+  // keeps them on the page.
+  function rowsProblem(box) {
+    const seen = new Set();
+    for (const row of box.querySelectorAll("[data-test-secret-row]")) {
+      const nameInput = row.querySelector('[data-test-secret-field="name"]');
+      const valueInput = row.querySelector('[data-test-secret-field="secret"]');
+      const name = (nameInput?.value || "").trim();
+      const value = valueInput?.value || "";
+      if (!name && !value.trim()) continue;
+      if (!name) return { input: nameInput, message: "Give every test secret a name, for example MOBILE_SECRET_PASSWORD." };
+      if (!NAME_PATTERN.test(name)) return { input: nameInput, message: `Test secret names use capital letters, digits and underscores and start with a letter: ${name}` };
+      if (!value.trim()) return { input: valueInput, message: `Enter a value for the test secret ${name}.` };
+      if (seen.has(name)) return { input: nameInput, message: `The test secret ${name} is listed twice.` };
+      seen.add(name);
+    }
+    return null;
+  }
+
+  document.addEventListener("htmx:beforeRequest", (event) => {
+    const form = event.detail && event.detail.elt;
+    const box = form && form.querySelector ? form.querySelector("[data-test-secrets]") : null;
+    if (!box) return;
+    const status = box.querySelector("[data-test-secret-status]");
+    const problem = rowsProblem(box);
+    if (status) {
+      status.textContent = problem ? problem.message : "";
+      status.classList.toggle("is-error", Boolean(problem));
+    }
+    if (!problem) return;
+    event.preventDefault();
+    box.open = true;
+    if (problem.input) problem.input.focus();
   });
 
   // Names are environment variable names; typing them in capitals saves a
@@ -712,10 +752,26 @@
       view.sessionKey = "";
       if (body.inspector_url && tab) {
         tab.location.href = body.inspector_url;
-      } else if (tab) {
-        tab.close();
+        setStatus("Inspector opened. Tap and type there, then press Segment done.", "success");
+      } else {
+        if (tab) tab.close();
+        if (body.inspector_url) {
+          // The browser blocked the new tab: offer the link instead.
+          setStatus("Your browser blocked the new tab. Open the Inspector from this link, then press Segment done when the segment is recorded.", "warning");
+          const el = panelRoot()?.querySelector("[data-recording-status]");
+          if (el) {
+            const link = document.createElement("a");
+            link.href = body.inspector_url;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.className = "portal-link-inline";
+            link.textContent = " Open Appium Inspector";
+            el.appendChild(link);
+          }
+        } else {
+          setStatus("Recording is ready. Attach the desktop Appium Inspector with the session id above, then press Segment done.", "success");
+        }
       }
-      setStatus("Inspector opened. Tap and type there, then press Segment done.", "success");
       renderSession();
     } catch (error) {
       if (tab) tab.close();

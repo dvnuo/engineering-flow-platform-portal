@@ -11088,6 +11088,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
         <span>Owner ${safe(ownerLabel)}</span>
         ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
       </div>
+      ${taskNavScenarioProgressHtml(task.scenario_progress)}
     `;
     row.addEventListener("click", async () => {
       await openTaskDetailInMain(task.id);
@@ -11101,6 +11102,23 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
     dom.taskNavList.append(sentinel);
   }
   if (preserveScroll) dom.taskNavList.scrollTop = previousScrollTop;
+}
+
+// Pass/fail bar of a finished mobile scenario run (the list API adds the
+// counts from the run's matrix card).
+function taskNavScenarioProgressHtml(progress) {
+  const total = Number(progress?.total || 0);
+  if (!total) return "";
+  const passed = Number(progress.passed || 0);
+  const failed = Number(progress.failed || 0);
+  const pending = Number(progress.running || 0) + Number(progress.queued || 0);
+  const pct = (n) => Math.max(0, Math.min(100, (n / total) * 100)).toFixed(1);
+  const label = `${passed}/${total} scenarios passed${failed ? `, ${failed} failed` : ""}`;
+  return `
+      <div class="portal-task-progress" title="Scenario runs">
+        <div class="efp-matrix-bar" aria-hidden="true"><i class="is-success" style="width: ${pct(passed)}%"></i><i class="is-error" style="width: ${pct(failed)}%"></i><i class="is-warning" style="width: ${pct(pending)}%"></i></div>
+        <span>${safe(label)}</span>
+      </div>`;
 }
 
 function formatTaskNavTime(value) {

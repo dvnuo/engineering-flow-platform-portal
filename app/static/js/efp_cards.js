@@ -404,7 +404,7 @@
       return `
         <li class="efp-review-item">
           <label class="efp-review-check">
-            <input type="checkbox" data-efp-review-item="${esc(id)}" ${item.selected === false ? "" : "checked"} />
+            <input type="checkbox" aria-label="${esc(`${id} ${item.title || ""}`.trim())}" data-efp-review-item="${esc(id)}" ${item.selected === false ? "" : "checked"} />
             <span><strong>${esc(id)}</strong> ${esc(item.title || "")}</span>
           </label>
           <div class="efp-review-tags">${typeBadge} ${examples}</div>

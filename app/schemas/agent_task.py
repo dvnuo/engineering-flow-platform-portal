@@ -99,5 +99,7 @@ class AgentTaskListItemResponse(BaseModel):
     owner_display_name: Optional[str] = None
     can_manage: bool = False
     assignee_agent_name: Optional[str] = None
+    # Pass/fail counts of a finished mobile scenario run, for the task list.
+    scenario_progress: Optional[dict[str, int]] = None
     created_at: datetime
     updated_at: datetime

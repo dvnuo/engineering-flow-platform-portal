@@ -114,6 +114,13 @@ def test_browserstack_connection_test_reports_parallel_headroom(monkeypatch):
     ok, message = asyncio.run(service.run_test("browserstack", {"mobile-auto": {"enabled": True}}))
     assert not ok and "username and access key" in message
 
+    async def refused(method, url, headers, timeout, json_payload=None):
+        return False, "HTTP 401: HTTP Basic: Access denied.", None
+
+    monkeypatch.setattr(service, "_http_request", refused)
+    ok, message = asyncio.run(service.run_test("browserstack", config))
+    assert not ok and message.startswith("BrowserStack refused this username and access key") and "HTTP 401" in message
+
 
 def test_browserstack_panel_renders_test_advanced_and_app_packages(monkeypatch):
     env = _build_env(monkeypatch)

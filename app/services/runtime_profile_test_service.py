@@ -95,6 +95,11 @@ class RuntimeProfileTestService:
             timeout=15.0,
         )
         if not ok:
+            if message.startswith(("HTTP 401", "HTTP 403")):
+                return False, (
+                    "BrowserStack refused this username and access key. Copy both again from your "
+                    f"BrowserStack account settings. ({message})"
+                )
             return False, message
         plan = data if isinstance(data, dict) else {}
         allowed = plan.get("team_parallel_sessions_max_allowed") or plan.get("parallel_sessions_max_allowed")
