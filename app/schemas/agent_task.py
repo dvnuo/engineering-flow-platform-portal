@@ -40,6 +40,15 @@ class CreateAgentTaskFollowupRequest(BaseModel):
     max_context_tokens: Optional[int] = None
 
 
+class AgentTaskReviewRequest(BaseModel):
+    decision: str
+    kind: Optional[str] = None
+    title: Optional[str] = None
+    approved: list[str] = []
+    declined: list[str] = []
+    notes: Optional[str] = None
+
+
 class AgentTaskResponse(BaseModel):
     id: str
     assignee_agent_id: str

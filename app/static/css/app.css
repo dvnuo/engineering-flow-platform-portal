@@ -6465,3 +6465,57 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
   justify-content: space-between;
   gap: 12px;
 }
+
+/* ===== Mobile scenario testing =====
+   App packages (Connectors > BrowserStack), result cards (efp_cards.js) in
+   chat and on the task page, media previews under file cards, and the
+   Recording panel. */
+.portal-progress { height: 6px; border-radius: 999px; background: var(--portal-surface-soft); overflow: hidden; }
+.portal-progress > i { display: block; height: 100%; width: 0; background: var(--portal-accent); transition: width .2s ease; }
+.portal-app-package-upload { display: flex; flex-direction: column; gap: 10px; }
+.portal-app-package-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.portal-app-package-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); }
+.portal-app-package-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.portal-app-package-main strong { color: var(--portal-text); font-size: 13px; overflow-wrap: anywhere; }
+.portal-app-package-ids { display: flex; flex-wrap: wrap; gap: 6px; }
+.portal-app-package-ids code { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--portal-surface); border: 1px solid var(--portal-border); overflow-wrap: anywhere; }
+.portal-app-package-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.composer-pill-btn.is-copied { border-color: var(--portal-success); color: var(--portal-success); }
+
+.message-file-preview { display: block; margin-top: 8px; max-width: 360px; }
+.message-file-preview img { display: block; max-width: 100%; max-height: 420px; border-radius: 10px; border: 1px solid var(--portal-border); }
+.message-file-video { display: block; margin-top: 8px; width: 100%; max-width: 480px; max-height: 70vh; border-radius: 10px; background: #000; }
+
+.efp-card-host { margin: 10px 0; }
+.efp-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--portal-radius-sm); border: 1px solid var(--portal-border); background: var(--portal-surface); }
+.efp-card.is-success { border-left: 4px solid var(--portal-success); }
+.efp-card.is-error { border-left: 4px solid var(--portal-danger); }
+.efp-card.is-warning { border-left: 4px solid var(--portal-warning); }
+.efp-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.efp-card-title { color: var(--portal-text); font-size: 14px; overflow-wrap: anywhere; }
+.efp-card-meta { color: var(--portal-text-muted); font-size: 12px; margin: 0; }
+.efp-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.efp-evidence-list { display: flex; flex-direction: column; gap: 10px; }
+.efp-evidence-error, .efp-review-detail { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--portal-surface-soft); color: var(--portal-text-secondary); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.efp-evidence-video { width: 100%; max-width: 420px; max-height: 70vh; border-radius: 10px; background: #000; }
+.efp-evidence-shots { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.efp-evidence-shot { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; width: 120px; text-decoration: none; color: var(--portal-text-muted); font-size: 11px; }
+.efp-evidence-shot img { width: 120px; height: 220px; object-fit: cover; object-position: top; border-radius: 8px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); }
+.efp-matrix-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--portal-surface-soft); }
+.efp-matrix-bar > i { display: block; height: 100%; }
+.efp-matrix-bar > i.is-success { background: var(--portal-success); }
+.efp-matrix-bar > i.is-error { background: var(--portal-danger); }
+.efp-matrix-bar > i.is-warning { background: var(--portal-warning); }
+.efp-matrix-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.efp-matrix-table th, .efp-matrix-table td { padding: 6px 8px; border-bottom: 1px solid var(--portal-border); text-align: left; vertical-align: top; }
+.efp-matrix-table th { color: var(--portal-text-muted); font-weight: 600; }
+.efp-matrix-actions { white-space: nowrap; }
+.efp-matrix-note { color: var(--portal-text-muted); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
+.efp-matrix-evidence-row > td { background: var(--portal-surface-soft); }
+.efp-review-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.efp-review-item { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); }
+.efp-review-check { display: flex; align-items: flex-start; gap: 8px; color: var(--portal-text); font-size: 13px; }
+.efp-review-check input { margin-top: 3px; }
+.efp-review-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0 24px; }
+.efp-review-warnings { margin: 4px 0 0 24px; padding-left: 16px; color: var(--portal-warning); font-size: 12px; }
+.portal-task-results { display: flex; flex-direction: column; gap: 4px; }

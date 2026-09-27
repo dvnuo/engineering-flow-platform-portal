@@ -5,6 +5,10 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlparse
+
+from app.services.efp_cards import MOBILE_RUN_SKILLS as EFP_MOBILE_RUN_SKILLS
+from app.services.efp_cards import extract_cards as extract_efp_cards
+from app.services.efp_cards import live_matrix_path as efp_live_matrix_path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -667,6 +671,8 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         original_task = _extract_text_field(input_obj, ("original_task", "user_task"))
     skill_name = (getattr(task, "skill_name", None) or input_obj.get("skill_name") or "").strip().lstrip("/")
     final_response = _extract_text_field(result_obj, ("final_response", "response", "summary", "raw_text", "message"))
+    # Review/evidence/matrix cards leave the response text and show as cards.
+    final_response, result_cards = extract_efp_cards(final_response)
     blockers = _normalize_blockers(result_obj.get("blockers"))
     next_recommendation = _extract_text_field(result_obj, ("next_recommendation", "recommendation", "next_step"))
     status_label = getattr(task, "status", None) or "unknown"
@@ -717,6 +723,14 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         "task_content_label": task_content_label,
         "original_task": original_task,
         "final_response": final_response,
+        "result_cards": result_cards,
+        # A mobile run keeps its scenario matrix at a task-scoped path, so the
+        # page can show progress before the final response exists.
+        "live_matrix_path": (
+            efp_live_matrix_path(getattr(task, "id", ""))
+            if skill_name in EFP_MOBILE_RUN_SKILLS and not any(card["kind"] == "matrix" for card in result_cards)
+            else ""
+        ),
         "blockers": blockers,
         "next_recommendation": next_recommendation,
         "execution_context_items": execution_context_items,

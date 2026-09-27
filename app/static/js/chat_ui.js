@@ -990,6 +990,11 @@ const md = window.markdownit({
       // diagram component and renderMermaidDiagrams draws it from textContent.
       return `<pre><code class="language-mermaid">${md.utils.escapeHtml(str)}</code></pre>`;
     }
+    if (isEfpCardFenceLanguage(language)) {
+      // Review/evidence/matrix JSON stays escaped text; enhanceMarkdownBlock
+      // swaps the block for its card (static/js/efp_cards.js).
+      return `<pre><code class="language-${language}">${md.utils.escapeHtml(str)}</code></pre>`;
+    }
     if (language && hljs.getLanguage(language)) {
       const highlighted = hljs.highlight(str, { language }).value;
       return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
@@ -4675,6 +4680,7 @@ function renderFileBlock(block) {
     : "";
   const metaHtml = meta ? ` · ${escapeHtml(meta)}` : "";
   const descriptionHtml = description ? `<div class="message-file-description">${escapeHtml(description)}</div>` : "";
+  const previewHtml = fileBlockPreviewHtml(currentWorkspaceAgentId(), path, name);
   const directoryAttr = escapeHtmlAttr(workspaceFileDirectory(path));
   return `
     <section class="message-block message-block-file">
@@ -4690,8 +4696,29 @@ function renderFileBlock(block) {
           <button type="button" class="portal-btn is-secondary message-file-open" data-server-path="${directoryAttr}" title="Open in Server Files">Open folder</button>
         </div>
       </div>
+      ${previewHtml}
     </section>
   `;
+}
+
+// An image or a video an assistant wrote (a test run's screenshots and session
+// video) shows under its card instead of only offering a download. Videos
+// stream through the download route, which forwards Range for seeking.
+function fileBlockPreviewHtml(agentId, path, name) {
+  const imageExtensions = ["png", "jpg", "jpeg", "gif", "webp"];
+  const videoExtensions = ["mp4", "webm", "mov", "m4v"];
+  const ext = String(path || "").split(".").pop().toLowerCase();
+  if (imageExtensions.includes(ext)) {
+    const url = buildWorkspaceFileContentUrl(agentId, path);
+    if (!url) return "";
+    return '<a class="message-file-preview" href="' + escapeHtmlAttr(url) + '" target="_blank" rel="noopener"><img src="' + escapeHtmlAttr(url) + '" alt="' + escapeHtmlAttr(name) + '" loading="lazy" /></a>';
+  }
+  if (videoExtensions.includes(ext)) {
+    const url = buildWorkspaceFileDownloadUrl(agentId, path);
+    if (!url) return "";
+    return '<video class="message-file-video" controls preload="metadata" src="' + escapeHtmlAttr(url) + '"></video>';
+  }
+  return "";
 }
 
 function renderSingleDisplayBlock(block) {
@@ -4843,6 +4870,7 @@ function enhanceMarkdownBlock(root) {
       buildDiagramComponent(code);
       return;
     }
+    if (isEfpCardCodeElement(code) && window.EfpCards && window.EfpCards.buildFromCode(code)) return;
     const pre = code.parentElement;
     if (!pre) return;
     const wrapper = document.createElement("div");
@@ -4925,6 +4953,18 @@ function normalizeFenceLanguage(lang) {
 function isMermaidFenceLanguage(lang) {
   const language = normalizeFenceLanguage(lang);
   return language === "mermaid" || language === "mmd";
+}
+
+// ```efp-review, ```efp-evidence and ```efp-matrix fences carry JSON that
+// efp_cards.js renders as cards (mobile scenario testing results).
+function isEfpCardFenceLanguage(lang) {
+  const language = normalizeFenceLanguage(lang);
+  return language === "efp-review" || language === "efp-evidence" || language === "efp-matrix";
+}
+
+function isEfpCardCodeElement(code) {
+  if (!code || !code.classList) return false;
+  return Array.from(code.classList).some((name) => name.startsWith("language-") && isEfpCardFenceLanguage(name.slice("language-".length)));
 }
 
 function isMermaidCodeElement(code) {
@@ -5755,7 +5795,7 @@ function renderMarkdown(scope = document, { highlight = true } = {}) {
     if (!highlight) return;
     el.querySelectorAll("pre code").forEach((code) => {
       if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
-      if (isMermaidCodeElement(code)) return;
+      if (isMermaidCodeElement(code) || isEfpCardCodeElement(code)) return;
       hljs.highlightElement(code);
       code.dataset.highlighted = "1";
     });

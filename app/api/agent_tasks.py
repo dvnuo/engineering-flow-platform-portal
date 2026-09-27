@@ -13,9 +13,12 @@ from app.schemas.agent_task import (
     AgentTaskCreateRequest,
     AgentTaskListItemResponse,
     AgentTaskResponse,
+    AgentTaskReviewRequest,
     CreateAgentAsyncTaskRequest,
     CreateAgentTaskFollowupRequest,
 )
+from app.repositories.audit_repo import AuditRepository
+from app.services.efp_cards import REVIEW_DECISIONS, review_decision_text
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.inference_settings_service import normalize_agent_inference_overrides
 from app.services.agent_execution_registry import (
@@ -283,7 +286,54 @@ def create_agent_task_followup(
     task_content = (payload.task_content or "").strip()
     if not task_content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_content is required")
+    return _continue_agent_task(db, user, task_id, task_content, payload)
 
+
+@router.post("/api/agent-tasks/{task_id}/review", response_model=AgentTaskResponse)
+def review_agent_task(
+    task_id: str,
+    payload: AgentTaskReviewRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Answer a review card (efp-review) of a finished task.
+
+    The decision goes to the assistant as the task's next follow-up, in the
+    same words a chat answer uses, and into the audit log: who approved which
+    scenarios is worth being able to look up later.
+    """
+    decision = (payload.decision or "").strip().lower()
+    if decision not in REVIEW_DECISIONS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="decision must be approve or changes")
+    notes = (payload.notes or "").strip()
+    if decision == "changes" and not notes and not payload.declined:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Say what to change, or leave out the items to rework")
+    task_content = review_decision_text(
+        decision=decision,
+        kind=payload.kind or "review",
+        title=payload.title or "",
+        approved=payload.approved,
+        declined=payload.declined,
+        notes=notes,
+    )
+    response = _continue_agent_task(db, user, task_id, task_content, None)
+    AuditRepository(db).create(
+        "task_review_decision",
+        "agent_task",
+        task_id,
+        user_id=getattr(user, "id", None),
+        details={
+            "decision": decision,
+            "kind": (payload.kind or "review")[:64],
+            "approved": list(payload.approved or [])[:200],
+            "declined": list(payload.declined or [])[:200],
+            "has_notes": bool(notes),
+        },
+    )
+    return response
+
+
+def _continue_agent_task(db: Session, user, task_id: str, task_content: str, payload) -> AgentTaskResponse:
     target_task = _require_visible_task(db, task_id, user)
     if target_task.task_type != AGENT_ASYNC_TASK_TYPE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Follow-up is only supported for agent async tasks")
@@ -301,7 +351,7 @@ def create_agent_task_followup(
 
     existing_input = _input_payload_for_task(target_task)
     assignee_agent = AgentRepository(db).get_by_id(target_task.assignee_agent_id)
-    requested_inference = _normalize_task_inference_or_400(db, assignee_agent, payload)
+    requested_inference = _normalize_task_inference_or_400(db, assignee_agent, payload) if payload is not None else {}
     inference = requested_inference or (existing_input.get("inference") if isinstance(existing_input.get("inference"), dict) else {})
     original_task = str(existing_input.get("original_task") or existing_input.get("user_task") or "").strip()
     task_session_id = (target_task.task_session_id or f"agent-task:{root_task_id}").strip()
