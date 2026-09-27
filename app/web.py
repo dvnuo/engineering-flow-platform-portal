@@ -2,6 +2,7 @@ import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -48,6 +49,9 @@ from app.schemas.runtime_profile import (
     AWS_SESSION_DURATION_MAX_SECONDS,
     AWS_SESSION_DURATION_MIN_SECONDS,
     JENKINS_DEFAULT_INSTANCE_NAME,
+    MAX_MOBILE_TEST_SECRET_CHARS,
+    MAX_MOBILE_TEST_SECRETS,
+    MOBILE_TEST_SECRET_NAME_RE,
     PGSQL_MAX_ROWS_MAX,
     PGSQL_MAX_ROWS_MIN,
     PGSQL_SSL_MODES,
@@ -1837,7 +1841,53 @@ def _merge_mobile_advanced_fields(form, mobile_cfg: dict, browserstack_cfg: dict
             browserstack_cfg["local"] = local_cfg
         else:
             browserstack_cfg.pop("local", None)
+    if "mobile_test_secrets__present" in form:
+        secrets, error = _posted_mobile_test_secrets(form)
+        if error:
+            return error
+        if secrets:
+            mobile_cfg["test_secrets"] = secrets
+        else:
+            mobile_cfg.pop("test_secrets", None)
     return None
+
+
+_MOBILE_TEST_SECRET_ROW = re.compile(r"^mobile_test_secrets_(\d{1,3})_name$")
+
+
+def _posted_mobile_test_secrets(form) -> tuple[list[dict], Optional[str]]:
+    """The Test secrets rows of the BrowserStack connector, in page order.
+
+    A row left entirely blank is dropped; a row with only one half is an
+    error, so a value never silently loses its name or the other way round.
+    """
+    indexes = sorted(
+        int(match.group(1))
+        for match in (_MOBILE_TEST_SECRET_ROW.match(str(key)) for key in form.keys())
+        if match
+    )
+    secrets: list[dict] = []
+    seen: set[str] = set()
+    for index in indexes:
+        name = (form.get(f"mobile_test_secrets_{index}_name") or "").strip()
+        secret = form.get(f"mobile_test_secrets_{index}_secret") or ""
+        if not name and not secret.strip():
+            continue
+        if not name:
+            return [], "Give every test secret a name, for example MOBILE_SECRET_PASSWORD."
+        if not MOBILE_TEST_SECRET_NAME_RE.fullmatch(name):
+            return [], f"Test secret names use capital letters, digits and underscores and start with a letter: {name[:64]}"
+        if not secret.strip():
+            return [], f"Enter a value for the test secret {name}."
+        if len(secret) > MAX_MOBILE_TEST_SECRET_CHARS:
+            return [], f"The test secret {name} is too long."
+        if name in seen:
+            return [], f"The test secret {name} is listed twice."
+        seen.add(name)
+        secrets.append({"name": name, "secret": secret})
+    if len(secrets) > MAX_MOBILE_TEST_SECRETS:
+        return [], f"Keep at most {MAX_MOBILE_TEST_SECRETS} test secrets."
+    return secrets, None
 
 
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:

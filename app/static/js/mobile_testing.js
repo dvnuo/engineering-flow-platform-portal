@@ -322,6 +322,80 @@
 })();
 
 /**
+ * Test secrets rows of the BrowserStack connector: add, remove, and keep
+ * the posted names numbered in page order (mobile_test_secrets_<i>_name and
+ * _secret), the shape the server reads.
+ */
+(function () {
+  "use strict";
+
+  function renumber(list) {
+    list.querySelectorAll("[data-test-secret-row]").forEach((row, index) => {
+      row.querySelectorAll("[data-test-secret-field]").forEach((input) => {
+        input.name = `mobile_test_secrets_${index}_${input.dataset.testSecretField}`;
+      });
+    });
+  }
+
+  function markTouched(from) {
+    const section = from.closest("[data-managed-section]");
+    const form = from.closest("form") || document;
+    const flag = section && form.querySelector(`[data-touch-flag="${section.dataset.managedSection}"]`);
+    if (flag) flag.value = "1";
+  }
+
+  function addRow(button) {
+    const box = button.closest("[data-test-secrets]");
+    const list = box && box.querySelector("[data-test-secret-rows]");
+    if (!list) return;
+    const row = document.createElement("div");
+    row.className = "portal-test-secret-row";
+    row.dataset.testSecretRow = "";
+    row.innerHTML = [
+      '<input type="text" placeholder="MOBILE_SECRET_PASSWORD" class="portal-form-input" aria-label="Test secret name" autocomplete="off" spellcheck="false" data-test-secret-field="name" />',
+      '<input type="password" placeholder="Value" class="portal-form-input" aria-label="Test secret value" autocomplete="new-password" data-test-secret-field="secret" />',
+      '<button type="button" class="portal-btn is-secondary" data-action="remove-test-secret" aria-label="Remove this test secret">Remove</button>',
+    ].join("");
+    list.appendChild(row);
+    renumber(list);
+    markTouched(button);
+    row.querySelector("input").focus();
+  }
+
+  function removeRow(button) {
+    const row = button.closest("[data-test-secret-row]");
+    const list = row && row.parentElement;
+    if (!row || !list) return;
+    markTouched(button);
+    row.remove();
+    renumber(list);
+  }
+
+  document.addEventListener("click", (event) => {
+    const add = event.target.closest('[data-action="add-test-secret"]');
+    if (add) {
+      event.preventDefault();
+      addRow(add);
+      return;
+    }
+    const remove = event.target.closest('[data-action="remove-test-secret"]');
+    if (remove) {
+      event.preventDefault();
+      removeRow(remove);
+    }
+  });
+
+  // Names are environment variable names; typing them in capitals saves a
+  // round trip through the validation message.
+  document.addEventListener("input", (event) => {
+    const input = event.target;
+    if (!input || !input.matches || !input.matches('[data-test-secret-field="name"]')) return;
+    const upper = input.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    if (upper !== input.value) input.value = upper;
+  });
+})();
+
+/**
  * Recording panel (assistant chat tool bar > Recording).
  *
  * 1. Start: asks the assistant (/record-mobile-segment) to start a BrowserStack

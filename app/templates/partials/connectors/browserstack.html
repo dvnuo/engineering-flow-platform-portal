@@ -15,6 +15,24 @@
         <label class="portal-form-label"><span class="portal-form-label">Access Key</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="BrowserStack access key" class="portal-form-input" /></label>
       </div>
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="browserstack">Test BrowserStack</button><div class="portal-inline-state" data-test-result="browserstack"></div></div>
+      {% set bs_test_secrets = raw_mobile.get('test_secrets') if raw_mobile.get('test_secrets') is sequence and raw_mobile.get('test_secrets') is not string else [] %}
+      <details class="portal-collapsible" data-test-secrets {% if bs_test_secrets %}open{% endif %}>
+        <summary class="portal-collapsible-summary"><span>Test secrets</span></summary>
+        <div class="portal-panel-stack">
+          <p class="portal-inline-note">Passwords and PINs of the test accounts your mobile tests sign in with. A recorded password field refers to one by name, for example <code>MOBILE_SECRET_PASSWORD</code>; the value reaches the assistant's runtime like your other connector credentials and never goes into a recording or a test file.</p>
+          <input type="hidden" name="mobile_test_secrets__present" value="1" />
+          <div class="portal-panel-stack" data-test-secret-rows>
+            {% for item in bs_test_secrets if item is mapping %}
+            <div class="portal-test-secret-row" data-test-secret-row>
+              <input type="text" name="mobile_test_secrets_{{ loop.index0 }}_name" value="{{ item.get('name', '') }}" placeholder="MOBILE_SECRET_PASSWORD" class="portal-form-input" aria-label="Test secret name" autocomplete="off" spellcheck="false" data-test-secret-field="name" />
+              <input type="password" name="mobile_test_secrets_{{ loop.index0 }}_secret" value="{{ item.get('secret', '') }}" placeholder="Value" class="portal-form-input" aria-label="Test secret value" autocomplete="new-password" data-test-secret-field="secret" />
+              <button type="button" class="portal-btn is-secondary" data-action="remove-test-secret" aria-label="Remove this test secret">Remove</button>
+            </div>
+            {% endfor %}
+          </div>
+          <div><button type="button" class="portal-btn is-secondary" data-action="add-test-secret">+ Add test secret</button></div>
+        </div>
+      </details>
       <details class="portal-collapsible">
         <summary class="portal-collapsible-summary"><span>Advanced</span></summary>
         <div class="portal-panel-stack">

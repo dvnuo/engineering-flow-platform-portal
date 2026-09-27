@@ -6472,6 +6472,23 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
    Recording panel. */
 .portal-progress { height: 6px; border-radius: 999px; background: var(--portal-surface-soft); overflow: hidden; }
 .portal-progress > i { display: block; height: 100%; width: 0; background: var(--portal-accent); transition: width .2s ease; }
+.portal-test-secret-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .portal-test-secret-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .portal-test-secret-row [data-test-secret-field="secret"] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 .portal-app-package-upload { display: flex; flex-direction: column; gap: 10px; }
 .portal-app-package-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .portal-app-package-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); }

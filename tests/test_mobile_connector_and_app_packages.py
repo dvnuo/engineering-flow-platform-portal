@@ -131,6 +131,105 @@ def test_browserstack_panel_renders_test_advanced_and_app_packages(monkeypatch):
         env.cleanup()
 
 
+# --- test secrets -------------------------------------------------------------
+
+
+def test_test_secret_rows_merge_in_page_order_and_blank_rows_drop():
+    merged, error = _settings_merge_payload(
+        {"mobile-auto": {"test_secrets": [{"name": "OLD_SECRET", "secret": "gone"}]}},
+        _mobile_form(**{
+            "mobile_test_secrets__present": "1",
+            "mobile_test_secrets_1_name": "MOBILE_SECRET_PIN",
+            "mobile_test_secrets_1_secret": "246810",
+            "mobile_test_secrets_0_name": "MOBILE_SECRET_PASSWORD",
+            "mobile_test_secrets_0_secret": " Uat pass ",
+            "mobile_test_secrets_2_name": "",
+            "mobile_test_secrets_2_secret": "",
+        }),
+    )
+    assert error is None
+    # Values are kept exactly as typed; a removed row is gone.
+    assert merged["mobile-auto"]["test_secrets"] == [
+        {"name": "MOBILE_SECRET_PASSWORD", "secret": " Uat pass "},
+        {"name": "MOBILE_SECRET_PIN", "secret": "246810"},
+    ]
+
+
+def test_test_secrets_not_posted_are_kept_and_an_empty_list_removes_them():
+    stored = {"mobile-auto": {"test_secrets": [{"name": "MOBILE_SECRET_PASSWORD", "secret": "pw"}]}}
+    merged, error = _settings_merge_payload(stored, _mobile_form())
+    assert error is None and merged["mobile-auto"]["test_secrets"] == [{"name": "MOBILE_SECRET_PASSWORD", "secret": "pw"}]
+    merged, error = _settings_merge_payload(stored, _mobile_form(mobile_test_secrets__present="1"))
+    assert error is None and "test_secrets" not in merged["mobile-auto"]
+
+
+@pytest.mark.parametrize(
+    "rows, message",
+    [
+        ({"mobile_test_secrets_0_name": "", "mobile_test_secrets_0_secret": "pw"}, "Give every test secret a name"),
+        ({"mobile_test_secrets_0_name": "password", "mobile_test_secrets_0_secret": "pw"}, "capital letters"),
+        ({"mobile_test_secrets_0_name": "MOBILE_SECRET_PASSWORD", "mobile_test_secrets_0_secret": "  "}, "Enter a value"),
+        (
+            {
+                "mobile_test_secrets_0_name": "MOBILE_SECRET_PASSWORD",
+                "mobile_test_secrets_0_secret": "a",
+                "mobile_test_secrets_1_name": "MOBILE_SECRET_PASSWORD",
+                "mobile_test_secrets_1_secret": "b",
+            },
+            "listed twice",
+        ),
+    ],
+)
+def test_invalid_test_secret_rows_are_rejected(rows, message):
+    _, error = _settings_merge_payload({}, _mobile_form(mobile_test_secrets__present="1", **rows))
+    assert error and message in error
+
+
+def test_test_secrets_are_sanitized_redacted_and_encrypted(monkeypatch):
+    from app.schemas.runtime_profile import (
+        redact_runtime_profile_config_for_public_response,
+        sanitize_runtime_profile_config_dict,
+    )
+    from app.services.profile_secret_encryption import decrypt_sensitive_fields, encrypt_sensitive_fields
+
+    config = sanitize_runtime_profile_config_dict({
+        "mobile-auto": {
+            "enabled": True,
+            "test_secrets": [
+                {"name": "MOBILE_SECRET_PASSWORD", "secret": "pw-1"},
+                {"name": "MOBILE_SECRET_PASSWORD", "secret": "duplicate"},
+                {"name": "lower_case", "secret": "x"},
+                {"name": "MOBILE_SECRET_EMPTY", "secret": ""},
+                "not-a-row",
+            ],
+        }
+    })
+    assert config["mobile-auto"]["test_secrets"] == [{"name": "MOBILE_SECRET_PASSWORD", "secret": "pw-1"}]
+
+    public = redact_runtime_profile_config_for_public_response(config)
+    assert public["mobile-auto"]["test_secrets"] == [{"name": "MOBILE_SECRET_PASSWORD", "secret_present": True}]
+    assert "pw-1" not in json.dumps(public)
+
+    monkeypatch.setenv("EFP_CONFIG_KEY", "test-key")
+    encrypted = encrypt_sensitive_fields(config)
+    assert encrypted["mobile-auto"]["test_secrets"][0]["secret"].startswith("ENC:")
+    assert encrypted["mobile-auto"]["test_secrets"][0]["name"] == "MOBILE_SECRET_PASSWORD"
+    assert decrypt_sensitive_fields(encrypted) == config
+
+
+def test_browserstack_panel_renders_test_secret_rows(monkeypatch):
+    env = _build_env(monkeypatch)
+    try:
+        _bind_profile(env.db, env.agent, {"mobile-auto": {"enabled": True, "test_secrets": [{"name": "MOBILE_SECRET_PASSWORD", "secret": "pw"}]}})
+        html = env.client.get("/app/connectors/browserstack/panel").text
+        assert 'name="mobile_test_secrets__present"' in html
+        assert 'name="mobile_test_secrets_0_name" value="MOBILE_SECRET_PASSWORD"' in html
+        assert 'type="password" name="mobile_test_secrets_0_secret"' in html
+        assert 'data-action="add-test-secret"' in html
+    finally:
+        env.cleanup()
+
+
 # --- app packages -------------------------------------------------------------
 
 

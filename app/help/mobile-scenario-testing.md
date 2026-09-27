@@ -49,7 +49,9 @@ Open a chat with the assistant and choose **Recording** in the tool bar.
    elements rather than points on the screenshot: an element keeps working when
    the layout moves, a point does not.
 4. Type real values, including passwords. Password fields are never stored; the
-   other values become parameters for your test data.
+   assistant names each one (for example `MOBILE_SECRET_PASSWORD`) and you add
+   its value under **Connectors > BrowserStack > Test secrets**. The other
+   values become parameters for your test data.
 5. Press **Segment done**. The assistant compiles the segment and tells you how
    robust it is. Carry on with the next segment on the same device.
 6. **Finish recording** when you are done. The device is released.

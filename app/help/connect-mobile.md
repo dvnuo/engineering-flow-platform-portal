@@ -22,6 +22,15 @@ Only needed if you work on mobile testing.
   and API addresses when your company routes BrowserStack through its own
   gateway.
 
+## Test secrets
+
+Passwords and PINs of the test accounts your tests sign in with. When you
+record a login, the password field is never stored: the recording refers to it
+by a name such as `MOBILE_SECRET_PASSWORD`, and the assistant tells you which
+names it needs. Add each one under **Test secrets** with the same name. The
+values reach the assistant's runtime like your other connector credentials;
+they never appear in a recording, a test file, or the chat.
+
 ## App packages
 
 Builds you upload here go straight to BrowserStack; Portal keeps only the
