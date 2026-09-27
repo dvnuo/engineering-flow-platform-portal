@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.models import AgentTask, AuditLog
-from app.services.efp_cards import extract_cards, live_matrix_path, review_decision_text
+from app.services.efp_cards import REPLY_CARDS_NOTE, extract_cards, live_matrix_path, reply_text_without_cards, review_decision_text
 from tests._js_extract_helpers import _extract_js_function
 from tests.test_agent_async_tasks_api import _client as _async_client
 from tests.test_web_connector_settings import _build_env
@@ -52,6 +52,13 @@ def test_extract_cards_removes_valid_blocks_and_keeps_broken_ones():
 def test_extract_cards_ignores_other_fences_and_empty_text():
     assert extract_cards("```json\n{}\n```") == ("```json\n{}\n```", [])
     assert extract_cards(None) == ("", [])
+
+
+def test_delegation_replies_drop_cards_and_point_at_portal():
+    text = 'Drafted 4 scenarios for FX-12.\n\n```efp-review\n{"kind": "scenarios", "items": []}\n```'
+    assert reply_text_without_cards(text) == f"Drafted 4 scenarios for FX-12.\n\n{REPLY_CARDS_NOTE}"
+    assert reply_text_without_cards('```efp-matrix\n{"rows": []}\n```') == REPLY_CARDS_NOTE
+    assert reply_text_without_cards("No cards here.") == "No cards here."
 
 
 def test_review_decision_text_is_stable_and_bounded():

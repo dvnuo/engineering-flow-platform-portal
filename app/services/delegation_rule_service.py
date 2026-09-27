@@ -22,6 +22,7 @@ from app.services.delegation_source_config import (
     normalize_delegation_source_scope,
 )
 from app.services.delegation_source_pollers import SOURCE_PROVIDER, SUPPORTED_DELEGATION_SOURCES, DelegationSourcePoller
+from app.services.efp_cards import reply_text_without_cards
 from app.services.delegation_schedule import (
     compute_next_run_at,
     delegation_schedule_interval_seconds,
@@ -671,6 +672,8 @@ class DelegationRuleService:
                 failed_count += 1
                 continue
             result_text = self._extract_task_result_text(task)
+            if result_text:
+                result_text = reply_text_without_cards(result_text)
             if not result_text:
                 event = self.repo.update_event_status(
                     event,

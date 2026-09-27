@@ -110,6 +110,21 @@ def scenario_progress(result_payload_json: str | None) -> dict[str, int] | None:
     return None
 
 
+REPLY_CARDS_NOTE = "The review, evidence, and results of this work are on its task page in Portal."
+
+
+def reply_text_without_cards(text: str) -> str:
+    """A delegation reply (a Jira or GitHub comment) without card blocks.
+
+    Cards only render in Portal; elsewhere they are raw JSON, so the reply
+    keeps the prose and says where the cards are.
+    """
+    cleaned, cards = extract_cards(text)
+    if not cards:
+        return text
+    return f"{cleaned}\n\n{REPLY_CARDS_NOTE}" if cleaned else REPLY_CARDS_NOTE
+
+
 def live_matrix_path(task_id: str) -> str:
     """Where a run skill keeps the matrix of the task it runs for."""
     return f"mobile/runs/{task_id}/matrix.json"
