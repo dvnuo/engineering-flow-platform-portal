@@ -14,11 +14,7 @@ from app.models.assistant_type import AssistantType
 from app.models.user import User
 from app.models.user_allowlist import UserAllowlistEntry
 from app.services.agent_startup_status import startup_view
-from app.services.connection_guidance import (
-    CONNECTION_GUIDANCE,
-    TRACKED_SECTIONS,
-    connection_checklist,
-)
+from app.services.connection_guidance import CONNECTION_GUIDANCE
 from app.services.runtime_profile_seed_service import (
     RuntimeProfileSeedService,
     find_secret_fields,
@@ -118,7 +114,7 @@ def test_a_new_member_inherits_a_seeded_credential():
     db.commit()
     db.refresh(user)
 
-    profile = RuntimeProfileService(db).ensure_user_has_default_profile(user)
+    profile = RuntimeProfileService(db).get_or_create_for_user(user)
 
     assert "shared-value" in profile.config_json
 
@@ -135,7 +131,7 @@ def test_new_member_profile_inherits_the_seed(monkeypatch):
     db.commit()
     db.refresh(user)
 
-    profile = RuntimeProfileService(db).ensure_user_has_default_profile(user)
+    profile = RuntimeProfileService(db).get_or_create_for_user(user)
 
     assert "company.atlassian.net" in profile.config_json
 
@@ -157,7 +153,7 @@ def test_unreadable_seed_still_lets_a_member_sign_in(monkeypatch):
     monkeypatch.setattr(
         "app.services.runtime_profile_seed_service.RuntimeProfileSeedService", Broken
     )
-    profile = module.RuntimeProfileService(db).ensure_user_has_default_profile(user)
+    profile = module.RuntimeProfileService(db).get_or_create_for_user(user)
 
     assert profile is not None
 
@@ -165,59 +161,26 @@ def test_unreadable_seed_still_lets_a_member_sign_in(monkeypatch):
 # --------------------------------------------------------- connection guidance
 
 
-def test_every_tracked_section_has_guidance():
-    for section in TRACKED_SECTIONS:
-        assert section in CONNECTION_GUIDANCE, section
-        assert CONNECTION_GUIDANCE[section]["steps"]
+def test_every_settings_connector_has_guidance():
+    from app.services.connector_registry import SETTINGS_CONNECTORS
 
-
-def test_checklist_counts_only_what_the_member_supplied():
-    checklist = connection_checklist(
-        {
-            "llm": {"provider": "github_copilot", "api_key": "key"},
-            "jira": {"enabled": True, "instances": [{"url": "u", "token": ""}]},
-            "github": {"enabled": True, "api_token": "t"},
-        }
-    )
-
-    assert checklist["connected"] == 2
-    assert checklist["total"] == 3
-    assert checklist["complete"] is False
-
-
-def test_checklist_omits_a_service_the_team_does_not_use():
-    # An unfinishable step reads as a broken setup, so a section nobody enabled
-    # never appears.
-    checklist = connection_checklist({"llm": {"api_key": "key"}})
-
-    assert [item["section"] for item in checklist["sections"]] == ["llm"]
-    assert checklist["complete"] is True
-
-
-def test_checklist_uses_sections_not_items():
-    # Jinja resolves `dict.items` to the built-in method, which silently breaks
-    # the template loop. The key must stay renamed.
-    assert "sections" in connection_checklist({})
-    assert "items" not in connection_checklist({})
-
-
-def test_ai_platform_credential_counts_as_connected():
-    checklist = connection_checklist(
-        {"llm": {"provider": "ai_platform", "ai_platform": {"auth": {"username": "u", "password": "p"}}}}
-    )
-
-    assert checklist["connected"] == 1
+    for spec in SETTINGS_CONNECTORS:
+        for key in (spec.guidance_key, *spec.extra_guidance_keys):
+            assert key in CONNECTION_GUIDANCE, (spec.type, key)
+            assert CONNECTION_GUIDANCE[key]["steps"]
 
 
 # ------------------------------------------------------------ startup status
 
 
-def test_missing_profile_secret_points_at_connections():
+def test_missing_profile_secret_points_at_connectors():
     view = startup_view("failed", "CreateContainerConfigError: secret efp-profile-abc not found")
 
     assert view["is_failed"] is True
+    # The action key is unchanged; its label and target are now Connectors.
     assert view["action"] == "open_connections"
-    assert "Connections" in view["detail"]
+    assert "Connectors" in view["detail"]
+    assert "Connections" not in view["detail"]
 
 
 def test_image_pull_failure_is_not_the_members_problem():

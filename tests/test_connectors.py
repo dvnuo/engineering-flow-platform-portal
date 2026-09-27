@@ -14,11 +14,14 @@ from app.deps import get_current_user
 from app.models import AuditLog, User, UserConnector
 from app.services import connector_service
 from app.services.connector_registry import (
+    CATEGORY_ORDER,
     CONNECTOR_REGISTRY,
     LOCAL_BROWSER_TYPE,
+    SETTINGS_CONNECTORS,
     get_connector_spec,
     list_connector_specs,
 )
+from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.schema_guard import REQUIRED_PORTAL_TABLES
 
 
@@ -101,13 +104,28 @@ def test_registry_coerces_string_values():
 # service
 
 
+def _settings_types_in_category_order():
+    order = {category: index for index, category in enumerate(CATEGORY_ORDER)}
+    return [spec.type for spec in sorted(SETTINGS_CONNECTORS, key=lambda spec: order[spec.category])]
+
+
+def _entry(entries, connector_type):
+    return next(item for item in entries if item["type"] == connector_type)
+
+
+def _save_member_settings(db_session, user, config):
+    service = RuntimeProfileService(db_session)
+    service.save_config(service.get_or_create_for_user(user), config)
+
+
 def test_service_lists_every_type_with_defaults_when_no_row(db_session, users):
     alice, _ = users
     entries = connector_service.list_for_user(db_session, alice)
-    assert [item["type"] for item in entries] == [LOCAL_BROWSER_TYPE]
-    assert entries[0]["enabled"] is False
-    assert entries[0]["config"] == {"auto_enable_in_new_chats": True, "preferred_port": 8765}
-    assert entries[0]["last_verified_at"] is None
+    assert [item["type"] for item in entries] == _settings_types_in_category_order() + [LOCAL_BROWSER_TYPE]
+    local = entries[-1]
+    assert local["enabled"] is False
+    assert local["config"] == {"auto_enable_in_new_chats": True, "preferred_port": 8765}
+    assert local["last_verified_at"] is None
     assert connector_service.enabled_connectors_for_user(db_session, alice.id) == {}
 
 
@@ -226,7 +244,7 @@ def test_connectors_api_exposes_the_start_page_setting(alice_client, monkeypatch
     # Raw on purpose: the page resolves a path against the origin it runs on.
     monkeypatch.setattr(get_settings(), "local_browser_start_url", "/app#/chat")
     listing = alice_client.get("/api/connectors").json()
-    assert listing[0]["settings"] == {"start_url": "/app#/chat"}
+    assert _entry(listing, LOCAL_BROWSER_TYPE)["settings"] == {"start_url": "/app#/chat"}
 
 
 # ---------------------------------------------------------------------------
@@ -236,8 +254,8 @@ def test_connectors_api_exposes_the_start_page_setting(alice_client, monkeypatch
 def test_connectors_api_round_trip(alice_client):
     listing = alice_client.get("/api/connectors")
     assert listing.status_code == 200
-    assert [item["type"] for item in listing.json()] == [LOCAL_BROWSER_TYPE]
-    assert listing.json()[0]["enabled"] is False
+    assert [item["type"] for item in listing.json()][-1] == LOCAL_BROWSER_TYPE
+    assert _entry(listing.json(), LOCAL_BROWSER_TYPE)["enabled"] is False
 
     updated = alice_client.put(
         f"/api/connectors/{LOCAL_BROWSER_TYPE}",
@@ -265,13 +283,82 @@ def test_connectors_api_round_trip(alice_client):
     assert alice_client.post("/api/connectors/unknown/verify", json={"ok": True}).status_code == 404
 
 
-def test_connectors_api_hidden_when_feature_disabled(alice_client, monkeypatch):
+def test_connectors_api_hides_only_local_connectors_when_feature_disabled(alice_client, monkeypatch):
     from app.config import get_settings
 
     settings = get_settings()
     monkeypatch.setattr(settings, "connectors_enabled", False)
-    assert alice_client.get("/api/connectors").status_code == 404
+    listing = alice_client.get("/api/connectors")
+    assert listing.status_code == 200
+    assert [item["type"] for item in listing.json()] == _settings_types_in_category_order()
+    assert alice_client.get(f"/api/connectors/{LOCAL_BROWSER_TYPE}").status_code == 404
     assert alice_client.put(f"/api/connectors/{LOCAL_BROWSER_TYPE}", json={"enabled": True}).status_code == 404
+    assert alice_client.post(f"/api/connectors/{LOCAL_BROWSER_TYPE}/verify", json={"ok": True}).status_code == 404
+    # Settings connectors stay reachable.
+    assert alice_client.get("/api/connectors/jira").status_code == 200
+
+
+def test_settings_connector_state_comes_from_member_settings(db_session, users):
+    alice, bob = users
+    _save_member_settings(
+        db_session,
+        alice,
+        {
+            "jira": {"enabled": True, "instances": [{"name": "main", "url": "https://jira.example.test", "token": "s3cret-jira"}]},
+            "confluence": {"enabled": False, "instances": [{"name": "wiki", "url": "https://wiki.example.test", "token": "s3cret-wiki"}]},
+        },
+    )
+    entries = connector_service.list_for_user(db_session, alice)
+    jira = _entry(entries, "jira")
+    assert (jira["state"], jira["status_label"], jira["enabled"]) == ("connected", "Connected", True)
+    confluence = _entry(entries, "confluence")
+    assert (confluence["state"], confluence["status_label"], confluence["enabled"]) == ("off", "Turned off", False)
+    splunk = _entry(entries, "splunk")
+    assert (splunk["state"], splunk["status_label"], splunk["enabled"]) == ("not_set_up", "Not set up", False)
+    # Bob has his own row; Alice's settings never leak into his list.
+    assert _entry(connector_service.list_for_user(db_session, bob), "jira")["state"] == "not_set_up"
+
+
+def test_settings_connector_entries_never_include_values(alice_client, db_session, users):
+    alice, _ = users
+    _save_member_settings(
+        db_session,
+        alice,
+        {"jira": {"enabled": True, "instances": [{"name": "main", "url": "https://jira.example.test", "token": "s3cret-jira"}]}},
+    )
+    listing = alice_client.get("/api/connectors")
+    assert listing.status_code == 200
+    assert "s3cret-jira" not in listing.text
+    assert "jira.example.test" not in listing.text
+    for item in listing.json():
+        if item["kind"] == "settings":
+            assert item["config"] == {}, item["type"]
+            assert item["settings"] == {}, item["type"]
+    single = alice_client.get("/api/connectors/jira")
+    assert single.status_code == 200
+    assert single.json()["state"] == "connected"
+    assert single.json()["config"] == {}
+    assert "s3cret-jira" not in single.text
+
+
+def test_settings_connectors_reject_put(alice_client):
+    put = alice_client.put("/api/connectors/jira", json={"enabled": True, "config": {}})
+    assert put.status_code == 400
+    assert "Connectors panel" in put.json()["detail"]
+
+
+def test_settings_connectors_reject_verify(alice_client):
+    verify = alice_client.post("/api/connectors/jira/verify", json={"ok": True})
+    assert verify.status_code == 400
+    assert "Connectors panel" in verify.json()["detail"]
+
+
+def test_chat_ui_maps_legacy_runtime_profiles_hash_route_to_connectors():
+    from pathlib import Path
+
+    js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
+    assert 'const LEGACY_PORTAL_ROUTE_SECTIONS = { "runtime-profiles": "connectors" };' in js
+    assert "LEGACY_PORTAL_ROUTE_SECTIONS[section] || section" in js
 
 
 def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):

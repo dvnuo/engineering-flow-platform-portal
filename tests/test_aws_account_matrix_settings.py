@@ -7,7 +7,7 @@ settings, and one row per account (name, 12-digit id, role, regions). Covers
 the whole Portal path: schema sanitizer, public redaction, the settings form
 parser and its validation, the end-to-end save, the projection rule that
 decides whether the CLI instructions are worth adding, and the rendered cards
-(server-rendered and JS-added) on every panel that edits the section.
+(server-rendered on the AWS connector panel, and JS-added).
 """
 import json
 import re
@@ -18,6 +18,8 @@ from starlette.datastructures import FormData
 
 from tests.test_default_connections_form import _panel_html as _default_connections_html
 from tests.test_jenkins_multi_instance_settings import (
+    _bind_profile,
+    _build_client,
     _initialized_instance_groups,
     _js_object_literal,
     _js_source,
@@ -25,7 +27,6 @@ from tests.test_jenkins_multi_instance_settings import (
     _render_panel,
     _shape,
 )
-from tests.test_web_runtime_profile_settings import _bind_profile, _build_client
 
 from app.schemas.runtime_profile import (
     PORTAL_MANAGED_FIELD_TREE,
@@ -409,19 +410,20 @@ def test_view_payload_joins_the_regions_for_the_card_input():
 
 
 # --------------------------------------------------------------------------
-# End to end through the runtime-profile save route
+# End to end through the AWS connector save route
 # --------------------------------------------------------------------------
 
 
-def test_end_to_end_profile_save_persists_the_matrix_and_reloads_it_into_the_panel(monkeypatch):
+def test_end_to_end_connector_save_persists_the_matrix_and_reloads_it_into_the_panel(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"aws": {"enabled": False}})
         resp = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={"name": "rp", **_matrix_form(aws_provider="saml2aws", aws_idp_url=IDP_URL)},
+            "/app/connectors/aws/save",
+            data=_matrix_form(aws_provider="saml2aws", aws_idp_url=IDP_URL),
         )
         assert resp.status_code == 200
+        assert resp.headers["HX-Trigger"] == "connectorsChanged"
         db.refresh(rp)
         stored = json.loads(rp.config_json)["aws"]
         assert stored["provider"] == "saml2aws"
@@ -451,8 +453,8 @@ def test_end_to_end_profile_save_persists_the_matrix_and_reloads_it_into_the_pan
 
         # A later save that posts neither the password nor the rows keeps both.
         again = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={"name": "rp", "__touch_aws": "1", "aws_enabled": "on", "aws_default_region": "eu-west-1"},
+            "/app/connectors/aws/save",
+            data={"__touch_aws": "1", "aws_enabled": "on", "aws_default_region": "eu-west-1"},
         )
         assert again.status_code == 200
         db.refresh(rp)
@@ -464,13 +466,13 @@ def test_end_to_end_profile_save_persists_the_matrix_and_reloads_it_into_the_pan
         cleanup()
 
 
-def test_end_to_end_profile_save_reports_a_bad_account_id_and_keeps_the_stored_config(monkeypatch):
+def test_end_to_end_connector_save_reports_a_bad_account_id_and_keeps_the_stored_config(monkeypatch):
     client, db, agent, cleanup = _build_client(monkeypatch)
     try:
         rp = _bind_profile(db, agent, {"aws": {"enabled": True, "domain": "HBEU"}})
         resp = client.post(
-            f"/app/runtime-profiles/{rp.id}/save",
-            data={"name": "rp", **_matrix_form(aws_accounts_instances_0_account_id="8183")},
+            "/app/connectors/aws/save",
+            data=_matrix_form(aws_accounts_instances_0_account_id="8183"),
         )
         assert resp.status_code == 200
         assert "AWS account cps-dev needs a 12-digit account id." in resp.text
@@ -531,7 +533,7 @@ def test_cli_instructions_tell_the_assistant_how_to_sign_in_and_address_each_acc
 
 
 # --------------------------------------------------------------------------
-# UI: rendered cards on every panel that edits the section
+# UI: rendered cards on the AWS connector panel
 # --------------------------------------------------------------------------
 
 
@@ -586,7 +588,7 @@ def _aws_matrix_profile():
 
 
 def test_settings_panel_renders_one_card_per_account(monkeypatch):
-    html = _render_panel(monkeypatch, _aws_matrix_profile())
+    html = _render_panel(monkeypatch, _aws_matrix_profile(), "aws")
     cards = [card for card in _parse_cards(html) if card["group"] == "aws_accounts"]
 
     assert len(cards) == 2
@@ -621,31 +623,22 @@ def test_settings_panel_renders_one_card_per_account(monkeypatch):
 def test_the_password_input_stays_on_the_section_with_its_stored_value():
     # The account rows are not secrets; the one secret keeps the authenticated
     # edit-form treatment the template-secrets test guards.
-    for rel in ("app/templates/partials/runtime_profile_panel.html", "app/templates/partials/settings_panel.html"):
-        text = Path(rel).read_text(encoding="utf-8")
-        assert "value=\"{{ raw_aws.get('password', '') }}\"" in text
-        section = text[text.index('data-managed-section="aws"') :]
-        section = section[: section.index("</section>")]
-        assert 'data-instance-container="aws_accounts"' in section
-        assert 'data-field="password"' not in section
+    text = Path("app/templates/partials/connectors/aws.html").read_text(encoding="utf-8")
+    assert "value=\"{{ raw_aws.get('password', '') }}\"" in text
+    section = text[text.index('data-managed-section="aws"') :]
+    section = section[: section.index("</section>")]
+    assert 'data-instance-container="aws_accounts"' in section
+    assert 'data-field="password"' not in section
 
 
-def test_agent_and_runtime_profile_panels_render_the_same_account_card(monkeypatch):
-    client, db, agent, cleanup = _build_client(monkeypatch)
-    try:
-        _bind_profile(db, agent, _aws_matrix_profile())
-        agent_html = client.get(f"/app/agents/{agent.id}/settings/panel").text
-        profile_html = client.get(f"/app/runtime-profiles/{agent.runtime_profile_id}/panel").text
-    finally:
-        cleanup()
+def test_the_aws_connector_panel_renders_the_account_cards_in_its_own_form(monkeypatch):
+    html = _render_panel(monkeypatch, _aws_matrix_profile(), "aws")
 
-    agent_cards = [c for c in _parse_cards(agent_html) if c["group"] == "aws_accounts"]
-    profile_cards = [c for c in _parse_cards(profile_html) if c["group"] == "aws_accounts"]
-    assert len(agent_cards) == len(profile_cards) == 2
-    for agent_card, profile_card in zip(agent_cards, profile_cards):
-        assert _shape(agent_card) == _shape(profile_card)
-        assert agent_card["fields"] == profile_card["fields"]
-        assert agent_card["text"] == profile_card["text"]
+    assert 'hx-post="/app/connectors/aws/save"' in html
+    assert 'id="profile-section-aws"' in html
+    assert 'name="aws_password" value="adfs-password"' in html
+    cards = [c for c in _parse_cards(html) if c["group"] == "aws_accounts"]
+    assert [card["fields"]["name"]["value"] for card in cards] == ["cps-dev", "cps-prod"]
 
 
 def _js_account_card_html():
@@ -677,7 +670,7 @@ def _js_account_card_html():
 
 def test_js_added_account_card_matches_the_server_rendered_card(monkeypatch):
     config = {"aws": {"enabled": True, "accounts": [{"name": "cps-dev", "account_id": "818354133892", "enabled": True}]}}
-    server_card = next(c for c in _parse_cards(_render_panel(monkeypatch, config)) if c["group"] == "aws_accounts")
+    server_card = next(c for c in _parse_cards(_render_panel(monkeypatch, config, "aws")) if c["group"] == "aws_accounts")
     js_card = next(c for c in _parse_cards(_js_account_card_html()) if c["group"] == "aws_accounts")
 
     assert _shape(js_card) == _shape(server_card)
@@ -720,16 +713,17 @@ def test_adding_or_removing_an_account_row_touches_the_aws_section_not_the_group
     server checks before reading them, and there is no aws_accounts flag."""
     js = _js_source()
     start = js.index('root.addEventListener("click"')
-    handler = js[start : js.index("const scrollBtn", start)]
+    handler = js[start : js.index("const testBtn", start)]
     assert "markManagedSectionTouched(root, sectionNameForElement(addBtn) || group)" in handler
     assert "const touchedSection = sectionNameForElement(removeBtn) || group;" in handler
     # Resolved before the card is detached, which would leave the button without a section.
     assert handler.index("const touchedSection") < handler.index("?.remove()")
     assert "markManagedSectionTouched(root, touchedSection)" in handler
-    for template in ("app/templates/partials/runtime_profile_panel.html", "app/templates/partials/settings_panel.html"):
-        text = Path(template).read_text(encoding="utf-8")
-        assert 'data-touch-flag="aws"' in text
-        assert 'data-touch-flag="aws_accounts"' not in text
+
+def test_the_aws_connector_panel_posts_one_touch_flag_for_the_section(monkeypatch):
+    html = _render_panel(monkeypatch, _aws_matrix_profile(), "aws")
+    assert 'name="__touch_aws" value="0" data-touch-flag="aws"' in html
+    assert 'data-touch-flag="aws_accounts"' not in html
 
 
 def test_tooltips_cover_the_new_inputs_and_beat_the_generic_instance_hints():

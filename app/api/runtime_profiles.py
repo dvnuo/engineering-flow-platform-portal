@@ -1,5 +1,11 @@
-import logging
+"""The member's connector settings as one JSON document (API clients).
+
+The Portal UI edits these one connector at a time (``/app/connectors/...``);
+this endpoint exists for scripts that want to read or replace the whole set.
+Every assistant the member owns uses these settings.
+"""
 import json
+import logging
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -9,165 +15,55 @@ from app.deps import get_current_user
 from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,
     redact_runtime_profile_config_for_public_response,
-    PROFILE_SOURCE_BLANK,
-    RuntimeProfileCreateRequest,
-    RuntimeProfileOptionResponse,
     RuntimeProfileResponse,
-    RuntimeProfileSourceResponse,
     RuntimeProfileUpdateRequest,
 )
-from app.services.runtime_profile_audit import (
-    CREATE_RUNTIME_PROFILE,
-    DELETE_RUNTIME_PROFILE,
-    UPDATE_RUNTIME_PROFILE,
-    audit_runtime_profile_change,
-)
+from app.services.runtime_profile_audit import UPDATE_RUNTIME_PROFILE, audit_runtime_profile_change
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_service import RuntimeProfileService
 
-router = APIRouter(prefix="/api/runtime-profiles", tags=["runtime-profiles"])
+router = APIRouter(prefix="/api/runtime-profile", tags=["runtime-profile"])
 runtime_profile_secret_service = RuntimeProfileSecretService()
 logger = logging.getLogger(__name__)
 
 
-def _runtime_profile_response(service: RuntimeProfileService, profile) -> RuntimeProfileResponse:
+def _runtime_profile_response(profile) -> RuntimeProfileResponse:
     response = RuntimeProfileResponse.model_validate(profile)
     parsed = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
     response.config_json = json.dumps(redact_runtime_profile_config_for_public_response(parsed))
     return response
 
 
-@router.post("", response_model=RuntimeProfileResponse)
-def create_runtime_profile(payload: RuntimeProfileCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Create a profile, optionally starting from the admin defaults or a copy.
+@router.get("", response_model=RuntimeProfileResponse)
+def get_runtime_profile(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return _runtime_profile_response(RuntimeProfileService(db).get_or_create_for_user(user))
 
-    ``source`` decides where the config comes from; the posted ``config_json``
-    is used only for the default "blank" source, so the two can never disagree.
-    Copying is resolved server-side because responses redact credentials -- a
-    client could not assemble the copy even if it wanted to.
-    """
+
+@router.patch("", response_model=RuntimeProfileResponse)
+def update_runtime_profile(
+    payload: RuntimeProfileUpdateRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     service = RuntimeProfileService(db)
-    config_json = (
-        payload.config_json
-        if payload.source == PROFILE_SOURCE_BLANK
-        else service.config_json_for_source(user, payload.source)
-    )
-    profile = service.create_for_user(
-        user,
-        name=payload.name,
-        description=payload.description,
-        config_json=config_json,
-        is_default=payload.is_default,
-    )
-    audit_runtime_profile_change(
-        db,
-        action=CREATE_RUNTIME_PROFILE,
-        profile_id=profile.id,
-        user_id=user.id,
-        before={},
-        after=parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True),
-    )
-    try:
-        runtime_profile_secret_service.sync_profile_secret(profile)
-    except Exception:
-        logger.exception("runtime profile secret sync failed after create profile_id=%s", profile.id)
-    return _runtime_profile_response(service, profile)
+    profile = service.get_or_create_for_user(user)
+    if payload.config_json is None:
+        return _runtime_profile_response(profile)
 
-
-@router.get("", response_model=list[RuntimeProfileResponse])
-def list_runtime_profiles(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    service = RuntimeProfileService(db)
-    profiles = service.list_for_user(user)
-    return [_runtime_profile_response(service, p) for p in profiles]
-
-
-@router.get("/options", response_model=list[RuntimeProfileOptionResponse])
-def list_runtime_profile_options(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    profiles = RuntimeProfileService(db).list_for_user(user)
-    return [
-        RuntimeProfileOptionResponse(
-            id=p.id,
-            name=p.name,
-            description=p.description,
-            revision=p.revision,
-            is_default=bool(p.is_default),
-        )
-        for p in profiles
-    ]
-
-
-@router.get("/sources", response_model=list[RuntimeProfileSourceResponse])
-def list_runtime_profile_sources(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """What a new profile can start from: nothing, the admin defaults, or a copy.
-
-    Declared above /{profile_id} so "sources" is not read as a profile id.
-    """
-    return [
-        RuntimeProfileSourceResponse(**source)
-        for source in RuntimeProfileService(db).creation_sources(user)
-    ]
-
-
-@router.get("/{profile_id}", response_model=RuntimeProfileResponse)
-def get_runtime_profile(profile_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    service = RuntimeProfileService(db)
-    profile = service.validate_profile_belongs_to_user(user, profile_id)
-    return _runtime_profile_response(service, profile)
-
-
-@router.patch("/{profile_id}", response_model=RuntimeProfileResponse)
-async def update_runtime_profile(profile_id: str, payload: RuntimeProfileUpdateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    service = RuntimeProfileService(db)
-    # Snapshot the config before the update so the audit row can name the
-    # sections and secret fields that changed (names only, never values).
-    before = parse_runtime_profile_config_json(
-        service.validate_profile_belongs_to_user(user, profile_id).config_json, fallback_to_empty=True
-    )
-    profile, config_changed = service.update_for_user(
-        user,
-        profile_id,
-        **payload.model_dump(exclude_unset=True),
-    )
-    audit_runtime_profile_change(
-        db,
-        action=UPDATE_RUNTIME_PROFILE,
-        profile_id=profile.id,
-        user_id=user.id,
-        before=before,
-        after=parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True),
-    )
-
+    before = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    profile, config_changed = service.save_config(profile, payload.config_json)
     if config_changed:
+        audit_runtime_profile_change(
+            db,
+            action=UPDATE_RUNTIME_PROFILE,
+            profile_id=profile.id,
+            user_id=user.id,
+            before=before,
+            after=parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True),
+        )
         try:
-            # Secret update + restart of bound running agents is the only
-            # activation path; stopped agents pick the change up on next start.
             runtime_profile_secret_service.apply_profile_save(db, profile)
         except Exception:
             db.rollback()
-            logger.exception("runtime profile secret save/restart failed profile_id=%s", profile.id)
-
-    return _runtime_profile_response(service, profile)
-
-
-@router.delete("/{profile_id}")
-def delete_runtime_profile(profile_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    service = RuntimeProfileService(db)
-    # Read the config before the row goes: a deleted instance's attributes
-    # expire on commit and cannot be loaded back.
-    before = parse_runtime_profile_config_json(
-        service.validate_profile_belongs_to_user(user, profile_id).config_json, fallback_to_empty=True
-    )
-    service.delete_for_user(user, profile_id)
-    audit_runtime_profile_change(
-        db,
-        action=DELETE_RUNTIME_PROFILE,
-        profile_id=profile_id,
-        user_id=user.id,
-        before=before,
-        after={},
-    )
-    try:
-        runtime_profile_secret_service.delete_profile_secret(profile_id)
-    except Exception:
-        logger.exception("runtime profile secret delete failed profile_id=%s", profile_id)
-    return {"ok": True}
+            logger.exception("connector settings rollout failed profile_id=%s", profile.id)
+    return _runtime_profile_response(profile)

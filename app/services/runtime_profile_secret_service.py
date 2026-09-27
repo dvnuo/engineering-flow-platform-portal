@@ -84,22 +84,34 @@ class RuntimeProfileSecretService:
         self.k8s_service.delete_secret(profile_secret_name(profile_id))
 
     def apply_profile_save(self, db: Session, profile) -> dict:
-        """Update the profile Secret, then restart bound running agents to apply it."""
+        """Update the profile Secret, then restart the bound assistants that are idle.
+
+        A running assistant that is busy (an active task or chat) keeps its old
+        settings until the member restarts it; it is reported in
+        ``pending_agent_ids`` and shows "restart to apply" in the Portal.
+        Stopped assistants read the new Secret when they next start.
+        """
+        from app.services.agent_busy import agent_is_busy
+
         self.sync_profile_secret(profile)
 
         agents = list(db.scalars(select(Agent).where(Agent.runtime_profile_id == profile.id)).all())
         running = [agent for agent in agents if (agent.status or "").lower() == "running"]
         restarted_agent_ids: list[str] = []
+        pending_agent_ids: list[str] = []
         failed_agent_ids: list[str] = []
 
         if self.k8s_service.enabled:
             for agent in running:
+                if agent_is_busy(db, agent.id):
+                    pending_agent_ids.append(agent.id)
+                    continue
                 result = self.k8s_service.restart_agent(agent)
                 if result.status == "failed":
                     failed_agent_ids.append(agent.id)
                     agent.last_error = result.message
                     logger.warning(
-                        "runtime profile save restart failed agent_id=%s profile_id=%s message=%s",
+                        "connector save restart failed agent_id=%s profile_id=%s message=%s",
                         agent.id,
                         profile.id,
                         result.message,
@@ -108,13 +120,15 @@ class RuntimeProfileSecretService:
                     restarted_agent_ids.append(agent.id)
                     agent.status = "restarting"
                     agent.last_error = result.message
+                    agent.profile_revision_applied = profile.revision
                 db.add(agent)
-            if running:
+            if restarted_agent_ids or failed_agent_ids:
                 db.commit()
 
         return {
             "bound_agent_count": len(agents),
             "running_agent_count": len(running),
             "restarted_agent_ids": restarted_agent_ids,
+            "pending_agent_ids": pending_agent_ids,
             "failed_agent_ids": failed_agent_ids,
         }

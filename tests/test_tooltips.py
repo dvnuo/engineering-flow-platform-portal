@@ -90,7 +90,7 @@ def test_disabled_buttons_get_their_reason_as_a_hint():
     assert "setTooltip(button, nextHint)" in CHAT_JS
 
 
-def test_registry_covers_the_jargon_heavy_settings_panel():
+def test_registry_covers_the_jargon_heavy_connector_panels():
     selectors = {entry[1] for entry in _registry_entries()}
     for name in (
         "llm_reasoning_effort",
@@ -100,7 +100,6 @@ def test_registry_covers_the_jargon_heavy_settings_panel():
         "confluence_enabled",
         "github_enabled",
         "git_user_name",
-        "debug_log_level",
     ):
         assert any(name in selector for selector in selectors), name
 
@@ -111,7 +110,7 @@ def test_registry_explains_the_products_own_vocabulary():
     assert "running workspace you chat with" in hints
     assert "runs on its own" in hints
     assert "start work automatically" in hints
-    assert "credentials and integrations" in hints
+    assert "every service your assistants can reach" in hints
 
 
 def test_no_registry_hint_merely_repeats_its_own_selector_id():

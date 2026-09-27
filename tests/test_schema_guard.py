@@ -33,6 +33,7 @@ def test_schema_guard_passes_when_agents_table_has_required_columns():
         Column("agent_settings_repo_url", String(512)),
         Column("agent_settings_branch", String(128)),
         Column("agent_settings_subdir", String(255)),
+        Column("profile_revision_applied", Integer),
     )
     metadata.create_all(engine)
 
@@ -59,6 +60,7 @@ def test_schema_guard_raises_with_actionable_message_when_columns_missing():
     except RuntimeError as exc:
         message = str(exc)
         assert "runtime_profile_id" in message
+        assert "profile_revision_applied" in message
         assert "alembic upgrade head" in message
     else:
         raise AssertionError("expected RuntimeError for missing agent columns")

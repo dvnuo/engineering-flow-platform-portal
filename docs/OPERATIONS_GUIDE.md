@@ -2,7 +2,7 @@
 
 This guide is for someone installing, administering, upgrading, or developing Engineering Flow Platform Portal for the first time. It describes the implementation at Git commit `021baaafdc3f2406540b467596c6ba961ad821d5`, with upload guidance updated for `78701fa`. Screenshots remain captures of `021baaa`. Commands are instructions to run in your own environment, not a claim that your environment has already been deployed or tested.
 
-For illustrated instructions on signing in, creating assistants, chatting, files, tasks, delegations, connections, and administration, start with the [Beginner Guide](BEGINNER_GUIDE.md). This companion explains what must run behind those screens.
+For illustrated instructions on signing in, creating assistants, chatting, files, tasks, delegations, connectors, and administration, start with the [Beginner Guide](BEGINNER_GUIDE.md). This companion explains what must run behind those screens.
 
 ## Contents
 
@@ -15,7 +15,7 @@ For illustrated instructions on signing in, creating assistants, chatting, files
 7. [Connect real assistant runtimes](#7-connect-real-assistant-runtimes)
 8. [Deploy to Kubernetes in the right order](#8-deploy-to-kubernetes-in-the-right-order)
 9. [Manage sign-in and member access](#9-manage-sign-in-and-member-access)
-10. [Configure engines, profiles, repositories, and resources](#10-configure-engines-profiles-repositories-and-resources)
+10. [Configure engines, connectors, repositories, and resources](#10-configure-engines-connectors-repositories-and-resources)
 11. [Provide local browser connectors](#11-provide-local-browser-connectors)
 12. [Monitor workers, logs, and availability](#12-monitor-workers-logs-and-availability)
 13. [Back up, upgrade, and recover](#13-back-up-upgrade-and-recover)
@@ -26,17 +26,17 @@ For illustrated instructions on signing in, creating assistants, chatting, files
 
 ## 1. Understand what you are installing
 
-Portal is the website and control plane. It keeps users, allowlist entries, assistant definitions, runtime profiles, tasks, delegation rules, and other metadata in its database. An assistant runtime is a separate service that performs AI work and owns its tools, skills, conversations, and workspace files. The browser normally talks to Portal; Portal forwards runtime requests through `/a/{agent_id}/...`.
+Portal is the website and control plane. It keeps users, allowlist entries, assistant definitions, each member's connector settings, tasks, delegation rules, and other metadata in its database. An assistant runtime is a separate service that performs AI work and owns its tools, skills, conversations, and workspace files. The browser normally talks to Portal; Portal forwards runtime requests through `/a/{agent_id}/...`.
 
 | Component | What it does | What you need |
 | --- | --- | --- |
 | Portal | Serves the website, authenticates members, manages assistants and tasks | Python dependencies or the Portal Docker image; a writable database |
 | Database | Stores Portal configuration and metadata | SQLite is the supplied default; persist and back up its file |
-| Kubernetes | Creates assistant Deployments, Services, and profile Secrets | A working cluster, access credentials, permissions, and storage |
+| Kubernetes | Creates assistant Deployments, Services, and per-member connector-settings Secrets | A working cluster, access credentials, permissions, and storage |
 | Runtime image | Runs the native EFP engine or the OpenCode adapter | An image compatible with the Portal/runtime contract |
 | Model provider | Supplies AI inference | Valid GitHub Copilot authorization or deployment-configured AI Platform credentials |
 | Runtime storage | Holds assistant workspaces and runtime state | A suitable persistent volume accessible from the runtime pods |
-| External connections | Let assistants use services such as GitHub, Jira, or Confluence | Service-specific credentials and network connectivity |
+| Connectors | Let assistants use services such as GitHub, Jira, or Confluence | Service-specific credentials and network connectivity |
 
 **A local Portal with `K8S_ENABLED=false` is useful for learning the interface and developing the control plane. It does not create a working AI runtime.** The disabled Kubernetes service can return a simulated `running` status without creating any pod. A green assistant status alone is therefore not proof that chat, skills, files, usage, or task execution work. A healthy runtime and provider are required for those features.
 
@@ -268,7 +268,7 @@ Before expecting an assistant to answer a prompt, arrange all of the following:
 2. A suitable runtime image for every enabled engine and image-registry access from cluster nodes.
 3. Persistent runtime storage and working DNS/networking from Portal to each assistant Service.
 4. Reachable agent-settings and skills repositories, with clone credentials if private.
-5. A runtime profile with valid model-provider authorization and any required external connections.
+5. A member whose **Model provider** connector has valid authorization, plus any other connectors the test needs.
 6. Runtime-to-Portal connectivity when your runtime uses Portal callbacks.
 
 The supported runtime markers are `native` and `opencode`. Both are presented through the Portal runtime contract; the OpenCode adapter's internal port is not the browser's entry point. See the [runtime contract](PORTAL_RUNTIME_CONTRACT.md) for request and ownership boundaries.
@@ -347,7 +347,7 @@ Prepare the Portal and assistant Secret examples through your normal private con
 | --- | --- | --- |
 | `efp-portal-secret` | `default` | Bootstrap administrator password; optional Portal source-clone and private branch-listing token |
 | `efp-agents-secret` | `efp-agents` | Optional settings/skills clone token; optional runtime `EFP_CONFIG_KEY` |
-| `efp-profile-{profile_id}` | `efp-agents` | Generated by Portal from saved runtime profiles; contains `config.json` and `revision` |
+| `efp-profile-{profile_id}` | `efp-agents` | Generated by Portal from a member's saved connector settings (one per member); contains `config.json` and `revision` |
 
 Do not commit live credentials in the sample YAML. Secret existence and Secret references are separate requirements: adding a key to a Secret does nothing until the relevant container references it.
 
@@ -414,12 +414,12 @@ For streaming chat and events, preserve long-lived SSE and WebSocket connections
 
 ### Step 6: Verify one real assistant end to end
 
-1. Sign in and configure a valid runtime profile using the [Beginner Guide](BEGINNER_GUIDE.md).
+1. Sign in and set up the **Model provider** connector using the [Beginner Guide](BEGINNER_GUIDE.md).
 2. Create one assistant with an enabled engine and start it.
 3. Check `kubectl get deployments,pods,services -n efp-agents` and confirm that actual resources appeared.
-4. Confirm the assistant pod becomes Ready. Runtime readiness checks use `GET /ready` on port 8000 and require successful boot-time profile projection.
+4. Confirm the assistant pod becomes Ready. Runtime readiness checks use `GET /ready` on port 8000 and require successful boot-time projection of the connector settings.
 5. Send a small prompt, wait for a real answer, and confirm that its session reopens.
-6. Upload and retrieve a harmless test file; then test a connection-dependent action only after configuring that connection.
+6. Upload and retrieve a harmless test file; then test a connector-dependent action only after setting up that connector.
 
 A Portal health response, a successful image pull, or a passing unit suite does not replace this live-runtime check.
 
@@ -431,7 +431,7 @@ A Portal health response, a successful image pull, or a passing unit suite does 
 | --- | --- | --- |
 | Administrator/password | Bootstrap settings; `/admlogin` | The account must exist and remain allowlisted. This is also the recovery entry point during external-login outages. |
 | Company SSO | `SSO_ISSUER_URL`, public `BASE_URI`, client settings | First successful external sign-in provisions an eligible member. The implementation derives Keycloak-style `/protocol/openid-connect/auth` and `/token` paths from the issuer. |
-| GitHub Copilot | `COPILOT_LOGIN_ENABLED=true`, GitHub connectivity, eligible GitHub account | Uses device authorization. First sign-in provisions an eligible member and stores the Copilot token on their default runtime profile. |
+| GitHub Copilot | `COPILOT_LOGIN_ENABLED=true`, GitHub connectivity, eligible GitHub account | Uses device authorization. First sign-in provisions an eligible member and stores the Copilot token in their Model provider connector. |
 
 Self-service password registration is removed. `GET /register` redirects to `/login`; there is no current `POST /api/auth/register` endpoint. Administrators can create password accounts through the users API when needed. The illustrated User Management workflow primarily manages membership, roles, and access.
 
@@ -457,7 +457,7 @@ Entries in `PORTAL_USER_ALLOWLIST` are reseeded/reactivated on startup. If you p
 
 The current session cookie is signed, HTTP-only, SameSite Lax, and long-lived. Logging out clears the browser cookie; allowlist removal and changing `SECRET_KEY` are separate access controls. Protect public access with the intended HTTPS and trusted-network deployment.
 
-## 10. Configure engines, profiles, repositories, and resources
+## 10. Configure engines, connectors, repositories, and resources
 
 ### Engine availability and images
 
@@ -472,17 +472,28 @@ The current session cookie is signed, HTTP-only, SameSite Lax, and long-lived. L
 
 Use `GET /api/agents/defaults` after sign-in to inspect the offered defaults and engine matrix. Existing assistants retain their stored engine; disabling a marker for new assistants does not convert them. Creating or switching to a disabled engine is rejected with HTTP 422.
 
-The Portal engine setting chooses a runtime implementation, not a model provider. This version's managed providers are **GitHub Copilot** and **AI Platform**. Unknown or legacy provider values are normalized by the profile policy; the authoritative catalog is [llm_catalog.py](../app/contracts/llm_catalog.py).
+The Portal engine setting chooses a runtime implementation, not a model provider. This version's managed providers are **GitHub Copilot** and **AI Platform**. Unknown or legacy provider values are normalized by the provider policy; the authoritative catalog is [llm_catalog.py](../app/contracts/llm_catalog.py).
 
-### Runtime profiles and default connections
+### Connectors and default connectors
 
-Members configure their runtime profiles in Portal. Profiles carry the model selection and connection settings used by bound assistants. The Portal saves and projects these settings; the runtime owns how its tools use them.
+Members set up **Connectors** in Portal: one connector per service (Model provider, Jira, Confluence, GitHub with the Git commit identity, Jenkins, Nexus, AWS, Splunk, PostgreSQL, BrowserStack, Proxy), plus the local browser. The service connectors are stored together as the member's single settings row (table `runtime_profiles`, one row per member), and every assistant the member owns uses it. There is no longer a way to give different assistants of the same member different settings. The Portal saves and projects these settings into the Secret `efp-profile-{id}`; the runtime owns how its tools use them. Runtime debug logging is always on (`debug.log_level: DEBUG` in the rendered Secret) and is not a member setting.
 
-**Saving a runtime profile can restart every running assistant bound to that profile.** Portal first synchronizes its Kubernetes Secret, then restarts bound running assistants so they read the new environment at boot. Schedule shared-profile changes accordingly and inspect the reported failed restarts. A Secret update alone does not change environment variables in an already running pod.
+**Saving a connector restarts the member's idle running assistants.** Portal first synchronizes the member's Kubernetes Secret, then restarts each running assistant that is idle so it reads the new environment at boot. An assistant that is busy (an active task, or an active chat/task execution that reported within the last two hours) is not interrupted: it keeps running with the old settings and shows **Restart to apply** in the assistant list and status card, and every connector panel shows a "Restart to apply your latest connector changes" notice with a **Restart** button per assistant. Stopped assistants pick the settings up at their next start. Inspect the save message for failed restarts. A Secret update alone does not change environment variables in an already running pod.
 
-The administrator's **Default Connections** configuration seeds new members' default profiles. It can contain connection shapes and shared service/team credentials. Members own their copied values and can view or replace them; they are not locked administrator-only fields. Later seed edits never update existing profiles. Treat a seeded credential as shared with every member whose profile received it.
+The administrator's **Default connectors** page (formerly Default Connections; same route `/app/admin/default-connections/panel` and API `/api/admin/runtime-profile-seed`) seeds each new member's connector settings. It can contain connection shapes and shared service/team credentials. Members own their copied values and can view or replace them; they are not locked administrator-only fields. Later seed edits never update existing members. Treat a seeded credential as shared with every member whose settings received it.
 
-Agent settings, runtime profiles, and test controls are illustrated in the [Beginner Guide](BEGINNER_GUIDE.md). A connection test checks a specific connection; it is not a full assistant task or evidence that every external service is reachable from every pod.
+`CONNECTORS_ENABLED` now only controls the local connectors (see [section 11](#11-provide-local-browser-connectors)); the Connectors menu and the service connectors are always available.
+
+#### Upgrading from multiple profiles
+
+Before this release a member could keep several named runtime profiles ("Connections") and bind each assistant to one. Migration `20260925_0036` collapses them to one per member:
+
+- It keeps the profile bound to the most assistants (ties: the member's default profile, then the most recently updated one) and rebinds all of that member's assistants to it.
+- It copies every other profile, with its full configuration, into the table `runtime_profiles_archived` (with `merged_into_profile_id` pointing at the kept row) before removing it from `runtime_profiles`. Nothing is lost; an operator can inspect or hand values back to a member from that table. Downgrading the migration does not restore archived profiles.
+- Assistants that were moved to the kept profile keep running on their old settings until they restart; once running they show **Restart to apply**.
+- The old Kubernetes Secrets `efp-profile-<archived id>` are left in place. A moved assistant's Deployment keeps referencing its old Secret until the assistant is restarted, which re-renders the Deployment env onto the kept profile's Secret. Delete an archived profile's Secret only after no Deployment references it.
+
+Connector panels and test controls are illustrated in the [Beginner Guide](BEGINNER_GUIDE.md). A connection test checks a specific connection; it is not a full assistant task or evidence that every external service is reachable from every pod.
 
 ### AI Platform deployment settings
 
@@ -499,11 +510,11 @@ Members provide their AI Platform username, password, and `usercase`. Operators 
 
 Without the deployment endpoints, selecting AI Platform and entering credentials is not a complete setup. Check the gateway contract and networking with its administrator.
 
-### Profile encryption
+### Connector-settings encryption
 
-If `EFP_CONFIG_KEY` is set in the **Portal process environment**, Portal encrypts sensitive values in generated runtime-profile Secret payloads as `ENC:` values. Runtime pods receive their copy from `efp-agents-secret.EFP_CONFIG_KEY`. Both must have the same key and compatible decryption support.
+If `EFP_CONFIG_KEY` is set in the **Portal process environment**, Portal encrypts sensitive values in generated connector-settings (runtime-profile) Secret payloads as `ENC:` values. Runtime pods receive their copy from `efp-agents-secret.EFP_CONFIG_KEY`. Both must have the same key and compatible decryption support.
 
-This setting is read directly from the process environment; unlike the Pydantic settings table, putting it only in the local `.env` file is not sufficient. Supply it through the process launcher or container environment. It encrypts selected fields in the generated Kubernetes payload, **not the entire Portal database**. Protect database backups as credential-bearing data. With the key unset, profile payload values remain plaintext. Encrypted values without the correct runtime key cause startup failure. Back up the key separately and plan rotation with profile Secret regeneration and runtime restarts.
+This setting is read directly from the process environment; unlike the Pydantic settings table, putting it only in the local `.env` file is not sufficient. Supply it through the process launcher or container environment. It encrypts selected fields in the generated Kubernetes payload, **not the entire Portal database**. Protect database backups as credential-bearing data. With the key unset, Secret payload values remain plaintext. Encrypted values without the correct runtime key cause startup failure. Back up the key separately and plan rotation with `efp-profile-*` Secret regeneration and runtime restarts.
 
 ### Agent-settings and skills repositories
 
@@ -524,7 +535,7 @@ Skills are complete packages, normally `<skill-name>/SKILL.md` plus their script
 
 Asset-version values are rollout markers, not Git revisions. Updating a tracked Git branch by itself does not guarantee an existing runtime pod reclones it; use the supported settings/rollout workflow and verify the resulting pod. Runtime source overlays and a separate tools-repository provisioning surface are not provided.
 
-Private business repositories used during an assistant task are checked out by the runtime on demand. Their authorization comes from the runtime profile/provider credentials. The broad init-clone `GIT_TOKEN` is not injected into runtime main containers as a general business-repository credential.
+Private business repositories used during an assistant task are checked out by the runtime on demand. Their authorization comes from the member's connector/provider credentials. The broad init-clone `GIT_TOKEN` is not injected into runtime main containers as a general business-repository credential.
 
 ### Resource and storage settings
 
@@ -566,7 +577,7 @@ OpenCode's deployment defaults include `DEFAULT_OPENCODE_PERMISSION_MODE=workspa
 
 ## 11. Provide local browser connectors
 
-`CONNECTORS_ENABLED=true` exposes the Connectors feature; setting it false disables its supported routes and menu entry. Local browser preferences belong to each member, separately from their Connections/runtime profile. The connector uses a program on that member's computer plus a relay in the open Portal browser tab.
+`CONNECTORS_ENABLED=true` offers the local connectors. Setting it false hides them: they disappear from the Connectors menu and `/api/connectors`, their API routes return 404, and the chat **Browser** toggle is not rendered. The Connectors menu itself and the service connectors (Jira, GitHub, and the rest) stay available. Local browser preferences belong to each member and are stored separately from their service connector settings (`user_connectors`, not the pod Secret). The connector uses a program on that member's computer plus a relay in the open Portal browser tab.
 
 The Portal repository does not build or bundle every platform's bridge binary. Supply the packages described in [the download directory guide](../app/static/downloads/README.md), or set `LOCAL_BROWSER_CLI_DOWNLOAD_URL` to a download URL. The optional `{platform}` placeholder expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64`.
 
@@ -610,7 +621,7 @@ Use a real pod name returned by the second command for `kubectl describe pod` an
 
 Portal HTTP responses include `X-Trace-Id`. Request logs include the method, path, status, duration, and trace ID; runtime work can also include task, dispatch, and agent identifiers. Record these IDs and the approximate time when reporting a problem. HTTP middleware duration measures time until response headers; a streaming chat continues after that. Use streaming/proxy timing and runtime logs to investigate a slow completion.
 
-Logs include redaction, but review exported diagnostic files before sharing them. Send the failing operation, status code, revision, and trace ID rather than a full `.env`, Secret, or runtime profile.
+Logs include redaction, but review exported diagnostic files before sharing them. Send the failing operation, status code, revision, and trace ID rather than a full `.env`, Secret, or connector settings.
 
 ### What to monitor
 
@@ -659,7 +670,7 @@ For Docker or Kubernetes, arrange a consistent backup of the mounted database an
 6. For local Python, install updated requirements, run `alembic upgrade head`, then start Portal. For the current Docker/Kubernetes image, the entrypoint migrates automatically **before** it starts serving.
 7. Verify the database revision, Portal health, login, member access, one real assistant, chat/session continuity, files, and a controlled task. Re-enable scheduled work after these checks.
 
-Startup also seeds access/default profiles and normalizes persisted runtime-profile data. The recovery point must precede the first startup of the upgraded application, not merely precede the manual migration command.
+Startup also seeds access entries, creates a connector-settings row for any member without one (binding their unbound assistants to it), and normalizes persisted connector-settings data. When upgrading across migration `20260925_0036`, read [Upgrading from multiple profiles](#upgrading-from-multiple-profiles) first. The recovery point must precede the first startup of the upgraded application, not merely precede the manual migration command.
 
 ### Recovery and rollback
 
@@ -679,18 +690,18 @@ Sign in in the same browser and origin before trying authenticated operations. A
 | Members | `/api/users`, `/api/users/admin-overview`, `/api/users/allowlist`, `/api/users/allowlist/bulk`, `/api/users/{user_id}` | Administrator-managed accounts, membership, roles, and usage overview |
 | Assistants | `/api/agents/defaults`, `/mine`, `/public`, `/status`, `/simple`, `/{agent_id}` under `/api/agents` | Defaults, lists, creation, editing, lifecycle, sharing, status, and deletion |
 | Assistant types | `/api/assistant-types`, `/api/assistant-types/{type_id}` | List and administrator-maintained creation presets |
-| Runtime profiles | `/api/runtime-profiles`, `/options`, `/sources`, `/{profile_id}` under `/api/runtime-profiles` | Profile CRUD and available profile sources |
-| Administrator settings | `/api/admin/agents`, `/api/admin/audit-logs`, `/api/admin/runtime-profile-seed` | All-assistant listing, audit records, default-profile seed |
+| Connector settings | `GET /api/runtime-profile`, `PATCH /api/runtime-profile` | The caller's own settings row as one document: `id`, `owner_user_id`, `config_json` (secrets redacted), `revision`, timestamps. `PATCH` takes `{config_json}` and applies the same Secret update and idle-restart policy as a connector save. Replaces the former `/api/runtime-profiles*` routes |
+| Administrator settings | `/api/admin/agents`, `/api/admin/audit-logs`, `/api/admin/runtime-profile-seed` | All-assistant listing, audit records, Default connectors seed |
 | Git repository lookup | `/api/git-repos/branches` | Branch discovery for repository-backed setup |
-| Connectors | `/api/connectors`, `/api/connectors/{connector_type}`, `/{connector_type}/verify` | Per-member connector configuration and verification |
-| Copilot connection | `/api/copilot/auth/start`, `/api/copilot/auth/check` | Authorize a provider connection for an authenticated member |
+| Connectors | `/api/connectors`, `/api/connectors/{connector_type}`, `/{connector_type}/verify` | Every connector's state for the member; configuration and verification of local connectors (service connectors are read-only here) |
+| Copilot authorization | `/api/copilot/auth/start`, `/api/copilot/auth/check` | Authorize the Model provider connector for an authenticated member |
 | Tasks | `/api/agent-tasks`, `/api/agent-tasks/async`, `/api/my/tasks`, `/api/agents/{agent_id}/tasks` | Create, list, dispatch, follow up, rerun, cancel, and inspect tasks |
 | Delegations | `/api/delegation-rules`, `/source-preview`, `/schedule-preview`, `/{rule_id}/run-once`, `/{rule_id}/runs`, `/{rule_id}/events` under `/api/delegation-rules` | Rule configuration, previews, execution history, and manual trigger |
 | Runtime capability catalog | `/api/runtime-capability-catalog/sync`, `/latest` | Synchronize and inspect runtime capability snapshots |
 | Runtime proxy | `/a/{agent_id}/{subpath}` | Forward runtime HTTP operations after Portal access checks |
 | Internal session metadata | `/api/internal/agents/{agent_id}/sessions/metadata`, `/api/internal/agents/{agent_id}/sessions/{session_id}/metadata` | Runtime callbacks and agent-scoped session metadata |
 
-The UI also uses `/app/...` HTML/form endpoints for panels, settings tests/saves, and chat submission. The runtime proxy is generic: OpenAPI does not expand every runtime-owned route, and WebSocket event streams are not regular Swagger operations. Consult the runtime repository/contract for those details.
+The UI also uses `/app/...` HTML/form endpoints for panels, connector saves and tests (`/app/connectors/{type}/panel`, `/save`, `/test/{target}`), and chat submission. The runtime proxy is generic: OpenAPI does not expand every runtime-owned route, and WebSocket event streams are not regular Swagger operations. Consult the runtime repository/contract for those details.
 
 The `/api/internal/...` session metadata handlers rely on the deployment's trusted-network boundary rather than the normal Portal member dependency. Keep these callback routes inside the intended trusted network; do not assume the word `internal` automatically makes a public ingress reject them. The registry identifies a session by **both** `agent_id` and `session_id`.
 
@@ -706,7 +717,7 @@ Create a development branch from the intended revision and use a separate databa
 | `app/api/` | JSON APIs and runtime proxy routes |
 | `app/schemas/` | Request/response validation |
 | `app/models/`, `app/repositories/` | Database models and data access |
-| `app/services/` | Provisioning, profiles, authentication, tasks, and workers |
+| `app/services/` | Provisioning, connectors, authentication, tasks, and workers |
 | `app/static/js/`, `app/static/css/` | Browser behavior and styles |
 | `app/static/lib/` | Vendored frontend libraries |
 | `alembic/versions/` | Ordered database schema migrations |
@@ -772,7 +783,7 @@ When changing database models, create and review the corresponding Alembic migra
 | Private repository branch list is empty/fails | Check Portal's `GIT_REPO_AUTH_PAT`, Git availability in the Portal image, network access, repository permissions, and branch lookup timeout. |
 | `CreateContainerConfigError` | Check whether the referenced `efp-profile-*` Secret exists and contains `config.json` and `revision`. A profile Secret is intentionally mandatory for startup. |
 | Runtime never becomes Ready or reports `ENC:` decryption failure | Compare the Portal's effective `EFP_CONFIG_KEY` with the runtime Secret key and verify compatible runtime decryption support. Check runtime logs without publishing secret values. |
-| Saved profile does not seem active | Check the save result, failed restarts, runtime readiness, and the applied profile revision. Running pods do not reread changed environment variables automatically. |
+| Saved connector does not seem active | Check the save message for busy or failed restarts, whether the assistant shows **Restart to apply**, runtime readiness, and the applied revision. Running pods do not reread changed environment variables automatically. |
 | AI Platform connection fails | Check centrally managed hosts/paths and member credentials/usercase. Test from the correct network location. |
 | Runtime proxy cannot resolve `svc.cluster.local` | Portal outside the cluster may lack cluster DNS/routing. Use a supported reachable service arrangement; for NodePort export the reachable Kubernetes node IP in the Portal process environment, not just `.env`. |
 | Chat disconnects during long work | Check ingress/proxy timeouts and streaming/WebSocket support, then runtime logs. A responsive health endpoint does not prove a stream stayed open. |

@@ -1,0 +1,16 @@
+{% from "partials/connectors/_macros.html" import setup_guide with context %}
+{% from "partials/runtime_profile_instance_cards.html" import troubleshooting_instance_cards %}
+<section class="portal-panel-section" data-instance-group="splunk" id="profile-section-splunk" data-managed-section="splunk">
+      {{ setup_guide('splunk') }}
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable Splunk">
+              <input type="checkbox" name="splunk_enabled" {% if splunk.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="splunk_default_instance" value="{{ splunk.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      {{ troubleshooting_instance_cards('splunk', 'Splunk', splunk_instances, troubleshooting_cards) }}
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="splunk">+ Add Splunk Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="splunk">Test Splunk</button><div class="portal-inline-state" data-test-result="splunk"></div></div>
+    </section>

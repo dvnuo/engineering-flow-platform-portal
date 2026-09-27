@@ -26,21 +26,22 @@ import pytest
 from _js_extract_helpers import _extract_js_function, _extract_js_helper_block
 
 
-def test_agent_settings_panel():
-    """Test agent settings panel."""
+def test_removed_agent_settings_and_runtime_profile_routes_are_not_registered():
+    """Settings live in Connectors now: the per-assistant and per-profile panels are gone."""
     from app.main import app
     client = TestClient(app)
-    response = client.get("/app/agents/agent-123/settings/panel")
-    assert response.status_code in [200, 302, 401, 403, 404]
-
-
-def test_agent_settings_save():
-    """Test agent settings save."""
-    from app.main import app
-    client = TestClient(app)
-    response = client.post("/app/agents/agent-123/settings/save", 
-                         json={"llm": {"provider": "openai"}})
-    assert response.status_code in [200, 302, 400, 401, 403, 404]
+    for path in (
+        "/app/agents/agent-123/settings/panel",
+        "/app/runtime-profiles/profile-1/panel",
+    ):
+        assert client.get(path).status_code == 404, path
+    for path in (
+        "/app/agents/agent-123/settings/save",
+        "/app/agents/agent-123/settings/test/jira",
+        "/app/runtime-profiles/profile-1/save",
+        "/app/runtime-profiles/profile-1/test/jira",
+    ):
+        assert client.post(path, data={"llm_provider": "github_copilot"}).status_code == 404, path
 
 
 
@@ -123,7 +124,12 @@ def test_managed_settings_initializer_hooks_present():
     assert "function initializeManagedSettingsPanels()" in js
     assert 'target?.id === "workspace-detail-content"' in js
     assert "initializeManagedSettingsPanels();" in js
-    assert "loadRuntimeProfilePanelContent(profileId, { updateRoute: false })" in js
+    initializer = _extract_js_function(js, "initializeManagedSettingsPanels")
+    assert 'document.getElementById("connector-settings-panel-root")' in initializer
+    assert 'document.getElementById("default-connections-panel-root")' in initializer
+    load_connector = _extract_js_function(js, "loadConnectorPanelContent")
+    assert "/app/connectors/${encodeURIComponent(connectorType)}/panel" in load_connector
+    assert "initializeManagedSettingsPanels()" in load_connector
 
 
 def test_chat_ui_layout_persistence_source_markers_present():
@@ -967,273 +973,6 @@ console.log(JSON.stringify({{
     assert data["mapB"] == "s-b"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Node harness drift: the chat_ui.js functions this extracts gained "
-        "dependencies the harness never stubbed (setSelectedStatusText, added "
-        "in #370). Never caught because the file sat outside CI's old test list "
-        "and skips wherever node is absent. Tracked, not ignored."
-    ),
-    strict=False,
-)
-def test_chat_ui_set_active_nav_section_runtime_profiles_prefers_default_and_empty_placeholder():
-    node_bin = shutil.which("node")
-    if not node_bin:
-        pytest.skip("node is not installed; skipping JS helper behavior test")
-
-    js_file = _chat_ui_js_source()
-    set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
-    load_runtime_profile_panel_content_fn = _extract_js_function(js_file, "loadRuntimeProfilePanelContent")
-
-    script = f"""
-{load_runtime_profile_panel_content_fn}
-{set_active_nav_section_fn}
-
-function noop() {{}}
-function makeToggleObj() {{
-  return {{
-    classList: {{
-      toggle: noop,
-    }},
-  }};
-}}
-
-const dom = {{
-  railAssistantsBtn: makeToggleObj(),
-  tasksMenuBtn: makeToggleObj(),
-  runtimeProfilesMenuBtn: makeToggleObj(),
-  assistantsNavSection: makeToggleObj(),
-  tasksNavSection: makeToggleObj(),
-  runtimeProfilesNavSection: makeToggleObj(),
-  workspaceDetailContent: {{
-    dataset: {{
-      workspaceState: "idle",
-    }},
-  }},
-}};
-
-const state = {{}};
-let renderedProfileListCount = 0;
-let refreshedProfileCount = 0;
-let loadedProfileIds = [];
-let placeholderMessages = [];
-
-function applySecondaryPaneState() {{}}
-function renderSecondaryPaneHeader() {{}}
-function syncMainHeader() {{}}
-function showAssistantDefaultMainView() {{
-  dom.workspaceDetailContent.dataset.workspaceState = "assistant-default";
-}}
-function showTasksLoadingMainView() {{}}
-async function loadTaskOverviewPanel() {{}}
-async function loadDelegationOverviewPanel() {{}}
-async function refreshMyTasks() {{}}
-async function htmxAjax(_method, url) {{
-  loadedProfileIds.push(url.split("/")[3]);
-}}
-const htmx = {{ ajax: htmxAjax }};
-function setMainView(_view) {{}}
-function renderRuntimeProfileList() {{
-  renderedProfileListCount += 1;
-}}
-function renderWorkspaceDetailPlaceholder(message, workspaceState) {{
-  placeholderMessages.push(message);
-  dom.workspaceDetailContent.dataset.workspaceState = workspaceState || "runtime-profiles-placeholder";
-}}
-async function refreshRuntimeProfileList() {{
-  refreshedProfileCount += 1;
-  renderRuntimeProfileList();
-}}
-
-async function runWithProfiles() {{
-  renderedProfileListCount = 0;
-  refreshedProfileCount = 0;
-  loadedProfileIds = [];
-  placeholderMessages = [];
-  Object.assign(state, {{
-    activeNavSection: "assistants",
-    secondaryPaneCollapsed: false,
-    selectedRuntimeProfileId: "custom-1",
-    runtimeProfiles: [
-      {{ id: "reviewer-2", name: "Reviewer", is_default: false, revision: 1 }},
-      {{ id: "default-1", name: "Default", is_default: true, revision: 3 }},
-    ],
-  }});
-  await setActiveNavSection("runtime-profiles", {{ toggleIfSame: false }});
-  return {{
-    selectedRuntimeProfileId: state.selectedRuntimeProfileId,
-    loadedProfileIds,
-    renderedProfileListCount,
-    refreshedProfileCount,
-    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
-    placeholderMessages,
-  }};
-}}
-
-async function runEmptyProfiles() {{
-  renderedProfileListCount = 0;
-  refreshedProfileCount = 0;
-  loadedProfileIds = [];
-  placeholderMessages = [];
-  Object.assign(state, {{
-    activeNavSection: "assistants",
-    secondaryPaneCollapsed: false,
-    selectedRuntimeProfileId: null,
-    runtimeProfiles: [],
-  }});
-  await setActiveNavSection("runtime-profiles", {{ toggleIfSame: false }});
-  return {{
-    selectedRuntimeProfileId: state.selectedRuntimeProfileId,
-    loadedProfileIds,
-    renderedProfileListCount,
-    refreshedProfileCount,
-    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
-    placeholderMessages,
-  }};
-}}
-
-(async () => {{
-  const result = {{
-    withProfiles: await runWithProfiles(),
-    emptyProfiles: await runEmptyProfiles(),
-  }};
-  console.log(JSON.stringify(result));
-}})().catch((error) => {{
-  console.error(error);
-  process.exit(1);
-}});
-"""
-
-    completed = subprocess.run(
-        [node_bin, "-e", script],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    data = json.loads(completed.stdout)
-
-    assert data["withProfiles"]["selectedRuntimeProfileId"] == "default-1"
-    assert data["withProfiles"]["loadedProfileIds"] == ["default-1"]
-    assert data["withProfiles"]["refreshedProfileCount"] == 1
-    assert data["withProfiles"]["workspaceState"] == "runtime-profile-detail"
-    assert data["withProfiles"]["placeholderMessages"] in ([], ["Loading runtime profiles…"])
-
-    assert data["emptyProfiles"]["selectedRuntimeProfileId"] is None
-    assert data["emptyProfiles"]["loadedProfileIds"] == []
-    assert data["emptyProfiles"]["workspaceState"] == "runtime-profiles-placeholder"
-    assert any("No runtime profiles found." in msg for msg in data["emptyProfiles"]["placeholderMessages"])
-
-
-def test_chat_ui_runtime_profiles_reopen_prefers_default_profile():
-    node_bin = shutil.which("node")
-    if not node_bin:
-        pytest.skip("node is not installed; skipping JS helper behavior test")
-
-    js_file = _chat_ui_js_source()
-    set_active_nav_section_fn = _extract_js_function(js_file, "setActiveNavSection")
-    load_runtime_profile_panel_content_fn = _extract_js_function(js_file, "loadRuntimeProfilePanelContent")
-
-    script = f"""
-{load_runtime_profile_panel_content_fn}
-{set_active_nav_section_fn}
-
-function noop() {{}}
-function makeToggleObj() {{
-  return {{
-    classList: {{
-      toggle: noop,
-    }},
-  }};
-}}
-
-const dom = {{
-  railAssistantsBtn: makeToggleObj(),
-  tasksMenuBtn: makeToggleObj(),
-  runtimeProfilesMenuBtn: makeToggleObj(),
-  assistantsNavSection: makeToggleObj(),
-  tasksNavSection: makeToggleObj(),
-  runtimeProfilesNavSection: makeToggleObj(),
-  workspaceDetailContent: {{
-    dataset: {{
-      workspaceState: "idle",
-    }},
-  }},
-}};
-
-const state = {{
-  activeNavSection: "runtime-profiles",
-  secondaryPaneCollapsed: false,
-  selectedRuntimeProfileId: "custom-1",
-  runtimeProfiles: [
-    {{ id: "reviewer-2", name: "Reviewer", is_default: false, revision: 1 }},
-    {{ id: "default-1", name: "Default", is_default: true, revision: 3 }},
-  ],
-}};
-let loadedProfileIds = [];
-
-function applySecondaryPaneState() {{}}
-function renderSecondaryPaneHeader() {{}}
-function syncMainHeader() {{}}
-function showAssistantDefaultMainView() {{}}
-function showTasksLoadingMainView() {{}}
-async function loadTaskOverviewPanel() {{}}
-async function loadDelegationOverviewPanel() {{}}
-async function refreshMyTasks() {{}}
-function renderRuntimeProfileList() {{}}
-function renderWorkspaceDetailPlaceholder(_message, workspaceState) {{
-  dom.workspaceDetailContent.dataset.workspaceState = workspaceState || "runtime-profiles-placeholder";
-}}
-async function refreshRuntimeProfileList() {{}}
-const htmx = {{
-  ajax: async function(_method, url) {{
-    loadedProfileIds.push(url.split("/")[3]);
-  }}
-}};
-function setMainView(_view) {{}}
-
-async function run() {{
-  loadedProfileIds = [];
-  await setActiveNavSection("runtime-profiles");
-  const afterCollapse = {{
-    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
-    loadedProfileIds: [...loadedProfileIds],
-  }};
-
-  loadedProfileIds = [];
-  await setActiveNavSection("runtime-profiles");
-  const afterReopen = {{
-    secondaryPaneCollapsed: state.secondaryPaneCollapsed,
-    selectedRuntimeProfileId: state.selectedRuntimeProfileId,
-    loadedProfileIds: [...loadedProfileIds],
-    workspaceState: dom.workspaceDetailContent.dataset.workspaceState,
-  }};
-
-  console.log(JSON.stringify({{ afterCollapse, afterReopen }}));
-}}
-
-run().catch((error) => {{
-  console.error(error);
-  process.exit(1);
-}});
-"""
-
-    completed = subprocess.run(
-        [node_bin, "-e", script],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    data = json.loads(completed.stdout)
-
-    assert data["afterCollapse"]["secondaryPaneCollapsed"] is True
-    assert data["afterCollapse"]["loadedProfileIds"] == []
-
-    assert data["afterReopen"]["secondaryPaneCollapsed"] is False
-    assert data["afterReopen"]["selectedRuntimeProfileId"] == "default-1"
-    assert data["afterReopen"]["loadedProfileIds"] == ["default-1"]
-    assert data["afterReopen"]["workspaceState"] == "runtime-profile-detail"
-
-
 def test_copilot_auth_no_runtime_proxy_strings():
     js = _chat_ui_js_source()
     assert "/a/${agentId}/api/copilot/auth/start" not in js
@@ -1873,5 +1612,5 @@ global.fetch = fetch;
 
     assert data["apiKey"] == "gho_SECRET1234"
     assert data["touchFlag"] == "1"
-    assert data["summaryText"] == "Authorization complete. API Key field has been filled. Click Save Settings to persist."
-    assert any("Click Save Settings to persist" in msg for msg in data["toasts"])
+    assert data["summaryText"] == "Authorization complete. API Key field has been filled. Click Save to keep it."
+    assert any("Click Save to keep it" in msg for msg in data["toasts"])

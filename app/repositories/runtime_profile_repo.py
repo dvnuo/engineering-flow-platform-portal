@@ -21,45 +21,14 @@ class RuntimeProfileRepository:
     def list_all(self) -> list[RuntimeProfile]:
         return list(self.db.scalars(select(RuntimeProfile).order_by(RuntimeProfile.created_at.desc())).all())
 
+    def get_for_owner(self, owner_user_id: int) -> RuntimeProfile | None:
+        """The member's settings row (one per member, uq_runtime_profiles_owner)."""
 
-
-    def list_by_owner(self, owner_user_id: int) -> list[RuntimeProfile]:
-        query = (
-            select(RuntimeProfile)
-            .where(RuntimeProfile.owner_user_id == owner_user_id)
-            .order_by(RuntimeProfile.is_default.desc(), RuntimeProfile.created_at.asc(), RuntimeProfile.id.asc())
-        )
-        return list(self.db.scalars(query).all())
-
-    def list_by_owner_newest_first(self, owner_user_id: int) -> list[RuntimeProfile]:
-        query = (
-            select(RuntimeProfile)
-            .where(RuntimeProfile.owner_user_id == owner_user_id)
-            .order_by(RuntimeProfile.created_at.desc(), RuntimeProfile.id.desc())
-        )
-        return list(self.db.scalars(query).all())
-
-    def get_by_id_for_owner(self, profile_id: str, owner_user_id: int) -> RuntimeProfile | None:
-        return self.db.scalar(
-            select(RuntimeProfile).where(
-                and_(
-                    RuntimeProfile.id == profile_id,
-                    RuntimeProfile.owner_user_id == owner_user_id,
-                )
-            )
-        )
-
-    def get_default_for_owner(self, owner_user_id: int) -> RuntimeProfile | None:
         return self.db.scalar(
             select(RuntimeProfile)
-            .where(and_(RuntimeProfile.owner_user_id == owner_user_id, RuntimeProfile.is_default.is_(True)))
+            .where(RuntimeProfile.owner_user_id == owner_user_id)
             .order_by(RuntimeProfile.created_at.asc(), RuntimeProfile.id.asc())
-        )
-
-    def count_by_owner(self, owner_user_id: int) -> int:
-        return int(
-            self.db.scalar(select(func.count()).select_from(RuntimeProfile).where(RuntimeProfile.owner_user_id == owner_user_id))
-            or 0
+            .limit(1)
         )
 
     def save(self, profile: RuntimeProfile) -> RuntimeProfile:

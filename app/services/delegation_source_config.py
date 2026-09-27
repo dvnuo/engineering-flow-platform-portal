@@ -210,10 +210,10 @@ def _load_agent_runtime_profile_config(db: Session, agent_id: str):
         return None, None, {}, "Target agent was deleted"
     runtime_profile_id = getattr(agent, "runtime_profile_id", None)
     if not runtime_profile_id:
-        return agent, None, {}, "The selected assistant has no connection profile"
+        return agent, None, {}, "The selected assistant has no connector settings"
     profile = RuntimeProfileRepository(db).get_by_id(runtime_profile_id)
     if not profile:
-        return agent, None, {}, "The selected assistant's connection profile is missing"
+        return agent, None, {}, "The selected assistant's connector settings are missing"
     try:
         config = json.loads(profile.config_json or "{}")
     except json.JSONDecodeError:

@@ -1,4 +1,4 @@
-"""Per-connection setup instructions shown next to each Connections section.
+"""Setup instructions shown in each settings connector's panel (Connectors menu).
 
 The seed fills in *what* a member's connection points at; this fills in *where
 to get the credential and what to paste*. Both halves are needed before "pick a
@@ -161,12 +161,6 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
 }
 
 
-# Sections a member has to complete before the assistant can do useful work.
-# Reported as a checklist so Connections reads as a task with an end, not an
-# open-ended form.
-TRACKED_SECTIONS = ("llm", "jira", "confluence", "github")
-
-
 def guidance_for(section: str) -> dict[str, Any] | None:
     return CONNECTION_GUIDANCE.get(section)
 
@@ -175,47 +169,7 @@ def all_guidance() -> dict[str, dict[str, Any]]:
     return CONNECTION_GUIDANCE
 
 
-def _section_has_credential(section: str, config: dict) -> bool:
-    """Whether the member has supplied their own credential for this section."""
-
-    value = config.get(section)
-    if not isinstance(value, dict):
-        return False
-    if section == "llm":
-        if str(value.get("provider") or "") == "ai_platform":
-            auth = value.get("ai_platform", {}).get("auth", {}) if isinstance(value.get("ai_platform"), dict) else {}
-            return bool(str(auth.get("password") or "").strip())
-        return bool(str(value.get("api_key") or "").strip())
-    if section == "github":
-        return bool(str(value.get("api_token") or "").strip())
-    instances = value.get("instances")
-    if isinstance(instances, list):
-        return any(
-            isinstance(item, dict) and (str(item.get("token") or "").strip() or str(item.get("password") or "").strip())
-            for item in instances
-        )
-    return False
-
-
-def _section_is_offered(section: str, config: dict) -> bool:
-    """Whether this section is worth asking about at all.
-
-    The LLM is always required. Everything else only appears on the checklist
-    when the admin seeded it or the member turned it on, so a team that does not
-    use Confluence never sees an unfinishable step.
-    """
-    if section == "llm":
-        return True
-    value = config.get(section)
-    if not isinstance(value, dict):
-        return False
-    if value.get("enabled"):
-        return True
-    instances = value.get("instances")
-    return bool(isinstance(instances, list) and instances)
-
-
-# Connectors are not runtime-profile sections (they never enter a pod), so they
+# Local connectors run on the member's own PC and never enter a pod, so they
 # get their own table. The panel under Connectors and the Help topic render the
 # same entry, which is why the steps and the troubleshooting lines live here.
 CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
@@ -242,30 +196,3 @@ CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
         "help_label": None,
     },
 }
-
-
-def connection_checklist(config: dict) -> dict[str, Any]:
-    """Build the Connections progress checklist for one profile config."""
-
-    config = config if isinstance(config, dict) else {}
-    sections = []
-    for section in TRACKED_SECTIONS:
-        if not _section_is_offered(section, config):
-            continue
-        guidance = CONNECTION_GUIDANCE.get(section, {})
-        sections.append(
-            {
-                "section": section,
-                "label": guidance.get("title") or section.title(),
-                "connected": _section_has_credential(section, config),
-            }
-        )
-    connected = sum(1 for item in sections if item["connected"])
-    return {
-        # Deliberately not named "items": Jinja resolves dict.items to the
-        # built-in method, which silently breaks the template loop.
-        "sections": sections,
-        "connected": connected,
-        "total": len(sections),
-        "complete": bool(sections) and connected == len(sections),
-    }

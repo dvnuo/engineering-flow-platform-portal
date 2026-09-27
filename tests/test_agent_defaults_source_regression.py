@@ -36,7 +36,9 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert 'name="repo_url"' not in html
     assert 'name="branch"' not in html
     assert 'data-create-step-panel="runtime"' in html
-    assert 'data-create-step-panel="profile"' in html
+    # Connector settings are per member, so the wizard has no profile step.
+    assert 'data-create-step-panel="profile"' not in html
+    assert 'id="create-runtime-profile-select"' not in html
     assert 'data-create-step-panel="instructions"' in html
     assert 'data-create-step-panel="skills"' in html
     assert 'data-create-step-panel="review"' in html
@@ -59,7 +61,7 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "Skill pack branch" in html
     assert "Open Runtime Profiles" not in html
     assert 'id="create-runtime-profile-open"' not in html
-    assert "Manage connection profiles from the Connections section" in html
+    assert "Manage connection profiles from the Connections section" not in html
     assert 'id="create-agent-settings-branch-select"' in html
     assert 'id="create-skill-branch-select"' in html
     assert "create-agent-settings-branch-list" not in html
@@ -95,7 +97,10 @@ def test_skill_repo_ui_fields_and_payload_regression():
     assert "edit-runtime-type-select" not in html
     assert "edit-runtime-type-display" in html
     assert 'data-edit-step-panel="runtime"' in html
-    assert 'data-edit-step-panel="profile"' in html
+    assert 'data-edit-step-panel="profile"' not in html
+    assert 'id="edit-runtime-profile-select"' not in html
+    assert 'const CREATE_AGENT_STEPS = ["runtime", "instructions", "skills", "review"];' in js
+    assert 'const EDIT_AGENT_STEPS = ["runtime", "instructions", "skills", "review"];' in js
     assert 'data-edit-step-panel="instructions"' in html
     assert 'data-edit-step-panel="skills"' in html
     assert 'data-edit-step-panel="review"' in html

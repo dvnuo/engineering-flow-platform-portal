@@ -20,14 +20,9 @@
         {% endif %}
       </div>
       <div class="portal-rail-bottom">
-        <button id="runtime-profiles-menu-btn" class="portal-rail-btn" type="button" title="Connections">
-          <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
-        </button>
-        {% if connectors_enabled %}
         <button id="connectors-menu-btn" class="portal-rail-btn" type="button" title="Connectors">
           <i data-lucide="plug-zap" class="w-5 h-5"></i>
         </button>
-        {% endif %}
         <button id="help-btn" class="portal-rail-btn" type="button" title="Help" aria-label="Help">
           <i data-lucide="circle-help" class="w-5 h-5"></i>
         </button>
@@ -54,9 +49,6 @@
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
             <button id="add-task-btn" class="toolbar-icon-btn hidden" type="button" title="Create Task">
-              <i data-lucide="plus" class="w-5 h-5"></i>
-            </button>
-            <button id="add-runtime-profile-btn" class="toolbar-icon-btn hidden" type="button" title="Create connection profile">
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
             <button id="add-delegation-btn" class="toolbar-icon-btn hidden" type="button" title="Create Delegation">
@@ -100,14 +92,9 @@
           </div>
           <div id="task-nav-list" class="portal-secondary-list-body"></div>
         </section>
-        <section id="runtime-profiles-nav-section" class="portal-secondary-section hidden">
-          <div id="runtime-profile-nav-list" class="portal-secondary-list-body"></div>
-        </section>
-        {% if connectors_enabled %}
         <section id="connectors-nav-section" class="portal-secondary-section hidden">
           <div id="connector-nav-list" class="portal-secondary-list-body"></div>
         </section>
-        {% endif %}
         <section id="delegations-nav-section" class="portal-secondary-section hidden">
           <div class="portal-list-tools" aria-label="Delegation filters">
             <div class="portal-list-tool-row">
@@ -173,11 +160,11 @@
             <button id="default-connections-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
                     data-admin-panel="default-connections"
                     data-admin-panel-url="/app/admin/default-connections/panel"
-                    data-admin-panel-title="Default connections">
+                    data-admin-panel-title="Default connectors">
               <i data-lucide="plug" class="w-5 h-5"></i>
               <span class="portal-admin-nav-copy">
-                <strong>Default Connections</strong>
-                <small>Connection shape new members inherit</small>
+                <strong>Default connectors</strong>
+                <small>Connector settings new members start with</small>
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
@@ -435,43 +422,6 @@
 
 </div>
 
-<div id="create-runtime-profile-modal" class="modal hidden" aria-hidden="true">
-  <div class="modal-card panel">
-    <div class="portal-modal-titlebar">
-      <h3>Create connection profile</h3>
-      <button id="close-create-runtime-profile-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
-    </div>
-    <form id="create-runtime-profile-form" class="stack">
-      <div>
-        <label>Name</label>
-        <input name="name" required />
-      </div>
-      <div>
-        <label>Description</label>
-        <input name="description" />
-      </div>
-      <div>
-        <label for="create-runtime-profile-source">Start this profile with</label>
-        <select id="create-runtime-profile-source" name="source">
-          <option value="blank">Nothing - I&#39;ll set it up myself</option>
-        </select>
-        <span id="create-runtime-profile-source-detail" class="portal-inline-note"></span>
-      </div>
-      <div class="portal-checkbox-row">
-        <label class="toggle-switch">
-          <input type="checkbox" name="is_default" />
-          <span class="toggle-slider"></span>
-        </label>
-        <span>Set as default</span>
-      </div>
-      <div class="flex justify-end gap-2">
-        <button type="submit" class="portal-btn is-primary">Create</button>
-      </div>
-      <p id="create-runtime-profile-msg" class="portal-modal-feedback"></p>
-    </form>
-  </div>
-</div>
-
 <div id="create-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel create-agent-wizard-card">
     <div class="portal-modal-titlebar">
@@ -485,20 +435,16 @@
           <span class="create-agent-step-index">1</span>
           <span class="create-agent-step-label">Engine</span>
         </li>
-        <li class="create-agent-step" data-create-step-indicator="profile">
-          <span class="create-agent-step-index">2</span>
-          <span class="create-agent-step-label">Connections</span>
-        </li>
         <li class="create-agent-step" data-create-step-indicator="instructions">
-          <span class="create-agent-step-index">3</span>
+          <span class="create-agent-step-index">2</span>
           <span class="create-agent-step-label">Behavior</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="skills">
-          <span class="create-agent-step-index">4</span>
+          <span class="create-agent-step-index">3</span>
           <span class="create-agent-step-label">Skills</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="review">
-          <span class="create-agent-step-index">5</span>
+          <span class="create-agent-step-index">4</span>
           <span class="create-agent-step-label">Review</span>
         </li>
       </ol>
@@ -540,15 +486,6 @@
           </div>
           <p id="create-runtime-type-hint" class="portal-modal-copy"></p>
         </fieldset>
-      </section>
-
-      <section class="create-agent-step-panel hidden" data-create-step-panel="profile">
-        <div>
-          <label>Connections profile</label>
-          <select name="runtime_profile_id" id="create-runtime-profile-select"></select>
-        </div>
-        <p id="create-runtime-profile-empty" class="portal-inline-state is-warning hidden">No connection profiles available. Create one from Connections before creating an assistant.</p>
-        <p class="portal-modal-copy">Manage connection profiles from the Connections section before creating an assistant.</p>
       </section>
 
       <section class="create-agent-step-panel hidden" data-create-step-panel="instructions">
@@ -613,20 +550,16 @@
           <span class="create-agent-step-index">1</span>
           <span class="create-agent-step-label">Engine</span>
         </li>
-        <li class="create-agent-step" data-edit-step-indicator="profile">
-          <span class="create-agent-step-index">2</span>
-          <span class="create-agent-step-label">Connections</span>
-        </li>
         <li class="create-agent-step" data-edit-step-indicator="instructions">
-          <span class="create-agent-step-index">3</span>
+          <span class="create-agent-step-index">2</span>
           <span class="create-agent-step-label">Behavior</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="skills">
-          <span class="create-agent-step-index">4</span>
+          <span class="create-agent-step-index">3</span>
           <span class="create-agent-step-label">Skills</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="review">
-          <span class="create-agent-step-index">5</span>
+          <span class="create-agent-step-index">4</span>
           <span class="create-agent-step-label">Review</span>
         </li>
       </ol>
@@ -641,15 +574,6 @@
           <div id="edit-runtime-type-display" class="portal-readonly-field">native</div>
           <p class="portal-modal-copy">The engine is fixed after creation.</p>
         </div>
-      </section>
-
-      <section class="create-agent-step-panel hidden" data-edit-step-panel="profile">
-        <div>
-          <label>Connections profile</label>
-          <select name="runtime_profile_id" id="edit-runtime-profile-select"></select>
-        </div>
-        <p id="edit-runtime-profile-empty" class="portal-inline-state is-warning hidden">No connection profiles available. Create one from Connections before saving this assistant.</p>
-        <p class="portal-modal-copy">Manage connection profiles from the Connections section before updating an assistant.</p>
       </section>
 
       <section class="create-agent-step-panel hidden" data-edit-step-panel="instructions">
@@ -756,8 +680,8 @@
         <dd>Your own workspace to chat with. It keeps its history and files.</dd>
         <dt>Task</dt>
         <dd>Work you hand over to run on its own while you do something else.</dd>
-        <dt>Connections</dt>
-        <dd>Your Jira, Confluence, and GitHub accounts. You supply your own credentials.</dd>
+        <dt>Connectors</dt>
+        <dd>Your model provider, Jira, GitHub and the other services assistants can use, each set up once for all of them.</dd>
       </dl>
     </section>
 

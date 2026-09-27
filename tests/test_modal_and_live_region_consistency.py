@@ -24,7 +24,6 @@ CSS = Path("app/static/css/app.css").read_text(encoding="utf-8")
     [
         ("create-modal", "close-create-modal"),
         ("edit-modal", "close-edit-modal"),
-        ("create-runtime-profile-modal", "close-create-runtime-profile-modal"),
         ("message-edit-modal", "close-message-edit-modal"),
     ],
 )

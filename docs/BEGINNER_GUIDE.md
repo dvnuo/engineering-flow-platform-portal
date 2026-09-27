@@ -4,9 +4,9 @@ This guide takes you from your first sign-in to everyday work with assistants, f
 
 **Audience:** members and administrators of Engineering Flow Platform Portal. If you need to install Portal, begin with the [Operations Guide](OPERATIONS_GUIDE.md), then return here.
 
-**Version:** reviewed against GitHub `master` commit `021baaafdc3f2406540b467596c6ba961ad821d5` on September 17, 2026, with upload guidance updated for `78701fa`. Buttons and available capabilities can vary with your account, enabled engine, runtime version, and administrator's settings.
+**Version:** reviewed against GitHub `master` commit `021baaafdc3f2406540b467596c6ba961ad821d5` on September 17, 2026, with upload guidance updated for `78701fa` and connector guidance updated for `9b0509f` (Connectors replace Connections). Buttons and available capabilities can vary with your account, enabled engine, runtime version, and administrator's settings.
 
-**About the screenshots:** these are actual captures of Portal revision `021baaa` running locally with a separate demonstration database and a fictional `guide-admin` account. They predate the attachment-card update in `78701fa`. No real service credentials, Kubernetes runtime, model response, or browser bridge were used. The pictures demonstrate the interface and setup forms; a `Running` label in this local mode is not proof of a working AI connection. Runtime-dependent steps below describe what to do on a configured deployment. See [screenshot provenance](screenshots/README.md).
+**About the screenshots:** these are actual captures of Portal revision `021baaa` running locally with a separate demonstration database and a fictional `guide-admin` account. They predate the attachment-card update in `78701fa` and the Connectors change in `9b0509f`: the rail in these captures still has a separate Connections button, which no longer exists, and figures that show the old Connections screens say so. No real service credentials, Kubernetes runtime, model response, or browser bridge were used. The pictures demonstrate the interface and setup forms; a `Running` label in this local mode is not proof of a working AI connection. Runtime-dependent steps below describe what to do on a configured deployment. See [screenshot provenance](screenshots/README.md).
 
 ## Contents
 
@@ -15,7 +15,7 @@ This guide takes you from your first sign-in to everyday work with assistants, f
 3. [Sign in](#3-sign-in)
 4. [Find your way around](#4-find-your-way-around)
 5. [Create your first assistant](#5-create-your-first-assistant)
-6. [Set up Connections](#6-set-up-connections)
+6. [Set up Connectors](#6-set-up-connectors)
 7. [Have your first conversation](#7-have-your-first-conversation)
 8. [Use skills and run settings](#8-use-skills-and-run-settings)
 9. [Manage sessions and context](#9-manage-sessions-and-context)
@@ -39,11 +39,10 @@ Portal is the web application where you create assistants and ask them to do eng
 | Assistant | A workspace with its own conversations, files, and configuration | Your personal Dev Assistant |
 | Assistant type | An administrator's preset for a kind of work | Business, Dev, or Ops Assistant |
 | Chat/session | One conversation within an assistant | Investigating one bug |
-| Connections/profile | Your service settings and credentials, reusable by several assistants | Your GitHub and Jira access |
+| Connector | A service or capability your assistants can use, set up once for all of them | Your GitHub and Jira access, or the EFP browser window on your computer |
 | Skill | A packaged procedure the runtime knows how to execute | A repository review workflow |
 | Task | Background work that has a tracked status and result | A review you return to later |
 | Delegation | A rule that creates tasks from matching events or a schedule | Review requests or a weekday report |
-| Connector | A connection to a user-side capability | The EFP browser window on your computer |
 
 Start with your own assistant. A shared assistant can be visible to you without giving you permission to manage it. Tasks and delegations are visible across signed-in members in this revision; their owners control management actions. **Mine** filters to your items, while **All** includes other members' visible work. Do not assume that a task's input or result is private just because you created it.
 
@@ -53,10 +52,10 @@ Ask your administrator for:
 
 - The Portal web address and the approved sign-in method.
 - Confirmation that your sign-in username is on the active allowlist.
-- Which assistant type to choose and which model connection your team uses.
+- Which assistant type to choose and which model provider your team uses.
 - The services you need and any organization-specific token instructions.
 
-Use a current desktop browser for the first walkthrough. Keep your service credentials available, but enter them only into their connection fields. You can start with just the model connection and add Jira, GitHub, and other services when a task needs them.
+Use a current desktop browser for the first walkthrough. Keep your service credentials available, but enter them only into their connector fields. You can start with just the model provider and add Jira, GitHub, and other services when a task needs them.
 
 If you installed Portal locally with `K8S_ENABLED=false`, you can explore these screens, but creating an assistant does not start a real runtime. Follow the [real-runtime setup](OPERATIONS_GUIDE.md) before expecting chat, skills, files, or background execution to work.
 
@@ -90,8 +89,7 @@ The narrow rail on the far left switches sections. Hover over an icon to see its
 | Tasks | Start background work and inspect results |
 | Delegations | Configure recurring or event-driven work |
 | Administration | Manage members, assistant types, and defaults; admins only |
-| Connections | Configure your service credentials and profiles |
-| Connectors | Set up capabilities such as your local browser; if enabled |
+| Connectors | Set up the model provider, service credentials, and your local browser |
 | Help | Read topic-based instructions and keyboard shortcuts |
 | Theme | Switch the appearance |
 | Logout | End your Portal session |
@@ -113,10 +111,10 @@ Assistant utilities open in a panel on the right. Close it with **Close panel** 
 3. Enter a useful name, such as `My Engineering Assistant`.
 4. Select the type that matches your work. The initial presets include **Business Assistant**, **Dev Assistant**, and **Ops Assistant**; your administrator can change them.
 5. Click **Create assistant** once and wait for the result.
-6. Select the new assistant in the list. Follow any startup banner or connection guidance.
-7. Open **Connections** and complete your model authorization as described next.
+6. Select the new assistant in the list. Follow any startup banner or connector guidance.
+7. Open **Connectors** and complete your model provider authorization as described next.
 
-The type chooses the engine and behavior/skill branches; your own default connection profile supplies your credentials. Creating an assistant does not give it access to services you have not connected.
+The type chooses the engine and behavior/skill branches; your connectors supply your credentials. Creating an assistant does not give it access to services you have not connected.
 
 **Success check:** the assistant appears in your list and, on a deployed system, finishes starting. A successful short reply in [section 7](#7-have-your-first-conversation) is the practical end-to-end check.
 
@@ -126,76 +124,74 @@ If no types are offered, ask an administrator to enable a type backed by an engi
 
 ![Advanced assistant setup with the Engine, Connections, Behavior, Skills, and Review steps](screenshots/04-advanced-setup.png)
 
-*Figure 4. Advanced setup exposes the configuration behind a preset.*
+*Figure 4. Advanced setup exposes the configuration behind a preset. This capture predates Connectors and still shows a Connections step, which has been removed.*
 
 Use **Advanced setup** only when you need a specific configuration:
 
 1. **Engine:** enter the name and select an offered engine. Portal supports native EFP and OpenCode, but administrators may enable only one. The deployment supplies the runtime image; this form does not ask you to choose it.
-2. **Connections:** select the profile this assistant should use. A default profile is normally already available.
-3. **Behavior:** choose the approved behavior repository/branch settings exposed by the form. These control the assistant's instructions and may provide its greeting and starter cards.
-4. **Skills:** choose the approved skills repository and branch. These supply reusable procedures; they are not your business repository checkout.
-5. **Review:** check the summary, then create the assistant.
+2. **Behavior:** choose the approved behavior repository/branch settings exposed by the form. These control the assistant's instructions and may provide its greeting and starter cards.
+3. **Skills:** choose the approved skills repository and branch. These supply reusable procedures; they are not your business repository checkout.
+4. **Review:** check the summary, then create the assistant. The assistant uses your connectors; there is no connection step.
 
 Use **Back** to correct a choice. Repository access or branch-list failures usually need administrator attention. Business repositories mentioned in your requests are checked out by the runtime when needed; selecting a skills repository does not automatically check out a project to work on.
 
-## 6. Set up Connections
+## 6. Set up Connectors
 
 ![Connection profile showing setup progress, profile name, and sharing information](screenshots/07-connections.png)
 
-*Figure 5. A connection profile can be used by several of your assistants.*
+*Figure 5. This capture predates Connectors: it shows the former Connections profile page, which one panel per connector has replaced.*
 
-1. Click **Connections** on the left rail.
-2. Select your profile. A personal default is created for you.
-3. Review **Setup progress**. Click a service name to jump to its fields.
-4. Fill in only the services your work needs. Expand **How to set this up** beside a section for its specific instructions.
-5. Use the available **Test** control for that service. Read the result before proceeding.
-6. Click **Save Settings** at the bottom of the form. A successful test does not replace saving the form.
+**Connectors** are everything your assistants can reach: the model provider, Jira, Confluence, GitHub, and the other services, plus your local browser. You set each connector up once, and every assistant you own uses it. There is nothing to select per assistant.
 
-**Before saving:** check how many assistants use this profile. Saving synchronizes their settings and can restart all running assistants bound to it, interrupting their work. Finish or stop important work first and read the confirmation.
+1. Click **Connectors** on the left rail. The list is grouped by category (Model, Work tracking & docs, Code & delivery, Cloud & data, Testing, Network, Local devices & tools), and each entry shows its state: **Connected**, **Turned off**, or **Not set up** (**On** for the proxy).
+2. Select the connector you need. Its panel opens with a short description and its state.
+3. Expand **How to set this up** for that service's instructions. **Full guide for this connector** opens the matching Help topic.
+4. Fill in only what your work needs.
+5. Use the connector's **Test** control where it has one (for example **Test Jira**). The test uses the values in the form, even before you save. Read the result before proceeding.
+6. Click **Save** at the bottom of the panel. A successful test does not replace saving.
 
-Setup progress reflects configuration readiness; it is not a continuous health check of every remote service. A token may be present but expired or missing permissions.
+**What happens when you save:** the change applies to all your assistants. Running assistants that are idle restart at once to pick it up. An assistant that is busy with a task or chat is not interrupted: it keeps working with the old settings and shows **Restart to apply** in the assistant list and its status card. Every connector panel also shows **Restart to apply your latest connector changes** with a **Restart** button for each such assistant; restart it when its work is finished. Restarting interrupts anything it is doing at that moment. Stopped assistants pick up the settings the next time they start. Saving without changing anything restarts nothing.
 
-### Model connection
+A connector's state reflects configuration readiness; it is not a continuous health check of the remote service. A token may be present but expired or missing permissions.
+
+### Model provider
 
 ![Model connection section with provider, model, and GitHub Copilot authorization controls](screenshots/08-model-connection.png)
 
-*Figure 6. Complete the model connection before expecting an assistant to answer.*
+*Figure 6. Complete the model provider before expecting an assistant to answer. This capture predates Connectors; the same fields now sit in the **Model provider** connector.*
 
 The current Portal supports **GitHub Copilot** and **AI Platform** configurations. Choose from the options offered by your deployment; old instructions mentioning arbitrary OpenAI or Anthropic API-key setup do not describe this revision.
 
-- **GitHub Copilot:** start the authorization flow in the profile, follow its device-code instructions on GitHub, return to Portal, and wait for the authorized state. If your Portal sign-in already supplied the authorization, inspect its current state before reconnecting.
+- **GitHub Copilot:** start the authorization flow in the **Model provider** connector, follow its device-code instructions on GitHub, return to Portal, and wait for the authorized state. Click **Save** to keep the key. If your Portal sign-in already supplied the authorization, inspect its current state before reconnecting.
 - **AI Platform:** enter the username, password, and **Usercase** provided by your organization. Service endpoints and transport settings are managed centrally.
-- Choose an available model. Use the profile's normal defaults at first; per-run overrides are explained in [section 8](#8-use-skills-and-run-settings).
+- Choose an available model. Use the default thinking level and context size at first; per-run overrides are explained in [section 8](#8-use-skills-and-run-settings).
 
 If authorization fails immediately, check the account's model entitlement and connection details. A working Portal login alone does not prove the model can answer.
 
-### Service-by-service checklist
+### Connector-by-connector checklist
 
-| Connection | What to enter or check | How to confirm it works |
+| Connector | What to enter or check | How to confirm it works |
 | --- | --- | --- |
 | Jira | Instance name and URL, enabled state, account username/email, password or API token as required, optional project, and API version | Use **Test Jira**, then ask for one issue your account can read |
 | Confluence | Instance name and URL, enabled state, username/email, password or API token as required, and optional space | Use **Test Confluence**, then ask for one accessible page |
-| GitHub | Correct API host and a token authorized for the intended repositories/actions | Use **Test GitHub**, then read a known repository |
-| Jenkins | Correct instance URL and the supported username/password or token fields | Ask for a known job/build using a runtime skill that supports it |
-| BrowserStack Mobile | BrowserStack username and access key | Try the relevant mobile workflow after the runtime/skill is available |
-| AWS | The domain, username, and password expected by your organization's integration | Use the approved AWS workflow and verify its target account |
-| Proxy | Enable it only when required; use your administrator's proxy URL | Retest a service that must use it |
-| Git | Your commit author name and email | Inspect the author of a subsequent test commit; these fields are not authentication |
-| Debug | Enabled state and log level, usually left at normal defaults | Change only while diagnosing a specific problem |
+| GitHub | Correct API host and a token authorized for the intended repositories/actions; the **Commit identity** (name and email) on the assistant's commits is in the same connector | Use **Test GitHub**, then read a known repository. Inspect the author of a subsequent test commit; the commit identity is not authentication |
+| Jenkins | Correct instance URL and the supported username/password or token fields | Use **Test Jenkins**, then ask for a known job/build using a runtime skill that supports it |
+| Nexus Repository | Instance name, URL, and credentials | Use **Test Nexus**, then look up a known artifact |
+| AWS | The domain, username, password, and accounts expected by your organization's integration | Use the approved AWS workflow and verify its target account |
+| Splunk | Instance name, management API URL, and token or username/password | Use **Test Splunk**, then run a small, time-bounded search |
+| PostgreSQL | Instance name, host, port, database, username, password, and SSL mode | Use **Test PostgreSQL**, then run a small read-only query |
+| BrowserStack | BrowserStack username and access key | Try the relevant mobile workflow after the runtime/skill is available |
+| Proxy | Enable it only when required; use your administrator's proxy URL | Use **Test Proxy**, then retest a service that must use it |
 
-Jira, Confluence, and Jenkins can have multiple instances. Use **+ Add Jira Instance**, **+ Add Confluence Instance**, or **+ Add Jenkins Instance** to add one; give it a clear name, enter its URL and applicable credentials, and enable both the service section and the intended instance. **Remove** deletes an instance from the form when saved; disabling it retains its settings. Use instance names in your requests when more than one target is configured.
+Jira, Confluence, Jenkins, Nexus, Splunk, and PostgreSQL can have multiple instances. Use **+ Add Jira Instance** (or the matching button in the other connectors) to add one; give it a clear name, enter its URL and applicable credentials, and enable both the connector and the intended instance. **Remove** deletes an instance from the form when saved; disabling it retains its settings. Use instance names in your requests when more than one target is configured.
 
-Your profile is an editable copy of its starting settings. The administrator's default setup can include shared service-account credentials; it is not a live policy that locks your service URLs. AI Platform endpoints are the exception: they are supplied by deployment configuration. Check the approved URL with your administrator before changing an unfamiliar endpoint.
+Your connector settings start as an editable copy of the administrator's **Default connectors**. That starting setup can include shared service-account credentials; it is not a live policy that locks your service URLs. AI Platform endpoints are the exception: they are supplied by deployment configuration. Check the approved URL with your administrator before changing an unfamiliar endpoint.
 
 For external tokens, follow your organization's current scope and authorization instructions. Grant the repositories and actions you actually need. Copilot model authorization and a GitHub repository token serve different purposes; connecting one does not automatically configure the other.
 
-**Important:** a connection makes credentials available; actual tool availability still depends on the engine, runtime version, installed skills, and runtime permission policy. For example, a Jenkins connection is not a promise that the installed workflow can start builds.
+**Important:** a connector makes credentials available; actual tool availability still depends on the engine, runtime version, installed skills, and runtime permission policy. For example, a Jenkins connector is not a promise that the installed workflow can start builds.
 
-### More than one profile
-
-Use the **+** in Connections to create another profile when you need a different set of service settings. Give it a recognizable name, inspect the **Start this profile with** source, and optionally set it as your default. **The setup your admin prepared** copies the current platform defaults when available; **Nothing - I'll set it up myself** starts empty; **A copy of ...** duplicates one of your profiles, including saved sign-in details. Copies are independent: later changes to the source do not update them.
-
-Select the intended profile in an assistant's advanced create/edit flow. Changing the default selects what future assistants use; it does not mean every existing assistant was rebound. Inspect each assistant's binding. A profile that is still bound to assistants cannot be deleted; move those assistants to another profile first. You also cannot delete your last profile. Deleting an unused default profile promotes one of your remaining profiles to default.
+Runtime debug logging is always on and is not something you configure.
 
 ## 7. Have your first conversation
 
@@ -218,7 +214,7 @@ Select the intended profile in an assistant's advanced create/edit flow. Changin
 
 Describe the outcome, relevant source, constraints, and expected output:
 
-> Read issue DEMO-123 from our Jira connection. Summarize the problem, list missing acceptance criteria, and draft three test scenarios. Show me the draft before posting anything to Jira.
+> Read issue DEMO-123 from our Jira connector. Summarize the problem, list missing acceptance criteria, and draft three test scenarios. Show me the draft before posting anything to Jira.
 
 Replace example identifiers with real resources you are authorized to use. Include the repository URL and branch when asking for code work. Specify whether you want an explanation, a draft, a file, or an external change.
 
@@ -257,7 +253,7 @@ An assistant can hold more than one conversation. Use a separate session for a n
 
 | Action | Steps and expected effect |
 | --- | --- |
-| Start fresh | Click **New chat**. You get a fresh conversation in the same assistant; its profile and workspace remain |
+| Start fresh | Click **New chat**. You get a fresh conversation in the same assistant; its connectors and workspace remain |
 | Resume a conversation | Click **Sessions**, find the relevant conversation, and open it |
 | Recognize an earlier conversation | Inspect the title and preview in **Recent Sessions**; the current panel shows a recent list and has no dedicated search or pagination controls |
 | Rename a session | Use its pencil button (**Rename session**), enter a clear title, and confirm; available to the owner or an administrator |
@@ -306,8 +302,8 @@ Select an assistant, then click **Details**.
 | --- | --- | --- |
 | Start | The assistant is stopped or failed and the underlying problem is fixed | Provision/start its runtime and wait for readiness |
 | Stop | You want to release its running resources | Current work can be interrupted; persistent workspace data is retained |
-| Restart | Configuration changed or a running runtime needs restarting | Current work can be interrupted; wait for startup again |
-| Edit | Change supported name, engine, profile, behavior, or skill settings | Review the wizard and any restart implications before saving |
+| Restart | Configuration changed (the assistant shows **Restart to apply**) or a running runtime needs restarting | Current work can be interrupted; wait for startup again |
+| Edit | Change supported name, engine, behavior, or skill settings | Review the wizard and any restart implications before saving |
 | Share / Unshare | Make an assistant visible to other Portal members or private again | Visibility does not grant another member ownership or write access |
 | Delete | Remove an assistant you no longer need | Removes its Portal record/runtime resources; shared workspace files are retained on the cluster |
 
@@ -319,7 +315,7 @@ The details panel also shows runtime/repository information and, when available,
 
 The **System Prompt** area in Details exposes the instruction sections the runtime reports. Section names, editability, and enabled toggles vary by engine and runtime. Read the current content before editing, change only a section that is offered as editable, then save and follow any runtime feedback. Some sections cannot be disabled. A new chat is useful for checking changed instructions without an unrelated prior conversation.
 
-Do not put service tokens into system instructions. Use Connections for credentials.
+Do not put service tokens into system instructions. Use Connectors for credentials.
 
 ## 12. Create and follow background tasks
 
@@ -345,7 +341,7 @@ Use a task when you want work to be tracked independently of an interactive chat
 5. **Review:** check the selected assistant, skill, and text.
 6. Click **Start Task** once. Open the resulting task to follow its status.
 
-The local screenshot stops at the form; it does not demonstrate a successful task run. On a deployed system, the target assistant must have a working runtime, model connection, installed skill, and any required service permissions.
+The local screenshot stops at the form; it does not demonstrate a successful task run. On a deployed system, the target assistant must have a working runtime, model provider, installed skill, and any required service permissions.
 
 ### Read the status and result
 
@@ -385,13 +381,13 @@ A delegation is an automation rule. It selects a source, an assistant, and a ski
 
 | Source | What starts the work | What to configure |
 | --- | --- | --- |
-| GitHub PR Review | A review request for the connected GitHub account | GitHub connection and repository/PR conditions |
-| GitHub PR Mention | A matching mention of the connected GitHub account | GitHub connection and repository/PR conditions |
+| GitHub PR Review | A review request for the connected GitHub account | GitHub connector and repository/PR conditions |
+| GitHub PR Mention | A matching mention of the connected GitHub account | GitHub connector and repository/PR conditions |
 | Jira Assignee | Work assigned to the connected Jira account | Jira instance and issue conditions |
 | Jira Mention | A matching mention of the connected Jira account | Jira instance and issue conditions |
 | Timer | A cron schedule | Task prompt, timezone, schedule, and overlap policy |
 
-Event-driven sources are checked by Portal's worker at the configured interval. They are not a promise of instantaneous webhook delivery. The assistant's connection profile provides the source account and credentials.
+Event-driven sources are checked by Portal's worker at the configured interval. They are not a promise of instantaneous webhook delivery. The assistant owner's connectors provide the source account and credentials.
 
 For GitHub sources, **Repository** uses `owner/repo`; optional **Base branch**, included/excluded labels, and **More conditions** narrow the match. More conditions contains PR authors, excluded authors, and **Include draft PRs**. For Jira, choose the **Jira instance** and optionally a project key, issue type, included/excluded statuses, then priority and labels under **More conditions**. Multi-value fields accept comma-separated values. Leave a filter blank only when you intend no restriction from that filter; the preview summarizes an unrestricted rule as **Everything this connection can see**.
 
@@ -452,7 +448,7 @@ The local browser connector lets the assistant operate a separate EFP Chrome win
 
 *Figure 13. The setup panel checks the bridge on your computer. The screenshot has no bridge running.*
 
-1. Open **Connectors → Local browser**. If Connectors is absent, ask whether the deployment enabled it.
+1. Open **Connectors → Local browser** (under **Local devices & tools**). If Local browser is not listed, ask whether the deployment enabled local connectors.
 2. **Download:** choose your operating system and processor architecture, download the bridge package from your Portal, and unzip it into a folder you can keep, such as a folder under your user directory. Use **Other systems** if the suggested package is wrong.
 3. **Install and start:** on Windows, run `install-bridge.cmd` and enter the Portal address shown by the panel. On macOS/Linux, run `./install-bridge.sh <Portal-origin>` from the unzipped folder, replacing the placeholder with the panel's exact address. Follow the package README for any platform-specific steps. Click **Start bridge** and accept the browser's prompt to open the installed launcher.
 4. In the separate EFP browser window, sign in to the sites the assistant needs. Your everyday Chrome profile's logins are not automatically copied.
@@ -505,26 +501,26 @@ Removing allowlist access blocks continued use as well as future sign-in. It doe
 
 These are presets for new assistants. Editing a type does not automatically reconfigure all assistants previously created from it. Hiding a type removes it from normal new-assistant choices; it does not stop existing assistants. **Delete** removes the preset after confirmation and also leaves existing assistants unchanged. Keep at least one suitable type offered if members should use simple setup.
 
-### Default Connections
+### Default connectors
 
 ![Default Connections administration showing platform-wide service defaults](screenshots/16-default-connections.png)
 
-*Figure 16. Administrators prepare the starting settings for new profiles, with optional shared service-account credentials.*
+*Figure 16. Administrators prepare the starting settings for new members' connectors, with optional shared service-account credentials. This capture shows the page under its former name, Default Connections.*
 
-1. Open **Default Connections**.
+1. Open **Default connectors**.
 2. Enable the services your organization offers and enter endpoints, instance names, and other starting settings. Leave credential fields empty for members to fill, or enter only an approved service/team credential intended to be shared.
 3. Save the defaults.
-4. Verify the result with a newly created profile using **The setup your admin prepared**, or with a new member's first profile. Existing profiles keep their previous copies; saving defaults does not update or restart their assistants.
+4. Verify the result with a new member's first sign-in: their **Connectors** start from these values. Existing members keep their previous copies; saving defaults does not update or restart their assistants.
 
-**Credentials entered here are copied into new profiles and can be seen and changed by those members.** Do not enter a personal token or a credential that must remain private to administrators. Blank credential fields stay blank. This is a starting template, not ongoing central enforcement: subsequent changes to the default setup do not reach profiles that already exist. Coordinate changes or credential rotation with members who hold an earlier copy.
+**Credentials entered here are copied into new members' connectors and can be seen and changed by those members.** Do not enter a personal token or a credential that must remain private to administrators. Blank credential fields stay blank. This is a starting template, not ongoing central enforcement: subsequent changes to the default setup do not reach members who already have their settings. Coordinate changes or credential rotation with members who hold an earlier copy.
 
 ## 16. Help, shortcuts, and smaller screens
 
 ![Help section with topic navigation and a step-by-step article](screenshots/17-help.png)
 
-*Figure 17. Help is available from the rail and from connection setup links.*
+*Figure 17. Help is available from the rail and from connector setup links. This capture predates Connectors and shows the former Connections help group.*
 
-Open **Help** for getting started, connection-specific instructions, the local browser connector, questions/approvals, failures, and shortcuts. Connection forms link directly to the matching help topic.
+Open **Help** for getting started, connector-specific instructions, the local browser connector, questions/approvals, failures, and shortcuts. Connector panels link directly to the matching help topic, and each connector topic has an **Open** button for that connector.
 
 | Shortcut | Action |
 | --- | --- |
@@ -535,11 +531,11 @@ Open **Help** for getting started, connection-specific instructions, the local b
 | `Shift + Enter` | Insert a new line |
 | `Esc` | Close the current dialog, or stop the current run as applicable |
 
-On smaller screens, lists and utility panels become drawers. Open the relevant navigation/list control, select an item, and close the drawer to return to the main content. If a utility covers another control, close that utility first. Use a desktop screen for the longer administration and connection forms when possible.
+On smaller screens, lists and utility panels become drawers. Open the relevant navigation/list control, select an item, and close the drawer to return to the main content. If a utility covers another control, close that utility first. Use a desktop screen for the longer administration and connector forms when possible.
 
 ## 17. Troubleshooting
 
-Start with the failing layer: Portal login, assistant startup, model connection, service permissions, or one particular workflow.
+Start with the failing layer: Portal login, assistant startup, model provider, service permissions, or one particular workflow.
 
 | Symptom | First action | Escalate when |
 | --- | --- | --- |
@@ -548,10 +544,11 @@ Start with the failing layer: Portal login, assistant startup, model connection,
 | No assistant types | Ask for an active type backed by an enabled engine | The type's engine is disabled or the type was removed |
 | Assistant is starting for a long time | Read its startup details and wait for image/asset provisioning | There is an image, capacity, volume, or repository error |
 | Running, but chat cannot connect | Check whether this is local `K8S_ENABLED=false` mode; then check runtime connectivity | The runtime's pod/service or network path is unavailable |
-| Immediate model credential failure | Reauthorize the model in the correct profile, save, and wait for restart | Entitlement, central AI Platform configuration, or network policy is wrong |
+| Immediate model credential failure | Reauthorize in the **Model provider** connector, save, and wait for the restart (or restart a busy assistant that shows **Restart to apply**) | Entitlement, central AI Platform configuration, or network policy is wrong |
 | Jira/GitHub test fails | Check the selected instance, token, enabled state, and account permissions | The endpoint or managed settings need changing |
 | Skills do not load | Confirm the assistant runtime is reachable | Skill repo clone/branch/layout or runtime capability is wrong |
-| A setting changed several assistants | Inspect which profile they share | Restore/correct that profile and coordinate restarts |
+| A setting changed several assistants | Connectors apply to all your assistants; this is expected | Correct the connector and restart any assistant showing **Restart to apply** |
+| An assistant shows **Restart to apply** | It was busy when you saved a connector, so it still uses the old settings; restart it when its work is done | The label remains after a successful restart |
 | Attachment fails | Read the card's error; check the allowed extension, size, and assistant connection | Upload limits disagree, text extraction is unsupported, or the runtime image needs an update to provide the chat attachment API |
 | Reply stops or page reconnects | Reopen the same session and inspect pending work | Avoid resending a write until you know whether it completed |
 | Task stays queued/running | Open details; inspect the target assistant and recent errors | Worker/reconciliation/runtime services need operator attention |
@@ -569,7 +566,7 @@ See [Kubernetes troubleshooting](K8S_TROUBLESHOOTING.md) for runtime networking 
 Try this sequence on a configured deployment:
 
 1. Sign in and create your personal Dev or Business Assistant.
-2. Authorize its model, save the profile, and receive a simple reply.
+2. Authorize the **Model provider** connector, save it, and receive a simple reply.
 3. Connect one read-only source you need and successfully retrieve a known item.
 4. Attach a small sample document and ask for a summary. Download a generated result if the workflow produces one.
 5. Start a new chat, then reopen the earlier session through **Sessions**.
@@ -577,7 +574,7 @@ Try this sequence on a configured deployment:
 7. Create a disabled Timer delegation, verify its timezone and next-run preview, then enable it only when its task prompt and target are correct.
 8. If browser automation is needed, install/test the local bridge and verify a read-only browser action with the Portal tab open.
 
-You are ready for routine use when you can explain which assistant and profile a request uses, find its conversation or task result, identify an approval/question, and stop or pause the relevant work. For an action that writes to another service, inspect the result in that service as well.
+You are ready for routine use when you can explain which assistant and connectors a request uses, find its conversation or task result, identify an approval/question, and stop or pause the relevant work. For an action that writes to another service, inspect the result in that service as well.
 
 ## 19. Glossary and further reading
 
@@ -586,6 +583,8 @@ You are ready for routine use when you can explain which assistant and profile a
 | Allowlist | The usernames permitted to use Portal |
 | SSO | Single sign-on through your organization's identity provider |
 | Token | A credential authorizing access to a service |
+| Connector | One service or capability your assistants can use (model provider, Jira, GitHub, local browser, ...), set up once for all your assistants |
+| Restart to apply | A running assistant still using connector settings from before your latest save; restart it to pick them up |
 | Runtime/engine | The service implementation that runs the assistant |
 | Branch | A named version of a Git repository |
 | Behavior pack | Repository content defining instructions and optional Portal greeting/starter cards |

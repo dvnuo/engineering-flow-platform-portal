@@ -140,7 +140,7 @@ Interpret the result:
 | Connection refused | Check the port, ready endpoints, pod state, and whether the runtime listens on `8000`. |
 | Connection timeout | Check routing, firewall rules, NetworkPolicies, and NodePort reachability. |
 | DNS resolution failure | Confirm Portal is inside the cluster for a `ClusterIP` address and cluster DNS is available. |
-| Non-`200` readiness response | Inspect runtime logs and the applied runtime profile. |
+| Non-`200` readiness response | Inspect runtime logs and the applied connector settings (the member's `efp-profile-*` Secret). |
 
 ## 6. Inspect Portal's logs
 

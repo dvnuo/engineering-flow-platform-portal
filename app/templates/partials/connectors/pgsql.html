@@ -1,0 +1,17 @@
+{% from "partials/connectors/_macros.html" import setup_guide with context %}
+{% from "partials/runtime_profile_instance_cards.html" import troubleshooting_instance_cards %}
+<section class="portal-panel-section" data-instance-group="pgsql" id="profile-section-pgsql" data-managed-section="pgsql">
+      {{ setup_guide('pgsql') }}
+      <div class="portal-checkbox-row">
+          <label class="toggle-switch" aria-label="Enable PostgreSQL">
+              <input type="checkbox" name="pgsql_enabled" {% if pgsql.get('enabled') %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+          </label>
+          <span>Enabled</span>
+      </div>
+      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="pgsql_default_instance" value="{{ pgsql.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      <div class="portal-inline-note">One row per database. Use a read-only role; every query the assistant runs is wrapped in a read-only transaction.</div>
+      {{ troubleshooting_instance_cards('pgsql', 'PostgreSQL', pgsql_instances, troubleshooting_cards) }}
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="pgsql">+ Add PostgreSQL Instance</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="pgsql">Test PostgreSQL</button><div class="portal-inline-state" data-test-result="pgsql"></div></div>
+    </section>

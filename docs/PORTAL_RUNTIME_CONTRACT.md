@@ -3,7 +3,7 @@
 For a member walkthrough, read the [Beginner Guide](BEGINNER_GUIDE.md). For installation and deployment, read the [Operations Guide](OPERATIONS_GUIDE.md). This document describes the integration boundary implemented by Portal.
 
 ## 1) Portal role
-- Portal is the control plane: UI, proxy, agent/resource registry, and policy/runtime-profile coordination.
+- Portal is the control plane: UI, proxy, agent/resource registry, and policy/connector-settings (runtime profile) coordination.
 - Portal does **not** execute tools/skills itself, and does not own runtime-internal recovery algorithms.
 - Runtime is exposed only through the EFP-compatible API surface on service port `:8000`.
 
@@ -42,7 +42,9 @@ For a member walkthrough, read the [Beginner Guide](BEGINNER_GUIDE.md). For inst
 - Portal K8s provisioning owns image, workspace, skill asset, and env wiring; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and recovery behavior.
 - For `native`, Portal sets `EFP_RUNTIME_SESSION_ROOT` under the configured workspace mount (`<workspace>/.efp/runtime`) so runtime sessions, checkpoints, todos, and chat artifacts persist on the agent PVC across pod restarts.
 - For `opencode`, Portal keeps using the adapter/OpenCode state mounts (`EFP_ADAPTER_STATE_DIR` and `OPENCODE_DATA_DIR`) for compatibility state and upstream OpenCode data.
-- Runtime profile saves update a per-profile Kubernetes Secret (`config.json`) and restart bound running agents. Runtimes project the canonical profile at boot; stopped agents apply it on the next start. Readiness uses `/ready` on port 8000 after runtime profile projection succeeds.
+- Each member has exactly one runtime profile row (their connector settings; `runtime_profiles.owner_user_id` is unique), and every agent is bound to its owner's row (`agents.runtime_profile_id`). The Kubernetes Secret stays per row: `efp-profile-{runtime_profile_id}` with `config.json` and `revision`.
+- Saving a connector (or `PATCH /api/runtime-profile`) updates that Secret, bumps the row `revision` when the config changed, and restarts the member's running agents that are idle. A busy agent (an active task, or an active chat/task execution updated within the last 2 hours) is not restarted: it keeps its old settings until the member restarts it. Portal records the revision each pod was (re)started with in `agents.profile_revision_applied`; a running agent with an older revision is reported as `settings_restart_pending: true` by `GET /api/agents/status` and `GET /api/agents/{id}/status`, and the UI shows **Restart to apply**. Stopped agents apply the settings on their next start.
+- Runtimes project the canonical profile at boot. Readiness uses `/ready` on port 8000 after runtime profile projection succeeds.
 
 ## 6) Trace / observability contract
 - Portal request middleware creates/binds `X-Trace-Id`.
@@ -85,6 +87,8 @@ Runtime responsibility:
 
 ## 10) Runtime profile/config contract
 - Runtime profiles are Portal-owned only for concise integration context: `llm`, `proxy`, `jira`, `confluence`, `github`, `aws`, `jenkins`, `nexus`, `splunk`, `pgsql`, `mobile-auto`, `git`, and `debug`.
+- Members edit these sections through settings connectors (one connector per service; see [Connectors Contract §7.1](CONNECTORS_CONTRACT.md#71-settings-connectors)), each of which writes only its own sections of the member's single row.
+- `debug` is not a member setting: the rendered Secret always carries `debug: {"enabled": true, "log_level": "DEBUG"}`, replacing whatever an older row stored.
 - The supported Portal providers are `github_copilot` and `ai_platform`. Portal stores and forwards provider, model, thinking/context defaults, Copilot API key, or AI Platform user credentials. AI Platform host/URI settings are supplied by deployment configuration when the runtime config is materialized. Provider/model normalization and any runtime-specific projection are Portal's responsibility; model execution is the runtime's responsibility.
 - LLM provider/model/Copilot API key fields remain part of the supported profile contract alongside AI Platform credentials.
 - Portal stores and forwards proxy and external integration sections that it owns. For the Python EFP runtime this includes enough config for runtime-side file generation:
@@ -142,7 +146,7 @@ The runtime reports whether manual compaction is supported and eligible. The UI 
 
 ## 14) Local connector contract
 
-The browser submits top-level connector hints with an interactive chat request. Portal validates them against the signed-in member's saved connector settings before injecting trusted runtime metadata. A compatible runtime requests the local action over events; the originating Portal browser tab calls its loopback bridge and sends the result back through Portal. The runtime pod does not call the member's loopback address directly. See the [Connectors Contract](CONNECTORS_CONTRACT.md) for envelopes and endpoints.
+The browser submits top-level local connector hints with an interactive chat request. Portal validates them against the signed-in member's saved local connector settings (`user_connectors`) before injecting trusted runtime metadata. Settings connectors (Jira, GitHub, and the other services) are not sent per request; they reach the runtime through the profile Secret at boot (section 5). A compatible runtime requests the local action over events; the originating Portal browser tab calls its loopback bridge and sends the result back through Portal. The runtime pod does not call the member's loopback address directly. See the [Connectors Contract](CONNECTORS_CONTRACT.md) for envelopes and endpoints.
 
 ## 15) Chat attachment contract
 - The chatbox uploads each attached file to the runtime before the message is sent, then passes the returned ids in the chat request's `attachments` array. Transcript metadata and retained attachment bytes are described below; finishing a run does not by itself remove the transcript's attachment links.

@@ -23,16 +23,16 @@ The review compared these documents with current routes, schemas, services, fron
 
 ## New tutorial coverage
 
-The [Beginner's Guide](BEGINNER_GUIDE.md) covers sign-in, navigation, simple/advanced assistant creation, all connection sections, profile copies/defaults, chat, interactive questions/approvals, skills, inference settings, sessions, context/compaction, attachments and workspace files, lifecycle/sharing/system instructions, background tasks, event/timer delegations, browser connectors, administration, help, shortcuts, troubleshooting, and a practice workflow.
+The [Beginner's Guide](BEGINNER_GUIDE.md) covers sign-in, navigation, simple/advanced assistant creation, all connection sections, profile copies/defaults (since `9b0509f`: Connectors, one settings row per member), chat, interactive questions/approvals, skills, inference settings, sessions, context/compaction, attachments and workspace files, lifecycle/sharing/system instructions, background tasks, event/timer delegations, browser connectors, administration, help, shortcuts, troubleshooting, and a practice workflow.
 
 The [Operations Guide](OPERATIONS_GUIDE.md) covers Windows and POSIX setup, migrations, local verification, Docker persistence, real-runtime prerequisites, Kubernetes configuration, sign-in and allowlists, engines/profiles/assets/resources, connector packages, workers/logs, backup/upgrade/recovery, API groups, and development/testing.
 
-Nineteen actual screenshots show the current local UI. Their [provenance and recreation instructions](screenshots/README.md) identify the demonstration data and the absence of real runtime credentials. Both guides were rendered to HTML for a local browser check: all embedded images loaded, and neither guide overflowed the 1280-pixel preview viewport. All nineteen screenshots were visually inspected.
+Nineteen actual screenshots show the local UI as of the review; the Connectors change in `9b0509f` made several of them outdated (the Beginner's Guide captions say which). Their [provenance and recreation instructions](screenshots/README.md) identify the demonstration data and the absence of real runtime credentials. Both guides were rendered to HTML for a local browser check: all embedded images loaded, and neither guide overflowed the 1280-pixel preview viewport. All nineteen screenshots were visually inspected.
 
 Notable details confirmed in the second review:
 
-- Default Connections can include shared service-account credentials. New profiles receive independent, member-visible/editable copies; later default edits do not update existing profiles.
-- Saving a member's connection profile can restart its bound running assistants.
+- Default Connections (now **Default connectors**) can include shared service-account credentials. New members receive independent, member-visible/editable copies; later default edits do not update existing members.
+- Saving a member's connection profile could restart its bound running assistants. Since `9b0509f`, saving a connector restarts only the member's idle running assistants; busy ones show **Restart to apply**.
 - Tasks and delegations are visible across members in this revision; management remains owner-restricted. Assistant file access requires the owner or an administrator.
 - Follow-up and rerun reuse the Portal task record and replace its prior result; they are not an automatic archive of every attempt.
 - The example file named `efp-efs-pvc.yaml` uses node-local `hostPath`, not EFS.

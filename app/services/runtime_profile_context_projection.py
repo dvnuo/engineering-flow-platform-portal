@@ -25,8 +25,13 @@ PORTAL_RUNTIME_PROFILE_SECTIONS = (
     "debug",
 )
 
+# Assistants always log at debug level. It is an operator concern, not a
+# member setting: whatever an older settings row stored under "debug" is
+# replaced by this when the pod Secret is rendered.
+RUNTIME_DEBUG_SETTINGS: dict[str, Any] = {"enabled": True, "log_level": "DEBUG"}
+
 RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
-    "Use bash for runtime profile CLI tools: jira/confluence for Atlassian, "
+    "Use bash for the connector CLI tools: jira/confluence for Atlassian, "
     "gh for GitHub issues, PRs, and api calls, aws for AWS operations, "
     "jenkins for Jenkins controller operations, mobile-auto for BrowserStack/Appium device automation, "
     "and git for clone, fetch, push, and status. "
@@ -35,8 +40,8 @@ RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "`jira schema <command> --json`, `jira help llm --json`, and the matching confluence/jenkins/mobile-auto commands. "
     "For mobile work, start with `mobile-auto doctor --json` and `mobile-auto auth test --json`; use BrowserStackLocal through "
     "`private-external` with a supplied local identifier or `private-managed` only when the runtime image has BrowserStackLocal installed. "
-    "A profile can configure several jira, confluence, and jenkins instances; each is addressed by name with --instance, "
-    "for example `jenkins job list --instance ci --json`. Without --instance the CLI uses the profile's default instance. "
+    "A connector can configure several jira, confluence, and jenkins instances; each is addressed by name with --instance, "
+    "for example `jenkins job list --instance ci --json`. Without --instance the CLI uses the connector's default instance. "
     "EFP_JENKINS_USERNAME and EFP_JENKINS_PASSWORD hold the credentials of the DEFAULT Jenkins instance only, so do not "
     "reuse them against a different instance; run `jenkins auth login --instance <name>` for the others. "
     "When the user provides a Jenkins controller URL or pipeline/job, configure or log in to that controller at that time and pass the password through stdin, never by echoing it. "
@@ -48,19 +53,19 @@ RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "edit, patch, scale, rollout, exec, port-forward, or read secrets. When aws or kubectl reports an expired or missing token, "
     "run `aws-auth login --account <name> --json` again. When kubectl cannot reach a cluster or rejects its certificate, "
     "run `aws-auth eks endpoint --account <name> --cluster <cluster> --json`: it reports whether the address kubectl uses "
-    "(the cluster's own endpoint, or the private endpoint this profile configures for it) answers with the cluster's certificate, "
+    "(the cluster's own endpoint, or the private endpoint the AWS connector configures for it) answers with the cluster's certificate, "
     "and what to change if not. Avoid changing cloud resources unless the user asks. "
     "Use nexus for Nexus Repository artifacts (`nexus repo list --json`, `nexus component search --repository <repo> "
     "--name <artifact> --version <ver> --json`), splunk for log searches (`splunk search run --query \"index=<idx> ...\" "
     "--earliest -1h --count 100 --json`; always give a time range and a count), "
     "and pgsql for PostgreSQL (`pgsql schema tables --json`, "
     "`pgsql query --sql \"select ...\" --limit 200 --json`; "
-    "`pgsql exec` applies statements that change data, and whether that succeeds is decided by the database role and endpoint this profile configures, not by the CLI). "
+    "`pgsql exec` applies statements that change data, and whether that succeeds is decided by the database role and endpoint the PostgreSQL connector configures, not by the CLI). "
     "For every nexus, splunk, and pgsql command add --json and use --instance when several instances are configured. "
     "Run write operations with --dry-run before executing them. Use --yes only for destructive "
-    "operations after the user explicitly confirms. Runtime profile credentials are applied in "
-    "the runtime container through CLIs or environment variables; if a CLI returns auth_failed, report a runtime profile "
-    "configuration problem instead of guessing or inventing tokens."
+    "operations after the user explicitly confirms. Credentials come from the user's Portal connectors and are applied in "
+    "the runtime container through CLIs or environment variables; if a CLI returns auth_failed, tell the user which "
+    "connector to fix in Portal > Connectors instead of guessing or inventing tokens."
 )
 
 OPENCODE_RUNTIME_RESTRICTION_FIELDS = frozenset(
@@ -337,6 +342,7 @@ def build_canonical_profile_config(
         else:
             canonical.pop("llm", None)
 
+    canonical["debug"] = deepcopy(RUNTIME_DEBUG_SETTINGS)
     return _strip_runtime_owned_llm_fields(canonical)
 
 

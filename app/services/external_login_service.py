@@ -9,7 +9,6 @@ provisioned before the admin allowlists it simply lands on /unauthorized).
 
 from __future__ import annotations
 
-import json
 import logging
 import secrets
 
@@ -115,9 +114,10 @@ def sync_copilot_token_to_default_profile(db: Session, user: User, token: str) -
     llm["provider"] = COPILOT_PROVIDER
     llm["api_key"] = token
     config["llm"] = llm
-    profile.config_json = service.normalize_persisted_config_json(json.dumps(config))
-    service.repo.save(profile)
-    return profile, True
+    # save_config bumps the revision, which is what marks a busy assistant
+    # "restart to apply" when the save rollout skips it.
+    profile, changed = service.save_config(profile, config)
+    return profile, changed
 
 
 def portal_username_from_github_login(login: str) -> str:

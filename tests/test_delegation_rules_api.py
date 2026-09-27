@@ -21,9 +21,16 @@ def _build_client_with_overrides():
 
     db = TestingSessionLocal()
     user = User(username="owner", password_hash="pw", role="admin", is_active=True)
-    db.add(user)
+    # One settings row per member, so each differently configured assistant
+    # belongs to its own member. The caller is an admin, which is what lets it
+    # target those members' assistants (the API's _can_write rule).
+    github_owner = User(username="github-owner", password_hash="pw", role="user", is_active=True)
+    jira_owner = User(username="jira-owner", password_hash="pw", role="user", is_active=True)
+    empty_owner = User(username="empty-owner", password_hash="pw", role="user", is_active=True)
+    db.add_all([user, github_owner, jira_owner, empty_owner])
     db.commit()
-    db.refresh(user)
+    for member in (user, github_owner, jira_owner, empty_owner):
+        db.refresh(member)
 
     both_profile = RuntimeProfile(
         owner_user_id=user.id,
@@ -49,13 +56,13 @@ def _build_client_with_overrides():
         is_default=True,
     )
     github_profile = RuntimeProfile(
-        owner_user_id=user.id,
+        owner_user_id=github_owner.id,
         name="github",
         config_json=json.dumps({"github": {"enabled": True, "api_token": "gh-secret"}}),
-        is_default=False,
+        is_default=True,
     )
     jira_profile = RuntimeProfile(
-        owner_user_id=user.id,
+        owner_user_id=jira_owner.id,
         name="jira",
         config_json=json.dumps(
             {
@@ -65,22 +72,22 @@ def _build_client_with_overrides():
                 }
             }
         ),
-        is_default=False,
+        is_default=True,
     )
-    empty_profile = RuntimeProfile(owner_user_id=user.id, name="empty", config_json="{}", is_default=False)
+    empty_profile = RuntimeProfile(owner_user_id=empty_owner.id, name="empty", config_json="{}", is_default=True)
     db.add_all([both_profile, github_profile, jira_profile, empty_profile])
     db.commit()
     for profile in (both_profile, github_profile, jira_profile, empty_profile):
         db.refresh(profile)
 
-    def add_agent(name: str, runtime_profile_id: str):
+    def add_agent(name: str, profile: RuntimeProfile):
         agent = Agent(
             name=name,
-            owner_user_id=user.id,
+            owner_user_id=profile.owner_user_id,
             visibility="private",
             status="running",
             image="img",
-            runtime_profile_id=runtime_profile_id,
+            runtime_profile_id=profile.id,
             disk_size_gi=20,
             mount_path="/root/.efp",
             namespace="efp",
@@ -96,10 +103,10 @@ def _build_client_with_overrides():
         return agent
 
     agents = SimpleNamespace(
-        both=add_agent("both", both_profile.id),
-        github=add_agent("github", github_profile.id),
-        jira=add_agent("jira", jira_profile.id),
-        empty=add_agent("empty", empty_profile.id),
+        both=add_agent("both", both_profile),
+        github=add_agent("github", github_profile),
+        jira=add_agent("jira", jira_profile),
+        empty=add_agent("empty", empty_profile),
     )
 
     state = {"user": user}
@@ -481,5 +488,27 @@ def test_non_owner_can_view_delegation_but_not_manage():
 
         admin_patch_resp = client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Still Nope"})
         assert admin_patch_resp.status_code == 403
+    finally:
+        cleanup()
+
+
+def test_a_member_cannot_target_another_members_assistant():
+    client, db, agents, cleanup = _build_client_with_overrides()
+    try:
+        from app.main import app
+        import app.api.delegation_rules as api_module
+
+        member = db.get(User, agents.github.owner_user_id)
+        app.dependency_overrides[api_module.get_current_user] = lambda: SimpleNamespace(
+            id=member.id,
+            role=member.role,
+            username=member.username,
+            nickname=member.username,
+        )
+
+        own = client.post("/api/delegation-rules", json=_payload(agents.github.id, "github_pr_review"))
+        assert own.status_code == 200
+        foreign = client.post("/api/delegation-rules", json=_payload(agents.both.id, "github_pr_review"))
+        assert foreign.status_code == 403
     finally:
         cleanup()

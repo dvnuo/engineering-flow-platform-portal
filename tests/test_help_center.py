@@ -42,36 +42,37 @@ def _css() -> str:
     return Path("app/static/css/app.css").read_text(encoding="utf-8")
 
 
-def _profile_panel() -> str:
-    return Path("app/templates/partials/runtime_profile_panel.html").read_text(encoding="utf-8")
+CONNECTOR_TEMPLATES = Path("app/templates/partials/connectors")
+
+
+def _connector_template(name: str) -> str:
+    return (CONNECTOR_TEMPLATES / name).read_text(encoding="utf-8")
+
+
+def _connector_templates() -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(CONNECTOR_TEMPLATES.glob("*.html")))
 
 
 # ------------------------------------------------- the checklist hash bug
 
 
-def test_checklist_entries_are_buttons_not_anchors():
-    html = _profile_panel()
+def test_connector_panels_never_link_to_sections_by_in_page_hash():
+    html = _connector_templates()
 
     assert 'href="#profile-section-' not in html, (
         "an in-page href replaces the app's own hash route, which the router "
         "then rejects and falls back to Assistants"
     )
-    assert "data-scroll-to-section=" in html
 
 
-def test_the_scroll_handler_prevents_default_navigation():
-    js = _chat_ui()
+def test_every_connector_section_keeps_its_anchor_id():
+    # Each connector form wraps its section(s) in a stable id.
+    from app.services.connector_registry import SETTINGS_CONNECTORS
 
-    assert '[data-scroll-to-section]' in js
-    assert "scrollIntoView" in js
-
-
-def test_the_scroll_target_ids_exist_in_the_panel():
-    # A chip that scrolls nowhere is worse than one that navigates wrongly.
-    html = _profile_panel()
-
-    for section in ("llm", "jira", "confluence", "github"):
-        assert f'id="profile-section-{section}"' in html, section
+    for spec in SETTINGS_CONNECTORS:
+        html = _connector_template(f"{spec.type}.html")
+        for section in spec.form_sections:
+            assert f'id="profile-section-{section}"' in html, (spec.type, section)
 
 
 # --------------------------------------------------------- markdown files
@@ -347,12 +348,17 @@ def test_the_header_names_the_open_topic():
     assert "currentHelpTopicTitle()" in body
 
 
-def test_connections_links_out_to_the_full_guide():
-    html = _profile_panel()
+def test_connectors_link_out_to_the_full_guide():
+    html = _connector_template("_macros.html")
 
-    assert 'href="#/help/connect-' in html
+    assert 'href="#/help/connect-{{ section }}"' in html
     # A real anchor, so it can be opened in a new tab.
-    assert "Full guide for this connection" in html
+    assert "Full guide for this connector" in html
+    # Every settings connector form renders the guide macro.
+    from app.services.connector_registry import SETTINGS_CONNECTORS
+
+    for spec in SETTINGS_CONNECTORS:
+        assert "setup_guide(" in _connector_template(f"{spec.type}.html"), spec.type
 
 
 def test_a_guide_links_back_to_connections():

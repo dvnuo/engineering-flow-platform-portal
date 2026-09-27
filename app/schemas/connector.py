@@ -9,7 +9,11 @@ class ConnectorResponse(BaseModel):
     kind: str
     category: str
     description: str
+    icon: str = "plug"
     enabled: bool
+    # "connected" | "off" | "not_set_up", and how the list says it.
+    state: str = "not_set_up"
+    status_label: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
     # Deployment-level values for the page (for local_browser: start_url).
     settings: dict[str, Any] = Field(default_factory=dict)

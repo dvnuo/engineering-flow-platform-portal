@@ -3,13 +3,13 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115.0-green.svg)](https://fastapi.tiangolo.com/)
 
-Portal is the web interface and control plane for Engineering Flow Platform. Members create assistants, chat, manage connections, and delegate work. An EFP Native or OpenCode runtime executes the work.
+Portal is the web interface and control plane for Engineering Flow Platform. Members create assistants, chat, set up connectors, and delegate work. An EFP Native or OpenCode runtime executes the work.
 
 ## Documentation
 
 | Start here | What it covers |
 |---|---|
-| [Beginner Guide](docs/BEGINNER_GUIDE.md) | Complete English walkthrough with screenshots: sign-in, assistants, chat, files, connections, connectors, tasks, delegations, administration, and troubleshooting. |
+| [Beginner Guide](docs/BEGINNER_GUIDE.md) | Complete English walkthrough with screenshots: sign-in, assistants, chat, files, connectors, tasks, delegations, administration, and troubleshooting. |
 | [Operations Guide](docs/OPERATIONS_GUIDE.md) | Installation, configuration, upgrades, backups, runtime provisioning, and operational checks. |
 | [Kubernetes deployment](k8s/README.md) | The manifests supplied with this repository. |
 | [Portal / Runtime Contract](docs/PORTAL_RUNTIME_CONTRACT.md) | Runtime boundaries, configuration, routing, sessions, and assets. |
@@ -17,7 +17,7 @@ Portal is the web interface and control plane for Engineering Flow Platform. Mem
 | [Phase 5 Productization](docs/PHASE5_PRODUCTIZATION.md) | Capability snapshots, session metadata, and task supersession. |
 | [Integration smoke checks](integration/README.md) | Portal contract checks and their limits. |
 
-See the [full documentation index](docs/README.md) for troubleshooting, screenshot provenance, and the documentation review record. The application also includes **Help**, setup guidance in connection panels, and a first-run tour.
+See the [full documentation index](docs/README.md) for troubleshooting, screenshot provenance, and the documentation review record. The application also includes **Help**, setup guidance in connector panels, and a first-run tour.
 
 ---
 
@@ -25,14 +25,14 @@ See the [full documentation index](docs/README.md) for troubleshooting, screensh
 
 - **Agent Management** - Create, start, stop, delete, share agents
 - **Web Chat UI** - Chat with EFP agents via reverse proxy
-- **Connections** - Reusable runtime profiles for GitHub Copilot or AI Platform, Jira, Confluence, GitHub, AWS, Jenkins, Nexus, Splunk, PostgreSQL, BrowserStack, proxy, and Git identity
+- **Connectors** - One connector per service, set up once and used by all of a member's assistants: the model provider (GitHub Copilot or AI Platform), Jira, Confluence, GitHub (with Git commit identity), Jenkins, Nexus, AWS, Splunk, PostgreSQL, BrowserStack, proxy, and the local browser
 - **File Management** - Upload files, preview attachments
 - **Session History** - View past conversations
 - **Usage Tracking** - Monitor agent usage and costs
 - **Skills** - Discover available workflows by typing `/` in chat or choosing a task/delegation skill
 - **Tasks and Delegations** - Run tasks and configure work triggered by schedules or supported external sources
 - **Local Browser Connector** - Let a compatible runtime use a managed Chrome window on the member's computer
-- **Administration** - Manage member access, assistant types, and default connections
+- **Administration** - Manage member access, assistant types, and default connectors
 - **Diagrams** - A `` ```mermaid `` fence in an assistant reply renders inline with a Diagram | Code switch; Copy hands back the source for a README, a pull request, or Confluence Gliffy's Mermaid import
 
 ---
@@ -99,7 +99,7 @@ The configured bootstrap administrator is created when missing and automatically
 |----------|-------------|---------|
 | `DATABASE_URL` | SQLite database path | `sqlite:///./portal.db` |
 | `SECRET_KEY` | Session secret key | `change-me-in-production` |
-| `EFP_CONFIG_KEY` | Optional field-encryption key for credentials in profile Kubernetes Secrets; runtime agents need the matching key. This does not encrypt the Portal database | (empty) |
+| `EFP_CONFIG_KEY` | Optional field-encryption key for credentials in the per-member connector-settings Kubernetes Secrets; runtime agents need the matching key. This does not encrypt the Portal database | (empty) |
 | `BOOTSTRAP_ADMIN_USERNAME` | Admin username | `admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Admin password | (empty - must be set) |
 | `PORTAL_USER_ALLOWLIST` | Comma, semicolon, or newline-separated usernames seeded into the access allowlist on startup (`REGISTRATION_ALLOWLIST` is accepted as a legacy alias) | (empty) |
@@ -115,13 +115,13 @@ The configured bootstrap administrator is created when missing and automatically
 | `GITHUB_PROXY_URL` | How the portal reaches github.com for the Copilot device flow and user lookup: empty honours `HTTP(S)_PROXY`/`NO_PROXY` from the pod environment, `direct` ignores them, or an explicit proxy URL such as `http://proxy.corp:3128` | (empty) |
 | `GITHUB_HTTP_TIMEOUT_SECONDS` | Timeout for those github.com calls | `30` |
 | `SSO_PROXY_URL` | Same semantics for the server-side SSO token exchange; set `direct` when `HTTPS_PROXY` is present in the pod but the IdP must be reached without it | (empty) |
-| `COPILOT_LOGIN_ENABLED` | Offer "Sign in with GitHub Copilot" on the login page (GitHub device flow; a first sign-in creates the member and stores the Copilot token on their default runtime profile) | `true` |
-| `GITHUB_ENTERPRISE_SSO_URL` | Enterprise SSO page members must sign in to (new tab) before the Copilot authorization starts, e.g. `https://github.com/enterprises/<slug>/sso`; shown as step 1 on the login page and in every "Authorize GitHub Copilot" card (runtime profile, agent settings, default connections); empty skips that step | (empty) |
+| `COPILOT_LOGIN_ENABLED` | Offer "Sign in with GitHub Copilot" on the login page (GitHub device flow; a first sign-in creates the member and stores the Copilot token in their Model provider connector) | `true` |
+| `GITHUB_ENTERPRISE_SSO_URL` | Enterprise SSO page members must sign in to (new tab) before the Copilot authorization starts, e.g. `https://github.com/enterprises/<slug>/sso`; shown as step 1 on the login page and in every "Authorize GitHub Copilot" card (Model provider connector, Default connectors); empty skips that step | (empty) |
 | `PORTAL_INTERNAL_BASE_URL` | Required when Runtime must call back into Portal internal APIs (`adapter:portal:*` / internal callbacks); not a universal startup requirement | (empty) |
 | `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` | Optional runtime capability snapshot JSON for Portal validation/alignment; invalid/empty falls back to deterministic local seed mappings | (empty) |
 | `AI_PLATFORM_CHAT_HOST` | Centrally managed AI Platform chat service host | (empty) |
 | `AI_PLATFORM_CHAT_URI` | Centrally managed AI Platform chat-completions path | `/v1/api/v1/chat/completions` |
-| `AI_PLATFORM_RESPONSES_URI` | Optional AI Platform Responses API path on the chat host, e.g. `/v1/{usercase}/responses`; `{usercase}` is filled from the profile credential. Empty keeps the native runtime on chat/completions (OpenCode always uses chat/completions) | (empty) |
+| `AI_PLATFORM_RESPONSES_URI` | Optional AI Platform Responses API path on the chat host, e.g. `/v1/{usercase}/responses`; `{usercase}` is filled from the member's Model provider credential. Empty keeps the native runtime on chat/completions (OpenCode always uses chat/completions) | (empty) |
 | `AI_PLATFORM_IB2B_HOST` | Centrally managed iB2B token service host | (empty) |
 | `AI_PLATFORM_IB2B_URI` | Centrally managed iB2B token exchange path | (empty) |
 | `AI_PLATFORM_TRUST_TOKEN_HEADER` | Header used to send the exchanged trust token | `X-XXXX-E2E-Trust-Token` |
@@ -158,7 +158,7 @@ The configured bootstrap administrator is created when missing and automatically
 | `DEFAULT_SKILL_BRANCH` | Skills repository branch | `master` |
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
 | `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
-| `CONNECTORS_ENABLED` | Show the Connectors menu and the `/api/connectors` routes (per-member connectors such as the local browser bridge; see `docs/CONNECTORS_CONTRACT.md`) | `true` |
+| `CONNECTORS_ENABLED` | Offer the local connectors (the browser bridge on the member's computer; see `docs/CONNECTORS_CONTRACT.md`). `false` hides them from the Connectors menu and `/api/connectors`; the menu and the service connectors stay available | `true` |
 | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | Download link template for the EFP browser bridge packages shown in Connectors → Local browser; `{platform}` expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64` (a URL without it hands one package to every system); empty serves `app/static/downloads/efp-browser-bridge-{platform}.zip`, the zips built by `scripts/browser-bridge/package.sh` in the tools repository | (empty) |
 | `LOCAL_BROWSER_CLI_VERSION` | Version label shown next to that download | (empty) |
 | `LOCAL_BROWSER_START_URL` | First tab of the EFP browser window whenever the bridge opens or reopens it: an absolute http(s) URL, or a path such as `/app` resolved against this Portal's origin; empty opens the Portal origin | (empty) |
@@ -186,10 +186,10 @@ Kubernetes runtime provisioning behavior:
 - `DEFAULT_SKILL_ASSET_VERSION` is not used for git checkout. Change it to update the Deployment template annotation and force a pod rollout/reclone when the same branch content changes.
 - Portal does not configure external tools repo/branch/mounts; runtime built-in tools are runtime-owned.
 - `GIT_TOKEN` is used by git-clone initContainers. Portal's main container receives the Portal secret token as `GIT_REPO_AUTH_PAT` for branch listing only; agent runtime main containers still do not receive the broad clone token.
-- Private business-repo checkout authorization should come from runtime profile/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
-- Runtime profiles are the Portal-owned control-plane source for Jira, Confluence, GitHub, and git user config. Portal stores and forwards those sections; the Python runtime writes `ATLASSIAN_CONFIG` / Atlassian CLI config, `gh` hosts config, and git user config inside the runtime container.
+- Private business-repo checkout authorization should come from connector/provider credentials (for example GitHub provider token), not from broad K8s clone token injection to main runtime.
+- Connector settings (stored as each member's runtime profile row) are the Portal-owned control-plane source for Jira, Confluence, GitHub, and git user config. Portal stores and forwards those sections; the Python runtime writes `ATLASSIAN_CONFIG` / Atlassian CLI config, `gh` hosts config, and git user config inside the runtime container.
 - Behavior repositories provision `AGENTS.md`, `instructions/`, and optional `portal/` personalization assets into the workspace. See the [assets contract](docs/PORTAL_RUNTIME_CONTRACT.md#4-assets-contract).
-- Portal remains the control plane; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and runtime tool availability (built-in tools + runtime profile + permission policy).
+- Portal remains the control plane; runtime owns tools, skills execution, loop control, context shaping, compaction, sessions, permissions, and runtime tool availability (built-in tools + connector settings + permission policy).
 
 Local default is `K8S_ENABLED=false`. Kubernetes manifests set `K8S_ENABLED=true` explicitly. For production Kubernetes, configure storage class/access mode via env or manifests.
 
@@ -288,26 +288,28 @@ The proxy validates:
 
 ---
 
-## Settings Panel
+## Connectors
 
-Assistants bind to a reusable **Connections** profile. In Kubernetes deployments, changing a profile updates its Secret and restarts bound running assistants so their runtime reads the new configuration. Stopped assistants receive it at their next start.
+Each member has one set of connector settings, and every assistant they own uses it. Open **Connectors** on the rail; the list is grouped by category and each connector has its own panel with setup guidance, a **Test** button where one applies, and **Save**. In Kubernetes deployments, saving updates the member's Secret and restarts their running assistants that are idle. A busy assistant (an active task or chat) keeps running with its old settings and shows **Restart to apply** until the member restarts it; stopped assistants pick the settings up at their next start.
 
-### LLM Configuration
+### Model provider
 - Provider selection: **GitHub Copilot** or **AI Platform**
 - Model, default thinking level, and default context size
 - Copilot authorization/API key, or AI Platform username, password, and usercase
 
 Choose from the model catalog offered for the selected provider; standalone OpenAI and Anthropic providers are not offered. AI Platform service endpoints are deployment-managed.
 
-### Integrations
+### Service connectors
 - **Jira**, **Confluence**, and **Jenkins** - Multiple named instances and their applicable credentials
 - **Nexus**, **Splunk**, and **PostgreSQL** - Read-only troubleshooting instances (artifact lookups, log searches, schema and query inspection), addressed by name with `--instance`
-- **GitHub** - Personal access token
+- **GitHub** - Personal access token, plus the Git commit name and email
 - **AWS** - Configured organizational credentials
-- **Mobile / BrowserStack** - REST/Appium credentials and local-testing options
-- **Proxy**, **Git identity**, and **Debug** settings
+- **BrowserStack** - REST/Appium credentials and local-testing options
+- **Proxy** - Outbound HTTP proxy for the assistants
 
-Follow the field-specific **Setup guide** in each panel or the [Beginner Guide](docs/BEGINNER_GUIDE.md). Runtime images must include the corresponding tools.
+Runtime debug logging is always on (`DEBUG`) and is not a member setting.
+
+Follow **How to set this up** in each connector panel or the [Beginner Guide](docs/BEGINNER_GUIDE.md). Runtime images must include the corresponding tools.
 
 ### File Upload
 

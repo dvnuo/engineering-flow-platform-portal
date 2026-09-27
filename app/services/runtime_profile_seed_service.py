@@ -1,7 +1,7 @@
 """Admin-maintained seed for every new member's default runtime profile.
 
 The seed carries the *shape* of a connection -- instance URLs, API versions,
-project and space keys -- so a new member opens Connections to find Jira
+project and space keys -- so a new member opens Connectors to find Jira
 already pointing at the right site. It may also carry credentials, and that is
 the admin's call, field by field: an organization that runs shared service
 accounts ("the CI bot's Jenkins token") can put those in once instead of asking

@@ -14,10 +14,10 @@ works.
 ## Credential failures
 
 A run that fails immediately with a credentials error means a token expired or
-was revoked. Open [Connections](#/help/connect-llm) and reconnect that service.
+was revoked. Open [Connectors](#/help/connect-llm) and reconnect that service.
 
 ## An assistant that will not start
 
-If it reports that connection settings are not ready, its Connections need
+If it reports that connection settings are not ready, a connector needs
 filling in. Anything mentioning images or capacity is a platform problem —
 contact your administrator.

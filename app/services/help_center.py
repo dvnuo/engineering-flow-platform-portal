@@ -4,10 +4,11 @@ The prose lives in app/help/*.md, one file per topic, so editing a guide is
 editing a markdown file; app/help/README.md documents the front matter. This
 module only lists the files and merges in what a topic shares with a form.
 
-Connection and connector topics are derived from CONNECTION_GUIDANCE and
-CONNECTOR_GUIDANCE rather than restated, so the short steps shown beside a
-field in Connections (and the troubleshooting lines under a Connector) and the
-full guide here cannot drift apart. The markdown file adds what does not fit
+Connector topics are derived from CONNECTION_GUIDANCE (settings connectors
+such as Jira or the model provider) and CONNECTOR_GUIDANCE (local connectors
+such as the browser bridge) rather than restated, so the short steps shown
+beside a connector's fields (and its troubleshooting lines) and the full guide
+here cannot drift apart. The markdown file adds what does not fit
 next to a form field: what the connection is for, what goes wrong, and how to
 tell.
 
@@ -31,7 +32,7 @@ HELP_DIR = Path(__file__).resolve().parent.parent / "help"
 # The authoring notes for the directory, not a topic.
 NON_TOPIC_FILES = frozenset({"README.md"})
 
-GROUP_ORDER = ("Getting started", "Connections", "Connectors", "Working")
+GROUP_ORDER = ("Getting started", "Connectors", "Working")
 DEFAULT_ICON = "circle-help"
 DEFAULT_ORDER = 100
 
@@ -51,6 +52,9 @@ class HelpTopic:
     help_url: str | None = None
     help_label: str | None = None
     connection_section: str | None = None
+    # The connector whose panel the topic's footer button opens.
+    connector_type: str | None = None
+    connector_label: str | None = None
     order: int = DEFAULT_ORDER
 
 
@@ -118,7 +122,7 @@ def _order_of(meta: dict[str, str]) -> int:
 
 
 def topic_id_for_connection(section: str) -> str:
-    """The help topic a Connections section links out to."""
+    """The help topic a settings connector's guidance section links out to."""
 
     return f"connect-{section}"
 
@@ -130,22 +134,27 @@ def topic_id_for_connector(key: str) -> str:
 
 
 def _connection_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
+    from app.services.connector_registry import settings_connector_for_section
+
     topics = []
     for section, guidance in CONNECTION_GUIDANCE.items():
         document = documents.pop(topic_id_for_connection(section), None)
         meta = document.meta if document else {}
+        connector = settings_connector_for_section(section)
         topics.append(
             HelpTopic(
                 id=topic_id_for_connection(section),
                 title=guidance["title"],
                 summary=guidance["summary"],
-                group="Connections",
+                group="Connectors",
                 icon=meta.get("icon") or "plug",
                 body=document.body if document else "",
                 steps=tuple(guidance.get("steps") or ()),
                 help_url=guidance.get("help_url"),
                 help_label=guidance.get("help_label"),
                 connection_section=section,
+                connector_type=connector.type if connector else None,
+                connector_label=connector.label if connector else None,
                 order=_order_of(meta),
             )
         )

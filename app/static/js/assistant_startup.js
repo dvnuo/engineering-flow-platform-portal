@@ -85,7 +85,7 @@
       .join("")}</ul>`;
   }
 
-  // Start, Retry and Connections change the assistant; a member who can only
+  // Start, Retry and Connectors change the assistant; a member who can only
   // read it would get a 403 for their trouble.
   const WRITE_ACTIONS = new Set(["start", "retry", "open_connections"]);
 
@@ -225,7 +225,7 @@
 
   function runAction(action, agentId) {
     if (action === "open_connections") {
-      document.getElementById("runtime-profiles-menu-btn")?.click();
+      document.getElementById("connectors-menu-btn")?.click();
       return;
     }
     if (action === "contact_support") {

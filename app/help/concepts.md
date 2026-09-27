@@ -20,8 +20,9 @@ something else meanwhile.
 A rule that starts work automatically — on a GitHub review request, a Jira
 assignment, or a timer.
 
-## Connections
+## Connectors
 
-Your own credentials for Jira, Confluence, GitHub, and the rest. The platform
-never holds them on your behalf; your administrator fills in only where each
-service lives.
+Everything an assistant can reach: the model provider, Jira, Confluence,
+GitHub, AWS and the rest, one connector each. You set each up once and every
+assistant of yours uses it. The credentials are your own; your administrator
+fills in only where each service lives.

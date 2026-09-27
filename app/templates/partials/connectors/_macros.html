@@ -1,0 +1,28 @@
+{# Shared by the settings connector forms under partials/connectors/. #}
+{% macro setup_guide(section) -%}
+{% set guide = (connection_guidance or {}).get(section) %}
+{%- if guide %}
+<details class="portal-collapsible portal-setup-guide">
+  <summary class="portal-collapsible-summary">
+    <i data-lucide="circle-help" class="w-4 h-4"></i>
+    <span>How to set this up</span>
+  </summary>
+  <div class="portal-setup-guide-body">
+    <p class="portal-panel-note">{{ guide.summary }}</p>
+    <ol class="portal-setup-guide-steps">
+      {% for step in guide.steps %}<li>{{ step }}</li>{% endfor %}
+    </ol>
+    <div class="portal-setup-guide-links">
+      {% if guide.help_url %}
+      <a class="portal-link-inline" href="{{ guide.help_url }}" target="_blank" rel="noopener noreferrer">
+        {{ guide.help_label or "Open the setup page" }} &rarr;
+      </a>
+      {% endif %}
+      <a class="portal-link-inline" href="#/help/connect-{{ section }}">
+        Full guide for this connector &rarr;
+      </a>
+    </div>
+  </div>
+</details>
+{%- endif %}
+{%- endmacro %}
