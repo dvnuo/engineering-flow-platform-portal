@@ -596,5 +596,6 @@
     reviewDecisionText,
     buildFromCode,
     hydrate,
+    sendChatText,
   };
 })();

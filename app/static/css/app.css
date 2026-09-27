@@ -6519,3 +6519,12 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-review-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0 24px; }
 .efp-review-warnings { margin: 4px 0 0 24px; padding-left: 16px; color: var(--portal-warning); font-size: 12px; }
 .portal-task-results { display: flex; flex-direction: column; gap: 4px; }
+
+.efp-recording { display: flex; flex-direction: column; gap: 14px; }
+.efp-recording-section { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--portal-border); }
+.efp-recording-section:last-of-type { border-bottom: 0; }
+.efp-recording-section h5 { margin: 0; color: var(--portal-text); font-size: 13px; font-weight: 700; }
+.efp-recording-kv { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--portal-text-muted); }
+.efp-recording-kv > span { flex: 0 0 84px; }
+.efp-recording-kv code { flex: 1 1 auto; min-width: 0; padding: 2px 6px; border-radius: 6px; background: var(--portal-surface-soft); overflow-wrap: anywhere; color: var(--portal-text); }
+.efp-recording-done { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--portal-text); }

@@ -138,6 +138,7 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
+  "recording",
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
@@ -251,6 +252,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     dom.contextUsageBtn,
     dom.detailToggle,
     document.getElementById("btn-files"),
+    document.getElementById("btn-recording"),
   ];
   assistantOnlyControls.forEach((element) => {
     element?.classList.toggle("hidden", normalized !== "assistants");
@@ -5952,6 +5954,7 @@ function applyToolPanelState() {
     sessions: document.getElementById("btn-sessions"),
     context: dom.contextUsageBtn,
     "server-files": document.getElementById("btn-files"),
+    recording: document.getElementById("btn-recording"),
     details: dom.detailToggle,
   };
   Object.entries(utilityButtons).forEach(([panelKey, button]) => {
@@ -10099,6 +10102,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       "server-files",
       "skills",
       "usage",
+      "recording",
         ]);
 
     if (!panelKey) {
@@ -10136,6 +10140,16 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
 
     if (panelKey === "server-files") {
       await openServerFiles();
+      return;
+    }
+
+    if (panelKey === "recording") {
+      // The Recording panel lives in mobile_testing.js.
+      if (window.EfpMobileTesting && typeof window.EfpMobileTesting.openRecordingPanel === "function") {
+        await window.EfpMobileTesting.openRecordingPanel();
+      } else {
+        showPinnedPanelRestorePlaceholder();
+      }
       return;
     }
     if (panelKey === "skills") {
@@ -10741,7 +10755,7 @@ function syncMainHeader() {
   const userManagementMode = state.activeNavSection === "users";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.contextUsageBtn, dom.detailToggle, document.getElementById("btn-files")];
+  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.contextUsageBtn, dom.detailToggle, document.getElementById("btn-files"), document.getElementById("btn-recording")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -17949,6 +17963,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openServerFiles();
+  });
+
+  // Mobile test recording (mobile_testing.js)
+  document.getElementById('btn-recording')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an assistant first');
+      return;
+    }
+    window.EfpMobileTesting?.openRecordingPanel?.();
   });
 
   // Context usage button in header

@@ -229,7 +229,14 @@ def _node() -> str:
 
 
 def _run_node(script: str) -> None:
-    result = subprocess.run([_node(), "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    # A file, not node -e: an inlined module can pass Windows' command-line limit.
+    import tempfile
+
+    node = _node()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "script.js"
+        path.write_text(script, encoding="utf-8")
+        result = subprocess.run([node, str(path)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
