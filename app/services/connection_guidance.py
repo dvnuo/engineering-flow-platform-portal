@@ -114,11 +114,12 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
     },
     "mobile": {
         "title": "Connect BrowserStack",
-        "summary": "Lets the assistant run and inspect mobile automation sessions.",
+        "summary": "Lets the assistant run mobile tests on BrowserStack real devices, hold a device for you to record on, and collect each run's video and screenshots.",
         "steps": [
             "Open your BrowserStack account settings.",
             "Copy your username and access key.",
-            "Paste both below.",
+            "Paste both below, turn the connector on, and use Test BrowserStack to check the sign-in and your parallel sessions.",
+            "Add the app builds you test under App packages, so recordings and runs can pick them by name.",
         ],
         "help_url": "https://www.browserstack.com/accounts/profile/details",
         "help_label": "BrowserStack account settings",

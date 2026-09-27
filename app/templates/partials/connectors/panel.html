@@ -33,4 +33,5 @@
       <span class="portal-inline-note">Applies to all your assistants. Idle ones restart to pick it up; one that is busy keeps working and asks you to restart it when you are ready.</span>
     </div>
   </form>
+  {% if connector_extra_template %}{% include connector_extra_template %}{% endif %}
 </div>

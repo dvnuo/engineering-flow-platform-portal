@@ -110,6 +110,9 @@ class ConnectorSpec:
     test_targets: tuple[str, ...] = ()
     extra_guidance_keys: tuple[str, ...] = ()
     state_of: Callable[[Mapping[str, Any]], str] = lambda config: STATE_NOT_SET_UP
+    # KIND_SETTINGS only: a partial rendered below the settings form, for
+    # things that are not settings (BrowserStack's app packages).
+    panel_extra_template: str = ""
 
     @property
     def is_settings(self) -> bool:
@@ -238,6 +241,7 @@ def _settings_connector(
     test_targets: tuple[str, ...] = (),
     guidance_key: str | None = None,
     extra_guidance_keys: tuple[str, ...] = (),
+    panel_extra_template: str = "",
 ) -> ConnectorSpec:
     return ConnectorSpec(
         type=type,
@@ -253,6 +257,7 @@ def _settings_connector(
         test_targets=test_targets,
         extra_guidance_keys=extra_guidance_keys,
         state_of=state_of,
+        panel_extra_template=panel_extra_template,
     )
 
 
@@ -349,7 +354,9 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         state_of=_browserstack_state,
         config_sections=("mobile-auto",),
         form_sections=("mobile",),
+        test_targets=("browserstack",),
         guidance_key="mobile",
+        panel_extra_template="partials/connectors/browserstack_extra.html",
     ),
     _settings_connector(
         "proxy",

@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # egress proxy inside the cluster; the IdP usually must not use it.
     sso_proxy_url: str = Field(default="", validation_alias="SSO_PROXY_URL")
     github_proxy_url: str = Field(default="", validation_alias="GITHUB_PROXY_URL")
+    # Egress for Portal's own BrowserStack calls: app package uploads and the
+    # hosted Appium Inspector's WebDriver proxy. Same values as the others.
+    browserstack_proxy_url: str = Field(default="", validation_alias="BROWSERSTACK_PROXY_URL")
     github_http_timeout_seconds: int = Field(default=30, validation_alias="GITHUB_HTTP_TIMEOUT_SECONDS")
 
     # GitHub Copilot sign-in: the same GitHub device flow the runtime-profile
@@ -220,6 +223,15 @@ class Settings(BaseSettings):
         default="pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml",
         validation_alias="EFP_CHAT_UPLOAD_EXTENSIONS",
     )
+    # Largest mobile app build (apk, aab, ipa) a member can upload through
+    # Portal. The upload is spooled to a temporary file and streamed on to
+    # BrowserStack, so this bounds disk, not memory; the ingress body-size
+    # limit must allow it too.
+    max_app_package_mb: int = Field(default=500, validation_alias="EFP_MAX_APP_PACKAGE_MB")
+    # Directory holding the Appium Inspector web build (the dist-browser
+    # folder of the appium-inspector-plugin npm package). Empty disables the
+    # hosted Inspector; members then use the desktop app.
+    appium_inspector_dir: str = Field(default="", validation_alias="EFP_APPIUM_INSPECTOR_DIR")
 
     delegation_rules_worker_enabled: bool = Field(default=True, validation_alias="DELEGATION_RULES_WORKER_ENABLED")
     delegation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="DELEGATION_RULES_WORKER_INTERVAL_SECONDS")

@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -1073,6 +1073,8 @@ def _connector_settings_panel_context(
         "request": request,
         "connector": settings_entry(spec, raw_config_data),
         "connector_template": spec.panel_template,
+        "connector_extra_template": spec.panel_extra_template,
+        "appium_inspector_available": bool((get_settings().appium_inspector_dir or "").strip()),
         "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
         "status_type": status_type,
@@ -1734,6 +1736,95 @@ def _settings_finalize_config_payload(config_payload: dict) -> dict:
     return canonicalize_portal_runtime_profile_config(sanitized)
 
 
+_MOBILE_PLATFORMS = {"android", "ios"}
+_MOBILE_NETWORK_MODES = {"public", "private-managed", "private-external"}
+_MOBILE_LOCAL_MODES = {"managed", "external"}
+# BrowserStack ends a session after this long without an Appium command; it
+# accepts at most 300 seconds, and recording needs the long end of the range.
+_MOBILE_IDLE_TIMEOUT_RANGE = (30, 300)
+
+
+def _browserstack_url_error(value: str, label: str) -> Optional[str]:
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (host == "browserstack.com" or host.endswith(".browserstack.com")):
+        return f"{label} must be an https:// browserstack.com address."
+    return None
+
+
+def _merge_mobile_advanced_fields(form, mobile_cfg: dict, browserstack_cfg: dict, as_bool) -> Optional[str]:
+    """Apply the BrowserStack connector's Advanced fields to the section.
+
+    Each field is read only when the form posted it, so a client that posts
+    just the credentials keeps the stored advanced values. Checkboxes post a
+    ``<name>__present`` marker because an unchecked box posts nothing.
+    """
+
+    defaults_cfg = dict(mobile_cfg.get("defaults")) if isinstance(mobile_cfg.get("defaults"), dict) else {}
+    for key, field, allowed in (
+        ("platform", "mobile_default_platform", _MOBILE_PLATFORMS),
+        ("network_mode", "mobile_network_mode", _MOBILE_NETWORK_MODES),
+    ):
+        if field in form:
+            value = (form.get(field) or "").strip().lower()
+            if value and value not in allowed:
+                return f"Unsupported value for {key.replace('_', ' ')}: {value}."
+            if value:
+                defaults_cfg[key] = value
+            else:
+                defaults_cfg.pop(key, None)
+    if "mobile_idle_timeout_seconds" in form:
+        raw = (form.get("mobile_idle_timeout_seconds") or "").strip()
+        if raw:
+            low, high = _MOBILE_IDLE_TIMEOUT_RANGE
+            try:
+                seconds = int(raw)
+            except ValueError:
+                return "Idle timeout must be a whole number of seconds."
+            if not low <= seconds <= high:
+                return f"BrowserStack accepts an idle timeout from {low} to {high} seconds."
+            defaults_cfg["idle_timeout_seconds"] = seconds
+        else:
+            defaults_cfg.pop("idle_timeout_seconds", None)
+    for key in ("video", "interactive_debugging"):
+        if f"mobile_{key}__present" in form:
+            defaults_cfg[key] = as_bool(form.get(f"mobile_{key}"))
+    if defaults_cfg:
+        mobile_cfg["defaults"] = defaults_cfg
+    else:
+        mobile_cfg.pop("defaults", None)
+
+    for key, field, label in (
+        ("appium_base_url", "mobile_browserstack_appium_base_url", "Appium hub URL"),
+        ("api_base_url", "mobile_browserstack_api_base_url", "API URL"),
+    ):
+        if field in form:
+            value = (form.get(field) or "").strip().rstrip("/")
+            if value:
+                error = _browserstack_url_error(value, label)
+                if error:
+                    return error
+                browserstack_cfg[key] = value
+            else:
+                browserstack_cfg.pop(key, None)
+    if "mobile_browserstack_verify_ssl__present" in form:
+        browserstack_cfg["verify_ssl"] = as_bool(form.get("mobile_browserstack_verify_ssl"))
+    if "mobile_browserstack_local_mode" in form:
+        mode = (form.get("mobile_browserstack_local_mode") or "").strip().lower()
+        if mode and mode not in _MOBILE_LOCAL_MODES:
+            return f"Unsupported BrowserStack Local mode: {mode}."
+        local_cfg = dict(browserstack_cfg.get("local")) if isinstance(browserstack_cfg.get("local"), dict) else {}
+        if mode:
+            local_cfg["mode"] = mode
+        else:
+            local_cfg.pop("mode", None)
+        if local_cfg:
+            browserstack_cfg["local"] = local_cfg
+        else:
+            browserstack_cfg.pop("local", None)
+    return None
+
+
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -1946,6 +2037,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 browserstack_cfg.pop("access_key", None)
         elif is_clear("mobile_browserstack_access_key_clear"):
             browserstack_cfg.pop("access_key", None)
+        mobile_error = _merge_mobile_advanced_fields(form, mobile_cfg, browserstack_cfg, as_bool)
+        if mobile_error:
+            return config_payload, mobile_error
         if browserstack_cfg:
             mobile_cfg["browserstack"] = browserstack_cfg
         else:
@@ -3249,7 +3343,7 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         db.close()
 
 
-_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "pgsql"}
+_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "pgsql", "browserstack"}
 
 
 def _validate_managed_test_target(target: str) -> str:

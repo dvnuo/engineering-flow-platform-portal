@@ -11,9 +11,14 @@ from app.models.assistant_type import AssistantType
 from app.models.platform_setting import PlatformSetting
 from app.models.delegation_rule import DelegationRule, DelegationRuleRun, DelegationRuleEvent
 from app.models.user_connector import UserConnector
+from app.models.app_package import AppPackage
+from app.models.mobile_recording import MobileRecording, MobileRecordingEvent
 
 __all__ = [
     "UserConnector",
+    "AppPackage",
+    "MobileRecording",
+    "MobileRecordingEvent",
     "User",
     "UserAllowlistEntry",
     "Agent",
