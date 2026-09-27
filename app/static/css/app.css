@@ -6528,3 +6528,4 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-recording-kv > span { flex: 0 0 84px; }
 .efp-recording-kv code { flex: 1 1 auto; min-width: 0; padding: 2px 6px; border-radius: 6px; background: var(--portal-surface-soft); overflow-wrap: anywhere; color: var(--portal-text); }
 .efp-recording-done { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--portal-text); }
+.portal-task-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; color: var(--portal-text-muted); font-size: 12px; }

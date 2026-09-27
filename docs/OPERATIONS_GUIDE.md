@@ -574,6 +574,30 @@ Runtime compatibility still matters: supported documents are parsed to text, ZIP
 
 Transcript attachment links preserve the runtime's inline/download choice, but the Portal forces active markup such as HTML, SVG, and XML to download. An older runtime without the chat attachment API produces an explanatory upload error; update its image and restart the assistant.
 
+### Mobile scenario testing
+
+The flow in the in-app help topic *Mobile scenario testing* spans four pieces;
+all four must be current:
+
+- **Assistant runtime images** rebuilt with a `mobile-auto` that has
+  `inspector import`, `test run --parallel`, and `inspector attach --out` (the
+  tools repository's `feat/mobile-scenario-testing` work). Pods need egress to
+  `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443, and to
+  the app's test servers when BrowserStack Local runs in the pod.
+- **Skills** `design-mobile-scenarios`, `record-mobile-segment`,
+  `generate-mobile-scripts`, `run-mobile-scenarios`, and
+  `maintain-mobile-automation-tests` on the skills branch assistants use.
+- **Portal**: the BrowserStack egress and app-package ingress described under
+  *Resource and storage settings*, and the bundled Appium Inspector
+  (`EFP_APPIUM_INSPECTOR_DIR`) for recording without installing anything.
+- **Jira**: a delegation with the *Jira Status Change* source (for example
+  *Ready for Test*) and the `design-mobile-scenarios` skill starts the flow.
+
+An assistant type such as *Mobile QA* (icon `smartphone`) pointing at those
+branches gives testers a one-click assistant; it is optional when the default
+branches already carry the skills. Recording uses the member's own BrowserStack
+connector and works only on assistants the member owns.
+
 ### OpenCode-specific controls and capability alignment
 
 OpenCode's deployment defaults include `DEFAULT_OPENCODE_PERMISSION_MODE=workspace_full_access` and `DEFAULT_OPENCODE_ALLOW_BASH_ALL=true`. Review these runtime permissions for your deployment. `OPENCODE_WORKSPACE_REPOS_DIR` defaults to `/workspace/repos`; checkout, task completion, and chat-submit budgets are controlled by `OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS` (120), `OPENCODE_TASK_COMPLETION_TIMEOUT_SECONDS` (3600), and `OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS` (900).

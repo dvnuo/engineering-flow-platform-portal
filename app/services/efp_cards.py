@@ -61,6 +61,55 @@ def extract_cards(text: str | None) -> tuple[str, list[dict[str, Any]]]:
     return cleaned, cards
 
 
+def _final_response_text(result_payload_json: str | None) -> str:
+    try:
+        payload = json.loads(result_payload_json or "{}")
+    except ValueError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    for candidate in (payload.get("output_payload"), payload):
+        if isinstance(candidate, dict):
+            for key in ("final_response", "response"):
+                value = candidate.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+    return ""
+
+
+def scenario_progress(result_payload_json: str | None) -> dict[str, int] | None:
+    """Pass/fail counts from a task response's matrix card, for task lists.
+
+    A run skill puts a summary next to the matrix path (the file itself is in
+    the assistant's workspace, too far away for a list); an inline matrix is
+    counted from its rows.
+    """
+    text = _final_response_text(result_payload_json)
+    if "efp-matrix" not in text:
+        return None
+    for card in extract_cards(text)[1]:
+        if card["kind"] != "matrix":
+            continue
+        payload = json.loads(card["payload_json"])
+        if not isinstance(payload, dict):
+            continue
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else None
+        if summary is None and isinstance(payload.get("rows"), list):
+            summary = {"total": len(payload["rows"])}
+            for row in payload["rows"]:
+                status = str((row or {}).get("status") or "") if isinstance(row, dict) else ""
+                summary[status] = summary.get(status, 0) + 1
+        if not summary:
+            continue
+        try:
+            counts = {key: int(summary.get(key) or 0) for key in ("total", "passed", "failed", "running", "queued")}
+        except (TypeError, ValueError):
+            continue
+        if counts["total"] > 0:
+            return counts
+    return None
+
+
 def live_matrix_path(task_id: str) -> str:
     """Where a run skill keeps the matrix of the task it runs for."""
     return f"mobile/runs/{task_id}/matrix.json"

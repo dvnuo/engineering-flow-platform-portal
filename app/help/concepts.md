@@ -20,6 +20,18 @@ something else meanwhile.
 A rule that starts work automatically — on a GitHub review request, a Jira
 assignment, or a timer.
 
+## Scenario run
+
+One Examples row of one scenario, run on one BrowserStack device. It ends with
+a result, screenshots at its checks, and a video of the session: the evidence
+for that scenario.
+
+## Segment
+
+A short recorded stretch of an app (logging in, choosing a currency) that
+scenarios reuse. Recorded once per platform; the assistant keeps it working
+when the app's layout moves.
+
 ## Connectors
 
 Everything an assistant can reach: the model provider, Jira, Confluence,

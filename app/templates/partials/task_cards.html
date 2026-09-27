@@ -8,6 +8,15 @@
         <span>Owner {{ task_owner_labels.get(task.id, task.owner_user_id or "-") }}</span>
         <span>{{ task.created_at }}</span>
       </div>
+      {% set progress = (task_progress or {}).get(task.id) %}
+      {% if progress %}
+      <div class="portal-task-progress" title="Scenario runs">
+        <div class="efp-matrix-bar" aria-hidden="true">
+          <i class="is-success" style="width: {{ (progress.passed * 100 / progress.total)|round(1) }}%"></i><i class="is-error" style="width: {{ (progress.failed * 100 / progress.total)|round(1) }}%"></i><i class="is-warning" style="width: {{ ((progress.running + progress.queued) * 100 / progress.total)|round(1) }}%"></i>
+        </div>
+        <span>{{ progress.passed }}/{{ progress.total }} scenarios passed{% if progress.failed %}, {{ progress.failed }} failed{% endif %}</span>
+      </div>
+      {% endif %}
     </div>
   </div>
   <div class="portal-task-card-actions">

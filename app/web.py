@@ -9,6 +9,7 @@ from urllib.parse import quote, urlparse
 from app.services.efp_cards import MOBILE_RUN_SKILLS as EFP_MOBILE_RUN_SKILLS
 from app.services.efp_cards import extract_cards as extract_efp_cards
 from app.services.efp_cards import live_matrix_path as efp_live_matrix_path
+from app.services.efp_cards import scenario_progress as efp_scenario_progress
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -2412,6 +2413,16 @@ def _content_target_from_request(request: Request, default: str = "#tool-panel-b
         return query_target if query_target.startswith("#") else f"#{query_target}"
     return default
 
+def _task_scenario_progress(tasks) -> dict:
+    """Scenario pass/fail counts for the task cards of mobile test runs."""
+    out = {}
+    for task in tasks:
+        progress = efp_scenario_progress(getattr(task, "result_payload_json", None))
+        if progress:
+            out[task.id] = progress
+    return out
+
+
 @router.get("/app/tasks/panel")
 def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
     user, access_response = _authorized_web_user(request)
@@ -2447,6 +2458,7 @@ def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="
                 "summary": summary,
                 "overview": overview,
                 "task_owner_labels": task_owner_labels,
+                "task_progress": _task_scenario_progress(tasks),
                 "content_target": _content_target_from_request(request),
                 "task_page_size": task_page_size,
                 "task_offset": task_offset,
@@ -2502,6 +2514,7 @@ def my_tasks_list(
                 "request": request,
                 "tasks": tasks,
                 "task_owner_labels": task_owner_labels,
+                "task_progress": _task_scenario_progress(tasks),
                 "content_target": _content_target_from_request(request),
                 "task_page_size": limit,
                 "task_offset": offset,

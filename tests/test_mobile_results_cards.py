@@ -326,3 +326,22 @@ def test_scripts_are_loaded_in_order():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert html.index("js/efp_cards.js") < html.index("js/chat_ui.js")
     assert "js/mobile_testing.js" in html
+
+
+def test_scenario_progress_for_task_cards(monkeypatch):
+    from app.services.efp_cards import scenario_progress
+
+    with_summary = json.dumps({"final_response": 'Done.\n```efp-matrix\n{"path": "mobile/runs/t/matrix.json", "summary": {"total": 12, "passed": 9, "failed": 2, "running": 1}}\n```'})
+    assert scenario_progress(with_summary) == {"total": 12, "passed": 9, "failed": 2, "running": 1, "queued": 0}
+    inline = json.dumps({"output_payload": {"final_response": '```efp-matrix\n{"rows": [{"status": "passed"}, {"status": "failed"}]}\n```'}})
+    assert scenario_progress(inline) == {"total": 2, "passed": 1, "failed": 1, "running": 0, "queued": 0}
+    assert scenario_progress(json.dumps({"final_response": "no cards"})) is None
+    assert scenario_progress("not json") is None
+
+    env = _task_page_env(monkeypatch)
+    try:
+        task = _async_task(env.db, env.agent, skill="run-mobile-scenarios", response=json.loads(with_summary)["final_response"])
+        html = env.client.get("/app/tasks/list").text
+        assert "9/12 scenarios passed, 2 failed" in html
+    finally:
+        env.cleanup()
