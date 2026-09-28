@@ -1,7 +1,7 @@
 """Download the Appium Inspector web build into a directory.
 
 Portal serves it at /inspector/ for recording mobile test steps (see
-app/api/mobile_recordings.py). The build is the dist-browser folder of the
+app/api/mobile.py). The build is the dist-browser folder of the
 appium-inspector-plugin npm package, which hard-codes the /inspector/ prefix.
 
     python scripts/fetch_appium_inspector.py 2026.9.2 /opt/appium-inspector [registry-url]

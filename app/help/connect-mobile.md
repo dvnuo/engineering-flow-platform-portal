@@ -3,46 +3,57 @@ icon: clipboard-check
 ---
 ## What this is for
 
-Running mobile tests on BrowserStack real devices: the assistant starts
-sessions, holds a device while you record test steps, runs scenarios in
-parallel, and keeps each run's video and screenshots. See
+Recording mobile test steps on a BrowserStack real device from your computer.
+Portal and the assistants never connect to BrowserStack themselves: recordings
+go through the local bridge on your computer, and test runs through your
+team's Jenkins pipeline. See
 [Mobile scenario testing](#/help/mobile-scenario-testing) for the whole flow.
 
-Only needed if you work on mobile testing.
+Only needed if you record mobile tests.
 
 ## Settings
 
 - **Username** and **Access Key** come from your BrowserStack account
-  settings. They are yours; runs count against your team's parallel sessions.
-- **Test BrowserStack** signs in and shows how many parallel sessions are in
-  use. A run with more scenarios than free sessions waits for them.
-- **Advanced** holds what most teams leave alone: the default platform, the
-  network (public, or a private network through BrowserStack Local), the idle
-  timeout (BrowserStack allows at most 300 seconds), session video, and the hub
-  and API addresses when your company routes BrowserStack through its own
-  gateway.
+  settings. The Recording panel hands them to the local bridge on your
+  computer for each recording; the bridge keeps them in memory only.
+- **Test BrowserStack** signs in from your computer through the local bridge
+  and shows how many parallel sessions are in use. Start the bridge first.
+- **Advanced** holds what most teams leave alone for the devices you record
+  on: the default platform, the network (public, or a private network through
+  BrowserStack Local), the idle timeout (BrowserStack allows at most 300
+  seconds), session video, and the hub and API addresses when your company
+  routes BrowserStack through its own gateway. Test runs use the pipeline's
+  own settings.
 
-## Test secrets
+## The local bridge
 
-Passwords and PINs of the test accounts your tests sign in with. When you
-record a login, the password field is never stored: the recording refers to it
-by a name such as `MOBILE_SECRET_PASSWORD`, and the assistant tells you which
-names it needs. Add each one under **Test secrets** with the same name. The
-values reach the assistant's runtime like your other connector credentials;
-they never appear in a recording, a test file, or the chat.
+The program of **Connectors > Local browser** records mobile tests too: its
+package carries `mobile-auto`. It starts the device, holds it while you
+record, and passes Appium Inspector's commands to it, keeping a log of what
+you did. Install it once from that page; the BrowserStack page shows whether
+it is running. Your computer needs to reach BrowserStack. Behind a proxy the
+bridge uses your system proxy settings, or set one under *Network from this
+computer* in the Recording panel.
 
-## App packages
+## Builds
 
-Builds you upload here go straight to BrowserStack; Portal keeps only the
-reference. Upload a file, or give the URL of a Jenkins or Nexus artifact (it is
-fetched with the credentials in your Jenkins or Nexus connector); any other
-https URL is handed to BrowserStack to download. Give every build of an app the
-same custom id so tests always pick the newest one. BrowserStack deletes
-uploads after 30 days; an expiring package is marked in the list.
+The Recording panel lists the builds in your BrowserStack account and uploads
+new ones through the bridge. Give every build of an app the same custom id,
+for example `fxapp-android-uat`, so recordings and the pipeline always pick
+the newest one. BrowserStack deletes uploads after 30 days.
+
+## Test accounts' passwords
+
+A recording never stores what you type into a password field: it refers to
+each one by a name such as `MOBILE_SECRET_PASSWORD`, and the assistant tells
+you which names it needs. The values live in Jenkins, as credentials of the
+mobile scenario pipeline, not in Portal; ask whoever runs your Jenkins to add
+them.
 
 ## Private networks
 
-If the app talks to internal test servers, the device needs BrowserStack Local.
-Choose *Private: the assistant runs BrowserStack Local* when your assistants
-can reach those servers, or *a tunnel your team runs* when a long-running
-tunnel already exists; ask your platform team which one applies.
+If the app talks to internal test servers, the device needs BrowserStack
+Local. Choose *Private: start BrowserStack Local with each session* when the
+computer that starts the session can reach those servers, or *a tunnel your
+team runs* when a long-running tunnel already exists; ask your platform team
+which one applies.

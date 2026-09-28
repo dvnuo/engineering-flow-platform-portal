@@ -1,65 +1,43 @@
 {#
-  Below the BrowserStack settings form: the member's app packages and how
-  recording works. Nothing here is a setting; static/js/mobile_testing.js
-  drives it through /api/app-packages.
+  Below the BrowserStack settings form: where recordings and test runs
+  happen. Nothing here is a setting; static/js/mobile_testing.js fills in the
+  local bridge's status.
 #}
-<section class="portal-panel-section" data-app-packages data-connector-enabled="{{ 'true' if mobile.get('enabled') else 'false' }}">
+<section class="portal-panel-section" data-mobile-overview>
   <div class="portal-settings-section-title">
     <span class="portal-section-accent" aria-hidden="true"></span>
-    <h6>App packages</h6>
+    <h6>Recording on your computer</h6>
   </div>
   <p class="portal-panel-note">
-    Builds you upload go straight to BrowserStack and are kept there for 30 days. Recordings and test runs pick a build here;
-    give every build of the same app the same <strong>custom id</strong> and scripts that name the custom id always get the newest one.
+    Portal and the assistants do not connect to BrowserStack. Recording runs on this computer through the local bridge,
+    the same program as <strong>Connectors &gt; Local browser</strong>: it starts a BrowserStack device with the settings above,
+    holds it while you record, and passes Appium Inspector's commands to it. Open a chat with your assistant and choose
+    <strong>Recording</strong> in the tool bar.
   </p>
-  <div class="portal-app-package-upload">
-    <div class="grid grid-cols-2 gap-3">
-      <label class="portal-form-label"><span class="portal-form-label">Build file (.apk, .aab, .ipa)</span>
-        <input type="file" accept=".apk,.aab,.ipa" class="portal-form-input" data-app-package-file />
-      </label>
-      <label class="portal-form-label"><span class="portal-form-label">Custom id</span>
-        <input type="text" maxlength="100" class="portal-form-input" placeholder="fxapp-android-uat" data-app-package-custom-id />
-      </label>
-      <label class="portal-form-label"><span class="portal-form-label">Note</span>
-        <input type="text" maxlength="255" class="portal-form-input" placeholder="UAT build 1.4.2" data-app-package-note />
-      </label>
-      <label class="portal-form-label"><span class="portal-form-label">Or a build URL</span>
-        <input type="url" class="portal-form-input" placeholder="Jenkins or Nexus artifact URL, or a public https URL" data-app-package-url />
-      </label>
-    </div>
-    <div class="flex items-center gap-2">
-      <button type="button" class="portal-btn is-primary" data-app-package-action="upload"><i data-lucide="upload" class="w-4 h-4"></i>Upload</button>
-      <button type="button" class="portal-btn is-secondary" data-app-package-action="from-url"><i data-lucide="link" class="w-4 h-4"></i>Add from URL</button>
-      <div class="portal-inline-state" data-app-package-status role="status"></div>
-    </div>
-    <div class="portal-progress hidden" data-app-package-progress><i style="width:0%"></i></div>
-    <p class="portal-inline-note">A Jenkins or Nexus URL is downloaded with the credentials in your Jenkins or Nexus connector. Any other https URL is handed to BrowserStack, which downloads it from the internet.</p>
+  <div class="flex items-center gap-2">
+    <div class="portal-inline-state is-visible" data-mobile-bridge-status role="status">Looking for the local bridge…</div>
+    <button type="button" class="portal-btn is-secondary hidden" data-mobile-bridge-action="start">Start bridge</button>
   </div>
-  <div class="portal-app-package-list" data-app-package-list>
-    <div class="portal-inline-state is-visible">Loading app packages…</div>
-  </div>
-  <details class="portal-collapsible" data-app-package-remote>
-    <summary class="portal-collapsible-summary"><span>Builds already on BrowserStack</span></summary>
-    <div data-app-package-remote-list><div class="portal-inline-state is-visible">Open to load.</div></div>
-  </details>
+  <ul class="portal-setup-guide-steps">
+    <li>Install the bridge once from <strong>Connectors &gt; Local browser</strong>; its package includes mobile-auto for recordings.</li>
+    {% if appium_inspector_available %}
+    <li>Portal hosts Appium Inspector: the Recording panel opens it already attached to the device. Nothing else to install.</li>
+    {% else %}
+    <li>Install <a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a> 2026.5.1 or later; the Recording panel shows how to attach it to the device.</li>
+    {% endif %}
+    <li>Upload the build to record in the Recording panel, or pick one your pipeline already uploaded.</li>
+    <li>Type real values while recording. Password fields are never stored; they become names such as <code>MOBILE_SECRET_PASSWORD</code>.</li>
+  </ul>
 </section>
 
 <section class="portal-panel-section">
   <div class="portal-settings-section-title">
     <span class="portal-section-accent" aria-hidden="true"></span>
-    <h6>Recording test steps</h6>
+    <h6>Test runs in Jenkins</h6>
   </div>
   <p class="portal-panel-note">
-    Open a chat with your assistant and choose <strong>Recording</strong> in the tool bar. The assistant starts a BrowserStack device with the build you pick and holds it while you record short segments (log in, skip the introduction, choose a currency) in Appium Inspector.
+    Dry runs, full runs, and reruns go through your team's mobile scenario pipeline in Jenkins, which has its own BrowserStack
+    account and keeps the test accounts' passwords as Jenkins credentials under the names the recordings use. The assistant
+    starts the pipeline and brings back each scenario's result, screenshots, and video.
   </p>
-  <ul class="portal-setup-guide-steps">
-    {% if appium_inspector_available %}
-    <li>Portal hosts Appium Inspector: the Recording panel opens it already attached to the device. Nothing to install.</li>
-    <li>If you prefer the desktop app, the panel also shows the session details to attach it by hand.</li>
-    {% else %}
-    <li>Install <a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a> 2026.5.1 or later (Windows or macOS). Older versions cannot attach to a BrowserStack session by id.</li>
-    <li>The Recording panel shows the session id and hub to attach to; record in the Inspector, then upload the code it generates in the panel.</li>
-    {% endif %}
-    <li>Type real values while recording; password fields are never stored, and the assistant turns the other values into parameters for your test data.</li>
-  </ul>
 </section>

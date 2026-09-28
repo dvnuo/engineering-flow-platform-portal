@@ -39,8 +39,6 @@ class RuntimeProfileTestService:
             return await self._test_pgsql(config)
         if target == "llm":
             return await self._test_llm(config, runtime_type=runtime_type)
-        if target == "browserstack":
-            return await self._test_browserstack(config)
         return False, f"Unsupported test target: {target}"
 
     # ------------------------------------------------------------------
@@ -72,45 +70,6 @@ class RuntimeProfileTestService:
     @staticmethod
     def _instance_label(instance: dict, fallback: str) -> str:
         return str(instance.get("name") or fallback)
-
-    async def _test_browserstack(self, config: dict) -> tuple[bool, str]:
-        """Sign in to App Automate and report the parallel-session headroom.
-
-        plan.json is what mobile-auto's capacity check reads, so the numbers
-        here are the ones a parallel run will wait on.
-        """
-        mobile_cfg = config.get("mobile-auto") if isinstance(config.get("mobile-auto"), dict) else {}
-        if not bool(mobile_cfg.get("enabled")):
-            return False, "Turn the BrowserStack connector on before testing it."
-        bs_cfg = mobile_cfg.get("browserstack") if isinstance(mobile_cfg.get("browserstack"), dict) else {}
-        username = str(bs_cfg.get("username") or "").strip()
-        access_key = str(bs_cfg.get("access_key") or "").strip()
-        if not username or not access_key:
-            return False, "Enter the BrowserStack username and access key first."
-        base_url = str(bs_cfg.get("api_base_url") or "https://api-cloud.browserstack.com").strip().rstrip("/")
-        ok, message, data = await self._http_request(
-            method="GET",
-            url=f"{base_url}/app-automate/plan.json",
-            headers={**self._basic_auth_header(username, access_key), "Accept": "application/json"},
-            timeout=15.0,
-        )
-        if not ok:
-            if message.startswith(("HTTP 401", "HTTP 403")):
-                return False, (
-                    "BrowserStack refused this username and access key. Copy both again from your "
-                    f"BrowserStack account settings. ({message})"
-                )
-            return False, message
-        plan = data if isinstance(data, dict) else {}
-        allowed = plan.get("team_parallel_sessions_max_allowed") or plan.get("parallel_sessions_max_allowed")
-        running = plan.get("parallel_sessions_running")
-        queued = plan.get("queued_sessions")
-        if allowed is None:
-            return True, f"BrowserStack connection OK as {username}."
-        return True, (
-            f"BrowserStack connection OK as {username}: {running or 0} of {allowed} parallel sessions in use, "
-            f"{queued or 0} queued."
-        )
 
     async def _test_jenkins(self, config: dict) -> tuple[bool, str]:
         jenkins_cfg = config.get("jenkins") if isinstance(config.get("jenkins"), dict) else {}

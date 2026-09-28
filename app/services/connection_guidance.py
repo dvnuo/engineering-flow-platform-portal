@@ -114,12 +114,12 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
     },
     "mobile": {
         "title": "Connect BrowserStack",
-        "summary": "Lets the assistant run mobile tests on BrowserStack real devices, hold a device for you to record on, and collect each run's video and screenshots.",
+        "summary": "Lets you record mobile test steps on a BrowserStack real device from this computer, through the local bridge. Test runs go through your team's Jenkins pipeline.",
         "steps": [
             "Open your BrowserStack account settings.",
             "Copy your username and access key.",
-            "Paste both below, turn the connector on, and use Test BrowserStack to check the sign-in and your parallel sessions.",
-            "Add the app builds you test under App packages, so recordings and runs can pick them by name.",
+            "Paste both below, turn the connector on, and save.",
+            "Start the local bridge (Connectors > Local browser), then use Test BrowserStack to check the sign-in from this computer.",
         ],
         "help_url": "https://www.browserstack.com/accounts/profile/details",
         "help_label": "BrowserStack account settings",

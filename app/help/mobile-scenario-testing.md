@@ -14,25 +14,39 @@ order: 15
    negative, each Examples row with its expected results.
 3. You approve the scenarios on the task page (a review card: tick the ones to
    keep, say what to change).
-4. You record short segments on a real BrowserStack device: log in, skip the
-   introduction, choose a currency. Each is recorded once per platform.
+4. You record short segments on a real BrowserStack device from your computer:
+   log in, skip the introduction, choose a currency. Each is recorded once per
+   platform.
 5. The assistant turns the approved scenarios and your segments into one test
-   per Examples row, runs one on a single device, and asks you to approve it.
-6. The run fans out in parallel. Each scenario ends with a result, its
-   screenshots, and a video of the session; failures are sorted into script
-   drift, product defects, infrastructure, or test data.
+   per Examples row, commits them to your team's test repository, and has the
+   Jenkins pipeline run one row of each scenario on a single device. You
+   approve them.
+6. The full run goes through the same pipeline, in parallel. Each scenario
+   ends with a result, its screenshots, and a video of the session; failures
+   are sorted into script drift, product defects, infrastructure, or test data.
+
+## Where things run
+
+| What | Where |
+| --- | --- |
+| Recording segments | Your computer: the Recording panel drives the local bridge, which drives the BrowserStack device |
+| Compiling segments, writing tests, triage | The assistant, on files only |
+| Dry runs, full runs, reruns | Your team's Jenkins pipeline |
+
+Portal and the assistants never connect to BrowserStack.
 
 ## Before you start
 
 - **A QA Assistant**: create your assistant with the *QA Assistant* type. It
   carries the skills and instructions this flow uses; other types do not.
 - **Connectors > BrowserStack**: your username and access key, turned on.
-  *Test BrowserStack* shows how many parallel sessions your plan has; a run
-  waits for free ones.
-- **App packages** (same page): upload the builds you test, or give a Jenkins
-  or Nexus artifact URL. Give every build of an app the same custom id, for
-  example `fxapp-android-uat`; tests that name the custom id always get the
-  newest build. BrowserStack keeps uploads for 30 days.
+- **Connectors > Local browser**: install the local bridge on your computer
+  once; recordings run through it. *Test BrowserStack* on the BrowserStack
+  page checks that your computer reaches BrowserStack.
+- **Connectors > Jenkins** and **GitHub**: the assistant starts the mobile
+  scenario pipeline with your Jenkins connector and commits the tests to your
+  team's test repository with GitHub. Your Jenkins administrator sets the
+  pipeline up once, with the test accounts' passwords as Jenkins credentials.
 - **Jira**: the delegation needs your Jira connector. Ask your BA to fill in
   the expected results in each Examples row; a row without them cannot be
   checked, and the assistant flags it instead of inventing a value.
@@ -41,25 +55,29 @@ order: 15
 
 Open a chat with the assistant and choose **Recording** in the tool bar.
 
-1. Pick the app package, optionally a device, and list the segments you will
-   record, then **Start recording session**. The assistant starts the device
-   and holds it; it appears in the panel within about a minute.
-2. **Open Inspector** opens Appium Inspector already attached to that device
-   (when your Portal hosts it). Otherwise attach the desktop Inspector with the
-   session id shown in the panel.
-3. Select elements in the Inspector and use its Tap and Send Keys buttons. Tap
+1. If the panel says the local bridge is not running, press **Start bridge**.
+2. Pick a build (or upload one), the platform, optionally a device, and list
+   the segments you will record, then **Start recording device**. The bridge
+   starts the device and holds it; it is ready in about a minute, longer when
+   all your parallel sessions are busy.
+3. **Open Inspector** opens Appium Inspector already attached to that device
+   (when your Portal hosts it). Otherwise attach the desktop Inspector to the
+   bridge with the host, port, and path shown in the panel.
+4. Select elements in the Inspector and use its Tap and Send Keys buttons. Tap
    elements rather than points on the screenshot: an element keeps working when
    the layout moves, a point does not.
-4. Type real values, including passwords. Password fields are never stored; the
-   assistant names each one (for example `MOBILE_SECRET_PASSWORD`) and you add
-   its value under **Connectors > BrowserStack > Test secrets**. The other
-   values become parameters for your test data.
-5. Press **Segment done**. The assistant compiles the segment and tells you how
-   robust it is. Carry on with the next segment on the same device.
-6. **Finish recording** when you are done. The device is released.
+5. Type real values, including passwords. Password fields are never stored;
+   the assistant names each one (for example `MOBILE_SECRET_PASSWORD`) for the
+   pipeline's credentials. The other values become parameters for your test
+   data.
+6. Press **Segment done**. The segment goes into the assistant's workspace;
+   the assistant compiles it and tells you how robust it is. Carry on with the
+   next segment on the same device.
+7. **Finish recording** when you are done. The device is released.
 
-The device stays held while you record. If you need longer, use **Hold 15 more
-minutes**; BrowserStack ends a session that sees no command for five minutes.
+The device is held for 30 minutes at a time; **Hold 30 more minutes** extends
+it. Keep the bridge running while you record: BrowserStack ends a session that
+sees no command for five minutes.
 
 ## What a recording grade means
 
@@ -73,5 +91,5 @@ minutes**; BrowserStack ends a session that sees no command for five minutes.
 
 Each scenario run has an evidence card: its result, the device, the
 BrowserStack session, a video, and screenshots at the checks. The task page of
-a run shows the scenario matrix while it runs, and the triage of every failure
-afterwards, with links to the defect or the fix.
+a run shows the scenario matrix while the pipeline runs, and the triage of
+every failure afterwards, with links to the defect or the fix.

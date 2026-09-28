@@ -552,15 +552,13 @@ Private business repositories used during an assistant task are checked out by t
 | `AGENTS_VOLUME_SUB_PATH_PREFIX` | `efp-agents` | Prefix for assistant paths on the shared volume |
 | `EFP_MAX_UPLOAD_MB` | `25` | Portal attachment/workspace upload ceiling |
 | `EFP_CHAT_UPLOAD_EXTENSIONS` | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml` | Chat attachment extension allowlist; separate from workspace file uploads |
-| `EFP_MAX_APP_PACKAGE_MB` | `500` | Largest mobile app build a member can upload to BrowserStack through Connectors > BrowserStack > App packages |
 | `EFP_APPIUM_INSPECTOR_DIR` | `/opt/appium-inspector` in the image | The Appium Inspector web build Portal serves at `/inspector/`; empty or missing turns the hosted Inspector off |
-| `BROWSERSTACK_PROXY_URL` | empty | Egress for Portal's own BrowserStack calls (app package uploads, the Inspector's WebDriver proxy); same modes as `GITHUB_PROXY_URL` |
 
 An empty CPU or memory request leaves that request unset. Set requests at or below their limits. Resource requests influence scheduling; they do not themselves reserve a separate machine for each assistant.
 
 The code uses the shared claim `efp-agents-efs-pvc`; if it already exists, assistant creation does not resize it to a new assistant's disk setting. Defaults also do not automatically mutate every existing assistant or resize an existing claim. New assistants use `/workspace`; the presence of `DEFAULT_AGENT_MOUNT_PATH` in the settings class does not make it an effective creation override in this revision. Workspace files survive assistant runtime deletion on the shared volume, but deletion removes the Portal assistant and related runtime objects; retained files are not a complete recoverable assistant record. Prefer Stop for a temporary pause.
 
-App package uploads are separate from the upload ceiling above: Portal spools the file to a temporary file (bounded by `EFP_MAX_APP_PACKAGE_MB`, so it needs that much free disk) and streams it to BrowserStack, and the supplied `k8s/efp-portal-ingress.yaml` routes `/api/app-packages` through its own Ingress with a 520 MB body limit and request buffering off. Portal must reach `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443 for app packages and the hosted Inspector; assistant pods need the same for `mobile-auto`. The image bundles the Appium Inspector web build at build time (`APPIUM_INSPECTOR_VERSION`, `NPM_REGISTRY` build arguments); a build without registry access leaves it out and members record with the desktop Inspector.
+The image bundles the Appium Inspector web build at build time (`APPIUM_INSPECTOR_VERSION`, `NPM_REGISTRY` build arguments); a build without registry access leaves it out and members record with the desktop Inspector. Portal only serves its static files: the Inspector runs in the member's browser and talks to the local bridge on their computer.
 
 Increasing the upload ceiling requires matching the Portal setting, the runtime's effective limit, and every ingress/proxy limit. The lowest enforced limit wins. Portal now injects `EFP_MAX_UPLOAD_MB` and the normalized `EFP_CHAT_UPLOAD_EXTENSIONS` into assistant pod environments. After changing deployment configuration, restart Portal and recreate or roll out affected runtime pods through the supported lifecycle controls; refresh browser pages and verify the effective pod values and runtime support. Existing pod environments do not update automatically.
 
@@ -576,27 +574,40 @@ Transcript attachment links preserve the runtime's inline/download choice, but t
 
 ### Mobile scenario testing
 
-The flow in the in-app help topic *Mobile scenario testing* spans four pieces;
-all four must be current:
+The flow in the in-app help topic *Mobile scenario testing* keeps BrowserStack
+traffic off Portal and the assistant pods: recording runs on the member's
+computer and test runs in Jenkins. These pieces must be current:
 
-- **Assistant runtime images** rebuilt with a `mobile-auto` that has
-  `inspector import`, `inspector attach --out`, `test compile`,
-  `test run --dir --parallel`, and test secrets (the tools repository's
-  `feat/mobile-scenario-testing` work). Pods need egress to
-  `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443, and to
-  the app's test servers when BrowserStack Local runs in the pod.
+- **The local bridge package** (the tools repository's `browser`, with
+  `mobile-auto` next to it) on each tester's computer, installed from
+  Connectors > Local browser. The Recording panel calls it on 127.0.0.1; it
+  starts and holds the recording device, uploads builds, and proxies Appium
+  Inspector's WebDriver traffic. That computer needs to reach
+  `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443,
+  directly or through its proxy settings.
+- **A Jenkins job** from `pipelines/mobile-scenarios/Jenkinsfile` in the tools
+  repository, with a BrowserStack credential and the test accounts' passwords
+  as Jenkins credentials (its README lists the parameters), and a test
+  repository the assistant commits `mobile/` to and the job checks out.
+  Members connect Jenkins and GitHub in Connectors; the assistant starts the
+  job, follows its `EFP-MATRIX` console lines for the live matrix, and
+  downloads the evidence.
+- **Assistant runtime images** with a `mobile-auto` that has
+  `inspector import`, `test compile`, `test annotate`, and
+  `locate --recording` / `--source` (the tools repository's
+  `feat/mobile-scenario-testing` work). These are file-only; pods need no
+  BrowserStack egress.
 - **Skills** `design-mobile-scenarios`, `record-mobile-segment`,
   `generate-mobile-scripts`, `run-mobile-scenarios`, and
   `maintain-mobile-automation-tests` on the `qa` branch of the skills
   repository (and on `master`, the full library), with the QA persona and
   instructions on the `qa` branch of the agents repository.
-- **Portal**: the BrowserStack egress and app-package ingress described under
-  *Resource and storage settings*, and the bundled Appium Inspector
-  (`EFP_APPIUM_INSPECTOR_DIR`) for recording without installing anything.
+- **Portal**: the bundled Appium Inspector (`EFP_APPIUM_INSPECTOR_DIR`) for
+  recording without installing anything else.
 - **Jira**: a delegation with the *Jira Status Change* source (for example
   *Ready for Test*) and the `design-mobile-scenarios` skill starts the flow.
 
-Migration `20260928_0038` seeds the **QA Assistant** type next to Business,
+Migration `20260928_0037` seeds the **QA Assistant** type next to Business,
 Dev, and Ops: native engine, icon `flask-conical`, agents and skills branch
 `qa`. Create both `qa` branches before deploying it; an assistant created from
 a type whose branch is missing fails to start with "connection settings aren't

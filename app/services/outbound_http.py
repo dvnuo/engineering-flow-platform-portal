@@ -56,10 +56,6 @@ def describe_github_egress() -> str:
     return describe_egress(settings.github_proxy_url)
 
 
-def browserstack_client_kwargs(*, timeout: float, **extra) -> dict:
-    return outbound_client_kwargs(settings.browserstack_proxy_url, timeout=timeout, **extra)
-
-
 def sso_client_kwargs(**extra) -> dict:
     return outbound_client_kwargs(settings.sso_proxy_url, timeout=15.0, **extra)
 

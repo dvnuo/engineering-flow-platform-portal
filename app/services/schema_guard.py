@@ -30,9 +30,6 @@ REQUIRED_PORTAL_TABLES = (
     "assistant_types",
     "platform_settings",
     "user_connectors",
-    "app_packages",
-    "mobile_recordings",
-    "mobile_recording_events",
 )
 REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
     "updated_at",

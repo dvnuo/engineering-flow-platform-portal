@@ -111,7 +111,8 @@ class ConnectorSpec:
     extra_guidance_keys: tuple[str, ...] = ()
     state_of: Callable[[Mapping[str, Any]], str] = lambda config: STATE_NOT_SET_UP
     # KIND_SETTINGS only: a partial rendered below the settings form, for
-    # things that are not settings (BrowserStack's app packages).
+    # things that are not settings (where BrowserStack recordings and test
+    # runs happen).
     panel_extra_template: str = ""
 
     @property
@@ -354,7 +355,6 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         state_of=_browserstack_state,
         config_sections=("mobile-auto",),
         form_sections=("mobile",),
-        test_targets=("browserstack",),
         guidance_key="mobile",
         panel_extra_template="partials/connectors/browserstack_extra.html",
     ),

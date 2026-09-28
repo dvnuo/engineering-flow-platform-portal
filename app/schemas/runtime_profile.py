@@ -138,7 +138,6 @@ PORTAL_MANAGED_FIELD_TREE = {
             "interactive_debugging": True,
             "video": True,
         },
-        "test_secrets": True,
         "browserstack": {
             "api_base_url": True,
             "appium_base_url": True,
@@ -885,36 +884,6 @@ def _sanitize_mobile_local(value) -> dict:
     return out
 
 
-# Test secrets: the passwords and PINs of test accounts that recorded mobile
-# tests type through `text_env`. Each value sits under a field called
-# "secret", so the profile Secret encrypts it (profile_secret_encryption).
-MOBILE_TEST_SECRET_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
-MAX_MOBILE_TEST_SECRETS = 50
-MAX_MOBILE_TEST_SECRET_CHARS = 4096
-
-
-def sanitize_mobile_test_secrets(value) -> list[dict]:
-    """Keep well-formed {name, secret} rows: env-style names, once each."""
-    if not isinstance(value, list):
-        return []
-    out: list[dict] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        secret = item.get("secret")
-        if not isinstance(secret, str) or not secret.strip() or len(secret) > MAX_MOBILE_TEST_SECRET_CHARS:
-            continue
-        if not MOBILE_TEST_SECRET_NAME_RE.fullmatch(name) or name in seen:
-            continue
-        seen.add(name)
-        out.append({"name": name, "secret": secret})
-        if len(out) >= MAX_MOBILE_TEST_SECRETS:
-            break
-    return out
-
-
 def sanitize_runtime_profile_mobile(value) -> dict:
     if not isinstance(value, dict):
         return {}
@@ -950,10 +919,6 @@ def sanitize_runtime_profile_mobile(value) -> dict:
                 defaults_out[key] = _runtime_profile_bool(defaults.get(key))
         if defaults_out:
             out["defaults"] = defaults_out
-
-    test_secrets = sanitize_mobile_test_secrets(value.get("test_secrets"))
-    if test_secrets:
-        out["test_secrets"] = test_secrets
 
     browserstack = value.get("browserstack")
     if isinstance(browserstack, dict):
@@ -1118,12 +1083,6 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
         browserstack = mobile.get("browserstack")
         if isinstance(browserstack, dict):
             browserstack["access_key_present"] = bool(str(browserstack.pop("access_key", "")).strip())
-        if isinstance(mobile.get("test_secrets"), list):
-            mobile["test_secrets"] = [
-                {"name": item.get("name"), "secret_present": bool(str(item.get("secret") or "").strip())}
-                for item in mobile["test_secrets"]
-                if isinstance(item, dict)
-            ]
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())

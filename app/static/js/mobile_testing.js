@@ -1,15 +1,234 @@
 /**
- * Mobile testing: app packages (Connectors > BrowserStack) and the Recording
- * panel of the assistant chat.
+ * Mobile testing in the Portal page: the BrowserStack connector's checks and
+ * the Recording panel (assistant chat tool bar > Recording).
  *
- * App packages are builds uploaded to BrowserStack through /api/app-packages;
- * the body is the raw file so Portal can stream it on without buffering.
- * The Recording panel is in the second half of this file.
+ * Portal never talks to BrowserStack. The member's own computer does, through
+ * the local bridge (`browser serve`, the Local browser connector's program):
+ * its /mobile/* routes list and upload builds, start a recording device with
+ * mobile-auto and hold it, and proxy Appium Inspector's WebDriver traffic for
+ * that device, logging what the segment compiler needs. The page sends the
+ * member's BrowserStack credentials with each call; the bridge keeps them in
+ * memory. Test runs go through the team's Jenkins pipeline, which the
+ * assistant starts.
  */
 (function () {
   "use strict";
 
-  const API = "/api/app-packages";
+  // ---- the local bridge ---------------------------------------------------
+
+  const PORTS = [8765, 8766, 8767, 8768, 8769, 8770];
+  const PING_TIMEOUT_MS = 1500;
+  const PROBE_CACHE_MS = 4000;
+  const PROXY_KEY = "efp.mobile.bridge_proxy";
+  const BRIDGE_MESSAGES = {
+    not_running: "The local bridge is not running on this computer. Start it here; if it is not installed yet, install it from Connectors > Local browser first.",
+    outdated: "The local bridge on this computer is an older version without mobile recording. Download it again from Connectors > Local browser and restart it.",
+    no_mobile_auto: "The local bridge cannot find mobile-auto next to it. Download the bridge package again from Connectors > Local browser.",
+  };
+
+  const bridgeState = { port: 0, info: null, probedAt: 0, probing: null };
+
+  function readStorage(key) {
+    try {
+      return window.localStorage.getItem(key) || "";
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function writeStorage(key, value) {
+    try {
+      if (value) window.localStorage.setItem(key, value);
+      else window.localStorage.removeItem(key);
+    } catch (_error) {
+      /* storage is a convenience */
+    }
+  }
+
+  function proxySetting() {
+    return readStorage(PROXY_KEY).trim();
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
+  async function ping(port) {
+    try {
+      const response = await fetchWithTimeout(`http://127.0.0.1:${port}/ping`, { method: "GET", mode: "cors", cache: "no-store" }, PING_TIMEOUT_MS);
+      if (!response.ok) return null;
+      const payload = await response.json();
+      return payload && payload.ok === true ? (payload.data || {}) : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function bridgeView() {
+    const info = bridgeState.info;
+    const capabilities = info && Array.isArray(info.capabilities) ? info.capabilities : [];
+    return {
+      alive: Boolean(info),
+      port: bridgeState.port,
+      version: info ? String(info.version || "") : "",
+      mobile: capabilities.indexOf("mobile") >= 0,
+      mobileAuto: Boolean(info && info.mobile && info.mobile.available),
+    };
+  }
+
+  async function probe({ force = false } = {}) {
+    if (!force && bridgeState.probedAt && Date.now() - bridgeState.probedAt < PROBE_CACHE_MS) return bridgeView();
+    if (bridgeState.probing) return bridgeState.probing;
+    bridgeState.probing = (async () => {
+      // All ports at once; the last known one wins when several answer.
+      const ports = bridgeState.port ? [bridgeState.port, ...PORTS.filter((port) => port !== bridgeState.port)] : PORTS;
+      const results = await Promise.all(ports.map(async (port) => ({ port, data: await ping(port) })));
+      const found = results.find((entry) => entry.data) || null;
+      bridgeState.port = found ? found.port : 0;
+      bridgeState.info = found ? found.data : null;
+      bridgeState.probedAt = Date.now();
+      bridgeState.probing = null;
+      return bridgeView();
+    })();
+    return bridgeState.probing;
+  }
+
+  function bridgeProblem(state) {
+    if (!state || !state.alive) return "not_running";
+    if (!state.mobile) return "outdated";
+    if (!state.mobileAuto) return "no_mobile_auto";
+    return "";
+  }
+
+  function bridgeError(error) {
+    const detail = error && typeof error === "object" ? error : {};
+    const err = new Error(String(detail.message || "The local bridge could not do that."));
+    err.code = String(detail.code || "bridge_error");
+    err.hint = String(detail.hint || "");
+    return err;
+  }
+
+  function errorText(error) {
+    if (!error) return "Something went wrong.";
+    const message = String(error.message || error);
+    const hint = error.hint ? String(error.hint) : "";
+    return hint && message.indexOf(hint) < 0 ? `${message} ${hint}` : message;
+  }
+
+  async function call(command, params, { credentials = null, timeoutMs = 60000 } = {}) {
+    let state = bridgeView();
+    if (!state.alive) state = await probe({ force: true });
+    if (!state.alive) throw bridgeError({ code: "bridge_unreachable", message: BRIDGE_MESSAGES.not_running });
+    const body = JSON.stringify({ command, params: params || {}, credentials: credentials || {}, proxy: proxySetting() });
+    let response;
+    try {
+      response = await fetchWithTimeout(`http://127.0.0.1:${state.port}/mobile/run`, {
+        method: "POST",
+        mode: "cors",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }, timeoutMs);
+    } catch (error) {
+      const aborted = error && error.name === "AbortError";
+      if (!aborted) {
+        bridgeState.info = null;
+        bridgeState.probedAt = 0;
+      }
+      throw bridgeError({
+        code: aborted ? "bridge_timeout" : "bridge_unreachable",
+        message: aborted ? "The local bridge did not answer in time." : "Could not reach the local bridge on this computer.",
+      });
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      payload = null;
+    }
+    if (payload && payload.ok === true) return payload.data || {};
+    throw bridgeError(payload && payload.error ? payload.error : { code: "bridge_error", message: `The local bridge answered HTTP ${response.status}.` });
+  }
+
+  function safeFileName(name) {
+    return String(name || "build").replace(/[^A-Za-z0-9._-]+/g, "_");
+  }
+
+  // Streams a build to the bridge, which uploads it to BrowserStack. XHR for
+  // the progress events fetch does not have.
+  function uploadBuild(file, { credentials, customId, onProgress }) {
+    return new Promise((resolve, reject) => {
+      const state = bridgeView();
+      if (!state.alive) {
+        reject(bridgeError({ code: "bridge_unreachable", message: BRIDGE_MESSAGES.not_running }));
+        return;
+      }
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `http://127.0.0.1:${state.port}/mobile/apps/upload`);
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      xhr.setRequestHeader("X-EFP-File-Name", safeFileName(file.name));
+      xhr.setRequestHeader("X-EFP-BS-User", credentials.username || "");
+      xhr.setRequestHeader("X-EFP-BS-Key", credentials.access_key || "");
+      if (credentials.api_base_url) xhr.setRequestHeader("X-EFP-BS-API", credentials.api_base_url);
+      if (customId) xhr.setRequestHeader("X-EFP-Custom-Id", customId);
+      const proxy = proxySetting();
+      if (proxy) xhr.setRequestHeader("X-EFP-Proxy", proxy);
+      xhr.timeout = 30 * 60 * 1000;
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+      };
+      xhr.onload = () => {
+        let payload = null;
+        try {
+          payload = JSON.parse(xhr.responseText);
+        } catch (_error) {
+          payload = null;
+        }
+        if (payload && payload.ok === true) resolve((payload.data || {}).app || {});
+        else reject(bridgeError(payload && payload.error ? payload.error : { code: "bridge_error", message: `The upload failed (HTTP ${xhr.status}).` }));
+      };
+      xhr.onerror = () => reject(bridgeError({ code: "bridge_unreachable", message: "Could not reach the local bridge on this computer." }));
+      xhr.ontimeout = () => reject(bridgeError({ code: "bridge_timeout", message: "The upload took longer than 30 minutes." }));
+      xhr.send(file);
+    });
+  }
+
+  function launchBridge() {
+    if (window.portalConnectors && typeof window.portalConnectors.launchBridge === "function") {
+      window.portalConnectors.launchBridge();
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = `efp-bridge://start?origin=${encodeURIComponent(window.location.origin)}&port=${PORTS[0]}`;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    window.setTimeout(() => anchor.remove(), 0);
+  }
+
+  async function launchAndWait(timeoutMs = 10000) {
+    launchBridge();
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      await sleep(700);
+      const state = await probe({ force: true });
+      if (state.alive) return state;
+    }
+    return probe({ force: true });
+  }
+
+  // ---- shared helpers -------------------------------------------------------
 
   function esc(value) {
     return String(value == null ? "" : value)
@@ -18,455 +237,141 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  }
+
+  function setInline(el, text, tone) {
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = `portal-inline-state${text ? " is-visible" : ""}${tone ? ` is-${tone}` : ""}`;
   }
 
   function renderIcons() {
     if (window.lucide && typeof window.lucide.createIcons === "function") {
       try {
         window.lucide.createIcons();
-      } catch (error) {
+      } catch (_error) {
         /* icons are cosmetic */
       }
     }
   }
 
-  function formatSize(bytes) {
-    const n = Number(bytes);
-    if (!Number.isFinite(n) || n <= 0) return "";
-    if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-    return `${Math.max(1, Math.round(n / 1024))} KB`;
-  }
-
-  function formatDate(iso) {
-    if (!iso) return "";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  }
-
-  // Mirrors default_custom_id in app_package_service.py so the field shows
-  // what the server would pick: every build of an app shares one custom id.
-  function suggestCustomId(fileName) {
-    const name = String(fileName || "");
-    const dot = name.lastIndexOf(".");
-    const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
-    const platform = ext === "ipa" ? "ios" : (ext === "apk" || ext === "aab" ? "android" : "");
-    if (!platform) return "";
-    let stem = (dot >= 0 ? name.slice(0, dot) : name);
-    stem = stem.replace(/[-_.]v?\d+(?:[._]\d+)*(?=$|[-_])/g, "");
-    const base = stem.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 100);
-    if (!base) return "";
-    return base.endsWith(platform) ? base : `${base}-${platform}`.slice(0, 100);
-  }
-
-  function packagesRoot() {
-    return document.querySelector("[data-app-packages]");
-  }
-
-  function setStatus(root, text, tone) {
-    const el = root && root.querySelector("[data-app-package-status]");
-    if (!el) return;
-    el.textContent = text || "";
-    el.className = `portal-inline-state${text ? " is-visible" : ""}${tone ? ` is-${tone}` : ""}`;
-  }
-
-  function setProgress(root, fraction) {
-    const bar = root && root.querySelector("[data-app-package-progress]");
-    if (!bar) return;
-    if (fraction == null) {
-      bar.classList.add("hidden");
-      return;
-    }
-    bar.classList.remove("hidden");
-    const fill = bar.querySelector("i");
-    if (fill) fill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
-  }
-
-  function errorDetail(status, body) {
-    if (body && typeof body.detail === "string") return body.detail;
-    return `Request failed (HTTP ${status}).`;
-  }
-
-  function packageRowHtml(pkg) {
-    const platform = pkg.platform === "ios" ? "iOS" : "Android";
-    const days = Number(pkg.days_left);
-    const left = !Number.isFinite(days) ? "" : days < 1 ? "Expires today" : days === 1 ? "1 day left" : `${days} days left`;
-    const expiry = pkg.expired
-      ? `<span class="portal-status-badge is-error">Expired</span>`
-      : (left ? `<span class="portal-status-badge ${pkg.expiring_soon ? "is-warning" : "is-neutral"}" title="BrowserStack deletes uploads after 30 days">${esc(left)}</span>` : "");
-    const meta = [platform, formatSize(pkg.size_bytes), formatDate(pkg.uploaded_at)].filter(Boolean).join(" · ");
-    return `
-      <div class="portal-app-package-row" data-app-package-id="${esc(pkg.id)}">
-        <div class="portal-app-package-main">
-          <strong>${esc(pkg.note || pkg.file_name)}</strong>
-          <span class="portal-inline-note">${esc(meta)}${pkg.note ? ` · ${esc(pkg.file_name)}` : ""}</span>
-          <span class="portal-app-package-ids">
-            ${pkg.custom_id ? `<code title="Custom id">${esc(pkg.custom_id)}</code>` : ""}
-            <code title="BrowserStack app URL">${esc(pkg.app_url)}</code>
-          </span>
-        </div>
-        <div class="portal-app-package-actions">
-          ${expiry}
-          <button type="button" class="composer-pill-btn" data-app-package-action="copy" data-value="${esc(pkg.custom_id || pkg.app_url)}" title="Copy ${pkg.custom_id ? "custom id" : "app URL"}"><i data-lucide="copy" class="w-4 h-4"></i></button>
-          <button type="button" class="composer-pill-btn" data-app-package-action="delete" data-id="${esc(pkg.id)}" title="Delete from BrowserStack"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-        </div>
-      </div>`;
-  }
-
-  function renderPackages(root, packages) {
-    const list = root.querySelector("[data-app-package-list]");
-    if (!list) return;
-    if (!packages.length) {
-      list.innerHTML = `<div class="portal-panel-empty">No app packages yet. Upload a build to record or run tests on it.</div>`;
-      return;
-    }
-    list.innerHTML = packages.map(packageRowHtml).join("");
-    renderIcons();
-  }
-
-  async function loadPackages(root) {
-    const list = root.querySelector("[data-app-package-list]");
-    try {
-      const resp = await fetch(API, { credentials: "same-origin" });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(errorDetail(resp.status, body));
-      root.dataset.maxMb = String(body.max_mb || "");
-      renderPackages(root, Array.isArray(body.packages) ? body.packages : []);
-    } catch (error) {
-      if (list) list.innerHTML = `<div class="portal-inline-state is-visible is-error">${esc(error.message || error)}</div>`;
-    }
-  }
-
-  async function loadRemote(root) {
-    const target = root.querySelector("[data-app-package-remote-list]");
-    if (!target) return;
-    target.innerHTML = `<div class="portal-inline-state is-visible">Asking BrowserStack…</div>`;
-    try {
-      const resp = await fetch(`${API}?remote=1`, { credentials: "same-origin" });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(errorDetail(resp.status, body));
-      if (body.remote_error) throw new Error(body.remote_error);
-      const remote = Array.isArray(body.remote) ? body.remote : [];
-      if (!remote.length) {
-        target.innerHTML = `<div class="portal-panel-empty">No other builds on BrowserStack.</div>`;
-        return;
-      }
-      target.innerHTML = remote.map((app) => `
-        <div class="portal-app-package-row">
-          <div class="portal-app-package-main">
-            <strong>${esc(app.file_name || app.app_url)}</strong>
-            <span class="portal-inline-note">${esc([app.app_version && `version ${app.app_version}`, app.uploaded_at && formatDate(app.uploaded_at)].filter(Boolean).join(" · "))}</span>
-            <span class="portal-app-package-ids">${app.custom_id ? `<code>${esc(app.custom_id)}</code>` : ""}<code>${esc(app.app_url)}</code></span>
-          </div>
-          <div class="portal-app-package-actions">
-            <button type="button" class="composer-pill-btn" data-app-package-action="copy" data-value="${esc(app.custom_id || app.app_url)}" title="Copy"><i data-lucide="copy" class="w-4 h-4"></i></button>
-          </div>
-        </div>`).join("");
-      renderIcons();
-    } catch (error) {
-      target.innerHTML = `<div class="portal-inline-state is-visible is-error">${esc(error.message || error)}</div>`;
-    }
-  }
-
-  function upload(root) {
-    const input = root.querySelector("[data-app-package-file]");
-    const file = input && input.files && input.files[0];
-    if (!file) {
-      setStatus(root, "Choose a build file first.", "error");
-      return;
-    }
-    const maxMb = Number(root.dataset.maxMb || 0);
-    if (maxMb && file.size > maxMb * 1024 * 1024) {
-      setStatus(root, `The file is larger than ${maxMb} MB.`, "error");
-      return;
-    }
-    const params = new URLSearchParams();
-    const customId = (root.querySelector("[data-app-package-custom-id]")?.value || "").trim();
-    const note = (root.querySelector("[data-app-package-note]")?.value || "").trim();
-    if (customId) params.set("custom_id", customId);
-    if (note) params.set("note", note);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API}${params.toString() ? `?${params}` : ""}`);
-    xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name));
-    xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) setProgress(root, event.loaded / event.total);
-    };
-    xhr.onload = () => {
-      setProgress(root, null);
-      let body = {};
-      try {
-        body = JSON.parse(xhr.responseText || "{}");
-      } catch (error) {
-        body = {};
-      }
-      if (xhr.status >= 200 && xhr.status < 300) {
-        setStatus(root, `Uploaded ${body.file_name || file.name} as ${body.custom_id || body.app_url}.`, "success");
-        if (input) input.value = "";
-        loadPackages(root);
-      } else {
-        setStatus(root, errorDetail(xhr.status, body), "error");
-      }
-    };
-    xhr.onerror = () => {
-      setProgress(root, null);
-      setStatus(root, "The upload did not reach Portal. Check your connection and the file size.", "error");
-    };
-    setStatus(root, `Uploading ${file.name}… BrowserStack processes the build after the transfer, which can take a minute.`, "");
-    setProgress(root, 0);
-    xhr.send(file);
-  }
-
-  async function fromUrl(root) {
-    const url = (root.querySelector("[data-app-package-url]")?.value || "").trim();
-    if (!url) {
-      setStatus(root, "Paste the build URL first.", "error");
-      return;
-    }
-    const payload = {
-      url,
-      custom_id: (root.querySelector("[data-app-package-custom-id]")?.value || "").trim() || null,
-      note: (root.querySelector("[data-app-package-note]")?.value || "").trim() || null,
-    };
-    setStatus(root, "Fetching the build…", "");
-    try {
-      const resp = await fetch(`${API}/from-url`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(errorDetail(resp.status, body));
-      setStatus(root, `Added ${body.file_name} as ${body.custom_id || body.app_url}.`, "success");
-      loadPackages(root);
-    } catch (error) {
-      setStatus(root, error.message || String(error), "error");
-    }
-  }
-
-  async function removePackage(root, id) {
-    const confirmed = typeof window.showConfirm === "function"
-      ? await window.showConfirm({ title: "Delete app package?", message: "The build is deleted from BrowserStack too. Scripts that name its custom id pick the next newest build with that id.", confirmText: "Delete", danger: true })
-      : window.confirm("Delete this build from BrowserStack?");
-    if (!confirmed) return;
-    try {
-      const resp = await fetch(`${API}/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(errorDetail(resp.status, body));
-      setStatus(root, "Deleted.", "success");
-      loadPackages(root);
-    } catch (error) {
-      setStatus(root, error.message || String(error), "error");
-    }
-  }
-
-  async function copyValue(button) {
-    const value = button.dataset.value || "";
-    try {
-      await navigator.clipboard.writeText(value);
+  function copyText(button, value) {
+    const done = () => {
       button.classList.add("is-copied");
       window.setTimeout(() => button.classList.remove("is-copied"), 1200);
-    } catch (error) {
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(done).catch(() => window.prompt("Copy:", value));
+    } else {
       window.prompt("Copy:", value);
     }
   }
 
-  function initPackages() {
-    const root = packagesRoot();
-    if (!root || root.dataset.ready === "1") return;
-    root.dataset.ready = "1";
-    loadPackages(root);
+  // ---- Connectors > BrowserStack -------------------------------------------
+
+  function connectorCredentials(form) {
+    const value = (name) => {
+      const input = form ? form.querySelector(`[name="${name}"]`) : null;
+      return input ? String(input.value || "").trim() : "";
+    };
+    return {
+      username: value("mobile_browserstack_username"),
+      access_key: value("mobile_browserstack_access_key"),
+      api_base_url: value("mobile_browserstack_api_base_url"),
+      appium_base_url: value("mobile_browserstack_appium_base_url"),
+    };
   }
 
-  document.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target : null;
-    const button = target && target.closest("[data-app-package-action]");
-    if (!button) return;
-    const root = button.closest("[data-app-packages]") || packagesRoot();
-    const action = button.dataset.appPackageAction;
-    if (action === "copy") {
-      copyValue(button);
+  async function testConnector(button) {
+    const form = button.closest("form") || document;
+    const result = form.querySelector("[data-mobile-bridge-test-result]");
+    const credentials = connectorCredentials(form);
+    if (!credentials.username || !credentials.access_key) {
+      setInline(result, "Enter your BrowserStack username and access key first.", "error");
       return;
     }
-    if (!root) return;
-    if (action === "upload") upload(root);
-    else if (action === "from-url") fromUrl(root);
-    else if (action === "delete") removePackage(root, button.dataset.id);
-  });
-
-  document.addEventListener("change", (event) => {
-    const input = event.target instanceof Element ? event.target.closest("[data-app-package-file]") : null;
-    if (!input) return;
-    const root = input.closest("[data-app-packages]");
-    const customInput = root && root.querySelector("[data-app-package-custom-id]");
-    const file = input.files && input.files[0];
-    if (customInput && file && !customInput.value.trim()) customInput.value = suggestCustomId(file.name);
-  });
-
-  // A details element's toggle event does not bubble; listen in the capture phase.
-  document.addEventListener("toggle", (event) => {
-    const details = event.target instanceof Element ? event.target.closest("[data-app-package-remote]") : null;
-    if (!details || !details.open || details.dataset.loaded === "1") return;
-    details.dataset.loaded = "1";
-    const root = details.closest("[data-app-packages]");
-    if (root) loadRemote(root);
-  }, true);
-
-  document.addEventListener("htmx:afterSettle", initPackages);
-  document.addEventListener("DOMContentLoaded", initPackages);
-
-  window.EfpMobileTesting = Object.assign(window.EfpMobileTesting || {}, {
-    suggestCustomId,
-    formatSize,
-    initPackages,
-  });
-})();
-
-/**
- * Test secrets rows of the BrowserStack connector: add, remove, and keep
- * the posted names numbered in page order (mobile_test_secrets_<i>_name and
- * _secret), the shape the server reads.
- */
-(function () {
-  "use strict";
-
-  function renumber(list) {
-    list.querySelectorAll("[data-test-secret-row]").forEach((row, index) => {
-      row.querySelectorAll("[data-test-secret-field]").forEach((input) => {
-        input.name = `mobile_test_secrets_${index}_${input.dataset.testSecretField}`;
-      });
-    });
-  }
-
-  function markTouched(from) {
-    const section = from.closest("[data-managed-section]");
-    const form = from.closest("form") || document;
-    const flag = section && form.querySelector(`[data-touch-flag="${section.dataset.managedSection}"]`);
-    if (flag) flag.value = "1";
-  }
-
-  function addRow(button) {
-    const box = button.closest("[data-test-secrets]");
-    const list = box && box.querySelector("[data-test-secret-rows]");
-    if (!list) return;
-    const row = document.createElement("div");
-    row.className = "portal-test-secret-row";
-    row.dataset.testSecretRow = "";
-    row.innerHTML = [
-      '<input type="text" placeholder="MOBILE_SECRET_PASSWORD" class="portal-form-input" aria-label="Test secret name" autocomplete="off" spellcheck="false" data-test-secret-field="name" />',
-      '<input type="password" placeholder="Value" class="portal-form-input" aria-label="Test secret value" autocomplete="new-password" data-test-secret-field="secret" />',
-      '<button type="button" class="portal-btn is-secondary" data-action="remove-test-secret" aria-label="Remove this test secret">Remove</button>',
-    ].join("");
-    list.appendChild(row);
-    renumber(list);
-    markTouched(button);
-    row.querySelector("input").focus();
-  }
-
-  function removeRow(button) {
-    const row = button.closest("[data-test-secret-row]");
-    const list = row && row.parentElement;
-    if (!row || !list) return;
-    markTouched(button);
-    row.remove();
-    renumber(list);
-  }
-
-  document.addEventListener("click", (event) => {
-    const add = event.target.closest('[data-action="add-test-secret"]');
-    if (add) {
-      event.preventDefault();
-      addRow(add);
-      return;
+    button.disabled = true;
+    setInline(result, "Signing in to BrowserStack from this computer…", "");
+    try {
+      const problem = bridgeProblem(await probe({ force: true }));
+      if (problem) {
+        setInline(result, BRIDGE_MESSAGES[problem], "error");
+        return;
+      }
+      const plan = await call("plan", {}, { credentials, timeoutMs: 45000 });
+      const max = Number(plan.parallel_sessions_max_allowed) || 0;
+      const running = Number(plan.parallel_sessions_running) || 0;
+      const queued = Number(plan.queued_sessions) || 0;
+      const sessions = max ? `${running} of ${max} parallel sessions in use` : `${running} parallel sessions in use`;
+      setInline(result, `Signed in as ${plan.username || credentials.username}. ${sessions}${queued ? `, ${queued} queued` : ""}.`, "success");
+    } catch (error) {
+      setInline(result, errorText(error), "error");
+    } finally {
+      button.disabled = false;
     }
-    const remove = event.target.closest('[data-action="remove-test-secret"]');
-    if (remove) {
-      event.preventDefault();
-      removeRow(remove);
-    }
-  });
-
-  const NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
-
-  // The server refuses the same rows, but a refused save re-renders the
-  // panel from what is stored and the typed values are gone; checking here
-  // keeps them on the page.
-  function rowsProblem(box) {
-    const seen = new Set();
-    for (const row of box.querySelectorAll("[data-test-secret-row]")) {
-      const nameInput = row.querySelector('[data-test-secret-field="name"]');
-      const valueInput = row.querySelector('[data-test-secret-field="secret"]');
-      const name = (nameInput?.value || "").trim();
-      const value = valueInput?.value || "";
-      if (!name && !value.trim()) continue;
-      if (!name) return { input: nameInput, message: "Give every test secret a name, for example MOBILE_SECRET_PASSWORD." };
-      if (!NAME_PATTERN.test(name)) return { input: nameInput, message: `Test secret names use capital letters, digits and underscores and start with a letter: ${name}` };
-      if (!value.trim()) return { input: valueInput, message: `Enter a value for the test secret ${name}.` };
-      if (seen.has(name)) return { input: nameInput, message: `The test secret ${name} is listed twice.` };
-      seen.add(name);
-    }
-    return null;
   }
 
-  document.addEventListener("htmx:beforeRequest", (event) => {
-    const form = event.detail && event.detail.elt;
-    const box = form && form.querySelector ? form.querySelector("[data-test-secrets]") : null;
-    if (!box) return;
-    const status = box.querySelector("[data-test-secret-status]");
-    const problem = rowsProblem(box);
-    if (status) {
-      status.textContent = problem ? problem.message : "";
-      status.classList.toggle("is-error", Boolean(problem));
+  async function refreshOverview(root) {
+    const status = root.querySelector("[data-mobile-bridge-status]");
+    const start = root.querySelector('[data-mobile-bridge-action="start"]');
+    const state = await probe({ force: true });
+    const problem = bridgeProblem(state);
+    if (problem) setInline(status, BRIDGE_MESSAGES[problem], problem === "not_running" ? "warning" : "error");
+    else setInline(status, `Local bridge ready on 127.0.0.1:${state.port}${state.version ? ` (version ${state.version})` : ""}.`, "success");
+    if (start) start.classList.toggle("hidden", problem !== "not_running");
+  }
+
+  async function startBridgeFromOverview(button) {
+    const root = button.closest("[data-mobile-overview]");
+    button.disabled = true;
+    setInline(root && root.querySelector("[data-mobile-bridge-status]"), "Starting the local bridge… allow the efp-bridge link if Chrome asks.", "");
+    try {
+      await launchAndWait();
+    } finally {
+      button.disabled = false;
+      if (root) await refreshOverview(root);
     }
-    if (!problem) return;
-    event.preventDefault();
-    box.open = true;
-    if (problem.input) problem.input.focus();
-  });
+  }
 
-  // Names are environment variable names; typing them in capitals saves a
-  // round trip through the validation message.
-  document.addEventListener("input", (event) => {
-    const input = event.target;
-    if (!input || !input.matches || !input.matches('[data-test-secret-field="name"]')) return;
-    const upper = input.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-    if (upper !== input.value) input.value = upper;
-  });
-})();
+  // ---- Recording panel --------------------------------------------------------
+  //
+  // 1. Start: the bridge starts a BrowserStack device with the chosen build
+  //    and holds it for 30 minutes at a time.
+  // 2. Record: the hosted Inspector opens attached to the device through the
+  //    bridge (or the desktop Inspector attaches to the bridge by hand).
+  //    "Segment done" takes the segment's log from the bridge and writes it
+  //    into the assistant's workspace; the chat message tells the assistant,
+  //    which compiles it.
+  // 3. Finish releases the device.
 
-/**
- * Recording panel (assistant chat tool bar > Recording).
- *
- * 1. Start: asks the assistant (/record-mobile-segment) to start a BrowserStack
- *    device with an app package and hold it.
- * 2. The assistant publishes the held session at mobile/recording/active.json;
- *    the panel polls it and shows the device, the hold, and how to attach.
- * 3. Record: the hosted Inspector opens already attached (Portal proxies and
- *    logs its commands; "Segment done" writes the log into the workspace), or
- *    the member records in the desktop Inspector and uploads its code.
- * Each finished segment is announced in the chat so the assistant compiles it.
- */
-(function () {
-  "use strict";
-
-  const API = "/api/mobile-recordings";
-  const HANDSHAKE_PATH = "mobile/recording/active.json";
   const RECORDINGS_DIR = "mobile/recordings";
-  const POLL_MS = 4000;
+  const POLL_MS = 5000;
+  const STATUS_EVERY = 12;
+  const START_TIMEOUT_MS = 16 * 60 * 1000;
   const CODE_EXTENSIONS = [".py", ".java", ".js", ".rb", ".robot", ".cs"];
-  const view = { agentId: "", status: null, handshake: null, recording: null, planned: [], done: [], sessionKey: "" };
+  const BUILD_EXTENSIONS = [".apk", ".aab", ".ipa"];
+  const SEGMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+  const CUSTOM_ID = /^[A-Za-z0-9._-]{1,100}$/;
+  const RECORDING_KEY_PREFIX = "efp.mobile.recording:";
+
+  const view = {
+    agentId: "",
+    config: null,
+    bridge: null,
+    apps: null,
+    appsError: "",
+    selectedApp: "",
+    recording: null,
+    others: [],
+    planned: [],
+    done: [],
+    unsaved: null,
+    busy: "",
+    sessionKey: "",
+    polls: 0,
+  };
   let pollTimer = 0;
   let tickTimer = 0;
-
-  function esc(value) {
-    return String(value == null ? "" : value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
 
   function currentAgentId() {
     return typeof window.currentPortalAgentId === "function" ? (window.currentPortalAgentId() || "") : "";
@@ -481,20 +386,11 @@
   }
 
   function setStatus(text, tone) {
-    const el = panelRoot()?.querySelector("[data-recording-status]");
-    if (!el) return;
-    el.textContent = text || "";
-    el.className = `portal-inline-state${text ? " is-visible" : ""}${tone ? ` is-${tone}` : ""}`;
+    setInline(panelRoot()?.querySelector("[data-recording-status]"), text, tone);
   }
 
-  function renderIcons() {
-    if (window.lucide && typeof window.lucide.createIcons === "function") {
-      try {
-        window.lucide.createIcons();
-      } catch (error) {
-        /* icons are cosmetic */
-      }
-    }
+  function credentials() {
+    return view.config && view.config.credentials ? view.config.credentials : null;
   }
 
   function parseSegments(text) {
@@ -519,45 +415,233 @@
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
   }
 
+  function suggestCustomId(fileName) {
+    const name = String(fileName || "");
+    const dot = name.lastIndexOf(".");
+    const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+    const platform = ext === "ipa" ? "ios" : (ext === "apk" || ext === "aab" ? "android" : "");
+    if (!platform) return "";
+    let stem = dot >= 0 ? name.slice(0, dot) : name;
+    stem = stem.replace(/[-_.]v?\d+(?:[._]\d+)*(?=$|[-_])/g, "");
+    const base = stem.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 100);
+    if (!base) return "";
+    return base.endsWith(platform) ? base : `${base}-${platform}`.slice(0, 100);
+  }
+
+  // The recording this assistant's panel holds survives a page reload: the
+  // bridge keeps it, the browser remembers which one it was.
+  function storageKey() {
+    return RECORDING_KEY_PREFIX + view.agentId;
+  }
+
+  function remember() {
+    if (!view.agentId) return;
+    if (!view.recording) {
+      writeStorage(storageKey(), "");
+      return;
+    }
+    writeStorage(storageKey(), JSON.stringify({ id: view.recording.id, planned: view.planned, done: view.done }));
+  }
+
+  function remembered() {
+    try {
+      const value = JSON.parse(readStorage(storageKey()) || "null");
+      return value && typeof value.id === "string" ? value : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function ready() {
+    return Boolean(view.config && view.config.configured && !bridgeProblem(view.bridge));
+  }
+
+  function ensureReady() {
+    if (!view.config || !view.config.configured) {
+      setStatus((view.config && view.config.problem) || "Set up the BrowserStack connector first (Connectors > BrowserStack).", "error");
+      return false;
+    }
+    const problem = bridgeProblem(view.bridge);
+    if (problem) {
+      setStatus(BRIDGE_MESSAGES[problem], "error");
+      return false;
+    }
+    return true;
+  }
+
   function shellHtml() {
+    const proxy = proxySetting();
     return `
       <div class="efp-recording" data-recording-root>
-        <section class="efp-recording-section">
-          <h5>1 · Start a recording session</h5>
-          <p class="portal-panel-note">The assistant starts a BrowserStack device with the build and holds it while you record short segments.</p>
-          <label class="portal-form-label"><span class="portal-form-label">App package</span>
-            <select class="portal-form-select" data-recording-package><option value="">Loading app packages…</option></select>
+        <div data-recording-setup></div>
+        <section class="efp-recording-section" data-recording-start-section>
+          <h5>1 · Start a recording device</h5>
+          <p class="portal-panel-note">The local bridge on this computer starts a BrowserStack device with the build and holds it while you record short segments.</p>
+          <label class="portal-form-label"><span class="portal-form-label">Build</span>
+            <select class="portal-form-select" data-recording-app><option value="">Looking for your builds…</option></select>
           </label>
-          <label class="portal-form-label"><span class="portal-form-label">Device (optional)</span>
-            <input class="portal-form-input" data-recording-device placeholder="Google Pixel 8" />
-          </label>
+          <details class="portal-collapsible" data-recording-upload>
+            <summary class="portal-collapsible-summary"><span>Upload a build</span></summary>
+            <div class="portal-panel-stack">
+              <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
+              <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
+                <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
+              </label>
+              <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline can keep using the same name.</p>
+              <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
+              <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button></div>
+            </div>
+          </details>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="portal-form-label"><span class="portal-form-label">Platform</span>
+              <select class="portal-form-select" data-recording-platform><option value="android">Android</option><option value="ios">iOS</option></select>
+            </label>
+            <label class="portal-form-label"><span class="portal-form-label">Device (optional)</span>
+              <input class="portal-form-input" data-recording-device placeholder="Google Pixel 8" />
+            </label>
+          </div>
           <label class="portal-form-label"><span class="portal-form-label">Segments to record, in order</span>
             <textarea class="portal-form-textarea" rows="3" data-recording-segments placeholder="seg-login&#10;seg-skip-intro&#10;seg-select-currency"></textarea>
           </label>
-          <button type="button" class="portal-btn is-primary" data-recording-action="start"><i data-lucide="play" class="w-4 h-4"></i>Start recording session</button>
+          <div class="efp-card-actions"><button type="button" class="portal-btn is-primary" data-recording-action="start"><i data-lucide="play" class="w-4 h-4"></i>Start recording device</button></div>
+          <div data-recording-others></div>
         </section>
-        <section class="efp-recording-section">
+        <section class="efp-recording-section hidden" data-recording-session-section>
           <h5>2 · Record</h5>
-          <div data-recording-session><div class="portal-inline-state is-visible">No recording session yet.</div></div>
+          <div data-recording-session></div>
         </section>
+        <details class="portal-collapsible">
+          <summary class="portal-collapsible-summary"><span>Network from this computer</span></summary>
+          <div class="portal-panel-stack">
+            <label class="portal-form-label"><span class="portal-form-label">Proxy for BrowserStack (optional)</span>
+              <input class="portal-form-input" data-recording-proxy value="${esc(proxy)}" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
+            </label>
+            <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only; leave any proxy password out.</p>
+          </div>
+        </details>
         <div class="portal-inline-state" data-recording-status role="status"></div>
       </div>`;
   }
 
-  function sessionCardHtml() {
-    const hs = view.handshake;
-    const st = view.status || {};
-    const held = hs.hold_deadline && remaining(hs.hold_deadline) !== "expired";
-    const owner = hs.control_owner === "human" ? (held ? "Held for you" : "Hold expired") : "Assistant has control";
-    const tone = hs.control_owner === "human" && held ? "success" : "warning";
-    const platform = hs.platform === "ios" ? "iOS" : "Android";
-    const hub = st.hub_url || "";
-    const segment = (view.recording && view.recording.segment) || view.planned[view.done.length] || view.planned[0] || "seg-1";
-    const inspectorButton = st.inspector_available
-      ? `<button type="button" class="portal-btn is-primary" data-recording-action="open-inspector"><i data-lucide="external-link" class="w-4 h-4"></i>Open Inspector</button>`
+  function renderSetup() {
+    const target = panelRoot()?.querySelector("[data-recording-setup]");
+    if (!target) return;
+    const config = view.config;
+    if (!config) {
+      target.innerHTML = `<div class="portal-inline-state is-visible">Checking your BrowserStack settings and the local bridge…</div>`;
+      return;
+    }
+    if (!config.configured) {
+      target.innerHTML = `<div class="portal-inline-state is-visible is-warning">${esc(config.problem || "Set up the BrowserStack connector first.")}</div>`;
+      return;
+    }
+    const problem = bridgeProblem(view.bridge);
+    if (!problem) {
+      target.innerHTML = `<div class="efp-card-meta">Recording through the local bridge on 127.0.0.1:${esc(view.bridge.port)}.</div>`;
+      return;
+    }
+    const start = problem === "not_running"
+      ? `<button type="button" class="portal-btn is-primary" data-recording-action="start-bridge"${view.busy === "bridge" ? " disabled" : ""}><i data-lucide="plug" class="w-4 h-4"></i>Start bridge</button>`
       : "";
-    const webDone = st.inspector_available
-      ? `<button type="button" class="portal-btn is-secondary" data-recording-action="segment-done"><i data-lucide="check" class="w-4 h-4"></i>Segment done</button>`
+    target.innerHTML = `
+      <div class="portal-inline-state is-visible ${problem === "not_running" ? "is-warning" : "is-error"}">${esc(BRIDGE_MESSAGES[problem])}</div>
+      <div class="efp-card-actions">${start}<button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button></div>`;
+    renderIcons();
+  }
+
+  function appLabel(app) {
+    const name = app.custom_id || app.app_name || app.app_url;
+    const platform = app.platform === "ios" ? "iOS" : (app.platform === "android" ? "Android" : "");
+    const version = app.app_version ? ` ${app.app_version}` : "";
+    const uploaded = app.uploaded_at ? ` · ${String(app.uploaded_at).slice(0, 10)}` : "";
+    return `${name}${version}${platform ? ` · ${platform}` : ""}${uploaded}`;
+  }
+
+  function renderApps() {
+    const select = panelRoot()?.querySelector("[data-recording-app]");
+    if (!select) return;
+    let options = "";
+    if (!ready()) {
+      options = `<option value="">Your builds show up once the local bridge is ready</option>`;
+    } else if (view.appsError) {
+      options = `<option value="">Could not list your builds</option>`;
+    } else if (!view.apps) {
+      options = `<option value="">Looking for your builds…</option>`;
+    } else if (!view.apps.length) {
+      options = `<option value="">No builds on BrowserStack yet; upload one below</option>`;
+      const upload = panelRoot()?.querySelector("[data-recording-upload]");
+      if (upload) upload.open = true;
+    } else {
+      options = view.apps.map((app) => {
+        const value = app.custom_id || app.app_url;
+        const selected = value === view.selectedApp ? " selected" : "";
+        return `<option value="${esc(value)}" data-platform="${esc(app.platform || "")}"${selected}>${esc(appLabel(app))}</option>`;
+      }).join("");
+    }
+    select.innerHTML = options;
+    syncPlatform();
+  }
+
+  function syncPlatform() {
+    const root = panelRoot();
+    const select = root?.querySelector("[data-recording-app]");
+    const platform = root?.querySelector("[data-recording-platform]");
+    if (!select || !platform) return;
+    const option = select.selectedOptions && select.selectedOptions[0];
+    const fromApp = option ? option.dataset.platform : "";
+    const fallback = view.config && view.config.defaults ? view.config.defaults.platform : "";
+    const value = fromApp || fallback;
+    if (value === "android" || value === "ios") platform.value = value;
+    view.selectedApp = select.value || view.selectedApp;
+  }
+
+  function renderOthers() {
+    const target = panelRoot()?.querySelector("[data-recording-others]");
+    if (!target) return;
+    if (!view.others.length) {
+      target.innerHTML = "";
+      return;
+    }
+    target.innerHTML = view.others.map((rec) => `
+      <div class="portal-inline-state is-visible is-warning">
+        This computer still holds a device from another recording: ${esc(rec.device || rec.platform || "a device")}, segment ${esc(rec.segment || "")}.
+        <div class="efp-card-actions">
+          <button type="button" class="portal-btn is-secondary" data-recording-action="adopt" data-id="${esc(rec.id)}">Continue it here</button>
+          <button type="button" class="portal-btn is-secondary" data-recording-action="finish-other" data-id="${esc(rec.id)}">Release the device</button>
+        </div>
+      </div>`).join("");
+  }
+
+  function summaryText(summary) {
+    const s = summary || {};
+    const actions = Number(s.actions) || 0;
+    const finds = Number(s.finds) || 0;
+    const secrets = Number(s.secrets) || 0;
+    const parts = [`${actions} ${actions === 1 ? "action" : "actions"}`, `${finds} element ${finds === 1 ? "lookup" : "lookups"}`];
+    return `This segment so far: ${parts.join(", ")}${secrets ? `, ${secrets} typed into password fields (not stored)` : ""}.`;
+  }
+
+  function kvRow(label, value) {
+    return `<div class="efp-recording-kv"><span>${esc(label)}</span><code>${esc(value)}</code><button type="button" class="composer-pill-btn" data-recording-copy="${esc(value)}" title="Copy"><i data-lucide="copy" class="w-4 h-4"></i></button></div>`;
+  }
+
+  function sessionCardHtml() {
+    const rec = view.recording;
+    const inspector = Boolean(view.config && view.config.inspector_available);
+    const ended = rec.status && rec.status !== "active";
+    const held = rec.hold_deadline && remaining(rec.hold_deadline) !== "expired";
+    const badge = ended ? "Ended" : (held ? "Held for you" : "Hold expired");
+    const tone = !ended && held ? "success" : "warning";
+    const platform = rec.platform === "ios" ? "iOS" : "Android";
+    const segment = rec.segment || view.planned[view.done.length] || "seg-1";
+    const port = view.bridge && view.bridge.port ? String(view.bridge.port) : "";
+    const unsaved = view.unsaved
+      ? `<div class="portal-inline-state is-visible is-error">Segment ${esc(view.unsaved.segment)} is not in the assistant's workspace yet: ${esc(view.unsaved.error)}
+          <div class="efp-card-actions">
+            <button type="button" class="portal-btn is-secondary" data-recording-action="save-again">Save again</button>
+            <button type="button" class="portal-btn is-secondary" data-recording-action="download-log">Download it</button>
+          </div>
+        </div>`
       : "";
     const doneList = view.done.length
       ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.segment)} <span class="efp-card-meta">${esc(item.detail)}</span></li>`).join("")}</ul>`
@@ -565,26 +649,37 @@
     return `
       <div class="efp-card efp-recording-card">
         <div class="efp-card-head">
-          <span class="portal-status-badge is-${tone}">${esc(owner)}</span>
-          <strong class="efp-card-title">${esc(hs.device || "BrowserStack device")}</strong>
-          <span class="efp-card-meta">${esc(platform)}</span>
+          <span class="portal-status-badge is-${tone}">${esc(badge)}</span>
+          <strong class="efp-card-title">${esc(rec.device || "BrowserStack device")}</strong>
+          <span class="efp-card-meta">${esc(platform)}${rec.os_version ? ` ${esc(rec.os_version)}` : ""}</span>
         </div>
-        ${hs.hold_deadline ? `<div class="efp-card-meta">Session held for another <span data-recording-countdown data-deadline="${esc(hs.hold_deadline)}">${esc(remaining(hs.hold_deadline))}</span></div>` : ""}
-        <div class="efp-recording-kv"><span>Session id</span><code>${esc(hs.session_id)}</code><button type="button" class="composer-pill-btn" data-recording-copy="${esc(hs.session_id)}" title="Copy"><i data-lucide="copy" class="w-4 h-4"></i></button></div>
-        ${hub ? `<div class="efp-recording-kv"><span>Appium hub</span><code>${esc(hub)}</code><button type="button" class="composer-pill-btn" data-recording-copy="${esc(hub)}" title="Copy"><i data-lucide="copy" class="w-4 h-4"></i></button></div>` : ""}
+        ${rec.hold_deadline && !ended ? `<div class="efp-card-meta">Held for another <span data-recording-countdown data-deadline="${esc(rec.hold_deadline)}">${esc(remaining(rec.hold_deadline))}</span></div>` : ""}
+        <div class="efp-card-meta">Build ${esc(rec.app || "")}${rec.dashboard_url ? ` · <a class="portal-link-inline" href="${esc(rec.dashboard_url)}" target="_blank" rel="noopener noreferrer">BrowserStack dashboard</a>` : ""}</div>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">Current segment</span>
-        <input class="portal-form-input" data-recording-segment value="${esc(segment)}" />
+        <input class="portal-form-input" data-recording-segment value="${esc(segment)}" autocomplete="off" spellcheck="false" />
       </label>
-      <div class="efp-card-actions">${inspectorButton}${webDone}</div>
-      <details class="portal-collapsible"${st.inspector_available ? "" : " open"}>
+      <div class="efp-card-meta" data-recording-summary>${esc(summaryText(rec.summary))}</div>
+      <div class="efp-card-actions">
+        ${inspector ? `<button type="button" class="portal-btn is-primary" data-recording-action="open-inspector"><i data-lucide="external-link" class="w-4 h-4"></i>Open Inspector</button>` : ""}
+        <button type="button" class="portal-btn ${inspector ? "is-secondary" : "is-primary"}" data-recording-action="segment-done"><i data-lucide="check" class="w-4 h-4"></i>Segment done</button>
+      </div>
+      ${unsaved}
+      <details class="portal-collapsible"${inspector ? "" : " open"}>
         <summary class="portal-collapsible-summary"><span>Record with the desktop Appium Inspector</span></summary>
         <ol class="portal-setup-guide-steps">
-          <li>In Appium Inspector 2026.5.1 or later, choose the BrowserStack tab and sign in with your BrowserStack username and access key.</li>
-          <li>Open <strong>Attach to Session</strong>, paste the session id above, and attach.</li>
-          <li>Start the recorder, tap and type in the Inspector (not on the screenshot), then copy the generated code (Python is easiest).</li>
-          <li>Save it as a file and upload it here; it is named after the current segment.</li>
+          <li>In Appium Inspector 2026.5.1 or later, choose <strong>Appium Server</strong>, enter the host, port, and path below, and leave SSL off.</li>
+          <li>Open <strong>Attach to Session</strong>, pick this session (or paste its id), and attach.</li>
+          <li>Tap and type in the Inspector, not on the screenshot; the bridge records it. Press <strong>Segment done</strong> here after each segment.</li>
         </ol>
+        ${kvRow("Remote host", "127.0.0.1")}
+        ${port ? kvRow("Remote port", port) : ""}
+        ${kvRow("Remote path", `/mobile/wd/${rec.id}`)}
+        ${rec.session_id ? kvRow("Session id", rec.session_id) : ""}
+      </details>
+      <details class="portal-collapsible">
+        <summary class="portal-collapsible-summary"><span>Recorded somewhere else? Upload the recorder's code</span></summary>
+        <p class="portal-inline-note">Code from Appium Inspector's recorder compiles too (Python is easiest). It is saved under the current segment's name.</p>
         <div class="efp-card-actions">
           <input type="file" accept="${CODE_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-code />
           <button type="button" class="portal-btn is-secondary" data-recording-action="upload-code"><i data-lucide="upload" class="w-4 h-4"></i>Upload recorded code</button>
@@ -592,26 +687,31 @@
       </details>
       ${doneList}
       <div class="efp-card-actions">
-        <button type="button" class="portal-btn is-secondary" data-recording-action="extend"><i data-lucide="timer" class="w-4 h-4"></i>Hold 15 more minutes</button>
+        <button type="button" class="portal-btn is-secondary" data-recording-action="extend"><i data-lucide="timer" class="w-4 h-4"></i>Hold 30 more minutes</button>
         <button type="button" class="portal-btn is-secondary" data-recording-action="finish"><i data-lucide="square" class="w-4 h-4"></i>Finish recording</button>
       </div>`;
   }
 
   function renderSession() {
-    const target = panelRoot()?.querySelector("[data-recording-session]");
+    const root = panelRoot();
+    if (!root) return;
+    const startSection = root.querySelector("[data-recording-start-section]");
+    const sessionSection = root.querySelector("[data-recording-session-section]");
+    const target = root.querySelector("[data-recording-session]");
+    if (startSection) startSection.classList.toggle("hidden", Boolean(view.recording));
+    if (sessionSection) sessionSection.classList.toggle("hidden", !view.recording);
     if (!target) return;
-    if (view.status && view.status.account_error) {
-      target.innerHTML = `<div class="portal-inline-state is-visible is-warning">${esc(view.status.account_error)}</div>`;
-      return;
-    }
-    if (!view.handshake) {
-      target.innerHTML = `<div class="portal-inline-state is-visible">No recording session yet. Start one above; the device shows up here when the assistant has it ready.</div>`;
+    if (!view.recording) {
+      target.innerHTML = "";
       view.sessionKey = "";
       return;
     }
-    // Re-render only when the session changes, so typing in the segment field
-    // is not interrupted by the poll.
-    const key = [view.handshake.session_id, view.handshake.control_owner, view.handshake.hold_deadline, view.recording ? view.recording.id : "", view.done.length, (view.status || {}).inspector_available].join("|");
+    const summary = root.querySelector("[data-recording-summary]");
+    if (summary) summary.textContent = summaryText(view.recording.summary);
+    // Re-render only when the recording changes, so typing in the segment
+    // field is not interrupted by the poll.
+    const rec = view.recording;
+    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.segment, view.done.length, view.unsaved ? view.unsaved.segment : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : ""].join("|");
     if (key === view.sessionKey) return;
     const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-segment]");
     const segmentValue = focused ? document.activeElement.value : null;
@@ -627,42 +727,141 @@
     renderIcons();
   }
 
-  async function loadPackages() {
-    const select = panelRoot()?.querySelector("[data-recording-package]");
-    if (!select) return;
+  function renderAll() {
+    renderSetup();
+    renderApps();
+    renderOthers();
+    renderSession();
+    renderIcons();
+  }
+
+  async function loadConfig() {
     try {
-      const resp = await fetch("/api/app-packages", { credentials: "same-origin" });
-      const body = await resp.json().catch(() => ({}));
-      const packages = (Array.isArray(body.packages) ? body.packages : []).filter((pkg) => !pkg.expired);
-      if (!packages.length) {
-        select.innerHTML = `<option value="">No app packages. Upload one in Connectors > BrowserStack.</option>`;
-        return;
+      const response = await fetch(`/api/mobile/recording-config?agent_id=${encodeURIComponent(view.agentId)}`, { credentials: "same-origin", cache: "no-store" });
+      if (response.ok) {
+        view.config = await response.json();
+      } else {
+        view.config = {
+          configured: false,
+          problem: response.status === 403 ? "Only the assistant's owner can record on it." : `Could not load your BrowserStack settings (HTTP ${response.status}).`,
+        };
       }
-      select.innerHTML = packages.map((pkg) => {
-        const value = pkg.custom_id || pkg.app_url;
-        const label = `${pkg.note || pkg.file_name} · ${pkg.platform === "ios" ? "iOS" : "Android"}`;
-        return `<option value="${esc(value)}" data-platform="${esc(pkg.platform)}">${esc(label)}</option>`;
-      }).join("");
-    } catch (error) {
-      select.innerHTML = `<option value="">Could not load app packages</option>`;
+    } catch (_error) {
+      view.config = { configured: false, problem: "Could not load your BrowserStack settings." };
     }
   }
 
-  async function refresh() {
-    const agentId = view.agentId;
-    if (!agentId) return;
+  async function loadApps(select) {
+    if (!ready()) return;
+    if (select) view.selectedApp = select;
     try {
-      const [statusResp, handshakeResp] = await Promise.all([
-        fetch(`${API}/status?agent_id=${encodeURIComponent(agentId)}`, { credentials: "same-origin" }),
-        fetch(`/a/${encodeURIComponent(agentId)}/api/server-files/content?path=${encodeURIComponent(HANDSHAKE_PATH)}`, { credentials: "same-origin", cache: "no-store" }),
-      ]);
-      view.status = statusResp.ok ? await statusResp.json() : { account_error: statusResp.status === 403 ? "Only the assistant's owner can record on it." : "" };
-      view.recording = view.status && view.status.recording ? view.status.recording : null;
-      view.handshake = handshakeResp.ok ? await handshakeResp.json().catch(() => null) : null;
-      if (view.handshake && view.handshake.format !== "efp-mobile-recording/v1") view.handshake = null;
+      const data = await call("apps.list", {}, { credentials: credentials(), timeoutMs: 45000 });
+      view.apps = Array.isArray(data.apps) ? data.apps : [];
+      if (view.appsError) setStatus("", "");
+      view.appsError = "";
     } catch (error) {
-      /* keep the last known state; the next poll tries again */
+      view.apps = null;
+      view.appsError = errorText(error);
+      setStatus(`Could not list your builds: ${view.appsError}`, "error");
     }
+    renderApps();
+  }
+
+  // Picks up the recording this panel started before a reload, and lists the
+  // ones other panels left holding a device.
+  async function loadRecordings() {
+    if (bridgeProblem(view.bridge)) return;
+    let recordings = [];
+    try {
+      const data = await call("recordings.list", {}, { timeoutMs: 8000 });
+      recordings = Array.isArray(data.recordings) ? data.recordings : [];
+    } catch (_error) {
+      return;
+    }
+    const mine = remembered();
+    if (!view.recording && mine) {
+      const found = recordings.find((rec) => rec.id === mine.id);
+      if (found) {
+        view.recording = found;
+        view.planned = Array.isArray(mine.planned) ? mine.planned : [];
+        view.done = Array.isArray(mine.done) ? mine.done : [];
+      } else {
+        writeStorage(storageKey(), "");
+      }
+    }
+    if (view.recording) {
+      const found = recordings.find((rec) => rec.id === view.recording.id);
+      if (found) view.recording = Object.assign({}, view.recording, found);
+    }
+    const current = view.recording ? view.recording.id : "";
+    view.others = recordings.filter((rec) => rec.id !== current);
+  }
+
+  async function refreshAll() {
+    await Promise.all([loadConfig(), probe({ force: true }).then((state) => { view.bridge = state; })]);
+    renderSetup();
+    if (!bridgeProblem(view.bridge)) {
+      // A held recording shows up without waiting for the build list.
+      await Promise.all([
+        ready() ? loadApps() : Promise.resolve(),
+        loadRecordings().then(() => {
+          renderOthers();
+          renderSession();
+        }),
+      ]);
+    }
+    renderAll();
+  }
+
+  function recordingGone(message) {
+    view.recording = null;
+    view.unsaved = null;
+    remember();
+    setStatus(message || "The local bridge no longer holds this recording (it was finished elsewhere, or the bridge restarted). Start a new one when you are ready.", "warning");
+    renderAll();
+  }
+
+  async function poll() {
+    if (bridgeProblem(view.bridge)) {
+      view.bridge = await probe({ force: true });
+      if (!bridgeProblem(view.bridge)) await refreshAll();
+      return;
+    }
+    if (!view.recording) {
+      await loadRecordings();
+      renderOthers();
+      renderSession();
+      return;
+    }
+    view.polls += 1;
+    const id = view.recording.id;
+    try {
+      const data = await call("recordings.list", {}, { timeoutMs: 8000 });
+      const recordings = Array.isArray(data.recordings) ? data.recordings : [];
+      const found = recordings.find((rec) => rec.id === id);
+      if (!found) {
+        recordingGone();
+        return;
+      }
+      view.recording = Object.assign({}, view.recording, found);
+      view.others = recordings.filter((rec) => rec.id !== id);
+      if (view.polls % STATUS_EVERY === 0) {
+        const status = await call("session.status", { id }, { credentials: credentials(), timeoutMs: 30000 });
+        if (view.recording && view.recording.id === id) view.recording = Object.assign({}, view.recording, status);
+      }
+    } catch (error) {
+      if (error.code === "not_found") {
+        recordingGone();
+        return;
+      }
+      if (error.code === "bridge_unreachable") {
+        view.bridge = await probe({ force: true });
+        renderSetup();
+        setStatus("Lost the local bridge. Start it again to carry on; BrowserStack releases the device about 5 minutes after the last command.", "warning");
+        return;
+      }
+    }
+    renderOthers();
     renderSession();
   }
 
@@ -670,7 +869,13 @@
     window.clearTimeout(pollTimer);
     pollTimer = window.setTimeout(async () => {
       if (!panelRoot() || currentAgentId() !== view.agentId) return;
-      if (document.visibilityState !== "hidden") await refresh();
+      if (document.visibilityState !== "hidden" && !view.busy) {
+        try {
+          await poll();
+        } catch (_error) {
+          /* the next poll tries again */
+        }
+      }
       schedule();
     }, POLL_MS);
     if (!tickTimer) {
@@ -690,119 +895,222 @@
 
   async function openRecordingPanel() {
     const agentId = currentAgentId();
-    if (typeof window.setToolPanel !== "function" && typeof setToolPanel !== "function") return;
-    const show = typeof window.setToolPanel === "function" ? window.setToolPanel : setToolPanel;
+    const show = typeof window.setToolPanel === "function" ? window.setToolPanel : null;
+    if (!show) return;
     if (!agentId) {
       show("Recording", "<div class='portal-inline-state is-visible'>Select an assistant first.</div>", "recording");
       return;
     }
     if (view.agentId !== agentId) {
-      Object.assign(view, { agentId, status: null, handshake: null, recording: null, planned: [], done: [], sessionKey: "" });
+      Object.assign(view, {
+        agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
+        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", polls: 0,
+      });
     } else {
       view.sessionKey = "";
     }
     show("Recording", shellHtml(), "recording");
-    renderIcons();
     const segments = panelRoot()?.querySelector("[data-recording-segments]");
     if (segments && view.planned.length) segments.value = view.planned.join("\n");
-    await Promise.all([loadPackages(), refresh()]);
+    renderAll();
+    await refreshAll();
     schedule();
   }
 
-  function startSession(root) {
-    const select = root.querySelector("[data-recording-package]");
-    const option = select && select.selectedOptions && select.selectedOptions[0];
-    const app = select ? select.value : "";
-    if (!app) {
-      setStatus("Pick an app package first.", "error");
+  async function startBridge() {
+    view.busy = "bridge";
+    renderSetup();
+    setStatus("Starting the local bridge… allow the efp-bridge link if Chrome asks.", "");
+    try {
+      view.bridge = await launchAndWait();
+    } finally {
+      view.busy = "";
+    }
+    if (bridgeProblem(view.bridge)) {
+      setStatus("The bridge did not start. Install it from Connectors > Local browser, or start it from there and check again.", "error");
+      renderSetup();
       return;
     }
-    const platform = (option && option.dataset.platform) || "";
+    setStatus("", "");
+    await refreshAll();
+  }
+
+  async function startRecording(root, button) {
+    if (!ensureReady()) return;
+    const select = root.querySelector("[data-recording-app]");
+    const app = select ? select.value : "";
+    if (!app) {
+      setStatus("Pick a build, or upload one first.", "error");
+      return;
+    }
+    const platform = root.querySelector("[data-recording-platform]")?.value || "android";
     const device = (root.querySelector("[data-recording-device]")?.value || "").trim();
     view.planned = parseSegments(root.querySelector("[data-recording-segments]")?.value);
     view.done = [];
-    const lines = [
-      "/record-mobile-segment",
-      `App: ${app}${platform ? ` (${platform})` : ""}`,
-      device ? `Device: ${device}` : "",
-      view.planned.length ? `Segments: ${view.planned.join(", ")}` : "",
-    ].filter(Boolean);
-    if (sendChat(lines.join("\n"))) {
-      setStatus("Asked the assistant to start the device. It shows up here when it is ready (about a minute).", "");
-    } else {
-      setStatus("Open the assistant's chat to start a recording session.", "error");
-    }
-  }
-
-  async function openInspector(root) {
-    const segment = (root.querySelector("[data-recording-segment]")?.value || "").trim();
-    // Open the tab inside the click so pop-up blockers allow it, then point
-    // it at the Inspector once Portal has bound the session.
-    const tab = window.open("about:blank", "_blank");
+    const defaults = (view.config && view.config.defaults) || {};
+    const params = { app, platform, segment: view.planned[0] || "seg-1" };
+    if (device) params.device = device;
+    if (defaults.network) params.network = defaults.network;
+    if (Number(defaults.idle_timeout_seconds) > 0) params.idle_timeout_seconds = Number(defaults.idle_timeout_seconds);
+    if (typeof defaults.video === "boolean") params.video = defaults.video;
+    if (typeof defaults.interactive_debugging === "boolean") params.interactive_debugging = defaults.interactive_debugging;
+    view.busy = "start";
+    if (button) button.disabled = true;
+    setStatus("Starting a BrowserStack device… about a minute, longer when all your parallel sessions are busy.", "");
     try {
-      const resp = await fetch(API, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_id: view.agentId, segment: segment || null }),
-      });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${resp.status}`);
-      view.recording = body;
-      view.sessionKey = "";
-      if (body.inspector_url && tab) {
-        tab.location.href = body.inspector_url;
-        setStatus("Inspector opened. Tap and type there, then press Segment done.", "success");
-      } else {
-        if (tab) tab.close();
-        if (body.inspector_url) {
-          // The browser blocked the new tab: offer the link instead.
-          setStatus("Your browser blocked the new tab. Open the Inspector from this link, then press Segment done when the segment is recorded.", "warning");
-          const el = panelRoot()?.querySelector("[data-recording-status]");
-          if (el) {
-            const link = document.createElement("a");
-            link.href = body.inspector_url;
-            link.target = "_blank";
-            link.rel = "noopener";
-            link.className = "portal-link-inline";
-            link.textContent = " Open Appium Inspector";
-            el.appendChild(link);
-          }
-        } else {
-          setStatus("Recording is ready. Attach the desktop Appium Inspector with the session id above, then press Segment done.", "success");
-        }
-      }
-      renderSession();
+      const recording = await call("session.start", params, { credentials: credentials(), timeoutMs: START_TIMEOUT_MS });
+      view.recording = recording;
+      view.unsaved = null;
+      remember();
+      const lines = [
+        "/record-mobile-segment",
+        "Recording on my computer through the Recording panel.",
+        `App: ${recording.app || app} (${recording.platform || platform})`,
+        recording.device ? `Device: ${recording.device}${recording.os_version ? ` ${recording.os_version}` : ""}` : "",
+        view.planned.length ? `Segments: ${view.planned.join(", ")}` : "",
+      ].filter(Boolean);
+      sendChat(lines.join("\n"));
+      const inspector = view.config && view.config.inspector_available;
+      setStatus(`Device ready. ${inspector ? "Open the Inspector" : "Attach the desktop Inspector"} and record ${recording.segment}.`, "success");
     } catch (error) {
-      if (tab) tab.close();
-      setStatus(error.message || String(error), "error");
+      setStatus(errorText(error), "error");
+    } finally {
+      view.busy = "";
+      if (button) button.disabled = false;
     }
+    await loadRecordings();
+    renderAll();
   }
 
-  async function segmentDone(root) {
-    if (!view.recording) {
-      setStatus("Open the Inspector from this panel first; its commands are what gets recorded.", "error");
+  function inspectorUrl() {
+    const rec = view.recording;
+    const state = {
+      serverType: "remote",
+      server: { remote: { hostname: "127.0.0.1", port: view.bridge.port, path: `/mobile/wd/${rec.id}`, ssl: false } },
+      attachSessId: rec.session_id,
+    };
+    // The Inspector reads ?state= into its session builder and, with
+    // autoStart=1 and a session id, attaches straight away.
+    return `/inspector/?state=${encodeURIComponent(JSON.stringify(state))}&autoStart=1`;
+  }
+
+  function openInspector() {
+    if (!view.recording || !view.bridge || !view.bridge.port) {
+      setStatus("Start the local bridge and a recording device first.", "error");
       return;
     }
-    const segment = (root.querySelector("[data-recording-segment]")?.value || "").trim();
-    try {
-      const resp = await fetch(`${API}/${encodeURIComponent(view.recording.id)}/segments`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ segment: segment || null, next_segment: nextPlanned(segment) || null }),
-      });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${resp.status}`);
-      view.done.push({ segment: body.segment, detail: `${body.actions} actions${body.secrets ? `, ${body.secrets} secret` : ""}` });
-      view.recording.segment = body.next_segment;
-      view.sessionKey = "";
-      sendChat(`Segment ${body.segment} recorded: ${body.path}`);
-      setStatus(`Saved ${body.segment}. The assistant compiles it; carry on with ${body.next_segment} in the Inspector.`, "success");
-      renderSession();
-    } catch (error) {
-      setStatus(error.message || String(error), "error");
+    const url = inspectorUrl();
+    const tab = window.open(url, "_blank");
+    if (tab) {
+      try {
+        tab.opener = null;
+      } catch (_error) {
+        /* cross-origin already */
+      }
+      setStatus("Inspector opened, attached to the device. Tap and type there, then press Segment done.", "success");
+      return;
     }
+    setStatus("Your browser blocked the new tab. Open the Inspector from this link, then press Segment done when the segment is recorded.", "warning");
+    const el = panelRoot()?.querySelector("[data-recording-status]");
+    if (el) {
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.className = "portal-link-inline";
+      link.textContent = " Open Appium Inspector";
+      el.appendChild(link);
+    }
+  }
+
+  function currentSegment(root) {
+    const value = (root.querySelector("[data-recording-segment]")?.value || "").trim();
+    return value;
+  }
+
+  async function writeToWorkspace(fileName, blob) {
+    const form = new FormData();
+    form.append("path", RECORDINGS_DIR);
+    form.append("file", new File([blob], fileName, { type: blob.type || "application/octet-stream" }));
+    const response = await fetch(`/a/${encodeURIComponent(view.agentId)}/api/server-files/upload`, { method: "POST", credentials: "same-origin", body: form });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const detail = body && (typeof body.detail === "string" ? body.detail : body.error);
+      throw new Error(detail ? String(detail) : `HTTP ${response.status}`);
+    }
+    return `${RECORDINGS_DIR}/${fileName}`;
+  }
+
+  // Writes a segment's log into the assistant's workspace and tells the
+  // assistant. The bridge has already moved on to the next segment, so a
+  // failed write keeps the log here to save again or download.
+  async function saveSegment(segment, log, summary) {
+    const fileName = `${segment}.wdlog.json`;
+    const blob = new Blob([JSON.stringify(log, null, 2)], { type: "application/json" });
+    try {
+      const path = await writeToWorkspace(fileName, blob);
+      view.unsaved = null;
+      const s = summary || {};
+      view.done.push({ segment, detail: `${Number(s.actions) || 0} actions${s.secrets ? `, ${s.secrets} secret` : ""}` });
+      remember();
+      sendChat(`Segment ${segment} recorded: ${path}`);
+      return path;
+    } catch (error) {
+      view.unsaved = { segment, log, summary, error: errorText(error) };
+      return "";
+    }
+  }
+
+  async function segmentDone(root, button) {
+    if (!view.recording) return;
+    if (view.unsaved) {
+      setStatus(`Save ${view.unsaved.segment} first (Save again), or download it.`, "error");
+      return;
+    }
+    const segment = currentSegment(root);
+    if (segment && !SEGMENT_NAME.test(segment)) {
+      setStatus("Segment names use letters, digits, dot, dash, and underscore, and start with a letter or digit.", "error");
+      return;
+    }
+    view.busy = "segment";
+    if (button) button.disabled = true;
+    try {
+      const data = await call("segment.done", { id: view.recording.id, segment, next_segment: nextPlanned(segment || view.recording.segment) }, { timeoutMs: 30000 });
+      view.recording = Object.assign({}, view.recording, { segment: data.next_segment, summary: {} });
+      const path = await saveSegment(data.segment, data.log, data.summary);
+      if (path) setStatus(`Saved ${data.segment}; the assistant compiles it. Carry on with ${data.next_segment} in the Inspector.`, "success");
+      else setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
+    } catch (error) {
+      setStatus(error.code === "nothing_recorded" ? "Nothing recorded in this segment yet: tap and type in the Inspector first." : errorText(error), "error");
+    } finally {
+      view.busy = "";
+      if (button) button.disabled = false;
+    }
+    renderSession();
+  }
+
+  async function saveAgain() {
+    const unsaved = view.unsaved;
+    if (!unsaved) return;
+    const path = await saveSegment(unsaved.segment, unsaved.log, unsaved.summary);
+    setStatus(path ? `Saved ${unsaved.segment}.` : `Still could not save ${unsaved.segment}: ${view.unsaved.error}`, path ? "success" : "error");
+    renderSession();
+  }
+
+  function downloadLog() {
+    const unsaved = view.unsaved;
+    if (!unsaved) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(unsaved.log, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${unsaved.segment}.wdlog.json`;
+    document.body.appendChild(link);
+    link.click();
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      link.remove();
+    }, 0);
+    setStatus(`Downloaded ${unsaved.segment}.wdlog.json. Upload it to ${RECORDINGS_DIR}/ in the assistant's files when you can.`, "success");
   }
 
   async function uploadCode(root) {
@@ -814,67 +1122,243 @@
     }
     const dot = file.name.lastIndexOf(".");
     const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
-    if (!CODE_EXTENSIONS.includes(ext)) {
+    if (CODE_EXTENSIONS.indexOf(ext) < 0) {
       setStatus(`Upload the recorder's code (${CODE_EXTENSIONS.join(", ")}).`, "error");
       return;
     }
-    const segment = ((root.querySelector("[data-recording-segment]")?.value || "").trim() || "segment").replace(/[^A-Za-z0-9._-]+/g, "-");
-    const form = new FormData();
-    form.append("file", new File([file], `${segment}${ext}`, { type: file.type || "text/plain" }));
-    form.append("path", RECORDINGS_DIR);
+    const segment = currentSegment(root) || (view.recording && view.recording.segment) || "segment";
+    if (!SEGMENT_NAME.test(segment)) {
+      setStatus("Segment names use letters, digits, dot, dash, and underscore, and start with a letter or digit.", "error");
+      return;
+    }
     try {
-      const resp = await fetch(`/a/${encodeURIComponent(view.agentId)}/api/server-files/upload`, { method: "POST", credentials: "same-origin", body: form });
-      if (!resp.ok) throw new Error(`Upload failed (HTTP ${resp.status}).`);
-      const path = `${RECORDINGS_DIR}/${segment}${ext}`;
+      const path = await writeToWorkspace(`${segment}${ext}`, file);
       view.done.push({ segment, detail: file.name });
-      view.sessionKey = "";
+      remember();
       const next = nextPlanned(segment);
       sendChat(`Segment ${segment} recorded: ${path}`);
       setStatus(`Uploaded ${path}.${next ? ` Next: ${next}.` : ""}`, "success");
+      if (next && view.recording) view.recording = Object.assign({}, view.recording, { segment: next });
+      input.value = "";
       renderSession();
-      const segmentInput = panelRoot()?.querySelector("[data-recording-segment]");
-      if (segmentInput && next) segmentInput.value = next;
     } catch (error) {
-      setStatus(error.message || String(error), "error");
+      setStatus(`Upload failed: ${errorText(error)}`, "error");
     }
   }
 
-  async function finish() {
-    if (view.recording) {
-      await fetch(`${API}/${encodeURIComponent(view.recording.id)}/close`, { method: "POST", credentials: "same-origin" }).catch(() => null);
-      view.recording = null;
+  async function uploadBuildFromPanel(root, button) {
+    const input = root.querySelector("[data-recording-build]");
+    const file = input && input.files && input.files[0];
+    if (!file) {
+      setStatus("Choose an .apk, .aab, or .ipa build first.", "error");
+      return;
     }
-    sendChat("Recording finished. Compile any segment not imported yet, then end the recording session.");
-    setStatus("Asked the assistant to wrap up the recording.", "success");
+    const dot = file.name.lastIndexOf(".");
+    const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+    if (BUILD_EXTENSIONS.indexOf(ext) < 0) {
+      setStatus("Upload an .apk, .aab, or .ipa build.", "error");
+      return;
+    }
+    const customId = (root.querySelector("[data-recording-custom-id]")?.value || "").trim();
+    if (customId && !CUSTOM_ID.test(customId)) {
+      setStatus("A custom id uses letters, digits, dot, dash, and underscore (up to 100).", "error");
+      return;
+    }
+    if (!ensureReady()) return;
+    const progress = root.querySelector("[data-recording-upload-progress]");
+    const bar = progress && progress.querySelector("i");
+    const setProgress = (fraction) => {
+      if (bar) bar.style.width = `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`;
+      if (fraction >= 1) setStatus(`Sending ${file.name} on to BrowserStack…`, "");
+    };
+    view.busy = "upload";
+    if (button) button.disabled = true;
+    if (progress) progress.classList.remove("hidden");
+    setProgress(0);
+    setStatus(`Uploading ${file.name} through the local bridge…`, "");
+    try {
+      const app = await uploadBuild(file, { credentials: credentials(), customId, onProgress: setProgress });
+      setStatus(`Uploaded ${file.name}${app.custom_id ? ` as ${app.custom_id}` : ""}. BrowserStack keeps builds for 30 days.`, "success");
+      input.value = "";
+      await loadApps(app.custom_id || app.app_url || "");
+    } catch (error) {
+      setStatus(errorText(error), "error");
+    } finally {
+      view.busy = "";
+      if (button) button.disabled = false;
+      if (progress) progress.classList.add("hidden");
+    }
   }
+
+  async function extend(button) {
+    if (!view.recording) return;
+    if (button) button.disabled = true;
+    try {
+      const recording = await call("session.extend", { id: view.recording.id }, { credentials: credentials(), timeoutMs: 60000 });
+      view.recording = Object.assign({}, view.recording, recording);
+      setStatus("The device is held for another 30 minutes.", "success");
+    } catch (error) {
+      setStatus(errorText(error), "error");
+    } finally {
+      if (button) button.disabled = false;
+    }
+    renderSession();
+  }
+
+  async function confirmAction(message, confirmText) {
+    if (typeof window.showConfirm === "function") return window.showConfirm({ title: "Finish recording?", message, confirmText, danger: true });
+    return window.confirm(message);
+  }
+
+  async function finish(button) {
+    const rec = view.recording;
+    if (!rec) return;
+    const pending = Number(rec.summary && rec.summary.actions) || 0;
+    if (view.unsaved) {
+      if (!(await confirmAction(`Segment ${view.unsaved.segment} is not saved in the assistant's workspace. Finish anyway? Download it first to keep it.`, "Finish"))) return;
+    } else if (pending > 0) {
+      if (!(await confirmAction(`The current segment has ${pending} recorded ${pending === 1 ? "action" : "actions"} that are not saved. Finish without them? Press Segment done first to keep them.`, "Finish"))) return;
+    }
+    if (button) button.disabled = true;
+    try {
+      await call("session.finish", { id: rec.id }, { credentials: credentials(), timeoutMs: 120000 });
+    } catch (error) {
+      if (error.code !== "not_found") {
+        setStatus(errorText(error), "error");
+        if (button) button.disabled = false;
+        return;
+      }
+    }
+    view.recording = null;
+    view.unsaved = null;
+    remember();
+    if (view.done.length) sendChat("Recording finished. Compile any segment not imported yet.");
+    setStatus("Recording finished; the device is released.", "success");
+    view.done = [];
+    await loadRecordings();
+    renderAll();
+  }
+
+  async function finishOther(id, button) {
+    if (button) button.disabled = true;
+    try {
+      await call("session.finish", { id }, { credentials: credentials(), timeoutMs: 120000 });
+      setStatus("Released the device.", "success");
+    } catch (error) {
+      if (error.code !== "not_found") setStatus(errorText(error), "error");
+    }
+    await loadRecordings();
+    renderOthers();
+  }
+
+  function adopt(id) {
+    const rec = view.others.find((item) => item.id === id);
+    if (!rec || view.recording) return;
+    view.recording = rec;
+    view.others = view.others.filter((item) => item.id !== id);
+    view.done = [];
+    remember();
+    setStatus("Continuing that recording here; segments are saved into this assistant's workspace.", "success");
+    renderAll();
+  }
+
+  function saveProxy(input) {
+    const value = String(input.value || "").trim();
+    if (value) {
+      let parsed = null;
+      try {
+        parsed = new URL(value);
+      } catch (_error) {
+        parsed = null;
+      }
+      if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+        setStatus("The proxy is a URL such as http://proxy.example.com:8080.", "error");
+        return;
+      }
+      if (parsed.username || parsed.password) {
+        setStatus("Leave the proxy password out; it would be saved in this browser.", "error");
+        return;
+      }
+    }
+    writeStorage(PROXY_KEY, value);
+    setStatus(value ? "Proxy saved for this computer." : "Using this computer's proxy settings.", "success");
+    if (ready()) loadApps();
+  }
+
+  // ---- events -----------------------------------------------------------------
 
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
+    const test = target.closest("[data-mobile-bridge-test]");
+    if (test) {
+      event.preventDefault();
+      testConnector(test);
+      return;
+    }
+    const overviewStart = target.closest('[data-mobile-bridge-action="start"]');
+    if (overviewStart) {
+      event.preventDefault();
+      startBridgeFromOverview(overviewStart);
+      return;
+    }
     const copy = target.closest("[data-recording-copy]");
     if (copy) {
-      const value = copy.dataset.recordingCopy || "";
-      navigator.clipboard?.writeText(value).then(() => {
-        copy.classList.add("is-copied");
-        window.setTimeout(() => copy.classList.remove("is-copied"), 1200);
-      }).catch(() => window.prompt("Copy:", value));
+      copyText(copy, copy.dataset.recordingCopy || "");
       return;
     }
     const button = target.closest("[data-recording-action]");
     const root = button && button.closest("[data-recording-root]");
     if (!button || !root) return;
     const action = button.dataset.recordingAction;
-    if (action === "start") startSession(root);
-    else if (action === "open-inspector") openInspector(root);
-    else if (action === "segment-done") segmentDone(root);
+    if (action === "start-bridge") startBridge();
+    else if (action === "check-bridge") refreshAll();
+    else if (action === "upload-build") uploadBuildFromPanel(root, button);
+    else if (action === "start") startRecording(root, button);
+    else if (action === "open-inspector") openInspector();
+    else if (action === "segment-done") segmentDone(root, button);
+    else if (action === "save-again") saveAgain();
+    else if (action === "download-log") downloadLog();
     else if (action === "upload-code") uploadCode(root);
-    else if (action === "extend") {
-      if (sendChat("Keep the recording device held for another 15 minutes.")) setStatus("Asked the assistant to extend the hold.", "success");
-    } else if (action === "finish") finish();
+    else if (action === "extend") extend(button);
+    else if (action === "finish") finish(button);
+    else if (action === "finish-other") finishOther(button.dataset.id || "", button);
+    else if (action === "adopt") adopt(button.dataset.id || "");
   });
+
+  document.addEventListener("change", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !target.closest("[data-recording-root]")) return;
+    if (target.matches("[data-recording-app]")) {
+      syncPlatform();
+    } else if (target.matches("[data-recording-build]")) {
+      const root = target.closest("[data-recording-root]");
+      const custom = root.querySelector("[data-recording-custom-id]");
+      const file = target.files && target.files[0];
+      if (custom && file && !custom.value.trim()) custom.value = suggestCustomId(file.name);
+    } else if (target.matches("[data-recording-proxy]")) {
+      saveProxy(target);
+    }
+  });
+
+  document.addEventListener("htmx:afterSwap", (event) => {
+    const swapped = event.target && event.target.querySelector ? event.target : null;
+    const root = swapped ? (swapped.matches("[data-mobile-overview]") ? swapped : swapped.querySelector("[data-mobile-overview]")) : null;
+    if (root) refreshOverview(root);
+  });
+
+  function initOverviews() {
+    document.querySelectorAll("[data-mobile-overview]").forEach((root) => refreshOverview(root));
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initOverviews, { once: true });
+  else initOverviews();
 
   window.EfpMobileTesting = Object.assign(window.EfpMobileTesting || {}, {
     openRecordingPanel,
     parseSegments,
+    suggestCustomId,
+    probeBridge: probe,
+    callBridge: call,
   });
 })();

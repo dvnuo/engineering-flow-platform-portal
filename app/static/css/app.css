@@ -6467,36 +6467,10 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 }
 
 /* ===== Mobile scenario testing =====
-   App packages (Connectors > BrowserStack), result cards (efp_cards.js) in
-   chat and on the task page, media previews under file cards, and the
-   Recording panel. */
+   Result cards (efp_cards.js) in chat and on the task page, media previews
+   under file cards, and the Recording panel (mobile_testing.js). */
 .portal-progress { height: 6px; border-radius: 999px; background: var(--portal-surface-soft); overflow: hidden; }
 .portal-progress > i { display: block; height: 100%; width: 0; background: var(--portal-accent); transition: width .2s ease; }
-.portal-test-secret-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-@media (max-width: 640px) {
-  .portal-test-secret-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .portal-test-secret-row [data-test-secret-field="secret"] {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-}
-
-.portal-app-package-upload { display: flex; flex-direction: column; gap: 10px; }
-.portal-app-package-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-.portal-app-package-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); }
-.portal-app-package-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.portal-app-package-main strong { color: var(--portal-text); font-size: 13px; overflow-wrap: anywhere; }
-.portal-app-package-ids { display: flex; flex-wrap: wrap; gap: 6px; }
-.portal-app-package-ids code { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--portal-surface); border: 1px solid var(--portal-border); overflow-wrap: anywhere; }
-.portal-app-package-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
 .composer-pill-btn.is-copied { border-color: var(--portal-success); color: var(--portal-success); }
 
 .message-file-preview { display: block; margin-top: 8px; max-width: 360px; }

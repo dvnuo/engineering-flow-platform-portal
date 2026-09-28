@@ -14,26 +14,8 @@
         <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="mobile_browserstack_username" value="{{ raw_mobile_browserstack.get('username', mobile_browserstack.get('username', '')) }}" placeholder="BrowserStack username" class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Access Key</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="BrowserStack access key" class="portal-form-input" /></label>
       </div>
-      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="browserstack">Test BrowserStack</button><div class="portal-inline-state" data-test-result="browserstack"></div></div>
-      {% set bs_test_secrets = raw_mobile.get('test_secrets') if raw_mobile.get('test_secrets') is sequence and raw_mobile.get('test_secrets') is not string else [] %}
-      <details class="portal-collapsible" data-test-secrets {% if bs_test_secrets %}open{% endif %}>
-        <summary class="portal-collapsible-summary"><span>Test secrets</span></summary>
-        <div class="portal-panel-stack">
-          <p class="portal-inline-note">Passwords and PINs of the test accounts your mobile tests sign in with. A recorded password field refers to one by name, for example <code>MOBILE_SECRET_PASSWORD</code>; the value reaches the assistant's runtime like your other connector credentials and never goes into a recording or a test file.</p>
-          <input type="hidden" name="mobile_test_secrets__present" value="1" />
-          <div class="portal-panel-stack" data-test-secret-rows>
-            {% for item in bs_test_secrets if item is mapping %}
-            <div class="portal-test-secret-row" data-test-secret-row>
-              <input type="text" name="mobile_test_secrets_{{ loop.index0 }}_name" value="{{ item.get('name', '') }}" placeholder="MOBILE_SECRET_PASSWORD" class="portal-form-input" aria-label="Test secret name" autocomplete="off" spellcheck="false" data-test-secret-field="name" />
-              <input type="password" name="mobile_test_secrets_{{ loop.index0 }}_secret" value="{{ item.get('secret', '') }}" placeholder="Value" class="portal-form-input" aria-label="Test secret value" autocomplete="new-password" data-test-secret-field="secret" />
-              <button type="button" class="portal-btn is-secondary" data-action="remove-test-secret" aria-label="Remove this test secret">Remove</button>
-            </div>
-            {% endfor %}
-          </div>
-          <div><button type="button" class="portal-btn is-secondary" data-action="add-test-secret">+ Add test secret</button></div>
-          <div class="portal-inline-state" data-test-secret-status role="alert"></div>
-        </div>
-      </details>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-mobile-bridge-test>Test BrowserStack</button><div class="portal-inline-state" data-mobile-bridge-test-result role="status"></div></div>
+      <p class="portal-inline-note">The test signs in from this computer through the local bridge, the way recordings do.</p>
       <details class="portal-collapsible">
         <summary class="portal-collapsible-summary"><span>Advanced</span></summary>
         <div class="portal-panel-stack">
@@ -48,7 +30,7 @@
             <label class="portal-form-label"><span class="portal-form-label">Network</span>
               <select name="mobile_network_mode" class="portal-form-select">
                 <option value="" {% if not bs_defaults.get('network_mode') %}selected{% endif %}>Public (default)</option>
-                <option value="private-managed" {% if bs_defaults.get('network_mode') == 'private-managed' %}selected{% endif %}>Private: the assistant runs BrowserStack Local</option>
+                <option value="private-managed" {% if bs_defaults.get('network_mode') == 'private-managed' %}selected{% endif %}>Private: start BrowserStack Local with each session</option>
                 <option value="private-external" {% if bs_defaults.get('network_mode') == 'private-external' %}selected{% endif %}>Private: a tunnel your team runs</option>
               </select>
             </label>
@@ -56,8 +38,8 @@
             <label class="portal-form-label"><span class="portal-form-label">BrowserStack Local</span>
               <select name="mobile_browserstack_local_mode" class="portal-form-select">
                 <option value="" {% if not bs_local.get('mode') %}selected{% endif %}>Not set</option>
-                <option value="managed" {% if bs_local.get('mode') == 'managed' %}selected{% endif %}>Managed by the assistant</option>
-                <option value="external" {% if bs_local.get('mode') == 'external' %}selected{% endif %}>Started outside the assistant</option>
+                <option value="managed" {% if bs_local.get('mode') == 'managed' %}selected{% endif %}>Started with each session</option>
+                <option value="external" {% if bs_local.get('mode') == 'external' %}selected{% endif %}>Started separately</option>
               </select>
             </label>
             <label class="portal-form-label"><span class="portal-form-label">Appium hub URL</span><input type="url" name="mobile_browserstack_appium_base_url" value="{{ raw_mobile_browserstack.get('appium_base_url', '') }}" placeholder="https://hub-cloud.browserstack.com/wd/hub" class="portal-form-input" /></label>
@@ -66,7 +48,7 @@
           <div class="portal-checkbox-row">
             <input type="hidden" name="mobile_video__present" value="1" />
             <label class="toggle-switch" aria-label="Record session video"><input type="checkbox" name="mobile_video" {% if bs_defaults.get('video', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
-            <span>Record a video of every session (the evidence for each scenario)</span>
+            <span>Record a video of each recording session</span>
           </div>
           <div class="portal-checkbox-row">
             <input type="hidden" name="mobile_interactive_debugging__present" value="1" />
@@ -78,7 +60,7 @@
             <label class="toggle-switch" aria-label="Verify TLS certificates"><input type="checkbox" name="mobile_browserstack_verify_ssl" {% if raw_mobile_browserstack.get('verify_ssl', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
             <span>Verify TLS certificates</span>
           </div>
-          <p class="portal-inline-note">BrowserStack ends a session after the idle timeout without a command, 300 seconds at most. The assistant keeps a session alive while you record, so leave this at 300 unless your team says otherwise.</p>
+          <p class="portal-inline-note">These settings apply to the devices you record on. BrowserStack ends a session after the idle timeout without a command, 300 seconds at most; the local bridge keeps the device alive while you record, so leave this at 300 unless your team says otherwise. Test runs use the pipeline's own settings.</p>
         </div>
       </details>
     </section>

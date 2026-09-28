@@ -31,7 +31,7 @@ def test_upgrade_seeds_the_qa_type_on_the_qa_branches_and_downgrade_removes_it(t
     get_settings.cache_clear()
     try:
         cfg = _alembic(database_url)
-        command.upgrade(cfg, "20260928_0038")
+        command.upgrade(cfg, "20260928_0037")
         engine = create_engine(database_url)
 
         types = _types(engine)
@@ -43,7 +43,7 @@ def test_upgrade_seeds_the_qa_type_on_the_qa_branches_and_downgrade_removes_it(t
         assert is_known_icon(qa["icon"])
         assert qa["sort_order"] > max(types[key]["sort_order"] for key in ("business", "dev", "ops"))
 
-        command.downgrade(cfg, "20260927_0037")
+        command.downgrade(cfg, "20260925_0036")
         assert "qa" not in _types(engine)
         assert {"business", "dev", "ops"} <= set(_types(engine))
     finally:
@@ -60,7 +60,7 @@ def test_upgrade_keeps_a_qa_type_an_administrator_already_made(tmp_path, monkeyp
     get_settings.cache_clear()
     try:
         cfg = _alembic(database_url)
-        command.upgrade(cfg, "20260927_0037")
+        command.upgrade(cfg, "20260925_0036")
         engine = create_engine(database_url)
         with engine.begin() as conn:
             conn.execute(
@@ -72,7 +72,7 @@ def test_upgrade_keeps_a_qa_type_an_administrator_already_made(tmp_path, monkeyp
                 )
             )
 
-        command.upgrade(cfg, "20260928_0038")
+        command.upgrade(cfg, "20260928_0037")
 
         types = _types(engine)
         assert "qa" not in types

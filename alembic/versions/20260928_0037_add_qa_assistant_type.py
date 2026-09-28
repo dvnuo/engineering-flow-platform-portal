@@ -1,7 +1,7 @@
 """seed the QA Assistant type
 
-Revision ID: 20260928_0038
-Revises: 20260927_0037
+Revision ID: 20260928_0037
+Revises: 20260925_0036
 Create Date: 2026-09-28
 """
 
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260928_0038"
-down_revision = "20260927_0037"
+revision = "20260928_0037"
+down_revision = "20260925_0036"
 branch_labels = None
 depends_on = None
 
