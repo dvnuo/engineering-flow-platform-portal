@@ -24,6 +24,8 @@ order: 15
 
 ## Before you start
 
+- **A QA Assistant**: create your assistant with the *QA Assistant* type. It
+  carries the skills and instructions this flow uses; other types do not.
 - **Connectors > BrowserStack**: your username and access key, turned on.
   *Test BrowserStack* shows how many parallel sessions your plan has; a run
   waits for free ones.

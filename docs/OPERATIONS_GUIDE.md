@@ -580,22 +580,29 @@ The flow in the in-app help topic *Mobile scenario testing* spans four pieces;
 all four must be current:
 
 - **Assistant runtime images** rebuilt with a `mobile-auto` that has
-  `inspector import`, `test run --parallel`, and `inspector attach --out` (the
-  tools repository's `feat/mobile-scenario-testing` work). Pods need egress to
+  `inspector import`, `inspector attach --out`, `test compile`,
+  `test run --dir --parallel`, and test secrets (the tools repository's
+  `feat/mobile-scenario-testing` work). Pods need egress to
   `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443, and to
   the app's test servers when BrowserStack Local runs in the pod.
 - **Skills** `design-mobile-scenarios`, `record-mobile-segment`,
   `generate-mobile-scripts`, `run-mobile-scenarios`, and
-  `maintain-mobile-automation-tests` on the skills branch assistants use.
+  `maintain-mobile-automation-tests` on the `qa` branch of the skills
+  repository (and on `master`, the full library), with the QA persona and
+  instructions on the `qa` branch of the agents repository.
 - **Portal**: the BrowserStack egress and app-package ingress described under
   *Resource and storage settings*, and the bundled Appium Inspector
   (`EFP_APPIUM_INSPECTOR_DIR`) for recording without installing anything.
 - **Jira**: a delegation with the *Jira Status Change* source (for example
   *Ready for Test*) and the `design-mobile-scenarios` skill starts the flow.
 
-An assistant type such as *Mobile QA* (icon `smartphone`) pointing at those
-branches gives testers a one-click assistant; it is optional when the default
-branches already carry the skills. Recording uses the member's own BrowserStack
+Migration `20260928_0038` seeds the **QA Assistant** type next to Business,
+Dev, and Ops: native engine, icon `flask-conical`, agents and skills branch
+`qa`. Create both `qa` branches before deploying it; an assistant created from
+a type whose branch is missing fails to start with "connection settings aren't
+ready". The migration leaves alone a type an administrator already named *QA
+Assistant*, and an administrator can repoint or retire the type in
+Administration like any other. Recording uses the member's own BrowserStack
 connector and works only on assistants the member owns.
 
 ### OpenCode-specific controls and capability alignment
