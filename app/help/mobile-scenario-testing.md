@@ -17,21 +17,25 @@ order: 15
 4. You record short segments on a real BrowserStack device from your computer:
    log in, skip the introduction, choose a currency. Each is recorded once per
    platform.
-5. The assistant turns the approved scenarios and your segments into one test
-   per Examples row, commits them to your team's test repository, and has the
-   Jenkins pipeline run one row of each scenario on a single device. You
-   approve them.
-6. The full run goes through the same pipeline, in parallel. Each scenario
-   ends with a result, its screenshots, and a video of the session; failures
-   are sorted into script drift, product defects, infrastructure, or test data.
+5. The assistant turns the approved scenarios and your segments into a plain
+   Python test project (the Gherkin you approved, its step definitions, and
+   the segments as functions, each recorded line marked `# recorded:`),
+   commits it to your team's test repository, and has the Jenkins pipeline
+   run one row of each scenario on a single device. You approve them.
+6. The full run goes through the same pipeline, in parallel, and publishes a
+   Cucumber report on the build page. Each scenario ends with a result, its
+   screenshots, and a video of the session; failures are sorted into script
+   drift, product defects, infrastructure, or test data. The tests run
+   without EFP: anyone with the repository and a BrowserStack account can run
+   them.
 
 ## Where things run
 
 | What | Where |
 | --- | --- |
 | Recording segments | Your computer: the Recording panel drives the local bridge, which drives the BrowserStack device |
-| Compiling segments, writing tests, triage | The assistant, on files only |
-| Dry runs, full runs, reruns | Your team's Jenkins pipeline |
+| Compiling segments, writing and exporting the tests, triage | The assistant, on files only |
+| Dry runs, full runs, reruns | Your team's Jenkins pipeline, running the Python project with behave and the Appium client |
 
 Portal and the assistants never connect to BrowserStack.
 

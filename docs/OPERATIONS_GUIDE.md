@@ -587,14 +587,17 @@ computer and test runs in Jenkins. These pieces must be current:
   directly or through its proxy settings.
 - **A Jenkins job** from the `Jenkinsfile` of the mobile test repository
   (engineering-flow-platform-mobile-test, or the team's copy of it), which
-  also holds the scripts the assistant commits under `mobile/`. The job needs
-  a BrowserStack credential and the test accounts' passwords as Jenkins
-  credentials; the repository's README lists the setup and the parameters.
+  holds the plain Python test project the assistant exports (behave features,
+  step definitions, segment modules; it runs without EFP). The job needs
+  Python 3.9+ and a PyPI index on its agent, a BrowserStack credential, the
+  test accounts' passwords as Jenkins credentials, and the Cucumber Reports
+  plugin for the report; the repository's README lists the setup and the
+  parameters.
   Members connect Jenkins and GitHub in Connectors; the assistant pushes a
   branch, starts the job on it, follows its `EFP-MATRIX` console lines for
   the live matrix, and downloads the evidence.
 - **Assistant runtime images** with a `mobile-auto` that has
-  `inspector import`, `test compile`, `test annotate`, and
+  `inspector import`, `test export`, `test annotate`, and
   `locate --recording` / `--source` (the tools repository's
   `feat/mobile-scenario-testing` work). These are file-only; pods need no
   BrowserStack egress.
