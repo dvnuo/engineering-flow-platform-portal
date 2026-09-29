@@ -585,13 +585,14 @@ computer and test runs in Jenkins. These pieces must be current:
   Inspector's WebDriver traffic. That computer needs to reach
   `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443,
   directly or through its proxy settings.
-- **A Jenkins job** from `pipelines/mobile-scenarios/Jenkinsfile` in the tools
-  repository, with a BrowserStack credential and the test accounts' passwords
-  as Jenkins credentials (its README lists the parameters), and a test
-  repository the assistant commits `mobile/` to and the job checks out.
-  Members connect Jenkins and GitHub in Connectors; the assistant starts the
-  job, follows its `EFP-MATRIX` console lines for the live matrix, and
-  downloads the evidence.
+- **A Jenkins job** from the `Jenkinsfile` of the mobile test repository
+  (engineering-flow-platform-mobile-test, or the team's copy of it), which
+  also holds the scripts the assistant commits under `mobile/`. The job needs
+  a BrowserStack credential and the test accounts' passwords as Jenkins
+  credentials; the repository's README lists the setup and the parameters.
+  Members connect Jenkins and GitHub in Connectors; the assistant pushes a
+  branch, starts the job on it, follows its `EFP-MATRIX` console lines for
+  the live matrix, and downloads the evidence.
 - **Assistant runtime images** with a `mobile-auto` that has
   `inspector import`, `test compile`, `test annotate`, and
   `locate --recording` / `--source` (the tools repository's
