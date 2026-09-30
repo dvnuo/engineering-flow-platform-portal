@@ -425,7 +425,7 @@ def test_the_form_output_survives_the_seed_service():
         _form(
             {
                 "llm_provider": "github_copilot",
-                "llm_model": "gpt-5.4",
+                "llm_model": "gpt-6-sol",
                 "llm_api_key": "shared-key",
                 "jira_enabled": "on",
                 "jira_instance_count": "1",

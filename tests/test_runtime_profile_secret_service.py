@@ -32,7 +32,7 @@ def _build_db():
     rp = RuntimeProfile(
         owner_user_id=owner.id,
         name="rp-secret",
-        config_json='{"llm": {"provider": "github_copilot", "model": "gpt-5.4"}}',
+        config_json='{"llm": {"provider": "github_copilot", "model": "gpt-6-sol"}}',
         revision=7,
         is_default=True,
     )
@@ -101,7 +101,7 @@ def test_render_profile_secret_data_contains_single_canonical_config_and_revisio
         # Canonical LLM stays in the portal/native form; each runtime re-projects
         # (opencode -> provider/model aliases) at boot, not here.
         assert payload["config"]["llm"]["provider"] == "github_copilot"
-        assert payload["config"]["llm"]["model"] == "gpt-5.4"
+        assert payload["config"]["llm"]["model"] == "gpt-6-sol"
     finally:
         db.close()
 

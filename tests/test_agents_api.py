@@ -620,7 +620,7 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
             name="profile-with-secrets",
             revision=7,
             is_default=True,
-            config_json='{"llm":{"provider":"github_copilot","model":"gpt-5.5"},"github":{"token":"ghp_secret"},"proxy":{"password":"secret"}}',
+            config_json='{"llm":{"provider":"github_copilot","model":"gpt-6-luna"},"github":{"token":"ghp_secret"},"proxy":{"password":"secret"}}',
         )
         db.add(profile)
         db.commit()
@@ -641,10 +641,10 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
             "revision": 7,
             "runtime_type": "native",
             "provider": "github_copilot",
-            "current_model": "gpt-5.5",
+            "current_model": "gpt-6-luna",
             "current_reasoning_effort": "high",
             "current_max_context_tokens": 256000,
-            "available_models": ["gpt-5.4", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"],
+            "available_models": ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol"],
             "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"],
             "context_sizes": [64000, 256000, 1000000],
             "supports_reasoning_effort": True,
