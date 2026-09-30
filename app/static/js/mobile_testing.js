@@ -314,6 +314,8 @@
   async function refreshOverview(root) {
     const status = root.querySelector("[data-mobile-bridge-status]");
     const start = root.querySelector('[data-mobile-bridge-action="start"]');
+    const proxyInput = root.querySelector("[data-mobile-bridge-proxy]");
+    if (proxyInput && document.activeElement !== proxyInput) proxyInput.value = proxySetting();
     const state = await probe({ force: true });
     const problem = bridgeProblem(state);
     if (problem) setInline(status, BRIDGE_MESSAGES[problem], problem === "not_running" ? "warning" : "error");
@@ -1262,7 +1264,10 @@
     renderAll();
   }
 
-  function saveProxy(input) {
+  // The proxy is shared by the connector page and the Recording panel; the
+  // report goes to whichever status element the caller shows.
+  function saveProxy(input, report) {
+    const say = report || setStatus;
     const value = String(input.value || "").trim();
     if (value) {
       let parsed = null;
@@ -1272,17 +1277,18 @@
         parsed = null;
       }
       if (!parsed || !/^https?:$/.test(parsed.protocol)) {
-        setStatus("The proxy is a URL such as http://proxy.example.com:8080.", "error");
-        return;
+        say("The proxy is a URL such as http://proxy.example.com:8080.", "error");
+        return false;
       }
       if (parsed.username || parsed.password) {
-        setStatus("Leave the proxy password out; it would be saved in this browser.", "error");
-        return;
+        say("Leave the proxy password out; it would be saved in this browser.", "error");
+        return false;
       }
     }
     writeStorage(PROXY_KEY, value);
-    setStatus(value ? "Proxy saved for this computer." : "Using this computer's proxy settings.", "success");
-    if (ready()) loadApps();
+    say(value ? "Proxy saved for this computer." : "Using this computer's proxy settings.", "success");
+    if (panelRoot() && ready()) loadApps();
+    return true;
   }
 
   // ---- events -----------------------------------------------------------------
@@ -1328,6 +1334,12 @@
 
   document.addEventListener("change", (event) => {
     const target = event.target instanceof Element ? event.target : null;
+    if (target && target.matches("[data-mobile-bridge-proxy]")) {
+      const overview = target.closest("[data-mobile-overview]");
+      const result = overview && overview.parentElement ? overview.parentElement.querySelector("[data-mobile-bridge-test-result]") : null;
+      saveProxy(target, (text, tone) => setInline(result, text, tone));
+      return;
+    }
     if (!target || !target.closest("[data-recording-root]")) return;
     if (target.matches("[data-recording-app]")) {
       syncPlatform();

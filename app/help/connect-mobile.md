@@ -32,8 +32,13 @@ package carries `mobile-auto`. It starts the device, holds it while you
 record, and passes Appium Inspector's commands to it, keeping a log of what
 you did. Install it once from that page; the BrowserStack page shows whether
 it is running. Your computer needs to reach BrowserStack. Behind a proxy the
-bridge uses your system proxy settings, or set one under *Network from this
-computer* in the Recording panel.
+bridge uses your computer's own proxy settings (a static proxy, a PAC script,
+or auto-detection, the way the browser does), or set one on the BrowserStack
+connector page or under *Network from this computer* in the Recording panel.
+If **Test BrowserStack** is answered by your company's web filter block page,
+check the same address in the browser: a BrowserStack sign-in prompt means the
+bridge only needs the browser's proxy; the same block page means the network
+must allow `api-cloud.browserstack.com` and `hub-cloud.browserstack.com`.
 
 ## Builds
 
