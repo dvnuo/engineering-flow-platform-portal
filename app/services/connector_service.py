@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # One package per platform (see LOCAL_BROWSER_PLATFORMS); CI or the operator
 # drops the zips built by the tools repository under app/static/downloads/.
-LOCAL_BROWSER_FALLBACK_DOWNLOAD_PATH = "/static/downloads/efp-browser-bridge-{platform}.zip"
+LOCAL_BROWSER_FALLBACK_DOWNLOAD_PATH = "/static/downloads/efp-bridge-{platform}.zip"
 
 
 def _parse_config_json(raw: str | None) -> dict[str, Any]:

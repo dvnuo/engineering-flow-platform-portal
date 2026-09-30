@@ -14278,7 +14278,7 @@ function applyCreateAgentDefaults(form, defaults) {
 // (docs/CONNECTORS_CONTRACT.md). The list comes from the registry merged with
 // the member's state, grouped by category. Settings connectors (model provider,
 // Jira, GitHub, ...) render a server-side form bound by
-// initializeManagedSettingsPanels; local ones (the browser bridge) are bound by
+// initializeManagedSettingsPanels; local ones (the local bridge) are bound by
 // their page module under static/js/connectors/.
 
 async function loadConnectorsList(force = false) {

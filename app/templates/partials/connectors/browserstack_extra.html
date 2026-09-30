@@ -10,7 +10,7 @@
   </div>
   <p class="portal-panel-note">
     Portal and the assistants do not connect to BrowserStack. Recording runs on this computer through the local bridge,
-    the same program as <strong>Connectors &gt; Local browser</strong>: it starts a BrowserStack device with the settings above,
+    the program of <strong>Connectors &gt; Local bridge</strong>: it starts a BrowserStack device with the settings above,
     holds it while you record, and passes Appium Inspector's commands to it. Open a chat with your assistant and choose
     <strong>Recording</strong> in the tool bar.
   </p>
@@ -23,7 +23,7 @@
   </label>
   <p class="portal-inline-note">Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Kept in this browser only. A proxy that asks for a login takes it in the address, http://user:password@proxy.example.com:8080 (a domain user as DOMAIN%5Cuser); it goes only to the local bridge on this computer.</p>
   <ul class="portal-setup-guide-steps">
-    <li>Install the bridge once from <strong>Connectors &gt; Local browser</strong>; its package includes mobile-auto for recordings.</li>
+    <li>Install the local bridge once from <strong>Connectors &gt; Local bridge</strong>; its package includes mobile-auto for recordings.</li>
     {% if appium_inspector_available %}
     <li>Portal hosts Appium Inspector: the Recording panel opens it already attached to the device. Nothing else to install.</li>
     {% else %}

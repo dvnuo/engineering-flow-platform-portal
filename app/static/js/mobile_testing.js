@@ -3,7 +3,7 @@
  * the Recording panel (assistant chat tool bar > Recording).
  *
  * Portal never talks to BrowserStack. The member's own computer does, through
- * the local bridge (`browser serve`, the Local browser connector's program):
+ * the local bridge (`efp-bridge`, the Local bridge connector's program):
  * its /mobile/* routes list and upload builds, start a recording device with
  * mobile-auto and hold it, and proxy Appium Inspector's WebDriver traffic for
  * that device, logging what the segment compiler needs. The page sends the
@@ -21,9 +21,9 @@
   const PROBE_CACHE_MS = 4000;
   const PROXY_KEY = "efp.mobile.bridge_proxy";
   const BRIDGE_MESSAGES = {
-    not_running: "The local bridge is not running on this computer. Start it here; if it is not installed yet, install it from Connectors > Local browser first.",
-    outdated: "The local bridge on this computer is an older version without mobile recording. Download it again from Connectors > Local browser and restart it.",
-    no_mobile_auto: "The local bridge cannot find mobile-auto next to it. Download the bridge package again from Connectors > Local browser.",
+    not_running: "The local bridge is not running on this computer. Start it here; if it is not installed yet, install it from Connectors > Local bridge first.",
+    outdated: "The local bridge on this computer is an older version without mobile recording. Download it again from Connectors > Local bridge and restart it.",
+    no_mobile_auto: "The local bridge cannot find mobile-auto next to it. Download the bridge package again from Connectors > Local bridge.",
   };
 
   const bridgeState = { port: 0, info: null, probedAt: 0, probing: null };
@@ -965,7 +965,7 @@
       view.busy = "";
     }
     if (bridgeProblem(view.bridge)) {
-      setStatus("The bridge did not start. Install it from Connectors > Local browser, or start it from there and check again.", "error");
+      setStatus("The bridge did not start. Install it from Connectors > Local bridge, or start it from there and check again.", "error");
       renderSetup();
       return;
     }

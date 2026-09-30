@@ -27,8 +27,8 @@ Only needed if you record mobile tests.
 
 ## The local bridge
 
-The program of **Connectors > Local browser** records mobile tests too: its
-package carries `mobile-auto`. It starts the device, holds it while you
+The program of **Connectors > Local bridge**, `efp-bridge`, records mobile
+tests: its package carries `mobile-auto`. It starts the device, holds it while you
 record, and passes Appium Inspector's commands to it, keeping a log of what
 you did. Install it once from that page; the BrowserStack page shows whether
 it is running. Your computer needs to reach BrowserStack. Behind a proxy the

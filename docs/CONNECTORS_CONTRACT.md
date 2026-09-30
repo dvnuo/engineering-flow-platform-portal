@@ -18,7 +18,7 @@ For installation and use, see the [Beginner Guide](BEGINNER_GUIDE.md). Portal co
 | connector_type | Stable string id, e.g. `local_browser`, `jira`, `llm`. |
 | kind | `local` (needs the chat page as a bridge to the user's machine) or `settings` (the runtime talks to the service directly with credentials delivered through the pod Secret at boot). |
 | client_id | Random id generated per Portal browser tab (`sessionStorage`). Identifies which tab (and therefore which machine) executes local requests for one chat turn. |
-| bridge | The page-side dispatcher plus the local program it talks to. For `local_browser` the local program is `browser serve` from `engineering-flow-platform-tools`. |
+| bridge | The page-side dispatcher plus the local program it talks to. For `local_browser` (shown as **Local bridge**) the local program is `efp-bridge serve` from `engineering-flow-platform-tools`; `browser serve` is the same bridge for installs registered before `efp-bridge` existed. |
 
 ## 1. Chat request (page → Portal)
 
@@ -36,7 +36,7 @@ The page adds a **top-level** `connectors` object to `POST /a/{agent_id}/api/cha
 
 Rules
 - Only local connector types the user has **enabled** in Connectors are sent. Settings connectors never travel in this object; they reach the runtime through the pod Secret (§7.1).
-- The current Local browser page also requires a Chromium browser, the chat's **Browser on** toggle, and a reachable bridge. Keep the originating Portal tab open while a request is running.
+- The current Local bridge page also requires a Chromium browser, the chat's **Browser on** toggle, and a reachable bridge. Keep the originating Portal tab open while a request is running.
 - `client_id`: 1–64 chars, `[A-Za-z0-9_-]`.
 - Absent or invalid `connectors` means "no connectors for this turn".
 
@@ -165,7 +165,7 @@ Responses: `202 {"ok": true, "request_id": "..."}`; `409 {"error": "connector_re
 when the id is unknown, already resolved, timed out, or the run was cancelled;
 `400` on malformed JSON. `result` is limited to 2 MB.
 
-## 6. Local bridge HTTP API (`browser serve`, 127.0.0.1)
+## 6. Local bridge HTTP API (`efp-bridge serve`, 127.0.0.1)
 
 Default port 8765; if busy the service tries 8766–8770. The page probes the member's configured `preferred_port` and the default 8765–8770 range, preferring the last working port when available.
 
@@ -194,9 +194,9 @@ Rules
 - The page carries `client_id` only to the Portal, never to the bridge.
 
 Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765[&url=<urlencoded start page>]`
-runs `browser.exe bridge-launch "<url>"`, which starts `browser serve --origin … --port … --url …`
+runs `efp-bridge.exe bridge-launch "<url>"`, which starts `efp-bridge serve --origin … --port … --url …`
 if it is not already running and asks a running bridge whose window is closed to reopen it
-(registration: `browser serve --register-protocol --origin <origin>`). The bridge launches
+(registration: `efp-bridge register --origin <origin>`). The bridge launches
 Chrome directly on the start page, so the window opens with that single tab. The `url`
 parameter is `LOCAL_BROWSER_START_URL` (§8) resolved by the page against its own origin; it
 must be absolute http(s) and is omitted when the setting is empty (the bridge then opens the
@@ -267,11 +267,11 @@ clients that need the whole document can use `GET`/`PATCH /api/runtime-profile` 
 
 | Where | Key | Default | Purpose |
 |---|---|---|---|
-| Portal env | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | empty → `/static/downloads/efp-browser-bridge-{platform}.zip` | download link template; `{platform}` is one of `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64` (tools `scripts/browser-bridge/package.sh` builds one zip per platform: binary, installer, README). The panel offers the member's own system first (User-Agent, refined by client hints on the page) and lists the rest |
+| Portal env | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | empty → `/static/downloads/efp-bridge-{platform}.zip` | download link template; `{platform}` is one of `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64` (tools `scripts/local-bridge/package.sh` builds one zip per platform: `efp-bridge`, `mobile-auto`, installer, README; tools releases also attach each under its former name `efp-browser-bridge-{platform}.zip`). The panel offers the member's own system first (User-Agent, refined by client hints on the page) and lists the rest |
 | Portal env | `LOCAL_BROWSER_CLI_VERSION` | empty | shown on the panel |
 | Portal env | `LOCAL_BROWSER_START_URL` | empty → Portal origin | first tab of the EFP window when the bridge opens or reopens it; absolute http(s) URL or a path resolved against the Portal origin; sent as the link's `url` and as `session.ensure{url}` |
 | Portal env | `CONNECTORS_ENABLED` | `true` | when false, hides the local connectors: omitted from the Connectors list and `/api/connectors`, 404 from their API routes, and no chat **Browser** toggle. The Connectors menu and the settings connectors are unaffected |
-| tools CLI | `EFP_BROWSER_SERVE_PORT`, `EFP_BROWSER_SERVE_ALLOWED_ORIGIN` | 8765, empty | defaults for `browser serve` |
+| tools CLI | `EFP_BROWSER_SERVE_PORT`, `EFP_BROWSER_SERVE_ALLOWED_ORIGIN` | 8765, empty | defaults for the local bridge (`efp-bridge serve`, `browser serve`) |
 | runtime | `enable_browser_tool` (Portal-managed runtime field) | false | registers the tool |
 
 ## 9. Timeline rendering (Portal)

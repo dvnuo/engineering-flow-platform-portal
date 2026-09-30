@@ -23,7 +23,7 @@ This guide takes you from your first sign-in to everyday work with assistants, f
 11. [Manage an assistant](#11-manage-an-assistant)
 12. [Create and follow background tasks](#12-create-and-follow-background-tasks)
 13. [Set up delegations](#13-set-up-delegations)
-14. [Connect your local browser](#14-connect-your-local-browser)
+14. [Connect the local bridge](#14-connect-the-local-bridge)
 15. [Administration](#15-administration)
 16. [Help, shortcuts, and smaller screens](#16-help-shortcuts-and-smaller-screens)
 17. [Troubleshooting](#17-troubleshooting)
@@ -89,7 +89,7 @@ The narrow rail on the far left switches sections. Hover over an icon to see its
 | Tasks | Start background work and inspect results |
 | Delegations | Configure recurring or event-driven work |
 | Administration | Manage members, assistant types, and defaults; admins only |
-| Connectors | Set up the model provider, service credentials, and your local browser |
+| Connectors | Set up the model provider, service credentials, and the local bridge on your computer |
 | Help | Read topic-based instructions and keyboard shortcuts |
 | Theme | Switch the appearance |
 | Logout | End your Portal session |
@@ -141,7 +141,7 @@ Use **Back** to correct a choice. Repository access or branch-list failures usua
 
 *Figure 5. This capture predates Connectors: it shows the former Connections profile page, which one panel per connector has replaced.*
 
-**Connectors** are everything your assistants can reach: the model provider, Jira, Confluence, GitHub, and the other services, plus your local browser. You set each connector up once, and every assistant you own uses it. There is nothing to select per assistant.
+**Connectors** are everything your assistants can reach: the model provider, Jira, Confluence, GitHub, and the other services, plus the local bridge on your computer. You set each connector up once, and every assistant you own uses it. There is nothing to select per assistant.
 
 1. Click **Connectors** on the left rail. The list is grouped by category (Model, Work tracking & docs, Code & delivery, Cloud & data, Testing, Network, Local devices & tools), and each entry shows its state: **Connected**, **Turned off**, or **Not set up** (**On** for the proxy).
 2. Select the connector you need. Its panel opens with a short description and its state.
@@ -440,20 +440,22 @@ Only the delegation's owner can manage it, even when another account can view it
 
 GitHub review requests are deduplicated. When a newer pull-request head supersedes older review work, the older task may become **Stale**. A task finishing and its external reply being sent are separate outcomes; inspect both if the source page has no reply.
 
-## 14. Connect your local browser
+## 14. Connect the local bridge
 
-The local browser connector lets the assistant operate a separate EFP Chrome window on your computer. That window has its own browser profile and logins. Open Portal in a supported Chromium browser such as Chrome or Edge, and use an assistant you own (or can manage as an administrator). A shared assistant owned by someone else cannot complete the connector response path.
+The local bridge is one program on your computer, `efp-bridge`, with two uses: the assistant operates a separate EFP Chrome window there (browser automation), and the Recording panel records mobile tests on BrowserStack devices from there (see the in-app help topic *Mobile scenario testing*). This section sets up browser automation; mobile recording needs nothing more than your BrowserStack connector.
+
+The browser automation lets the assistant operate a separate EFP Chrome window on your computer. That window has its own browser profile and logins. Open Portal in a supported Chromium browser such as Chrome or Edge, and use an assistant you own (or can manage as an administrator). A shared assistant owned by someone else cannot complete the connector response path.
 
 ![Local browser connector with download, installation, test, and enable steps](screenshots/13-browser-connector.png)
 
-*Figure 13. The setup panel checks the bridge on your computer. The screenshot has no bridge running.*
+*Figure 13. The setup panel checks the bridge on your computer. The screenshot has no bridge running, and it predates the panel's rename from Local browser to Local bridge.*
 
-1. Open **Connectors → Local browser** (under **Local devices & tools**). If Local browser is not listed, ask whether the deployment enabled local connectors.
+1. Open **Connectors → Local bridge** (under **Local devices & tools**). If Local bridge is not listed, ask whether the deployment enabled local connectors.
 2. **Download:** choose your operating system and processor architecture, download the bridge package from your Portal, and unzip it into a folder you can keep, such as a folder under your user directory. Use **Other systems** if the suggested package is wrong.
 3. **Install and start:** on Windows, run `install-bridge.cmd` and enter the Portal address shown by the panel. On macOS/Linux, run `./install-bridge.sh <Portal-origin>` from the unzipped folder, replacing the placeholder with the panel's exact address. Follow the package README for any platform-specific steps. Click **Start bridge** and accept the browser's prompt to open the installed launcher.
 4. In the separate EFP browser window, sign in to the sites the assistant needs. Your everyday Chrome profile's logins are not automatically copied.
-5. Return to Portal and click **Test connection**. The test checks bridge information and lists open tabs; it does not change a website.
-6. Enable the connector, choose whether it should start **On by default in new chats**, and click **Save**. Leave the port at `8765` unless you have deliberately configured another port.
+5. Return to Portal and click **Test connection** under **Browser automation**. The test checks bridge information and lists open tabs; it does not change a website.
+6. Enable browser automation, choose whether it should start **On by default in new chats**, and click **Save**. Leave the port at `8765` unless you have deliberately configured another port.
 7. Open an assistant chat and turn on its **Browser** composer toggle.
 8. Keep that Portal tab open while the assistant uses the browser. Begin with a read-only request, such as listing the open tabs or summarizing the visible test page.
 
@@ -520,7 +522,7 @@ These are presets for new assistants. Editing a type does not automatically reco
 
 *Figure 17. Help is available from the rail and from connector setup links. This capture predates Connectors and shows the former Connections help group.*
 
-Open **Help** for getting started, connector-specific instructions, the local browser connector, questions/approvals, failures, and shortcuts. Connector panels link directly to the matching help topic, and each connector topic has an **Open** button for that connector.
+Open **Help** for getting started, connector-specific instructions, the local bridge connector, questions/approvals, failures, and shortcuts. Connector panels link directly to the matching help topic, and each connector topic has an **Open** button for that connector.
 
 | Shortcut | Action |
 | --- | --- |
@@ -554,7 +556,7 @@ Start with the failing layer: Portal login, assistant startup, model provider, s
 | Task stays queued/running | Open details; inspect the target assistant and recent errors | Worker/reconciliation/runtime services need operator attention |
 | Delegation creates no tasks | Check enabled state, source readiness, scope, timezone, preview, and recent runs | The worker is off, credentials fail, or the selected skill is unavailable |
 | Task completed but no source reply | Read the delegation event's reply status | Reply permissions/network failed separately from execution |
-| Browser bridge not detected | Start it and test from this computer and Portal origin | Local-network permission, origin, port, or managed Chrome policy blocks it |
+| Local bridge not detected | Start it and test from this computer and Portal origin | Local-network permission, origin, port, or managed Chrome policy blocks it |
 | A button is disabled | Read the tooltip and check ownership, runtime capability, and current state | The required state is correct but the UI does not recover after refresh |
 
 When reporting a problem, include the Portal address, assistant/task/rule ID, approximate time and timezone, exact error text, and the steps immediately before it. A screenshot of the error is useful; keep passwords, tokens, and unrelated private information out of it. Operators can correlate requests with the response's `X-Trace-Id` and server logs.
@@ -583,7 +585,7 @@ You are ready for routine use when you can explain which assistant and connector
 | Allowlist | The usernames permitted to use Portal |
 | SSO | Single sign-on through your organization's identity provider |
 | Token | A credential authorizing access to a service |
-| Connector | One service or capability your assistants can use (model provider, Jira, GitHub, local browser, ...), set up once for all your assistants |
+| Connector | One service or capability your assistants can use (model provider, Jira, GitHub, local bridge, ...), set up once for all your assistants |
 | Restart to apply | A running assistant still using connector settings from before your latest save; restart it to pick them up |
 | Runtime/engine | The service implementation that runs the assistant |
 | Branch | A named version of a Git repository |
@@ -591,7 +593,7 @@ You are ready for routine use when you can explain which assistant and connector
 | Workspace | The assistant's persistent working files |
 | Context | The conversation and other material supplied to the model for a run |
 | Cron/timezone | A schedule expression and the clock region used to interpret it |
-| Origin | The scheme, host, and port of your Portal address, used by the browser bridge to control access |
+| Origin | The scheme, host, and port of your Portal address, used by the local bridge to control access |
 
 - [Repository overview and quick start](../README.md)
 - [Installation, deployment, upgrades, APIs, and maintenance](OPERATIONS_GUIDE.md)

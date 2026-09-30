@@ -44,8 +44,8 @@ Portal and the assistants never connect to BrowserStack.
 - **A QA Assistant**: create your assistant with the *QA Assistant* type. It
   carries the skills and instructions this flow uses; other types do not.
 - **Connectors > BrowserStack**: your username and access key, turned on.
-- **Connectors > Local browser**: install the local bridge on your computer
-  once; recordings run through it. *Test BrowserStack* on the BrowserStack
+- **Connectors > Local bridge**: install the local bridge (`efp-bridge`) on
+  your computer once; recordings run through it. *Test BrowserStack* on the BrowserStack
   page checks that your computer reaches BrowserStack.
 - **Connectors > Jenkins** and **GitHub**: the assistant starts the mobile
   scenario pipeline with your Jenkins connector and commits the tests to your

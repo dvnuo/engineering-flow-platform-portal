@@ -47,8 +47,8 @@ LOCAL_BROWSER_TYPE = "local_browser"
 LOCAL_BROWSER_DEFAULT_PORT = 8765
 
 # Download packages the Portal offers, one zip per entry built by
-# scripts/browser-bridge/package.sh in the tools repository (the binary, the
-# installer for that system, and a README; nothing else). The member's own
+# scripts/local-bridge/package.sh in the tools repository (efp-bridge,
+# mobile-auto, the installer for that system, and a README). The member's own
 # system is offered first, the rest under "Other systems".
 LOCAL_BROWSER_PLATFORMS: tuple[tuple[str, str], ...] = (
     ("windows-amd64", "Windows (x64)"),
@@ -374,14 +374,15 @@ CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
     **{spec.type: spec for spec in SETTINGS_CONNECTORS},
     LOCAL_BROWSER_TYPE: ConnectorSpec(
         type=LOCAL_BROWSER_TYPE,
-        label="Local browser",
+        label="Local bridge",
         kind=KIND_LOCAL,
-        icon="globe",
+        icon="laptop",
         category="Local devices & tools",
         description=(
-            "Let assistants read and operate pages in a Chrome window on your own PC, "
-            "using your existing logins. Runs through the EFP browser bridge; nothing "
-            "leaves your machine except what you ask the assistant to look at."
+            "The EFP local bridge on your own PC. Assistants read and operate pages in a "
+            "Chrome window with your existing logins, and the Recording panel records "
+            "mobile tests on BrowserStack devices from this computer. Nothing leaves your "
+            "machine except what you ask the assistant to look at."
         ),
         panel_template="partials/connector_local_browser_panel.html",
         guidance_key=LOCAL_BROWSER_TYPE,

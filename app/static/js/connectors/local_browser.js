@@ -10,8 +10,9 @@
  * generated it (see `chatRequestConnectors`), so two Portal tabs on the same
  * session never execute the same request twice.
  *
- * The first (and for now only) connector type is `local_browser`: a
- * `browser serve` process on 127.0.0.1 that drives a dedicated Chrome window.
+ * The first (and for now only) connector type is `local_browser`, shown as
+ * Local bridge: the efp-bridge process on 127.0.0.1 that drives a dedicated
+ * Chrome window and serves the mobile Recording panel (mobile_testing.js).
  * Contract: docs/CONNECTORS_CONTRACT.md.
  */
 (function () {
@@ -174,7 +175,7 @@
     };
   }
 
-  // ---- local browser bridge ----------------------------------------------
+  // ---- local bridge ------------------------------------------------------
 
   function candidatePorts() {
     const preferred = localBrowserConfig().preferred_port;
@@ -200,7 +201,7 @@
   async function probeLocalBrowser({ force = false, quick = false } = {}) {
     const lb = state.localBrowser;
     if (!force && lb.probedAt && Date.now() - lb.probedAt < PROBE_CACHE_MS) {
-      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount };
+      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
     }
     if (lb.probing) return lb.probing;
     lb.probing = (async () => {
@@ -220,10 +221,21 @@
       lb.version = found ? String(found.data.version || "") : "";
       lb.protocolVersion = found ? Number(found.data.protocol_version || 0) : 0;
       lb.tabCount = found && found.data.session ? Number(found.data.session.tab_count || 0) : 0;
+      lb.mobile = mobileState(found ? found.data : null);
       lb.probing = null;
-      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount };
+      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
     })();
     return lb.probing;
+  }
+
+  // What the bridge's /ping says about mobile recording: "ready", "outdated"
+  // (a bridge without the mobile routes), "no_mobile_auto" (mobile-auto is not
+  // next to it), or "" when no bridge answered.
+  function mobileState(ping) {
+    if (!ping) return "";
+    const capabilities = Array.isArray(ping.capabilities) ? ping.capabilities : [];
+    if (capabilities.indexOf("mobile") < 0) return "outdated";
+    return ping.mobile && ping.mobile.available ? "ready" : "no_mobile_auto";
   }
 
   async function runLocalBrowser(command, params, timeoutSeconds) {
@@ -231,7 +243,7 @@
     if (!lb.alive || !lb.port) {
       const probe = await probeLocalBrowser({ force: true, quick: true });
       if (!probe.alive) {
-        return { ok: false, error: { code: "bridge_unreachable", message: "The local browser bridge is not running.", hint: "Open Connectors → Local browser and start the bridge." } };
+        return { ok: false, error: { code: "bridge_unreachable", message: "The local bridge is not running.", hint: "Open Connectors → Local bridge and start it." } };
       }
     }
     const body = JSON.stringify({
@@ -269,7 +281,7 @@
         ok: false,
         error: {
           code: aborted ? "bridge_timeout" : "bridge_unreachable",
-          message: aborted ? "The local browser bridge did not answer in time." : "Could not reach the local browser bridge.",
+          message: aborted ? "The local bridge did not answer in time." : "Could not reach the local bridge.",
         },
       };
     }
@@ -322,7 +334,7 @@
   }
 
   // Makes the bridge reachable and its Chrome window open, in that order. The
-  // bridge outlives the window (closing Chrome leaves browser serve running),
+  // bridge outlives the window (closing Chrome leaves the bridge running),
   // so a reachable bridge with a closed window is asked to reopen it through
   // session.ensure; the protocol link would only find the bridge already
   // running and do nothing. Resolves to the final probe, with `error` set
@@ -489,7 +501,7 @@
     }
     const status = probe ? await probeLocalBrowser() : { alive: state.localBrowser.alive };
     if (!status.alive) {
-      applyToggleView({ mode: "offline", label: "Browser bridge offline", title: "The local browser bridge is not running. Click to open the setup steps." });
+      applyToggleView({ mode: "offline", label: "Local bridge offline", title: "The local bridge is not running. Click to open the setup steps." });
       return;
     }
     applyToggleView({ mode: "on", label: "Browser on", title: "The assistant can read and operate your EFP browser window in this chat. Click to switch off." });
@@ -529,7 +541,7 @@
     };
   }
 
-  // ---- connector panel (Connectors → Local browser) -------------------------
+  // ---- connector panel (Connectors → Local bridge) --------------------------
 
   function panelStatus(root, key, text, tone) {
     const node = root.querySelector(`[data-connector-status="${key}"]`);
@@ -551,13 +563,25 @@
     const probe = await probeLocalBrowser({ force });
     panelStatus(root, "bridge", probe.alive ? `running on port ${probe.port}${probe.version ? ` (v${probe.version})` : ""}` : "not detected", probe.alive ? "ok" : "warn");
     panelStatus(root, "session", probe.alive ? (probe.sessionAlive ? `Chrome window open (${probe.tabCount || 0} tabs)` : "Chrome window closed (Start bridge reopens it)") : "–", probe.sessionAlive ? "ok" : "");
+    const mobile = MOBILE_STATUS[probe.alive ? probe.mobile || "outdated" : ""];
+    panelStatus(root, "mobile", mobile.short, mobile.tone);
+    panelStatus(root, "mobile-detail", mobile.detail, mobile.tone);
     root.querySelectorAll("[data-connector-step]").forEach((section) => {
       const step = section.dataset.connectorStep;
-      const done = (step === "2" && probe.alive) || (step === "3" && root.dataset.lastVerified) || (step === "4" && root.dataset.enabled === "true");
+      // Step 3 is browser automation (tested and switched on), step 4 mobile
+      // recording (the bridge has it and mobile-auto next to it).
+      const done = (step === "2" && probe.alive) || (step === "3" && root.dataset.lastVerified && root.dataset.enabled === "true") || (step === "4" && probe.alive && probe.mobile === "ready");
       section.classList.toggle("is-done", Boolean(done));
     });
     return probe;
   }
+
+  const MOBILE_STATUS = {
+    "": { short: "–", tone: "", detail: "Start the bridge (step 2) to check." },
+    ready: { short: "ready", tone: "ok", detail: "Ready. Add your BrowserStack username and access key under Connectors → BrowserStack, then choose Recording in an assistant's chat." },
+    outdated: { short: "not in this bridge", tone: "warn", detail: "This bridge is older than mobile recording. Download the package again (step 1), run its installer, and start the bridge again." },
+    no_mobile_auto: { short: "mobile-auto missing", tone: "warn", detail: "mobile-auto is not next to the bridge. Unzip the whole package again (step 1) into the same folder, then start the bridge again." },
+  };
 
   function troubleshootFor(error) {
     const code = String((error && error.code) || "");
@@ -715,7 +739,7 @@
         const port = Number(root.querySelector('[data-connector-field="preferred_port"]')?.value) || undefined;
         const probe = await ensureBrowserSession({ port });
         if (probe.alive && probe.sessionAlive) {
-          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)} and the EFP browser window is open. Continue with step 3.`, "success");
+          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)} and the EFP browser window is open. Test it under Browser automation below.`, "success");
         } else if (probe.alive) {
           const error = probe.error || {};
           const hint = troubleshootFor(error) || String(error.hint || "");

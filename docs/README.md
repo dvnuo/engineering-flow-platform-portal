@@ -10,8 +10,8 @@ Start with the guide for your role. All documentation is in English and was revi
 | Deploy the supplied Kubernetes examples | [Kubernetes Deployment Guide](../k8s/README.md) |
 | Diagnose an assistant that will not start or connect | [Kubernetes Troubleshooting](K8S_TROUBLESHOOTING.md) |
 | Integrate a runtime with Portal | [Portal/Runtime Contract](PORTAL_RUNTIME_CONTRACT.md) |
-| Understand connectors and the local browser relay | [Connectors Contract](CONNECTORS_CONTRACT.md) |
-| Supply browser bridge downloads | [Download Assets](../app/static/downloads/README.md) |
+| Understand connectors and the local bridge relay | [Connectors Contract](CONNECTORS_CONTRACT.md) |
+| Supply local bridge downloads | [Download Assets](../app/static/downloads/README.md) |
 | Check schema upgrades and compatibility snapshots | [Phase 5 Productization Notes](PHASE5_PRODUCTIZATION.md) |
 | Run integration smoke tests | [Integration Testing](../integration/README.md) |
 | See what this documentation review checked | [Documentation Review](DOCUMENTATION_REVIEW.md) |

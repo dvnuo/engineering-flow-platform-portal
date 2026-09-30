@@ -2,7 +2,7 @@
 
 Portal never talks to BrowserStack. The Recording panel in an assistant's chat
 drives the local bridge on the member's own computer (the program of the Local
-browser connector, `browser serve`), whose /mobile/* routes start and hold a
+bridge connector, `efp-bridge`), whose /mobile/* routes start and hold a
 BrowserStack device with mobile-auto and proxy Appium Inspector's WebDriver
 traffic for it. This module hands the panel the member's BrowserStack settings
 for those calls and serves the Inspector's web build, which the panel opens

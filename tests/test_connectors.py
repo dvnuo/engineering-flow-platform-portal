@@ -70,6 +70,9 @@ def alice_client(db_session, users):
 def test_registry_has_local_browser_with_defaults():
     spec = get_connector_spec(LOCAL_BROWSER_TYPE)
     assert spec.kind == "local"
+    # Shown as the Local bridge; the type stays local_browser for stored rows
+    # and runtime requests.
+    assert spec.label == "Local bridge" and LOCAL_BROWSER_TYPE == "local_browser"
     assert spec.panel_template.endswith("connector_local_browser_panel.html")
     assert spec.normalized_config(None) == {"auto_enable_in_new_chats": True, "preferred_port": 8765}
     assert [item.type for item in list_connector_specs()] == list(CONNECTOR_REGISTRY)
@@ -189,8 +192,8 @@ def test_download_url_prefers_configuration():
     class _Settings:
         local_browser_cli_download_url = ""
 
-    assert connector_service.local_browser_download_url(_Settings()) == "/static/downloads/efp-browser-bridge-windows-amd64.zip"
-    assert connector_service.local_browser_download_url(_Settings(), "darwin-arm64") == "/static/downloads/efp-browser-bridge-darwin-arm64.zip"
+    assert connector_service.local_browser_download_url(_Settings()) == "/static/downloads/efp-bridge-windows-amd64.zip"
+    assert connector_service.local_browser_download_url(_Settings(), "darwin-arm64") == "/static/downloads/efp-bridge-darwin-arm64.zip"
     # One package for every system when the URL carries no placeholder.
     _Settings.local_browser_cli_download_url = "https://artifacts.example.test/bridge.zip"
     assert connector_service.local_browser_download_url(_Settings(), "linux-amd64") == "https://artifacts.example.test/bridge.zip"
@@ -376,11 +379,15 @@ def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):
         assert response.status_code == 200, response.text
         html = response.text
         assert 'id="connector-panel-root"' in html
-        assert "Step 1" in html and "Step 4" in html
+        assert "Step 1" in html and "Step 2" in html
+        # The local bridge's two capabilities, each with its own card.
+        assert "Local bridge" in html and "Browser automation" in html and "Mobile recording" in html
+        assert 'data-connector-status="mobile"' in html and 'href="#/connectors/browserstack"' in html
+        assert "efp-bridge register --origin" in html and "browser serve" not in html
         # The test client sends no browser User-Agent, so Windows x64 is offered
         # first; every other system stays one click away.
-        assert "efp-browser-bridge-windows-amd64.zip" in html and "Download for Windows (x64)" in html
-        assert "efp-browser-bridge-darwin-amd64.zip" in html and "efp-browser-bridge-linux-arm64.zip" in html
+        assert "efp-bridge-windows-amd64.zip" in html and "Download for Windows (x64)" in html
+        assert "efp-bridge-darwin-amd64.zip" in html and "efp-bridge-linux-arm64.zip" in html
         mac = client.get(
             f"/app/connectors/{LOCAL_BROWSER_TYPE}/panel",
             headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36"},
@@ -495,5 +502,6 @@ def test_help_center_lists_local_browser_connector_topic():
     assert topic is not None
     assert topic.group == "Connectors"
     assert topic.steps
+    assert topic.title == "Local bridge" and any("efp-bridge" in step for step in topic.steps)
     groups = dict(topics_by_group())
     assert "Connectors" in groups and any(item.id == "local-browser-connector" for item in groups["Connectors"])

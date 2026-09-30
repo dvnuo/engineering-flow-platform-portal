@@ -2,7 +2,7 @@
 
 Connectors are the only place a member configures what their assistants can
 reach, so the list is always served. CONNECTORS_ENABLED=false only removes the
-local connectors (the browser bridge) from it; their routes then answer 404.
+local connectors (the local bridge) from it; their routes then answer 404.
 Settings connectors (Jira, GitHub, ...) are edited through their panels
 (``/app/connectors/{type}/...``); PUT and verify here are for local ones.
 """

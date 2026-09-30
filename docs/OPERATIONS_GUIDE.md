@@ -16,7 +16,7 @@ For illustrated instructions on signing in, creating assistants, chatting, files
 8. [Deploy to Kubernetes in the right order](#8-deploy-to-kubernetes-in-the-right-order)
 9. [Manage sign-in and member access](#9-manage-sign-in-and-member-access)
 10. [Configure engines, connectors, repositories, and resources](#10-configure-engines-connectors-repositories-and-resources)
-11. [Provide local browser connectors](#11-provide-local-browser-connectors)
+11. [Provide the local bridge connector](#11-provide-the-local-bridge-connector)
 12. [Monitor workers, logs, and availability](#12-monitor-workers-logs-and-availability)
 13. [Back up, upgrade, and recover](#13-back-up-upgrade-and-recover)
 14. [Explore the API](#14-explore-the-api)
@@ -482,7 +482,7 @@ Members set up **Connectors** in Portal: one connector per service (Model provid
 
 The administrator's **Default connectors** page (formerly Default Connections; same route `/app/admin/default-connections/panel` and API `/api/admin/runtime-profile-seed`) seeds each new member's connector settings. It can contain connection shapes and shared service/team credentials. Members own their copied values and can view or replace them; they are not locked administrator-only fields. Later seed edits never update existing members. Treat a seeded credential as shared with every member whose settings received it.
 
-`CONNECTORS_ENABLED` now only controls the local connectors (see [section 11](#11-provide-local-browser-connectors)); the Connectors menu and the service connectors are always available.
+`CONNECTORS_ENABLED` now only controls the local connectors (see [section 11](#11-provide-the-local-bridge-connector)); the Connectors menu and the service connectors are always available.
 
 #### Upgrading from multiple profiles
 
@@ -579,9 +579,9 @@ The flow in the in-app help topic *Mobile scenario testing* keeps BrowserStack
 traffic off Portal and the assistant pods: recording runs on the member's
 computer and test runs in Jenkins. These pieces must be current:
 
-- **The local bridge package** (the tools repository's `browser`, with
+- **The local bridge package** (the tools repository's `efp-bridge`, with
   `mobile-auto` next to it) on each tester's computer, installed from
-  Connectors > Local browser. The Recording panel calls it on 127.0.0.1; it
+  Connectors > Local bridge. The Recording panel calls it on 127.0.0.1; it
   starts and holds the recording device, uploads builds, and proxies Appium
   Inspector's WebDriver traffic. That computer needs to reach
   `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443,
@@ -627,11 +627,11 @@ OpenCode's deployment defaults include `DEFAULT_OPENCODE_PERMISSION_MODE=workspa
 
 `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` optionally supplies a compatibility snapshot. Missing or invalid input falls back to local seed mappings; that fallback does not prove a real runtime has every capability. See the [productization notes](PHASE5_PRODUCTIZATION.md) for the snapshot structure and use the runtime-capability API to inspect or refresh deployed information.
 
-## 11. Provide local browser connectors
+## 11. Provide the local bridge connector
 
-`CONNECTORS_ENABLED=true` offers the local connectors. Setting it false hides them: they disappear from the Connectors menu and `/api/connectors`, their API routes return 404, and the chat **Browser** toggle is not rendered. The Connectors menu itself and the service connectors (Jira, GitHub, and the rest) stay available. Local browser preferences belong to each member and are stored separately from their service connector settings (`user_connectors`, not the pod Secret). The connector uses a program on that member's computer plus a relay in the open Portal browser tab.
+`CONNECTORS_ENABLED=true` offers the local connectors. Setting it false hides them: they disappear from the Connectors menu and `/api/connectors`, their API routes return 404, and the chat **Browser** toggle is not rendered. The Connectors menu itself and the service connectors (Jira, GitHub, and the rest) stay available. Local bridge preferences belong to each member and are stored separately from their service connector settings (`user_connectors`, not the pod Secret). The connector uses a program on that member's computer, `efp-bridge` (browser automation in a managed Chrome window, and the mobile Recording panel's BrowserStack devices), plus a relay in the open Portal browser tab. Its connector type stays `local_browser`, so stored preferences and runtime requests are unchanged.
 
-The Portal repository does not build or bundle every platform's bridge binary. Supply the packages described in [the download directory guide](../app/static/downloads/README.md), or set `LOCAL_BROWSER_CLI_DOWNLOAD_URL` to a download URL. The optional `{platform}` placeholder expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64`.
+The Portal repository does not build or bundle every platform's bridge binary. Supply the packages described in [the download directory guide](../app/static/downloads/README.md) (`efp-bridge-{platform}.zip`), or set `LOCAL_BROWSER_CLI_DOWNLOAD_URL` to a download URL; tools releases also attach each package under its former name, `efp-browser-bridge-{platform}.zip`, so an existing URL keeps working. The optional `{platform}` placeholder expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64`.
 
 `LOCAL_BROWSER_CLI_VERSION` provides the displayed package version. `LOCAL_BROWSER_START_URL` selects the first browser tab; it can be an absolute HTTP(S) URL or a path such as `/app` resolved against Portal's origin. Empty uses the Portal origin.
 
@@ -843,7 +843,7 @@ When changing database models, create and review the corresponding Alembic migra
 | Chat upload returns HTTP 415 or reports an unsupported type | Check the filename extension against `EFP_CHAT_UPLOAD_EXTENSIONS`, then verify the runtime parser supports that format. Images need explicit enablement and a vision-capable model. |
 | Upload says the runtime does not expose the chat attachment API | Deploy a compatible current runtime image and restart the assistant. |
 | Attachment uploads but says text not extracted | Inspect the extraction error, confirm runtime parser support, and try a readable UTF-8 text export to isolate format-specific failures. |
-| Local browser package returns 404 | Supply the bridge archive or configure the correct platform download URL. The Portal source does not include all built packages. |
+| Local bridge package returns 404 | Supply the bridge archive or configure the correct platform download URL. The Portal source does not include all built packages. |
 | Connector saves but cannot verify/run | Check the local bridge process/port, allowed Portal origin, Chromium local-network permission, EFP Chrome window, and the originating Portal tab. The browser performs the local connection test. |
 | Delegation does not run | Check rule enabled state, source credentials, schedule/timezone preview, worker enabled state, and rule run/event history. |
 | Task stays active after runtime failure | Check reconciliation worker status and the configured missing/unreachable grace periods before manually altering anything. |
@@ -863,7 +863,7 @@ For an unresolved issue, collect the Git/image revision, operation, approximate 
 - [Connector contract](CONNECTORS_CONTRACT.md): browser connector behavior and configuration contract.
 - [Productization notes](PHASE5_PRODUCTIZATION.md): migration and capability-snapshot details.
 - [Integration smoke suite](../integration/README.md): scope and execution of selected Portal tests.
-- [Browser bridge downloads](../app/static/downloads/README.md): package distribution requirements.
+- [Local bridge downloads](../app/static/downloads/README.md): package distribution requirements.
 - [Configuration source](../app/config.py), [Dockerfile](../Dockerfile), and [CI workflow](../.github/workflows/ci.yml): exact defaults and startup/check commands for this revision.
 
 When a newer revision changes an endpoint, setting, or screen, compare the running OpenAPI schema and checked-out source with this guide before applying older instructions.

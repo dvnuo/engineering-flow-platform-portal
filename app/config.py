@@ -252,7 +252,7 @@ class Settings(BaseSettings):
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")
 
     # Connectors (docs/CONNECTORS_CONTRACT.md §8). The download URL points at
-    # the EFP browser bridge zip; empty falls back to the copy CI drops under
+    # the EFP local bridge zip; empty falls back to the copy CI drops under
     # app/static/downloads/. The start URL is the first tab of the EFP browser
     # window whenever the bridge opens or reopens it: an absolute http(s) URL,
     # or a path resolved against this Portal's origin; empty opens the origin.
