@@ -59,11 +59,16 @@ def test_coerce_model_is_provider_aware():
     assert coerce_to_provider_model("ai_platform", "gpt-9-bogus") == "gpt-5.4"
     # ...but one both providers offer now survives the switch between them.
     assert coerce_to_provider_model("ai_platform", "gpt-5.6-terra") == "gpt-5.6-terra"
-    # gpt-5.5 is Copilot-only, so it is still coerced away.
-    assert coerce_to_provider_model("ai_platform", "gpt-5.5") == "gpt-5.4"
+    # The GPT-6 line is Copilot-only, so it is coerced away on AI Platform.
+    assert coerce_to_provider_model("ai_platform", "gpt-6-sol") == "gpt-5.4"
     assert coerce_to_provider_model("ai_platform", "gpt-5.4") == "gpt-5.4"
-    assert coerce_to_provider_model("github_copilot", "gpt-5.4") == "gpt-5.4"
-    assert coerce_to_provider_model("github_copilot", "bogus") == "gpt-5.6-terra"
+    # gpt-5.4 and gpt-5.5 left Copilot with the GPT-6 release: a profile still
+    # holding one is repaired to the Copilot default (gpt-6-sol), while AI
+    # Platform keeps serving gpt-5.4.
+    assert coerce_to_provider_model("github_copilot", "gpt-5.4") == "gpt-6-sol"
+    assert coerce_to_provider_model("github_copilot", "gpt-5.5") == "gpt-6-sol"
+    assert coerce_to_provider_model("github_copilot", "gpt-6-astra") == "gpt-6-astra"
+    assert coerce_to_provider_model("github_copilot", "bogus") == "gpt-6-sol"
 
 
 def test_managed_models_per_provider():
@@ -136,7 +141,7 @@ def test_public_redaction_hides_ai_platform_password_and_token():
 def test_legacy_and_copilot_still_coerce_to_copilot():
     c = canon({"llm": {"provider": "openai", "model": "gpt-4o", "api_key": "sk"}})["llm"]
     assert c["provider"] == "github_copilot"
-    assert c["model"] == "gpt-5.6-terra"
+    assert c["model"] == "gpt-6-sol"
     assert c["api_key"] == "sk"
 
 

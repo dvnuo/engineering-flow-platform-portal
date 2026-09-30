@@ -529,7 +529,7 @@ def test_agent_async_task_dispatch_applies_request_inference_overrides(db_sessio
             {
                 "llm": {
                     "provider": "github_copilot",
-                    "model": "gpt-5.4",
+                    "model": "gpt-6-sol",
                 }
             }
         ),
