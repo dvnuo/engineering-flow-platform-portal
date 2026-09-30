@@ -107,6 +107,10 @@ spec:
               value: ""
             - name: SSO_PROXY_URL
               value: ""
+            # Recordings' network when a member's BrowserStack connector does
+            # not choose one: private-managed for apps on the private network.
+            - name: EFP_MOBILE_DEFAULT_NETWORK
+              value: ""
             - name: K8S_KUBECONFIG
               value: ""
             - name: K8S_GIT_TOKEN_KEY

@@ -186,6 +186,16 @@ def test_recording_config_hands_the_owner_their_settings_for_the_bridge(api):
     assert body["inspector_available"] is True and body["recordings_dir"] == "mobile/recordings"
 
 
+def test_recording_config_falls_back_to_the_deployments_network(api, monkeypatch):
+    monkeypatch.setattr(get_settings(), "mobile_default_network", "private-managed")
+    body = api.client.get(f"/api/mobile/recording-config?agent_id={api.agent.id}").json()
+    assert body["defaults"]["network"] == "private-managed"
+    api.profile.config_json = json.dumps({"mobile-auto": {"enabled": True, "defaults": {"network_mode": "public"}, "browserstack": {"username": "u", "access_key": "k"}}})
+    api.db.commit()
+    body = api.client.get(f"/api/mobile/recording-config?agent_id={api.agent.id}").json()
+    assert body["defaults"]["network"] == "public", "a member's own choice wins"
+
+
 def test_recording_config_is_for_the_owner_only(api):
     api.state["user"] = api.other
     assert api.client.get(f"/api/mobile/recording-config?agent_id={api.agent.id}").status_code == 403

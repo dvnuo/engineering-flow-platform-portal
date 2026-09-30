@@ -57,8 +57,9 @@ them.
 
 ## Private networks
 
-Leave **Network** on *Public* unless the app talks to internal test servers
-that BrowserStack's devices cannot reach. Then the device needs BrowserStack
+**Network** follows your deployment's default (the first option says which)
+unless you choose otherwise; *Public* is right unless the app talks to
+internal test servers that BrowserStack's devices cannot reach. Then the device needs BrowserStack
 Local: choose *Private: start BrowserStack Local with each session* when the
 computer you record on can reach those servers (the BrowserStackLocal program
 must be installed on it; the bridge hands it your proxy), or *a tunnel your

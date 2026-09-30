@@ -997,6 +997,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_mobile": raw_mobile,
         "mobile_browserstack": mobile_browserstack,
         "raw_mobile_browserstack": raw_mobile_browserstack,
+    "mobile_default_network": get_settings().mobile_default_network,
         "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
         "raw_aws": raw_aws,
         "aws_accounts": _aws_account_view_rows(raw_aws),

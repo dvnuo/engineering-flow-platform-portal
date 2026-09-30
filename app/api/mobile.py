@@ -78,7 +78,7 @@ def recording_config(agent_id: str, user=Depends(get_current_user), db: Session 
         "recordings_dir": RECORDINGS_DIR,
         "defaults": {
             "platform": str(defaults.get("platform") or ""),
-            "network": str(defaults.get("network_mode") or ""),
+            "network": str(defaults.get("network_mode") or get_settings().mobile_default_network or "").strip(),
             "idle_timeout_seconds": defaults.get("idle_timeout_seconds"),
             "video": defaults.get("video"),
             "interactive_debugging": defaults.get("interactive_debugging"),

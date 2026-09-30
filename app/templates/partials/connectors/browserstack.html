@@ -28,7 +28,7 @@
             </label>
             <label class="portal-form-label"><span class="portal-form-label">Network</span>
               <select name="mobile_network_mode" class="portal-form-select">
-                <option value="" {% if not bs_defaults.get('network_mode') %}selected{% endif %}>Public (default)</option>
+                <option value="" {% if not bs_defaults.get('network_mode') %}selected{% endif %}>{% if mobile_default_network == 'private-managed' %}Private: start BrowserStack Local with each session (the deployment's default){% elif mobile_default_network == 'private-external' %}Private: a tunnel your team runs (the deployment's default){% else %}Public (default){% endif %}</option>
                 <option value="private-managed" {% if bs_defaults.get('network_mode') == 'private-managed' %}selected{% endif %}>Private: start BrowserStack Local with each session (the BrowserStackLocal program must be on this computer)</option>
                 <option value="private-external" {% if bs_defaults.get('network_mode') == 'private-external' %}selected{% endif %}>Private: a tunnel your team runs</option>
               </select>

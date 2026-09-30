@@ -225,6 +225,11 @@ class Settings(BaseSettings):
     # hosted Inspector; members then use the desktop app. The Inspector talks
     # to the local bridge on the member's computer, never to Portal.
     appium_inspector_dir: str = Field(default="", validation_alias="EFP_APPIUM_INSPECTOR_DIR")
+    # The network recordings use when a member's BrowserStack connector does
+    # not say: "" (public), "private-managed" (start BrowserStack Local on
+    # the member's computer), or "private-external". Teams whose apps live on
+    # the private network set private-managed once here.
+    mobile_default_network: str = Field(default="", validation_alias="EFP_MOBILE_DEFAULT_NETWORK")
 
     delegation_rules_worker_enabled: bool = Field(default=True, validation_alias="DELEGATION_RULES_WORKER_ENABLED")
     delegation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="DELEGATION_RULES_WORKER_INTERVAL_SECONDS")
