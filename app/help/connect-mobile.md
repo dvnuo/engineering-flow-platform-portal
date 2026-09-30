@@ -57,8 +57,12 @@ them.
 
 ## Private networks
 
-If the app talks to internal test servers, the device needs BrowserStack
-Local. Choose *Private: start BrowserStack Local with each session* when the
-computer that starts the session can reach those servers, or *a tunnel your
+Leave **Network** on *Public* unless the app talks to internal test servers
+that BrowserStack's devices cannot reach. Then the device needs BrowserStack
+Local: choose *Private: start BrowserStack Local with each session* when the
+computer you record on can reach those servers (the BrowserStackLocal program
+must be installed on it; the bridge hands it your proxy), or *a tunnel your
 team runs* when a long-running tunnel already exists; ask your platform team
-which one applies.
+which one applies. A private network makes every recording start a tunnel
+first, so a recording that fails with "BrowserStack Local readiness" on an
+app that does not need one means Network should go back to Public.
