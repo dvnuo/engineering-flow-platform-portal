@@ -67,8 +67,11 @@ Open a chat with the assistant and choose **Recording** in the tool bar.
    parallel sessions are busy. A reload of the page picks the start up again;
    **Cancel** releases the device once it is up.
 3. **Open Inspector** opens Appium Inspector already attached to that device
-   (when your Portal hosts it). Otherwise attach the desktop Inspector to the
-   bridge with the host, port, and path shown in the panel.
+   (when your Portal hosts it). Otherwise attach an Inspector of your own to
+   the bridge with the host, port, and path shown in the panel: the desktop
+   app, or the Inspector plugin of an Appium server on your computer. Only
+   what goes through the Inspector is recorded; the live device view on
+   BrowserStack's own site is not seen by the bridge.
 4. Select elements in the Inspector and use its Tap and Send Keys buttons. Tap
    elements rather than points on the screenshot: an element keeps working when
    the layout moves, a point does not.

@@ -1148,7 +1148,7 @@
       if (path) setStatus(`Saved ${data.segment}; the assistant compiles it. Carry on with ${data.next_segment} in the Inspector.`, "success");
       else setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
     } catch (error) {
-      setStatus(error.code === "nothing_recorded" ? "Nothing recorded in this segment yet: tap and type in the Inspector first." : errorText(error), "error");
+      setStatus(error.code === "nothing_recorded" ? "Nothing recorded in this segment yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack\u2019s own site is not seen by the bridge." : errorText(error), "error");
     } finally {
       view.busy = "";
       if (button) button.disabled = false;
