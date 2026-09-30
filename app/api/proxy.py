@@ -299,7 +299,7 @@ def _inject_connectors_metadata(payload: dict, db, user) -> dict:
         }
     if injected:
         metadata["connectors"] = injected
-        if "local_browser" in injected:
+        if "local_bridge" in injected:
             metadata["enable_browser_tool"] = True
     return payload
 

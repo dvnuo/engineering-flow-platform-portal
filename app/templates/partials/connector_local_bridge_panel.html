@@ -1,8 +1,8 @@
 {# Connectors → Local bridge: the EFP local bridge (the efp-bridge program on the
    member's PC) in two setup steps, then its two capabilities: browser
    automation in the EFP Chrome window, and mobile recording for the Recording
-   panel. Live status comes from static/js/connectors/local_browser.js, which
-   probes the bridge on 127.0.0.1. The connector type stays local_browser. #}
+   panel. Live status comes from static/js/connectors/local_bridge.js, which
+   probes the bridge on 127.0.0.1. #}
 <div class="portal-panel-stack portal-connector-panel"
      id="connector-panel-root"
      data-connector-type="{{ connector.type }}"
@@ -36,13 +36,13 @@
       <h6>Step 1 · Download the bridge</h6>
     </div>
     <p class="portal-panel-note">
-      Download the EFP local bridge{% if cli_version %} (version {{ cli_version }}){% endif %} for your system and unzip it into the <code>bin</code> folder of your home directory: <code>%USERPROFILE%\bin</code> (Windows) or <code>~/bin</code> (macOS, Linux). Create the folder if it is missing and overwrite any files already there. No administrator rights are needed. The package holds the <code>efp-bridge</code> program, <code>mobile-auto</code> for mobile recordings, the installer for that system, and a README (plus <code>browser</code>, the same bridge under its former name, for installs set up before).
+      Download the EFP local bridge{% if cli_version %} (version {{ cli_version }}){% endif %} for your system and unzip it into the <code>bin</code> folder of your home directory: <code>%USERPROFILE%\bin</code> (Windows) or <code>~/bin</code> (macOS, Linux). Create the folder if it is missing and overwrite any files already there. No administrator rights are needed. The package holds the <code>efp-bridge</code> program, <code>mobile-auto</code> for mobile recordings, the installer for that system, and a README.
     </p>
     <div class="portal-setup-guide-links">
       <a class="portal-btn is-primary" href="{{ download_url }}" download data-connector-download-primary data-platform="{{ primary_platform }}">
         <i data-lucide="download" class="w-4 h-4"></i> <span data-connector-download-label>Download for {{ primary_platform_label }}</span>
       </a>
-      <a class="portal-link-inline" href="#/help/local-browser-connector">Full guide &rarr;</a>
+      <a class="portal-link-inline" href="#/help/local-bridge-connector">Full guide &rarr;</a>
     </div>
     <details class="portal-collapsible">
       <summary class="portal-collapsible-summary"><span>Other systems</span></summary>
@@ -131,10 +131,9 @@
           {% for line in guide.troubleshooting %}<li>{{ line }}</li>{% endfor %}
         {% else %}
           <li><strong>Bridge not detected</strong>: it is not running. Repeat step 2; if the efp-bridge link does nothing, run <code>install-bridge.cmd</code> (Windows) or <code>install-bridge.sh</code> (macOS, Linux) again.</li>
-          <li><strong>Start bridge seems to do nothing</strong>: the launcher deliberately runs without a window. Every attempt is written to <code>.efp/browser/logs/bridge-serve.log</code> in your home folder; read the last lines there.</li>
+          <li><strong>Start bridge seems to do nothing</strong>: the launcher deliberately runs without a window. Every attempt is written to <code>.efp/bridge/logs/bridge.log</code> in your home folder; read the last lines there.</li>
           <li><strong>The EFP browser window is closed</strong> but the bridge shows as running: click Start bridge to reopen the window, or send a message; the next browser action reopens it.</li>
           <li><strong>Still undetected after the Portal address changed</strong>: a bridge started for the old address is holding the port and rejects this page. Stop it (end the <code>efp-bridge</code> process, or close the terminal it runs in) and click Start bridge again.</li>
-          <li><strong>Upgrading from the browser bridge</strong>: run the new package's installer once, and end <code>browser.exe</code> in Task Manager if it is still running before you click Start bridge.</li>
           <li><strong>devtools_unavailable</strong>: Chrome refused its DevTools port. Check <code>chrome://policy</code> for <code>RemoteDebuggingAllowed</code>.</li>
           <li><strong>origin_denied / CORS error</strong>: the bridge was started for another Portal address. Restart it with <code>--origin <span data-connector-origin>{{ portal_origin }}</span></code>.</li>
           <li><strong>Windows SmartScreen</strong> may warn on first launch of <code>efp-bridge.exe</code>. Choose "More info" → "Run anyway".</li>

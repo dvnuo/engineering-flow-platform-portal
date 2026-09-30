@@ -593,7 +593,7 @@ def test_connector_save_unknown_type_returns_404(monkeypatch):
         _bind_profile(env.db, env.agent, {})
         assert env.client.post("/app/connectors/no-such-connector/save", data={}).status_code == 404
         # The local bridge connector has no settings form to save.
-        assert env.client.post("/app/connectors/local_browser/save", data={}).status_code == 404
+        assert env.client.post("/app/connectors/local_bridge/save", data={}).status_code == 404
     finally:
         env.cleanup()
 

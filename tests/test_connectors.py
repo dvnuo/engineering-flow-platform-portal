@@ -16,7 +16,7 @@ from app.services import connector_service
 from app.services.connector_registry import (
     CATEGORY_ORDER,
     CONNECTOR_REGISTRY,
-    LOCAL_BROWSER_TYPE,
+    LOCAL_BRIDGE_TYPE,
     SETTINGS_CONNECTORS,
     get_connector_spec,
     list_connector_specs,
@@ -67,13 +67,11 @@ def alice_client(db_session, users):
 # registry
 
 
-def test_registry_has_local_browser_with_defaults():
-    spec = get_connector_spec(LOCAL_BROWSER_TYPE)
+def test_registry_has_local_bridge_with_defaults():
+    spec = get_connector_spec(LOCAL_BRIDGE_TYPE)
     assert spec.kind == "local"
-    # Shown as the Local bridge; the type stays local_browser for stored rows
-    # and runtime requests.
-    assert spec.label == "Local bridge" and LOCAL_BROWSER_TYPE == "local_browser"
-    assert spec.panel_template.endswith("connector_local_browser_panel.html")
+    assert spec.label == "Local bridge" and LOCAL_BRIDGE_TYPE == "local_bridge"
+    assert spec.panel_template.endswith("connector_local_bridge_panel.html")
     assert spec.normalized_config(None) == {"auto_enable_in_new_chats": True, "preferred_port": 8765}
     assert [item.type for item in list_connector_specs()] == list(CONNECTOR_REGISTRY)
     with pytest.raises(KeyError):
@@ -90,14 +88,14 @@ def test_registry_has_local_browser_with_defaults():
         ({"surprise": 1}, "Unknown"),
     ],
 )
-def test_registry_rejects_bad_local_browser_config(config, message):
+def test_registry_rejects_bad_local_bridge_config(config, message):
     with pytest.raises(ValueError) as excinfo:
-        get_connector_spec(LOCAL_BROWSER_TYPE).normalized_config(config)
+        get_connector_spec(LOCAL_BRIDGE_TYPE).normalized_config(config)
     assert message in str(excinfo.value)
 
 
 def test_registry_coerces_string_values():
-    normalized = get_connector_spec(LOCAL_BROWSER_TYPE).normalized_config(
+    normalized = get_connector_spec(LOCAL_BRIDGE_TYPE).normalized_config(
         {"auto_enable_in_new_chats": "false", "preferred_port": "8766"}
     )
     assert normalized == {"auto_enable_in_new_chats": False, "preferred_port": 8766}
@@ -124,7 +122,7 @@ def _save_member_settings(db_session, user, config):
 def test_service_lists_every_type_with_defaults_when_no_row(db_session, users):
     alice, _ = users
     entries = connector_service.list_for_user(db_session, alice)
-    assert [item["type"] for item in entries] == _settings_types_in_category_order() + [LOCAL_BROWSER_TYPE]
+    assert [item["type"] for item in entries] == _settings_types_in_category_order() + [LOCAL_BRIDGE_TYPE]
     local = entries[-1]
     assert local["enabled"] is False
     assert local["config"] == {"auto_enable_in_new_chats": True, "preferred_port": 8765}
@@ -137,7 +135,7 @@ def test_service_update_persists_validates_and_audits(db_session, users):
     entry = connector_service.update_for_user(
         db_session,
         alice,
-        LOCAL_BROWSER_TYPE,
+        LOCAL_BRIDGE_TYPE,
         enabled=True,
         config={"auto_enable_in_new_chats": False, "preferred_port": 8766},
     )
@@ -147,33 +145,33 @@ def test_service_update_persists_validates_and_audits(db_session, users):
     row = db_session.query(UserConnector).filter_by(owner_user_id=alice.id).one()
     assert json.loads(row.config_json) == {"auto_enable_in_new_chats": False, "preferred_port": 8766}
     assert connector_service.enabled_connectors_for_user(db_session, alice.id) == {
-        LOCAL_BROWSER_TYPE: {"auto_enable_in_new_chats": False, "preferred_port": 8766}
+        LOCAL_BRIDGE_TYPE: {"auto_enable_in_new_chats": False, "preferred_port": 8766}
     }
     # Bob's view is untouched by Alice's row.
-    assert connector_service.get_for_user(db_session, bob, LOCAL_BROWSER_TYPE)["enabled"] is False
+    assert connector_service.get_for_user(db_session, bob, LOCAL_BRIDGE_TYPE)["enabled"] is False
     assert connector_service.enabled_connectors_for_user(db_session, bob.id) == {}
 
     audit = db_session.query(AuditLog).filter_by(action="update_connector").one()
     assert audit.user_id == alice.id
     assert audit.target_type == "connector"
-    assert audit.target_id == LOCAL_BROWSER_TYPE
+    assert audit.target_id == LOCAL_BRIDGE_TYPE
     assert json.loads(audit.details_json)["enabled"] is True
 
     with pytest.raises(ValueError):
-        connector_service.update_for_user(db_session, alice, LOCAL_BROWSER_TYPE, enabled=True, config={"preferred_port": 1})
+        connector_service.update_for_user(db_session, alice, LOCAL_BRIDGE_TYPE, enabled=True, config={"preferred_port": 1})
 
-    connector_service.update_for_user(db_session, alice, LOCAL_BROWSER_TYPE, enabled=False, config={})
+    connector_service.update_for_user(db_session, alice, LOCAL_BRIDGE_TYPE, enabled=False, config={})
     assert connector_service.enabled_connectors_for_user(db_session, alice.id) == {}
 
 
 def test_service_records_verification_only_when_ok(db_session, users):
     alice, _ = users
-    failed = connector_service.record_verification(db_session, alice, LOCAL_BROWSER_TYPE, ok=False, details={"code": "x"})
+    failed = connector_service.record_verification(db_session, alice, LOCAL_BRIDGE_TYPE, ok=False, details={"code": "x"})
     assert failed == {"ok": False, "last_verified_at": None}
-    passed = connector_service.record_verification(db_session, alice, LOCAL_BROWSER_TYPE, ok=True, details={"port": 8765})
+    passed = connector_service.record_verification(db_session, alice, LOCAL_BRIDGE_TYPE, ok=True, details={"port": 8765})
     assert passed["ok"] is True
     assert passed["last_verified_at"]
-    entry = connector_service.get_for_user(db_session, alice, LOCAL_BROWSER_TYPE)
+    entry = connector_service.get_for_user(db_session, alice, LOCAL_BRIDGE_TYPE)
     assert entry["last_verified_at"] == passed["last_verified_at"]
     # Verification never flips the enabled flag.
     assert entry["enabled"] is False
@@ -181,73 +179,73 @@ def test_service_records_verification_only_when_ok(db_session, users):
 
 def test_service_tolerates_corrupt_stored_config(db_session, users):
     alice, _ = users
-    db_session.add(UserConnector(owner_user_id=alice.id, connector_type=LOCAL_BROWSER_TYPE, enabled=True, config_json="{not json"))
+    db_session.add(UserConnector(owner_user_id=alice.id, connector_type=LOCAL_BRIDGE_TYPE, enabled=True, config_json="{not json"))
     db_session.commit()
-    entry = connector_service.get_for_user(db_session, alice, LOCAL_BROWSER_TYPE)
+    entry = connector_service.get_for_user(db_session, alice, LOCAL_BRIDGE_TYPE)
     assert entry["config"] == {"auto_enable_in_new_chats": True, "preferred_port": 8765}
-    assert connector_service.enabled_connectors_for_user(db_session, alice.id)[LOCAL_BROWSER_TYPE]["preferred_port"] == 8765
+    assert connector_service.enabled_connectors_for_user(db_session, alice.id)[LOCAL_BRIDGE_TYPE]["preferred_port"] == 8765
 
 
 def test_download_url_prefers_configuration():
     class _Settings:
-        local_browser_cli_download_url = ""
+        local_bridge_download_url = ""
 
-    assert connector_service.local_browser_download_url(_Settings()) == "/static/downloads/efp-bridge-windows-amd64.zip"
-    assert connector_service.local_browser_download_url(_Settings(), "darwin-arm64") == "/static/downloads/efp-bridge-darwin-arm64.zip"
+    assert connector_service.local_bridge_download_url(_Settings()) == "/static/downloads/efp-bridge-windows-amd64.zip"
+    assert connector_service.local_bridge_download_url(_Settings(), "darwin-arm64") == "/static/downloads/efp-bridge-darwin-arm64.zip"
     # One package for every system when the URL carries no placeholder.
-    _Settings.local_browser_cli_download_url = "https://artifacts.example.test/bridge.zip"
-    assert connector_service.local_browser_download_url(_Settings(), "linux-amd64") == "https://artifacts.example.test/bridge.zip"
-    _Settings.local_browser_cli_download_url = "https://artifacts.example.test/efp-browser-bridge-{platform}.zip"
-    links = connector_service.local_browser_download_links(_Settings())
+    _Settings.local_bridge_download_url = "https://artifacts.example.test/bridge.zip"
+    assert connector_service.local_bridge_download_url(_Settings(), "linux-amd64") == "https://artifacts.example.test/bridge.zip"
+    _Settings.local_bridge_download_url = "https://artifacts.example.test/efp-bridge-{platform}.zip"
+    links = connector_service.local_bridge_download_links(_Settings())
     assert [item["platform"] for item in links] == ["windows-amd64", "windows-arm64", "darwin-arm64", "darwin-amd64", "linux-amd64", "linux-arm64"]
     assert links[2] == {
         "platform": "darwin-arm64",
         "label": "macOS (Apple silicon)",
-        "url": "https://artifacts.example.test/efp-browser-bridge-darwin-arm64.zip",
+        "url": "https://artifacts.example.test/efp-bridge-darwin-arm64.zip",
     }
 
 
-def test_detect_local_browser_platform_from_user_agent():
-    from app.services.connector_registry import detect_local_browser_platform
+def test_detect_local_bridge_platform_from_user_agent():
+    from app.services.connector_registry import detect_local_bridge_platform
 
     chrome = "Mozilla/5.0 ({}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-    assert detect_local_browser_platform(chrome.format("Windows NT 10.0; Win64; x64")) == "windows-amd64"
-    assert detect_local_browser_platform(chrome.format("Windows NT 10.0; ARM64")) == "windows-arm64"
+    assert detect_local_bridge_platform(chrome.format("Windows NT 10.0; Win64; x64")) == "windows-amd64"
+    assert detect_local_bridge_platform(chrome.format("Windows NT 10.0; ARM64")) == "windows-arm64"
     # Apple silicon Macs still say Intel; the page corrects this with client hints.
-    assert detect_local_browser_platform(chrome.format("Macintosh; Intel Mac OS X 10_15_7")) == "darwin-arm64"
-    assert detect_local_browser_platform(chrome.format("X11; Linux x86_64")) == "linux-amd64"
-    assert detect_local_browser_platform(chrome.format("X11; Linux aarch64")) == "linux-arm64"
-    assert detect_local_browser_platform("") == "windows-amd64"
-    assert detect_local_browser_platform(None) == "windows-amd64"
+    assert detect_local_bridge_platform(chrome.format("Macintosh; Intel Mac OS X 10_15_7")) == "darwin-arm64"
+    assert detect_local_bridge_platform(chrome.format("X11; Linux x86_64")) == "linux-amd64"
+    assert detect_local_bridge_platform(chrome.format("X11; Linux aarch64")) == "linux-arm64"
+    assert detect_local_bridge_platform("") == "windows-amd64"
+    assert detect_local_bridge_platform(None) == "windows-amd64"
 
 
 def test_start_url_resolves_a_path_against_the_portal_origin():
     class _Settings:
-        local_browser_start_url = ""
+        local_bridge_browser_start_url = ""
 
-    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test") == ""
-    _Settings.local_browser_start_url = "/app#/chat"
-    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test/") == "https://portal.example.test/app#/chat"
-    _Settings.local_browser_start_url = "app"
-    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test") == "https://portal.example.test/app"
-    _Settings.local_browser_start_url = " https://sso.example.test/landing "
-    assert connector_service.local_browser_start_url(_Settings(), "https://portal.example.test") == "https://sso.example.test/landing"
+    assert connector_service.local_bridge_browser_start_url(_Settings(), "https://portal.example.test") == ""
+    _Settings.local_bridge_browser_start_url = "/app#/chat"
+    assert connector_service.local_bridge_browser_start_url(_Settings(), "https://portal.example.test/") == "https://portal.example.test/app#/chat"
+    _Settings.local_bridge_browser_start_url = "app"
+    assert connector_service.local_bridge_browser_start_url(_Settings(), "https://portal.example.test") == "https://portal.example.test/app"
+    _Settings.local_bridge_browser_start_url = " https://sso.example.test/landing "
+    assert connector_service.local_bridge_browser_start_url(_Settings(), "https://portal.example.test") == "https://sso.example.test/landing"
     # Without an origin a path is handed back as is for the page to resolve.
-    _Settings.local_browser_start_url = "/app"
-    assert connector_service.local_browser_start_url(_Settings()) == "/app"
+    _Settings.local_bridge_browser_start_url = "/app"
+    assert connector_service.local_bridge_browser_start_url(_Settings()) == "/app"
 
 
 def test_connectors_api_exposes_the_start_page_setting(alice_client, monkeypatch):
     from app.config import get_settings
 
     # Pinned rather than assumed: a developer's .env may configure a start page.
-    monkeypatch.setattr(get_settings(), "local_browser_start_url", "")
-    entry = alice_client.get(f"/api/connectors/{LOCAL_BROWSER_TYPE}").json()
+    monkeypatch.setattr(get_settings(), "local_bridge_browser_start_url", "")
+    entry = alice_client.get(f"/api/connectors/{LOCAL_BRIDGE_TYPE}").json()
     assert entry["settings"] == {"start_url": ""}
     # Raw on purpose: the page resolves a path against the origin it runs on.
-    monkeypatch.setattr(get_settings(), "local_browser_start_url", "/app#/chat")
+    monkeypatch.setattr(get_settings(), "local_bridge_browser_start_url", "/app#/chat")
     listing = alice_client.get("/api/connectors").json()
-    assert _entry(listing, LOCAL_BROWSER_TYPE)["settings"] == {"start_url": "/app#/chat"}
+    assert _entry(listing, LOCAL_BRIDGE_TYPE)["settings"] == {"start_url": "/app#/chat"}
 
 
 # ---------------------------------------------------------------------------
@@ -257,27 +255,27 @@ def test_connectors_api_exposes_the_start_page_setting(alice_client, monkeypatch
 def test_connectors_api_round_trip(alice_client):
     listing = alice_client.get("/api/connectors")
     assert listing.status_code == 200
-    assert [item["type"] for item in listing.json()][-1] == LOCAL_BROWSER_TYPE
-    assert _entry(listing.json(), LOCAL_BROWSER_TYPE)["enabled"] is False
+    assert [item["type"] for item in listing.json()][-1] == LOCAL_BRIDGE_TYPE
+    assert _entry(listing.json(), LOCAL_BRIDGE_TYPE)["enabled"] is False
 
     updated = alice_client.put(
-        f"/api/connectors/{LOCAL_BROWSER_TYPE}",
+        f"/api/connectors/{LOCAL_BRIDGE_TYPE}",
         json={"enabled": True, "config": {"auto_enable_in_new_chats": True, "preferred_port": 8767}},
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["enabled"] is True
     assert updated.json()["config"]["preferred_port"] == 8767
 
-    single = alice_client.get(f"/api/connectors/{LOCAL_BROWSER_TYPE}")
+    single = alice_client.get(f"/api/connectors/{LOCAL_BRIDGE_TYPE}")
     assert single.status_code == 200
     assert single.json()["enabled"] is True
 
-    verified = alice_client.post(f"/api/connectors/{LOCAL_BROWSER_TYPE}/verify", json={"ok": True, "details": {"tab_count": 2}})
+    verified = alice_client.post(f"/api/connectors/{LOCAL_BRIDGE_TYPE}/verify", json={"ok": True, "details": {"tab_count": 2}})
     assert verified.status_code == 200
     assert verified.json()["ok"] is True
     assert verified.json()["last_verified_at"]
 
-    bad = alice_client.put(f"/api/connectors/{LOCAL_BROWSER_TYPE}", json={"enabled": True, "config": {"preferred_port": 1}})
+    bad = alice_client.put(f"/api/connectors/{LOCAL_BRIDGE_TYPE}", json={"enabled": True, "config": {"preferred_port": 1}})
     assert bad.status_code == 400
     assert "preferred_port" in bad.json()["detail"]
 
@@ -294,9 +292,9 @@ def test_connectors_api_hides_only_local_connectors_when_feature_disabled(alice_
     listing = alice_client.get("/api/connectors")
     assert listing.status_code == 200
     assert [item["type"] for item in listing.json()] == _settings_types_in_category_order()
-    assert alice_client.get(f"/api/connectors/{LOCAL_BROWSER_TYPE}").status_code == 404
-    assert alice_client.put(f"/api/connectors/{LOCAL_BROWSER_TYPE}", json={"enabled": True}).status_code == 404
-    assert alice_client.post(f"/api/connectors/{LOCAL_BROWSER_TYPE}/verify", json={"ok": True}).status_code == 404
+    assert alice_client.get(f"/api/connectors/{LOCAL_BRIDGE_TYPE}").status_code == 404
+    assert alice_client.put(f"/api/connectors/{LOCAL_BRIDGE_TYPE}", json={"enabled": True}).status_code == 404
+    assert alice_client.post(f"/api/connectors/{LOCAL_BRIDGE_TYPE}/verify", json={"ok": True}).status_code == 404
     # Settings connectors stay reachable.
     assert alice_client.get("/api/connectors/jira").status_code == 200
 
@@ -375,7 +373,7 @@ def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):
     monkeypatch.setattr(db_session, "close", lambda: None)
     try:
         client = TestClient(app)
-        response = client.get(f"/app/connectors/{LOCAL_BROWSER_TYPE}/panel")
+        response = client.get(f"/app/connectors/{LOCAL_BRIDGE_TYPE}/panel")
         assert response.status_code == 200, response.text
         html = response.text
         assert 'id="connector-panel-root"' in html
@@ -389,7 +387,7 @@ def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):
         assert "efp-bridge-windows-amd64.zip" in html and "Download for Windows (x64)" in html
         assert "efp-bridge-darwin-amd64.zip" in html and "efp-bridge-linux-arm64.zip" in html
         mac = client.get(
-            f"/app/connectors/{LOCAL_BROWSER_TYPE}/panel",
+            f"/app/connectors/{LOCAL_BRIDGE_TYPE}/panel",
             headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36"},
         ).text
         assert "Download for macOS (Apple silicon)" in mac and 'data-platform="darwin-arm64"' in mac
@@ -399,8 +397,8 @@ def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):
         # The configured start page is named as the window's only tab.
         from app.config import get_settings
 
-        monkeypatch.setattr(get_settings(), "local_browser_start_url", "/app#/chat")
-        html = client.get(f"/app/connectors/{LOCAL_BROWSER_TYPE}/panel").text
+        monkeypatch.setattr(get_settings(), "local_bridge_browser_start_url", "/app#/chat")
+        html = client.get(f"/app/connectors/{LOCAL_BRIDGE_TYPE}/panel").text
         assert "/app#/chat</code> as its only tab" in html
     finally:
         monkeypatch.setattr(db_session, "close", original_close)
@@ -413,7 +411,7 @@ def test_app_page_exposes_connectors_menu_when_enabled():
     assert 'id="connectors-menu-btn"' in html
     assert 'id="connectors-nav-section"' in html
     assert 'id="composer-browser-toggle"' in html
-    assert "js/connectors/local_browser.js" in html
+    assert "js/connectors/local_bridge.js" in html
 
 
 # ---------------------------------------------------------------------------
@@ -434,14 +432,14 @@ def test_proxy_injects_only_enabled_connectors(monkeypatch):
         "message": "hi",
         "metadata": {"portal_user": {"id": "7"}},
         "connectors": {
-            "local_browser": {"client_id": "tab-7f3a9c", "protocol_version": 1},
+            "local_bridge": {"client_id": "tab-7f3a9c", "protocol_version": 1},
             "other": {"client_id": "tab-7f3a9c"},
         },
     }
-    result = _injected(monkeypatch, payload, {"local_browser": {"auto_enable_in_new_chats": True, "preferred_port": 8765}})
+    result = _injected(monkeypatch, payload, {"local_bridge": {"auto_enable_in_new_chats": True, "preferred_port": 8765}})
     assert "connectors" not in result  # the client hint never reaches the runtime as-is
     assert result["metadata"]["connectors"] == {
-        "local_browser": {
+        "local_bridge": {
             "enabled": True,
             "client_id": "tab-7f3a9c",
             "protocol_version": 1,
@@ -453,7 +451,7 @@ def test_proxy_injects_only_enabled_connectors(monkeypatch):
 
 
 def test_proxy_drops_connectors_the_member_has_not_enabled(monkeypatch):
-    payload = {"metadata": {}, "connectors": {"local_browser": {"client_id": "tab-1"}}}
+    payload = {"metadata": {}, "connectors": {"local_bridge": {"client_id": "tab-1"}}}
     result = _injected(monkeypatch, payload, {})
     assert "connectors" not in result["metadata"]
     assert "enable_browser_tool" not in result["metadata"]
@@ -461,10 +459,10 @@ def test_proxy_drops_connectors_the_member_has_not_enabled(monkeypatch):
 
 def test_proxy_rejects_bad_client_ids_and_spoofed_metadata(monkeypatch):
     payload = {
-        "metadata": {"connectors": {"local_browser": {"enabled": True, "client_id": "spoof"}}, "enable_browser_tool": True},
-        "connectors": {"local_browser": {"client_id": "not valid!"}},
+        "metadata": {"connectors": {"local_bridge": {"enabled": True, "client_id": "spoof"}}, "enable_browser_tool": True},
+        "connectors": {"local_bridge": {"client_id": "not valid!"}},
     }
-    result = _injected(monkeypatch, payload, {"local_browser": {}})
+    result = _injected(monkeypatch, payload, {"local_bridge": {}})
     assert "connectors" not in result["metadata"]
     assert "enable_browser_tool" not in result["metadata"]
 
@@ -477,7 +475,7 @@ def test_proxy_survives_service_failure(monkeypatch):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(service_module, "enabled_connectors_for_user", _boom)
-    payload = {"metadata": {}, "connectors": {"local_browser": {"client_id": "tab-1"}}}
+    payload = {"metadata": {}, "connectors": {"local_bridge": {"client_id": "tab-1"}}}
     result = proxy._inject_connectors_metadata(payload, db=None, user=type("U", (), {"id": 1})())
     assert result["metadata"] == {}
 
@@ -495,13 +493,13 @@ def test_schema_guard_and_migration_cover_user_connectors():
     assert 'create_table(\n            "user_connectors"' in migration or 'create_table("user_connectors"' in migration.replace("\n", "").replace(" ", "")
 
 
-def test_help_center_lists_local_browser_connector_topic():
+def test_help_center_lists_local_bridge_connector_topic():
     from app.services.help_center import get_topic, topics_by_group
 
-    topic = get_topic("local-browser-connector")
+    topic = get_topic("local-bridge-connector")
     assert topic is not None
     assert topic.group == "Connectors"
     assert topic.steps
     assert topic.title == "Local bridge" and any("efp-bridge" in step for step in topic.steps)
     groups = dict(topics_by_group())
-    assert "Connectors" in groups and any(item.id == "local-browser-connector" for item in groups["Connectors"])
+    assert "Connectors" in groups and any(item.id == "local-bridge-connector" for item in groups["Connectors"])

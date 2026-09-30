@@ -174,7 +174,7 @@ def all_guidance() -> dict[str, dict[str, Any]]:
 # get their own table. The panel under Connectors and the Help topic render the
 # same entry, which is why the steps and the troubleshooting lines live here.
 CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
-    "local_browser": {
+    "local_bridge": {
         "title": "Local bridge",
         "summary": "The EFP local bridge on your own PC: assistants read and operate pages in a Chrome window with your logins, and the Recording panel records mobile tests on BrowserStack devices from this computer.",
         "steps": [
@@ -185,10 +185,9 @@ CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
         ],
         "troubleshooting": [
             "Bridge not detected: it is not running. Repeat step 2; if the efp-bridge link does nothing, run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) again.",
-            "Start bridge seems to do nothing: the launcher runs without a window on purpose and writes each attempt to .efp/browser/logs/bridge-serve.log in your home folder. Read the last lines there.",
+            "Start bridge seems to do nothing: the launcher runs without a window on purpose and writes each attempt to .efp/bridge/logs/bridge.log in your home folder. Read the last lines there.",
             "The EFP browser window is closed but the bridge shows as running: the bridge outlives the window. Click Start bridge to reopen it, or send a message; the next browser action reopens the window.",
             "Bridge stays undetected after a Portal address change: a bridge started for the old address is still holding the port and rejects this page. Stop it (end the efp-bridge process in Task Manager, or close the terminal it runs in) and click Start bridge again.",
-            "Upgrading from the browser bridge: run the new package's installer once (it points the efp-bridge link at efp-bridge), and end browser.exe in Task Manager if it is still running before you click Start bridge.",
             "devtools_unavailable: Chrome refused its DevTools port. Check chrome://policy for RemoteDebuggingAllowed.",
             "origin_denied or a CORS error: the bridge was started for another Portal address. Restart it with --origin set to this Portal's address.",
             "Mobile recording says mobile-auto is missing: unzip the whole package again into the same folder; the bridge starts mobile-auto from its own folder.",

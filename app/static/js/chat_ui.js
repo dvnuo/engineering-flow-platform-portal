@@ -3632,7 +3632,7 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
       || "";
     if (connectorRequestId) {
       const action = data.action || (data.connector_request && data.connector_request.action) || "";
-      const label = data.connector_type === "local_browser" ? "Browser" : (data.connector_type || "Connector");
+      const label = data.connector_type === "local_bridge" ? "Browser" : (data.connector_type || "Connector");
       const pendingId = `connector:${connectorRequestId}`;
       const responded = type === "connector.responded";
       const ok = data.ok !== false;

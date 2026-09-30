@@ -43,14 +43,14 @@ STATE_CONNECTED = "connected"
 STATE_OFF = "off"
 STATE_NOT_SET_UP = "not_set_up"
 
-LOCAL_BROWSER_TYPE = "local_browser"
-LOCAL_BROWSER_DEFAULT_PORT = 8765
+LOCAL_BRIDGE_TYPE = "local_bridge"
+LOCAL_BRIDGE_DEFAULT_PORT = 8765
 
 # Download packages the Portal offers, one zip per entry built by
 # scripts/local-bridge/package.sh in the tools repository (efp-bridge,
 # mobile-auto, the installer for that system, and a README). The member's own
 # system is offered first, the rest under "Other systems".
-LOCAL_BROWSER_PLATFORMS: tuple[tuple[str, str], ...] = (
+LOCAL_BRIDGE_PLATFORMS: tuple[tuple[str, str], ...] = (
     ("windows-amd64", "Windows (x64)"),
     ("windows-arm64", "Windows (ARM64)"),
     ("darwin-arm64", "macOS (Apple silicon)"),
@@ -60,14 +60,14 @@ LOCAL_BROWSER_PLATFORMS: tuple[tuple[str, str], ...] = (
 )
 
 
-def local_browser_platform_label(platform: str) -> str:
-    for key, label in LOCAL_BROWSER_PLATFORMS:
+def local_bridge_platform_label(platform: str) -> str:
+    for key, label in LOCAL_BRIDGE_PLATFORMS:
         if key == platform:
             return label
     return platform
 
 
-def detect_local_browser_platform(user_agent: str | None) -> str:
+def detect_local_bridge_platform(user_agent: str | None) -> str:
     """Best guess of the member's package from the User-Agent header.
 
     Chrome on Apple silicon still reports "Intel Mac OS X", so a Mac gets the
@@ -83,7 +83,7 @@ def detect_local_browser_platform(user_agent: str | None) -> str:
         return "darwin-arm64"
     if "linux" in ua or "x11" in ua:
         return "linux-arm64" if arm else "linux-amd64"
-    return LOCAL_BROWSER_PLATFORMS[0][0]
+    return LOCAL_BRIDGE_PLATFORMS[0][0]
 
 
 @dataclass(frozen=True)
@@ -128,12 +128,12 @@ class ConnectorSpec:
         return dict(self.settings_provider() or {})
 
 
-def _validate_local_browser_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+def _validate_local_bridge_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
     source = dict(config or {})
     allowed = {"auto_enable_in_new_chats", "preferred_port"}
     unknown = sorted(str(key) for key in source.keys() if key not in allowed)
     if unknown:
-        raise ValueError(f"Unknown local_browser config keys: {', '.join(unknown)}")
+        raise ValueError(f"Unknown local_bridge config keys: {', '.join(unknown)}")
 
     auto_enable = source.get("auto_enable_in_new_chats", True)
     if isinstance(auto_enable, str):
@@ -141,7 +141,7 @@ def _validate_local_browser_config(config: Mapping[str, Any] | None) -> dict[str
     elif not isinstance(auto_enable, bool):
         raise ValueError("auto_enable_in_new_chats must be a boolean")
 
-    port = source.get("preferred_port", LOCAL_BROWSER_DEFAULT_PORT)
+    port = source.get("preferred_port", LOCAL_BRIDGE_DEFAULT_PORT)
     if isinstance(port, bool):
         raise ValueError("preferred_port must be an integer between 1024 and 65535")
     if isinstance(port, str) and port.strip():
@@ -150,19 +150,19 @@ def _validate_local_browser_config(config: Mapping[str, Any] | None) -> dict[str
         except ValueError as exc:
             raise ValueError("preferred_port must be an integer between 1024 and 65535") from exc
     if port is None or port == "":
-        port = LOCAL_BROWSER_DEFAULT_PORT
+        port = LOCAL_BRIDGE_DEFAULT_PORT
     if not isinstance(port, int) or port < 1024 or port > 65535:
         raise ValueError("preferred_port must be an integer between 1024 and 65535")
 
     return {"auto_enable_in_new_chats": bool(auto_enable), "preferred_port": int(port)}
 
 
-def _local_browser_settings() -> dict[str, Any]:
+def _local_bridge_settings() -> dict[str, Any]:
     from app.config import get_settings
 
     # Raw value on purpose: the page resolves a path against the origin it
     # runs on, which is also the origin it hands the bridge.
-    return {"start_url": str(get_settings().local_browser_start_url or "").strip()}
+    return {"start_url": str(get_settings().local_bridge_browser_start_url or "").strip()}
 
 
 def _section(config: Mapping[str, Any], key: str) -> dict[str, Any]:
@@ -372,8 +372,8 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
 
 CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
     **{spec.type: spec for spec in SETTINGS_CONNECTORS},
-    LOCAL_BROWSER_TYPE: ConnectorSpec(
-        type=LOCAL_BROWSER_TYPE,
+    LOCAL_BRIDGE_TYPE: ConnectorSpec(
+        type=LOCAL_BRIDGE_TYPE,
         label="Local bridge",
         kind=KIND_LOCAL,
         icon="laptop",
@@ -384,11 +384,11 @@ CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
             "mobile tests on BrowserStack devices from this computer. Nothing leaves your "
             "machine except what you ask the assistant to look at."
         ),
-        panel_template="partials/connector_local_browser_panel.html",
-        guidance_key=LOCAL_BROWSER_TYPE,
-        config_defaults={"auto_enable_in_new_chats": True, "preferred_port": LOCAL_BROWSER_DEFAULT_PORT},
-        validate_config=_validate_local_browser_config,
-        settings_provider=_local_browser_settings,
+        panel_template="partials/connector_local_bridge_panel.html",
+        guidance_key=LOCAL_BRIDGE_TYPE,
+        config_defaults={"auto_enable_in_new_chats": True, "preferred_port": LOCAL_BRIDGE_DEFAULT_PORT},
+        validate_config=_validate_local_bridge_config,
+        settings_provider=_local_bridge_settings,
     ),
 }
 
@@ -442,14 +442,14 @@ __all__ = [
     "STATE_CONNECTED",
     "STATE_NOT_SET_UP",
     "STATE_OFF",
-    "LOCAL_BROWSER_DEFAULT_PORT",
-    "LOCAL_BROWSER_PLATFORMS",
-    "LOCAL_BROWSER_TYPE",
-    "detect_local_browser_platform",
+    "LOCAL_BRIDGE_DEFAULT_PORT",
+    "LOCAL_BRIDGE_PLATFORMS",
+    "LOCAL_BRIDGE_TYPE",
+    "detect_local_bridge_platform",
     "get_connector_spec",
     "is_known_connector",
     "list_connector_specs",
-    "local_browser_platform_label",
+    "local_bridge_platform_label",
     "settings_connector_for_section",
     "state_label",
 ]

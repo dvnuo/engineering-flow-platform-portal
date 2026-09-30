@@ -3376,10 +3376,10 @@ async def app_connector_panel(request: Request, connector_type: str):
     from app.services import connector_service
     from app.services.connection_guidance import CONNECTOR_GUIDANCE
     from app.services.connector_registry import (
-        LOCAL_BROWSER_DEFAULT_PORT,
-        detect_local_browser_platform,
+        LOCAL_BRIDGE_DEFAULT_PORT,
+        detect_local_bridge_platform,
         get_connector_spec,
-        local_browser_platform_label,
+        local_bridge_platform_label,
     )
 
     try:
@@ -3406,21 +3406,21 @@ async def app_connector_panel(request: Request, connector_type: str):
     portal_origin = (resolved_settings.base_uri or str(request.base_url)).rstrip("/")
     # The panel is fetched by the member's own browser, so its User-Agent picks
     # the package offered first; the page refines the CPU with client hints.
-    primary_platform = detect_local_browser_platform(request.headers.get("user-agent"))
+    primary_platform = detect_local_bridge_platform(request.headers.get("user-agent"))
     return templates.TemplateResponse(
         spec.panel_template,
         {
             "request": request,
             "connector": connector,
             "guide": CONNECTOR_GUIDANCE.get(spec.guidance_key),
-            "download_url": connector_service.local_browser_download_url(resolved_settings, primary_platform),
-            "download_links": connector_service.local_browser_download_links(resolved_settings),
+            "download_url": connector_service.local_bridge_download_url(resolved_settings, primary_platform),
+            "download_links": connector_service.local_bridge_download_links(resolved_settings),
             "primary_platform": primary_platform,
-            "primary_platform_label": local_browser_platform_label(primary_platform),
-            "cli_version": resolved_settings.local_browser_cli_version,
+            "primary_platform_label": local_bridge_platform_label(primary_platform),
+            "cli_version": resolved_settings.local_bridge_version,
             "portal_origin": portal_origin,
-            "default_port": LOCAL_BROWSER_DEFAULT_PORT,
-            "start_url": connector_service.local_browser_start_url(resolved_settings, portal_origin),
+            "default_port": LOCAL_BRIDGE_DEFAULT_PORT,
+            "start_url": connector_service.local_bridge_browser_start_url(resolved_settings, portal_origin),
         },
     )
 
