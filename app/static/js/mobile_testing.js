@@ -338,7 +338,10 @@
   // ---- Recording panel --------------------------------------------------------
   //
   // 1. Start: the bridge starts a BrowserStack device with the chosen build
-  //    and holds it for 30 minutes at a time.
+  //    and holds it for 30 minutes at a time. session.start answers at once
+  //    with the recording "starting"; the panel polls session.status until
+  //    it is "active" (or "failed", with the error), so a slow start neither
+  //    holds one request open for minutes nor gets killed by a page timeout.
   // 2. Record: the hosted Inspector opens attached to the device through the
   //    bridge (or the desktop Inspector attaches to the bridge by hand).
   //    "Segment done" takes the segment's log from the bridge and writes it
@@ -349,6 +352,7 @@
   const RECORDINGS_DIR = "mobile/recordings";
   const POLL_MS = 5000;
   const STATUS_EVERY = 12;
+  const START_POLL_MS = 3000;
   const START_TIMEOUT_MS = 16 * 60 * 1000;
   const CODE_EXTENSIONS = [".py", ".java", ".js", ".rb", ".robot", ".cs"];
   const BUILD_EXTENSIONS = [".apk", ".aab", ".ipa"];
@@ -627,8 +631,34 @@
     return `<div class="efp-recording-kv"><span>${esc(label)}</span><code>${esc(value)}</code><button type="button" class="composer-pill-btn" data-recording-copy="${esc(value)}" title="Copy"><i data-lucide="copy" class="w-4 h-4"></i></button></div>`;
   }
 
+  function elapsedText(since) {
+    const total = Math.max(0, Math.round((Date.now() - since) / 1000));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return minutes ? `${minutes}:${String(seconds).padStart(2, "0")}` : `${seconds}s`;
+  }
+
+  function startingCardHtml(rec) {
+    const platform = rec.platform === "ios" ? "iOS" : "Android";
+    const since = Date.parse(rec.started_at || "") || Date.now();
+    return `
+      <div class="efp-card efp-recording-card">
+        <div class="efp-card-head">
+          <span class="portal-status-badge is-warning">Starting</span>
+          <strong class="efp-card-title">${esc(rec.device || "BrowserStack device")}</strong>
+          <span class="efp-card-meta">${esc(platform)}</span>
+        </div>
+        <div class="efp-card-meta">Build ${esc(rec.app || "")}</div>
+        <div class="efp-card-meta">${esc(rec.progress || "starting the device on BrowserStack")}… <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></div>
+        <div class="efp-card-actions">
+          <button type="button" class="portal-btn is-secondary" data-recording-action="finish"><i data-lucide="square" class="w-4 h-4"></i>Cancel</button>
+        </div>
+      </div>`;
+  }
+
   function sessionCardHtml() {
     const rec = view.recording;
+    if (rec.status === "starting") return startingCardHtml(rec);
     const inspector = Boolean(view.config && view.config.inspector_available);
     const ended = rec.status && rec.status !== "active";
     const held = rec.hold_deadline && remaining(rec.hold_deadline) !== "expired";
@@ -713,7 +743,7 @@
     // Re-render only when the recording changes, so typing in the segment
     // field is not interrupted by the poll.
     const rec = view.recording;
-    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.segment, view.done.length, view.unsaved ? view.unsaved.segment : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : ""].join("|");
+    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.progress, rec.segment, view.done.length, view.unsaved ? view.unsaved.segment : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : ""].join("|");
     if (key === view.sessionKey) return;
     const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-segment]");
     const segmentValue = focused ? document.activeElement.value : null;
@@ -847,9 +877,15 @@
       }
       view.recording = Object.assign({}, view.recording, found);
       view.others = recordings.filter((rec) => rec.id !== id);
-      if (view.polls % STATUS_EVERY === 0) {
+      // A recording found starting (after a reload, say) is asked after on
+      // every poll until the device is up.
+      if (view.polls % STATUS_EVERY === 0 || found.status === "starting") {
         const status = await call("session.status", { id }, { credentials: credentials(), timeoutMs: 30000 });
         if (view.recording && view.recording.id === id) view.recording = Object.assign({}, view.recording, status);
+        if (status.status === "failed") {
+          recordingGone(startFailureText(status));
+          return;
+        }
       }
     } catch (error) {
       if (error.code === "not_found") {
@@ -889,7 +925,7 @@
           return;
         }
         root.querySelectorAll("[data-recording-countdown]").forEach((el) => {
-          el.textContent = remaining(el.dataset.deadline);
+          el.textContent = el.dataset.since ? elapsedText(Number(el.dataset.since)) : remaining(el.dataset.deadline);
         });
       }, 1000);
     }
@@ -960,10 +996,12 @@
     if (button) button.disabled = true;
     setStatus("Starting a BrowserStack device… about a minute, longer when all your parallel sessions are busy.", "");
     try {
-      const recording = await call("session.start", params, { credentials: credentials(), timeoutMs: START_TIMEOUT_MS });
-      view.recording = recording;
+      const started = await call("session.start", params, { credentials: credentials(), timeoutMs: 60000 });
+      view.recording = started;
       view.unsaved = null;
       remember();
+      renderAll();
+      const recording = started.status === "starting" ? await waitForDevice(started.id) : started;
       const lines = [
         "/record-mobile-segment",
         "Recording on my computer through the Recording panel.",
@@ -975,6 +1013,11 @@
       const inspector = view.config && view.config.inspector_available;
       setStatus(`Device ready. ${inspector ? "Open the Inspector" : "Attach the desktop Inspector"} and record ${recording.segment}.`, "success");
     } catch (error) {
+      if (error.code !== "start_timeout") {
+        // The bridge no longer lists a failed start; nothing to keep.
+        view.recording = null;
+        remember();
+      }
       setStatus(errorText(error), "error");
     } finally {
       view.busy = "";
@@ -982,6 +1025,28 @@
     }
     await loadRecordings();
     renderAll();
+  }
+
+  function startFailureText(status) {
+    const error = status && status.error ? status.error : {};
+    return errorText(bridgeError({ code: error.code || "start_failed", message: error.message || "The device did not start.", hint: error.hint }));
+  }
+
+  // Asks the bridge after a starting recording every few seconds until the
+  // device is up. Resolves with the active recording; rejects with the
+  // bridge's error when the start failed, or with start_timeout.
+  async function waitForDevice(id, { pollMs = START_POLL_MS, timeoutMs = START_TIMEOUT_MS } = {}) {
+    const since = Date.now();
+    for (;;) {
+      const status = await call("session.status", { id }, { credentials: credentials(), timeoutMs: 30000 });
+      if (view.recording && view.recording.id === id) view.recording = Object.assign({}, view.recording, status);
+      if (status.status === "active") return status;
+      if (status.status !== "starting") throw bridgeError(status.error ? { code: status.error.code || "start_failed", message: status.error.message || "The device did not start.", hint: status.error.hint } : { code: "start_failed", message: "The device did not start." });
+      if (Date.now() - since > timeoutMs) throw bridgeError({ code: "start_timeout", message: "The device has not started after 16 minutes. Cancel this recording and try again, or wait: the panel keeps asking." });
+      setStatus(`${status.progress || "Starting a BrowserStack device"}… ${elapsedText(since)}. About a minute; longer when all your parallel sessions are busy.`, "");
+      renderSession();
+      await sleep(pollMs);
+    }
   }
 
   function inspectorUrl() {
@@ -1372,5 +1437,6 @@
     suggestCustomId,
     probeBridge: probe,
     callBridge: call,
+    waitForDevice,
   });
 })();

@@ -62,8 +62,10 @@ Open a chat with the assistant and choose **Recording** in the tool bar.
 1. If the panel says the local bridge is not running, press **Start bridge**.
 2. Pick a build (or upload one), the platform, optionally a device, and list
    the segments you will record, then **Start recording device**. The bridge
-   starts the device and holds it; it is ready in about a minute, longer when
-   all your parallel sessions are busy.
+   starts the device and holds it; the panel shows what it is doing and says
+   when the device is ready, usually within a minute, longer when all your
+   parallel sessions are busy. A reload of the page picks the start up again;
+   **Cancel** releases the device once it is up.
 3. **Open Inspector** opens Appium Inspector already attached to that device
    (when your Portal hosts it). Otherwise attach the desktop Inspector to the
    bridge with the host, port, and path shown in the panel.

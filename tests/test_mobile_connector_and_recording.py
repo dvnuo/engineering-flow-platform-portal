@@ -281,6 +281,17 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
             if (body.command === "plan") {
               return { ok: true, status: 200, json: async () => ({ ok: true, data: { username: body.credentials.username, parallel_sessions_running: 1, parallel_sessions_max_allowed: 5 } }) };
             }
+            if (body.command === "session.status" && body.params.id === "r-up") {
+              // Starting on the first ask, active on the second: the bridge answers session.start at once.
+              const asks = calls.filter((c) => c.options.body && c.options.body.indexOf('"r-up"') >= 0).length;
+              const data = asks < 2
+                ? { id: "r-up", status: "starting", progress: "device up; holding it for the Inspector" }
+                : { id: "r-up", status: "active", session_id: "sess-1", segment: "seg-login" };
+              return { ok: true, status: 200, json: async () => ({ ok: true, data }) };
+            }
+            if (body.command === "session.status" && body.params.id === "r-down") {
+              return { ok: true, status: 200, json: async () => ({ ok: true, data: { id: "r-down", status: "failed", error: { code: "local_tunnel_connection_failed", message: "BrowserStack refused the session", hint: "Read the tunnel log." } } }) };
+            }
             return { ok: false, status: 404, json: async () => ({ ok: false, error: { code: "not_found", message: "recording not found", hint: "Start a new recording from the Recording panel." } }) };
           }
           throw new Error("unexpected " + url);
@@ -302,6 +313,11 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           const sent = JSON.parse(calls.find((c) => c.url.endsWith("/mobile/run")).options.body);
           assert.deepEqual(sent, { command: "plan", params: {}, credentials: { username: "alice", access_key: "k" }, proxy: "" });
           await assert.rejects(M.callBridge("session.status", { id: "x" }), (err) => err.code === "not_found" && /recording not found/.test(err.message));
+          const up = await M.waitForDevice("r-up", { pollMs: 1 });
+          assert.equal(up.status, "active");
+          assert.equal(up.session_id, "sess-1");
+          assert.equal(calls.filter((c) => c.options.body && c.options.body.indexOf('"r-up"') >= 0).length, 2);
+          await assert.rejects(M.waitForDevice("r-down", { pollMs: 1 }), (err) => err.code === "local_tunnel_connection_failed" && /refused the session/.test(err.message) && /tunnel log/.test(err.hint));
         })().catch((error) => {
           console.error(error);
           process.exit(1);
