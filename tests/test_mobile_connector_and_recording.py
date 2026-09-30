@@ -56,9 +56,6 @@ def test_advanced_fields_merge_into_defaults_and_browserstack():
             mobile_interactive_debugging__present="1",
             mobile_interactive_debugging="on",
             mobile_browserstack_appium_base_url="https://hub-cloud.browserstack.com/wd/hub/",
-            mobile_browserstack_local_mode="managed",
-            mobile_browserstack_verify_ssl__present="1",
-            mobile_browserstack_verify_ssl="on",
         ),
     )
     assert error is None
@@ -73,8 +70,8 @@ def test_advanced_fields_merge_into_defaults_and_browserstack():
     bs = mobile["browserstack"]
     assert bs["access_key"] == "keep-me"
     assert bs["appium_base_url"] == "https://hub-cloud.browserstack.com/wd/hub"
-    assert bs["local"] == {"mode": "managed"}
-    assert bs["verify_ssl"] is True
+    # Settings nothing reads any more are not on the form.
+    assert "local" not in bs and "verify_ssl" not in bs
 
 
 def test_fields_not_posted_keep_their_stored_values():
@@ -109,6 +106,7 @@ def test_browserstack_panel_tests_through_the_bridge_and_says_where_runs_happen(
         # The proxy for this computer is set on the connector page too.
         assert "data-mobile-bridge-proxy" in html
         assert 'name="mobile_idle_timeout_seconds"' in html
+        assert 'name="mobile_browserstack_local_mode"' not in html and 'name="mobile_browserstack_verify_ssl"' not in html
         assert "data-test-secrets" not in html and "data-app-packages" not in html
         # Where recordings and runs happen sits below the settings form.
         assert html.index("data-mobile-overview") > html.index("</form>")

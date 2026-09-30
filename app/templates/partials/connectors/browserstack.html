@@ -1,6 +1,5 @@
 {% from "partials/connectors/_macros.html" import setup_guide with context %}
 {% set bs_defaults = raw_mobile.get('defaults') if raw_mobile.get('defaults') is mapping else {} %}
-{% set bs_local = raw_mobile_browserstack.get('local') if raw_mobile_browserstack.get('local') is mapping else {} %}
 <section class="portal-panel-section" id="profile-section-mobile" data-managed-section="mobile">
       {{ setup_guide('mobile') }}
       <div class="portal-checkbox-row">
@@ -30,18 +29,11 @@
             <label class="portal-form-label"><span class="portal-form-label">Network</span>
               <select name="mobile_network_mode" class="portal-form-select">
                 <option value="" {% if not bs_defaults.get('network_mode') %}selected{% endif %}>Public (default)</option>
-                <option value="private-managed" {% if bs_defaults.get('network_mode') == 'private-managed' %}selected{% endif %}>Private: start BrowserStack Local with each session</option>
+                <option value="private-managed" {% if bs_defaults.get('network_mode') == 'private-managed' %}selected{% endif %}>Private: start BrowserStack Local with each session (the BrowserStackLocal program must be on this computer)</option>
                 <option value="private-external" {% if bs_defaults.get('network_mode') == 'private-external' %}selected{% endif %}>Private: a tunnel your team runs</option>
               </select>
             </label>
             <label class="portal-form-label"><span class="portal-form-label">Idle timeout (seconds)</span><input type="number" min="30" max="300" name="mobile_idle_timeout_seconds" value="{{ bs_defaults.get('idle_timeout_seconds', '') }}" placeholder="300" class="portal-form-input" /></label>
-            <label class="portal-form-label"><span class="portal-form-label">BrowserStack Local</span>
-              <select name="mobile_browserstack_local_mode" class="portal-form-select">
-                <option value="" {% if not bs_local.get('mode') %}selected{% endif %}>Not set</option>
-                <option value="managed" {% if bs_local.get('mode') == 'managed' %}selected{% endif %}>Started with each session</option>
-                <option value="external" {% if bs_local.get('mode') == 'external' %}selected{% endif %}>Started separately</option>
-              </select>
-            </label>
             <label class="portal-form-label"><span class="portal-form-label">Appium hub URL</span><input type="url" name="mobile_browserstack_appium_base_url" value="{{ raw_mobile_browserstack.get('appium_base_url', '') }}" placeholder="https://hub-cloud.browserstack.com/wd/hub" class="portal-form-input" /></label>
             <label class="portal-form-label"><span class="portal-form-label">API URL</span><input type="url" name="mobile_browserstack_api_base_url" value="{{ raw_mobile_browserstack.get('api_base_url', '') }}" placeholder="https://api-cloud.browserstack.com" class="portal-form-input" /></label>
           </div>
@@ -55,12 +47,7 @@
             <label class="toggle-switch" aria-label="Interactive debugging"><input type="checkbox" name="mobile_interactive_debugging" {% if bs_defaults.get('interactive_debugging', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
             <span>Allow interactive debugging on the BrowserStack dashboard</span>
           </div>
-          <div class="portal-checkbox-row">
-            <input type="hidden" name="mobile_browserstack_verify_ssl__present" value="1" />
-            <label class="toggle-switch" aria-label="Verify TLS certificates"><input type="checkbox" name="mobile_browserstack_verify_ssl" {% if raw_mobile_browserstack.get('verify_ssl', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
-            <span>Verify TLS certificates</span>
-          </div>
-          <p class="portal-inline-note">These settings apply to the devices you record on. BrowserStack ends a session after the idle timeout without a command, 300 seconds at most; the local bridge keeps the device alive while you record, so leave this at 300 unless your team says otherwise. Test runs use the pipeline's own settings.</p>
+          <p class="portal-inline-note">These settings apply to the devices you record on; the defaults suit a public BrowserStack account. Choose a private network only when the app talks to servers BrowserStack's devices cannot reach. BrowserStack ends a session after the idle timeout without a command, 300 seconds at most; the local bridge keeps the device alive while you record, so leave this at 300 unless your team says otherwise. Test runs use the pipeline's own settings.</p>
         </div>
       </details>
     </section>

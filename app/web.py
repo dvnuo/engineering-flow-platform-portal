@@ -1753,7 +1753,6 @@ def _settings_finalize_config_payload(config_payload: dict) -> dict:
 
 _MOBILE_PLATFORMS = {"android", "ios"}
 _MOBILE_NETWORK_MODES = {"public", "private-managed", "private-external"}
-_MOBILE_LOCAL_MODES = {"managed", "external"}
 # BrowserStack ends a session after this long without an Appium command; it
 # accepts at most 300 seconds, and recording needs the long end of the range.
 _MOBILE_IDLE_TIMEOUT_RANGE = (30, 300)
@@ -1822,21 +1821,6 @@ def _merge_mobile_advanced_fields(form, mobile_cfg: dict, browserstack_cfg: dict
                 browserstack_cfg[key] = value
             else:
                 browserstack_cfg.pop(key, None)
-    if "mobile_browserstack_verify_ssl__present" in form:
-        browserstack_cfg["verify_ssl"] = as_bool(form.get("mobile_browserstack_verify_ssl"))
-    if "mobile_browserstack_local_mode" in form:
-        mode = (form.get("mobile_browserstack_local_mode") or "").strip().lower()
-        if mode and mode not in _MOBILE_LOCAL_MODES:
-            return f"Unsupported BrowserStack Local mode: {mode}."
-        local_cfg = dict(browserstack_cfg.get("local")) if isinstance(browserstack_cfg.get("local"), dict) else {}
-        if mode:
-            local_cfg["mode"] = mode
-        else:
-            local_cfg.pop("mode", None)
-        if local_cfg:
-            browserstack_cfg["local"] = local_cfg
-        else:
-            browserstack_cfg.pop("local", None)
     return None
 
 
