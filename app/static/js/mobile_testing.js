@@ -522,7 +522,7 @@
             <label class="portal-form-label"><span class="portal-form-label">Proxy for BrowserStack (optional)</span>
               <input class="portal-form-input" data-recording-proxy value="${esc(proxy)}" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
             </label>
-            <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only; leave any proxy password out.</p>
+            <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only; a proxy that asks for a login takes http://user:password@host:port.</p>
           </div>
         </details>
         <div class="portal-inline-state" data-recording-status role="status"></div>
@@ -1331,27 +1331,27 @@
 
   // The proxy is shared by the connector page and the Recording panel; the
   // report goes to whichever status element the caller shows.
+  // The proxy may carry the login a corporate proxy asks for. It is kept in
+  // this browser's storage on this computer and goes only to the local
+  // bridge, which hands it to mobile-auto and BrowserStack Local.
   function saveProxy(input, report) {
     const say = report || setStatus;
     const value = String(input.value || "").trim();
+    let parsed = null;
     if (value) {
-      let parsed = null;
       try {
         parsed = new URL(value);
       } catch (_error) {
         parsed = null;
       }
       if (!parsed || !/^https?:$/.test(parsed.protocol)) {
-        say("The proxy is a URL such as http://proxy.example.com:8080.", "error");
-        return false;
-      }
-      if (parsed.username || parsed.password) {
-        say("Leave the proxy password out; it would be saved in this browser.", "error");
+        say("The proxy is a URL such as http://proxy.example.com:8080, with user:password@ in front of the host when the proxy asks for a login.", "error");
         return false;
       }
     }
     writeStorage(PROXY_KEY, value);
-    say(value ? "Proxy saved for this computer." : "Using this computer's proxy settings.", "success");
+    const saved = parsed && (parsed.username || parsed.password) ? "Proxy saved for this computer; its login stays in this browser." : "Proxy saved for this computer.";
+    say(value ? saved : "Using this computer's proxy settings.", "success");
     if (panelRoot() && ready()) loadApps();
     return true;
   }

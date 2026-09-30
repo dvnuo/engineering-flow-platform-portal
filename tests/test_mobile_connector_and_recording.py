@@ -103,8 +103,10 @@ def test_browserstack_panel_tests_through_the_bridge_and_says_where_runs_happen(
         _bind_profile(env.db, env.agent, {"mobile-auto": {"enabled": True, "browserstack": {"username": "alice", "access_key": "k"}}})
         html = env.client.get("/app/connectors/browserstack/panel").text
         assert "data-mobile-bridge-test" in html and 'data-test-target="browserstack"' not in html
-        # The proxy for this computer is set on the connector page too.
+        # The proxy for this computer is set on the connector page too, with
+        # the login a corporate proxy asks for.
         assert "data-mobile-bridge-proxy" in html
+        assert "http://user:password@proxy.example.com:8080" in html
         assert 'name="mobile_idle_timeout_seconds"' in html
         assert 'name="mobile_browserstack_local_mode"' not in html and 'name="mobile_browserstack_verify_ssl"' not in html
         assert "data-test-secrets" not in html and "data-app-packages" not in html
