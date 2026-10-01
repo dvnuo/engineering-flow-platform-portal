@@ -256,6 +256,11 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert 'const RECORDINGS_DIR = "mobile/recordings";' in js
     assert "Segment ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
     assert "Recording finished. Compile any segment not imported yet." in js
+    # Compiled segments replay on the held device; the result lands in the
+    # workspace beside the recordings and the chat message hands it over.
+    assert '"segment.replay"' in js and '"replay.status"' in js and '"replay.stop"' in js
+    assert 'const REPLAYS_DIR = "mobile/replays";' in js and "Replay finished: " in js
+    assert '<input type="password" class="portal-form-input" data-replay-secret' in js
     # The Recording panel has the same proxy fields, the password masked.
     assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in js
     # Segment names are optional: a member records the whole scenario.
@@ -326,6 +331,17 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(store, { "efp.mobile.bridge_proxy": "http://proxy2:8080", "efp.mobile.bridge_proxy_user": "CORP\\\\alice", "efp.mobile.bridge_proxy_password": "s3cret" });
         assert.equal(M.proxyForBridge({ url: "http://proxy2:8080", username: "CORP\\\\alice", password: "p@ss:w/rd 50%" }), "http://CORP%5Calice:p%40ss%3Aw%2Frd%2050%25@proxy2:8080");
         assert.equal(M.proxyForBridge({ url: "http://proxy2:8080", username: "", password: "" }), "http://proxy2:8080");
+        assert.equal(
+          M.replayMessage({ status: "passed", segments: [{ name: "seg-login", status: "passed" }, { name: "seg-open", status: "passed" }] }, "mobile/replays/r1/report.json"),
+          "Replay finished: 2 of 2 segments passed.\\nReport: mobile/replays/r1/report.json",
+        );
+        assert.equal(
+          M.replayMessage({ status: "failed", segments: [{ name: "seg-login", status: "failed" }, { name: "seg-open", status: "not_run" }], failure: { segment: "seg-login", step: 3 } }, "p/report.json"),
+          "Replay finished: 0 of 2 segments passed; seg-login failed at step 3.\\nReport: p/report.json",
+        );
+        assert.deepEqual(M.segmentSecrets("name: seg\\nsecrets:\\n    - MOBILE_SECRET_PASSWORD\\nsteps:\\n    - action: type\\n      text_env: MOBILE_SECRET_PIN\\n"), ["MOBILE_SECRET_PASSWORD", "MOBILE_SECRET_PIN"]);
+        assert.deepEqual(M.segmentSecrets("secrets: [A_ONE, 'B_TWO']\\nsteps:\\n  - {action: type, text_env: C_THREE}\\n"), ["A_ONE", "B_TWO", "C_THREE"]);
+        assert.deepEqual(M.segmentSecrets("name: seg\\nsteps:\\n  - action: tap\\n"), []);
         assert.equal(M.proxyForBridge({ url: "", username: "alice", password: "x" }), "");
         assert.deepEqual(M.splitProxyLogin("http://CORP%5Calice:p%40ss@proxy2:8080"), { url: "http://proxy2:8080", username: "CORP\\\\alice", password: "p@ss", login: true });
         assert.deepEqual(M.splitProxyLogin("http://proxy2:8080"), { url: "http://proxy2:8080", username: "", password: "", login: false });

@@ -6519,4 +6519,16 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-recording-kv > span { flex: 0 0 84px; }
 .efp-recording-kv code { flex: 1 1 auto; min-width: 0; padding: 2px 6px; border-radius: 6px; background: var(--portal-surface-soft); overflow-wrap: anywhere; color: var(--portal-text); }
 .efp-recording-done { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--portal-text); }
+.efp-replay { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--portal-border); }
+.efp-replay:empty { display: none; }
+.efp-replay h5 { margin: 0; color: var(--portal-text); font-size: 13px; font-weight: 700; }
+.efp-replay-list { display: flex; flex-direction: column; gap: 4px; }
+.efp-replay-row { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--portal-text); }
+.efp-replay-starts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.efp-replay-result { display: flex; flex-direction: column; gap: 6px; }
+.efp-replay-seg { display: flex; align-items: flex-start; gap: 6px; }
+.efp-replay-seg > i { margin-top: 3px; flex: 0 0 auto; }
+.efp-replay-seg .efp-card-meta { overflow-wrap: anywhere; }
+.efp-replay-shots { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; margin-top: 4px; }
+.efp-replay-shots img { display: block; width: 72px; height: auto; border: 1px solid var(--portal-border); border-radius: 8px; }
 .portal-task-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; color: var(--portal-text-muted); font-size: 12px; }

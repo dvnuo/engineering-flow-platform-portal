@@ -17,7 +17,8 @@ order: 15
 4. You record a scenario in one go on a real BrowserStack device from your
    computer, once per platform. The assistant proposes how to split the
    recording into reusable segments (log in, skip the introduction, choose a
-   currency), and you confirm the split.
+   currency), and you confirm the split. You then replay the segments on the
+   same device and watch them work before any script is generated.
 5. The assistant turns the approved scenarios and your segments into a plain
    Python test project (the Gherkin you approved, its step definitions, and
    the segments as functions, each recorded line marked `# recorded:`),
@@ -86,7 +87,19 @@ Open a chat with the assistant and choose **Recording** in the tool bar.
    the screens it went through and proposes where to split it into segments,
    on a review card in the chat: approve the split or say what to change. It
    then compiles each segment and tells you how robust it is.
-7. To record another scenario on the same device, carry on and save again.
+7. Replay the compiled segments under **Replay segments** before any script
+   is generated from them. Tick the segments (those of the split you just
+   approved are ticked), choose where to start (restart the app, clear its
+   data first on Android, or the screen the device shows), type the values of
+   the passwords they use, and press **Replay**. The replay borrows the device
+   from the Inspector and hands it back when it ends; meanwhile the Inspector
+   can only watch. You see each segment's result with a screenshot after it,
+   or the step that failed and the screen it stopped on. The result goes into
+   the assistant's workspace, and the assistant reviews it: it fixes a failed
+   step and asks you to replay again. Scripts are generated once every
+   segment passes. The passwords stay in the page and the local bridge; the
+   assistant never sees them.
+8. To record another scenario on the same device, carry on and save again.
    **Finish recording** when you are done. The device is released.
 
 The device is held for 30 minutes at a time; **Hold 30 more minutes** extends

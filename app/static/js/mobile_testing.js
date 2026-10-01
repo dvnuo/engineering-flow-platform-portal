@@ -178,11 +178,12 @@
     return "";
   }
 
-  function bridgeError(error) {
+  function bridgeError(error, data) {
     const detail = error && typeof error === "object" ? error : {};
     const err = new Error(String(detail.message || "The local bridge could not do that."));
     err.code = String(detail.code || "bridge_error");
     err.hint = String(detail.hint || "");
+    if (data && typeof data === "object") err.data = data;
     return err;
   }
 
@@ -225,7 +226,7 @@
       payload = null;
     }
     if (payload && payload.ok === true) return payload.data || {};
-    throw bridgeError(payload && payload.error ? payload.error : { code: "bridge_error", message: `The local bridge answered HTTP ${response.status}.` });
+    throw bridgeError(payload && payload.error ? payload.error : { code: "bridge_error", message: `The local bridge answered HTTP ${response.status}.` }, payload && payload.data);
   }
 
   function safeFileName(name) {
@@ -444,6 +445,7 @@
     busy: "",
     sessionKey: "",
     polls: 0,
+    replay: freshReplay(),
   };
   let pollTimer = 0;
   let tickTimer = 0;
@@ -523,7 +525,7 @@
       writeStorage(storageKey(), "");
       return;
     }
-    writeStorage(storageKey(), JSON.stringify({ id: view.recording.id, planned: view.planned, done: view.done }));
+    writeStorage(storageKey(), JSON.stringify({ id: view.recording.id, planned: view.planned, done: view.done, replays: view.replay.saved.slice(-20) }));
   }
 
   function remembered() {
@@ -752,6 +754,7 @@
     const platform = rec.platform === "ios" ? "iOS" : "Android";
     const name = rec.segment || view.planned[view.done.length] || "recording-1";
     const planned = view.planned.length > 0;
+    const replaying = Boolean(rec.replay && rec.replay.status === "running");
     const port = view.bridge && view.bridge.port ? String(view.bridge.port) : "";
     const unsaved = view.unsaved
       ? `<div class="portal-inline-state is-visible is-error">Recording ${esc(view.unsaved.name)} is not in the assistant's workspace yet: ${esc(view.unsaved.error)}
@@ -783,7 +786,7 @@
       <div class="efp-card-meta" data-recording-summary>${esc(summaryText(rec.summary))}</div>
       <div class="efp-card-actions">
         ${inspector ? `<button type="button" class="portal-btn is-primary" data-recording-action="open-inspector"><i data-lucide="external-link" class="w-4 h-4"></i>Open Inspector</button>` : ""}
-        <button type="button" class="portal-btn ${inspector ? "is-secondary" : "is-primary"}" data-recording-action="save-recording"><i data-lucide="save" class="w-4 h-4"></i>Save recording</button>
+        <button type="button" class="portal-btn ${inspector ? "is-secondary" : "is-primary"}" data-recording-action="save-recording"${replaying ? " disabled" : ""}><i data-lucide="save" class="w-4 h-4"></i>Save recording</button>
       </div>
       ${unsaved}
       <details class="portal-collapsible"${inspector ? "" : " open"}>
@@ -807,8 +810,9 @@
         </div>
       </details>
       ${doneList}
+      <section class="efp-replay" data-recording-replay></section>
       <div class="efp-card-actions">
-        <button type="button" class="portal-btn is-secondary" data-recording-action="extend"><i data-lucide="timer" class="w-4 h-4"></i>Hold 30 more minutes</button>
+        <button type="button" class="portal-btn is-secondary" data-recording-action="extend"${replaying ? " disabled" : ""}><i data-lucide="timer" class="w-4 h-4"></i>Hold 30 more minutes</button>
         <button type="button" class="portal-btn is-secondary" data-recording-action="finish"><i data-lucide="square" class="w-4 h-4"></i>Finish recording</button>
       </div>`;
   }
@@ -827,12 +831,13 @@
       view.sessionKey = "";
       return;
     }
+    syncReplay();
     const summary = root.querySelector("[data-recording-summary]");
     if (summary) summary.textContent = summaryText(view.recording.summary);
     // Re-render only when the recording changes, so typing in the name field
     // is not interrupted by the poll.
     const rec = view.recording;
-    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.progress, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : ""].join("|");
+    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.progress, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : "", rec.replay ? rec.replay.status : ""].join("|");
     if (key === view.sessionKey) return;
     const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-name]");
     const typedName = focused ? document.activeElement.value : null;
@@ -845,6 +850,8 @@
         input.focus();
       }
     }
+    renderReplay();
+    if (rec.status === "active" && view.replay.segments === null && !view.replay.loading) loadReplaySegments();
     renderIcons();
   }
 
@@ -906,6 +913,7 @@
         view.recording = found;
         view.planned = Array.isArray(mine.planned) ? mine.planned : [];
         view.done = Array.isArray(mine.done) ? mine.done : [];
+        view.replay.saved = Array.isArray(mine.replays) ? mine.replays : [];
       } else {
         writeStorage(storageKey(), "");
       }
@@ -1031,7 +1039,7 @@
     if (view.agentId !== agentId) {
       Object.assign(view, {
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
-        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", polls: 0,
+        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", polls: 0, replay: freshReplay(),
       });
     } else {
       view.sessionKey = "";
@@ -1091,6 +1099,7 @@
       const started = await call("session.start", params, { credentials: credentials(), timeoutMs: 60000 });
       view.recording = started;
       view.unsaved = null;
+      view.replay = freshReplay();
       remember();
       renderAll();
       const recording = started.status === "starting" ? await waitForDevice(started.id) : started;
@@ -1186,9 +1195,9 @@
     return (root.querySelector("[data-recording-name]")?.value || "").trim();
   }
 
-  async function writeToWorkspace(fileName, blob) {
+  async function writeToWorkspace(fileName, blob, dir = RECORDINGS_DIR) {
     const form = new FormData();
-    form.append("path", RECORDINGS_DIR);
+    form.append("path", dir);
     form.append("file", new File([blob], fileName, { type: blob.type || "application/octet-stream" }));
     const response = await fetch(`/a/${encodeURIComponent(view.agentId)}/api/server-files/upload`, { method: "POST", credentials: "same-origin", body: form });
     if (!response.ok) {
@@ -1196,7 +1205,460 @@
       const detail = body && (typeof body.detail === "string" ? body.detail : body.error);
       throw new Error(detail ? String(detail) : `HTTP ${response.status}`);
     }
-    return `${RECORDINGS_DIR}/${fileName}`;
+    return `${dir}/${fileName}`;
+  }
+
+  // ---- Replay ---------------------------------------------------------------
+  //
+  // Compiled segments replay on the device this recording holds, before the
+  // assistant generates scripts from them. The panel lists the segments in
+  // the assistant's workspace for the recording's platform (the parts of the
+  // latest split first, ticked), asks for the values of the secrets they
+  // type (kept in this page's memory only and sent to the bridge alone), and
+  // has the bridge replay them: it borrows the device from the Inspector and
+  // gives it back when the replay ends. The result goes into the workspace
+  // under mobile/replays/<id>/, and the chat message tells the assistant,
+  // which reviews it.
+
+  const SEGMENTS_DIR = "mobile/segments";
+  const REPLAYS_DIR = "mobile/replays";
+  const REPLAY_POLL_MS = 2000;
+  let replayTimer = 0;
+
+  function freshReplay() {
+    return {
+      segments: null, loading: false, error: "", checked: [], touched: false, start: "restart",
+      secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, running: null, polling: false,
+      result: null, saved: [],
+    };
+  }
+
+  function workspaceApi(path) {
+    return `/a/${encodeURIComponent(view.agentId)}/api/server-files${path}`;
+  }
+
+  async function listWorkspace(dir) {
+    const response = await fetch(workspaceApi(`?path=${encodeURIComponent(dir)}`), { credentials: "same-origin", cache: "no-store" });
+    if (response.status === 404) return [];
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    return Array.isArray(body.items) ? body.items : [];
+  }
+
+  async function readWorkspaceText(path) {
+    const response = await fetch(workspaceApi(`/read?path=${encodeURIComponent(path)}`), { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    const body = await response.json();
+    if (body.truncated) throw new Error(`${path} is too large to read`);
+    return String(body.content || "");
+  }
+
+  // The secrets a segment types: those its secrets list names, and every
+  // text_env of its steps.
+  function segmentSecrets(yaml) {
+    const names = new Set();
+    const lines = String(yaml || "").split(/\r?\n/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const flow = line.match(/^secrets:\s*\[(.*)\]\s*$/);
+      if (flow) {
+        flow[1].split(",").map((item) => item.trim().replace(/^["']|["']$/g, "")).filter(Boolean).forEach((name) => names.add(name));
+        continue;
+      }
+      if (/^secrets:\s*$/.test(line)) {
+        for (let j = i + 1; j < lines.length; j += 1) {
+          const item = lines[j].match(/^\s+-\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*$/);
+          if (!item) break;
+          names.add(item[1]);
+        }
+        continue;
+      }
+      const env = line.match(/(?:^|[\s{,-])text_env:\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?/);
+      if (env) names.add(env[1]);
+    }
+    return [...names].sort();
+  }
+
+  // The order the latest split put this platform's segments in.
+  async function latestSplitOrder(platform) {
+    const splits = (await listWorkspace(RECORDINGS_DIR)).filter((item) => item.is_file !== false && /\.split\.json$/.test(item.name || ""));
+    if (!splits.length) return [];
+    splits.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
+    try {
+      const plan = JSON.parse(await readWorkspaceText(`${RECORDINGS_DIR}/${splits[0].name}`));
+      if (plan.platform && plan.platform !== platform) return [];
+      return (Array.isArray(plan.parts) ? plan.parts : []).map((part) => String(part.segment || "")).filter(Boolean);
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  async function loadReplaySegments() {
+    const rec = view.recording;
+    if (!rec || !view.agentId) return;
+    const r = view.replay;
+    const platform = rec.platform === "ios" ? "ios" : "android";
+    const dir = `${SEGMENTS_DIR}/${platform}`;
+    r.loading = true;
+    renderReplay();
+    try {
+      const [listed, order] = await Promise.all([listWorkspace(dir), latestSplitOrder(platform)]);
+      const items = listed.filter((item) => item.is_file !== false && /\.ya?ml$/i.test(item.name || ""));
+      const segments = items.map((item) => ({ name: String(item.name).replace(/\.ya?ml$/i, ""), path: `${dir}/${item.name}`, modified: String(item.modified_at || "") }));
+      const rank = (name) => {
+        const index = order.indexOf(name);
+        return index >= 0 ? index : order.length;
+      };
+      segments.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+      r.segments = segments;
+      if (!r.touched) r.checked = order.filter((name) => segments.some((seg) => seg.name === name));
+      else r.checked = r.checked.filter((name) => segments.some((seg) => seg.name === name));
+      r.error = "";
+      await loadReplaySecrets();
+    } catch (error) {
+      r.error = `Could not list the compiled segments: ${errorText(error)}`;
+    }
+    r.loading = false;
+    renderReplay();
+  }
+
+  function selectedSegments() {
+    const r = view.replay;
+    return (r.segments || []).filter((seg) => r.checked.includes(seg.name));
+  }
+
+  async function segmentYaml(seg) {
+    const key = `${seg.path}|${seg.modified}`;
+    if (!(key in view.replay.yaml)) view.replay.yaml[key] = await readWorkspaceText(seg.path);
+    return view.replay.yaml[key];
+  }
+
+  async function loadReplaySecrets() {
+    const r = view.replay;
+    const names = new Set(r.extraSecretNames);
+    // A segment that cannot be read leaves it to the bridge to name what is
+    // missing.
+    const found = await Promise.all(selectedSegments().map((seg) => segmentYaml(seg).then(segmentSecrets, () => [])));
+    found.forEach((list) => list.forEach((name) => names.add(name)));
+    r.secretNames = [...names].sort();
+  }
+
+  function base64Blob(value, type) {
+    const raw = atob(String(value || ""));
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    return new Blob([bytes], { type });
+  }
+
+  function mimeFor(path) {
+    if (/\.png$/i.test(path)) return "image/png";
+    if (/\.xml$/i.test(path)) return "application/xml";
+    return "application/octet-stream";
+  }
+
+  // The chat message that hands a finished replay to the assistant.
+  function replayMessage(report, path) {
+    const segments = Array.isArray(report && report.segments) ? report.segments : [];
+    const passed = segments.filter((seg) => seg.status === "passed").length;
+    let line = `Replay finished: ${passed} of ${segments.length} ${segments.length === 1 ? "segment" : "segments"} passed`;
+    const failure = report && report.failure;
+    if (report && report.status === "failed" && failure && failure.segment) line += `; ${failure.segment} failed at step ${failure.step || "?"}`;
+    return `${line}.\nReport: ${path}`;
+  }
+
+  function shotHtml(rel, alt) {
+    const res = view.replay.result;
+    const url = res && res.urls ? res.urls[rel] : "";
+    if (!url) return "";
+    return `<a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(alt)}"><img src="${esc(url)}" alt="${esc(alt)}" /></a>`;
+  }
+
+  function replayResultHtml() {
+    const res = view.replay.result;
+    if (!res) return "";
+    const replay = res.replay || {};
+    const report = (res.result && res.result.report) || {};
+    const status = replay.status || report.status || "";
+    const tone = status === "passed" ? "success" : (status === "cancelled" ? "warning" : "error");
+    const label = { passed: "Replay passed", failed: "Replay failed", cancelled: "Replay stopped", error: "Replay could not run" }[status] || "Replay";
+    const segments = Array.isArray(report.segments) ? report.segments : [];
+    const rows = segments.map((seg) => {
+      const icon = seg.status === "passed" ? "check" : (seg.status === "failed" ? "x" : "minus");
+      let detail = "not run";
+      if (seg.status === "failed") {
+        const failed = (seg.steps || []).find((step) => step.ok === false) || {};
+        const why = failed.error ? (failed.error.message || failed.error.code || "") : "";
+        detail = `failed at step ${failed.step || "?"} of ${seg.steps_total || "?"}${failed.action ? `: ${failed.action}${failed.target ? ` ${failed.target}` : ""}` : ""}${why ? ` (${why})` : ""}`;
+      } else if (seg.status === "passed") {
+        const total = Number(seg.steps_total) || 0;
+        const fallbacks = (seg.steps || []).filter((step) => step.resolved_by === "fallback").length;
+        detail = `${total} ${total === 1 ? "step" : "steps"}${fallbacks ? `, ${fallbacks} matched a fallback target` : ""}`;
+      }
+      const shot = seg.screenshot ? shotHtml(seg.screenshot, `${seg.name}: the screen after it`) : "";
+      return `<li class="efp-replay-seg"><i data-lucide="${icon}" class="w-3 h-3"></i><div><strong>${esc(seg.name)}</strong> <span class="efp-card-meta">${esc(detail)}</span>${shot ? `<div class="efp-replay-shots">${shot}</div>` : ""}</div></li>`;
+    }).join("");
+    const failureShot = report.failure && report.failure.screenshot ? shotHtml(report.failure.screenshot, "The screen the failed step stopped on") : "";
+    const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
+    const session = report.session_url ? ` <a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
+    let saved = "";
+    if (res.path) saved = `<p class="portal-inline-note">Saved in ${esc(res.path.replace(/report\.json$/, ""))}; the assistant reviews it in the chat.</p>`;
+    else if (res.error) saved = `<div class="portal-inline-state is-visible is-error">${esc(res.error)}<div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button></div></div>`;
+    return `<div class="efp-replay-result">
+        <div><span class="portal-status-badge is-${tone}">${esc(label)}</span>${session}</div>
+        ${error}
+        ${rows ? `<ul class="efp-recording-done">${rows}</ul>` : ""}
+        ${failureShot ? `<div class="efp-replay-shots"><span class="efp-card-meta">Where it stopped</span>${failureShot}</div>` : ""}
+        ${saved}
+      </div>`;
+  }
+
+  function replayHtml() {
+    const r = view.replay;
+    const rec = view.recording;
+    const running = r.running && r.running.status === "running" ? r.running : null;
+    const platform = rec.platform === "ios" ? "iOS" : "Android";
+    let list = "";
+    if (r.loading && !r.segments) list = `<p class="portal-inline-note">Looking for compiled segments…</p>`;
+    else if (r.error) list = `<div class="portal-inline-state is-visible is-error">${esc(r.error)}</div>`;
+    else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No compiled ${platform} segments yet. The assistant compiles them after you save a recording and approve its split.</p>`;
+    else list = `<div class="efp-replay-list">${r.segments.map((seg) => `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(seg.name)}"${r.checked.includes(seg.name) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span></label>`).join("")}</div>`;
+    const ready = Boolean(r.segments && r.segments.length);
+    const starts = [["restart", "Restart the app"]];
+    if (rec.platform !== "ios") starts.push(["reset", "Clear the app's data first"]);
+    starts.push(["current", "The screen the device shows"]);
+    const startHtml = ready ? `<div class="efp-replay-starts"><span class="efp-card-meta">Start from</span>${starts.map(([value, label]) => `<label class="efp-replay-row"><input type="radio" name="efp-replay-start" data-replay-start value="${value}"${r.start === value ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(label)}</span></label>`).join("")}</div>` : "";
+    const secretsHtml = ready && r.secretNames.length
+      ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the segment types" autocomplete="new-password"${running ? " disabled" : ""} /></label>`).join("")}
+        <p class="portal-inline-note">Kept in this page only and sent to the bridge on this computer, never to the assistant.</p>`
+      : "";
+    let actions;
+    if (running) {
+      const since = Date.parse(running.started_at || "") || Date.now();
+      actions = `<div class="efp-card-meta">Replaying: <span data-replay-progress>${esc(running.progress || "starting")}</span> · <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></div>
+        <p class="portal-inline-note">While it runs, the Inspector can only watch.</p>
+        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="stop"><i data-lucide="square" class="w-4 h-4"></i>Stop replay</button></div>`;
+    } else {
+      actions = `<div class="efp-card-actions">
+          <button type="button" class="portal-btn is-primary" data-replay-action="start"${ready ? "" : " disabled"}><i data-lucide="play" class="w-4 h-4"></i>Replay</button>
+          <button type="button" class="portal-btn is-secondary" data-replay-action="refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
+        </div>`;
+    }
+    return `<h5>Replay segments</h5>
+      <p class="portal-inline-note">Check the compiled segments on this device before the assistant generates scripts from them. The replay borrows the device from the Inspector and hands it back when it ends.</p>
+      ${list}${startHtml}${secretsHtml}${actions}${running ? "" : replayResultHtml()}`;
+  }
+
+  function renderReplay() {
+    const box = panelRoot()?.querySelector("[data-recording-replay]");
+    if (!box) return;
+    if (!view.recording || view.recording.status !== "active") {
+      box.innerHTML = "";
+      return;
+    }
+    const active = document.activeElement;
+    const focused = active && active.matches && active.matches("[data-replay-secret]") ? active.dataset.replaySecret : "";
+    const running = view.replay.running && view.replay.running.status === "running" ? view.replay.running : null;
+    box.dataset.replayRunning = running ? running.id : "";
+    box.innerHTML = replayHtml();
+    box.querySelectorAll("[data-replay-secret]").forEach((input) => {
+      input.value = view.replay.secrets[input.dataset.replaySecret] || "";
+      if (input.dataset.replaySecret === focused) input.focus();
+    });
+    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(box);
+    renderIcons();
+  }
+
+  function scheduleReplayPoll() {
+    window.clearTimeout(replayTimer);
+    view.replay.polling = true;
+    replayTimer = window.setTimeout(pollReplay, REPLAY_POLL_MS);
+  }
+
+  function stopReplayPolling() {
+    window.clearTimeout(replayTimer);
+    replayTimer = 0;
+    view.replay.polling = false;
+  }
+
+  // Picks up a replay this page did not start, or that finished while the
+  // page was away: one running is followed, one over and not yet saved is
+  // saved.
+  function syncReplay() {
+    const rec = view.recording;
+    const known = rec && rec.replay;
+    const r = view.replay;
+    if (!known || r.polling) return;
+    const shown = r.result && r.result.replay && r.result.replay.id === known.id;
+    if (known.status === "running" || (!shown && !r.saved.includes(known.id))) {
+      r.polling = true;
+      pollReplay();
+    }
+  }
+
+  async function pollReplay() {
+    const rec = view.recording;
+    if (!rec || !panelRoot() || currentAgentId() !== view.agentId) {
+      view.replay.polling = false;
+      return;
+    }
+    let data;
+    try {
+      data = await call("replay.status", { id: rec.id }, { timeoutMs: 15000 });
+    } catch (error) {
+      if (error.code === "no_replay" || error.code === "not_found") {
+        view.replay.running = null;
+        view.replay.polling = false;
+        renderReplay();
+        return;
+      }
+      scheduleReplayPoll();
+      return;
+    }
+    const replay = data.replay || {};
+    if (replay.status === "running") {
+      const same = view.replay.running && view.replay.running.id === replay.id;
+      view.replay.running = replay;
+      const progress = panelRoot()?.querySelector("[data-replay-progress]");
+      if (same && progress) progress.textContent = replay.progress || "starting";
+      else renderReplay();
+      scheduleReplayPoll();
+      return;
+    }
+    view.replay.running = null;
+    view.replay.polling = false;
+    await finishReplay(replay, data.result);
+  }
+
+  function revokeShots() {
+    const res = view.replay.result;
+    if (!res || !res.urls) return;
+    Object.values(res.urls).forEach((url) => URL.revokeObjectURL(url));
+  }
+
+  async function finishReplay(replay, result) {
+    const r = view.replay;
+    if (r.result && r.result.replay && r.result.replay.id === replay.id) {
+      renderReplay();
+      return;
+    }
+    revokeShots();
+    const urls = {};
+    Object.entries((result && result.files) || {}).forEach(([rel, value]) => {
+      if (!/\.png$/i.test(rel)) return;
+      try {
+        urls[rel] = URL.createObjectURL(base64Blob(value, "image/png"));
+      } catch (_error) {
+        /* a screenshot that cannot be shown is still saved */
+      }
+    });
+    r.result = { replay, result, urls, path: "", error: "" };
+    if (view.recording) view.recording = Object.assign({}, view.recording, { replay });
+    renderSession();
+    const report = (result && result.report) || {};
+    const failure = report.failure || {};
+    const tail = "the device is back with the Inspector.";
+    if (replay.status === "passed") setStatus(`Replay passed; ${tail}`, "success");
+    else if (replay.status === "failed") setStatus(`Replay failed${failure.segment ? ` at ${failure.segment} step ${failure.step || "?"}` : ""}; ${tail}`, "error");
+    else if (replay.status === "cancelled") setStatus(`Replay stopped; ${tail}`, "warning");
+    else setStatus(`The replay could not run: ${errorText(replay.error || {})}`, "error");
+    renderReplay();
+    // A replay that ran to its end goes to the assistant; a stopped one,
+    // or one that could not start, has nothing to review.
+    if ((replay.status === "passed" || replay.status === "failed") && result && !r.saved.includes(replay.id)) {
+      await saveReplay();
+    } else if (!r.saved.includes(replay.id)) {
+      r.saved.push(replay.id);
+      remember();
+    }
+  }
+
+  // Writes the report and its files into the workspace, the report last so
+  // the assistant finds the files it names, then tells the assistant.
+  async function saveReplay() {
+    const r = view.replay;
+    const res = r.result;
+    if (!res || !res.result || !res.replay) return;
+    const dir = `${REPLAYS_DIR}/${res.replay.id}`;
+    try {
+      for (const [rel, value] of Object.entries(res.result.files || {})) {
+        const slash = rel.lastIndexOf("/");
+        const folder = slash >= 0 ? `${dir}/${rel.slice(0, slash)}` : dir;
+        await writeToWorkspace(rel.slice(slash + 1), base64Blob(value, mimeFor(rel)), folder);
+      }
+      const report = new Blob([JSON.stringify(res.result.report, null, 2)], { type: "application/json" });
+      const path = await writeToWorkspace("report.json", report, dir);
+      res.path = path;
+      res.error = "";
+      if (!r.saved.includes(res.replay.id)) r.saved.push(res.replay.id);
+      remember();
+      sendChat(replayMessage(res.result.report, path));
+    } catch (error) {
+      res.error = `Could not save the replay into the assistant's workspace: ${errorText(error)}`;
+    }
+    renderReplay();
+  }
+
+  async function startReplay(button) {
+    const r = view.replay;
+    const rec = view.recording;
+    if (!rec || (r.running && r.running.status === "running")) return;
+    const chosen = selectedSegments();
+    if (!chosen.length) {
+      setStatus("Tick the segments to replay; they run in the order listed.", "error");
+      return;
+    }
+    if (button) button.disabled = true;
+    try {
+      await loadReplaySecrets();
+      const missing = r.secretNames.filter((name) => !r.secrets[name]);
+      if (missing.length) {
+        renderReplay();
+        setStatus(`Fill in ${missing.join(", ")} first: the segments type ${missing.length === 1 ? "it" : "them"}.`, "error");
+        return;
+      }
+      const segments = [];
+      for (const seg of chosen) segments.push({ name: seg.name, path: seg.path, yaml: await segmentYaml(seg) });
+      const secrets = {};
+      r.secretNames.forEach((name) => {
+        secrets[name] = r.secrets[name];
+      });
+      const data = await call("segment.replay", { id: rec.id, segments, secrets, start: r.start }, { timeoutMs: 30000 });
+      revokeShots();
+      r.result = null;
+      r.running = data.replay || null;
+      // The card disables saving and holding at once, not at the next poll.
+      if (view.recording && r.running) view.recording = Object.assign({}, view.recording, { replay: r.running });
+      setStatus(`Replaying ${chosen.map((seg) => seg.name).join(", ")}.`, "");
+      renderSession();
+      renderReplay();
+      scheduleReplayPoll();
+    } catch (error) {
+      if (error.code === "missing_secrets" && error.data && Array.isArray(error.data.missing)) {
+        r.extraSecretNames = error.data.missing.map(String);
+        await loadReplaySecrets();
+        renderReplay();
+        setStatus(`Fill in ${error.data.missing.join(", ")} first: the segments type ${error.data.missing.length === 1 ? "it" : "them"}.`, "error");
+      } else {
+        setStatus(`Could not start the replay: ${errorText(error)}`, "error");
+      }
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function stopReplay(button) {
+    const rec = view.recording;
+    if (!rec) return;
+    if (button) button.disabled = true;
+    try {
+      const data = await call("replay.stop", { id: rec.id }, { timeoutMs: 15000 });
+      if (data.replay) view.replay.running = data.replay;
+      setStatus("Stopping the replay after the step it is on.", "");
+      renderReplay();
+    } catch (error) {
+      setStatus(errorText(error), "error");
+      if (button) button.disabled = false;
+    }
   }
 
   // Writes a saved log into the assistant's workspace and tells the
@@ -1374,14 +1836,19 @@
     const rec = view.recording;
     if (!rec) return;
     const pending = Number(rec.summary && rec.summary.actions) || 0;
-    if (view.unsaved) {
+    const replaying = Boolean(rec.replay && rec.replay.status === "running");
+    if (replaying) {
+      if (!(await confirmAction("A replay is running on this device. Stop it and finish the recording?", "Finish"))) return;
+    } else if (view.unsaved) {
       if (!(await confirmAction(`Recording ${view.unsaved.name} is not saved in the assistant's workspace. Finish anyway? Download it first to keep it.`, "Finish"))) return;
     } else if (pending > 0) {
       if (!(await confirmAction(`${pending} recorded ${pending === 1 ? "action is" : "actions are"} not saved. Finish without ${pending === 1 ? "it" : "them"}? Press Save recording first to keep ${pending === 1 ? "it" : "them"}.`, "Finish"))) return;
     }
     if (button) button.disabled = true;
     try {
-      await call("session.finish", { id: rec.id }, { credentials: credentials(), timeoutMs: 120000 });
+      // The bridge lets a running replay finish its step and hand the
+      // device back first.
+      await call("session.finish", { id: rec.id }, { credentials: credentials(), timeoutMs: replaying ? 300000 : 120000 });
     } catch (error) {
       if (error.code !== "not_found") {
         setStatus(errorText(error), "error");
@@ -1391,6 +1858,8 @@
     }
     view.recording = null;
     view.unsaved = null;
+    stopReplayPolling();
+    view.replay = freshReplay();
     remember();
     if (view.done.length) sendChat("Recording finished. Compile any segment not imported yet.");
     setStatus("Recording finished; the device is released.", "success");
@@ -1417,6 +1886,7 @@
     view.recording = rec;
     view.others = view.others.filter((item) => item.id !== id);
     view.done = [];
+    view.replay = freshReplay();
     remember();
     setStatus("Continuing that recording here; what you save goes into this assistant's workspace.", "success");
     renderAll();
@@ -1488,6 +1958,15 @@
       copyText(copy, copy.dataset.recordingCopy || "");
       return;
     }
+    const replayButton = target.closest("[data-replay-action]");
+    if (replayButton && replayButton.closest("[data-recording-root]")) {
+      const action = replayButton.dataset.replayAction;
+      if (action === "start") startReplay(replayButton);
+      else if (action === "stop") stopReplay(replayButton);
+      else if (action === "refresh") loadReplaySegments();
+      else if (action === "save-again") saveReplay();
+      return;
+    }
     const button = target.closest("[data-recording-action]");
     const root = button && button.closest("[data-recording-root]");
     if (!button || !root) return;
@@ -1528,7 +2007,22 @@
       const custom = root.querySelector("[data-recording-custom-id]");
       const file = target.files && target.files[0];
       if (custom && file && !custom.value.trim()) custom.value = suggestCustomId(file.name);
+    } else if (target.matches("[data-replay-segment]")) {
+      const r = view.replay;
+      const name = target.dataset.replaySegment;
+      r.touched = true;
+      r.checked = r.checked.filter((item) => item !== name);
+      if (target.checked) r.checked.push(name);
+      loadReplaySecrets().then(renderReplay);
+    } else if (target.matches("[data-replay-start]")) {
+      view.replay.start = target.value;
     }
+  });
+
+  // Secret values stay in this page's memory as they are typed.
+  document.addEventListener("input", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target && target.matches("[data-replay-secret]")) view.replay.secrets[target.dataset.replaySecret] = target.value;
   });
 
   document.addEventListener("htmx:afterSwap", (event) => {
@@ -1548,6 +2042,8 @@
     openRecordingPanel,
     parseSegments,
     savedMessage,
+    replayMessage,
+    segmentSecrets,
     proxyForBridge,
     splitProxyLogin,
     suggestCustomId,
