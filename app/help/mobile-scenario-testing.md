@@ -14,9 +14,10 @@ order: 15
    negative, each Examples row with its expected results.
 3. You approve the scenarios on the task page (a review card: tick the ones to
    keep, say what to change).
-4. You record short segments on a real BrowserStack device from your computer:
-   log in, skip the introduction, choose a currency. Each is recorded once per
-   platform.
+4. You record a scenario in one go on a real BrowserStack device from your
+   computer, once per platform. The assistant proposes how to split the
+   recording into reusable segments (log in, skip the introduction, choose a
+   currency), and you confirm the split.
 5. The assistant turns the approved scenarios and your segments into a plain
    Python test project (the Gherkin you approved, its step definitions, and
    the segments as functions, each recorded line marked `# recorded:`),
@@ -33,7 +34,7 @@ order: 15
 
 | What | Where |
 | --- | --- |
-| Recording segments | Your computer: the Recording panel drives the local bridge, which drives the BrowserStack device |
+| Recording scenarios | Your computer: the Recording panel drives the local bridge, which drives the BrowserStack device |
 | Compiling segments, writing and exporting the tests, triage | The assistant, on files only |
 | Dry runs, full runs, reruns | Your team's Jenkins pipeline, running the Python project with behave and the Appium client |
 
@@ -55,13 +56,14 @@ Portal and the assistants never connect to BrowserStack.
   the expected results in each Examples row; a row without them cannot be
   checked, and the assistant flags it instead of inventing a value.
 
-## Recording a segment
+## Recording a scenario
 
 Open a chat with the assistant and choose **Recording** in the tool bar.
 
 1. If the panel says the local bridge is not running, press **Start bridge**.
-2. Pick a build (or upload one), the platform, optionally a device, and list
-   the segments you will record, then **Start recording device**. The bridge
+2. Pick a build (or upload one), the platform, and optionally a device, then
+   **Start recording device**. Leave *Segment names* empty unless you want to
+   save each part yourself under names you choose. The bridge
    starts the device and holds it; the panel shows what it is doing and says
    when the device is ready, usually within a minute, longer when all your
    parallel sessions are busy. A reload of the page picks the start up again;
@@ -79,10 +81,13 @@ Open a chat with the assistant and choose **Recording** in the tool bar.
    the assistant names each one (for example `MOBILE_SECRET_PASSWORD`) for the
    pipeline's credentials. The other values become parameters for your test
    data.
-6. Press **Segment done**. The segment goes into the assistant's workspace;
-   the assistant compiles it and tells you how robust it is. Carry on with the
-   next segment on the same device.
-7. **Finish recording** when you are done. The device is released.
+6. Go through the whole scenario, then press **Save recording**. The
+   recording goes into the assistant's workspace. The assistant lays it out by
+   the screens it went through and proposes where to split it into segments,
+   on a review card in the chat: approve the split or say what to change. It
+   then compiles each segment and tells you how robust it is.
+7. To record another scenario on the same device, carry on and save again.
+   **Finish recording** when you are done. The device is released.
 
 The device is held for 30 minutes at a time; **Hold 30 more minutes** extends
 it. Keep the bridge running while you record: BrowserStack ends a session that

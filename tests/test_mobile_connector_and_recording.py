@@ -249,9 +249,13 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert "/api/mobile/recording-config" in js
     # The hosted Inspector attaches to the bridge on this computer.
     assert 'hostname: "127.0.0.1"' in js and "path: `/mobile/wd/${rec.id}`" in js and "ssl: false" in js
-    # Segments land where the record-mobile-segment skill looks for them.
+    # Recordings land where the record-mobile-segment skill looks for them,
+    # announced with the messages it answers to.
     assert 'const RECORDINGS_DIR = "mobile/recordings";' in js
-    assert "Segment ${segment} recorded: ${path}" in js
+    assert "Segment ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
+    assert "Recording finished. Compile any segment not imported yet." in js
+    # Segment names are optional: a member records the whole scenario.
+    assert "Segment names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
 
 
 def test_recording_button_is_wired_into_the_tool_panel():
@@ -305,6 +309,8 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         const assert = require("node:assert/strict");
         const M = window.EfpMobileTesting;
         assert.deepEqual(M.parseSegments("seg-login\\n seg skip intro , ../x\\n\\n"), ["seg-login", "seg-skip-intro", "x"]);
+        assert.equal(M.savedMessage("seg-login", "mobile/recordings/seg-login.wdlog.json", ["seg-login"]), "Segment seg-login recorded: mobile/recordings/seg-login.wdlog.json");
+        assert.equal(M.savedMessage("recording-1", "mobile/recordings/recording-1.wdlog.json", []), "Recording recording-1 saved: mobile/recordings/recording-1.wdlog.json");
         assert.equal(M.suggestCustomId("FXApp-1.4.2-uat.apk"), "fxapp-uat-android");
         assert.equal(M.suggestCustomId("notes.txt"), "");
         (async () => {

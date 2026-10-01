@@ -6,7 +6,7 @@
  * the local bridge (`efp-bridge`, the Local bridge connector's program):
  * its /mobile/* routes list and upload builds, start a recording device with
  * mobile-auto and hold it, and proxy Appium Inspector's WebDriver traffic for
- * that device, logging what the segment compiler needs. The page sends the
+ * that device, logging what the compiler needs. The page sends the
  * member's BrowserStack credentials with each call; the bridge keeps them in
  * memory. Test runs go through the team's Jenkins pipeline, which the
  * assistant starts.
@@ -343,10 +343,12 @@
   //    it is "active" (or "failed", with the error), so a slow start neither
   //    holds one request open for minutes nor gets killed by a page timeout.
   // 2. Record: the hosted Inspector opens attached to the device through the
-  //    bridge (or the desktop Inspector attaches to the bridge by hand).
-  //    "Segment done" takes the segment's log from the bridge and writes it
-  //    into the assistant's workspace; the chat message tells the assistant,
-  //    which compiles it.
+  //    bridge (or the desktop Inspector attaches to the bridge by hand). The
+  //    member records the whole scenario; "Save recording" takes the log from
+  //    the bridge (the bridge's segment.done) and writes it into the
+  //    assistant's workspace. The chat message tells the assistant: a
+  //    recording it splits into segments with the member, or, when the member
+  //    listed segment names, a segment it compiles whole.
   // 3. Finish releases the device.
 
   const RECORDINGS_DIR = "mobile/recordings";
@@ -405,6 +407,14 @@
       .map((item) => item.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[-.]+/, ""))
       .filter(Boolean)
       .slice(0, 30);
+  }
+
+  // The chat message for a saved file: a name the member listed is a segment
+  // the assistant compiles whole; any other is a recording of the scenario,
+  // which the assistant proposes to split into segments.
+  function savedMessage(name, path, planned) {
+    const names = Array.isArray(planned) ? planned : view.planned;
+    return names.indexOf(name) >= 0 ? `Segment ${name} recorded: ${path}` : `Recording ${name} saved: ${path}`;
   }
 
   function nextPlanned(name) {
@@ -482,7 +492,7 @@
         <div data-recording-setup></div>
         <section class="efp-recording-section" data-recording-start-section>
           <h5>1 · Start a recording device</h5>
-          <p class="portal-panel-note">The local bridge on this computer starts a BrowserStack device with the build and holds it while you record short segments.</p>
+          <p class="portal-panel-note">The local bridge on this computer starts a BrowserStack device with the build and holds it while you record.</p>
           <label class="portal-form-label"><span class="portal-form-label">Build</span>
             <select class="portal-form-select" data-recording-app><option value="">Looking for your builds…</option></select>
           </label>
@@ -506,9 +516,10 @@
               <input class="portal-form-input" data-recording-device placeholder="Google Pixel 8" />
             </label>
           </div>
-          <label class="portal-form-label"><span class="portal-form-label">Segments to record, in order</span>
-            <textarea class="portal-form-textarea" rows="3" data-recording-segments placeholder="seg-login&#10;seg-skip-intro&#10;seg-select-currency"></textarea>
+          <label class="portal-form-label"><span class="portal-form-label">Segment names (optional)</span>
+            <textarea class="portal-form-textarea" rows="2" data-recording-segments placeholder="seg-login&#10;seg-select-currency"></textarea>
           </label>
+          <p class="portal-inline-note">Leave it empty to record the whole scenario in one go: the assistant proposes how to split it into segments, and you confirm. List names only to save each part yourself, in this order.</p>
           <div class="efp-card-actions"><button type="button" class="portal-btn is-primary" data-recording-action="start"><i data-lucide="play" class="w-4 h-4"></i>Start recording device</button></div>
           <div data-recording-others></div>
         </section>
@@ -610,7 +621,7 @@
     }
     target.innerHTML = view.others.map((rec) => `
       <div class="portal-inline-state is-visible is-warning">
-        This computer still holds a device from another recording: ${esc(rec.device || rec.platform || "a device")}, segment ${esc(rec.segment || "")}.
+        This computer still holds a device from another recording: ${esc(rec.device || rec.platform || "a device")}, recording ${esc(rec.segment || "")}.
         <div class="efp-card-actions">
           <button type="button" class="portal-btn is-secondary" data-recording-action="adopt" data-id="${esc(rec.id)}">Continue it here</button>
           <button type="button" class="portal-btn is-secondary" data-recording-action="finish-other" data-id="${esc(rec.id)}">Release the device</button>
@@ -624,7 +635,7 @@
     const finds = Number(s.finds) || 0;
     const secrets = Number(s.secrets) || 0;
     const parts = [`${actions} ${actions === 1 ? "action" : "actions"}`, `${finds} element ${finds === 1 ? "lookup" : "lookups"}`];
-    return `This segment so far: ${parts.join(", ")}${secrets ? `, ${secrets} typed into password fields (not stored)` : ""}.`;
+    return `Not saved yet: ${parts.join(", ")}${secrets ? `, ${secrets} typed into password fields (not stored)` : ""}.`;
   }
 
   function kvRow(label, value) {
@@ -665,10 +676,11 @@
     const badge = ended ? "Ended" : (held ? "Held for you" : "Hold expired");
     const tone = !ended && held ? "success" : "warning";
     const platform = rec.platform === "ios" ? "iOS" : "Android";
-    const segment = rec.segment || view.planned[view.done.length] || "seg-1";
+    const name = rec.segment || view.planned[view.done.length] || "recording-1";
+    const planned = view.planned.length > 0;
     const port = view.bridge && view.bridge.port ? String(view.bridge.port) : "";
     const unsaved = view.unsaved
-      ? `<div class="portal-inline-state is-visible is-error">Segment ${esc(view.unsaved.segment)} is not in the assistant's workspace yet: ${esc(view.unsaved.error)}
+      ? `<div class="portal-inline-state is-visible is-error">Recording ${esc(view.unsaved.name)} is not in the assistant's workspace yet: ${esc(view.unsaved.error)}
           <div class="efp-card-actions">
             <button type="button" class="portal-btn is-secondary" data-recording-action="save-again">Save again</button>
             <button type="button" class="portal-btn is-secondary" data-recording-action="download-log">Download it</button>
@@ -676,7 +688,7 @@
         </div>`
       : "";
     const doneList = view.done.length
-      ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.segment)} <span class="efp-card-meta">${esc(item.detail)}</span></li>`).join("")}</ul>`
+      ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.name)} <span class="efp-card-meta">${esc(item.detail)}</span></li>`).join("")}</ul>`
       : "";
     return `
       <div class="efp-card efp-recording-card">
@@ -688,13 +700,16 @@
         ${rec.hold_deadline && !ended ? `<div class="efp-card-meta">Held for another <span data-recording-countdown data-deadline="${esc(rec.hold_deadline)}">${esc(remaining(rec.hold_deadline))}</span></div>` : ""}
         <div class="efp-card-meta">Build ${esc(rec.app || "")}${rec.dashboard_url ? ` · <a class="portal-link-inline" href="${esc(rec.dashboard_url)}" target="_blank" rel="noopener noreferrer">BrowserStack dashboard</a>` : ""}</div>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Current segment</span>
-        <input class="portal-form-input" data-recording-segment value="${esc(segment)}" autocomplete="off" spellcheck="false" />
+      <label class="portal-form-label"><span class="portal-form-label">${planned ? "Segment" : "Recording name"}</span>
+        <input class="portal-form-input" data-recording-name value="${esc(name)}" autocomplete="off" spellcheck="false" />
       </label>
+      <p class="portal-inline-note">${planned
+        ? "Save after each segment you listed; the name moves on to the next one."
+        : "Record the whole scenario, then save it. The assistant proposes how to split it into segments in the chat, and you confirm."}</p>
       <div class="efp-card-meta" data-recording-summary>${esc(summaryText(rec.summary))}</div>
       <div class="efp-card-actions">
         ${inspector ? `<button type="button" class="portal-btn is-primary" data-recording-action="open-inspector"><i data-lucide="external-link" class="w-4 h-4"></i>Open Inspector</button>` : ""}
-        <button type="button" class="portal-btn ${inspector ? "is-secondary" : "is-primary"}" data-recording-action="segment-done"><i data-lucide="check" class="w-4 h-4"></i>Segment done</button>
+        <button type="button" class="portal-btn ${inspector ? "is-secondary" : "is-primary"}" data-recording-action="save-recording"><i data-lucide="save" class="w-4 h-4"></i>Save recording</button>
       </div>
       ${unsaved}
       <details class="portal-collapsible"${inspector ? "" : " open"}>
@@ -702,7 +717,7 @@
         <ol class="portal-setup-guide-steps">
           <li>In Appium Inspector 2026.5.1 or later, choose <strong>Appium Server</strong>, enter the host, port, and path below, and leave SSL off.</li>
           <li>Open <strong>Attach to Session</strong>, pick this session (or paste its id), and attach.</li>
-          <li>Tap and type in the Inspector, not on the screenshot; the bridge records it. Press <strong>Segment done</strong> here after each segment.</li>
+          <li>Tap and type in the Inspector, not on the screenshot; the bridge records it. Press <strong>Save recording</strong> here when you are done.</li>
         </ol>
         ${kvRow("Remote host", "127.0.0.1")}
         ${port ? kvRow("Remote port", port) : ""}
@@ -711,7 +726,7 @@
       </details>
       <details class="portal-collapsible">
         <summary class="portal-collapsible-summary"><span>Recorded somewhere else? Upload the recorder's code</span></summary>
-        <p class="portal-inline-note">Code from Appium Inspector's recorder compiles too (Python is easiest). It is saved under the current segment's name.</p>
+        <p class="portal-inline-note">Code from Appium Inspector's recorder compiles too (Python is easiest), as one segment under the name above.</p>
         <div class="efp-card-actions">
           <input type="file" accept="${CODE_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-code />
           <button type="button" class="portal-btn is-secondary" data-recording-action="upload-code"><i data-lucide="upload" class="w-4 h-4"></i>Upload recorded code</button>
@@ -740,19 +755,19 @@
     }
     const summary = root.querySelector("[data-recording-summary]");
     if (summary) summary.textContent = summaryText(view.recording.summary);
-    // Re-render only when the recording changes, so typing in the segment
-    // field is not interrupted by the poll.
+    // Re-render only when the recording changes, so typing in the name field
+    // is not interrupted by the poll.
     const rec = view.recording;
-    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.progress, rec.segment, view.done.length, view.unsaved ? view.unsaved.segment : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : ""].join("|");
+    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.progress, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : ""].join("|");
     if (key === view.sessionKey) return;
-    const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-segment]");
-    const segmentValue = focused ? document.activeElement.value : null;
+    const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-name]");
+    const typedName = focused ? document.activeElement.value : null;
     view.sessionKey = key;
     target.innerHTML = sessionCardHtml();
-    if (segmentValue !== null) {
-      const input = target.querySelector("[data-recording-segment]");
+    if (typedName !== null) {
+      const input = target.querySelector("[data-recording-name]");
       if (input) {
-        input.value = segmentValue;
+        input.value = typedName;
         input.focus();
       }
     }
@@ -986,7 +1001,7 @@
     view.planned = parseSegments(root.querySelector("[data-recording-segments]")?.value);
     view.done = [];
     const defaults = (view.config && view.config.defaults) || {};
-    const params = { app, platform, segment: view.planned[0] || "seg-1" };
+    const params = { app, platform, segment: view.planned[0] || "recording-1" };
     if (device) params.device = device;
     if (defaults.network) params.network = defaults.network;
     if (Number(defaults.idle_timeout_seconds) > 0) params.idle_timeout_seconds = Number(defaults.idle_timeout_seconds);
@@ -1011,7 +1026,7 @@
       ].filter(Boolean);
       sendChat(lines.join("\n"));
       const inspector = view.config && view.config.inspector_available;
-      setStatus(`Device ready. ${inspector ? "Open the Inspector" : "Attach the desktop Inspector"} and record ${recording.segment}.`, "success");
+      setStatus(`Device ready. ${inspector ? "Open the Inspector" : "Attach the desktop Inspector"} and record ${view.planned.length ? recording.segment : "the scenario"}.`, "success");
     } catch (error) {
       if (error.code !== "start_timeout") {
         // The bridge no longer lists a failed start; nothing to keep.
@@ -1074,10 +1089,10 @@
       } catch (_error) {
         /* cross-origin already */
       }
-      setStatus("Inspector opened, attached to the device. Tap and type there, then press Segment done.", "success");
+      setStatus("Inspector opened, attached to the device. Tap and type there, then press Save recording.", "success");
       return;
     }
-    setStatus("Your browser blocked the new tab. Open the Inspector from this link, then press Segment done when the segment is recorded.", "warning");
+    setStatus("Your browser blocked the new tab. Open the Inspector from this link, then press Save recording when you are done.", "warning");
     const el = panelRoot()?.querySelector("[data-recording-status]");
     if (el) {
       const link = document.createElement("a");
@@ -1090,9 +1105,8 @@
     }
   }
 
-  function currentSegment(root) {
-    const value = (root.querySelector("[data-recording-segment]")?.value || "").trim();
-    return value;
+  function currentName(root) {
+    return (root.querySelector("[data-recording-name]")?.value || "").trim();
   }
 
   async function writeToWorkspace(fileName, blob) {
@@ -1108,47 +1122,48 @@
     return `${RECORDINGS_DIR}/${fileName}`;
   }
 
-  // Writes a segment's log into the assistant's workspace and tells the
-  // assistant. The bridge has already moved on to the next segment, so a
-  // failed write keeps the log here to save again or download.
-  async function saveSegment(segment, log, summary) {
-    const fileName = `${segment}.wdlog.json`;
+  // Writes a saved log into the assistant's workspace and tells the
+  // assistant. The bridge has already moved on to the next log, so a failed
+  // write keeps this one here to save again or download.
+  async function saveLog(name, log, summary) {
+    const fileName = `${name}.wdlog.json`;
     const blob = new Blob([JSON.stringify(log, null, 2)], { type: "application/json" });
     try {
       const path = await writeToWorkspace(fileName, blob);
       view.unsaved = null;
       const s = summary || {};
-      view.done.push({ segment, detail: `${Number(s.actions) || 0} actions${s.secrets ? `, ${s.secrets} secret` : ""}` });
+      view.done.push({ name, detail: `${Number(s.actions) || 0} actions${s.secrets ? `, ${s.secrets} secret` : ""}` });
       remember();
-      sendChat(`Segment ${segment} recorded: ${path}`);
+      sendChat(savedMessage(name, path));
       return path;
     } catch (error) {
-      view.unsaved = { segment, log, summary, error: errorText(error) };
+      view.unsaved = { name, log, summary, error: errorText(error) };
       return "";
     }
   }
 
-  async function segmentDone(root, button) {
+  async function saveRecording(root, button) {
     if (!view.recording) return;
     if (view.unsaved) {
-      setStatus(`Save ${view.unsaved.segment} first (Save again), or download it.`, "error");
+      setStatus(`Save ${view.unsaved.name} first (Save again), or download it.`, "error");
       return;
     }
-    const segment = currentSegment(root);
-    if (segment && !SEGMENT_NAME.test(segment)) {
-      setStatus("Segment names use letters, digits, dot, dash, and underscore, and start with a letter or digit.", "error");
+    const name = currentName(root);
+    if (name && !SEGMENT_NAME.test(name)) {
+      setStatus("Names use letters, digits, dot, dash, and underscore, and start with a letter or digit.", "error");
       return;
     }
-    view.busy = "segment";
+    view.busy = "save";
     if (button) button.disabled = true;
     try {
-      const data = await call("segment.done", { id: view.recording.id, segment, next_segment: nextPlanned(segment || view.recording.segment) }, { timeoutMs: 30000 });
+      const data = await call("segment.done", { id: view.recording.id, segment: name, next_segment: nextPlanned(name || view.recording.segment) }, { timeoutMs: 30000 });
       view.recording = Object.assign({}, view.recording, { segment: data.next_segment, summary: {} });
-      const path = await saveSegment(data.segment, data.log, data.summary);
-      if (path) setStatus(`Saved ${data.segment}; the assistant compiles it. Carry on with ${data.next_segment} in the Inspector.`, "success");
-      else setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
+      const path = await saveLog(data.segment, data.log, data.summary);
+      if (!path) setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
+      else if (view.planned.indexOf(data.segment) >= 0) setStatus(`Saved ${data.segment}; the assistant compiles it. Carry on with ${data.next_segment} in the Inspector.`, "success");
+      else setStatus(`Saved ${data.segment}; the assistant proposes how to split it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
-      setStatus(error.code === "nothing_recorded" ? "Nothing recorded in this segment yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack\u2019s own site is not seen by the bridge." : errorText(error), "error");
+      setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack\u2019s own site is not seen by the bridge." : errorText(error), "error");
     } finally {
       view.busy = "";
       if (button) button.disabled = false;
@@ -1159,8 +1174,8 @@
   async function saveAgain() {
     const unsaved = view.unsaved;
     if (!unsaved) return;
-    const path = await saveSegment(unsaved.segment, unsaved.log, unsaved.summary);
-    setStatus(path ? `Saved ${unsaved.segment}.` : `Still could not save ${unsaved.segment}: ${view.unsaved.error}`, path ? "success" : "error");
+    const path = await saveLog(unsaved.name, unsaved.log, unsaved.summary);
+    setStatus(path ? `Saved ${unsaved.name}.` : `Still could not save ${unsaved.name}: ${view.unsaved.error}`, path ? "success" : "error");
     renderSession();
   }
 
@@ -1170,14 +1185,14 @@
     const url = URL.createObjectURL(new Blob([JSON.stringify(unsaved.log, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${unsaved.segment}.wdlog.json`;
+    link.download = `${unsaved.name}.wdlog.json`;
     document.body.appendChild(link);
     link.click();
     window.setTimeout(() => {
       URL.revokeObjectURL(url);
       link.remove();
     }, 0);
-    setStatus(`Downloaded ${unsaved.segment}.wdlog.json. Upload it to ${RECORDINGS_DIR}/ in the assistant's files when you can.`, "success");
+    setStatus(`Downloaded ${unsaved.name}.wdlog.json. Upload it to ${RECORDINGS_DIR}/ in the assistant's files when you can.`, "success");
   }
 
   async function uploadCode(root) {
@@ -1193,17 +1208,18 @@
       setStatus(`Upload the recorder's code (${CODE_EXTENSIONS.join(", ")}).`, "error");
       return;
     }
-    const segment = currentSegment(root) || (view.recording && view.recording.segment) || "segment";
-    if (!SEGMENT_NAME.test(segment)) {
-      setStatus("Segment names use letters, digits, dot, dash, and underscore, and start with a letter or digit.", "error");
+    const name = currentName(root) || (view.recording && view.recording.segment) || "segment";
+    if (!SEGMENT_NAME.test(name)) {
+      setStatus("Names use letters, digits, dot, dash, and underscore, and start with a letter or digit.", "error");
       return;
     }
     try {
-      const path = await writeToWorkspace(`${segment}${ext}`, file);
-      view.done.push({ segment, detail: file.name });
+      const path = await writeToWorkspace(`${name}${ext}`, file);
+      view.done.push({ name, detail: file.name });
       remember();
-      const next = nextPlanned(segment);
-      sendChat(`Segment ${segment} recorded: ${path}`);
+      const next = nextPlanned(name);
+      // Recorder code has no screens to split by: it is one segment.
+      sendChat(`Segment ${name} recorded: ${path}`);
       setStatus(`Uploaded ${path}.${next ? ` Next: ${next}.` : ""}`, "success");
       if (next && view.recording) view.recording = Object.assign({}, view.recording, { segment: next });
       input.value = "";
@@ -1282,9 +1298,9 @@
     if (!rec) return;
     const pending = Number(rec.summary && rec.summary.actions) || 0;
     if (view.unsaved) {
-      if (!(await confirmAction(`Segment ${view.unsaved.segment} is not saved in the assistant's workspace. Finish anyway? Download it first to keep it.`, "Finish"))) return;
+      if (!(await confirmAction(`Recording ${view.unsaved.name} is not saved in the assistant's workspace. Finish anyway? Download it first to keep it.`, "Finish"))) return;
     } else if (pending > 0) {
-      if (!(await confirmAction(`The current segment has ${pending} recorded ${pending === 1 ? "action" : "actions"} that are not saved. Finish without them? Press Segment done first to keep them.`, "Finish"))) return;
+      if (!(await confirmAction(`${pending} recorded ${pending === 1 ? "action is" : "actions are"} not saved. Finish without ${pending === 1 ? "it" : "them"}? Press Save recording first to keep ${pending === 1 ? "it" : "them"}.`, "Finish"))) return;
     }
     if (button) button.disabled = true;
     try {
@@ -1325,7 +1341,7 @@
     view.others = view.others.filter((item) => item.id !== id);
     view.done = [];
     remember();
-    setStatus("Continuing that recording here; segments are saved into this assistant's workspace.", "success");
+    setStatus("Continuing that recording here; what you save goes into this assistant's workspace.", "success");
     renderAll();
   }
 
@@ -1387,7 +1403,7 @@
     else if (action === "upload-build") uploadBuildFromPanel(root, button);
     else if (action === "start") startRecording(root, button);
     else if (action === "open-inspector") openInspector();
-    else if (action === "segment-done") segmentDone(root, button);
+    else if (action === "save-recording") saveRecording(root, button);
     else if (action === "save-again") saveAgain();
     else if (action === "download-log") downloadLog();
     else if (action === "upload-code") uploadCode(root);
@@ -1434,6 +1450,7 @@
   window.EfpMobileTesting = Object.assign(window.EfpMobileTesting || {}, {
     openRecordingPanel,
     parseSegments,
+    savedMessage,
     suggestCustomId,
     probeBridge: probe,
     callBridge: call,
