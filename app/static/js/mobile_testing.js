@@ -20,6 +20,8 @@
   const PING_TIMEOUT_MS = 1500;
   const PROBE_CACHE_MS = 4000;
   const PROXY_KEY = "efp.mobile.bridge_proxy";
+  const PROXY_USER_KEY = "efp.mobile.bridge_proxy_user";
+  const PROXY_PASSWORD_KEY = "efp.mobile.bridge_proxy_password";
   const BRIDGE_MESSAGES = {
     not_running: "The local bridge is not running on this computer. Start it here; if it is not installed yet, install it from Connectors > Local bridge first.",
     outdated: "The local bridge on this computer is an older version without mobile recording. Download it again from Connectors > Local bridge and restart it.",
@@ -45,9 +47,75 @@
     }
   }
 
-  function proxySetting() {
-    return readStorage(PROXY_KEY).trim();
+  // The proxy to BrowserStack from this computer is kept in this browser: its
+  // address, and apart from it the login a corporate proxy asks for, so the
+  // password sits in a password field instead of in the address.
+  function proxySettings() {
+    return {
+      url: readStorage(PROXY_KEY).trim(),
+      username: readStorage(PROXY_USER_KEY),
+      password: readStorage(PROXY_PASSWORD_KEY),
+    };
   }
+
+  // Takes a login typed into a proxy address out of it, decoded.
+  function splitProxyLogin(value) {
+    const text = String(value || "").trim();
+    let parsed = null;
+    try {
+      parsed = new URL(text);
+    } catch (_error) {
+      parsed = null;
+    }
+    if (!parsed || (!parsed.username && !parsed.password)) return { url: text, username: "", password: "", login: false };
+    const decode = (part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch (_error) {
+        return part;
+      }
+    };
+    return { url: `${parsed.protocol}//${parsed.host}`, username: decode(parsed.username), password: decode(parsed.password), login: true };
+  }
+
+  // The proxy as the bridge takes it: one address with the login in it, each
+  // part percent-encoded (a domain user's backslash, an @ in a password).
+  function proxyForBridge(settings) {
+    const { url, username, password } = settings || proxySettings();
+    if (!url || (!username && !password)) return url;
+    let parsed = null;
+    try {
+      parsed = new URL(url);
+    } catch (_error) {
+      return url;
+    }
+    const login = encodeURIComponent(username) + (password ? `:${encodeURIComponent(password)}` : "");
+    return `${parsed.protocol}//${login}@${parsed.host}`;
+  }
+
+  // Shows the saved proxy in the fields of the connector page or the
+  // Recording panel, leaving alone the one being typed in.
+  function fillProxyFields(container) {
+    if (!container) return;
+    const settings = proxySettings();
+    container.querySelectorAll("[data-bridge-proxy]").forEach((input) => {
+      if (document.activeElement !== input) input.value = settings[input.dataset.bridgeProxy] || "";
+    });
+  }
+
+  // A login saved inside the address, before it had fields of its own, moves
+  // to them, so it is no longer shown in the clear.
+  function moveProxyLoginOutOfTheAddress() {
+    const saved = splitProxyLogin(readStorage(PROXY_KEY));
+    if (!saved.login) return;
+    writeStorage(PROXY_KEY, saved.url);
+    if (!readStorage(PROXY_USER_KEY) && !readStorage(PROXY_PASSWORD_KEY)) {
+      writeStorage(PROXY_USER_KEY, saved.username);
+      writeStorage(PROXY_PASSWORD_KEY, saved.password);
+    }
+  }
+
+  moveProxyLoginOutOfTheAddress();
 
   function sleep(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -129,7 +197,7 @@
     let state = bridgeView();
     if (!state.alive) state = await probe({ force: true });
     if (!state.alive) throw bridgeError({ code: "bridge_unreachable", message: BRIDGE_MESSAGES.not_running });
-    const body = JSON.stringify({ command, params: params || {}, credentials: credentials || {}, proxy: proxySetting() });
+    const body = JSON.stringify({ command, params: params || {}, credentials: credentials || {}, proxy: proxyForBridge() });
     let response;
     try {
       response = await fetchWithTimeout(`http://127.0.0.1:${state.port}/mobile/run`, {
@@ -181,7 +249,7 @@
       xhr.setRequestHeader("X-EFP-BS-Key", credentials.access_key || "");
       if (credentials.api_base_url) xhr.setRequestHeader("X-EFP-BS-API", credentials.api_base_url);
       if (customId) xhr.setRequestHeader("X-EFP-Custom-Id", customId);
-      const proxy = proxySetting();
+      const proxy = proxyForBridge();
       if (proxy) xhr.setRequestHeader("X-EFP-Proxy", proxy);
       xhr.timeout = 30 * 60 * 1000;
       xhr.upload.onprogress = (event) => {
@@ -314,8 +382,7 @@
   async function refreshOverview(root) {
     const status = root.querySelector("[data-mobile-bridge-status]");
     const start = root.querySelector('[data-mobile-bridge-action="start"]');
-    const proxyInput = root.querySelector("[data-mobile-bridge-proxy]");
-    if (proxyInput && document.activeElement !== proxyInput) proxyInput.value = proxySetting();
+    fillProxyFields(root);
     const state = await probe({ force: true });
     const problem = bridgeProblem(state);
     if (problem) setInline(status, BRIDGE_MESSAGES[problem], problem === "not_running" ? "warning" : "error");
@@ -486,7 +553,6 @@
   }
 
   function shellHtml() {
-    const proxy = proxySetting();
     return `
       <div class="efp-recording" data-recording-root>
         <div data-recording-setup></div>
@@ -531,9 +597,17 @@
           <summary class="portal-collapsible-summary"><span>Network from this computer</span></summary>
           <div class="portal-panel-stack">
             <label class="portal-form-label"><span class="portal-form-label">Proxy for BrowserStack (optional)</span>
-              <input class="portal-form-input" data-recording-proxy value="${esc(proxy)}" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
+              <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
             </label>
-            <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only; a proxy that asks for a login takes http://user:password@host:port.</p>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
+                <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
+              </label>
+              <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
+                <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
+              </label>
+            </div>
+            <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\\user; the password stays hidden on screen.</p>
           </div>
         </details>
         <div class="portal-inline-state" data-recording-status role="status"></div>
@@ -963,6 +1037,9 @@
       view.sessionKey = "";
     }
     show("Recording", shellHtml(), "recording");
+    fillProxyFields(panelRoot());
+    // The proxy password gets the reveal button of every settings password.
+    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(panelRoot());
     const segments = panelRoot()?.querySelector("[data-recording-segments]");
     if (segments && view.planned.length) segments.value = view.planned.join("\n");
     renderAll();
@@ -1345,29 +1422,46 @@
     renderAll();
   }
 
-  // The proxy is shared by the connector page and the Recording panel; the
-  // report goes to whichever status element the caller shows.
-  // The proxy may carry the login a corporate proxy asks for. It is kept in
-  // this browser's storage on this computer and goes only to the local
-  // bridge, which hands it to mobile-auto and BrowserStack Local.
-  function saveProxy(input, report) {
+  // Saves the proxy fields of the connector page or the Recording panel (the
+  // container); the report goes to whichever status element the caller
+  // shows. The login is kept in this browser's storage on this computer and
+  // goes only to the local bridge, which hands it to mobile-auto and
+  // BrowserStack Local. A login pasted into the address moves to the user
+  // name and password fields, so the password is never shown in the clear.
+  function saveProxy(container, report) {
     const say = report || setStatus;
-    const value = String(input.value || "").trim();
-    let parsed = null;
-    if (value) {
+    const field = (name) => container.querySelector(`[data-bridge-proxy="${name}"]`);
+    const urlInput = field("url");
+    const userInput = field("username");
+    const passwordInput = field("password");
+    const typed = splitProxyLogin(urlInput ? urlInput.value : "");
+    let username = userInput ? userInput.value.trim() : "";
+    let password = passwordInput ? passwordInput.value : "";
+    if (typed.login) {
+      username = typed.username;
+      password = typed.password;
+      if (urlInput) urlInput.value = typed.url;
+      if (userInput) userInput.value = username;
+      if (passwordInput) passwordInput.value = password;
+    }
+    if (typed.url) {
+      let parsed = null;
       try {
-        parsed = new URL(value);
+        parsed = new URL(typed.url);
       } catch (_error) {
         parsed = null;
       }
-      if (!parsed || !/^https?:$/.test(parsed.protocol)) {
-        say("The proxy is a URL such as http://proxy.example.com:8080, with user:password@ in front of the host when the proxy asks for a login.", "error");
+      if (!parsed || !/^https?:$/.test(parsed.protocol) || !parsed.hostname) {
+        say("The proxy is a URL such as http://proxy.example.com:8080; its user name and password go in their own fields.", "error");
         return false;
       }
     }
-    writeStorage(PROXY_KEY, value);
-    const saved = parsed && (parsed.username || parsed.password) ? "Proxy saved for this computer; its login stays in this browser." : "Proxy saved for this computer.";
-    say(value ? saved : "Using this computer's proxy settings.", "success");
+    writeStorage(PROXY_KEY, typed.url);
+    writeStorage(PROXY_USER_KEY, username);
+    writeStorage(PROXY_PASSWORD_KEY, password);
+    const login = Boolean(username || password);
+    if (typed.url) say(login ? "Proxy saved for this computer; its login stays in this browser." : "Proxy saved for this computer.", "success");
+    else say(login ? "Using this computer's proxy settings; the user name and password apply only with a proxy address." : "Using this computer's proxy settings.", "success");
     if (panelRoot() && ready()) loadApps();
     return true;
   }
@@ -1415,10 +1509,15 @@
 
   document.addEventListener("change", (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target && target.matches("[data-mobile-bridge-proxy]")) {
+    if (target && target.matches("[data-bridge-proxy]")) {
       const overview = target.closest("[data-mobile-overview]");
-      const result = overview && overview.parentElement ? overview.parentElement.querySelector("[data-mobile-bridge-test-result]") : null;
-      saveProxy(target, (text, tone) => setInline(result, text, tone));
+      const panel = target.closest("[data-recording-root]");
+      if (overview) {
+        const result = overview.parentElement ? overview.parentElement.querySelector("[data-mobile-bridge-test-result]") : null;
+        saveProxy(overview, (text, tone) => setInline(result, text, tone));
+      } else if (panel) {
+        saveProxy(panel);
+      }
       return;
     }
     if (!target || !target.closest("[data-recording-root]")) return;
@@ -1429,8 +1528,6 @@
       const custom = root.querySelector("[data-recording-custom-id]");
       const file = target.files && target.files[0];
       if (custom && file && !custom.value.trim()) custom.value = suggestCustomId(file.name);
-    } else if (target.matches("[data-recording-proxy]")) {
-      saveProxy(target);
     }
   });
 
@@ -1451,6 +1548,8 @@
     openRecordingPanel,
     parseSegments,
     savedMessage,
+    proxyForBridge,
+    splitProxyLogin,
     suggestCustomId,
     probeBridge: probe,
     callBridge: call,

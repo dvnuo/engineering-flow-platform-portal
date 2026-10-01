@@ -104,9 +104,11 @@ def test_browserstack_panel_tests_through_the_bridge_and_says_where_runs_happen(
         html = env.client.get("/app/connectors/browserstack/panel").text
         assert "data-mobile-bridge-test" in html and 'data-test-target="browserstack"' not in html
         # The proxy for this computer is set on the connector page too, with
-        # the login a corporate proxy asks for.
-        assert "data-mobile-bridge-proxy" in html
-        assert "http://user:password@proxy.example.com:8080" in html
+        # the login a corporate proxy asks for in fields of its own: the
+        # password in a password input, never in the address.
+        assert 'data-bridge-proxy="url"' in html and 'data-bridge-proxy="username"' in html
+        assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in html
+        assert "user:password@" not in html
         assert 'name="mobile_idle_timeout_seconds"' in html
         assert 'name="mobile_browserstack_local_mode"' not in html and 'name="mobile_browserstack_verify_ssl"' not in html
         assert "data-test-secrets" not in html and "data-app-packages" not in html
@@ -254,6 +256,8 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert 'const RECORDINGS_DIR = "mobile/recordings";' in js
     assert "Segment ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
     assert "Recording finished. Compile any segment not imported yet." in js
+    # The Recording panel has the same proxy fields, the password masked.
+    assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in js
     # Segment names are optional: a member records the whole scenario.
     assert "Segment names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
 
@@ -274,6 +278,13 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
     shim = textwrap.dedent(
         """
         globalThis.window = globalThis;
+        // A proxy saved the old way, its login inside the address.
+        const store = { "efp.mobile.bridge_proxy": "http://CORP%5Calice:s3cret@proxy2:8080" };
+        globalThis.localStorage = {
+          getItem: (key) => (key in store ? store[key] : null),
+          setItem: (key, value) => { store[key] = String(value); },
+          removeItem: (key) => { delete store[key]; },
+        };
         globalThis.document = { readyState: "complete", addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; } };
         const calls = [];
         globalThis.fetch = async (url, options = {}) => {
@@ -311,6 +322,13 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(M.parseSegments("seg-login\\n seg skip intro , ../x\\n\\n"), ["seg-login", "seg-skip-intro", "x"]);
         assert.equal(M.savedMessage("seg-login", "mobile/recordings/seg-login.wdlog.json", ["seg-login"]), "Segment seg-login recorded: mobile/recordings/seg-login.wdlog.json");
         assert.equal(M.savedMessage("recording-1", "mobile/recordings/recording-1.wdlog.json", []), "Recording recording-1 saved: mobile/recordings/recording-1.wdlog.json");
+        // The login saved inside the address moved to its own fields.
+        assert.deepEqual(store, { "efp.mobile.bridge_proxy": "http://proxy2:8080", "efp.mobile.bridge_proxy_user": "CORP\\\\alice", "efp.mobile.bridge_proxy_password": "s3cret" });
+        assert.equal(M.proxyForBridge({ url: "http://proxy2:8080", username: "CORP\\\\alice", password: "p@ss:w/rd 50%" }), "http://CORP%5Calice:p%40ss%3Aw%2Frd%2050%25@proxy2:8080");
+        assert.equal(M.proxyForBridge({ url: "http://proxy2:8080", username: "", password: "" }), "http://proxy2:8080");
+        assert.equal(M.proxyForBridge({ url: "", username: "alice", password: "x" }), "");
+        assert.deepEqual(M.splitProxyLogin("http://CORP%5Calice:p%40ss@proxy2:8080"), { url: "http://proxy2:8080", username: "CORP\\\\alice", password: "p@ss", login: true });
+        assert.deepEqual(M.splitProxyLogin("http://proxy2:8080"), { url: "http://proxy2:8080", username: "", password: "", login: false });
         assert.equal(M.suggestCustomId("FXApp-1.4.2-uat.apk"), "fxapp-uat-android");
         assert.equal(M.suggestCustomId("notes.txt"), "");
         (async () => {
@@ -319,7 +337,8 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           const plan = await M.callBridge("plan", {}, { credentials: { username: "alice", access_key: "k" } });
           assert.equal(plan.username, "alice");
           const sent = JSON.parse(calls.find((c) => c.url.endsWith("/mobile/run")).options.body);
-          assert.deepEqual(sent, { command: "plan", params: {}, credentials: { username: "alice", access_key: "k" }, proxy: "" });
+          // The bridge still gets one address, the login percent-encoded in it.
+          assert.deepEqual(sent, { command: "plan", params: {}, credentials: { username: "alice", access_key: "k" }, proxy: "http://CORP%5Calice:s3cret@proxy2:8080" });
           await assert.rejects(M.callBridge("session.status", { id: "x" }), (err) => err.code === "not_found" && /recording not found/.test(err.message));
           const up = await M.waitForDevice("r-up", { pollMs: 1 });
           assert.equal(up.status, "active");

@@ -19,9 +19,17 @@
     <button type="button" class="portal-btn is-secondary hidden" data-mobile-bridge-action="start">Start bridge</button>
   </div>
   <label class="portal-form-label"><span class="portal-form-label">Proxy to BrowserStack from this computer (optional)</span>
-    <input class="portal-form-input" data-mobile-bridge-proxy placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
+    <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
   </label>
-  <p class="portal-inline-note">Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Kept in this browser only. A proxy that asks for a login takes it in the address, http://user:password@proxy.example.com:8080 (a domain user as DOMAIN%5Cuser); it goes only to the local bridge on this computer.</p>
+  <div class="grid grid-cols-2 gap-3">
+    <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
+      <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
+      <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
+    </label>
+  </div>
+  <p class="portal-inline-note">Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Kept in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\user; the password stays hidden on screen and goes only to the local bridge on this computer.</p>
   <ul class="portal-setup-guide-steps">
     <li>Install the local bridge once from <strong>Connectors &gt; Local bridge</strong>; its package includes mobile-auto for recordings.</li>
     {% if appium_inspector_available %}

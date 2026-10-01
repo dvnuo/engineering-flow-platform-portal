@@ -35,11 +35,12 @@ it is running. Your computer needs to reach BrowserStack. Behind a proxy the
 bridge uses your computer's own proxy settings (a static proxy, a PAC script,
 or auto-detection, the way the browser does), or set one on the BrowserStack
 connector page or under *Network from this computer* in the Recording panel.
-A proxy that asks for a login takes it in the address
-(`http://user:password@proxy.example.com:8080`, a domain user as
-`DOMAIN%5Cuser`); the login stays in this browser on this computer and goes
-only to the local bridge, which hands it to mobile-auto and BrowserStack
-Local there.
+A proxy that asks for a login takes it in the *Proxy user name* and *Proxy
+password* fields below the address (a domain user as `DOMAIN\user`). The
+password field hides what you type, so sharing your screen does not show it.
+The login stays in this browser on this computer and goes only to the local
+bridge, which hands it to mobile-auto and BrowserStack Local there. A login
+saved inside the address before these fields existed moves into them.
 If **Test BrowserStack** is answered by your company's web filter block page,
 check the same address in the browser: a BrowserStack sign-in prompt means the
 bridge only needs the browser's proxy; the same block page means the network
