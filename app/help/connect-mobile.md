@@ -14,7 +14,7 @@ Only needed if you record mobile tests.
 ## Settings
 
 - **Username** and **Access Key** come from your BrowserStack account
-  settings. The Recording panel hands them to the local bridge on your
+  settings. The Mobile testing panel hands them to the local bridge on your
   computer for each recording; the bridge keeps them in memory only.
 - **Test BrowserStack** signs in from your computer through the local bridge
   and shows how many parallel sessions are in use. Start the bridge first.
@@ -34,7 +34,7 @@ you did. Install it once from that page; the BrowserStack page shows whether
 it is running. Your computer needs to reach BrowserStack. Behind a proxy the
 bridge uses your computer's own proxy settings (a static proxy, a PAC script,
 or auto-detection, the way the browser does), or set one on the BrowserStack
-connector page or under *Network from this computer* in the Recording panel.
+connector page or under *Network from this computer* in the Mobile testing panel.
 A proxy that asks for a login takes it in the *Proxy user name* and *Proxy
 password* fields below the address (a domain user as `DOMAIN\user`). The
 password field hides what you type, so sharing your screen does not show it.
@@ -48,7 +48,7 @@ must allow `api-cloud.browserstack.com` and `hub-cloud.browserstack.com`.
 
 ## Builds
 
-The Recording panel lists the builds in your BrowserStack account and uploads
+The Mobile testing panel lists the builds in your BrowserStack account and uploads
 new ones through the bridge. Give every build of an app the same custom id,
 for example `fxapp-android-uat`, so recordings and the pipeline always pick
 the newest one. BrowserStack deletes uploads after 30 days.

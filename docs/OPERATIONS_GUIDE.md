@@ -581,7 +581,7 @@ computer and test runs in Jenkins. These pieces must be current:
 
 - **The local bridge package** (the tools repository's `efp-bridge`, with
   `mobile-auto` next to it) on each tester's computer, installed from
-  Connectors > Local bridge. The Recording panel calls it on 127.0.0.1; it
+  Connectors > Local bridge. The Mobile testing panel calls it on 127.0.0.1; it
   starts and holds the recording device, uploads builds, and proxies Appium
   Inspector's WebDriver traffic. That computer needs to reach
   `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443,
@@ -629,7 +629,7 @@ OpenCode's deployment defaults include `DEFAULT_OPENCODE_PERMISSION_MODE=workspa
 
 ## 11. Provide the local bridge connector
 
-`CONNECTORS_ENABLED=true` offers the local connectors. Setting it false hides them: they disappear from the Connectors menu and `/api/connectors`, their API routes return 404, and the chat **Browser** toggle is not rendered. The Connectors menu itself and the service connectors (Jira, GitHub, and the rest) stay available. Local bridge preferences belong to each member and are stored separately from their service connector settings (`user_connectors`, not the pod Secret). The connector uses a program on that member's computer, `efp-bridge` (browser automation in a managed Chrome window, and the mobile Recording panel's BrowserStack devices), plus a relay in the open Portal browser tab.
+`CONNECTORS_ENABLED=true` offers the local connectors. Setting it false hides them: they disappear from the Connectors menu and `/api/connectors`, their API routes return 404, and the chat **Browser** toggle is not rendered. The Connectors menu itself and the service connectors (Jira, GitHub, and the rest) stay available. Local bridge preferences belong to each member and are stored separately from their service connector settings (`user_connectors`, not the pod Secret). The connector uses a program on that member's computer, `efp-bridge` (browser automation in a managed Chrome window, and the mobile Mobile testing panel's BrowserStack devices), plus a relay in the open Portal browser tab.
 
 The Portal repository does not build or bundle every platform's bridge binary. Supply the packages described in [the download directory guide](../app/static/downloads/README.md) (`efp-bridge-{platform}.zip`), or set `LOCAL_BRIDGE_DOWNLOAD_URL` to a download URL. The optional `{platform}` placeholder expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64`.
 

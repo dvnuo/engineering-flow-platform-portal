@@ -176,7 +176,7 @@ def all_guidance() -> dict[str, dict[str, Any]]:
 CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
     "local_bridge": {
         "title": "Local bridge",
-        "summary": "The EFP local bridge on your own PC: assistants read and operate pages in a Chrome window with your logins, and the Recording panel records mobile tests on BrowserStack devices from this computer.",
+        "summary": "The EFP local bridge on your own PC: assistants read and operate pages in a Chrome window with your logins, and the Mobile testing panel records mobile tests on BrowserStack devices from this computer.",
         "steps": [
             "Download the EFP local bridge package for your system from Connectors → Local bridge (Windows, macOS, or Linux; it holds the efp-bridge program, mobile-auto for mobile recordings, the installer, and a README) and unzip it into the bin folder of your home directory (%USERPROFILE%\\bin on Windows, ~/bin on macOS or Linux), overwriting any files already there.",
             "Run the installer in the unzipped folder (double-click install-bridge.cmd on Windows and enter the Portal address when it asks; ./install-bridge.sh <portal origin> on macOS or Linux), then click Start bridge on the panel and allow the efp-bridge link when Chrome asks. A Chrome window titled EFP opens with the Portal as its only tab.",

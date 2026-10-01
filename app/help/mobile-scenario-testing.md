@@ -35,7 +35,7 @@ order: 15
 
 | What | Where |
 | --- | --- |
-| Recording scenarios | Your computer: the Recording panel drives the local bridge, which drives the BrowserStack device |
+| Recording scenarios | Your computer: the Mobile testing panel drives the local bridge, which drives the BrowserStack device |
 | Compiling segments, writing and exporting the tests, triage | The assistant, on files only |
 | Dry runs, full runs, reruns | Your team's Jenkins pipeline, running the Python project with behave and the Appium client |
 
@@ -59,48 +59,53 @@ Portal and the assistants never connect to BrowserStack.
 
 ## Recording a scenario
 
-Open a chat with the assistant and choose **Recording** in the tool bar.
+Open a chat with the assistant and choose **Mobile testing** in the tool bar.
+The panel has three parts: the device at the top, a progress strip showing
+which step comes next, and the step itself. Settings (the local bridge, the
+proxy, uploading a build) sit behind the gear icon.
 
 1. If the panel says the local bridge is not running, press **Start bridge**.
-2. Pick a build (or upload one), the platform, and optionally a device, then
-   **Start recording device**. Leave *Segment names* empty unless you want to
-   save each part yourself under names you choose. The bridge
-   starts the device and holds it; the panel shows what it is doing and says
-   when the device is ready, usually within a minute, longer when all your
-   parallel sessions are busy. A reload of the page picks the start up again;
-   **Cancel** releases the device once it is up.
-3. **Open Inspector** opens Appium Inspector already attached to that device
-   (when your Portal hosts it). Otherwise attach an Inspector of your own to
-   the bridge with the host, port, and path shown in the panel: the desktop
-   app, or the Inspector plugin of an Appium server on your computer. Only
-   what goes through the Inspector is recorded; the live device view on
-   BrowserStack's own site is not seen by the bridge.
-4. Select elements in the Inspector and use its Tap and Send Keys buttons. Tap
-   elements rather than points on the screenshot: an element keeps working when
-   the layout moves, a point does not.
-5. Type real values, including passwords. Password fields are never stored;
+2. Pick a build, the platform, and optionally a device, then **Start and
+   open Inspector**. The bridge starts the device and holds it; the panel
+   shows what it is doing, usually for about a minute, longer when all your
+   parallel sessions are busy. The Inspector opens in its own tab and attaches
+   to the device as soon as it is ready; nothing to type in. (When your Portal
+   does not host the Inspector, the button reads **Start recording device**
+   and the device menu shows the connection details for the desktop Appium
+   Inspector.) A reload of the page picks the start up again; **Cancel**
+   releases the device once it is up.
+3. Record in the Inspector: select elements and use its Tap and Send Keys
+   buttons. Tap elements rather than points on the screenshot: an element
+   keeps working when the layout moves, a point does not. Only what goes
+   through the Inspector is recorded; the live device view on BrowserStack's
+   own site is not seen by the bridge. The device menu (the three dots on the
+   device card) also opens the Inspector inside Portal, next to the panel.
+4. Type real values, including passwords. Password fields are never stored;
    the assistant names each one (for example `MOBILE_SECRET_PASSWORD`) for the
    pipeline's credentials. The other values become parameters for your test
    data.
-6. Go through the whole scenario, then press **Save recording**. The
+5. Go through the whole scenario, then press **Save recording**. The
    recording goes into the assistant's workspace. The assistant lays it out by
    the screens it went through and proposes where to split it into segments,
    on a review card in the chat: approve the split or say what to change. It
-   then compiles each segment and tells you how robust it is.
-7. Replay the compiled segments under **Replay segments** before any script
-   is generated from them. Tick the segments (those of the split you just
+   then compiles each segment and tells you how robust it is. The progress
+   strip moves on to Replay once the segments exist. (If you listed segment
+   names before starting, save after each one instead; each is compiled as it
+   is.)
+6. Replay the compiled segments under **Replay** before any script is
+   generated from them. Tick the segments (those of the split you just
    approved are ticked), choose where to start (restart the app, clear its
    data first on Android, or the screen the device shows), type the values of
    the passwords they use, and press **Replay**. The replay borrows the device
    from the Inspector and hands it back when it ends; meanwhile the Inspector
-   can only watch. You see each segment's result with a screenshot after it,
-   or the step that failed and the screen it stopped on. The result goes into
-   the assistant's workspace, and the assistant reviews it: it fixes a failed
-   step and asks you to replay again. Scripts are generated once every
-   segment passes. The passwords stay in the page and the local bridge; the
-   assistant never sees them.
-8. To record another scenario on the same device, carry on and save again.
-   **Finish recording** when you are done. The device is released.
+   can only watch. The result goes into the assistant's workspace and the
+   chat, where a card shows each segment's result with a screenshot after it,
+   or the step that failed and the screen it stopped on. The assistant reviews
+   it: it fixes a failed step and asks you to replay again. Scripts are
+   generated once every segment passes. The passwords stay in the page and the
+   local bridge; the assistant never sees them.
+7. To record another scenario on the same device, carry on and save again.
+   **Finish recording** in the device menu releases the device.
 
 The device is held for 30 minutes at a time; **Hold 30 more minutes** extends
 it. Keep the bridge running while you record: BrowserStack ends a session that

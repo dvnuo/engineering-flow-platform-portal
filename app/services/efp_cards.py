@@ -6,6 +6,7 @@ body is JSON:
     ```efp-review    a checklist to approve (scenarios, a dry run)
     ```efp-evidence  one scenario run's result, screenshots, and video
     ```efp-matrix    every scenario run of a suite, live while it runs
+    ```efp-replay    a replay of compiled segments on the recording device
 
 Chat renders them in the browser (static/js/efp_cards.js). The task page
 takes them out of the response text here and places card placeholders that
@@ -18,7 +19,7 @@ import json
 import re
 from typing import Any
 
-CARD_KINDS = ("review", "evidence", "matrix")
+CARD_KINDS = ("review", "evidence", "matrix", "replay")
 MAX_CARDS = 20
 MAX_PAYLOAD_CHARS = 200_000
 REVIEW_DECISIONS = ("approve", "changes")
@@ -27,7 +28,7 @@ REVIEW_DECISIONS = ("approve", "changes")
 MOBILE_RUN_SKILLS = frozenset({"run-mobile-scenarios"})
 
 _CARD_FENCE = re.compile(
-    r"(?P<lead>^|\n)(?P<fence>`{3,}|~{3,})[ \t]*(?P<lang>efp-(?:review|evidence|matrix))[ \t]*\n"
+    r"(?P<lead>^|\n)(?P<fence>`{3,}|~{3,})[ \t]*(?P<lang>efp-(?:review|evidence|matrix|replay))[ \t]*\n"
     r"(?P<body>.*?)\n(?P=fence)[ \t]*(?=\n|$)",
     re.S,
 )

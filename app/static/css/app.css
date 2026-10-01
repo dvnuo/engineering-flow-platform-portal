@@ -6468,7 +6468,7 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 
 /* ===== Mobile scenario testing =====
    Result cards (efp_cards.js) in chat and on the task page, media previews
-   under file cards, and the Recording panel (mobile_testing.js). */
+   under file cards, and the Mobile testing panel (mobile_testing.js). */
 .portal-progress { height: 6px; border-radius: 999px; background: var(--portal-surface-soft); overflow: hidden; }
 .portal-progress > i { display: block; height: 100%; width: 0; background: var(--portal-accent); transition: width .2s ease; }
 .composer-pill-btn.is-copied { border-color: var(--portal-success); color: var(--portal-success); }
@@ -6511,24 +6511,61 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-review-warnings { margin: 4px 0 0 24px; padding-left: 16px; color: var(--portal-warning); font-size: 12px; }
 .portal-task-results { display: flex; flex-direction: column; gap: 4px; }
 
-.efp-recording { display: flex; flex-direction: column; gap: 14px; }
-.efp-recording-section { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--portal-border); }
-.efp-recording-section:last-of-type { border-bottom: 0; }
-.efp-recording-section h5 { margin: 0; color: var(--portal-text); font-size: 13px; font-weight: 700; }
+.efp-mobile { display: flex; flex-direction: column; gap: 12px; }
+.efp-mobile-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.efp-mobile-bar-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.efp-mobile-section { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--portal-border); }
+.efp-mobile-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.efp-mobile-section h5 { margin: 0; color: var(--portal-text); font-size: 13px; font-weight: 700; }
+.efp-mobile-settings h6 { margin: 0 0 4px; color: var(--portal-text); font-size: 12px; font-weight: 700; }
+.efp-settings-group { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--portal-radius-sm); background: var(--portal-surface-soft); }
+.efp-device { gap: 6px; }
+.efp-device .efp-card-head { flex-wrap: nowrap; }
+.efp-device .efp-card-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.efp-device-tools { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+.efp-device-tools > .efp-card-meta { display: inline-flex; align-items: center; gap: 4px; margin-right: 4px; font-variant-numeric: tabular-nums; }
+.efp-device-connection { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--portal-border); }
+.efp-menu { position: relative; }
+.efp-menu > summary { list-style: none; cursor: pointer; }
+.efp-menu > summary::-webkit-details-marker { display: none; }
+.efp-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 220px; display: flex; flex-direction: column; padding: 6px; border-radius: var(--portal-radius-sm); border: 1px solid var(--portal-border); background: var(--portal-surface); box-shadow: var(--portal-shadow-lg); }
+.efp-menu-list > button, .efp-menu-list > a { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--portal-text); font: inherit; font-size: 13px; text-align: left; text-decoration: none; cursor: pointer; }
+.efp-menu-list > button:hover, .efp-menu-list > a:hover { background: var(--portal-surface-soft); }
+.efp-menu-list > .is-danger { color: var(--portal-danger); }
+.efp-flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.efp-flow-step { display: flex; flex-direction: column; gap: 2px; padding: 6px 0 0; border-top: 2px solid var(--portal-border); font-size: 12px; min-width: 0; }
+.efp-flow-step.is-done { border-top-color: var(--portal-success); }
+.efp-flow-step.is-current { border-top-color: var(--portal-accent); }
+.efp-flow-label { font-weight: 600; color: var(--portal-text-muted); }
+.efp-flow-step.is-done .efp-flow-label, .efp-flow-step.is-current .efp-flow-label { color: var(--portal-text); }
+.efp-flow-step.is-current .efp-flow-label { color: var(--portal-accent); }
+.efp-flow-text { color: var(--portal-text-muted); overflow-wrap: anywhere; }
 .efp-recording-kv { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--portal-text-muted); }
 .efp-recording-kv > span { flex: 0 0 84px; }
 .efp-recording-kv code { flex: 1 1 auto; min-width: 0; padding: 2px 6px; border-radius: 6px; background: var(--portal-surface-soft); overflow-wrap: anywhere; color: var(--portal-text); }
 .efp-recording-done { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--portal-text); }
-.efp-replay { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--portal-border); }
-.efp-replay:empty { display: none; }
-.efp-replay h5 { margin: 0; color: var(--portal-text); font-size: 13px; font-weight: 700; }
+.efp-record-name .portal-form-label { margin: 0; }
 .efp-replay-list { display: flex; flex-direction: column; gap: 4px; }
-.efp-replay-row { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--portal-text); }
-.efp-replay-starts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
-.efp-replay-result { display: flex; flex-direction: column; gap: 6px; }
-.efp-replay-seg { display: flex; align-items: flex-start; gap: 6px; }
-.efp-replay-seg > i { margin-top: 3px; flex: 0 0 auto; }
-.efp-replay-seg .efp-card-meta { overflow-wrap: anywhere; }
-.efp-replay-shots { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; margin-top: 4px; }
-.efp-replay-shots img { display: block; width: 72px; height: auto; border: 1px solid var(--portal-border); border-radius: 8px; }
+.efp-replay-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--portal-text); }
+.efp-replay-mark { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; font-size: 11px; color: var(--portal-text-muted); }
+.efp-replay-mark.is-success { color: var(--portal-success); }
+.efp-replay-mark.is-error { color: var(--portal-danger); }
+.efp-replay-start { display: flex; align-items: center; gap: 8px; }
+.efp-replay-start .portal-form-select { width: auto; flex: 1 1 auto; }
+.efp-replay-outcome { display: flex; flex-direction: column; gap: 6px; }
+.efp-replay-outcome > div:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.efp-replay-card-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--portal-text); }
+.efp-replay-card-seg { display: flex; align-items: baseline; gap: 6px; }
+.efp-replay-card-seg > i { flex: 0 0 auto; align-self: center; }
+.efp-replay-card-seg.is-success > i { color: var(--portal-success); }
+.efp-replay-card-seg.is-error > i { color: var(--portal-danger); }
+.efp-workspace { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--portal-bg, var(--portal-surface)); }
+.efp-workspace-head { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--portal-border); background: var(--portal-surface); }
+.efp-workspace-head > strong { color: var(--portal-text); font-size: 14px; }
+.efp-workspace-head-actions { margin-left: auto; display: inline-flex; gap: 8px; }
+.efp-workspace-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.efp-workspace-frame { flex: 1 1 auto; min-width: 0; border: 0; background: #fff; }
+.efp-workspace-side { flex: 0 0 380px; overflow: auto; padding: 14px 16px; border-left: 1px solid var(--portal-border); background: var(--portal-surface); }
+body.efp-workspace-open { overflow: hidden; }
+@media (max-width: 1100px) { .efp-workspace-side { flex-basis: 320px; } }
 .portal-task-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; color: var(--portal-text-muted); font-size: 12px; }

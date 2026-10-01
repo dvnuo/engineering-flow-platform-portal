@@ -10144,7 +10144,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
     }
 
     if (panelKey === "recording") {
-      // The Recording panel lives in mobile_testing.js.
+      // The Mobile testing panel lives in mobile_testing.js.
       if (window.EfpMobileTesting && typeof window.EfpMobileTesting.openRecordingPanel === "function") {
         await window.EfpMobileTesting.openRecordingPanel();
       } else {

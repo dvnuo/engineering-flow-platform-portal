@@ -49,6 +49,13 @@ def test_extract_cards_removes_valid_blocks_and_keeps_broken_ones():
     assert text.startswith("Ran 2 scenarios.") and "Details below." in text
 
 
+def test_extract_cards_takes_a_replay_report():
+    text, cards = extract_cards('Replay reviewed.\n\n```efp-replay\n{"path": "mobile/replays/r1/report.json"}\n```')
+    assert [card["kind"] for card in cards] == ["replay"]
+    assert json.loads(cards[0]["payload_json"]) == {"path": "mobile/replays/r1/report.json"}
+    assert text == "Replay reviewed."
+
+
 def test_extract_cards_ignores_other_fences_and_empty_text():
     assert extract_cards("```json\n{}\n```") == ("```json\n{}\n```", [])
     assert extract_cards(None) == ("", [])
@@ -267,6 +274,7 @@ def test_efp_cards_paths_and_decision_text_in_node():
         assert.equal(C.dirname("mobile/runs/t1/matrix.json"), "mobile/runs/t1");
         assert.equal(C.contentUrl("agent 1", "a b.png"), "/a/agent%201/api/server-files/content?path=a%20b.png");
         assert.equal(C.isCardLanguage("efp-matrix"), true);
+        assert.equal(C.isCardLanguage("efp-replay"), true);
         assert.equal(C.isCardLanguage("json"), false);
         assert.equal(C.parsePayload("{oops"), null);
 
@@ -287,6 +295,28 @@ def test_efp_cards_paths_and_decision_text_in_node():
         assert.ok(html.includes('<video class="efp-evidence-video"'));
         assert.ok(html.includes("drifted"));
         assert.ok(html.includes(">Script</a>") && html.includes("path=mobile%2Fscripts%2FFX-12%2Fandroid%2Fbuy-currency_JPY.yaml"));
+
+        const rp = C.normalizeReplay({
+          status: "failed", start: "reset", platform: "android", device: "Pixel 8", app: "fxapp-android-uat", session_url: "https://app-automate.browserstack.com/s/1",
+          segments: [
+            { name: "seg-login", status: "passed", steps_total: 3, screenshot: "screenshots/01-seg-login.png", steps: [{ step: 1, ok: true }, { step: 2, ok: true, resolved_by: "fallback" }, { step: 3, ok: true }] },
+            { name: "seg-open", status: "failed", steps_total: 2, steps: [{ step: 1, ok: true }, { step: 2, ok: false, action: "tap", target: "accessibility_id=Details", error: { code: "element_not_found", message: "no element matched <b>x</b>" } }] },
+            { name: "seg-pay", status: "not_run", steps_total: 4, steps: [] },
+          ],
+          failure: { segment: "seg-open", step: 2, screenshot: "failure/screenshot.png", source: "../../../etc/passwd" },
+        }, "mobile/replays/r1");
+        assert.equal(rp.segments[0].screenshot, "mobile/replays/r1/screenshots/01-seg-login.png");
+        assert.equal(rp.segments[0].fallbacks, 1);
+        assert.equal(rp.failure.screenshot, "mobile/replays/r1/failure/screenshot.png");
+        assert.equal(rp.failure.source, "etc/passwd", "a path that climbs out of the report's folder is clamped");
+        const replayCard = C.replayCardHtml(rp, "agent-1");
+        assert.ok(replayCard.includes("Replay: 1 of 3 segments passed"));
+        assert.ok(replayCard.includes("failed at step 2 of 2: tap accessibility_id=Details"));
+        assert.ok(replayCard.includes("&lt;b&gt;x&lt;/b&gt;"), "error text must be escaped");
+        assert.ok(replayCard.includes("1 matched a fallback target"));
+        assert.ok(replayCard.includes("path=mobile%2Freplays%2Fr1%2Fscreenshots%2F01-seg-login.png"));
+        assert.ok(replayCard.includes("where seg-open stopped"));
+        assert.ok(replayCard.includes("BrowserStack session"));
 
         const summary = C.matrixSummary([{ status: "passed" }, { status: "failed" }, { status: "running" }, { status: "queued" }]);
         assert.deepEqual(summary, { total: 4, passed: 1, failed: 1, running: 1, queued: 1 });

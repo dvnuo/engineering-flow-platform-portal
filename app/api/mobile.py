@@ -1,6 +1,6 @@
-"""What the Recording panel needs from Portal, and the hosted Appium Inspector.
+"""What the Mobile testing panel needs from Portal, and the hosted Appium Inspector.
 
-Portal never talks to BrowserStack. The Recording panel in an assistant's chat
+Portal never talks to BrowserStack. The Mobile testing panel in an assistant's chat
 drives the local bridge on the member's own computer (the program of the Local
 bridge connector, `efp-bridge`), whose /mobile/* routes start and hold a
 BrowserStack device with mobile-auto and proxy Appium Inspector's WebDriver

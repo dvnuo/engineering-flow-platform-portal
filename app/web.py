@@ -933,6 +933,16 @@ def _aws_eks_cluster_view_rows(aws_section) -> list[dict]:
     return rows
 
 
+def _hosted_inspector_available() -> bool:
+    """Whether Portal serves the Appium Inspector web build at /inspector/.
+
+    The image sets the directory whether or not the build was fetched, so the
+    files are checked, the way the recording-config endpoint does.
+    """
+    raw = (get_settings().appium_inspector_dir or "").strip()
+    return bool(raw) and (Path(raw) / "index.html").is_file()
+
+
 def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | None = None) -> dict:
     raw_config = dict(raw_config_data or {})
     raw_config.pop("ssh", None)
@@ -1090,7 +1100,7 @@ def _connector_settings_panel_context(
         "connector": settings_entry(spec, raw_config_data),
         "connector_template": spec.panel_template,
         "connector_extra_template": spec.panel_extra_template,
-        "appium_inspector_available": bool((get_settings().appium_inspector_dir or "").strip()),
+        "appium_inspector_available": _hosted_inspector_available(),
         "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
         "status_type": status_type,

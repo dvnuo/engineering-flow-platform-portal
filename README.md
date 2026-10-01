@@ -31,7 +31,7 @@ See the [full documentation index](docs/README.md) for troubleshooting, screensh
 - **Usage Tracking** - Monitor agent usage and costs
 - **Skills** - Discover available workflows by typing `/` in chat or choosing a task/delegation skill
 - **Tasks and Delegations** - Run tasks and configure work triggered by schedules or supported external sources
-- **Local Bridge Connector** - The EFP local bridge (`efp-bridge`) on the member's computer: lets a compatible runtime use a managed Chrome window there, and holds BrowserStack devices for the mobile Recording panel
+- **Local Bridge Connector** - The EFP local bridge (`efp-bridge`) on the member's computer: lets a compatible runtime use a managed Chrome window there, and holds BrowserStack devices for the mobile Mobile testing panel
 - **Administration** - Manage member access, assistant types, and default connectors
 - **Diagrams** - A `` ```mermaid `` fence in an assistant reply renders inline with a Diagram | Code switch; Copy hands back the source for a README, a pull request, or Confluence Gliffy's Mermaid import
 

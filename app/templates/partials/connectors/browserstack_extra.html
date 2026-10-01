@@ -12,7 +12,7 @@
     Portal and the assistants do not connect to BrowserStack. Recording runs on this computer through the local bridge,
     the program of <strong>Connectors &gt; Local bridge</strong>: it starts a BrowserStack device with the settings above,
     holds it while you record, and passes Appium Inspector's commands to it. Open a chat with your assistant and choose
-    <strong>Recording</strong> in the tool bar.
+    <strong>Mobile testing</strong> in the tool bar.
   </p>
   <div class="flex items-center gap-2">
     <div class="portal-inline-state is-visible" data-mobile-bridge-status role="status">Looking for the local bridge…</div>
@@ -33,11 +33,11 @@
   <ul class="portal-setup-guide-steps">
     <li>Install the local bridge once from <strong>Connectors &gt; Local bridge</strong>; its package includes mobile-auto for recordings.</li>
     {% if appium_inspector_available %}
-    <li>Portal hosts Appium Inspector: the Recording panel opens it already attached to the device. Nothing else to install.</li>
+    <li>Portal hosts Appium Inspector: the Mobile testing panel opens it already attached to the device. Nothing else to install.</li>
     {% else %}
-    <li>Install <a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a> 2026.5.1 or later; the Recording panel shows how to attach it to the device.</li>
+    <li>Install <a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a> 2026.5.1 or later; the Mobile testing panel shows how to attach it to the device.</li>
     {% endif %}
-    <li>Upload the build to record in the Recording panel, or pick one your pipeline already uploaded.</li>
+    <li>Upload the build to record in the Mobile testing panel, or pick one your pipeline already uploaded.</li>
     <li>Type real values while recording. Password fields are never stored; they become names such as <code>MOBILE_SECRET_PASSWORD</code>.</li>
   </ul>
 </section>

@@ -18,7 +18,7 @@ For installation and use, see the [Beginner Guide](BEGINNER_GUIDE.md). Portal co
 | connector_type | Stable string id, e.g. `local_bridge`, `jira`, `llm`. |
 | kind | `local` (needs the chat page as a bridge to the user's machine) or `settings` (the runtime talks to the service directly with credentials delivered through the pod Secret at boot). |
 | client_id | Random id generated per Portal browser tab (`sessionStorage`). Identifies which tab (and therefore which machine) executes local requests for one chat turn. |
-| bridge | The page-side dispatcher plus the local program it talks to. For `local_bridge` (shown as **Local bridge**) the local program is `efp-bridge` from `engineering-flow-platform-tools` (its `docs/BRIDGE.md`): browser automation for the runtime's `browser` tool, and mobile recording, which the Recording panel calls directly. |
+| bridge | The page-side dispatcher plus the local program it talks to. For `local_bridge` (shown as **Local bridge**) the local program is `efp-bridge` from `engineering-flow-platform-tools` (its `docs/BRIDGE.md`): browser automation for the runtime's `browser` tool, and mobile recording, which the Mobile testing panel calls directly. |
 
 ## 1. Chat request (page → Portal)
 

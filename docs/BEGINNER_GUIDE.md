@@ -442,7 +442,7 @@ GitHub review requests are deduplicated. When a newer pull-request head supersed
 
 ## 14. Connect the local bridge
 
-The local bridge is one program on your computer, `efp-bridge`, with two uses: the assistant operates a separate EFP Chrome window there (browser automation), and the Recording panel records mobile tests on BrowserStack devices from there (see the in-app help topic *Mobile scenario testing*). This section sets up browser automation; mobile recording needs nothing more than your BrowserStack connector.
+The local bridge is one program on your computer, `efp-bridge`, with two uses: the assistant operates a separate EFP Chrome window there (browser automation), and the Mobile testing panel records mobile tests on BrowserStack devices from there (see the in-app help topic *Mobile scenario testing*). This section sets up browser automation; mobile recording needs nothing more than your BrowserStack connector.
 
 The browser automation lets the assistant operate a separate EFP Chrome window on your computer. That window has its own browser profile and logins. Open Portal in a supported Chromium browser such as Chrome or Edge, and use an assistant you own (or can manage as an administrator). A shared assistant owned by someone else cannot complete the connector response path.
 

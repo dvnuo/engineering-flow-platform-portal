@@ -1,6 +1,6 @@
 /**
  * Mobile testing in the Portal page: the BrowserStack connector's checks and
- * the Recording panel (assistant chat tool bar > Recording).
+ * the Mobile testing panel (assistant chat tool bar > Recording).
  *
  * Portal never talks to BrowserStack. The member's own computer does, through
  * the local bridge (`efp-bridge`, the Local bridge connector's program):
@@ -94,7 +94,7 @@
   }
 
   // Shows the saved proxy in the fields of the connector page or the
-  // Recording panel, leaving alone the one being typed in.
+  // Mobile testing panel, leaving alone the one being typed in.
   function fillProxyFields(container) {
     if (!container) return;
     const settings = proxySettings();
@@ -403,32 +403,44 @@
     }
   }
 
-  // ---- Recording panel --------------------------------------------------------
+  // ---- Mobile testing panel --------------------------------------------------
   //
-  // 1. Start: the bridge starts a BrowserStack device with the chosen build
-  //    and holds it for 30 minutes at a time. session.start answers at once
-  //    with the recording "starting"; the panel polls session.status until
-  //    it is "active" (or "failed", with the error), so a slow start neither
-  //    holds one request open for minutes nor gets killed by a page timeout.
-  // 2. Record: the hosted Inspector opens attached to the device through the
-  //    bridge (or the desktop Inspector attaches to the bridge by hand). The
-  //    member records the whole scenario; "Save recording" takes the log from
-  //    the bridge (the bridge's segment.done) and writes it into the
+  // The member's computer's side of mobile scenario testing: a BrowserStack
+  // device the local bridge holds, recording on it with Appium Inspector, and
+  // replaying compiled segments on it. The chat is where the assistant splits
+  // a recording, reviews a replay, and generates scripts; the panel's progress
+  // strip says which of those comes next.
+  //
+  // 1. Start: session.start answers at once with the recording "starting";
+  //    the panel polls session.status until it is "active" (or "failed", with
+  //    the error). When Portal hosts the Inspector, Start also opens a tab
+  //    that lands in the Inspector, attached to the device, once it is ready.
+  // 2. Record: the member records the whole scenario; "Save recording" takes
+  //    the log from the bridge (segment.done) and writes it into the
   //    assistant's workspace. The chat message tells the assistant: a
   //    recording it splits into segments with the member, or, when the member
   //    listed segment names, a segment it compiles whole.
-  // 3. Finish releases the device.
+  // 3. Replay: compiled segments run on the held device (segment.replay); the
+  //    result goes into the workspace and the chat, where the assistant
+  //    reviews it.
+  // 4. Finish releases the device.
 
+  const PANEL_TITLE = "Mobile testing";
   const RECORDINGS_DIR = "mobile/recordings";
+  const SEGMENTS_DIR = "mobile/segments";
+  const REPLAYS_DIR = "mobile/replays";
+  const SCENARIOS_DIR = "mobile/scenarios";
   const POLL_MS = 5000;
   const STATUS_EVERY = 12;
   const START_POLL_MS = 3000;
   const START_TIMEOUT_MS = 16 * 60 * 1000;
+  const REPLAY_POLL_MS = 2000;
   const CODE_EXTENSIONS = [".py", ".java", ".js", ".rb", ".robot", ".cs"];
   const BUILD_EXTENSIONS = [".apk", ".aab", ".ipa"];
   const SEGMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
   const CUSTOM_ID = /^[A-Za-z0-9._-]{1,100}$/;
   const RECORDING_KEY_PREFIX = "efp.mobile.recording:";
+  const AUTO_INSPECTOR_KEY = "efp.mobile.auto_inspector";
 
   const view = {
     agentId: "",
@@ -444,18 +456,31 @@
     unsaved: null,
     busy: "",
     sessionKey: "",
+    formKey: "",
     polls: 0,
     replay: freshReplay(),
+    // flow is what the workspace says about the steps after recording: the
+    // latest split, the compiled segments, and the scenario plan.
+    flow: null,
+    settingsOpen: false,
+    connectionOpen: false,
+    // inspectorTab is the tab Start opened to land in the Inspector.
+    inspectorTab: null,
+    // workspace is the overlay that holds the Inspector inside Portal.
+    workspace: null,
   };
   let pollTimer = 0;
   let tickTimer = 0;
+  let replayTimer = 0;
 
   function currentAgentId() {
     return typeof window.currentPortalAgentId === "function" ? (window.currentPortalAgentId() || "") : "";
   }
 
+  // The panel's root: in the Inspector workspace while that is open, else in
+  // the tool panel.
   function panelRoot() {
-    return document.querySelector("#tool-panel-body [data-recording-root]");
+    return document.querySelector("[data-recording-workspace] [data-recording-root]") || document.querySelector("#tool-panel-body [data-recording-root]");
   }
 
   function sendChat(text) {
@@ -468,6 +493,15 @@
 
   function credentials() {
     return view.config && view.config.credentials ? view.config.credentials : null;
+  }
+
+  function inspectorAvailable() {
+    return Boolean(view.config && view.config.inspector_available);
+  }
+
+  // Start opens a tab for the Inspector unless the member switched it off.
+  function autoInspector() {
+    return readStorage(AUTO_INSPECTOR_KEY) !== "off";
   }
 
   function parseSegments(text) {
@@ -497,7 +531,9 @@
     if (!Number.isFinite(ms)) return "";
     if (ms <= 0) return "expired";
     const total = Math.floor(ms / 1000);
-    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
 
   function suggestCustomId(fileName) {
@@ -513,8 +549,6 @@
     return base.endsWith(platform) ? base : `${base}-${platform}`.slice(0, 100);
   }
 
-  // The recording this assistant's panel holds survives a page reload: the
-  // bridge keeps it, the browser remembers which one it was.
   function storageKey() {
     return RECORDING_KEY_PREFIX + view.agentId;
   }
@@ -554,92 +588,103 @@
     return true;
   }
 
+  // ---- rendering ---------------------------------------------------------------
+
   function shellHtml() {
     return `
-      <div class="efp-recording" data-recording-root>
-        <div data-recording-setup></div>
-        <section class="efp-recording-section" data-recording-start-section>
-          <h5>1 · Start a recording device</h5>
-          <p class="portal-panel-note">The local bridge on this computer starts a BrowserStack device with the build and holds it while you record.</p>
-          <label class="portal-form-label"><span class="portal-form-label">Build</span>
-            <select class="portal-form-select" data-recording-app><option value="">Looking for your builds…</option></select>
-          </label>
-          <details class="portal-collapsible" data-recording-upload>
-            <summary class="portal-collapsible-summary"><span>Upload a build</span></summary>
-            <div class="portal-panel-stack">
-              <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
-              <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
-                <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
-              </label>
-              <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline can keep using the same name.</p>
-              <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
-              <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button></div>
-            </div>
-          </details>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="portal-form-label"><span class="portal-form-label">Platform</span>
-              <select class="portal-form-select" data-recording-platform><option value="android">Android</option><option value="ios">iOS</option></select>
-            </label>
-            <label class="portal-form-label"><span class="portal-form-label">Device (optional)</span>
-              <input class="portal-form-input" data-recording-device placeholder="Google Pixel 8" />
-            </label>
-          </div>
-          <label class="portal-form-label"><span class="portal-form-label">Segment names (optional)</span>
-            <textarea class="portal-form-textarea" rows="2" data-recording-segments placeholder="seg-login&#10;seg-select-currency"></textarea>
-          </label>
-          <p class="portal-inline-note">Leave it empty to record the whole scenario in one go: the assistant proposes how to split it into segments, and you confirm. List names only to save each part yourself, in this order.</p>
-          <div class="efp-card-actions"><button type="button" class="portal-btn is-primary" data-recording-action="start"><i data-lucide="play" class="w-4 h-4"></i>Start recording device</button></div>
-          <div data-recording-others></div>
-        </section>
-        <section class="efp-recording-section hidden" data-recording-session-section>
-          <h5>2 · Record</h5>
-          <div data-recording-session></div>
-        </section>
-        <details class="portal-collapsible">
-          <summary class="portal-collapsible-summary"><span>Network from this computer</span></summary>
-          <div class="portal-panel-stack">
-            <label class="portal-form-label"><span class="portal-form-label">Proxy for BrowserStack (optional)</span>
-              <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
-            </label>
-            <div class="grid grid-cols-2 gap-3">
-              <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
-                <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
-              </label>
-              <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
-                <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
-              </label>
-            </div>
-            <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\\user; the password stays hidden on screen.</p>
-          </div>
-        </details>
+      <div class="efp-mobile" data-recording-root>
+        <div class="efp-mobile-bar" data-recording-bar></div>
+        <div data-recording-device></div>
+        <div data-recording-flow></div>
+        <section class="efp-mobile-section hidden" data-recording-record></section>
+        <section class="efp-mobile-section hidden" data-recording-replay></section>
+        <section class="efp-mobile-section efp-mobile-settings hidden" data-recording-settings></section>
         <div class="portal-inline-state" data-recording-status role="status"></div>
       </div>`;
   }
 
-  function renderSetup() {
-    const target = panelRoot()?.querySelector("[data-recording-setup]");
-    if (!target) return;
-    const config = view.config;
-    if (!config) {
-      target.innerHTML = `<div class="portal-inline-state is-visible">Checking your BrowserStack settings and the local bridge…</div>`;
-      return;
-    }
-    if (!config.configured) {
-      target.innerHTML = `<div class="portal-inline-state is-visible is-warning">${esc(config.problem || "Set up the BrowserStack connector first.")}</div>`;
-      return;
-    }
-    const problem = bridgeProblem(view.bridge);
-    if (!problem) {
-      target.innerHTML = `<div class="efp-card-meta">Recording through the local bridge on 127.0.0.1:${esc(view.bridge.port)}.</div>`;
-      return;
-    }
-    const start = problem === "not_running"
-      ? `<button type="button" class="portal-btn is-primary" data-recording-action="start-bridge"${view.busy === "bridge" ? " disabled" : ""}><i data-lucide="plug" class="w-4 h-4"></i>Start bridge</button>`
-      : "";
-    target.innerHTML = `
-      <div class="portal-inline-state is-visible ${problem === "not_running" ? "is-warning" : "is-error"}">${esc(BRIDGE_MESSAGES[problem])}</div>
-      <div class="efp-card-actions">${start}<button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button></div>`;
+  function renderAll() {
+    renderBar();
+    renderDevice();
+    renderApps();
+    renderOthers();
+    renderFlow();
+    renderRecord();
+    renderReplay();
+    renderSettings();
     renderIcons();
+  }
+
+  // renderSession re-renders what a recording's state changes: the device
+  // card, the Record block, and the Replay block.
+  function renderSession() {
+    renderDevice();
+    renderRecord();
+    renderReplay();
+    renderFlow();
+    renderIcons();
+  }
+
+  // The bar names the bridge, or what is wrong with it, and holds Settings.
+  function renderBar() {
+    const bar = panelRoot()?.querySelector("[data-recording-bar]");
+    if (!bar) return;
+    const config = view.config;
+    let main;
+    if (!config) {
+      main = `<span class="efp-card-meta">Checking your BrowserStack settings and the local bridge…</span>`;
+    } else if (!config.configured) {
+      main = `<div class="portal-inline-state is-visible is-warning">${esc(config.problem || "Set up the BrowserStack connector first (Connectors > BrowserStack).")}</div>`;
+    } else {
+      const problem = bridgeProblem(view.bridge);
+      if (!problem) {
+        main = `<span class="efp-card-meta">Local bridge on 127.0.0.1:${esc(view.bridge.port)}</span>`;
+      } else {
+        const start = problem === "not_running"
+          ? `<button type="button" class="portal-btn is-primary" data-recording-action="start-bridge"${view.busy === "bridge" ? " disabled" : ""}><i data-lucide="plug" class="w-4 h-4"></i>Start bridge</button>`
+          : "";
+        main = `
+          <div class="portal-inline-state is-visible ${problem === "not_running" ? "is-warning" : "is-error"}">${esc(BRIDGE_MESSAGES[problem])}</div>
+          <div class="efp-card-actions">${start}<button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button></div>`;
+      }
+    }
+    bar.innerHTML = `<div class="efp-mobile-bar-main">${main}</div>
+      <button type="button" class="toolbar-icon-btn" data-recording-action="settings" title="Settings" aria-label="Settings" aria-pressed="${view.settingsOpen ? "true" : "false"}"><i data-lucide="settings" class="w-4 h-4"></i></button>`;
+  }
+
+  function startLabel() {
+    return inspectorAvailable() && autoInspector() ? "Start and open Inspector" : "Start recording device";
+  }
+
+  function startFormHtml() {
+    return `
+      <div class="efp-card efp-device">
+        <div class="efp-card-head"><strong class="efp-card-title">Start a device</strong></div>
+        <p class="efp-card-meta">The local bridge starts a BrowserStack device with the build and holds it while you record and replay.</p>
+        <label class="portal-form-label"><span class="portal-form-label">Build</span>
+          <select class="portal-form-select" data-recording-app><option value="">Looking for your builds…</option></select>
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="portal-form-label"><span class="portal-form-label">Platform</span>
+            <select class="portal-form-select" data-recording-platform><option value="android">Android</option><option value="ios">iOS</option></select>
+          </label>
+          <label class="portal-form-label"><span class="portal-form-label">Device (optional)</span>
+            <input class="portal-form-input" data-recording-device-name placeholder="Google Pixel 8" />
+          </label>
+        </div>
+        <details class="portal-collapsible">
+          <summary class="portal-collapsible-summary"><span>Segment names (optional)</span></summary>
+          <div class="portal-panel-stack">
+            <textarea class="portal-form-textarea" rows="2" data-recording-segments placeholder="seg-login&#10;seg-select-currency"></textarea>
+            <p class="portal-inline-note">Leave this empty to record the whole scenario in one go: the assistant proposes how to split it into segments, and you confirm. List names only to save each part yourself, in this order.</p>
+          </div>
+        </details>
+        <div class="efp-card-actions">
+          <button type="button" class="portal-btn is-primary" data-recording-action="start"><i data-lucide="play" class="w-4 h-4"></i>${esc(startLabel())}</button>
+          <button type="button" class="portal-btn is-secondary" data-recording-action="settings-upload"><i data-lucide="upload" class="w-4 h-4"></i>Upload a build</button>
+        </div>
+      </div>
+      <div data-recording-others></div>`;
   }
 
   function appLabel(app) {
@@ -661,9 +706,7 @@
     } else if (!view.apps) {
       options = `<option value="">Looking for your builds…</option>`;
     } else if (!view.apps.length) {
-      options = `<option value="">No builds on BrowserStack yet; upload one below</option>`;
-      const upload = panelRoot()?.querySelector("[data-recording-upload]");
-      if (upload) upload.open = true;
+      options = `<option value="">No builds on BrowserStack yet; upload one</option>`;
     } else {
       options = view.apps.map((app) => {
         const value = app.custom_id || app.app_url;
@@ -708,10 +751,9 @@
   function summaryText(summary) {
     const s = summary || {};
     const actions = Number(s.actions) || 0;
-    const finds = Number(s.finds) || 0;
     const secrets = Number(s.secrets) || 0;
-    const parts = [`${actions} ${actions === 1 ? "action" : "actions"}`, `${finds} element ${finds === 1 ? "lookup" : "lookups"}`];
-    return `Not saved yet: ${parts.join(", ")}${secrets ? `, ${secrets} typed into password fields (not stored)` : ""}.`;
+    if (!actions) return "Nothing recorded since the last save";
+    return `${actions} ${actions === 1 ? "action" : "actions"} not saved${secrets ? ` (${secrets} typed into password fields, not stored)` : ""}`;
   }
 
   function kvRow(label, value) {
@@ -725,15 +767,18 @@
     return minutes ? `${minutes}:${String(seconds).padStart(2, "0")}` : `${seconds}s`;
   }
 
+  function platformLabel(rec) {
+    return rec.platform === "ios" ? "iOS" : "Android";
+  }
+
   function startingCardHtml(rec) {
-    const platform = rec.platform === "ios" ? "iOS" : "Android";
     const since = Date.parse(rec.started_at || "") || Date.now();
     return `
-      <div class="efp-card efp-recording-card">
+      <div class="efp-card efp-device">
         <div class="efp-card-head">
           <span class="portal-status-badge is-warning">Starting</span>
           <strong class="efp-card-title">${esc(rec.device || "BrowserStack device")}</strong>
-          <span class="efp-card-meta">${esc(platform)}</span>
+          <span class="efp-card-meta">${esc(platformLabel(rec))}</span>
         </div>
         <div class="efp-card-meta">Build ${esc(rec.app || "")}</div>
         <div class="efp-card-meta">${esc(rec.progress || "starting the device on BrowserStack")}… <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></div>
@@ -743,19 +788,238 @@
       </div>`;
   }
 
-  function sessionCardHtml() {
-    const rec = view.recording;
-    if (rec.status === "starting") return startingCardHtml(rec);
-    const inspector = Boolean(view.config && view.config.inspector_available);
+  // How the desktop Inspector, or any Appium Inspector of the member's own,
+  // reaches the device through the bridge.
+  function connectionHtml(rec) {
+    const port = view.bridge && view.bridge.port ? String(view.bridge.port) : "";
+    return `
+      <div class="efp-device-connection">
+        <p class="portal-inline-note">In Appium Inspector 2026.5.1 or later choose <strong>Appium Server</strong>, enter these, leave SSL off, then <strong>Attach to Session</strong> and pick this session.</p>
+        ${kvRow("Remote host", "127.0.0.1")}
+        ${port ? kvRow("Remote port", port) : ""}
+        ${kvRow("Remote path", `/mobile/wd/${rec.id}`)}
+        ${rec.session_id ? kvRow("Session id", rec.session_id) : ""}
+      </div>`;
+  }
+
+  function deviceCardHtml(rec) {
     const ended = rec.status && rec.status !== "active";
     const held = rec.hold_deadline && remaining(rec.hold_deadline) !== "expired";
-    const badge = ended ? "Ended" : (held ? "Held for you" : "Hold expired");
+    const badge = ended ? "Ended" : (held ? "Held" : "Hold expired");
     const tone = !ended && held ? "success" : "warning";
-    const platform = rec.platform === "ios" ? "iOS" : "Android";
-    const name = rec.segment || view.planned[view.done.length] || "recording-1";
-    const planned = view.planned.length > 0;
     const replaying = Boolean(rec.replay && rec.replay.status === "running");
-    const port = view.bridge && view.bridge.port ? String(view.bridge.port) : "";
+    const inspector = inspectorAvailable();
+    const menu = [
+      inspector ? `<button type="button" data-recording-action="open-inspector"><i data-lucide="external-link" class="w-4 h-4"></i>Open Inspector in a new tab</button>` : "",
+      inspector ? `<button type="button" data-recording-action="open-workspace"><i data-lucide="layout-panel-left" class="w-4 h-4"></i>Open Inspector here</button>` : "",
+      `<button type="button" data-recording-action="connection"><i data-lucide="link" class="w-4 h-4"></i>${view.connectionOpen ? "Hide connection details" : "Connection details"}</button>`,
+      rec.dashboard_url ? `<a href="${esc(rec.dashboard_url)}" target="_blank" rel="noopener noreferrer"><i data-lucide="smartphone" class="w-4 h-4"></i>BrowserStack dashboard</a>` : "",
+      `<button type="button" class="is-danger" data-recording-action="finish"><i data-lucide="square" class="w-4 h-4"></i>Finish recording</button>`,
+    ].filter(Boolean).join("");
+    return `
+      <div class="efp-card efp-device">
+        <div class="efp-card-head">
+          <span class="portal-status-badge is-${tone}">${esc(badge)}</span>
+          <strong class="efp-card-title">${esc(rec.device || "BrowserStack device")}</strong>
+          <span class="efp-card-meta">${esc(platformLabel(rec))}${rec.os_version ? ` ${esc(rec.os_version)}` : ""}</span>
+          <span class="efp-device-tools">
+            ${rec.hold_deadline && !ended ? `<span class="efp-card-meta" title="Held for another"><i data-lucide="timer" class="w-3 h-3"></i> <span data-recording-countdown data-deadline="${esc(rec.hold_deadline)}">${esc(remaining(rec.hold_deadline))}</span></span>` : ""}
+            <button type="button" class="toolbar-icon-btn" data-recording-action="extend" title="Hold 30 more minutes" aria-label="Hold 30 more minutes"${replaying ? " disabled" : ""}><i data-lucide="timer-reset" class="w-4 h-4"></i></button>
+            <details class="efp-menu">
+              <summary class="toolbar-icon-btn" title="More" aria-label="More"><i data-lucide="ellipsis" class="w-4 h-4"></i></summary>
+              <div class="efp-menu-list">${menu}</div>
+            </details>
+          </span>
+        </div>
+        <div class="efp-card-meta">Build ${esc(rec.app || "")}</div>
+        ${view.connectionOpen ? connectionHtml(rec) : ""}
+      </div>`;
+  }
+
+  function renderDevice() {
+    const target = panelRoot()?.querySelector("[data-recording-device]");
+    if (!target) return;
+    const rec = view.recording;
+    if (!rec) {
+      // The start form keeps what the member typed across polls.
+      const key = ["form", startLabel(), view.config ? view.config.configured : ""].join("|");
+      if (view.formKey !== key || !target.querySelector("[data-recording-app]")) {
+        view.formKey = key;
+        target.innerHTML = startFormHtml();
+        const segments = target.querySelector("[data-recording-segments]");
+        if (segments && view.planned.length) segments.value = view.planned.join("\n");
+        renderApps();
+        renderOthers();
+      }
+      return;
+    }
+    view.formKey = "";
+    target.innerHTML = rec.status === "starting" ? startingCardHtml(rec) : deviceCardHtml(rec);
+  }
+
+  // ---- progress ------------------------------------------------------------------
+
+  function recordingPlatform() {
+    if (view.recording) return view.recording.platform === "ios" ? "ios" : "android";
+    const platform = panelRoot()?.querySelector("[data-recording-platform]")?.value;
+    return platform === "ios" ? "ios" : "android";
+  }
+
+  // What the workspace says: recordings saved, the latest split and whether its
+  // parts are compiled, the compiled segments, and the scenario plan with
+  // each segment's status.
+  async function loadFlow() {
+    if (!view.agentId) return;
+    const platform = recordingPlatform();
+    const key = `${view.agentId}|${platform}|${view.recording ? view.recording.app : ""}`;
+    try {
+      const [recordings, segments, scenarios] = await Promise.all([
+        listWorkspace(RECORDINGS_DIR),
+        listWorkspace(`${SEGMENTS_DIR}/${platform}`),
+        listWorkspace(SCENARIOS_DIR),
+      ]);
+      const files = (items) => items.filter((item) => item.is_file !== false);
+      const segmentNames = files(segments).filter((item) => /\.ya?ml$/i.test(item.name || "")).map((item) => String(item.name).replace(/\.ya?ml$/i, ""));
+      const splits = files(recordings).filter((item) => /\.split\.json$/.test(item.name || ""));
+      splits.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
+      let split = null;
+      for (const item of splits) {
+        try {
+          const doc = JSON.parse(await readWorkspaceText(`${RECORDINGS_DIR}/${item.name}`));
+          if (doc.platform && doc.platform !== platform) continue;
+          const parts = (Array.isArray(doc.parts) ? doc.parts : []).map((part) => String(part.segment || "")).filter(Boolean);
+          split = { name: item.name, parts, compiled: parts.filter((name) => segmentNames.includes(name)) };
+          break;
+        } catch (_error) {
+          /* a split the assistant is still writing */
+        }
+      }
+      const plans = [];
+      const dirs = scenarios.filter((item) => item.is_dir || item.type === "directory").slice(0, 8);
+      for (const dir of dirs) {
+        try {
+          const doc = JSON.parse(await readWorkspaceText(`${SCENARIOS_DIR}/${dir.name}/scenarios.json`));
+          if (doc && Array.isArray(doc.segments)) plans.push(Object.assign({ __key: dir.name }, doc));
+        } catch (_error) {
+          /* not a plan */
+        }
+      }
+      const app = view.recording ? view.recording.app : "";
+      plans.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+      const plan = plans.find((doc) => app && doc.apps && doc.apps[platform] === app) || plans[0] || null;
+      view.flow = {
+        key,
+        platform,
+        recordings: files(recordings).filter((item) => /\.wdlog\.json$/.test(item.name || "")).length,
+        segments: segmentNames,
+        split,
+        plan: plan ? {
+          key: plan.__key,
+          segments: plan.segments.map((seg) => ({ name: String(seg.name || ""), status: seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "") })).filter((seg) => seg.name),
+          pipeline: plan.pipeline && typeof plan.pipeline === "object" ? plan.pipeline : {},
+        } : null,
+      };
+    } catch (_error) {
+      view.flow = { key, platform, error: true, recordings: 0, segments: [], split: null, plan: null };
+    }
+    renderFlow();
+    renderReplay();
+    renderIcons();
+  }
+
+  // The four steps after a device is up, each with where it stands.
+  function flowSteps() {
+    const flow = view.flow || { recordings: 0, segments: [], split: null, plan: null };
+    const rec = view.recording;
+    const unsaved = rec ? Number(rec.summary && rec.summary.actions) || 0 : 0;
+    const savedNow = view.done.length;
+    const record = {};
+    if (!rec) record.text = flow.recordings ? `${flow.recordings} saved` : "start a device";
+    else if (savedNow) record.text = `${savedNow} saved${unsaved ? `, ${unsaved} not saved` : ""}`;
+    else record.text = unsaved ? `${unsaved} ${unsaved === 1 ? "action" : "actions"} not saved` : "record in the Inspector";
+    record.done = savedNow > 0 || (!rec && flow.recordings > 0);
+
+    const split = {};
+    const planned = flow.plan ? flow.plan.segments.filter((seg) => seg.status !== "to_record") : [];
+    if (flow.split && flow.split.parts.length) {
+      const all = flow.split.compiled.length === flow.split.parts.length;
+      split.text = all ? `${flow.split.parts.length} segments` : "approve the split in the chat";
+      split.done = all;
+    } else if (flow.segments.length) {
+      split.text = `${flow.segments.length} ${flow.segments.length === 1 ? "segment" : "segments"}`;
+      split.done = true;
+    } else if (record.done) {
+      split.text = "the assistant proposes it in the chat";
+    } else {
+      split.text = "after recording";
+    }
+
+    const replay = {};
+    const lastResult = view.replay.result && view.replay.result.result ? view.replay.result.result.report : null;
+    if (planned.length) {
+      const passed = planned.filter((seg) => seg.status === "replayed").length;
+      replay.text = passed === planned.length ? "all passed" : `${passed} of ${planned.length} passed`;
+      replay.done = passed === planned.length;
+    } else if (lastResult && Array.isArray(lastResult.segments)) {
+      const passed = lastResult.segments.filter((seg) => seg.status === "passed").length;
+      replay.text = passed === lastResult.segments.length ? "all passed" : `${passed} of ${lastResult.segments.length} passed`;
+      replay.done = passed === lastResult.segments.length;
+    } else if (split.done) {
+      replay.text = "replay the segments";
+    } else {
+      replay.text = "after the split";
+    }
+
+    const scripts = {};
+    const pipeline = flow.plan ? flow.plan.pipeline : {};
+    if (pipeline.pull_request) {
+      scripts.text = "pull request opened";
+      scripts.done = true;
+    } else if (pipeline.branch) {
+      scripts.text = `exported to ${pipeline.branch}`;
+      scripts.done = true;
+    } else if (replay.done) {
+      scripts.text = "ask the assistant in the chat";
+    } else {
+      scripts.text = "after the replay";
+    }
+
+    const steps = [
+      { label: "Record", ...record },
+      { label: "Split", ...split },
+      { label: "Replay", ...replay },
+      { label: "Scripts", ...scripts },
+    ];
+    let current = true;
+    return steps.map((step) => {
+      let state = "todo";
+      if (step.done) state = "done";
+      else if (current) {
+        state = "current";
+        current = false;
+      }
+      return { label: step.label, text: step.text, state };
+    });
+  }
+
+  function renderFlow() {
+    const target = panelRoot()?.querySelector("[data-recording-flow]");
+    if (!target) return;
+    if (!view.recording && !(view.flow && (view.flow.recordings || view.flow.segments.length))) {
+      target.innerHTML = "";
+      return;
+    }
+    target.innerHTML = `<ol class="efp-flow">${flowSteps().map((step) => `
+      <li class="efp-flow-step is-${step.state}"><span class="efp-flow-label">${esc(step.label)}</span><span class="efp-flow-text">${esc(step.text)}</span></li>`).join("")}</ol>`;
+  }
+
+  // ---- Record ------------------------------------------------------------------------
+
+  function recordHtml(rec) {
+    const inspector = inspectorAvailable();
+    const replaying = Boolean(rec.replay && rec.replay.status === "running");
+    const planned = view.planned.length > 0;
+    const name = rec.segment || view.planned[view.done.length] || "recording-1";
     const unsaved = view.unsaved
       ? `<div class="portal-inline-state is-visible is-error">Recording ${esc(view.unsaved.name)} is not in the assistant's workspace yet: ${esc(view.unsaved.error)}
           <div class="efp-card-actions">
@@ -768,81 +1032,58 @@
       ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.name)} <span class="efp-card-meta">${esc(item.detail)}</span></li>`).join("")}</ul>`
       : "";
     return `
-      <div class="efp-card efp-recording-card">
-        <div class="efp-card-head">
-          <span class="portal-status-badge is-${tone}">${esc(badge)}</span>
-          <strong class="efp-card-title">${esc(rec.device || "BrowserStack device")}</strong>
-          <span class="efp-card-meta">${esc(platform)}${rec.os_version ? ` ${esc(rec.os_version)}` : ""}</span>
-        </div>
-        ${rec.hold_deadline && !ended ? `<div class="efp-card-meta">Held for another <span data-recording-countdown data-deadline="${esc(rec.hold_deadline)}">${esc(remaining(rec.hold_deadline))}</span></div>` : ""}
-        <div class="efp-card-meta">Build ${esc(rec.app || "")}${rec.dashboard_url ? ` · <a class="portal-link-inline" href="${esc(rec.dashboard_url)}" target="_blank" rel="noopener noreferrer">BrowserStack dashboard</a>` : ""}</div>
+      <div class="efp-mobile-section-head">
+        <h5>Record</h5>
+        <span class="efp-card-meta" data-recording-summary>${esc(summaryText(rec.summary))}</span>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">${planned ? "Segment" : "Recording name"}</span>
-        <input class="portal-form-input" data-recording-name value="${esc(name)}" autocomplete="off" spellcheck="false" />
-      </label>
       <p class="portal-inline-note">${planned
         ? "Save after each segment you listed; the name moves on to the next one."
-        : "Record the whole scenario, then save it. The assistant proposes how to split it into segments in the chat, and you confirm."}</p>
-      <div class="efp-card-meta" data-recording-summary>${esc(summaryText(rec.summary))}</div>
+        : "Record the whole scenario in the Inspector, then save it. The assistant proposes how to split it into segments in the chat."}</p>
+      <div class="efp-record-name">
+        <label class="portal-form-label"><span class="portal-form-label">${planned ? "Segment" : "Save as"}</span>
+          <input class="portal-form-input" data-recording-name value="${esc(name)}" autocomplete="off" spellcheck="false" />
+        </label>
+      </div>
       <div class="efp-card-actions">
         ${inspector ? `<button type="button" class="portal-btn is-primary" data-recording-action="open-inspector"><i data-lucide="external-link" class="w-4 h-4"></i>Open Inspector</button>` : ""}
         <button type="button" class="portal-btn ${inspector ? "is-secondary" : "is-primary"}" data-recording-action="save-recording"${replaying ? " disabled" : ""}><i data-lucide="save" class="w-4 h-4"></i>Save recording</button>
       </div>
       ${unsaved}
-      <details class="portal-collapsible"${inspector ? "" : " open"}>
-        <summary class="portal-collapsible-summary"><span>Record with the desktop Appium Inspector</span></summary>
-        <ol class="portal-setup-guide-steps">
-          <li>In Appium Inspector 2026.5.1 or later, choose <strong>Appium Server</strong>, enter the host, port, and path below, and leave SSL off.</li>
-          <li>Open <strong>Attach to Session</strong>, pick this session (or paste its id), and attach.</li>
-          <li>Tap and type in the Inspector, not on the screenshot; the bridge records it. Press <strong>Save recording</strong> here when you are done.</li>
-        </ol>
-        ${kvRow("Remote host", "127.0.0.1")}
-        ${port ? kvRow("Remote port", port) : ""}
-        ${kvRow("Remote path", `/mobile/wd/${rec.id}`)}
-        ${rec.session_id ? kvRow("Session id", rec.session_id) : ""}
-      </details>
-      <details class="portal-collapsible">
-        <summary class="portal-collapsible-summary"><span>Recorded somewhere else? Upload the recorder's code</span></summary>
-        <p class="portal-inline-note">Code from Appium Inspector's recorder compiles too (Python is easiest), as one segment under the name above.</p>
-        <div class="efp-card-actions">
-          <input type="file" accept="${CODE_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-code />
-          <button type="button" class="portal-btn is-secondary" data-recording-action="upload-code"><i data-lucide="upload" class="w-4 h-4"></i>Upload recorded code</button>
-        </div>
-      </details>
       ${doneList}
-      <section class="efp-replay" data-recording-replay></section>
-      <div class="efp-card-actions">
-        <button type="button" class="portal-btn is-secondary" data-recording-action="extend"${replaying ? " disabled" : ""}><i data-lucide="timer" class="w-4 h-4"></i>Hold 30 more minutes</button>
-        <button type="button" class="portal-btn is-secondary" data-recording-action="finish"><i data-lucide="square" class="w-4 h-4"></i>Finish recording</button>
-      </div>`;
+      <details class="portal-collapsible"${inspector ? "" : " open"}>
+        <summary class="portal-collapsible-summary"><span>Other ways to record</span></summary>
+        <div class="portal-panel-stack">
+          <p class="portal-inline-note">The desktop Appium Inspector, or the Inspector plugin of an Appium server on this computer, attaches to the device through the bridge with the connection details in the device menu.</p>
+          <p class="portal-inline-note">Code from Appium Inspector's recorder compiles too (Python is easiest), as one segment under the name above.</p>
+          <div class="efp-card-actions">
+            <input type="file" accept="${CODE_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-code />
+            <button type="button" class="portal-btn is-secondary" data-recording-action="upload-code"><i data-lucide="upload" class="w-4 h-4"></i>Upload recorded code</button>
+          </div>
+        </div>
+      </details>`;
   }
 
-  function renderSession() {
-    const root = panelRoot();
-    if (!root) return;
-    const startSection = root.querySelector("[data-recording-start-section]");
-    const sessionSection = root.querySelector("[data-recording-session-section]");
-    const target = root.querySelector("[data-recording-session]");
-    if (startSection) startSection.classList.toggle("hidden", Boolean(view.recording));
-    if (sessionSection) sessionSection.classList.toggle("hidden", !view.recording);
+  function renderRecord() {
+    const target = panelRoot()?.querySelector("[data-recording-record]");
     if (!target) return;
-    if (!view.recording) {
+    const rec = view.recording;
+    if (!rec || rec.status !== "active") {
       target.innerHTML = "";
+      target.classList.add("hidden");
       view.sessionKey = "";
       return;
     }
-    syncReplay();
-    const summary = root.querySelector("[data-recording-summary]");
-    if (summary) summary.textContent = summaryText(view.recording.summary);
+    target.classList.remove("hidden");
+    const summary = target.querySelector("[data-recording-summary]");
+    if (summary) summary.textContent = summaryText(rec.summary);
     // Re-render only when the recording changes, so typing in the name field
     // is not interrupted by the poll.
-    const rec = view.recording;
-    const key = [rec.id, rec.session_id, rec.hold_deadline, rec.status, rec.progress, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.bridge ? view.bridge.port : "", view.config ? view.config.inspector_available : "", rec.replay ? rec.replay.status : ""].join("|");
+    const key = [rec.id, rec.session_id, rec.status, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.planned.length, inspectorAvailable(), rec.replay ? rec.replay.status : ""].join("|");
     if (key === view.sessionKey) return;
     const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-name]");
     const typedName = focused ? document.activeElement.value : null;
     view.sessionKey = key;
-    target.innerHTML = sessionCardHtml();
+    target.innerHTML = recordHtml(rec);
     if (typedName !== null) {
       const input = target.querySelector("[data-recording-name]");
       if (input) {
@@ -850,18 +1091,85 @@
         input.focus();
       }
     }
-    renderReplay();
-    if (rec.status === "active" && view.replay.segments === null && !view.replay.loading) loadReplaySegments();
+  }
+
+  // ---- Settings ----------------------------------------------------------------------
+
+  function settingsHtml() {
+    const problem = view.config && view.config.configured ? bridgeProblem(view.bridge) : "";
+    const bridge = !view.bridge
+      ? "Looking for the local bridge…"
+      : (problem ? BRIDGE_MESSAGES[problem] : `Running on 127.0.0.1:${view.bridge.port}${view.bridge.version ? ` (version ${view.bridge.version})` : ""}.`);
+    return `
+      <div class="efp-mobile-section-head"><h5>Settings</h5></div>
+      <div class="efp-settings-group">
+        <h6>Local bridge</h6>
+        <p class="efp-card-meta">${esc(bridge)}</p>
+        <div class="efp-card-actions">
+          ${problem === "not_running" ? `<button type="button" class="portal-btn is-secondary" data-recording-action="start-bridge"${view.busy === "bridge" ? " disabled" : ""}><i data-lucide="plug" class="w-4 h-4"></i>Start bridge</button>` : ""}
+          <button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button>
+          <a class="portal-link-inline" href="#/connectors/local_bridge">Connectors &gt; Local bridge</a>
+        </div>
+      </div>
+      ${inspectorAvailable() ? `
+      <div class="efp-settings-group">
+        <h6>Appium Inspector</h6>
+        <label class="efp-replay-row"><input type="checkbox" data-recording-auto-inspector${autoInspector() ? " checked" : ""} /><span>Open the Inspector in a new tab when the device is ready</span></label>
+        <p class="portal-inline-note">Portal hosts the Inspector; it attaches to the device through the bridge on this computer. The device menu opens it inside Portal instead.</p>
+      </div>` : `
+      <div class="efp-settings-group">
+        <h6>Appium Inspector</h6>
+        <p class="portal-inline-note">This Portal does not host the Inspector, so recording uses the desktop Appium Inspector with the connection details in the device menu. An administrator can bundle it in the Portal image.</p>
+      </div>`}
+      <div class="efp-settings-group">
+        <h6>Proxy to BrowserStack from this computer</h6>
+        <label class="portal-form-label"><span class="portal-form-label">Proxy (optional)</span>
+          <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
+            <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
+            <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
+          </label>
+        </div>
+        <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\\user; the password stays hidden on screen.</p>
+      </div>
+      <div class="efp-settings-group" data-recording-upload>
+        <h6>Upload a build to BrowserStack</h6>
+        <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
+        <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
+          <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
+        </label>
+        <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
+        <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
+        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button></div>
+      </div>`;
+  }
+
+  function renderSettings() {
+    const target = panelRoot()?.querySelector("[data-recording-settings]");
+    if (!target) return;
+    target.classList.toggle("hidden", !view.settingsOpen);
+    if (!view.settingsOpen) {
+      target.innerHTML = "";
+      return;
+    }
+    if (target.querySelector("[data-recording-build]")) return;
+    target.innerHTML = settingsHtml();
+    fillProxyFields(target);
+    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(target);
+  }
+
+  function toggleSettings(open) {
+    view.settingsOpen = typeof open === "boolean" ? open : !view.settingsOpen;
+    renderBar();
+    renderSettings();
     renderIcons();
   }
 
-  function renderAll() {
-    renderSetup();
-    renderApps();
-    renderOthers();
-    renderSession();
-    renderIcons();
-  }
+  // ---- loading -----------------------------------------------------------------------
 
   async function loadConfig() {
     try {
@@ -928,24 +1236,26 @@
 
   async function refreshAll() {
     await Promise.all([loadConfig(), probe({ force: true }).then((state) => { view.bridge = state; })]);
-    renderSetup();
+    renderBar();
+    renderSettings();
     if (!bridgeProblem(view.bridge)) {
       // A held recording shows up without waiting for the build list.
       await Promise.all([
         ready() ? loadApps() : Promise.resolve(),
-        loadRecordings().then(() => {
-          renderOthers();
-          renderSession();
-        }),
+        loadRecordings().then(() => renderSession()),
       ]);
     }
     renderAll();
+    loadFlow();
   }
 
   function recordingGone(message) {
     view.recording = null;
     view.unsaved = null;
+    stopReplayPolling();
+    view.replay = freshReplay();
     remember();
+    closeWorkspace({ rerender: false });
     setStatus(message || "The local bridge no longer holds this recording (it was finished elsewhere, or the bridge restarted). Start a new one when you are ready.", "warning");
     renderAll();
   }
@@ -991,7 +1301,7 @@
       }
       if (error.code === "bridge_unreachable") {
         view.bridge = await probe({ force: true });
-        renderSetup();
+        renderBar();
         setStatus("Lost the local bridge. Start it again to carry on; BrowserStack releases the device about 5 minutes after the last command.", "warning");
         return;
       }
@@ -1033,23 +1343,26 @@
     const show = typeof window.setToolPanel === "function" ? window.setToolPanel : null;
     if (!show) return;
     if (!agentId) {
-      show("Recording", "<div class='portal-inline-state is-visible'>Select an assistant first.</div>", "recording");
+      show(PANEL_TITLE, "<div class='portal-inline-state is-visible'>Select an assistant first.</div>", "recording");
+      return;
+    }
+    if (view.workspace && view.agentId === agentId) {
+      // The panel lives in the Inspector workspace while that is open.
+      view.workspace.focus();
       return;
     }
     if (view.agentId !== agentId) {
+      closeWorkspace({ rerender: false });
       Object.assign(view, {
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
-        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", polls: 0, replay: freshReplay(),
+        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", formKey: "", polls: 0,
+        replay: freshReplay(), flow: null, settingsOpen: false, connectionOpen: false, inspectorTab: null,
       });
     } else {
       view.sessionKey = "";
+      view.formKey = "";
     }
-    show("Recording", shellHtml(), "recording");
-    fillProxyFields(panelRoot());
-    // The proxy password gets the reveal button of every settings password.
-    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(panelRoot());
-    const segments = panelRoot()?.querySelector("[data-recording-segments]");
-    if (segments && view.planned.length) segments.value = view.planned.join("\n");
+    show(PANEL_TITLE, shellHtml(), "recording");
     renderAll();
     await refreshAll();
     schedule();
@@ -1057,7 +1370,8 @@
 
   async function startBridge() {
     view.busy = "bridge";
-    renderSetup();
+    renderBar();
+    renderSettings();
     setStatus("Starting the local bridge… allow the efp-bridge link if Chrome asks.", "");
     try {
       view.bridge = await launchAndWait();
@@ -1066,11 +1380,57 @@
     }
     if (bridgeProblem(view.bridge)) {
       setStatus("The bridge did not start. Install it from Connectors > Local bridge, or start it from there and check again.", "error");
-      renderSetup();
+      renderBar();
+      renderSettings();
       return;
     }
     setStatus("", "");
     await refreshAll();
+  }
+
+  // ---- starting a device ------------------------------------------------------------------
+
+  // A tab opened while the member's click is still being handled is not
+  // blocked as a pop-up; it waits for the device and then lands in the
+  // Inspector.
+  function openInspectorTabEarly() {
+    if (!inspectorAvailable() || !autoInspector()) return null;
+    let tab = null;
+    try {
+      tab = window.open("", "_blank");
+      if (tab) {
+        tab.document.write(`<!doctype html><title>Appium Inspector</title><body style="margin:0;font-family:system-ui,sans-serif;color:#333;display:flex;align-items:center;justify-content:center;height:100vh"><p>Starting the BrowserStack device… this tab opens Appium Inspector once it is ready.</p></body>`);
+        tab.document.close();
+      }
+    } catch (_error) {
+      tab = null;
+    }
+    return tab;
+  }
+
+  function landInspectorTab() {
+    const tab = view.inspectorTab;
+    view.inspectorTab = null;
+    if (!tab || tab.closed) return false;
+    try {
+      tab.location.href = inspectorUrl();
+      tab.focus();
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function closeInspectorTab() {
+    const tab = view.inspectorTab;
+    view.inspectorTab = null;
+    if (tab && !tab.closed) {
+      try {
+        tab.close();
+      } catch (_error) {
+        /* the member closes it */
+      }
+    }
   }
 
   async function startRecording(root, button) {
@@ -1078,11 +1438,11 @@
     const select = root.querySelector("[data-recording-app]");
     const app = select ? select.value : "";
     if (!app) {
-      setStatus("Pick a build, or upload one first.", "error");
+      setStatus("Pick a build, or upload one in Settings first.", "error");
       return;
     }
     const platform = root.querySelector("[data-recording-platform]")?.value || "android";
-    const device = (root.querySelector("[data-recording-device]")?.value || "").trim();
+    const device = (root.querySelector("[data-recording-device-name]")?.value || "").trim();
     view.planned = parseSegments(root.querySelector("[data-recording-segments]")?.value);
     view.done = [];
     const defaults = (view.config && view.config.defaults) || {};
@@ -1092,6 +1452,8 @@
     if (Number(defaults.idle_timeout_seconds) > 0) params.idle_timeout_seconds = Number(defaults.idle_timeout_seconds);
     if (typeof defaults.video === "boolean") params.video = defaults.video;
     if (typeof defaults.interactive_debugging === "boolean") params.interactive_debugging = defaults.interactive_debugging;
+    closeInspectorTab();
+    view.inspectorTab = openInspectorTabEarly();
     view.busy = "start";
     if (button) button.disabled = true;
     setStatus("Starting a BrowserStack device… about a minute, longer when all your parallel sessions are busy.", "");
@@ -1100,20 +1462,24 @@
       view.recording = started;
       view.unsaved = null;
       view.replay = freshReplay();
+      view.connectionOpen = false;
       remember();
       renderAll();
       const recording = started.status === "starting" ? await waitForDevice(started.id) : started;
       const lines = [
         "/record-mobile-segment",
-        "Recording on my computer through the Recording panel.",
+        "Recording on my computer through the Mobile testing panel.",
         `App: ${recording.app || app} (${recording.platform || platform})`,
         recording.device ? `Device: ${recording.device}${recording.os_version ? ` ${recording.os_version}` : ""}` : "",
         view.planned.length ? `Segments: ${view.planned.join(", ")}` : "",
       ].filter(Boolean);
       sendChat(lines.join("\n"));
-      const inspector = view.config && view.config.inspector_available;
-      setStatus(`Device ready. ${inspector ? "Open the Inspector" : "Attach the desktop Inspector"} and record ${view.planned.length ? recording.segment : "the scenario"}.`, "success");
+      const what = view.planned.length ? recording.segment : "the scenario";
+      if (landInspectorTab()) setStatus(`Device ready. The Inspector opened in its own tab; record ${what} there, then press Save recording.`, "success");
+      else if (inspectorAvailable()) setStatus(`Device ready. Open the Inspector and record ${what}.`, "success");
+      else setStatus(`Device ready. Attach the desktop Inspector with the connection details in the device menu and record ${what}.`, "success");
     } catch (error) {
+      closeInspectorTab();
       if (error.code !== "start_timeout") {
         // The bridge no longer lists a failed start; nothing to keep.
         view.recording = null;
@@ -1126,6 +1492,7 @@
     }
     await loadRecordings();
     renderAll();
+    loadFlow();
   }
 
   function startFailureText(status) {
@@ -1134,8 +1501,7 @@
   }
 
   // Asks the bridge after a starting recording every few seconds until the
-  // device is up. Resolves with the active recording; rejects with the
-  // bridge's error when the start failed, or with start_timeout.
+  // device is up, showing the bridge's progress meanwhile.
   async function waitForDevice(id, { pollMs = START_POLL_MS, timeoutMs = START_TIMEOUT_MS } = {}) {
     const since = Date.now();
     for (;;) {
@@ -1149,6 +1515,8 @@
       await sleep(pollMs);
     }
   }
+
+  // ---- the Inspector ----------------------------------------------------------------------
 
   function inspectorUrl() {
     const rec = view.recording;
@@ -1191,6 +1559,62 @@
     }
   }
 
+  // The workspace holds the Inspector inside Portal, with the panel beside
+  // it: the panel's root moves into the overlay and back.
+  function openWorkspace() {
+    if (!view.recording || !view.bridge || !view.bridge.port || !inspectorAvailable()) {
+      setStatus("Start the local bridge and a recording device first.", "error");
+      return;
+    }
+    const root = panelRoot();
+    if (!root) return;
+    const url = inspectorUrl();
+    if (view.workspace) {
+      const frame = view.workspace.querySelector("iframe");
+      if (frame && frame.getAttribute("src") !== url) frame.setAttribute("src", url);
+      view.workspace.focus();
+      return;
+    }
+    const rec = view.recording;
+    const overlay = document.createElement("div");
+    overlay.className = "efp-workspace";
+    overlay.setAttribute("data-recording-workspace", "");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-label", "Appium Inspector");
+    overlay.tabIndex = -1;
+    overlay.innerHTML = `
+      <div class="efp-workspace-head">
+        <strong>Appium Inspector</strong>
+        <span class="efp-card-meta">${esc(rec.device || "BrowserStack device")}${rec.os_version ? ` · ${esc(platformLabel(rec))} ${esc(rec.os_version)}` : ""}</span>
+        <span class="efp-workspace-head-actions">
+          <button type="button" class="portal-btn is-secondary" data-recording-action="open-inspector"><i data-lucide="external-link" class="w-4 h-4"></i>Open in a new tab</button>
+          <button type="button" class="portal-btn is-secondary" data-recording-action="close-workspace"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to chat</button>
+        </span>
+      </div>
+      <div class="efp-workspace-body">
+        <iframe class="efp-workspace-frame" src="${esc(url)}" title="Appium Inspector" allow="clipboard-read; clipboard-write"></iframe>
+        <aside class="efp-workspace-side"></aside>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector(".efp-workspace-side").appendChild(root);
+    document.body.classList.add("efp-workspace-open");
+    view.workspace = overlay;
+    view.connectionOpen = false;
+    renderSession();
+    renderIcons();
+    overlay.focus();
+  }
+
+  // Closes the workspace; the panel goes back to the tool panel.
+  function closeWorkspace({ rerender = true } = {}) {
+    const overlay = view.workspace;
+    if (!overlay) return;
+    view.workspace = null;
+    overlay.remove();
+    document.body.classList.remove("efp-workspace-open");
+    if (rerender) openRecordingPanel();
+  }
+
   function currentName(root) {
     return (root.querySelector("[data-recording-name]")?.value || "").trim();
   }
@@ -1218,12 +1642,7 @@
   // has the bridge replay them: it borrows the device from the Inspector and
   // gives it back when the replay ends. The result goes into the workspace
   // under mobile/replays/<id>/, and the chat message tells the assistant,
-  // which reviews it.
-
-  const SEGMENTS_DIR = "mobile/segments";
-  const REPLAYS_DIR = "mobile/replays";
-  const REPLAY_POLL_MS = 2000;
-  let replayTimer = 0;
+  // which reviews it and answers with the result card.
 
   function freshReplay() {
     return {
@@ -1279,47 +1698,35 @@
     return [...names].sort();
   }
 
-  // The order the latest split put this platform's segments in.
-  async function latestSplitOrder(platform) {
-    const splits = (await listWorkspace(RECORDINGS_DIR)).filter((item) => item.is_file !== false && /\.split\.json$/.test(item.name || ""));
-    if (!splits.length) return [];
-    splits.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
-    try {
-      const plan = JSON.parse(await readWorkspaceText(`${RECORDINGS_DIR}/${splits[0].name}`));
-      if (plan.platform && plan.platform !== platform) return [];
-      return (Array.isArray(plan.parts) ? plan.parts : []).map((part) => String(part.segment || "")).filter(Boolean);
-    } catch (_error) {
-      return [];
-    }
-  }
-
   async function loadReplaySegments() {
     const rec = view.recording;
     if (!rec || !view.agentId) return;
     const r = view.replay;
-    const platform = rec.platform === "ios" ? "ios" : "android";
-    const dir = `${SEGMENTS_DIR}/${platform}`;
     r.loading = true;
     renderReplay();
     try {
-      const [listed, order] = await Promise.all([listWorkspace(dir), latestSplitOrder(platform)]);
-      const items = listed.filter((item) => item.is_file !== false && /\.ya?ml$/i.test(item.name || ""));
-      const segments = items.map((item) => ({ name: String(item.name).replace(/\.ya?ml$/i, ""), path: `${dir}/${item.name}`, modified: String(item.modified_at || "") }));
+      await loadFlow();
+      const flow = view.flow || { segments: [], split: null };
+      const order = flow.split ? flow.split.parts : [];
       const rank = (name) => {
         const index = order.indexOf(name);
         return index >= 0 ? index : order.length;
       };
+      const platform = recordingPlatform();
+      const segments = flow.segments.map((name) => ({ name, path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` }));
       segments.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
       r.segments = segments;
       if (!r.touched) r.checked = order.filter((name) => segments.some((seg) => seg.name === name));
       else r.checked = r.checked.filter((name) => segments.some((seg) => seg.name === name));
-      r.error = "";
+      if (!r.touched && !r.checked.length) r.checked = segments.map((seg) => seg.name);
+      r.error = flow.error ? "Could not list the compiled segments. Is the assistant running?" : "";
       await loadReplaySecrets();
     } catch (error) {
       r.error = `Could not list the compiled segments: ${errorText(error)}`;
     }
     r.loading = false;
     renderReplay();
+    renderIcons();
   }
 
   function selectedSegments() {
@@ -1328,9 +1735,8 @@
   }
 
   async function segmentYaml(seg) {
-    const key = `${seg.path}|${seg.modified}`;
-    if (!(key in view.replay.yaml)) view.replay.yaml[key] = await readWorkspaceText(seg.path);
-    return view.replay.yaml[key];
+    if (!(seg.path in view.replay.yaml)) view.replay.yaml[seg.path] = await readWorkspaceText(seg.path);
+    return view.replay.yaml[seg.path];
   }
 
   async function loadReplaySecrets() {
@@ -1366,14 +1772,23 @@
     return `${line}.\nReport: ${path}`;
   }
 
-  function shotHtml(rel, alt) {
+  // What the list says next to a segment: this session's last replay first,
+  // else the plan's status.
+  function segmentMark(name) {
     const res = view.replay.result;
-    const url = res && res.urls ? res.urls[rel] : "";
-    if (!url) return "";
-    return `<a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(alt)}"><img src="${esc(url)}" alt="${esc(alt)}" /></a>`;
+    const report = res && res.result ? res.result.report : null;
+    const seg = report && Array.isArray(report.segments) ? report.segments.find((item) => item.name === name) : null;
+    if (seg && seg.status === "passed") return { icon: "check", tone: "success", text: "passed" };
+    if (seg && seg.status === "failed") {
+      const failed = (seg.steps || []).find((step) => step.ok === false) || {};
+      return { icon: "x", tone: "error", text: `failed at step ${failed.step || "?"}` };
+    }
+    const planned = view.flow && view.flow.plan ? view.flow.plan.segments.find((item) => item.name === name) : null;
+    if (planned && planned.status === "replayed") return { icon: "check", tone: "success", text: "replayed" };
+    return null;
   }
 
-  function replayResultHtml() {
+  function replayOutcomeHtml() {
     const res = view.replay.result;
     if (!res) return "";
     const replay = res.replay || {};
@@ -1381,33 +1796,16 @@
     const status = replay.status || report.status || "";
     const tone = status === "passed" ? "success" : (status === "cancelled" ? "warning" : "error");
     const label = { passed: "Replay passed", failed: "Replay failed", cancelled: "Replay stopped", error: "Replay could not run" }[status] || "Replay";
-    const segments = Array.isArray(report.segments) ? report.segments : [];
-    const rows = segments.map((seg) => {
-      const icon = seg.status === "passed" ? "check" : (seg.status === "failed" ? "x" : "minus");
-      let detail = "not run";
-      if (seg.status === "failed") {
-        const failed = (seg.steps || []).find((step) => step.ok === false) || {};
-        const why = failed.error ? (failed.error.message || failed.error.code || "") : "";
-        detail = `failed at step ${failed.step || "?"} of ${seg.steps_total || "?"}${failed.action ? `: ${failed.action}${failed.target ? ` ${failed.target}` : ""}` : ""}${why ? ` (${why})` : ""}`;
-      } else if (seg.status === "passed") {
-        const total = Number(seg.steps_total) || 0;
-        const fallbacks = (seg.steps || []).filter((step) => step.resolved_by === "fallback").length;
-        detail = `${total} ${total === 1 ? "step" : "steps"}${fallbacks ? `, ${fallbacks} matched a fallback target` : ""}`;
-      }
-      const shot = seg.screenshot ? shotHtml(seg.screenshot, `${seg.name}: the screen after it`) : "";
-      return `<li class="efp-replay-seg"><i data-lucide="${icon}" class="w-3 h-3"></i><div><strong>${esc(seg.name)}</strong> <span class="efp-card-meta">${esc(detail)}</span>${shot ? `<div class="efp-replay-shots">${shot}</div>` : ""}</div></li>`;
-    }).join("");
-    const failureShot = report.failure && report.failure.screenshot ? shotHtml(report.failure.screenshot, "The screen the failed step stopped on") : "";
-    const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
+    const failure = report.failure || {};
+    const where = status === "failed" && failure.segment ? ` at ${failure.segment}, step ${failure.step || "?"}` : "";
     const session = report.session_url ? ` <a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
+    const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
     let saved = "";
-    if (res.path) saved = `<p class="portal-inline-note">Saved in ${esc(res.path.replace(/report\.json$/, ""))}; the assistant reviews it in the chat.</p>`;
+    if (res.path) saved = `<span class="efp-card-meta">The result and screenshots are in the chat; the assistant reviews them.</span>`;
     else if (res.error) saved = `<div class="portal-inline-state is-visible is-error">${esc(res.error)}<div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button></div></div>`;
-    return `<div class="efp-replay-result">
-        <div><span class="portal-status-badge is-${tone}">${esc(label)}</span>${session}</div>
+    return `<div class="efp-replay-outcome">
+        <div><span class="portal-status-badge is-${tone}">${esc(label)}</span>${where ? `<span class="efp-card-meta">${esc(where)}</span>` : ""}${session}</div>
         ${error}
-        ${rows ? `<ul class="efp-recording-done">${rows}</ul>` : ""}
-        ${failureShot ? `<div class="efp-replay-shots"><span class="efp-card-meta">Where it stopped</span>${failureShot}</div>` : ""}
         ${saved}
       </div>`;
   }
@@ -1416,17 +1814,24 @@
     const r = view.replay;
     const rec = view.recording;
     const running = r.running && r.running.status === "running" ? r.running : null;
-    const platform = rec.platform === "ios" ? "iOS" : "Android";
+    const platform = platformLabel(rec);
     let list = "";
     if (r.loading && !r.segments) list = `<p class="portal-inline-note">Looking for compiled segments…</p>`;
     else if (r.error) list = `<div class="portal-inline-state is-visible is-error">${esc(r.error)}</div>`;
-    else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No compiled ${platform} segments yet. The assistant compiles them after you save a recording and approve its split.</p>`;
-    else list = `<div class="efp-replay-list">${r.segments.map((seg) => `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(seg.name)}"${r.checked.includes(seg.name) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span></label>`).join("")}</div>`;
+    else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No compiled ${esc(platform)} segments yet. The assistant compiles them after you save a recording and approve its split.</p>`;
+    else {
+      list = `<div class="efp-replay-list">${r.segments.map((seg) => {
+        const mark = segmentMark(seg.name);
+        return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(seg.name)}"${r.checked.includes(seg.name) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
+      }).join("")}</div>`;
+    }
     const ready = Boolean(r.segments && r.segments.length);
     const starts = [["restart", "Restart the app"]];
     if (rec.platform !== "ios") starts.push(["reset", "Clear the app's data first"]);
     starts.push(["current", "The screen the device shows"]);
-    const startHtml = ready ? `<div class="efp-replay-starts"><span class="efp-card-meta">Start from</span>${starts.map(([value, label]) => `<label class="efp-replay-row"><input type="radio" name="efp-replay-start" data-replay-start value="${value}"${r.start === value ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(label)}</span></label>`).join("")}</div>` : "";
+    const startHtml = ready
+      ? `<label class="efp-replay-start"><span class="efp-card-meta">Start from</span><select class="portal-form-select" data-replay-start${running ? " disabled" : ""}>${starts.map(([value, label]) => `<option value="${value}"${r.start === value ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`
+      : "";
     const secretsHtml = ready && r.secretNames.length
       ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the segment types" autocomplete="new-password"${running ? " disabled" : ""} /></label>`).join("")}
         <p class="portal-inline-note">Kept in this page only and sent to the bridge on this computer, never to the assistant.</p>`
@@ -1440,12 +1845,14 @@
     } else {
       actions = `<div class="efp-card-actions">
           <button type="button" class="portal-btn is-primary" data-replay-action="start"${ready ? "" : " disabled"}><i data-lucide="play" class="w-4 h-4"></i>Replay</button>
-          <button type="button" class="portal-btn is-secondary" data-replay-action="refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
         </div>`;
     }
-    return `<h5>Replay segments</h5>
+    return `<div class="efp-mobile-section-head">
+        <h5>Replay</h5>
+        ${running ? "" : `<button type="button" class="toolbar-icon-btn" data-replay-action="refresh" title="Look for compiled segments again" aria-label="Refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>`}
+      </div>
       <p class="portal-inline-note">Check the compiled segments on this device before the assistant generates scripts from them. The replay borrows the device from the Inspector and hands it back when it ends.</p>
-      ${list}${startHtml}${secretsHtml}${actions}${running ? "" : replayResultHtml()}`;
+      ${list}${startHtml}${secretsHtml}${actions}${running ? "" : replayOutcomeHtml()}`;
   }
 
   function renderReplay() {
@@ -1453,19 +1860,20 @@
     if (!box) return;
     if (!view.recording || view.recording.status !== "active") {
       box.innerHTML = "";
+      box.classList.add("hidden");
       return;
     }
+    box.classList.remove("hidden");
+    syncReplay();
+    if (view.replay.segments === null && !view.replay.loading) loadReplaySegments();
     const active = document.activeElement;
     const focused = active && active.matches && active.matches("[data-replay-secret]") ? active.dataset.replaySecret : "";
-    const running = view.replay.running && view.replay.running.status === "running" ? view.replay.running : null;
-    box.dataset.replayRunning = running ? running.id : "";
     box.innerHTML = replayHtml();
     box.querySelectorAll("[data-replay-secret]").forEach((input) => {
       input.value = view.replay.secrets[input.dataset.replaySecret] || "";
       if (input.dataset.replaySecret === focused) input.focus();
     });
     if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(box);
-    renderIcons();
   }
 
   function scheduleReplayPoll() {
@@ -1520,7 +1928,10 @@
       view.replay.running = replay;
       const progress = panelRoot()?.querySelector("[data-replay-progress]");
       if (same && progress) progress.textContent = replay.progress || "starting";
-      else renderReplay();
+      else {
+        renderReplay();
+        renderIcons();
+      }
       scheduleReplayPoll();
       return;
     }
@@ -1529,31 +1940,15 @@
     await finishReplay(replay, data.result);
   }
 
-  function revokeShots() {
-    const res = view.replay.result;
-    if (!res || !res.urls) return;
-    Object.values(res.urls).forEach((url) => URL.revokeObjectURL(url));
-  }
-
   async function finishReplay(replay, result) {
     const r = view.replay;
     if (r.result && r.result.replay && r.result.replay.id === replay.id) {
       renderReplay();
+      renderIcons();
       return;
     }
-    revokeShots();
-    const urls = {};
-    Object.entries((result && result.files) || {}).forEach(([rel, value]) => {
-      if (!/\.png$/i.test(rel)) return;
-      try {
-        urls[rel] = URL.createObjectURL(base64Blob(value, "image/png"));
-      } catch (_error) {
-        /* a screenshot that cannot be shown is still saved */
-      }
-    });
-    r.result = { replay, result, urls, path: "", error: "" };
+    r.result = { replay, result, path: "", error: "" };
     if (view.recording) view.recording = Object.assign({}, view.recording, { replay });
-    renderSession();
     const report = (result && result.report) || {};
     const failure = report.failure || {};
     const tail = "the device is back with the Inspector.";
@@ -1561,7 +1956,7 @@
     else if (replay.status === "failed") setStatus(`Replay failed${failure.segment ? ` at ${failure.segment} step ${failure.step || "?"}` : ""}; ${tail}`, "error");
     else if (replay.status === "cancelled") setStatus(`Replay stopped; ${tail}`, "warning");
     else setStatus(`The replay could not run: ${errorText(replay.error || {})}`, "error");
-    renderReplay();
+    renderSession();
     // A replay that ran to its end goes to the assistant; a stopped one,
     // or one that could not start, has nothing to review.
     if ((replay.status === "passed" || replay.status === "failed") && result && !r.saved.includes(replay.id)) {
@@ -1596,6 +1991,8 @@
       res.error = `Could not save the replay into the assistant's workspace: ${errorText(error)}`;
     }
     renderReplay();
+    renderIcons();
+    loadFlow();
   }
 
   async function startReplay(button) {
@@ -1613,6 +2010,7 @@
       const missing = r.secretNames.filter((name) => !r.secrets[name]);
       if (missing.length) {
         renderReplay();
+        renderIcons();
         setStatus(`Fill in ${missing.join(", ")} first: the segments type ${missing.length === 1 ? "it" : "them"}.`, "error");
         return;
       }
@@ -1623,20 +2021,19 @@
         secrets[name] = r.secrets[name];
       });
       const data = await call("segment.replay", { id: rec.id, segments, secrets, start: r.start }, { timeoutMs: 30000 });
-      revokeShots();
       r.result = null;
       r.running = data.replay || null;
       // The card disables saving and holding at once, not at the next poll.
       if (view.recording && r.running) view.recording = Object.assign({}, view.recording, { replay: r.running });
       setStatus(`Replaying ${chosen.map((seg) => seg.name).join(", ")}.`, "");
       renderSession();
-      renderReplay();
       scheduleReplayPoll();
     } catch (error) {
       if (error.code === "missing_secrets" && error.data && Array.isArray(error.data.missing)) {
         r.extraSecretNames = error.data.missing.map(String);
         await loadReplaySecrets();
         renderReplay();
+        renderIcons();
         setStatus(`Fill in ${error.data.missing.join(", ")} first: the segments type ${error.data.missing.length === 1 ? "it" : "them"}.`, "error");
       } else {
         setStatus(`Could not start the replay: ${errorText(error)}`, "error");
@@ -1655,11 +2052,14 @@
       if (data.replay) view.replay.running = data.replay;
       setStatus("Stopping the replay after the step it is on.", "");
       renderReplay();
+      renderIcons();
     } catch (error) {
       setStatus(errorText(error), "error");
       if (button) button.disabled = false;
     }
   }
+
+  // ---- saving a recording -----------------------------------------------------------
 
   // Writes a saved log into the assistant's workspace and tells the
   // assistant. The bridge has already moved on to the next log, so a failed
@@ -1702,12 +2102,13 @@
       else if (view.planned.indexOf(data.segment) >= 0) setStatus(`Saved ${data.segment}; the assistant compiles it. Carry on with ${data.next_segment} in the Inspector.`, "success");
       else setStatus(`Saved ${data.segment}; the assistant proposes how to split it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
-      setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack\u2019s own site is not seen by the bridge." : errorText(error), "error");
+      setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack’s own site is not seen by the bridge." : errorText(error), "error");
     } finally {
       view.busy = "";
       if (button) button.disabled = false;
     }
     renderSession();
+    loadFlow();
   }
 
   async function saveAgain() {
@@ -1716,6 +2117,7 @@
     const path = await saveLog(unsaved.name, unsaved.log, unsaved.summary);
     setStatus(path ? `Saved ${unsaved.name}.` : `Still could not save ${unsaved.name}: ${view.unsaved.error}`, path ? "success" : "error");
     renderSession();
+    if (path) loadFlow();
   }
 
   function downloadLog() {
@@ -1763,6 +2165,7 @@
       if (next && view.recording) view.recording = Object.assign({}, view.recording, { segment: next });
       input.value = "";
       renderSession();
+      loadFlow();
     } catch (error) {
       setStatus(`Upload failed: ${errorText(error)}`, "error");
     }
@@ -1812,6 +2215,8 @@
     }
   }
 
+  // ---- holding and releasing the device ------------------------------------------------
+
   async function extend(button) {
     if (!view.recording) return;
     if (button) button.disabled = true;
@@ -1856,16 +2261,20 @@
         return;
       }
     }
+    closeInspectorTab();
     view.recording = null;
     view.unsaved = null;
     stopReplayPolling();
     view.replay = freshReplay();
+    view.connectionOpen = false;
     remember();
+    closeWorkspace({ rerender: false });
     if (view.done.length) sendChat("Recording finished. Compile any segment not imported yet.");
-    setStatus("Recording finished; the device is released.", "success");
     view.done = [];
     await loadRecordings();
     renderAll();
+    setStatus("Recording finished; the device is released.", "success");
+    loadFlow();
   }
 
   async function finishOther(id, button) {
@@ -1890,9 +2299,10 @@
     remember();
     setStatus("Continuing that recording here; what you save goes into this assistant's workspace.", "success");
     renderAll();
+    loadFlow();
   }
 
-  // Saves the proxy fields of the connector page or the Recording panel (the
+  // Saves the proxy fields of the connector page or the panel's settings (the
   // container); the report goes to whichever status element the caller
   // shows. The login is kept in this browser's storage on this computer and
   // goes only to the local bridge, which hands it to mobile-auto and
@@ -1968,15 +2378,29 @@
       return;
     }
     const button = target.closest("[data-recording-action]");
-    const root = button && button.closest("[data-recording-root]");
-    if (!button || !root) return;
+    if (!button) return;
+    const root = button.closest("[data-recording-root]") || (button.closest("[data-recording-workspace]") ? panelRoot() : null);
+    if (!root) return;
+    // A menu closes once one of its entries is chosen.
+    const menu = button.closest("details.efp-menu");
+    if (menu) menu.removeAttribute("open");
     const action = button.dataset.recordingAction;
     if (action === "start-bridge") startBridge();
     else if (action === "check-bridge") refreshAll();
-    else if (action === "upload-build") uploadBuildFromPanel(root, button);
+    else if (action === "settings") toggleSettings();
+    else if (action === "settings-upload") {
+      toggleSettings(true);
+      root.querySelector("[data-recording-build]")?.scrollIntoView({ block: "center" });
+    } else if (action === "upload-build") uploadBuildFromPanel(root, button);
     else if (action === "start") startRecording(root, button);
     else if (action === "open-inspector") openInspector();
-    else if (action === "save-recording") saveRecording(root, button);
+    else if (action === "open-workspace") openWorkspace();
+    else if (action === "close-workspace") closeWorkspace();
+    else if (action === "connection") {
+      view.connectionOpen = !view.connectionOpen;
+      renderDevice();
+      renderIcons();
+    } else if (action === "save-recording") saveRecording(root, button);
     else if (action === "save-again") saveAgain();
     else if (action === "download-log") downloadLog();
     else if (action === "upload-code") uploadCode(root);
@@ -1984,6 +2408,18 @@
     else if (action === "finish") finish(button);
     else if (action === "finish-other") finishOther(button.dataset.id || "", button);
     else if (action === "adopt") adopt(button.dataset.id || "");
+  });
+
+  // An open device menu closes on a click elsewhere.
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    document.querySelectorAll("details.efp-menu[open]").forEach((menu) => {
+      if (!target || !menu.contains(target)) menu.removeAttribute("open");
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && view.workspace && !event.defaultPrevented) closeWorkspace();
   });
 
   document.addEventListener("change", (event) => {
@@ -2002,18 +2438,28 @@
     if (!target || !target.closest("[data-recording-root]")) return;
     if (target.matches("[data-recording-app]")) {
       syncPlatform();
+    } else if (target.matches("[data-recording-platform]")) {
+      loadFlow();
     } else if (target.matches("[data-recording-build]")) {
       const root = target.closest("[data-recording-root]");
       const custom = root.querySelector("[data-recording-custom-id]");
       const file = target.files && target.files[0];
       if (custom && file && !custom.value.trim()) custom.value = suggestCustomId(file.name);
+    } else if (target.matches("[data-recording-auto-inspector]")) {
+      writeStorage(AUTO_INSPECTOR_KEY, target.checked ? "" : "off");
+      view.formKey = "";
+      renderDevice();
+      renderIcons();
     } else if (target.matches("[data-replay-segment]")) {
       const r = view.replay;
       const name = target.dataset.replaySegment;
       r.touched = true;
       r.checked = r.checked.filter((item) => item !== name);
       if (target.checked) r.checked.push(name);
-      loadReplaySecrets().then(renderReplay);
+      loadReplaySecrets().then(() => {
+        renderReplay();
+        renderIcons();
+      });
     } else if (target.matches("[data-replay-start]")) {
       view.replay.start = target.value;
     }
@@ -2044,6 +2490,7 @@
     savedMessage,
     replayMessage,
     segmentSecrets,
+    flowSteps,
     proxyForBridge,
     splitProxyLogin,
     suggestCustomId,

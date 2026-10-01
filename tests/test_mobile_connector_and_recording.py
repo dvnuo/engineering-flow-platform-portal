@@ -1,5 +1,5 @@
 """BrowserStack connector (advanced fields, the bridge test, the panel) and what
-the Recording panel gets from Portal: the member's settings and the hosted
+the Mobile testing panel gets from Portal: the member's settings and the hosted
 Appium Inspector. Portal itself never calls BrowserStack; the member's
 computer does, through the local bridge."""
 from __future__ import annotations
@@ -130,7 +130,7 @@ def test_no_portal_route_talks_to_browserstack():
         assert not any(path.startswith(gone.split("{")[0].rstrip("/")) for path in paths if path), gone
 
 
-# --- what the Recording panel gets from Portal -----------------------------------
+# --- what the Mobile testing panel gets from Portal -----------------------------------
 
 
 @pytest.fixture
@@ -256,12 +256,18 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert 'const RECORDINGS_DIR = "mobile/recordings";' in js
     assert "Segment ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
     assert "Recording finished. Compile any segment not imported yet." in js
+    # The panel is Mobile testing: the device on top, a progress strip, then
+    # the step at hand; settings behind a gear; the Inspector opens itself.
+    assert 'const PANEL_TITLE = "Mobile testing";' in js
+    assert "Recording on my computer through the Mobile testing panel." in js
+    for marker in ("data-recording-flow", "data-recording-settings", 'data-recording-action="settings"', "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", "data-recording-auto-inspector"):
+        assert marker in js, marker
     # Compiled segments replay on the held device; the result lands in the
     # workspace beside the recordings and the chat message hands it over.
     assert '"segment.replay"' in js and '"replay.status"' in js and '"replay.stop"' in js
     assert 'const REPLAYS_DIR = "mobile/replays";' in js and "Replay finished: " in js
     assert '<input type="password" class="portal-form-input" data-replay-secret' in js
-    # The Recording panel has the same proxy fields, the password masked.
+    # The Mobile testing panel has the same proxy fields, the password masked.
     assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in js
     # Segment names are optional: a member records the whole scenario.
     assert "Segment names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
@@ -270,6 +276,7 @@ def test_the_page_drives_the_local_bridge_not_portal():
 def test_recording_button_is_wired_into_the_tool_panel():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert 'id="btn-recording"' in html
+    assert '<span class="portal-header-action-label">Mobile testing</span>' in html
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert '"recording",' in js[js.index("const ALLOWED_UTILITY_PANEL_KEYS"): js.index("]);", js.index("const ALLOWED_UTILITY_PANEL_KEYS"))]
     assert "window.EfpMobileTesting.openRecordingPanel" in js
@@ -314,7 +321,7 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
             if (body.command === "session.status" && body.params.id === "r-down") {
               return { ok: true, status: 200, json: async () => ({ ok: true, data: { id: "r-down", status: "failed", error: { code: "local_tunnel_connection_failed", message: "BrowserStack refused the session", hint: "Read the tunnel log." } } }) };
             }
-            return { ok: false, status: 404, json: async () => ({ ok: false, error: { code: "not_found", message: "recording not found", hint: "Start a new recording from the Recording panel." } }) };
+            return { ok: false, status: 404, json: async () => ({ ok: false, error: { code: "not_found", message: "recording not found", hint: "Start a new recording from the Mobile testing panel." } }) };
           }
           throw new Error("unexpected " + url);
         };
@@ -342,6 +349,8 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(M.segmentSecrets("name: seg\\nsecrets:\\n    - MOBILE_SECRET_PASSWORD\\nsteps:\\n    - action: type\\n      text_env: MOBILE_SECRET_PIN\\n"), ["MOBILE_SECRET_PASSWORD", "MOBILE_SECRET_PIN"]);
         assert.deepEqual(M.segmentSecrets("secrets: [A_ONE, 'B_TWO']\\nsteps:\\n  - {action: type, text_env: C_THREE}\\n"), ["A_ONE", "B_TWO", "C_THREE"]);
         assert.deepEqual(M.segmentSecrets("name: seg\\nsteps:\\n  - action: tap\\n"), []);
+        // The progress strip: nothing recorded yet, then a saved recording whose split waits in the chat.
+        assert.deepEqual(M.flowSteps().map((s) => s.label + ":" + s.state), ["Record:current", "Split:todo", "Replay:todo", "Scripts:todo"]);
         assert.equal(M.proxyForBridge({ url: "", username: "alice", password: "x" }), "");
         assert.deepEqual(M.splitProxyLogin("http://CORP%5Calice:p%40ss@proxy2:8080"), { url: "http://proxy2:8080", username: "CORP\\\\alice", password: "p@ss", login: true });
         assert.deepEqual(M.splitProxyLogin("http://proxy2:8080"), { url: "http://proxy2:8080", username: "", password: "", login: false });

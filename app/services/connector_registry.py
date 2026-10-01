@@ -380,7 +380,7 @@ CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
         category="Local devices & tools",
         description=(
             "The EFP local bridge on your own PC. Assistants read and operate pages in a "
-            "Chrome window with your existing logins, and the Recording panel records "
+            "Chrome window with your existing logins, and the Mobile testing panel records "
             "mobile tests on BrowserStack devices from this computer. Nothing leaves your "
             "machine except what you ask the assistant to look at."
         ),

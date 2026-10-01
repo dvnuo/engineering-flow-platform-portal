@@ -8,6 +8,7 @@
  *   ```efp-review    {"title", "summary", "items": [{"id", "title", "type", "examples", "warnings", "detail"}]}
  *   ```efp-evidence  {"path": "mobile/runs/.../evidence.json"} or {"paths": [...]} or inline evidence objects
  *   ```efp-matrix    {"path": "mobile/runs/.../matrix.json"} or an inline efp-matrix/v1 document
+ *   ```efp-replay    {"path": "mobile/replays/<id>/report.json"}: a replay of segments on the recording device
  *
  * Paths are workspace paths of the assistant; files are read through the
  * Portal proxy (/a/{agent}/api/server-files/...). chat_ui.js hands fenced
@@ -17,7 +18,7 @@
 (function () {
   "use strict";
 
-  const LANGS = new Set(["efp-review", "efp-evidence", "efp-matrix"]);
+  const LANGS = new Set(["efp-review", "efp-evidence", "efp-matrix", "efp-replay"]);
   const MATRIX_POLL_MS = 10000;
   const FETCH_CACHE_MS = 4000;
   const fetchCache = new Map();
@@ -294,6 +295,123 @@
     renderIcons();
   }
 
+  // ----- replay ----------------------------------------------------------------
+
+  // report.json (efp-replay/v1) names its screenshots and the failure's
+  // files relative to its own directory.
+  function normalizeReplay(doc, baseDir) {
+    const report = doc && typeof doc === "object" ? doc : {};
+    const resolve = (value) => (baseDir === null ? normalizePath(value) : resolvePath(baseDir, value));
+    const segments = (Array.isArray(report.segments) ? report.segments : []).map((seg) => {
+      const steps = Array.isArray(seg.steps) ? seg.steps : [];
+      const failed = steps.find((step) => step && step.ok === false) || null;
+      return {
+        name: String(seg.name || ""),
+        status: String(seg.status || ""),
+        stepsTotal: Number(seg.steps_total) || steps.length,
+        fallbacks: steps.filter((step) => step && step.resolved_by === "fallback").length,
+        failedStep: failed ? Number(failed.step) || 0 : 0,
+        failedAction: failed ? [failed.action, failed.target].filter(Boolean).join(" ") : "",
+        failedError: failed ? errorText(failed.error) : "",
+        screenshot: seg.screenshot ? resolve(seg.screenshot) : "",
+      };
+    });
+    const failure = report.failure && typeof report.failure === "object" ? report.failure : null;
+    return {
+      status: String(report.status || ""),
+      start: String(report.start || ""),
+      platform: String(report.platform || ""),
+      device: String(report.device || ""),
+      osVersion: String(report.os_version || ""),
+      app: String(report.app || ""),
+      finishedAt: String(report.finished_at || ""),
+      sessionUrl: safeHttpUrl(report.session_url),
+      segments,
+      failure: failure ? {
+        segment: String(failure.segment || ""),
+        step: Number(failure.step) || 0,
+        screenshot: failure.screenshot ? resolve(failure.screenshot) : "",
+        source: failure.source ? resolve(failure.source) : "",
+      } : null,
+      error: errorText(report.error),
+      source: report.__source || "",
+    };
+  }
+
+  function replayCardHtml(rp, agentId) {
+    const passed = rp.segments.filter((seg) => seg.status === "passed").length;
+    const title = `Replay: ${passed} of ${rp.segments.length} ${rp.segments.length === 1 ? "segment" : "segments"} passed`;
+    const startLabel = { restart: "the app restarted", reset: "the app's data cleared first", current: "the screen the device showed" }[rp.start] || "";
+    const meta = [
+      [rp.platform === "ios" ? "iOS" : (rp.platform === "android" ? "Android" : rp.platform), rp.device, rp.osVersion].filter(Boolean).join(" · "),
+      rp.app ? `build ${rp.app}` : "",
+      startLabel ? `started with ${startLabel}` : "",
+    ].filter(Boolean).join(" · ");
+    const rows = rp.segments.map((seg) => {
+      let detail;
+      if (seg.status === "passed") detail = `${seg.stepsTotal} ${seg.stepsTotal === 1 ? "step" : "steps"}${seg.fallbacks ? `, ${seg.fallbacks} matched a fallback target` : ""}`;
+      else if (seg.status === "failed") detail = `failed at step ${seg.failedStep || "?"} of ${seg.stepsTotal || "?"}${seg.failedAction ? `: ${seg.failedAction}` : ""}${seg.failedError ? ` (${seg.failedError})` : ""}`;
+      else detail = "not run";
+      const icon = seg.status === "passed" ? "check" : (seg.status === "failed" ? "x" : "minus");
+      return `<li class="efp-replay-card-seg is-${statusTone(seg.status)}"><i data-lucide="${icon}" class="w-3 h-3" aria-hidden="true"></i><strong>${esc(seg.name)}</strong> <span class="efp-card-meta">${esc(detail)}</span></li>`;
+    }).join("");
+    const shots = rp.segments.filter((seg) => seg.screenshot).map((seg) => ({ label: `after ${seg.name}`, path: seg.screenshot }));
+    if (rp.failure && rp.failure.screenshot) shots.push({ label: `where ${rp.failure.segment || "it"} stopped`, path: rp.failure.screenshot });
+    const shotsHtml = shots.map((shot) => {
+      const url = contentUrl(agentId, shot.path);
+      return url
+        ? `<a class="efp-evidence-shot" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(shot.path)}"><img src="${esc(url)}" alt="${esc(shot.label)}" loading="lazy" /><span>${esc(shot.label)}</span></a>`
+        : "";
+    }).join("");
+    const actions = [
+      rp.sessionUrl ? `<a class="portal-link-inline" href="${esc(rp.sessionUrl)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "",
+      rp.failure && rp.failure.source && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, rp.failure.source))}" target="_blank" rel="noopener">Page source at the failure</a>` : "",
+      rp.source && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, rp.source))}" target="_blank" rel="noopener">report.json</a>` : "",
+    ].filter(Boolean).join(" ");
+    const error = rp.error ? `<pre class="efp-evidence-error">${esc(rp.error)}</pre>` : "";
+    return `
+      <article class="efp-card efp-replay-card is-${statusTone(rp.status)}">
+        <header class="efp-card-head">
+          <span class="portal-status-badge is-${statusTone(rp.status)}">${esc(rp.status || "unknown")}</span>
+          <strong class="efp-card-title">${esc(title)}</strong>
+        </header>
+        ${meta ? `<div class="efp-card-meta">${esc(meta)}</div>` : ""}
+        ${error}
+        ${rows ? `<ul class="efp-replay-card-list">${rows}</ul>` : ""}
+        ${shotsHtml ? `<div class="efp-evidence-shots">${shotsHtml}</div>` : ""}
+        ${actions ? `<div class="efp-card-actions">${actions}</div>` : ""}
+      </article>`;
+  }
+
+  async function renderReplay(container, payload, ctx) {
+    const agentId = ctx.agentId;
+    const paths = [];
+    const add = (item) => {
+      if (typeof item === "string") paths.push(item);
+      else if (item && typeof item === "object" && item.path) paths.push(String(item.path));
+    };
+    if (Array.isArray(payload)) payload.forEach(add);
+    else if (Array.isArray(payload.paths)) payload.paths.forEach(add);
+    else add(payload);
+    if (!paths.length) {
+      setMessage(container, "No replay report in this block.", "warning");
+      return;
+    }
+    container.innerHTML = `<div class="efp-evidence-list">${paths.map(() => `<div class="efp-card efp-card-loading"><div class="portal-inline-state is-visible">Loading the replay…</div></div>`).join("")}</div>`;
+    const slots = container.querySelectorAll(".efp-evidence-list > div");
+    await Promise.all(paths.map(async (raw, index) => {
+      const slot = slots[index];
+      try {
+        const path = normalizePath(raw);
+        const doc = await fetchWorkspaceJson(agentId, path);
+        slot.outerHTML = replayCardHtml(normalizeReplay(Object.assign({}, doc, { __source: path }), dirname(path)), agentId);
+      } catch (error) {
+        slot.innerHTML = `<div class="portal-inline-state is-visible is-error">${esc(error.message || error)}</div>`;
+      }
+    }));
+    renderIcons();
+  }
+
   // ----- matrix ---------------------------------------------------------------
 
   function matrixSummary(rows) {
@@ -514,6 +632,7 @@
     }
     if (kind === "efp-evidence") return renderEvidence(container, payload, ctx);
     if (kind === "efp-matrix") return renderMatrix(container, payload, ctx);
+    if (kind === "efp-replay") return renderReplay(container, payload, ctx);
     return Promise.resolve();
   }
 
@@ -594,6 +713,8 @@
     streamUrl,
     normalizeEvidence,
     evidenceCardHtml,
+    normalizeReplay,
+    replayCardHtml,
     matrixSummary,
     matrixHtml,
     reviewHtml,

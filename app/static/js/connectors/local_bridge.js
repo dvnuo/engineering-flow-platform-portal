@@ -12,7 +12,7 @@
  *
  * The first (and for now only) connector type is `local_bridge`, shown as
  * Local bridge: the efp-bridge process on 127.0.0.1 that drives a dedicated
- * Chrome window and serves the mobile Recording panel (mobile_testing.js).
+ * Chrome window and serves the mobile Mobile testing panel (mobile_testing.js).
  * Contract: docs/CONNECTORS_CONTRACT.md.
  */
 (function () {
