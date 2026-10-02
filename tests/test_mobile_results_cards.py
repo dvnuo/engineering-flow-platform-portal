@@ -350,6 +350,7 @@ def test_chat_ui_routes_card_fences_and_previews_media_in_node():
         const assert = require("node:assert/strict");
         const escapeHtmlAttr = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
         assert.equal(isEfpCardFenceLanguage("efp-evidence"), true);
+        assert.equal(isEfpCardFenceLanguage("efp-replay"), true);
         assert.equal(isEfpCardFenceLanguage("EFP-Review extra"), true);
         assert.equal(isEfpCardFenceLanguage("mermaid"), false);
         const img = fileBlockPreviewHtml("agent-1", "output/shot.PNG", "shot");

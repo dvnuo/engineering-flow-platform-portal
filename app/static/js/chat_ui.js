@@ -4957,11 +4957,11 @@ function isMermaidFenceLanguage(lang) {
   return language === "mermaid" || language === "mmd";
 }
 
-// ```efp-review, ```efp-evidence and ```efp-matrix fences carry JSON that
-// efp_cards.js renders as cards (mobile scenario testing results).
+// ```efp-review, ```efp-evidence, ```efp-matrix and ```efp-replay fences carry
+// JSON that efp_cards.js renders as cards (mobile scenario testing results).
 function isEfpCardFenceLanguage(lang) {
   const language = normalizeFenceLanguage(lang);
-  return language === "efp-review" || language === "efp-evidence" || language === "efp-matrix";
+  return language === "efp-review" || language === "efp-evidence" || language === "efp-matrix" || language === "efp-replay";
 }
 
 function isEfpCardCodeElement(code) {
