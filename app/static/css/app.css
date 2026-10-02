@@ -6550,6 +6550,22 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-replay-mark { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; font-size: 11px; color: var(--portal-text-muted); }
 .efp-replay-mark.is-success { color: var(--portal-success); }
 .efp-replay-mark.is-error { color: var(--portal-danger); }
+.efp-mobile-tabs { display: flex; gap: 2px; padding: 3px; border-radius: var(--portal-radius-sm); background: var(--portal-surface-soft); }
+.efp-mobile-tabs > button { flex: 1 1 0; padding: 5px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--portal-text-muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.efp-mobile-tabs > button[aria-selected="true"] { background: var(--portal-surface); color: var(--portal-text); box-shadow: var(--portal-shadow-sm); }
+.efp-mobile-section h6 { margin: 6px 0 0; color: var(--portal-text-muted); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.efp-lib-group { display: flex; flex-direction: column; gap: 4px; }
+.efp-lib-group > .efp-card-meta { font-weight: 600; }
+.efp-lib-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; border-radius: var(--portal-radius-sm); background: var(--portal-surface-soft); font-size: 12px; color: var(--portal-text); }
+.efp-lib-main { flex: 1 1 180px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.efp-lib-main > strong { overflow-wrap: anywhere; }
+.efp-lib-main > .efp-card-meta { flex-basis: 100%; }
+.efp-lib-main .efp-replay-mark { margin-left: 0; }
+.efp-lib-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.efp-lib-card { padding: 4px 0 4px 10px; border-left: 2px solid var(--portal-border); }
+.efp-lib-pre { margin: 0; max-height: 320px; overflow: auto; padding: 8px 10px; border-radius: var(--portal-radius-sm); background: var(--portal-surface-soft); color: var(--portal-text); font-size: 11px; line-height: 1.5; white-space: pre; }
+.composer-pill-btn.is-danger { color: var(--portal-danger); }
+.composer-pill-btn.is-danger:hover { border-color: var(--portal-danger); }
 .efp-replay-start { display: flex; align-items: center; gap: 8px; }
 .efp-replay-start .portal-form-select { width: auto; flex: 1 1 auto; }
 .efp-replay-outcome { display: flex; flex-direction: column; gap: 6px; }

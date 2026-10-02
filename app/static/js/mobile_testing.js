@@ -468,6 +468,10 @@
     inspectorTab: null,
     // workspace is the overlay that holds the Inspector inside Portal.
     workspace: null,
+    // tab is Session (the device and the step at hand) or Library (what the
+    // workspace keeps: recordings, segments, replays).
+    tab: "session",
+    library: freshLibrary(),
   };
   let pollTimer = 0;
   let tickTimer = 0;
@@ -595,9 +599,11 @@
       <div class="efp-mobile" data-recording-root>
         <div class="efp-mobile-bar" data-recording-bar></div>
         <div data-recording-device></div>
+        <div class="efp-mobile-tabs" data-recording-tabs role="tablist"></div>
         <div data-recording-flow></div>
         <section class="efp-mobile-section hidden" data-recording-record></section>
         <section class="efp-mobile-section hidden" data-recording-replay></section>
+        <section class="efp-mobile-section hidden" data-recording-library></section>
         <section class="efp-mobile-section efp-mobile-settings hidden" data-recording-settings></section>
         <div class="portal-inline-state" data-recording-status role="status"></div>
       </div>`;
@@ -609,10 +615,33 @@
     renderApps();
     renderOthers();
     renderFlow();
+    renderTabs();
     renderRecord();
     renderReplay();
+    renderLibrary();
     renderSettings();
     renderIcons();
+  }
+
+  function renderTabs() {
+    const target = panelRoot()?.querySelector("[data-recording-tabs]");
+    if (!target) return;
+    const tab = (key, label) => `<button type="button" role="tab" data-recording-tab="${key}" aria-selected="${view.tab === key ? "true" : "false"}">${label}</button>`;
+    target.innerHTML = tab("session", "Session") + tab("library", "Library");
+  }
+
+  function switchTab(tab) {
+    view.tab = tab === "library" ? "library" : "session";
+    view.formKey = "";
+    renderTabs();
+    renderDevice();
+    renderFlow();
+    renderFlow();
+    renderRecord();
+    renderReplay();
+    renderLibrary();
+    renderIcons();
+    if (view.tab === "library") loadLibrary();
   }
 
   // renderSession re-renders what a recording's state changes: the device
@@ -840,6 +869,11 @@
     const target = panelRoot()?.querySelector("[data-recording-device]");
     if (!target) return;
     const rec = view.recording;
+    if (!rec && view.tab === "library") {
+      view.formKey = "";
+      target.innerHTML = `<div class="efp-card efp-device"><div class="efp-card-meta">No device held. Start one under Session to record or replay.</div></div>`;
+      return;
+    }
     if (!rec) {
       // The start form keeps what the member typed across polls.
       const key = ["form", startLabel(), view.config ? view.config.configured : ""].join("|");
@@ -894,18 +928,8 @@
           /* a split the assistant is still writing */
         }
       }
-      const plans = [];
-      const dirs = scenarios.filter((item) => item.is_dir || item.type === "directory").slice(0, 8);
-      for (const dir of dirs) {
-        try {
-          const doc = JSON.parse(await readWorkspaceText(`${SCENARIOS_DIR}/${dir.name}/scenarios.json`));
-          if (doc && Array.isArray(doc.segments)) plans.push(Object.assign({ __key: dir.name }, doc));
-        } catch (_error) {
-          /* not a plan */
-        }
-      }
+      const plans = await readPlans(scenarios);
       const app = view.recording ? view.recording.app : "";
-      plans.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
       const plan = plans.find((doc) => app && doc.apps && doc.apps[platform] === app) || plans[0] || null;
       view.flow = {
         key,
@@ -925,6 +949,29 @@
     renderFlow();
     renderReplay();
     renderIcons();
+  }
+
+  // The scenario plans in the workspace, newest first.
+  async function readPlans(scenarios) {
+    const plans = [];
+    const dirs = scenarios.filter((item) => item.is_dir || item.type === "directory").slice(0, 8);
+    for (const dir of dirs) {
+      try {
+        const doc = JSON.parse(await readWorkspaceText(`${SCENARIOS_DIR}/${dir.name}/scenarios.json`));
+        if (doc && Array.isArray(doc.segments)) plans.push(Object.assign({ __key: dir.name }, doc));
+      } catch (_error) {
+        /* not a plan */
+      }
+    }
+    plans.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    return plans;
+  }
+
+  // A plan segment's status on a platform.
+  function planStatus(plan, name, platform) {
+    const seg = plan && Array.isArray(plan.segments) ? plan.segments.find((item) => String(item.name || "") === name) : null;
+    if (!seg) return "";
+    return seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "");
   }
 
   // The four steps after a device is up, each with where it stands.
@@ -1005,7 +1052,7 @@
   function renderFlow() {
     const target = panelRoot()?.querySelector("[data-recording-flow]");
     if (!target) return;
-    if (!view.recording && !(view.flow && (view.flow.recordings || view.flow.segments.length))) {
+    if (view.tab !== "session" || (!view.recording && !(view.flow && (view.flow.recordings || view.flow.segments.length)))) {
       target.innerHTML = "";
       return;
     }
@@ -1067,7 +1114,7 @@
     const target = panelRoot()?.querySelector("[data-recording-record]");
     if (!target) return;
     const rec = view.recording;
-    if (!rec || rec.status !== "active") {
+    if (!rec || rec.status !== "active" || view.tab !== "session") {
       target.innerHTML = "";
       target.classList.add("hidden");
       view.sessionKey = "";
@@ -1247,6 +1294,7 @@
     }
     renderAll();
     loadFlow();
+    if (view.tab === "library") loadLibrary();
   }
 
   function recordingGone(message) {
@@ -1357,6 +1405,7 @@
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
         recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", formKey: "", polls: 0,
         replay: freshReplay(), flow: null, settingsOpen: false, connectionOpen: false, inspectorTab: null,
+        tab: "session", library: freshLibrary(),
       });
     } else {
       view.sessionKey = "";
@@ -1858,7 +1907,7 @@
   function renderReplay() {
     const box = panelRoot()?.querySelector("[data-recording-replay]");
     if (!box) return;
-    if (!view.recording || view.recording.status !== "active") {
+    if (!view.recording || view.recording.status !== "active" || view.tab !== "session") {
       box.innerHTML = "";
       box.classList.add("hidden");
       return;
@@ -2059,6 +2108,369 @@
     }
   }
 
+  // ---- Library ----------------------------------------------------------------
+  //
+  // What the workspace keeps for mobile testing, with what can be done to it:
+  // recordings (and their split's state), segments (with the grade and the
+  // review count inspector import writes into the file, and whether a replay
+  // passed), and replays (their reports as cards). A deletion is done here
+  // and told to the assistant, which keeps the scenario plan in step.
+
+  const LIBRARY_PLATFORMS = ["android", "ios"];
+  const LIBRARY_MAX_FILES = 40;
+
+  function freshLibrary() {
+    return { loading: false, loaded: false, error: "", segments: {}, recordings: [], replays: [], plans: [], texts: {}, open: {} };
+  }
+
+  function deletedMessage(kind, name, path) {
+    return `${kind} ${name} deleted: ${path}`;
+  }
+
+  // The little a list needs from a segment file, without a YAML parser: its
+  // name, how many steps, and what the compiler wrote into source.
+  function parseSegmentYaml(yaml) {
+    const text = String(yaml || "");
+    const first = (re) => {
+      const m = text.match(re);
+      return m ? m[1].trim().replace(/^["']|["']$/g, "") : "";
+    };
+    return {
+      name: first(/^name:\s*(.+)$/m),
+      platform: first(/^platform:\s*(.+)$/m),
+      steps: (text.match(/^\s*-\s*action:/gm) || []).length,
+      grade: first(/^\s+grade:\s*(.+)$/m),
+      needsReview: Number(first(/^\s+needs_review:\s*(\d+)/m)) || 0,
+      compiledAt: first(/^\s+compiled_at:\s*(.+)$/m),
+    };
+  }
+
+  async function cachedText(path, stamp) {
+    const key = `${path}|${stamp || ""}`;
+    const cache = view.library.texts;
+    if (!(key in cache)) cache[key] = await readWorkspaceText(path);
+    return cache[key];
+  }
+
+  async function deleteWorkspace(paths) {
+    const response = await fetch(workspaceApi("/delete"), { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paths }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) throw new Error(String(body.error || body.detail || `HTTP ${response.status}`));
+    return body;
+  }
+
+  function dateText(value) {
+    const t = Date.parse(value || "");
+    if (!Number.isFinite(t)) return "";
+    const d = new Date(t);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function sizeText(bytes) {
+    const n = Number(bytes) || 0;
+    if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
+    if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+    return `${n} B`;
+  }
+
+  async function loadLibrary() {
+    if (!view.agentId) return;
+    const lib = view.library;
+    if (lib.loading) return;
+    lib.loading = true;
+    renderLibrary();
+    try {
+      const files = (items) => items.filter((item) => item.is_file !== false && !(item.is_dir || item.type === "directory"));
+      const [recordingItems, replayItems, scenarioItems, ...segmentLists] = await Promise.all([
+        listWorkspace(RECORDINGS_DIR),
+        listWorkspace(REPLAYS_DIR),
+        listWorkspace(SCENARIOS_DIR),
+        ...LIBRARY_PLATFORMS.map((platform) => listWorkspace(`${SEGMENTS_DIR}/${platform}`)),
+      ]);
+      lib.plans = await readPlans(scenarioItems);
+
+      // Replays, newest first; their reports name the segments they ran.
+      const replayDirs = replayItems.filter((item) => item.is_dir || item.type === "directory").sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(0, 20);
+      lib.replays = (await Promise.all(replayDirs.map(async (dir) => {
+        const path = `${REPLAYS_DIR}/${dir.name}/report.json`;
+        try {
+          const report = JSON.parse(await cachedText(path, dir.modified_at));
+          return {
+            id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: String(report.status || ""), platform: String(report.platform || ""),
+            device: String(report.device || ""), finishedAt: String(report.finished_at || ""), start: String(report.start || ""),
+            segments: (Array.isArray(report.segments) ? report.segments : []).map((seg) => ({ name: String(seg.name || ""), status: String(seg.status || "") })),
+            failure: report.failure && typeof report.failure === "object" ? { segment: String(report.failure.segment || ""), step: Number(report.failure.step) || 0 } : null,
+          };
+        } catch (_error) {
+          return { id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: "", segments: [], broken: true };
+        }
+      }))).filter(Boolean);
+      // Newest first by the report's clock; the folder name only breaks ties.
+      lib.replays.sort((a, b) => String(b.finishedAt || "").localeCompare(String(a.finishedAt || "")) || String(b.id).localeCompare(String(a.id)));
+
+      // Segments per platform, with the plan's word and the latest replay's.
+      lib.segments = {};
+      for (let i = 0; i < LIBRARY_PLATFORMS.length; i += 1) {
+        const platform = LIBRARY_PLATFORMS[i];
+        const items = files(segmentLists[i]).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
+        lib.segments[platform] = await Promise.all(items.map(async (item) => {
+          const name = String(item.name).replace(/\.ya?ml$/i, "");
+          const path = `${SEGMENTS_DIR}/${platform}/${item.name}`;
+          let parsed = { steps: 0, grade: "", needsReview: 0, compiledAt: "" };
+          try {
+            parsed = parseSegmentYaml(await cachedText(path, item.modified_at));
+          } catch (_error) {
+            /* listed without its details */
+          }
+          const plan = lib.plans.find((doc) => planStatus(doc, name, platform)) || null;
+          const latest = lib.replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => seg.name === name && seg.status !== "not_run")) || null;
+          const latestSeg = latest ? latest.segments.find((seg) => seg.name === name) : null;
+          return {
+            name, path, platform, modifiedAt: String(item.modified_at || ""), steps: parsed.steps, grade: parsed.grade, needsReview: parsed.needsReview,
+            compiledAt: parsed.compiledAt || String(item.modified_at || ""), planStatus: plan ? planStatus(plan, name, platform) : "",
+            lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
+          };
+        }));
+      }
+
+      // Recordings with their split's state.
+      const recordingFiles = files(recordingItems);
+      const splits = {};
+      for (const item of recordingFiles.filter((it) => /\.split\.json$/.test(it.name || "")).slice(0, LIBRARY_MAX_FILES)) {
+        try {
+          const doc = JSON.parse(await cachedText(`${RECORDINGS_DIR}/${item.name}`, item.modified_at));
+          const platform = String(doc.platform || "");
+          const parts = (Array.isArray(doc.parts) ? doc.parts : []).map((part) => String(part.segment || "")).filter(Boolean);
+          const compiled = parts.filter((name) => (lib.segments[platform] || []).some((seg) => seg.name === name));
+          splits[String(item.name).replace(/\.split\.json$/, "")] = { path: `${RECORDINGS_DIR}/${item.name}`, platform, parts, compiled };
+        } catch (_error) {
+          /* a split still being written */
+        }
+      }
+      lib.recordings = recordingFiles.filter((it) => /\.wdlog\.json$/.test(it.name || "")).sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || ""))).slice(0, LIBRARY_MAX_FILES).map((item) => {
+        const name = String(item.name).replace(/\.wdlog\.json$/, "");
+        return { name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null };
+      });
+      lib.error = "";
+      lib.loaded = true;
+    } catch (error) {
+      lib.error = `Could not read the workspace: ${errorText(error)}. Is the assistant running?`;
+    }
+    lib.loading = false;
+    renderLibrary();
+    renderIcons();
+  }
+
+  function segmentLine(seg) {
+    const parts = [`${seg.steps} ${seg.steps === 1 ? "step" : "steps"}`];
+    if (seg.grade) parts.push(`grade ${seg.grade}`);
+    if (seg.needsReview) parts.push(`${seg.needsReview} to review`);
+    if (seg.compiledAt) parts.push(`compiled ${dateText(seg.compiledAt)}`);
+    return parts.join(" · ");
+  }
+
+  function segmentMarkHtml(seg) {
+    if (seg.lastReplay && seg.lastReplay.status === "passed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>passed ${esc(dateText(seg.lastReplay.at))}</span>`;
+    if (seg.lastReplay && seg.lastReplay.status === "failed") return `<span class="efp-replay-mark is-error"><i data-lucide="x" class="w-3 h-3"></i>failed${seg.lastReplay.step ? ` at step ${esc(String(seg.lastReplay.step))}` : ""}</span>`;
+    if (seg.planStatus === "replayed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>replayed</span>`;
+    if (seg.planStatus === "to_record") return `<span class="efp-replay-mark is-error"><i data-lucide="minus" class="w-3 h-3"></i>to record</span>`;
+    return `<span class="efp-replay-mark">not replayed</span>`;
+  }
+
+  function libraryHtml() {
+    const lib = view.library;
+    const rec = view.recording;
+    const held = rec && rec.status === "active";
+    const platformName = (p) => (p === "ios" ? "iOS" : "Android");
+    const segmentGroups = LIBRARY_PLATFORMS.map((platform) => {
+      const list = lib.segments[platform] || [];
+      if (!list.length) return "";
+      const rows = list.map((seg) => {
+        const open = Boolean(lib.open[`file:${seg.path}`]);
+        return `
+        <div class="efp-lib-row">
+          <div class="efp-lib-main"><strong>${esc(seg.name)}</strong> ${segmentMarkHtml(seg)}<span class="efp-card-meta">${esc(segmentLine(seg))}</span></div>
+          <div class="efp-lib-actions">
+            <button type="button" class="composer-pill-btn" data-recording-action="library-replay" data-name="${esc(seg.name)}" data-platform="${esc(platform)}" title="${held ? "Replay on the held device" : "Tick it for the next replay"}">Replay</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-view" data-path="${esc(seg.path)}" aria-expanded="${open ? "true" : "false"}">${open ? "Hide" : "View"}</button>
+            <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-segment" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}">Delete</button>
+          </div>
+        </div>
+        ${open ? `<div class="efp-lib-card" data-library-file="${esc(seg.path)}"><pre class="efp-lib-pre">Loading…</pre></div>` : ""}`;
+      }).join("");
+      return `<div class="efp-lib-group"><span class="efp-card-meta">${esc(platformName(platform))}</span>${rows}</div>`;
+    }).join("");
+    const recordingRows = lib.recordings.map((item) => {
+      let split = "no split yet";
+      if (item.split && item.split.parts.length) split = item.split.compiled.length === item.split.parts.length ? `split into ${item.split.parts.length} ${item.split.parts.length === 1 ? "segment" : "segments"}` : `split proposed, ${item.split.parts.length - item.split.compiled.length} of ${item.split.parts.length} parts not compiled`;
+      return `
+        <div class="efp-lib-row">
+          <div class="efp-lib-main"><strong>${esc(item.name)}</strong><span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(split)}</span></div>
+          <div class="efp-lib-actions">
+            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Ask the assistant to propose the split again">Split</button>
+            <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-recording" data-name="${esc(item.name)}" data-path="${esc(item.path)}">Delete</button>
+          </div>
+        </div>`;
+    }).join("");
+    const replayRows = lib.replays.map((rp) => {
+      const passed = rp.segments.filter((seg) => seg.status === "passed").length;
+      const summary = rp.broken ? "report unreadable" : `${passed} of ${rp.segments.length} passed · ${rp.segments.map((seg) => seg.name).join(", ")}`;
+      const tone = rp.status === "passed" ? "success" : (rp.status === "failed" ? "error" : "neutral");
+      const open = Boolean(lib.open[rp.id]);
+      return `
+        <div class="efp-lib-row">
+          <div class="efp-lib-main"><span class="portal-status-badge is-${tone}">${esc(rp.status || "?")}</span><strong>${esc(dateText(rp.finishedAt) || rp.id)}</strong><span class="efp-card-meta">${esc([platformName(rp.platform), rp.device].filter(Boolean).join(" "))}${rp.device ? " · " : ""}${esc(summary)}</span></div>
+          <div class="efp-lib-actions">
+            <button type="button" class="composer-pill-btn" data-recording-action="library-details" data-id="${esc(rp.id)}" aria-expanded="${open ? "true" : "false"}">${open ? "Hide" : "Details"}</button>
+            <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-replay" data-id="${esc(rp.id)}" data-path="${esc(rp.dir)}">Delete</button>
+          </div>
+        </div>
+        ${open ? `<div class="efp-lib-card" data-replay-card="${esc(rp.id)}"><div class="portal-inline-state is-visible">Loading the report…</div></div>` : ""}`;
+    }).join("");
+    const empty = (text) => `<p class="portal-inline-note">${esc(text)}</p>`;
+    return `
+      <div class="efp-mobile-section-head">
+        <h5>Library</h5>
+        <button type="button" class="toolbar-icon-btn" data-recording-action="library-refresh" title="Read the workspace again" aria-label="Refresh"${lib.loading ? " disabled" : ""}><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+      </div>
+      <p class="portal-inline-note">What this assistant keeps for mobile testing. Deleting a segment or a recording here tells the assistant, which updates the scenario plan.</p>
+      ${lib.error ? `<div class="portal-inline-state is-visible is-error">${esc(lib.error)}</div>` : ""}
+      ${lib.loading && !lib.loaded ? `<p class="portal-inline-note">Reading the workspace…</p>` : ""}
+      <h6>Segments</h6>
+      ${segmentGroups || (lib.loaded ? empty("No compiled segments yet. Save a recording and approve its split in the chat.") : "")}
+      <h6>Recordings</h6>
+      ${recordingRows || (lib.loaded ? empty("No recordings saved yet.") : "")}
+      <h6>Replays</h6>
+      ${replayRows || (lib.loaded ? empty("No replays yet.") : "")}`;
+  }
+
+  function renderLibrary() {
+    const box = panelRoot()?.querySelector("[data-recording-library]");
+    if (!box) return;
+    if (view.tab !== "library") {
+      box.innerHTML = "";
+      box.classList.add("hidden");
+      return;
+    }
+    box.classList.remove("hidden");
+    box.innerHTML = libraryHtml();
+    Object.keys(view.library.open).forEach((key) => (key.startsWith("file:") ? fillFile(key.slice(5)) : fillReplayCard(key)));
+  }
+
+  // The segment file as the assistant wrote it.
+  async function fillFile(path) {
+    const slot = [...(panelRoot()?.querySelectorAll("[data-library-file]") || [])].find((el) => el.dataset.libraryFile === path);
+    if (!slot) return;
+    try {
+      const seg = Object.values(view.library.segments).flat().find((item) => item.path === path);
+      slot.innerHTML = `<pre class="efp-lib-pre">${esc(await cachedText(path, seg ? seg.modifiedAt : ""))}</pre>`;
+    } catch (error) {
+      slot.innerHTML = `<div class="portal-inline-state is-visible is-error">${esc(errorText(error))}</div>`;
+    }
+  }
+
+  // The replay's report as the chat shows it, rendered by efp_cards.js.
+  async function fillReplayCard(id) {
+    const slot = panelRoot()?.querySelector(`[data-replay-card="${id}"]`);
+    const rp = view.library.replays.find((item) => item.id === id);
+    if (!slot || !rp) return;
+    const cards = window.EfpCards;
+    if (!cards || typeof cards.replayCardHtml !== "function") {
+      slot.innerHTML = `<div class="portal-inline-state is-visible is-warning">The report is at ${esc(rp.path)}.</div>`;
+      return;
+    }
+    try {
+      const doc = JSON.parse(await cachedText(rp.path, ""));
+      slot.innerHTML = cards.replayCardHtml(cards.normalizeReplay(Object.assign({}, doc, { __source: rp.path }), rp.dir), view.agentId);
+      renderIcons();
+    } catch (error) {
+      slot.innerHTML = `<div class="portal-inline-state is-visible is-error">${esc(errorText(error))}</div>`;
+    }
+  }
+
+  async function libraryAction(action, button, root) {
+    const lib = view.library;
+    const name = button.dataset.name || "";
+    const path = button.dataset.path || "";
+    const say = setStatus;
+    if (action === "library-refresh") {
+      lib.loaded = false;
+      await loadLibrary();
+      return;
+    }
+    if (action === "library-view") {
+      if (lib.open[`file:${path}`]) delete lib.open[`file:${path}`];
+      else lib.open[`file:${path}`] = true;
+      renderLibrary();
+      renderIcons();
+      return;
+    }
+    if (action === "library-replay") {
+      const platform = button.dataset.platform || "";
+      const rec = view.recording;
+      const r = view.replay;
+      r.touched = true;
+      if (!r.checked.includes(name)) r.checked.push(name);
+      if (!rec || rec.status !== "active") {
+        say(`${name} is ticked for the next replay. Start a device under Session first.`, "warning");
+        return;
+      }
+      if (recordingPlatform() !== platform) {
+        say(`${name} is a ${platform === "ios" ? "iOS" : "Android"} segment; the held device runs ${platformLabel(rec)}.`, "error");
+        return;
+      }
+      switchTab("session");
+      if (r.segments === null) await loadReplaySegments();
+      else {
+        await loadReplaySecrets();
+        renderReplay();
+        renderIcons();
+      }
+      root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      say(`${name} is ticked under Replay.`, "");
+      return;
+    }
+    if (action === "library-split") {
+      sendChat(savedMessage(name, path, []));
+      say(`Asked the assistant to propose the split of ${name} again.`, "success");
+      return;
+    }
+    if (action === "library-details") {
+      const id = button.dataset.id || "";
+      if (lib.open[id]) delete lib.open[id];
+      else lib.open[id] = true;
+      renderLibrary();
+      renderIcons();
+      return;
+    }
+    if (action === "library-delete-segment" || action === "library-delete-recording" || action === "library-delete-replay") {
+      const kind = action === "library-delete-segment" ? "Segment" : (action === "library-delete-recording" ? "Recording" : "Replay");
+      const what = kind === "Replay" ? `the replay of ${dateText((lib.replays.find((rp) => rp.id === button.dataset.id) || {}).finishedAt) || button.dataset.id}` : `${kind.toLowerCase()} ${name}`;
+      const hint = kind === "Segment" ? " Scenarios that use it will need it recorded again." : (kind === "Recording" ? " Its split goes with it; segments already compiled from it stay." : "");
+      if (!(await confirmAction(`Delete ${what} from the assistant's workspace?${hint}`, "Delete", "Delete?"))) return;
+      const paths = [path];
+      if (kind === "Recording") {
+        const item = lib.recordings.find((it) => it.name === name);
+        if (item && item.split) paths.push(item.split.path);
+      }
+      button.disabled = true;
+      try {
+        await deleteWorkspace(paths);
+      } catch (error) {
+        button.disabled = false;
+        say(`Could not delete ${what}: ${errorText(error)}`, "error");
+        return;
+      }
+      if (kind !== "Replay") sendChat(deletedMessage(kind, name, path));
+      say(`Deleted ${what}.`, "success");
+      lib.loaded = false;
+      view.replay.segments = null;
+      view.replay.yaml = {};
+      await Promise.all([loadLibrary(), loadFlow()]);
+    }
+  }
+
   // ---- saving a recording -----------------------------------------------------------
 
   // Writes a saved log into the assistant's workspace and tells the
@@ -2232,8 +2644,8 @@
     renderSession();
   }
 
-  async function confirmAction(message, confirmText) {
-    if (typeof window.showConfirm === "function") return window.showConfirm({ title: "Finish recording?", message, confirmText, danger: true });
+  async function confirmAction(message, confirmText, title = "Finish recording?") {
+    if (typeof window.showConfirm === "function") return window.showConfirm({ title, message, confirmText, danger: true });
     return window.confirm(message);
   }
 
@@ -2377,10 +2789,19 @@
       else if (action === "save-again") saveReplay();
       return;
     }
+    const tab = target.closest("[data-recording-tab]");
+    if (tab && tab.closest("[data-recording-root]")) {
+      switchTab(tab.dataset.recordingTab);
+      return;
+    }
     const button = target.closest("[data-recording-action]");
     if (!button) return;
     const root = button.closest("[data-recording-root]") || (button.closest("[data-recording-workspace]") ? panelRoot() : null);
     if (!root) return;
+    if (button.dataset.recordingAction.startsWith("library-")) {
+      libraryAction(button.dataset.recordingAction, button, root);
+      return;
+    }
     // A menu closes once one of its entries is chosen.
     const menu = button.closest("details.efp-menu");
     if (menu) menu.removeAttribute("open");
@@ -2491,6 +2912,8 @@
     replayMessage,
     segmentSecrets,
     flowSteps,
+    deletedMessage,
+    parseSegmentYaml,
     proxyForBridge,
     splitProxyLogin,
     suggestCustomId,

@@ -111,6 +111,28 @@ The device is held for 30 minutes at a time; **Hold 30 more minutes** extends
 it. Keep the bridge running while you record: BrowserStack ends a session that
 sees no command for five minutes.
 
+## The Library
+
+The **Library** tab under the device card lists what this assistant's
+workspace keeps for mobile testing. It needs no device.
+
+- **Segments**, per platform: the steps, the grade and how many steps still
+  need a look (what the compiler wrote into the file), when it was compiled,
+  and whether a replay passed it. **Replay** ticks the segment under Session
+  (and starts there if a device is held); **View** shows the segment's steps
+  as the assistant wrote them; **Delete** removes it from the workspace and tells the assistant,
+  which marks it to be recorded again in every scenario that uses it.
+- **Recordings**: when each was saved, its size, and whether its split was
+  proposed and compiled. **Split** asks the assistant to propose the split
+  again; **Delete** removes the recording and its split file (segments already
+  compiled from it stay).
+- **Replays**: each result with the segments it ran. **Details** shows the same
+  card as the chat, with the screenshots; **Delete** removes the report and its
+  files without a word to the assistant.
+
+Deleting asks first. The assistant hears `Segment <name> deleted: <path>` or
+`Recording <name> deleted: <path>` and keeps the scenario plan in step.
+
 ## What a recording grade means
 
 | Grade | Meaning |

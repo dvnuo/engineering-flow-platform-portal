@@ -262,6 +262,10 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert "Recording on my computer through the Mobile testing panel." in js
     for marker in ("data-recording-flow", "data-recording-settings", 'data-recording-action="settings"', "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", "data-recording-auto-inspector"):
         assert marker in js, marker
+    # The Library lists what the workspace keeps and deletes through the
+    # runtime's workspace API, telling the assistant so the plan follows.
+    for marker in ("data-recording-tabs", "data-recording-library", 'data-recording-action="library-replay"', 'data-recording-action="library-view"', "library-delete-segment", "library-delete-recording", "library-delete-replay", 'workspaceApi("/delete")', "JSON.stringify({ paths })", "${kind} ${name} deleted: ${path}", "efp-lib-pre", "cards.replayCardHtml(cards.normalizeReplay("):
+        assert marker in js, marker
     # Compiled segments replay on the held device; the result lands in the
     # workspace beside the recordings and the chat message hands it over.
     assert '"segment.replay"' in js and '"replay.status"' in js and '"replay.stop"' in js
@@ -356,6 +360,14 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(M.splitProxyLogin("http://proxy2:8080"), { url: "http://proxy2:8080", username: "", password: "", login: false });
         assert.equal(M.suggestCustomId("FXApp-1.4.2-uat.apk"), "fxapp-uat-android");
         assert.equal(M.suggestCustomId("notes.txt"), "");
+        // The Library's messages and what it reads out of a segment file.
+        assert.equal(M.deletedMessage("Segment", "seg-login", "mobile/segments/android/seg-login.yaml"), "Segment seg-login deleted: mobile/segments/android/seg-login.yaml");
+        assert.equal(M.deletedMessage("Recording", "recording-1", "mobile/recordings/recording-1.wdlog.json"), "Recording recording-1 deleted: mobile/recordings/recording-1.wdlog.json");
+        assert.deepEqual(
+          M.parseSegmentYaml("name: seg-login\\nplatform: android\\nsource:\\n  kind: webdriver-log\\n  grade: fair\\n  needs_review: 2\\n  compiled_at: '2026-10-01T10:15:00Z'\\nsteps:\\n  - action: tap\\n    name: Login\\n  - action: type\\n"),
+          { name: "seg-login", platform: "android", steps: 2, grade: "fair", needsReview: 2, compiledAt: "2026-10-01T10:15:00Z" },
+        );
+        assert.deepEqual(M.parseSegmentYaml("steps: []\\n"), { name: "", platform: "", steps: 0, grade: "", needsReview: 0, compiledAt: "" });
         (async () => {
           const state = await M.probeBridge({ force: true });
           assert.deepEqual(state, { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true });
