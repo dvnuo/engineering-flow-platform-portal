@@ -1,7 +1,8 @@
-"""Download the Appium Inspector web build into a directory.
+"""Download the Appium Inspector web build into a directory, without npm.
 
-Portal serves it at /inspector/ for recording mobile test steps (see
-app/api/mobile.py). The build is the dist-browser folder of the
+For a Portal run outside the image (the image fetches it with npm, see the
+Dockerfile). Portal serves it at /inspector/ for recording mobile test steps
+(see app/api/mobile.py). The build is the dist-browser folder of the
 appium-inspector-plugin npm package, which hard-codes the /inspector/ prefix.
 
     python scripts/fetch_appium_inspector.py 2026.9.2 /opt/appium-inspector [registry-url]
@@ -11,6 +12,7 @@ from __future__ import annotations
 import io
 import sys
 import tarfile
+import urllib.error
 import urllib.request
 from pathlib import Path, PurePosixPath
 
@@ -53,8 +55,13 @@ def main(argv: list[str]) -> int:
     version, dest = argv[1], Path(argv[2])
     registry = (argv[3] if len(argv) > 3 else "https://registry.npmjs.org").rstrip("/")
     url = f"{registry}/appium-inspector-plugin/-/appium-inspector-plugin-{version}.tgz"
-    with urllib.request.urlopen(url, timeout=180) as response:
-        archive = response.read()
+    try:
+        with urllib.request.urlopen(url, timeout=180) as response:
+            archive = response.read()
+    except (urllib.error.URLError, OSError) as error:
+        reason = getattr(error, "reason", None) or error
+        print(f"Could not download {url}: {reason}", file=sys.stderr)
+        return 1
     count = extract_dist_browser(archive, dest)
     print(f"Appium Inspector {version}: {count} files in {dest}")
     return 0

@@ -1,3 +1,27 @@
+# The Appium Inspector web build that Portal serves at /inspector/ for
+# recording mobile test steps. npm fetches it, so a registry mirror, a proxy,
+# or an .npmrc apply the way they do for any npm install:
+#   --build-arg NPM_REGISTRY=https://nexus.example.com/repository/npm-proxy
+#   --build-arg HTTPS_PROXY=http://proxy.example.com:3128 --build-arg NO_PROXY=nexus.example.com
+#   --secret id=npmrc,src=$HOME/.npmrc        (a registry that needs a login)
+# An empty APPIUM_INSPECTOR_VERSION leaves the Inspector out, and members then
+# record with the desktop Inspector; any other failure fails the build.
+# Needs BuildKit (the default since Docker 23; otherwise DOCKER_BUILDKIT=1).
+ARG APPIUM_INSPECTOR_VERSION=2026.9.2
+
+FROM node:22-alpine AS inspector
+ARG APPIUM_INSPECTOR_VERSION
+ARG NPM_REGISTRY=
+WORKDIR /inspector
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    mkdir -p dist && if [ -n "$APPIUM_INSPECTOR_VERSION" ]; then \
+      if [ -n "$NPM_REGISTRY" ]; then export npm_config_registry="$NPM_REGISTRY"; fi; \
+      npm pack "appium-inspector-plugin@$APPIUM_INSPECTOR_VERSION" \
+      && mkdir -p unpacked && tar -xzf appium-inspector-plugin-*.tgz -C unpacked \
+      && cp -a unpacked/package/dist-browser/. dist/ \
+      && test -f dist/index.html; \
+    fi
+
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -5,17 +29,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Hosted Appium Inspector for recording mobile test steps, served at
-# /inspector/. An empty APPIUM_INSPECTOR_VERSION, or a build without access to
-# the npm registry, leaves it out; members then record with the desktop app.
-ARG APPIUM_INSPECTOR_VERSION=2026.9.2
-ARG NPM_REGISTRY=https://registry.npmjs.org
-COPY scripts/fetch_appium_inspector.py /tmp/fetch_appium_inspector.py
-RUN if [ -n "$APPIUM_INSPECTOR_VERSION" ]; then \
-      python /tmp/fetch_appium_inspector.py "$APPIUM_INSPECTOR_VERSION" /opt/appium-inspector "$NPM_REGISTRY" \
-      || echo "Appium Inspector web build not bundled"; \
-    fi; \
-    rm -f /tmp/fetch_appium_inspector.py
+COPY --from=inspector /inspector/dist /opt/appium-inspector
 ENV EFP_APPIUM_INSPECTOR_DIR=/opt/appium-inspector
 
 COPY alembic.ini ./
