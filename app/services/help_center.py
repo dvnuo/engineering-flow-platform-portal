@@ -6,7 +6,7 @@ module only lists the files and merges in what a topic shares with a form.
 
 Connector topics are derived from CONNECTION_GUIDANCE (settings connectors
 such as Jira or the model provider) and CONNECTOR_GUIDANCE (local connectors
-such as the browser bridge) rather than restated, so the short steps shown
+such as the local bridge) rather than restated, so the short steps shown
 beside a connector's fields (and its troubleshooting lines) and the full guide
 here cannot drift apart. The markdown file adds what does not fit
 next to a form field: what the connection is for, what goes wrong, and how to
@@ -162,7 +162,7 @@ def _connection_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
 
 
 def _connector_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
-    """Connectors (Local browser, ...) get one guide each, derived like connections."""
+    """Connectors (Local bridge, ...) get one guide each, derived like connections."""
 
     topics = []
     for key, guidance in CONNECTOR_GUIDANCE.items():

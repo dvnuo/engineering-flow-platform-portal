@@ -15,7 +15,7 @@ class ConnectorResponse(BaseModel):
     state: str = "not_set_up"
     status_label: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
-    # Deployment-level values for the page (for local_browser: start_url).
+    # Deployment-level values for the page (for local_bridge: start_url).
     settings: dict[str, Any] = Field(default_factory=dict)
     last_verified_at: Optional[str] = None
 

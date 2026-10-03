@@ -10,21 +10,22 @@
  * generated it (see `chatRequestConnectors`), so two Portal tabs on the same
  * session never execute the same request twice.
  *
- * The first (and for now only) connector type is `local_browser`: a
- * `browser serve` process on 127.0.0.1 that drives a dedicated Chrome window.
+ * The first (and for now only) connector type is `local_bridge`, shown as
+ * Local bridge: the efp-bridge process on 127.0.0.1 that drives a dedicated
+ * Chrome window and serves the mobile Mobile testing panel (mobile_testing.js).
  * Contract: docs/CONNECTORS_CONTRACT.md.
  */
 (function () {
   "use strict";
 
   const PROTOCOL_VERSION = 1;
-  const LOCAL_BROWSER_TYPE = "local_browser";
+  const LOCAL_BRIDGE_TYPE = "local_bridge";
   const PORT_RANGE = [8765, 8766, 8767, 8768, 8769, 8770];
   const PING_TIMEOUT_MS = 1500;
   const RUN_TIMEOUT_MS = 65000;
   const PROBE_CACHE_MS = 10000;
   const CLIENT_ID_KEY = "efp.connectors.client_id";
-  const TOGGLE_KEY_PREFIX = "efp.connectors.local_browser.toggle:";
+  const TOGGLE_KEY_PREFIX = "efp.connectors.local_bridge.toggle:";
   const TOGGLE_ID = "composer-browser-toggle";
   const TOGGLE_TEXT_ID = "composer-browser-toggle-text";
   const PANEL_ROOT_ID = "connector-panel-root";
@@ -36,7 +37,7 @@
     connectorsLoading: null,
     featureEnabled: Boolean(document.getElementById("connectors-menu-btn")),
     handled: new Set(),
-    localBrowser: {
+    localBridge: {
       port: 0,
       alive: false,
       sessionAlive: false,
@@ -160,13 +161,13 @@
     return list.find((item) => item && item.type === type) || null;
   }
 
-  function localBrowserEnabled() {
-    const entry = connectorEntry(LOCAL_BROWSER_TYPE);
+  function localBridgeEnabled() {
+    const entry = connectorEntry(LOCAL_BRIDGE_TYPE);
     return Boolean(entry && entry.enabled);
   }
 
-  function localBrowserConfig() {
-    const entry = connectorEntry(LOCAL_BROWSER_TYPE);
+  function localBridgeConfig() {
+    const entry = connectorEntry(LOCAL_BRIDGE_TYPE);
     const config = entry && entry.config && typeof entry.config === "object" ? entry.config : {};
     return {
       auto_enable_in_new_chats: config.auto_enable_in_new_chats !== false,
@@ -174,13 +175,13 @@
     };
   }
 
-  // ---- local browser bridge ----------------------------------------------
+  // ---- local bridge ------------------------------------------------------
 
   function candidatePorts() {
-    const preferred = localBrowserConfig().preferred_port;
+    const preferred = localBridgeConfig().preferred_port;
     const ports = [preferred, ...PORT_RANGE].filter((port, index, list) => Number.isInteger(port) && list.indexOf(port) === index);
-    if (state.localBrowser.port && ports.includes(state.localBrowser.port)) {
-      return [state.localBrowser.port, ...ports.filter((port) => port !== state.localBrowser.port)];
+    if (state.localBridge.port && ports.includes(state.localBridge.port)) {
+      return [state.localBridge.port, ...ports.filter((port) => port !== state.localBridge.port)];
     }
     return ports;
   }
@@ -197,10 +198,10 @@
     }
   }
 
-  async function probeLocalBrowser({ force = false, quick = false } = {}) {
-    const lb = state.localBrowser;
+  async function probeLocalBridge({ force = false, quick = false } = {}) {
+    const lb = state.localBridge;
     if (!force && lb.probedAt && Date.now() - lb.probedAt < PROBE_CACHE_MS) {
-      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount };
+      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
     }
     if (lb.probing) return lb.probing;
     lb.probing = (async () => {
@@ -220,18 +221,29 @@
       lb.version = found ? String(found.data.version || "") : "";
       lb.protocolVersion = found ? Number(found.data.protocol_version || 0) : 0;
       lb.tabCount = found && found.data.session ? Number(found.data.session.tab_count || 0) : 0;
+      lb.mobile = mobileState(found ? found.data : null);
       lb.probing = null;
-      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount };
+      return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
     })();
     return lb.probing;
   }
 
-  async function runLocalBrowser(command, params, timeoutSeconds) {
-    const lb = state.localBrowser;
+  // What the bridge's /ping says about mobile recording: "ready", "outdated"
+  // (a bridge without the mobile routes), "no_mobile_auto" (mobile-auto is not
+  // next to it), or "" when no bridge answered.
+  function mobileState(ping) {
+    if (!ping) return "";
+    const capabilities = Array.isArray(ping.capabilities) ? ping.capabilities : [];
+    if (capabilities.indexOf("mobile") < 0) return "outdated";
+    return ping.mobile && ping.mobile.available ? "ready" : "no_mobile_auto";
+  }
+
+  async function runLocalBridge(command, params, timeoutSeconds) {
+    const lb = state.localBridge;
     if (!lb.alive || !lb.port) {
-      const probe = await probeLocalBrowser({ force: true, quick: true });
+      const probe = await probeLocalBridge({ force: true, quick: true });
       if (!probe.alive) {
-        return { ok: false, error: { code: "bridge_unreachable", message: "The local browser bridge is not running.", hint: "Open Connectors → Local browser and start the bridge." } };
+        return { ok: false, error: { code: "bridge_unreachable", message: "The local bridge is not running.", hint: "Open Connectors → Local bridge and start it." } };
       }
     }
     const body = JSON.stringify({
@@ -269,17 +281,17 @@
         ok: false,
         error: {
           code: aborted ? "bridge_timeout" : "bridge_unreachable",
-          message: aborted ? "The local browser bridge did not answer in time." : "Could not reach the local browser bridge.",
+          message: aborted ? "The local bridge did not answer in time." : "Could not reach the local bridge.",
         },
       };
     }
   }
 
-  // First tab of the EFP window (LOCAL_BROWSER_START_URL on the server): an
+  // First tab of the EFP window (LOCAL_BRIDGE_BROWSER_START_URL on the server): an
   // absolute URL as configured, a path resolved against this Portal's origin,
   // or "" when the bridge should open the origin itself.
-  function localBrowserStartUrl() {
-    const entry = connectorEntry(LOCAL_BROWSER_TYPE);
+  function localBridgeStartUrl() {
+    const entry = connectorEntry(LOCAL_BRIDGE_TYPE);
     const raw = String((entry && entry.settings && entry.settings.start_url) || "").trim();
     if (!raw) return "";
     if (/^https?:\/\//i.test(raw)) return raw;
@@ -291,9 +303,9 @@
   }
 
   function launchUrl(port) {
-    const targetPort = port || localBrowserConfig().preferred_port || PORT_RANGE[0];
+    const targetPort = port || localBridgeConfig().preferred_port || PORT_RANGE[0];
     let link = `efp-bridge://start?origin=${encodeURIComponent(portalOrigin())}&port=${encodeURIComponent(String(targetPort))}`;
-    const startUrl = localBrowserStartUrl();
+    const startUrl = localBridgeStartUrl();
     if (startUrl) link += `&url=${encodeURIComponent(startUrl)}`;
     return link;
   }
@@ -314,15 +326,15 @@
   async function waitForBridge(timeoutMs = 6000) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-      const probe = await probeLocalBrowser({ force: true });
+      const probe = await probeLocalBridge({ force: true });
       if (probe.alive) return probe;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    return probeLocalBrowser({ force: true });
+    return probeLocalBridge({ force: true });
   }
 
   // Makes the bridge reachable and its Chrome window open, in that order. The
-  // bridge outlives the window (closing Chrome leaves browser serve running),
+  // bridge outlives the window (closing Chrome leaves the bridge running),
   // so a reachable bridge with a closed window is asked to reopen it through
   // session.ensure; the protocol link would only find the bridge already
   // running and do nothing. Resolves to the final probe, with `error` set
@@ -331,7 +343,7 @@
     // The launch link and the reopen carry the configured start page, which
     // arrives with the connector list.
     await loadConnectors();
-    let probe = await probeLocalBrowser({ force: true });
+    let probe = await probeLocalBridge({ force: true });
     if (!probe.alive) {
       launchBridge(port);
       probe = await waitForBridge(launchTimeoutMs);
@@ -340,22 +352,22 @@
     if (probe.sessionAlive) return probe;
     // A bridge that has just started is still launching Chrome itself; the
     // call queues behind that and returns once the window is up.
-    const startUrl = localBrowserStartUrl();
-    const outcome = await runLocalBrowser("session.ensure", startUrl ? { url: startUrl } : {}, 60);
+    const startUrl = localBridgeStartUrl();
+    const outcome = await runLocalBridge("session.ensure", startUrl ? { url: startUrl } : {}, 60);
     // Chrome lists a transient extra target for a moment after it starts; let
     // it settle so the tab count shown next to the status is the real one.
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    probe = await probeLocalBrowser({ force: true });
+    probe = await probeLocalBridge({ force: true });
     if (!outcome.ok) return { ...probe, error: outcome.error || { code: "session_not_running" } };
     return probe;
   }
 
-  const localBrowserModule = {
-    type: LOCAL_BROWSER_TYPE,
-    probe: probeLocalBrowser,
+  const localBridgeModule = {
+    type: LOCAL_BRIDGE_TYPE,
+    probe: probeLocalBridge,
     async execute(request) {
       const action = String(request.action || "");
-      return runLocalBrowser(action, request.params, request.timeout_seconds);
+      return runLocalBridge(action, request.params, request.timeout_seconds);
     },
   };
 
@@ -437,7 +449,7 @@
     } catch (_error) {
       /* storage unavailable */
     }
-    return localBrowserConfig().auto_enable_in_new_chats;
+    return localBridgeConfig().auto_enable_in_new_chats;
   }
 
   function setToggle(agentId, on) {
@@ -479,7 +491,7 @@
       applyToggleView({ mode: "hidden" });
       return;
     }
-    if (!localBrowserEnabled()) {
+    if (!localBridgeEnabled()) {
       applyToggleView({ mode: "setup", label: "Set up browser", title: "Let the assistant use your local browser: open Connectors to set it up." });
       return;
     }
@@ -487,9 +499,9 @@
       applyToggleView({ mode: "off", label: "Browser off", title: "The assistant will not use your local browser in this chat. Click to switch on." });
       return;
     }
-    const status = probe ? await probeLocalBrowser() : { alive: state.localBrowser.alive };
+    const status = probe ? await probeLocalBridge() : { alive: state.localBridge.alive };
     if (!status.alive) {
-      applyToggleView({ mode: "offline", label: "Browser bridge offline", title: "The local browser bridge is not running. Click to open the setup steps." });
+      applyToggleView({ mode: "offline", label: "Local bridge offline", title: "The local bridge is not running. Click to open the setup steps." });
       return;
     }
     applyToggleView({ mode: "on", label: "Browser on", title: "The assistant can read and operate your EFP browser window in this chat. Click to switch off." });
@@ -501,13 +513,13 @@
     if (!elements || !agentId) return;
     const mode = elements.button.dataset.state;
     if (mode === "setup") {
-      window.location.hash = "#/connectors/local_browser";
+      window.location.hash = "#/connectors/local_bridge";
       return;
     }
     if (mode === "offline") {
       applyToggleView({ mode: "offline", label: "Starting browser…", title: "Starting the local bridge and its Chrome window." });
       const probe = await ensureBrowserSession();
-      if (!probe.alive) window.location.hash = "#/connectors/local_browser?step=2";
+      if (!probe.alive) window.location.hash = "#/connectors/local_bridge?step=2";
       await renderToggle({ probe: false });
       return;
     }
@@ -522,14 +534,14 @@
   function chatRequestConnectors(agentId) {
     const agent = agentId || currentAgentId();
     if (!state.featureEnabled || !agent || !isChromium()) return null;
-    if (!localBrowserEnabled() || !toggleOn(agent)) return null;
-    if (!state.localBrowser.alive) return null;
+    if (!localBridgeEnabled() || !toggleOn(agent)) return null;
+    if (!state.localBridge.alive) return null;
     return {
-      [LOCAL_BROWSER_TYPE]: { client_id: clientId(), protocol_version: PROTOCOL_VERSION },
+      [LOCAL_BRIDGE_TYPE]: { client_id: clientId(), protocol_version: PROTOCOL_VERSION },
     };
   }
 
-  // ---- connector panel (Connectors → Local browser) -------------------------
+  // ---- connector panel (Connectors → Local bridge) --------------------------
 
   function panelStatus(root, key, text, tone) {
     const node = root.querySelector(`[data-connector-status="${key}"]`);
@@ -548,16 +560,28 @@
 
   async function refreshPanelStatus(root, { force = true } = {}) {
     panelStatus(root, "bridge", "checking…", "");
-    const probe = await probeLocalBrowser({ force });
+    const probe = await probeLocalBridge({ force });
     panelStatus(root, "bridge", probe.alive ? `running on port ${probe.port}${probe.version ? ` (v${probe.version})` : ""}` : "not detected", probe.alive ? "ok" : "warn");
     panelStatus(root, "session", probe.alive ? (probe.sessionAlive ? `Chrome window open (${probe.tabCount || 0} tabs)` : "Chrome window closed (Start bridge reopens it)") : "–", probe.sessionAlive ? "ok" : "");
+    const mobile = MOBILE_STATUS[probe.alive ? probe.mobile || "outdated" : ""];
+    panelStatus(root, "mobile", mobile.short, mobile.tone);
+    panelStatus(root, "mobile-detail", mobile.detail, mobile.tone);
     root.querySelectorAll("[data-connector-step]").forEach((section) => {
       const step = section.dataset.connectorStep;
-      const done = (step === "2" && probe.alive) || (step === "3" && root.dataset.lastVerified) || (step === "4" && root.dataset.enabled === "true");
+      // Step 3 is browser automation (tested and switched on), step 4 mobile
+      // recording (the bridge has it and mobile-auto next to it).
+      const done = (step === "2" && probe.alive) || (step === "3" && root.dataset.lastVerified && root.dataset.enabled === "true") || (step === "4" && probe.alive && probe.mobile === "ready");
       section.classList.toggle("is-done", Boolean(done));
     });
     return probe;
   }
+
+  const MOBILE_STATUS = {
+    "": { short: "–", tone: "", detail: "Start the bridge (step 2) to check." },
+    ready: { short: "ready", tone: "ok", detail: "Ready. Add your BrowserStack username and access key under Connectors → BrowserStack, then choose Recording in an assistant's chat." },
+    outdated: { short: "not in this bridge", tone: "warn", detail: "This bridge is older than mobile recording. Download the package again (step 1), run its installer, and start the bridge again." },
+    no_mobile_auto: { short: "mobile-auto missing", tone: "warn", detail: "mobile-auto is not next to the bridge. Unzip the whole package again (step 1) into the same folder, then start the bridge again." },
+  };
 
   function troubleshootFor(error) {
     const code = String((error && error.code) || "");
@@ -594,7 +618,7 @@
       await recordVerification(root, false, { reason: "bridge_unreachable" });
       return;
     }
-    const outcome = await runLocalBrowser("tab.list", {}, 20);
+    const outcome = await runLocalBridge("tab.list", {}, 20);
     if (!outcome.ok) {
       const error = outcome.error || {};
       const hint = troubleshootFor(error) || String(error.hint || "");
@@ -614,7 +638,7 @@
   }
 
   async function recordVerification(root, ok, details) {
-    const type = root.dataset.connectorType || LOCAL_BROWSER_TYPE;
+    const type = root.dataset.connectorType || LOCAL_BRIDGE_TYPE;
     try {
       const { ok: saved, payload } = await requestJson(`/api/connectors/${encodeURIComponent(type)}/verify`, {
         method: "POST",
@@ -631,7 +655,7 @@
   }
 
   async function savePanelSettings(root) {
-    const type = root.dataset.connectorType || LOCAL_BROWSER_TYPE;
+    const type = root.dataset.connectorType || LOCAL_BRIDGE_TYPE;
     const enabled = Boolean(root.querySelector('[data-connector-field="enabled"]')?.checked);
     const autoEnable = Boolean(root.querySelector('[data-connector-field="auto_enable_in_new_chats"]')?.checked);
     const portInput = root.querySelector('[data-connector-field="preferred_port"]');
@@ -702,7 +726,7 @@
     const originNodes = root.querySelectorAll("[data-connector-origin]");
     originNodes.forEach((node) => { node.textContent = portalOrigin(); });
     const launchLink = root.querySelector("[data-connector-launch-link]");
-    if (launchLink) launchLink.href = launchUrl(localBrowserConfig().preferred_port);
+    if (launchLink) launchLink.href = launchUrl(localBridgeConfig().preferred_port);
     refineDownloadLink(root);
 
     root.addEventListener("click", async (event) => {
@@ -715,13 +739,13 @@
         const port = Number(root.querySelector('[data-connector-field="preferred_port"]')?.value) || undefined;
         const probe = await ensureBrowserSession({ port });
         if (probe.alive && probe.sessionAlive) {
-          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)} and the EFP browser window is open. Continue with step 3.`, "success");
+          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)} and the EFP browser window is open. Test it under Browser automation below.`, "success");
         } else if (probe.alive) {
           const error = probe.error || {};
           const hint = troubleshootFor(error) || String(error.hint || "");
           setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)}, but its Chrome window did not open: ${esc(error.code || "error")} ${esc(error.message || "")}${hint ? `<br>${esc(hint)}` : ""}`, "error");
         } else {
-          setPanelResult(root, "launch", "<strong>Bridge not detected yet.</strong> If nothing happened, the protocol link is not registered: run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) from the unzipped folder, then try again. If it did start, the launcher writes what happened to <code>.efp/browser/logs/bridge-serve.log</code> in your home folder; a bridge left running for a different Portal address is refused there by name.", "error");
+          setPanelResult(root, "launch", "<strong>Bridge not detected yet.</strong> If nothing happened, the protocol link is not registered: run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) from the unzipped folder, then try again. If it did start, the launcher writes what happened to <code>.efp/bridge/logs/bridge.log</code> in your home folder; a bridge left running for a different Portal address is refused there by name.", "error");
         }
         await refreshPanelStatus(root, { force: false });
         await renderToggle({ probe: false });
@@ -762,7 +786,7 @@
   // ---- wiring -----------------------------------------------------------------
 
   function bind() {
-    register(localBrowserModule);
+    register(localBridgeModule);
     document.addEventListener("portal:runtime-event", (browserEvent) => {
       const detail = browserEvent.detail || {};
       const type = String(detail.event?.type || "");
@@ -790,8 +814,8 @@
       register,
       clientId,
       loadConnectors,
-      probeLocalBrowser,
-      runLocalBrowser,
+      probeLocalBridge,
+      runLocalBridge,
       launchBridge,
       ensureBrowserSession,
       chatRequestConnectors,

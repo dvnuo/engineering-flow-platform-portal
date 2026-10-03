@@ -4,7 +4,12 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
+
+from app.services.efp_cards import MOBILE_RUN_SKILLS as EFP_MOBILE_RUN_SKILLS
+from app.services.efp_cards import extract_cards as extract_efp_cards
+from app.services.efp_cards import live_matrix_path as efp_live_matrix_path
+from app.services.efp_cards import scenario_progress as efp_scenario_progress
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -667,6 +672,8 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         original_task = _extract_text_field(input_obj, ("original_task", "user_task"))
     skill_name = (getattr(task, "skill_name", None) or input_obj.get("skill_name") or "").strip().lstrip("/")
     final_response = _extract_text_field(result_obj, ("final_response", "response", "summary", "raw_text", "message"))
+    # Review/evidence/matrix cards leave the response text and show as cards.
+    final_response, result_cards = extract_efp_cards(final_response)
     blockers = _normalize_blockers(result_obj.get("blockers"))
     next_recommendation = _extract_text_field(result_obj, ("next_recommendation", "recommendation", "next_step"))
     status_label = getattr(task, "status", None) or "unknown"
@@ -717,6 +724,14 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         "task_content_label": task_content_label,
         "original_task": original_task,
         "final_response": final_response,
+        "result_cards": result_cards,
+        # A mobile run keeps its scenario matrix at a task-scoped path, so the
+        # page can show progress before the final response exists.
+        "live_matrix_path": (
+            efp_live_matrix_path(getattr(task, "id", ""))
+            if skill_name in EFP_MOBILE_RUN_SKILLS and not any(card["kind"] == "matrix" for card in result_cards)
+            else ""
+        ),
         "blockers": blockers,
         "next_recommendation": next_recommendation,
         "execution_context_items": execution_context_items,
@@ -918,6 +933,16 @@ def _aws_eks_cluster_view_rows(aws_section) -> list[dict]:
     return rows
 
 
+def _hosted_inspector_available() -> bool:
+    """Whether Portal serves the Appium Inspector web build at /inspector/.
+
+    The image sets the directory whether or not the build was fetched, so the
+    files are checked, the way the recording-config endpoint does.
+    """
+    raw = (get_settings().appium_inspector_dir or "").strip()
+    return bool(raw) and (Path(raw) / "index.html").is_file()
+
+
 def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | None = None) -> dict:
     raw_config = dict(raw_config_data or {})
     raw_config.pop("ssh", None)
@@ -982,6 +1007,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_mobile": raw_mobile,
         "mobile_browserstack": mobile_browserstack,
         "raw_mobile_browserstack": raw_mobile_browserstack,
+    "mobile_default_network": get_settings().mobile_default_network,
         "aws": effective_config.get("aws") if isinstance(effective_config.get("aws"), dict) else {},
         "raw_aws": raw_aws,
         "aws_accounts": _aws_account_view_rows(raw_aws),
@@ -1073,6 +1099,8 @@ def _connector_settings_panel_context(
         "request": request,
         "connector": settings_entry(spec, raw_config_data),
         "connector_template": spec.panel_template,
+        "connector_extra_template": spec.panel_extra_template,
+        "appium_inspector_available": _hosted_inspector_available(),
         "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
         "status_type": status_type,
@@ -1734,6 +1762,79 @@ def _settings_finalize_config_payload(config_payload: dict) -> dict:
     return canonicalize_portal_runtime_profile_config(sanitized)
 
 
+_MOBILE_PLATFORMS = {"android", "ios"}
+_MOBILE_NETWORK_MODES = {"public", "private-managed", "private-external"}
+# BrowserStack ends a session after this long without an Appium command; it
+# accepts at most 300 seconds, and recording needs the long end of the range.
+_MOBILE_IDLE_TIMEOUT_RANGE = (30, 300)
+
+
+def _browserstack_url_error(value: str, label: str) -> Optional[str]:
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (host == "browserstack.com" or host.endswith(".browserstack.com")):
+        return f"{label} must be an https:// browserstack.com address."
+    return None
+
+
+def _merge_mobile_advanced_fields(form, mobile_cfg: dict, browserstack_cfg: dict, as_bool) -> Optional[str]:
+    """Apply the BrowserStack connector's Advanced fields to the section.
+
+    Each field is read only when the form posted it, so a client that posts
+    just the credentials keeps the stored advanced values. Checkboxes post a
+    ``<name>__present`` marker because an unchecked box posts nothing.
+    """
+
+    defaults_cfg = dict(mobile_cfg.get("defaults")) if isinstance(mobile_cfg.get("defaults"), dict) else {}
+    for key, field, allowed in (
+        ("platform", "mobile_default_platform", _MOBILE_PLATFORMS),
+        ("network_mode", "mobile_network_mode", _MOBILE_NETWORK_MODES),
+    ):
+        if field in form:
+            value = (form.get(field) or "").strip().lower()
+            if value and value not in allowed:
+                return f"Unsupported value for {key.replace('_', ' ')}: {value}."
+            if value:
+                defaults_cfg[key] = value
+            else:
+                defaults_cfg.pop(key, None)
+    if "mobile_idle_timeout_seconds" in form:
+        raw = (form.get("mobile_idle_timeout_seconds") or "").strip()
+        if raw:
+            low, high = _MOBILE_IDLE_TIMEOUT_RANGE
+            try:
+                seconds = int(raw)
+            except ValueError:
+                return "Idle timeout must be a whole number of seconds."
+            if not low <= seconds <= high:
+                return f"BrowserStack accepts an idle timeout from {low} to {high} seconds."
+            defaults_cfg["idle_timeout_seconds"] = seconds
+        else:
+            defaults_cfg.pop("idle_timeout_seconds", None)
+    for key in ("video", "interactive_debugging"):
+        if f"mobile_{key}__present" in form:
+            defaults_cfg[key] = as_bool(form.get(f"mobile_{key}"))
+    if defaults_cfg:
+        mobile_cfg["defaults"] = defaults_cfg
+    else:
+        mobile_cfg.pop("defaults", None)
+
+    for key, field, label in (
+        ("appium_base_url", "mobile_browserstack_appium_base_url", "Appium hub URL"),
+        ("api_base_url", "mobile_browserstack_api_base_url", "API URL"),
+    ):
+        if field in form:
+            value = (form.get(field) or "").strip().rstrip("/")
+            if value:
+                error = _browserstack_url_error(value, label)
+                if error:
+                    return error
+                browserstack_cfg[key] = value
+            else:
+                browserstack_cfg.pop(key, None)
+    return None
+
+
 def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
@@ -1946,6 +2047,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 browserstack_cfg.pop("access_key", None)
         elif is_clear("mobile_browserstack_access_key_clear"):
             browserstack_cfg.pop("access_key", None)
+        mobile_error = _merge_mobile_advanced_fields(form, mobile_cfg, browserstack_cfg, as_bool)
+        if mobile_error:
+            return config_payload, mobile_error
         if browserstack_cfg:
             mobile_cfg["browserstack"] = browserstack_cfg
         else:
@@ -2304,6 +2408,16 @@ def _content_target_from_request(request: Request, default: str = "#tool-panel-b
         return query_target if query_target.startswith("#") else f"#{query_target}"
     return default
 
+def _task_scenario_progress(tasks) -> dict:
+    """Scenario pass/fail counts for the task cards of mobile test runs."""
+    out = {}
+    for task in tasks:
+        progress = efp_scenario_progress(getattr(task, "result_payload_json", None))
+        if progress:
+            out[task.id] = progress
+    return out
+
+
 @router.get("/app/tasks/panel")
 def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="^(all|mine)$")):
     user, access_response = _authorized_web_user(request)
@@ -2339,6 +2453,7 @@ def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="
                 "summary": summary,
                 "overview": overview,
                 "task_owner_labels": task_owner_labels,
+                "task_progress": _task_scenario_progress(tasks),
                 "content_target": _content_target_from_request(request),
                 "task_page_size": task_page_size,
                 "task_offset": task_offset,
@@ -2394,6 +2509,7 @@ def my_tasks_list(
                 "request": request,
                 "tasks": tasks,
                 "task_owner_labels": task_owner_labels,
+                "task_progress": _task_scenario_progress(tasks),
                 "content_target": _content_target_from_request(request),
                 "task_page_size": limit,
                 "task_offset": offset,
@@ -3270,10 +3386,10 @@ async def app_connector_panel(request: Request, connector_type: str):
     from app.services import connector_service
     from app.services.connection_guidance import CONNECTOR_GUIDANCE
     from app.services.connector_registry import (
-        LOCAL_BROWSER_DEFAULT_PORT,
-        detect_local_browser_platform,
+        LOCAL_BRIDGE_DEFAULT_PORT,
+        detect_local_bridge_platform,
         get_connector_spec,
-        local_browser_platform_label,
+        local_bridge_platform_label,
     )
 
     try:
@@ -3300,21 +3416,21 @@ async def app_connector_panel(request: Request, connector_type: str):
     portal_origin = (resolved_settings.base_uri or str(request.base_url)).rstrip("/")
     # The panel is fetched by the member's own browser, so its User-Agent picks
     # the package offered first; the page refines the CPU with client hints.
-    primary_platform = detect_local_browser_platform(request.headers.get("user-agent"))
+    primary_platform = detect_local_bridge_platform(request.headers.get("user-agent"))
     return templates.TemplateResponse(
         spec.panel_template,
         {
             "request": request,
             "connector": connector,
             "guide": CONNECTOR_GUIDANCE.get(spec.guidance_key),
-            "download_url": connector_service.local_browser_download_url(resolved_settings, primary_platform),
-            "download_links": connector_service.local_browser_download_links(resolved_settings),
+            "download_url": connector_service.local_bridge_download_url(resolved_settings, primary_platform),
+            "download_links": connector_service.local_bridge_download_links(resolved_settings),
             "primary_platform": primary_platform,
-            "primary_platform_label": local_browser_platform_label(primary_platform),
-            "cli_version": resolved_settings.local_browser_cli_version,
+            "primary_platform_label": local_bridge_platform_label(primary_platform),
+            "cli_version": resolved_settings.local_bridge_version,
             "portal_origin": portal_origin,
-            "default_port": LOCAL_BROWSER_DEFAULT_PORT,
-            "start_url": connector_service.local_browser_start_url(resolved_settings, portal_origin),
+            "default_port": LOCAL_BRIDGE_DEFAULT_PORT,
+            "start_url": connector_service.local_bridge_browser_start_url(resolved_settings, portal_origin),
         },
     )
 

@@ -439,7 +439,7 @@ def test_agent_async_task_dispatch_sends_session_and_metadata(db_session, monkey
     assert metadata["portal_skill_name"] == "review"
     assert metadata["portal_root_task_id"] == "task-async-1"
     assert metadata["portal_task_session_id"] == "agent-task:task-async-1"
-    assert metadata["system_prompt"] == "Run as a background long-running task. Finish independently."
+    assert metadata["system_prompt"] == "Run as a background long-running task. Finish independently. Portal task id: task-async-1."
 
 
 def test_agent_async_task_dispatch_does_not_infer_github_authorization_from_credentials(db_session, monkeypatch):

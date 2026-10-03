@@ -1,0 +1,55 @@
+{#
+  Below the BrowserStack settings form: where recordings and test runs
+  happen. Nothing here is a setting; static/js/mobile_testing.js fills in the
+  local bridge's status.
+#}
+<section class="portal-panel-section" data-mobile-overview>
+  <div class="portal-settings-section-title">
+    <span class="portal-section-accent" aria-hidden="true"></span>
+    <h6>Recording on your computer</h6>
+  </div>
+  <p class="portal-panel-note">
+    Portal and the assistants do not connect to BrowserStack. Recording runs on this computer through the local bridge,
+    the program of <strong>Connectors &gt; Local bridge</strong>: it starts a BrowserStack device with the settings above,
+    holds it while you record, and passes Appium Inspector's commands to it. Open a chat with your assistant and choose
+    <strong>Mobile testing</strong> in the tool bar.
+  </p>
+  <div class="flex items-center gap-2">
+    <div class="portal-inline-state is-visible" data-mobile-bridge-status role="status">Looking for the local bridge…</div>
+    <button type="button" class="portal-btn is-secondary hidden" data-mobile-bridge-action="start">Start bridge</button>
+  </div>
+  <label class="portal-form-label"><span class="portal-form-label">Proxy to BrowserStack from this computer (optional)</span>
+    <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
+  </label>
+  <div class="grid grid-cols-2 gap-3">
+    <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
+      <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
+      <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
+    </label>
+  </div>
+  <p class="portal-inline-note">Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Kept in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\user; the password stays hidden on screen and goes only to the local bridge on this computer.</p>
+  <ul class="portal-setup-guide-steps">
+    <li>Install the local bridge once from <strong>Connectors &gt; Local bridge</strong>; its package includes mobile-auto for recordings.</li>
+    {% if appium_inspector_available %}
+    <li>Portal hosts Appium Inspector: the Mobile testing panel opens it already attached to the device. Nothing else to install.</li>
+    {% else %}
+    <li>Install <a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a> 2026.5.1 or later; the Mobile testing panel shows how to attach it to the device.</li>
+    {% endif %}
+    <li>Upload the build to record in the Mobile testing panel, or pick one your pipeline already uploaded.</li>
+    <li>Type real values while recording. Password fields are never stored; they become names such as <code>MOBILE_SECRET_PASSWORD</code>.</li>
+  </ul>
+</section>
+
+<section class="portal-panel-section">
+  <div class="portal-settings-section-title">
+    <span class="portal-section-accent" aria-hidden="true"></span>
+    <h6>Test runs in Jenkins</h6>
+  </div>
+  <p class="portal-panel-note">
+    Dry runs, full runs, and reruns go through your team's mobile scenario pipeline in Jenkins, which has its own BrowserStack
+    account and keeps the test accounts' passwords as Jenkins credentials under the names the recordings use. The assistant
+    starts the pipeline and brings back each scenario's result, screenshots, and video.
+  </p>
+</section>

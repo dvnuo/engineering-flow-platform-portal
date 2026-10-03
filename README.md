@@ -13,7 +13,7 @@ Portal is the web interface and control plane for Engineering Flow Platform. Mem
 | [Operations Guide](docs/OPERATIONS_GUIDE.md) | Installation, configuration, upgrades, backups, runtime provisioning, and operational checks. |
 | [Kubernetes deployment](k8s/README.md) | The manifests supplied with this repository. |
 | [Portal / Runtime Contract](docs/PORTAL_RUNTIME_CONTRACT.md) | Runtime boundaries, configuration, routing, sessions, and assets. |
-| [Connectors Contract](docs/CONNECTORS_CONTRACT.md) | Portal, runtime, and local browser bridge protocol. |
+| [Connectors Contract](docs/CONNECTORS_CONTRACT.md) | Portal, runtime, and local bridge protocol. |
 | [Phase 5 Productization](docs/PHASE5_PRODUCTIZATION.md) | Capability snapshots, session metadata, and task supersession. |
 | [Integration smoke checks](integration/README.md) | Portal contract checks and their limits. |
 
@@ -31,7 +31,7 @@ See the [full documentation index](docs/README.md) for troubleshooting, screensh
 - **Usage Tracking** - Monitor agent usage and costs
 - **Skills** - Discover available workflows by typing `/` in chat or choosing a task/delegation skill
 - **Tasks and Delegations** - Run tasks and configure work triggered by schedules or supported external sources
-- **Local Browser Connector** - Let a compatible runtime use a managed Chrome window on the member's computer
+- **Local Bridge Connector** - The EFP local bridge (`efp-bridge`) on the member's computer: lets a compatible runtime use a managed Chrome window there, and holds BrowserStack devices for the mobile Mobile testing panel
 - **Administration** - Manage member access, assistant types, and default connectors
 - **Diagrams** - A `` ```mermaid `` fence in an assistant reply renders inline with a Diagram | Code switch; Copy hands back the source for a README, a pull request, or Confluence Gliffy's Mermaid import
 
@@ -158,10 +158,10 @@ The configured bootstrap administrator is created when missing and automatically
 | `DEFAULT_SKILL_BRANCH` | Skills repository branch | `master` |
 | `DEFAULT_SKILL_REPO_SUBDIR` | Optional subdirectory within the skills repo to provision into `/app/skills`, for example `skills` or `packages/skills` | (empty) |
 | `DEFAULT_SKILL_ASSET_VERSION` | Optional rollout marker for skill assets; change it to recreate pods and reclone when tracking the same git branch | (empty) |
-| `CONNECTORS_ENABLED` | Offer the local connectors (the browser bridge on the member's computer; see `docs/CONNECTORS_CONTRACT.md`). `false` hides them from the Connectors menu and `/api/connectors`; the menu and the service connectors stay available | `true` |
-| `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | Download link template for the EFP browser bridge packages shown in Connectors → Local browser; `{platform}` expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64` (a URL without it hands one package to every system); empty serves `app/static/downloads/efp-browser-bridge-{platform}.zip`, the zips built by `scripts/browser-bridge/package.sh` in the tools repository | (empty) |
-| `LOCAL_BROWSER_CLI_VERSION` | Version label shown next to that download | (empty) |
-| `LOCAL_BROWSER_START_URL` | First tab of the EFP browser window whenever the bridge opens or reopens it: an absolute http(s) URL, or a path such as `/app` resolved against this Portal's origin; empty opens the Portal origin | (empty) |
+| `CONNECTORS_ENABLED` | Offer the local connectors (the local bridge on the member's computer; see `docs/CONNECTORS_CONTRACT.md`). `false` hides them from the Connectors menu and `/api/connectors`; the menu and the service connectors stay available | `true` |
+| `LOCAL_BRIDGE_DOWNLOAD_URL` | Download link template for the EFP local bridge packages (`efp-bridge-{platform}.zip`) shown in Connectors → Local bridge; `{platform}` expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64` (a URL without it hands one package to every system); empty serves `app/static/downloads/efp-bridge-{platform}.zip`, the zips built by `scripts/local-bridge/package.sh` in the tools repository | (empty) |
+| `LOCAL_BRIDGE_VERSION` | Version label shown next to that download | (empty) |
+| `LOCAL_BRIDGE_BROWSER_START_URL` | First tab of the EFP browser window whenever the bridge opens or reopens it: an absolute http(s) URL, or a path such as `/app` resolved against this Portal's origin; empty opens the Portal origin | (empty) |
 | `IDLE_AGENT_STOP_WORKER_ENABLED` | Automatically stop assistants with no recent user traffic | `true` |
 | `AGENT_IDLE_STOP_AFTER_SECONDS` | Idle time before an assistant is stopped | `259200` (3 days) |
 

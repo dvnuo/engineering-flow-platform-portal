@@ -220,6 +220,16 @@ class Settings(BaseSettings):
         default="pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml",
         validation_alias="EFP_CHAT_UPLOAD_EXTENSIONS",
     )
+    # Directory holding the Appium Inspector web build (the dist-browser
+    # folder of the appium-inspector-plugin npm package). Empty disables the
+    # hosted Inspector; members then use the desktop app. The Inspector talks
+    # to the local bridge on the member's computer, never to Portal.
+    appium_inspector_dir: str = Field(default="", validation_alias="EFP_APPIUM_INSPECTOR_DIR")
+    # The network recordings use when a member's BrowserStack connector does
+    # not say: "" (public), "private-managed" (start BrowserStack Local on
+    # the member's computer), or "private-external". Teams whose apps live on
+    # the private network set private-managed once here.
+    mobile_default_network: str = Field(default="", validation_alias="EFP_MOBILE_DEFAULT_NETWORK")
 
     delegation_rules_worker_enabled: bool = Field(default=True, validation_alias="DELEGATION_RULES_WORKER_ENABLED")
     delegation_rules_worker_interval_seconds: int = Field(default=15, validation_alias="DELEGATION_RULES_WORKER_INTERVAL_SECONDS")
@@ -242,14 +252,14 @@ class Settings(BaseSettings):
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")
 
     # Connectors (docs/CONNECTORS_CONTRACT.md §8). The download URL points at
-    # the EFP browser bridge zip; empty falls back to the copy CI drops under
+    # the EFP local bridge zip; empty falls back to the copy CI drops under
     # app/static/downloads/. The start URL is the first tab of the EFP browser
     # window whenever the bridge opens or reopens it: an absolute http(s) URL,
     # or a path resolved against this Portal's origin; empty opens the origin.
     connectors_enabled: bool = Field(default=True, validation_alias="CONNECTORS_ENABLED")
-    local_browser_cli_download_url: str = Field(default="", validation_alias="LOCAL_BROWSER_CLI_DOWNLOAD_URL")
-    local_browser_cli_version: str = Field(default="", validation_alias="LOCAL_BROWSER_CLI_VERSION")
-    local_browser_start_url: str = Field(default="", validation_alias="LOCAL_BROWSER_START_URL")
+    local_bridge_download_url: str = Field(default="", validation_alias="LOCAL_BRIDGE_DOWNLOAD_URL")
+    local_bridge_version: str = Field(default="", validation_alias="LOCAL_BRIDGE_VERSION")
+    local_bridge_browser_start_url: str = Field(default="", validation_alias="LOCAL_BRIDGE_BROWSER_START_URL")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

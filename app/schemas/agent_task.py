@@ -40,6 +40,15 @@ class CreateAgentTaskFollowupRequest(BaseModel):
     max_context_tokens: Optional[int] = None
 
 
+class AgentTaskReviewRequest(BaseModel):
+    decision: str
+    kind: Optional[str] = None
+    title: Optional[str] = None
+    approved: list[str] = []
+    declined: list[str] = []
+    notes: Optional[str] = None
+
+
 class AgentTaskResponse(BaseModel):
     id: str
     assignee_agent_id: str
@@ -90,5 +99,7 @@ class AgentTaskListItemResponse(BaseModel):
     owner_display_name: Optional[str] = None
     can_manage: bool = False
     assignee_agent_name: Optional[str] = None
+    # Pass/fail counts of a finished mobile scenario run, for the task list.
+    scenario_progress: Optional[dict[str, int]] = None
     created_at: datetime
     updated_at: datetime

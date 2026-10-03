@@ -40,7 +40,7 @@ order: 10
 
 `connect-<section>.md` (llm, jira, confluence, github, jenkins, nexus, splunk,
 pgsql, mobile, aws, proxy, git) and `<connector>-connector.md`
-(local-browser) hold the long-form
+(local-bridge) hold the long-form
 guide for a connector. Their title, summary, setup
 steps, setup link and troubleshooting lines come from
 `app/services/connection_guidance.py`, which the form next to the field also
