@@ -1501,6 +1501,7 @@
     if (Number(defaults.idle_timeout_seconds) > 0) params.idle_timeout_seconds = Number(defaults.idle_timeout_seconds);
     if (typeof defaults.video === "boolean") params.video = defaults.video;
     if (typeof defaults.interactive_debugging === "boolean") params.interactive_debugging = defaults.interactive_debugging;
+    if (defaults.appium_version) params.appium_version = String(defaults.appium_version);
     closeInspectorTab();
     view.inspectorTab = openInspectorTabEarly();
     view.busy = "start";

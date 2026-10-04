@@ -82,6 +82,7 @@ def recording_config(agent_id: str, user=Depends(get_current_user), db: Session 
             "idle_timeout_seconds": defaults.get("idle_timeout_seconds"),
             "video": defaults.get("video"),
             "interactive_debugging": defaults.get("interactive_debugging"),
+            "appium_version": str(defaults.get("appium_version") or ""),
         },
         "credentials": None,
     }

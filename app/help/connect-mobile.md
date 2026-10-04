@@ -21,9 +21,11 @@ Only needed if you record mobile tests.
 - **Advanced** holds what most teams leave alone for the devices you record
   on: the default platform, the network (public, or a private network through
   BrowserStack Local), the idle timeout (BrowserStack allows at most 300
-  seconds), session video, and the hub and API addresses when your company
-  routes BrowserStack through its own gateway. Test runs use the pipeline's
-  own settings.
+  seconds), the Appium version the devices run (2.19.0 unless you set one;
+  BrowserStack's own default, 1.22.0, does not know the Inspector's Back, Home,
+  and App switch buttons), session video, and the hub and API addresses when
+  your company routes BrowserStack through its own gateway. Test runs use the
+  pipeline's own settings.
 
 ## The local bridge
 

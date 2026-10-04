@@ -52,6 +52,7 @@ def test_advanced_fields_merge_into_defaults_and_browserstack():
             mobile_default_platform="android",
             mobile_network_mode="private-managed",
             mobile_idle_timeout_seconds="300",
+            mobile_appium_version="2.19.0",
             mobile_video__present="1",
             mobile_interactive_debugging__present="1",
             mobile_interactive_debugging="on",
@@ -64,6 +65,7 @@ def test_advanced_fields_merge_into_defaults_and_browserstack():
         "platform": "android",
         "network_mode": "private-managed",
         "idle_timeout_seconds": 300,
+        "appium_version": "2.19.0",
         "video": False,
         "interactive_debugging": True,
     }
@@ -87,6 +89,7 @@ def test_fields_not_posted_keep_their_stored_values():
     [
         ("mobile_idle_timeout_seconds", "900", "30 to 300"),
         ("mobile_idle_timeout_seconds", "abc", "whole number"),
+        ("mobile_appium_version", "2.x", "look like 2.19.0"),
         ("mobile_browserstack_appium_base_url", "http://hub-cloud.browserstack.com/wd/hub", "https://"),
         ("mobile_browserstack_api_base_url", "https://evil.example.com", "browserstack.com"),
         ("mobile_network_mode", "vpn", "Unsupported"),
@@ -145,7 +148,7 @@ def api(monkeypatch, tmp_path):
     profile = RuntimeProfile(owner_user_id=owner.id, name="p", revision=1, is_default=True, config_json=json.dumps({
         "mobile-auto": {
             "enabled": True,
-            "defaults": {"platform": "android", "idle_timeout_seconds": 300, "video": True},
+            "defaults": {"platform": "android", "idle_timeout_seconds": 300, "video": True, "appium_version": "2.19.0"},
             "browserstack": {"username": "owner-bs", "access_key": "key", "appium_base_url": "https://hub-cloud.browserstack.com/wd/hub"},
         },
     }))
@@ -187,6 +190,8 @@ def test_recording_config_hands_the_owner_their_settings_for_the_bridge(api):
     }
     assert body["defaults"]["platform"] == "android" and body["defaults"]["idle_timeout_seconds"] == 300
     assert body["defaults"]["video"] is True
+    # The device's Appium version travels to the bridge with the other defaults.
+    assert body["defaults"]["appium_version"] == "2.19.0"
     assert body["inspector_available"] is True and body["recordings_dir"] == "mobile/recordings"
 
 
@@ -275,6 +280,7 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in js
     # Segment names are optional: a member records the whole scenario.
     assert "Segment names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
+    assert "params.appium_version = String(defaults.appium_version)" in js
 
 
 def test_recording_button_is_wired_into_the_tool_panel():

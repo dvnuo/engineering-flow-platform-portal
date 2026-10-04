@@ -46,6 +46,9 @@ Portal and the assistants never connect to BrowserStack.
 - **A QA Assistant**: create your assistant with the *QA Assistant* type. It
   carries the skills and instructions this flow uses; other types do not.
 - **Connectors > BrowserStack**: your username and access key, turned on.
+  Recording devices run Appium 2.19.0 (another version can be set under the
+  connector's advanced settings); BrowserStack's own default, Appium 1.22.0,
+  does not know the Inspector's Back, Home, and App switch buttons.
 - **Connectors > Local bridge**: install the local bridge (`efp-bridge`) on
   your computer once; recordings run through it. *Test BrowserStack* on the BrowserStack
   page checks that your computer reaches BrowserStack.

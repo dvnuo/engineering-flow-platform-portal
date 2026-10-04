@@ -1769,6 +1769,12 @@ _MOBILE_NETWORK_MODES = {"public", "private-managed", "private-external"}
 _MOBILE_IDLE_TIMEOUT_RANGE = (30, 300)
 
 
+def _looks_like_appium_version(value: str) -> bool:
+    """BrowserStack's appiumVersion: three numbers, such as 2.19.0."""
+    parts = value.split(".")
+    return len(parts) == 3 and all(part.isdigit() for part in parts)
+
+
 def _browserstack_url_error(value: str, label: str) -> Optional[str]:
     parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
@@ -1811,6 +1817,14 @@ def _merge_mobile_advanced_fields(form, mobile_cfg: dict, browserstack_cfg: dict
             defaults_cfg["idle_timeout_seconds"] = seconds
         else:
             defaults_cfg.pop("idle_timeout_seconds", None)
+    if "mobile_appium_version" in form:
+        raw = (form.get("mobile_appium_version") or "").strip()
+        if raw:
+            if not _looks_like_appium_version(raw):
+                return "Appium version must look like 2.19.0."
+            defaults_cfg["appium_version"] = raw
+        else:
+            defaults_cfg.pop("appium_version", None)
     for key in ("video", "interactive_debugging"):
         if f"mobile_{key}__present" in form:
             defaults_cfg[key] = as_bool(form.get(f"mobile_{key}"))
