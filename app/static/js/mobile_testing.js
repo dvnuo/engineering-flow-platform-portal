@@ -162,10 +162,14 @@
       const ports = bridgeState.port ? [bridgeState.port, ...PORTS.filter((port) => port !== bridgeState.port)] : PORTS;
       const results = await Promise.all(ports.map(async (port) => ({ port, data: await ping(port) })));
       const found = results.find((entry) => entry.data) || null;
+      const wasAlive = Boolean(bridgeState.info);
       bridgeState.port = found ? found.port : 0;
       bridgeState.info = found ? found.data : null;
       bridgeState.probedAt = Date.now();
       bridgeState.probing = null;
+      // The chat composer's bridge toggle probes on its own schedule; a
+      // bridge that appeared or went away here is told to it at once.
+      if (Boolean(found) !== wasAlive && window.portalConnectors && typeof window.portalConnectors.refreshToggle === "function") window.portalConnectors.refreshToggle();
       return bridgeView();
     })();
     return bridgeState.probing;

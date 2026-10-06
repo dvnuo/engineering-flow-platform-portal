@@ -24,6 +24,11 @@
   const PING_TIMEOUT_MS = 1500;
   const RUN_TIMEOUT_MS = 65000;
   const PROBE_CACHE_MS = 10000;
+  // While the composer says the bridge is offline, it looks again this often:
+  // a bridge started from the Mobile testing panel or a terminal, after the
+  // chat loaded, is picked up without a reload.
+  const OFFLINE_RECHECK_MS = 15000;
+  let offlineRecheck = null;
   const CLIENT_ID_KEY = "efp.connectors.client_id";
   const TOGGLE_KEY_PREFIX = "efp.connectors.local_bridge.toggle:";
   const TOGGLE_ID = "composer-browser-toggle";
@@ -502,9 +507,29 @@
     const status = probe ? await probeLocalBridge() : { alive: state.localBridge.alive };
     if (!status.alive) {
       applyToggleView({ mode: "offline", label: "Local bridge offline", title: "The local bridge is not running. Click to open the setup steps." });
+      scheduleOfflineRecheck();
       return;
     }
+    window.clearTimeout(offlineRecheck);
     applyToggleView({ mode: "on", label: "Browser on", title: "The assistant can read and operate your EFP browser window in this chat. Click to switch off." });
+  }
+
+  function scheduleOfflineRecheck() {
+    window.clearTimeout(offlineRecheck);
+    offlineRecheck = window.setTimeout(() => {
+      if (document.visibilityState !== "visible") {
+        scheduleOfflineRecheck();
+        return;
+      }
+      refreshToggle();
+    }, OFFLINE_RECHECK_MS);
+  }
+
+  // Probe now and redraw: the Mobile testing panel calls this when it finds
+  // or starts the bridge, so the composer does not keep saying offline.
+  async function refreshToggle() {
+    await probeLocalBridge({ force: true });
+    await renderToggle({ probe: false });
   }
 
   async function onToggleClick() {
@@ -820,6 +845,7 @@
       ensureBrowserSession,
       chatRequestConnectors,
       renderToggle,
+      refreshToggle,
       initPanel,
       protocolVersion: PROTOCOL_VERSION,
     };

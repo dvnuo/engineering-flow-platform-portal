@@ -289,6 +289,12 @@ def test_the_page_drives_the_local_bridge_not_portal():
     for marker in ("INSPECTOR_TAB_HTML", 'id="efp-status"', "@keyframes efp-fill", "updateInspectorTab(rec.progress"):
         assert marker in js, marker
     assert "Everything you do through the Inspector is recorded; there is nothing to start there." in js
+    # The chat composer's "Local bridge offline" keeps up: the panel tells it
+    # when the bridge appears, and the composer looks again while offline.
+    assert "window.portalConnectors.refreshToggle()" in js
+    bridge_js = Path("app/static/js/connectors/local_bridge.js").read_text(encoding="utf-8")
+    for marker in ("const OFFLINE_RECHECK_MS = 15000", "scheduleOfflineRecheck();", "async function refreshToggle()", "refreshToggle,"):
+        assert marker in bridge_js, marker
     addon = Path("app/static/js/inspector_addon.js").read_text(encoding="utf-8")
     for marker in ("tabler-icon-object-scan", "tabler-icon-crosshair", "ant-btn-primary", "efp.inspector.hint.dismissed", "Start Recording only shows code"):
         assert marker in addon, marker
