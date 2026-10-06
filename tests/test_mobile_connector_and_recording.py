@@ -296,8 +296,11 @@ def test_the_page_drives_the_local_bridge_not_portal():
     for marker in ("const OFFLINE_RECHECK_MS = 15000", "scheduleOfflineRecheck();", "async function refreshToggle()", "refreshToggle,"):
         assert marker in bridge_js, marker
     addon = Path("app/static/js/inspector_addon.js").read_text(encoding="utf-8")
-    for marker in ("tabler-icon-object-scan", "tabler-icon-crosshair", "ant-btn-primary", "efp.inspector.hint.dismissed", "Start Recording only shows code"):
+    for marker in ("tabler-icon-object-scan", "tabler-icon-crosshair", "ant-btn-primary", "efp.inspector.hint.dismissed", "own recorder is hidden"):
         assert marker in addon, marker
+    # The Inspector's own recorder is hidden: the bridge records everything.
+    assert '#btnStartRecording,#btnPause,.ant-tabs-tab[data-node-key="recorder"]{display:none !important}' in addon
+    assert addon.isascii(), "code files keep non-ASCII text as escapes"
     # After an action the Inspector refreshes once; when that source shows the
     # app loading, the add-on keeps refreshing until the loading is gone, and
     # leaves a screen without such signs alone.

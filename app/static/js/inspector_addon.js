@@ -2,8 +2,9 @@
 // the session view starts in Tap/Swipe By Coordinates, so the member uses the
 // phone directly; while the screen shows the app loading, the page source is
 // watched in the background and the screen refreshed once the loading is
-// over; and a note says that the local bridge records everything (the
-// Inspector's own Start Recording only shows code).
+// over; the Inspector's own recorder (its Start Recording button and Recorder
+// tab) is hidden, since the local bridge records everything; and a note says
+// so.
 // The Inspector's own files are not touched; app/api/mobile.py adds this
 // script to its page.
 (function () {
@@ -17,6 +18,11 @@
   const TAP_SWIPE_ICON = "tabler-icon-crosshair";
   // The Inspector's Refresh Source & Screenshot button (GeneralControlsGroup.jsx).
   const REFRESH_BUTTON_ID = "btnReload";
+  // The Inspector's own recorder only turns commands into code; the local
+  // bridge records every command on its way to the device. Its Start/Pause
+  // Recording button (GeneralControlsGroup.jsx) and Recorder tab
+  // (SessionInspectorTabs.jsx) are hidden so nobody looks for them.
+  const HIDE_STYLE = '#btnStartRecording,#btnPause,.ant-tabs-tab[data-node-key="recorder"]{display:none !important}';
   // After an action the Inspector refreshes once, at once. When that source
   // shows the app loading (a progress indicator, a "loading" text), the
   // source is fetched again in the background every LOADING_POLL_MS (the
@@ -30,7 +36,7 @@
   const LOADING_STUCK_POLLS = 3;
   const LOADING_CLASS = /android\.widget\.ProgressBar|ProgressIndicator|ProgressDialog|XCUIElementTypeActivityIndicator/;
   // Texts in a text, label, name, value, or content-desc attribute.
-  const LOADING_TEXT = /(?:text|label|name|value|content-desc)="(?:[^"]*\b(?:loading|please wait|signing in|logging in|connecting)|[^"]*(?:正在|加载|载入|请稍候|稍等|处理中|登录中))/i;
+  const LOADING_TEXT = /(?:text|label|name|value|content-desc)="(?:[^"]*\b(?:loading|please wait|signing in|logging in|connecting)|[^"]*(?:\u6b63\u5728|\u52a0\u8f7d|\u8f7d\u5165|\u8bf7\u7a0d\u5019|\u7a0d\u7b49|\u5904\u7406\u4e2d|\u767b\u5f55\u4e2d))/i;
   let modeApplied = false;
   let hintShown = false;
 
@@ -269,7 +275,7 @@
     bar.innerHTML =
       '<span class="efp-dot" aria-hidden="true"></span>' +
       "<p><strong>Recording.</strong> Every tap, swipe, and key you send through this Inspector is recorded by the local bridge; " +
-      "the Inspector’s own Start Recording only shows code. Tap and swipe on the screenshot as on the phone. " +
+      "there is nothing to start here (the Inspector\u2019s own recorder is hidden). Tap and swipe on the screenshot as on the phone. " +
       "While the app shows it is loading, the screen refreshes by itself once the loading is over; otherwise press Refresh Source & Screenshot when the device is ready. " +
       "To type into a field, switch to Select Elements, pick the field, and use Send Keys. " +
       "When you are done, go back to the Portal tab and press Save recording.</p>" +
@@ -290,6 +296,9 @@
   }
 
   watchFetch();
+  const hide = document.createElement("style");
+  hide.textContent = HIDE_STYLE;
+  (document.head || document.documentElement).appendChild(hide);
   // A button pressed by the member (Refresh, a tab, a mode) means they took
   // over; the next action starts afresh. Taps on the screenshot are actions.
   document.addEventListener("pointerdown", (event) => {

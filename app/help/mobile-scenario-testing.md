@@ -88,10 +88,10 @@ proxy, uploading a build) sit behind the gear icon.
    Inspector looks only once after each action. To type into a field, switch to
    **Select Elements**, pick the field, and use **Send Keys**. Everything that
    goes through the Inspector is recorded by the bridge; the Inspector's own
-   *Start Recording* only shows code and is not needed. The live device view
-   on BrowserStack's own site is not seen by the bridge. The device menu (the
-   three dots on the device card) also opens the Inspector inside Portal, next
-   to the panel.
+   recorder (its *Start Recording* button and *Recorder* tab, which only turn
+   commands into code) is hidden. The live device view on BrowserStack's own
+   site is not seen by the bridge. The device menu (the three dots on the
+   device card) also opens the Inspector inside Portal, next to the panel.
 4. Type real values, including passwords. Password fields are never stored;
    the assistant names each one (for example `MOBILE_SECRET_PASSWORD`) for the
    pipeline's credentials. The other values become parameters for your test
