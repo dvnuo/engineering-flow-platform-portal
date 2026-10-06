@@ -68,6 +68,8 @@ which step comes next, and the step itself. Settings (the local bridge, the
 proxy, uploading a build) sit behind the gear icon.
 
 1. If the panel says the local bridge is not running, press **Start bridge**.
+   It starts the bridge without the EFP browser window; that window belongs
+   to the chat's browser automation and opens when the chat needs it.
 2. Pick a build, the platform, and optionally a device, then **Start and
    open Inspector**. The bridge starts the device and holds it; the panel
    shows what it is doing, usually for about a minute, longer when all your
@@ -77,12 +79,15 @@ proxy, uploading a build) sit behind the gear icon.
    and the device menu shows the connection details for the desktop Appium
    Inspector.) A reload of the page picks the start up again; **Cancel**
    releases the device once it is up.
-3. Record in the Inspector: select elements and use its Tap and Send Keys
-   buttons. Tap elements rather than points on the screenshot: an element
-   keeps working when the layout moves, a point does not. Only what goes
-   through the Inspector is recorded; the live device view on BrowserStack's
-   own site is not seen by the bridge. The device menu (the three dots on the
-   device card) also opens the Inspector inside Portal, next to the panel.
+3. Record in the Inspector. It opens in **Tap/Swipe By Coordinates** mode, so
+   you tap and swipe on the screenshot as on the phone; the bridge matches
+   each tap to the element under it. To type into a field, switch to
+   **Select Elements**, pick the field, and use **Send Keys**. Everything that
+   goes through the Inspector is recorded by the bridge; the Inspector's own
+   *Start Recording* only shows code and is not needed. The live device view
+   on BrowserStack's own site is not seen by the bridge. The device menu (the
+   three dots on the device card) also opens the Inspector inside Portal, next
+   to the panel.
 4. Type real values, including passwords. Password fields are never stored;
    the assistant names each one (for example `MOBILE_SECRET_PASSWORD`) for the
    pipeline's credentials. The other values become parameters for your test

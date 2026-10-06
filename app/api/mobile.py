@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -118,5 +118,19 @@ def hosted_inspector(request: Request, asset_path: str = ""):
     if not candidate.is_file():
         # A client-side route; the app handles it.
         candidate = root / "index.html"
+    if candidate == root / "index.html":
+        return HTMLResponse(_inspector_page(candidate), headers={"Cache-Control": "no-cache"})
     headers = {"Cache-Control": "public, max-age=31536000, immutable"} if "/assets/" in f"/{asset_path}" else {"Cache-Control": "no-cache"}
     return FileResponse(candidate, headers=headers)
+
+
+def _inspector_page(index_html: Path) -> str:
+    """The Inspector's page with Portal's add-on script (Tap/Swipe mode by
+    default, the recording note); the build's own files stay as published."""
+    from app.web import static_url  # the web module versions static files
+
+    text = index_html.read_text(encoding="utf-8")
+    tag = f'<script src="{static_url("js/inspector_addon.js")}"></script>'
+    if "</body>" in text:
+        return text.replace("</body>", tag + "</body>", 1)
+    return text + tag

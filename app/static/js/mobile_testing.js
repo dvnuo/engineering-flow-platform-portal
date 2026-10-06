@@ -272,13 +272,12 @@
     });
   }
 
+  // The panel starts the bridge for its /mobile routes only: browser=off
+  // keeps the EFP browser window (the chat's browser automation) closed; a
+  // browser command from the chat opens it later.
   function launchBridge() {
-    if (window.portalConnectors && typeof window.portalConnectors.launchBridge === "function") {
-      window.portalConnectors.launchBridge();
-      return;
-    }
     const anchor = document.createElement("a");
-    anchor.href = `efp-bridge://start?origin=${encodeURIComponent(window.location.origin)}&port=${PORTS[0]}`;
+    anchor.href = `efp-bridge://start?origin=${encodeURIComponent(window.location.origin)}&port=${PORTS[0]}&browser=off`;
     anchor.rel = "noopener";
     anchor.style.display = "none";
     document.body.appendChild(anchor);
@@ -889,6 +888,7 @@
     }
     view.formKey = "";
     target.innerHTML = rec.status === "starting" ? startingCardHtml(rec) : deviceCardHtml(rec);
+    if (rec.status === "starting") updateInspectorTab(rec.progress || "Starting the device on BrowserStack");
   }
 
   // ---- progress ------------------------------------------------------------------
@@ -1085,7 +1085,7 @@
       </div>
       <p class="portal-inline-note">${planned
         ? "Save after each segment you listed; the name moves on to the next one."
-        : "Record the whole scenario in the Inspector, then save it. The assistant proposes how to split it into segments in the chat."}</p>
+        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record the whole scenario, then save it. The assistant proposes how to split it into segments in the chat."}</p>
       <div class="efp-record-name">
         <label class="portal-form-label"><span class="portal-form-label">${planned ? "Segment" : "Save as"}</span>
           <input class="portal-form-input" data-recording-name value="${esc(name)}" autocomplete="off" spellcheck="false" />
@@ -1442,13 +1442,49 @@
   // A tab opened while the member's click is still being handled is not
   // blocked as a pop-up; it waits for the device and then lands in the
   // Inspector.
+  // What the pre-opened tab shows while the device starts (the Inspector
+  // replaces it); updateInspectorTab keeps its status line current.
+  const INSPECTOR_TAB_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Appium Inspector</title><style>
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f6f7f9;color:#1f2933;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{max-width:440px;padding:32px;text-align:center}
+.phone{width:72px;height:128px;margin:0 auto 20px;border:3px solid #1f2933;border-radius:14px;position:relative;overflow:hidden;background:#fff}
+.phone::before{content:"";position:absolute;left:50%;top:6px;width:20px;height:3px;margin-left:-10px;border-radius:2px;background:#1f2933;z-index:1}
+.phone .screen{position:absolute;left:0;right:0;bottom:0;height:0;background:linear-gradient(180deg,#4f7cff,#8fb0ff);animation:efp-fill 2.4s ease-in-out infinite}
+@keyframes efp-fill{0%{height:0;opacity:1}60%{height:100%;opacity:1}100%{height:100%;opacity:.35}}
+.dots span{display:inline-block;width:8px;height:8px;margin:0 3px;border-radius:50%;background:#4f7cff;animation:efp-pulse 1.2s infinite}
+.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+@keyframes efp-pulse{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+h1{font-size:18px;margin:0 0 8px}
+p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
+.status{font-weight:600;color:#1f2933;min-height:21px}
+.hint{margin-top:18px;padding-top:14px;border-top:1px solid #e4e7eb;font-size:13px;text-align:left}
+</style></head><body><div class="card">
+<div class="phone"><div class="screen"></div></div>
+<h1>Starting your BrowserStack device</h1>
+<p class="status" id="efp-status">Asking BrowserStack for a device</p>
+<p class="dots"><span></span><span></span><span></span></p>
+<p>Keep this tab open: it becomes Appium Inspector, attached to the device, as soon as the device is ready. Usually about a minute; longer when all your parallel sessions are busy.</p>
+<div class="hint"><strong>While you record</strong><br>Everything you do through the Inspector is recorded by the local bridge; there is nothing to start in the Inspector itself. When you are done, go back to the Portal tab and press Save recording.</div>
+</div></body></html>`;
+
+  function updateInspectorTab(text) {
+    const tab = view.inspectorTab;
+    if (!tab || tab.closed) return;
+    try {
+      const line = tab.document.getElementById("efp-status");
+      if (line) line.textContent = text;
+    } catch (_error) {
+      /* the tab has moved on to the Inspector */
+    }
+  }
+
   function openInspectorTabEarly() {
     if (!inspectorAvailable() || !autoInspector()) return null;
     let tab = null;
     try {
       tab = window.open("", "_blank");
       if (tab) {
-        tab.document.write(`<!doctype html><title>Appium Inspector</title><body style="margin:0;font-family:system-ui,sans-serif;color:#333;display:flex;align-items:center;justify-content:center;height:100vh"><p>Starting the BrowserStack device… this tab opens Appium Inspector once it is ready.</p></body>`);
+        tab.document.write(INSPECTOR_TAB_HTML);
         tab.document.close();
       }
     } catch (_error) {

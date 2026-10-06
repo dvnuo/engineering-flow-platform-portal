@@ -231,10 +231,12 @@ def test_hosted_inspector_serves_its_build_and_nothing_else(api, monkeypatch):
     import app.web as web_module
 
     monkeypatch.setattr(web_module, "_authorized_web_user", lambda _request: (api.owner, None))
-    assert api.client.get("/inspector/").text == "<html>inspector</html>"
+    # The page carries Portal's add-on script; the build's files stay as published.
+    page = api.client.get("/inspector/").text
+    assert page.startswith("<html>inspector</html>") and 'src="/static/js/inspector_addon.js' in page
     asset = api.client.get("/inspector/assets/index-1.js")
     assert asset.text == "console.log(1)" and "immutable" in asset.headers["cache-control"]
-    assert api.client.get("/inspector/some/client/route").text == "<html>inspector</html>"
+    assert api.client.get("/inspector/some/client/route").text == page
     assert "FastAPI" not in api.client.get("/inspector/%2e%2e/%2e%2e/app/main.py").text
     redirect = api.client.get("/inspector?state=x&autoStart=1", follow_redirects=False)
     assert redirect.status_code == 307 and redirect.headers["location"] == "/inspector/?state=x&autoStart=1"
@@ -281,6 +283,15 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # Segment names are optional: a member records the whole scenario.
     assert "Segment names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
     assert "params.appium_version = String(defaults.appium_version)" in js
+    # The panel starts the bridge for its /mobile routes without the EFP
+    # browser window; the pre-opened tab animates and follows the start.
+    assert "&browser=off" in js and "window.portalConnectors.launchBridge" not in js
+    for marker in ("INSPECTOR_TAB_HTML", 'id="efp-status"', "@keyframes efp-fill", "updateInspectorTab(rec.progress"):
+        assert marker in js, marker
+    assert "Everything you do through the Inspector is recorded; there is nothing to start there." in js
+    addon = Path("app/static/js/inspector_addon.js").read_text(encoding="utf-8")
+    for marker in ("tabler-icon-object-scan", "tabler-icon-crosshair", "ant-btn-primary", "efp.inspector.hint.dismissed", "Start Recording only shows code"):
+        assert marker in addon, marker
 
 
 def test_recording_button_is_wired_into_the_tool_panel():
