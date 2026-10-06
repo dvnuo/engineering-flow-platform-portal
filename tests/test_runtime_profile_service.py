@@ -41,7 +41,7 @@ def test_ensure_user_has_default_profile_creates_default():
 
 def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
-    assert cfg["llm"]["model"] == "gpt-5.6-terra"
+    assert cfg["llm"]["model"] == "gpt-6-sol"
     assert cfg["llm"]["max_tokens"] == 64000
     assert cfg["llm"]["reasoning_effort"] == "high"
     assert cfg["llm"]["max_context_tokens"] == 256000
@@ -251,7 +251,7 @@ def test_normal_settings_form_like_save_remains_sparse_without_context_fields():
     normalized = RuntimeProfileService.normalize_persisted_config_json(raw)
     saved = json.loads(normalized)
 
-    assert saved == {"llm": {"provider": "github_copilot", "model": "gpt-5.6-terra"}}
+    assert saved == {"llm": {"provider": "github_copilot", "model": "gpt-6-sol"}}
     assert "context_budget" not in saved["llm"]
     assert "context_projection" not in saved["llm"]
     assert "response_flow" not in saved["llm"]

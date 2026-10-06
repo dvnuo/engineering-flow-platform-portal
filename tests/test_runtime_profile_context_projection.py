@@ -9,7 +9,7 @@ def test_runtime_profile_context_config_uses_default_llm_timeout_for_native_runt
         {
             "llm": {
                 "provider": "github_copilot",
-                "model": "gpt-5.5",
+                "model": "gpt-6-luna",
                 "reasoning_effort": "max",
                 "max_context_tokens": 1_000_000,
                 "timeout_ms": 10000,
@@ -19,7 +19,7 @@ def test_runtime_profile_context_config_uses_default_llm_timeout_for_native_runt
     )
 
     assert projected["llm"]["provider"] == "github_copilot"
-    assert projected["llm"]["model"] == "gpt-5.5"
+    assert projected["llm"]["model"] == "gpt-6-luna"
     assert projected["llm"]["reasoning_effort"] == "max"
     assert "max_context_tokens" not in projected["llm"]
     assert projected["max_context_tokens"] == 1_000_000
@@ -31,7 +31,7 @@ def test_runtime_profile_context_config_uses_default_llm_timeout_for_opencode_ru
         {
             "llm": {
                 "provider": "github_copilot",
-                "model": "gpt-5.5",
+                "model": "gpt-6-luna",
                 "reasoning_effort": "max",
                 "max_context_tokens": 1_000_000,
                 "timeout_ms": 10000,
@@ -41,7 +41,7 @@ def test_runtime_profile_context_config_uses_default_llm_timeout_for_opencode_ru
     )
 
     assert projected["llm"]["provider"] == "github-copilot"
-    assert projected["llm"]["model"] == "github-copilot/gpt-5.5"
+    assert projected["llm"]["model"] == "github-copilot/gpt-6-luna"
     assert projected["llm"]["reasoning_effort"] == "max"
     assert "max_context_tokens" not in projected
     assert "max_context_tokens" not in projected["llm"]
