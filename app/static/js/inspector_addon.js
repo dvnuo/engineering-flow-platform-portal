@@ -27,13 +27,17 @@
   // shows the app loading (a progress indicator, a "loading" text), the
   // source is fetched again in the background every LOADING_POLL_MS (the
   // Inspector's own refresh covers the screen with a spinner and blocks it,
-  // so it is pressed only once, when the loading is gone), for at most
-  // LOADING_MAX_MS; a source that stops changing while the indicator stays
-  // (a progress bar that is part of the screen) ends it after
-  // LOADING_STUCK_POLLS. A screen without such signs is left alone.
+  // so it is pressed only once, at the end), slowing to LOADING_SLOW_MS once
+  // the source has not changed for LOADING_SLOW_AFTER polls (a spinner's
+  // source rarely changes while it turns), until the signs of loading are
+  // gone or LOADING_MAX_MS is up. A screen without such signs is left alone.
   const LOADING_POLL_MS = 2000;
+  const LOADING_SLOW_MS = 4000;
+  const LOADING_SLOW_AFTER = 3;
   const LOADING_MAX_MS = 60000;
-  const LOADING_STUCK_POLLS = 3;
+  // Pressing Refresh waits for the Inspector to be free, this long at most.
+  const REFRESH_RETRY_MS = 500;
+  const REFRESH_RETRIES = 40;
   const LOADING_CLASS = /android\.widget\.ProgressBar|ProgressIndicator|ProgressDialog|XCUIElementTypeActivityIndicator/;
   // Texts in a text, label, name, value, or content-desc attribute.
   const LOADING_TEXT = /(?:text|label|name|value|content-desc)="(?:[^"]*\b(?:loading|please wait|signing in|logging in|connecting)|[^"]*(?:\u6b63\u5728|\u52a0\u8f7d|\u8f7d\u5165|\u8bf7\u7a0d\u5019|\u7a0d\u7b49|\u5904\u7406\u4e2d|\u767b\u5f55\u4e2d))/i;
@@ -124,18 +128,23 @@
     watchTimer = window.setTimeout(pollNow, ms || LOADING_POLL_MS);
   }
 
-  // The Inspector's Refresh: one visible, blocking refresh.
-  function pressRefresh() {
+  // The Inspector's Refresh: one visible, blocking refresh, once the
+  // Inspector is free (its own calls disable the button meanwhile).
+  function pressRefresh(attempt) {
     const button = document.getElementById(REFRESH_BUTTON_ID);
-    if (!button || button.disabled) return false;
-    button.click();
-    return true;
+    if (button && !button.disabled && inFlight === 0) {
+      button.click();
+      return;
+    }
+    if ((attempt || 0) < REFRESH_RETRIES) window.setTimeout(() => pressRefresh((attempt || 0) + 1), REFRESH_RETRY_MS);
   }
 
   function pollNow() {
     if (!watching) return;
     if (Date.now() - watchStartedAt > LOADING_MAX_MS) {
+      // Still showing signs of loading: show whatever the screen is now.
       stopWatch();
+      pressRefresh();
       return;
     }
     if (inFlight > 0 || !sourceUrl || !nativeFetch) {
@@ -154,13 +163,12 @@
     if (!watching) return;
     if (!isLoading(text)) {
       stopWatch();
-      if (!pressRefresh()) window.setTimeout(pressRefresh, 500);
+      pressRefresh();
       return;
     }
     unchangedPolls = text === lastSource ? unchangedPolls + 1 : 0;
     lastSource = text;
-    if (unchangedPolls >= LOADING_STUCK_POLLS) stopWatch();
-    else schedulePoll();
+    schedulePoll(unchangedPolls >= LOADING_SLOW_AFTER ? LOADING_SLOW_MS : LOADING_POLL_MS);
   }
 
   // Every source the Inspector itself fetched. The first one after an action

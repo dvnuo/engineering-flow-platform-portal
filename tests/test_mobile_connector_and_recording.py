@@ -308,7 +308,11 @@ def test_the_page_drives_the_local_bridge_not_portal():
         assert marker in addon, marker
     # The polls fetch the source in the background; the Inspector's own
     # refresh, which blocks its screen, is pressed once, when the loading is over.
-    assert 'nativeFetch(sourceUrl, { method: "GET"' in addon and "function pressRefresh()" in addon
+    assert 'nativeFetch(sourceUrl, { method: "GET"' in addon and "function pressRefresh(attempt)" in addon
+    # A spinner's source rarely changes while it turns: an unchanged source
+    # slows the polls down but never ends the watch; the time limit does, and
+    # Refresh is pressed at the end either way.
+    assert "LOADING_STUCK" not in addon and "const LOADING_SLOW_MS = 4000" in addon
     assert "SETTLE" not in addon
 
 
