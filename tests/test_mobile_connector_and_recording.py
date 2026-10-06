@@ -303,6 +303,9 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # leaves a screen without such signs alone.
     for marker in ('getElementById(REFRESH_BUTTON_ID)', 'const REFRESH_BUTTON_ID = "btnReload"', "window.fetch = function", "const LOADING_MAX_MS = 60000", "XCUIElementTypeActivityIndicator", "function isLoading(source)", 'pathname.endsWith("/source")', "efp-inspector-loading"):
         assert marker in addon, marker
+    # The polls fetch the source in the background; the Inspector's own
+    # refresh, which blocks its screen, is pressed once, when the loading is over.
+    assert 'nativeFetch(sourceUrl, { method: "GET"' in addon and "function pressRefresh()" in addon
     assert "SETTLE" not in addon
 
 

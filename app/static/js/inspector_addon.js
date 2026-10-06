@@ -1,8 +1,9 @@
 // Portal's additions to the hosted Appium Inspector (served at /inspector/):
 // the session view starts in Tap/Swipe By Coordinates, so the member uses the
-// phone directly; while the screen shows the app loading, it refreshes
-// itself until the loading is over; and a note says that the local bridge
-// records everything (the Inspector's own Start Recording only shows code).
+// phone directly; while the screen shows the app loading, the page source is
+// watched in the background and the screen refreshed once the loading is
+// over; and a note says that the local bridge records everything (the
+// Inspector's own Start Recording only shows code).
 // The Inspector's own files are not touched; app/api/mobile.py adds this
 // script to its page.
 (function () {
@@ -17,8 +18,10 @@
   // The Inspector's Refresh Source & Screenshot button (GeneralControlsGroup.jsx).
   const REFRESH_BUTTON_ID = "btnReload";
   // After an action the Inspector refreshes once, at once. When that source
-  // shows the app loading (a progress indicator, a "loading" text), the page
-  // is refreshed every LOADING_POLL_MS until the loading is gone, for at most
+  // shows the app loading (a progress indicator, a "loading" text), the
+  // source is fetched again in the background every LOADING_POLL_MS (the
+  // Inspector's own refresh covers the screen with a spinner and blocks it,
+  // so it is pressed only once, when the loading is gone), for at most
   // LOADING_MAX_MS; a source that stops changing while the indicator stays
   // (a progress bar that is part of the screen) ends it after
   // LOADING_STUCK_POLLS. A screen without such signs is left alone.
@@ -63,6 +66,10 @@
   let watchTimer = null;
   let lastSource = null;
   let unchangedPolls = 0;
+  // The session's source URL, taken from the Inspector's own requests, for
+  // the background polls.
+  let sourceUrl = "";
+  let nativeFetch = null;
 
   // What counts as an action: a POST to the session that changes the device,
   // not a find, a setting, a window query, or a mobile: getter.
@@ -111,38 +118,37 @@
     watchTimer = window.setTimeout(pollNow, ms || LOADING_POLL_MS);
   }
 
+  // The Inspector's Refresh: one visible, blocking refresh.
+  function pressRefresh() {
+    const button = document.getElementById(REFRESH_BUTTON_ID);
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  }
+
   function pollNow() {
     if (!watching) return;
     if (Date.now() - watchStartedAt > LOADING_MAX_MS) {
       stopWatch();
       return;
     }
-    const button = document.getElementById(REFRESH_BUTTON_ID);
-    if (inFlight > 0 || !button || button.disabled) {
+    if (inFlight > 0 || !sourceUrl || !nativeFetch) {
       schedulePoll(500);
       return;
     }
-    button.click();
+    // In the background: the Inspector keeps its screen and its controls.
+    nativeFetch(sourceUrl, { method: "GET", headers: { Accept: "application/json" } })
+      .then((response) => response.json())
+      .then((payload) => polled(typeof payload.value === "string" ? payload.value : ""), () => schedulePoll());
   }
 
-  // Every source the Inspector fetched. The first one after an action says
-  // whether the app is loading; while it is, each poll looks again.
-  function sourceSeen(text) {
-    const first = afterAction;
-    afterAction = false;
-    if (first && !watching) {
-      lastSource = text;
-      if (isLoading(text)) startWatch();
-      return;
-    }
-    if (!watching) {
-      lastSource = text;
-      return;
-    }
+  // A background poll's source: still loading, keep watching; loading over,
+  // refresh the Inspector once so it shows what came after.
+  function polled(text) {
+    if (!watching) return;
     if (!isLoading(text)) {
-      // The loading is over and this refresh already shows what came after.
-      lastSource = text;
       stopWatch();
+      if (!pressRefresh()) window.setTimeout(pressRefresh, 500);
       return;
     }
     unchangedPolls = text === lastSource ? unchangedPolls + 1 : 0;
@@ -151,8 +157,17 @@
     else schedulePoll();
   }
 
+  // Every source the Inspector itself fetched. The first one after an action
+  // says whether the app is loading.
+  function sourceSeen(text) {
+    const first = afterAction;
+    afterAction = false;
+    lastSource = text;
+    if (first && !watching && isLoading(text)) startWatch();
+  }
+
   function watchFetch() {
-    const nativeFetch = window.fetch;
+    nativeFetch = window.fetch;
     if (typeof nativeFetch !== "function") return;
     window.fetch = function (input, init) {
       // webdriverio passes a URL object; a Request has .url; a string is a string.
@@ -174,7 +189,10 @@
       return promise.then(
         (response) => {
           inFlight -= 1;
-          if (method === "GET" && pathname.endsWith("/source")) response.clone().text().then(sourceSeen, () => {});
+          if (method === "GET" && pathname.endsWith("/source")) {
+            sourceUrl = url;
+            response.clone().json().then((payload) => sourceSeen(typeof payload.value === "string" ? payload.value : ""), () => {});
+          }
           return response;
         },
         (error) => {
@@ -215,7 +233,7 @@
     const badge = document.createElement("div");
     badge.id = "efp-inspector-loading";
     badge.setAttribute("role", "status");
-    badge.innerHTML = '<span class="efp-spin" aria-hidden="true"></span><span>The app is loading; the screen refreshes itself until it is done.</span>';
+    badge.innerHTML = '<span class="efp-spin" aria-hidden="true"></span><span>The app is loading; the screen refreshes once it is done. You can keep working.</span>';
     document.body.appendChild(badge);
   }
 
@@ -252,7 +270,7 @@
       '<span class="efp-dot" aria-hidden="true"></span>' +
       "<p><strong>Recording.</strong> Every tap, swipe, and key you send through this Inspector is recorded by the local bridge; " +
       "the Inspector’s own Start Recording only shows code. Tap and swipe on the screenshot as on the phone. " +
-      "While the app shows it is loading, the screen refreshes itself; otherwise press Refresh Source & Screenshot when the device is ready. " +
+      "While the app shows it is loading, the screen refreshes by itself once the loading is over; otherwise press Refresh Source & Screenshot when the device is ready. " +
       "To type into a field, switch to Select Elements, pick the field, and use Send Keys. " +
       "When you are done, go back to the Portal tab and press Save recording.</p>" +
       '<button type="button" data-efp-dismiss>Got it</button>';

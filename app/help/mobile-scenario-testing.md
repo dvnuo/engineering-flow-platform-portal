@@ -82,10 +82,10 @@ proxy, uploading a build) sit behind the gear icon.
 3. Record in the Inspector. It opens in **Tap/Swipe By Coordinates** mode, so
    you tap and swipe on the screenshot as on the phone; the bridge matches
    each tap to the element under it. While the screen shows the app loading
-   (a spinner, a "loading" text), it refreshes itself until the loading is
-   over; otherwise press **Refresh Source & Screenshot** when the device is
-   ready, since the Inspector looks only once after each action. To type into
-   a field, switch to
+   (a spinner, a "loading" text), the page watches the device in the
+   background and refreshes once the loading is over; otherwise press
+   **Refresh Source & Screenshot** when the device is ready, since the
+   Inspector looks only once after each action. To type into a field, switch to
    **Select Elements**, pick the field, and use **Send Keys**. Everything that
    goes through the Inspector is recorded by the bridge; the Inspector's own
    *Start Recording* only shows code and is not needed. The live device view
