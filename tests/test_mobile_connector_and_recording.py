@@ -292,6 +292,10 @@ def test_the_page_drives_the_local_bridge_not_portal():
     addon = Path("app/static/js/inspector_addon.js").read_text(encoding="utf-8")
     for marker in ("tabler-icon-object-scan", "tabler-icon-crosshair", "ant-btn-primary", "efp.inspector.hint.dismissed", "Start Recording only shows code"):
         assert marker in addon, marker
+    # After an action the Inspector refreshes once; the add-on refreshes again
+    # while the source keeps changing, so a loading app does not stay on screen.
+    for marker in ('getElementById(REFRESH_BUTTON_ID)', 'const REFRESH_BUTTON_ID = "btnReload"', "window.fetch = function", "SETTLE_MAX_REFRESHES", 'pathname.endsWith("/source")'):
+        assert marker in addon, marker
 
 
 def test_recording_button_is_wired_into_the_tool_panel():
