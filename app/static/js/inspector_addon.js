@@ -1,9 +1,10 @@
 // Portal's additions to the hosted Appium Inspector (served at /inspector/):
 // the session view starts in Tap/Swipe By Coordinates, so the member uses the
-// phone directly; the screen refreshes itself while the app is still loading
-// after an action; and a note says that the local bridge records everything
-// (the Inspector's own Start Recording only shows code). The Inspector's own
-// files are not touched; app/api/mobile.py adds this script to its page.
+// phone directly; while the screen shows the app loading, it refreshes
+// itself until the loading is over; and a note says that the local bridge
+// records everything (the Inspector's own Start Recording only shows code).
+// The Inspector's own files are not touched; app/api/mobile.py adds this
+// script to its page.
 (function () {
   "use strict";
 
@@ -15,14 +16,18 @@
   const TAP_SWIPE_ICON = "tabler-icon-crosshair";
   // The Inspector's Refresh Source & Screenshot button (GeneralControlsGroup.jsx).
   const REFRESH_BUTTON_ID = "btnReload";
-  // After an action the Inspector refreshes once, at once. An app still
-  // loading then shows its spinner until the member presses Refresh, so the
-  // page is refreshed again while its source keeps changing: first after
-  // SETTLE_FIRST_MS, then every SETTLE_NEXT_MS, at most SETTLE_MAX_REFRESHES
-  // times, and no more once two sources in a row are the same.
-  const SETTLE_FIRST_MS = 1500;
-  const SETTLE_NEXT_MS = 2500;
-  const SETTLE_MAX_REFRESHES = 4;
+  // After an action the Inspector refreshes once, at once. When that source
+  // shows the app loading (a progress indicator, a "loading" text), the page
+  // is refreshed every LOADING_POLL_MS until the loading is gone, for at most
+  // LOADING_MAX_MS; a source that stops changing while the indicator stays
+  // (a progress bar that is part of the screen) ends it after
+  // LOADING_STUCK_POLLS. A screen without such signs is left alone.
+  const LOADING_POLL_MS = 2000;
+  const LOADING_MAX_MS = 60000;
+  const LOADING_STUCK_POLLS = 3;
+  const LOADING_CLASS = /android\.widget\.ProgressBar|ProgressIndicator|ProgressDialog|XCUIElementTypeActivityIndicator/;
+  // Texts in a text, label, name, value, or content-desc attribute.
+  const LOADING_TEXT = /(?:text|label|name|value|content-desc)="(?:[^"]*\b(?:loading|please wait|signing in|logging in|connecting)|[^"]*(?:正在|加载|载入|请稍候|稍等|处理中|登录中))/i;
   let modeApplied = false;
   let hintShown = false;
 
@@ -49,13 +54,15 @@
     button.click();
   }
 
-  // ---- refresh while the app loads --------------------------------------
+  // ---- refresh while the app shows it is loading --------------------------
 
   let inFlight = 0;
+  let afterAction = false;
+  let watching = false;
+  let watchStartedAt = 0;
+  let watchTimer = null;
   let lastSource = null;
-  let settleArmed = false;
-  let settleLeft = 0;
-  let settleTimer = null;
+  let unchangedPolls = 0;
 
   // What counts as an action: a POST to the session that changes the device,
   // not a find, a setting, a window query, or a mobile: getter.
@@ -81,41 +88,67 @@
     return true;
   }
 
-  function schedule(ms) {
-    window.clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(refreshNow, ms);
+  function isLoading(source) {
+    return LOADING_CLASS.test(source) || LOADING_TEXT.test(source);
   }
 
-  function armSettle() {
-    settleArmed = true;
-    settleLeft = SETTLE_MAX_REFRESHES;
-    schedule(SETTLE_FIRST_MS);
+  function startWatch() {
+    watching = true;
+    watchStartedAt = Date.now();
+    unchangedPolls = 0;
+    showLoadingBadge();
+    schedulePoll();
   }
 
-  function disarmSettle() {
-    settleArmed = false;
-    window.clearTimeout(settleTimer);
+  function stopWatch() {
+    watching = false;
+    window.clearTimeout(watchTimer);
+    hideLoadingBadge();
   }
 
-  function refreshNow() {
-    if (!settleArmed || settleLeft <= 0) return;
-    const button = document.getElementById(REFRESH_BUTTON_ID);
-    if (inFlight > 0 || !button || button.disabled) {
-      schedule(500);
+  function schedulePoll(ms) {
+    window.clearTimeout(watchTimer);
+    watchTimer = window.setTimeout(pollNow, ms || LOADING_POLL_MS);
+  }
+
+  function pollNow() {
+    if (!watching) return;
+    if (Date.now() - watchStartedAt > LOADING_MAX_MS) {
+      stopWatch();
       return;
     }
-    settleLeft -= 1;
+    const button = document.getElementById(REFRESH_BUTTON_ID);
+    if (inFlight > 0 || !button || button.disabled) {
+      schedulePoll(500);
+      return;
+    }
     button.click();
   }
 
-  // Every source the Inspector fetched: while it keeps changing after an
-  // action, another refresh follows; once it repeats, the screen has settled.
+  // Every source the Inspector fetched. The first one after an action says
+  // whether the app is loading; while it is, each poll looks again.
   function sourceSeen(text) {
-    const changed = text !== lastSource;
+    const first = afterAction;
+    afterAction = false;
+    if (first && !watching) {
+      lastSource = text;
+      if (isLoading(text)) startWatch();
+      return;
+    }
+    if (!watching) {
+      lastSource = text;
+      return;
+    }
+    if (!isLoading(text)) {
+      // The loading is over and this refresh already shows what came after.
+      lastSource = text;
+      stopWatch();
+      return;
+    }
+    unchangedPolls = text === lastSource ? unchangedPolls + 1 : 0;
     lastSource = text;
-    if (!settleArmed) return;
-    if (changed && settleLeft > 0) schedule(SETTLE_NEXT_MS);
-    else disarmSettle();
+    if (unchangedPolls >= LOADING_STUCK_POLLS) stopWatch();
+    else schedulePoll();
   }
 
   function watchFetch() {
@@ -134,7 +167,10 @@
       const promise = nativeFetch.apply(this, arguments);
       if (!pathname.includes("/session/")) return promise;
       inFlight += 1;
-      if (isAction(method, pathname, init && init.body)) armSettle();
+      if (isAction(method, pathname, init && init.body)) {
+        afterAction = true;
+        stopWatch();
+      }
       return promise.then(
         (response) => {
           inFlight -= 1;
@@ -149,7 +185,44 @@
     };
   }
 
-  // ---- the recording note -------------------------------------------------
+  // ---- the notes ----------------------------------------------------------
+
+  const BAR_STYLE = [
+    "#efp-inspector-hint,#efp-inspector-loading{position:fixed;left:0;right:0;bottom:0;z-index:2147483000;display:flex;align-items:center;gap:12px;padding:8px 16px;background:#1f2933;color:#f5f7fa;font:13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;box-shadow:0 -2px 8px rgba(0,0,0,.25)}",
+    "#efp-inspector-loading{left:auto;right:16px;bottom:16px;border-radius:8px;padding:6px 12px;background:#2d3a46}",
+    "#efp-inspector-hint .efp-dot{flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:#ff5a5f;animation:efp-rec 1.4s ease-in-out infinite}",
+    "#efp-inspector-loading .efp-spin{flex:0 0 auto;width:12px;height:12px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:efp-spin .9s linear infinite}",
+    "#efp-inspector-hint p{flex:1 1 auto;margin:0}",
+    "#efp-inspector-hint strong{color:#fff}",
+    "#efp-inspector-hint button{flex:0 0 auto;padding:4px 12px;border:1px solid #9aa5b1;border-radius:6px;background:transparent;color:#f5f7fa;font:inherit;cursor:pointer}",
+    "#efp-inspector-hint button:hover{background:rgba(255,255,255,.12)}",
+    "@keyframes efp-rec{0%,100%{opacity:.35}50%{opacity:1}}",
+    "@keyframes efp-spin{to{transform:rotate(360deg)}}",
+  ].join("");
+  let styleAdded = false;
+
+  function ensureStyle() {
+    if (styleAdded) return;
+    styleAdded = true;
+    const style = document.createElement("style");
+    style.textContent = BAR_STYLE;
+    document.head.appendChild(style);
+  }
+
+  function showLoadingBadge() {
+    if (document.getElementById("efp-inspector-loading")) return;
+    ensureStyle();
+    const badge = document.createElement("div");
+    badge.id = "efp-inspector-loading";
+    badge.setAttribute("role", "status");
+    badge.innerHTML = '<span class="efp-spin" aria-hidden="true"></span><span>The app is loading; the screen refreshes itself until it is done.</span>';
+    document.body.appendChild(badge);
+  }
+
+  function hideLoadingBadge() {
+    const badge = document.getElementById("efp-inspector-loading");
+    if (badge) badge.remove();
+  }
 
   function dismissed() {
     try {
@@ -171,33 +244,22 @@
     if (hintShown || !document.body || !modeButtons()) return;
     hintShown = true;
     if (dismissed()) return;
-    const style = document.createElement("style");
-    style.textContent = [
-      "#efp-inspector-hint{position:fixed;left:0;right:0;bottom:0;z-index:2147483000;display:flex;align-items:center;gap:12px;padding:8px 16px;background:#1f2933;color:#f5f7fa;font:13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;box-shadow:0 -2px 8px rgba(0,0,0,.25)}",
-      "#efp-inspector-hint .efp-dot{flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:#ff5a5f;animation:efp-rec 1.4s ease-in-out infinite}",
-      "#efp-inspector-hint p{flex:1 1 auto;margin:0}",
-      "#efp-inspector-hint strong{color:#fff}",
-      "#efp-inspector-hint button{flex:0 0 auto;padding:4px 12px;border:1px solid #9aa5b1;border-radius:6px;background:transparent;color:#f5f7fa;font:inherit;cursor:pointer}",
-      "#efp-inspector-hint button:hover{background:rgba(255,255,255,.12)}",
-      "@keyframes efp-rec{0%,100%{opacity:.35}50%{opacity:1}}",
-    ].join("");
+    ensureStyle();
     const bar = document.createElement("div");
     bar.id = "efp-inspector-hint";
     bar.setAttribute("role", "status");
     bar.innerHTML =
       '<span class="efp-dot" aria-hidden="true"></span>' +
       "<p><strong>Recording.</strong> Every tap, swipe, and key you send through this Inspector is recorded by the local bridge; " +
-      "the Inspector’s own Start Recording only shows code. Tap and swipe on the screenshot as on the phone; " +
-      "the screen refreshes itself for a few seconds while the app loads. " +
+      "the Inspector’s own Start Recording only shows code. Tap and swipe on the screenshot as on the phone. " +
+      "While the app shows it is loading, the screen refreshes itself; otherwise press Refresh Source & Screenshot when the device is ready. " +
       "To type into a field, switch to Select Elements, pick the field, and use Send Keys. " +
       "When you are done, go back to the Portal tab and press Save recording.</p>" +
       '<button type="button" data-efp-dismiss>Got it</button>';
     bar.querySelector("[data-efp-dismiss]").addEventListener("click", () => {
       remember();
       bar.remove();
-      style.remove();
     });
-    document.head.appendChild(style);
     document.body.appendChild(bar);
   }
 
@@ -210,10 +272,10 @@
   }
 
   watchFetch();
-  // A button pressed by the member (Refresh, a tab, a mode) means they moved
-  // on; the next action re-arms. Taps on the screenshot are actions.
+  // A button pressed by the member (Refresh, a tab, a mode) means they took
+  // over; the next action starts afresh. Taps on the screenshot are actions.
   document.addEventListener("pointerdown", (event) => {
-    if (event.target && event.target.closest && event.target.closest("button")) disarmSettle();
+    if (event.target && event.target.closest && event.target.closest("button")) stopWatch();
   }, true);
   const observer = new MutationObserver(tick);
   observer.observe(document.documentElement, { childList: true, subtree: true });
