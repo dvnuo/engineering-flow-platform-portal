@@ -55,7 +55,8 @@ Portal and the assistants never connect to BrowserStack.
 - **Connectors > Jenkins** and **GitHub**: the assistant starts the mobile
   scenario pipeline with your Jenkins connector and commits the tests to your
   team's test repository with GitHub. Your Jenkins administrator sets the
-  pipeline up once, with the test accounts' passwords as Jenkins credentials.
+  pipeline up once, with the test accounts in a JSON users file kept in Jenkins
+  as a Secret file credential (one profile per account).
 - **Jira**: the delegation needs your Jira connector. Ask your BA to fill in
   the expected results in each Examples row; a row without them cannot be
   checked, and the assistant flags it instead of inventing a value.
