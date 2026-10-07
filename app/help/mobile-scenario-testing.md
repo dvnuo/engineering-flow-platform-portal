@@ -53,7 +53,8 @@ Portal and the assistants never connect to BrowserStack.
   does not know the Inspector's Back, Home, and App switch buttons.
 - **Connectors > Local bridge**: install the local bridge (`efp-bridge`) on
   your computer once; recordings run through it. *Test BrowserStack* on the BrowserStack
-  page checks that your computer reaches BrowserStack.
+  page checks that your computer reaches BrowserStack and whether BrowserStack Local
+  is on it.
 - **Connectors > Jenkins** and **GitHub**: the assistant starts the mobile
   scenario pipeline with your Jenkins connector and commits the tests to your
   team's test repository with GitHub. Your Jenkins administrator sets the

@@ -106,6 +106,11 @@ def test_browserstack_panel_tests_through_the_bridge_and_says_where_runs_happen(
         _bind_profile(env.db, env.agent, {"mobile-auto": {"enabled": True, "browserstack": {"username": "alice", "access_key": "k"}}})
         html = env.client.get("/app/connectors/browserstack/panel").text
         assert "data-mobile-bridge-test" in html and 'data-test-target="browserstack"' not in html
+        # The test also says whether BrowserStack Local is on this computer.
+        assert "data-mobile-local-binary" in html
+        js = MOBILE_JS.read_text(encoding="utf-8")
+        assert 'renderLocalBinary(form.querySelector("[data-mobile-local-binary]"), plan.local_binary)' in js
+        assert "download it for this computer" in js and "status.download_url" in js
         # The proxy for this computer is set on the connector page too, with
         # the login a corporate proxy asks for in fields of its own: the
         # password in a password input, never in the address.
@@ -416,6 +421,17 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(M.splitProxyLogin("http://proxy2:8080"), { url: "http://proxy2:8080", username: "", password: "", login: false });
         assert.equal(M.suggestCustomId("FXApp-1.4.2-uat.apk"), "fxapp-uat-android");
         assert.equal(M.suggestCustomId("notes.txt"), "");
+        // What Test BrowserStack says about BrowserStack Local on this computer.
+        assert.equal(M.localBinaryHtml(undefined), null);
+        const haveLocal = M.localBinaryHtml({ found: true, path: "/Users/alice/bin/BrowserStackLocal", source: "beside_program" });
+        assert.equal(haveLocal.tone, "success");
+        assert.equal(haveLocal.html, "BrowserStack Local is on this computer (/Users/alice/bin/BrowserStackLocal).");
+        const noLocal = M.localBinaryHtml({ found: false, name: "BrowserStackLocal", folder: "/Users/alice/bin", download_url: "https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip" });
+        assert.equal(noLocal.tone, "warning");
+        assert.ok(noLocal.html.startsWith("BrowserStack Local is not on this computer."));
+        assert.ok(noLocal.html.includes('href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip"'));
+        assert.ok(noLocal.html.includes("<code>BrowserStackLocal</code> in <code>/Users/alice/bin</code>"));
+        assert.ok(M.localBinaryHtml({ found: false }).html.includes("download it from BrowserStack"));
         // The Library's messages and what it reads out of a segment file.
         assert.equal(M.deletedMessage("Segment", "seg-login", "mobile/segments/android/seg-login.yaml"), "Segment seg-login deleted: mobile/segments/android/seg-login.yaml");
         assert.equal(M.deletedMessage("Recording", "recording-1", "mobile/recordings/recording-1.wdlog.json"), "Recording recording-1 deleted: mobile/recordings/recording-1.wdlog.json");

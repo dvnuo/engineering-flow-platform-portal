@@ -16,8 +16,10 @@ Only needed if you record mobile tests.
 - **Username** and **Access Key** come from your BrowserStack account
   settings. The Mobile testing panel hands them to the local bridge on your
   computer for each recording; the bridge keeps them in memory only.
-- **Test BrowserStack** signs in from your computer through the local bridge
-  and shows how many parallel sessions are in use. Start the bridge first.
+- **Test BrowserStack** signs in from your computer through the local bridge,
+  shows how many parallel sessions are in use, and says whether BrowserStack
+  Local is on this computer, with the download for it when it is not. Start
+  the bridge first.
 - **Advanced** holds what most teams leave alone for the devices you record
   on: the default platform, the network (public, or a private network through
   BrowserStack Local), the idle timeout (BrowserStack allows at most 300

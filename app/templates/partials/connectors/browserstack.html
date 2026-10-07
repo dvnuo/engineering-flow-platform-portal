@@ -14,7 +14,8 @@
         <label class="portal-form-label"><span class="portal-form-label">Access Key</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="BrowserStack access key" class="portal-form-input" /></label>
       </div>
       <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-mobile-bridge-test>Test BrowserStack</button><div class="portal-inline-state" data-mobile-bridge-test-result role="status"></div></div>
-      <p class="portal-inline-note">The test signs in from this computer through the local bridge, the way recordings do.</p>
+      <div class="portal-inline-state" data-mobile-local-binary role="status"></div>
+      <p class="portal-inline-note">The test signs in from this computer through the local bridge, the way recordings do, and says whether BrowserStack Local, the tunnel a recording of an app on your company's network needs, is on this computer.</p>
       <details class="portal-collapsible">
         <summary class="portal-collapsible-summary"><span>Advanced</span></summary>
         <div class="portal-panel-stack">

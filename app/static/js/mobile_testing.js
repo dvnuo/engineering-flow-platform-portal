@@ -364,6 +364,7 @@
     }
     button.disabled = true;
     setInline(result, "Signing in to BrowserStack from this computer…", "");
+    renderLocalBinary(form.querySelector("[data-mobile-local-binary]"), null);
     try {
       const problem = bridgeProblem(await probe({ force: true }));
       if (problem) {
@@ -376,11 +377,38 @@
       const queued = Number(plan.queued_sessions) || 0;
       const sessions = max ? `${running} of ${max} parallel sessions in use` : `${running} parallel sessions in use`;
       setInline(result, `Signed in as ${plan.username || credentials.username}. ${sessions}${queued ? `, ${queued} queued` : ""}.`, "success");
+      renderLocalBinary(form.querySelector("[data-mobile-local-binary]"), plan.local_binary);
     } catch (error) {
       setInline(result, errorText(error), "error");
     } finally {
       button.disabled = false;
     }
+  }
+
+  // What the bridge found of BrowserStack Local on this computer (the tunnel
+  // a recording of an app on the company's network needs), shown under the
+  // test's result. An older bridge says nothing about it: then nothing shows.
+  function localBinaryHtml(status) {
+    if (!status || typeof status !== "object") return null;
+    if (status.found) {
+      return { tone: "success", html: `BrowserStack Local is on this computer${status.path ? ` (${esc(status.path)})` : ""}.` };
+    }
+    const name = status.name || "BrowserStackLocal";
+    const folder = status.folder || "~/bin";
+    const link = status.download_url
+      ? `<a class="portal-link-inline" href="${esc(status.download_url)}" target="_blank" rel="noopener noreferrer">download it for this computer</a>`
+      : "download it from BrowserStack";
+    return {
+      tone: "warning",
+      html: `BrowserStack Local is not on this computer. Recording an app on your company's network needs it: mobile-auto downloads it when such a recording starts, and when your network blocks that download, ${link}, unzip it, and put <code>${esc(name)}</code> in <code>${esc(folder)}</code> (the local bridge's folder) or on your PATH.`,
+    };
+  }
+
+  function renderLocalBinary(el, status) {
+    if (!el) return;
+    const view = localBinaryHtml(status);
+    el.className = view ? `portal-inline-state is-visible is-${view.tone}` : "portal-inline-state";
+    el.innerHTML = view ? view.html : "";
   }
 
   async function refreshOverview(root) {
@@ -2961,5 +2989,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     probeBridge: probe,
     callBridge: call,
     waitForDevice,
+    localBinaryHtml,
   });
 })();
