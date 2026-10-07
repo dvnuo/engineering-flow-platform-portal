@@ -114,6 +114,12 @@ class ConnectorSpec:
     # things that are not settings (where BrowserStack recordings and test
     # runs happen).
     panel_extra_template: str = ""
+    # KIND_SETTINGS only: whether the panel offers "Get administrator
+    # defaults", which pulls the admin's Default connectors seed for this
+    # connector's sections into the member's row (connector_defaults_service).
+    # The model provider is left out: its defaults are a provider/model
+    # choice and a personal authorization, not a shared shape.
+    admin_defaults: bool = False
 
     @property
     def is_settings(self) -> bool:
@@ -243,6 +249,7 @@ def _settings_connector(
     guidance_key: str | None = None,
     extra_guidance_keys: tuple[str, ...] = (),
     panel_extra_template: str = "",
+    admin_defaults: bool = True,
 ) -> ConnectorSpec:
     return ConnectorSpec(
         type=type,
@@ -259,6 +266,7 @@ def _settings_connector(
         extra_guidance_keys=extra_guidance_keys,
         state_of=state_of,
         panel_extra_template=panel_extra_template,
+        admin_defaults=admin_defaults,
     )
 
 
@@ -271,6 +279,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         icon="sparkles",
         state_of=_llm_state,
         test_targets=("llm",),
+        admin_defaults=False,
     ),
     _settings_connector(
         "jira",

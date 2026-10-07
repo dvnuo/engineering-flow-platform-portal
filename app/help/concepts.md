@@ -38,3 +38,8 @@ Everything an assistant can reach: the model provider, Jira, Confluence,
 GitHub, AWS and the rest, one connector each. You set each up once and every
 assistant of yours uses it. The credentials are your own; your administrator
 fills in only where each service lives.
+
+Your settings start as a copy of the administrator's Default connectors. When
+those change later, **Get administrator defaults** on a connector adds what is
+new and lets you decide, item by item, where your value differs: use the
+administrator's, keep yours, or keep both.

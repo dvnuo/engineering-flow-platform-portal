@@ -13457,6 +13457,12 @@ function initializeManagedSettingsRoot(root) {
       await runManagedSettingsTest(root, testBtn.dataset.testTarget, testBtn);
       return;
     }
+    const defaultsBtn = event.target.closest("[data-admin-defaults-button]");
+    if (defaultsBtn) {
+      event.preventDefault();
+      await pullAdminDefaults(root, defaultsBtn);
+      return;
+    }
     const btn = event.target.closest("[data-copilot-auth-button]");
     if (btn) {
       event.preventDefault();
@@ -13474,6 +13480,240 @@ function initializeManagedSettingsRoot(root) {
       }
     }
   });
+}
+
+// ===== administrator defaults (settings connectors) =====
+// "Get administrator defaults" on a settings connector panel. The preview
+// (GET /app/connectors/<type>/defaults) says what the administrator's Default
+// connectors would add to the member's settings and where the two clash; the
+// member decides each clash in a dialog and the apply
+// (POST .../defaults/apply) saves the result the way Save does. The render and
+// decision helpers below are pure (no DOM, no state) so a node test holds
+// them. Conflict ids come from the server and may hold any text (a URL, an
+// instance name), so the dialog keys its radios by conflict index and maps
+// the index back to the id; ids never land in attributes or selectors.
+const ADMIN_DEFAULTS_CHOICE_LABELS = { admin: "Use the administrator's", mine: "Keep mine", both: "Keep both" };
+const ADMIN_DEFAULTS_CHOICES = ["admin", "mine", "both"];
+
+function adminDefaultsConflicts(preview) {
+  return (Array.isArray(preview?.conflicts) ? preview.conflicts : [])
+    .filter((conflict) => conflict && typeof conflict.id === "string");
+}
+
+// The choice each clash starts on: the least destructive one offered. A
+// null-prototype object, so an id such as "__proto__" is a key like any other.
+function defaultAdminDefaultsDecisions(preview) {
+  const decisions = Object.create(null);
+  adminDefaultsConflicts(preview).forEach((conflict) => {
+    const options = Array.isArray(conflict.options) ? conflict.options : [];
+    decisions[conflict.id] = options.includes("both") ? "both" : "mine";
+  });
+  return decisions;
+}
+
+function renderAdminDefaultsConflictHtml(conflict, index, chosen) {
+  const fields = Array.isArray(conflict.fields) ? conflict.fields : [];
+  const options = (Array.isArray(conflict.options) ? conflict.options : ["admin", "mine"])
+    .filter((choice) => ADMIN_DEFAULTS_CHOICES.includes(choice));
+  const groupName = `admin-defaults-conflict-${index}`;
+  const rows = fields.map((field) => (
+    `<tr><th scope="row">${escapeHtml(field?.label || "")}</th><td>${escapeHtml(field?.mine || "")}</td><td>${escapeHtml(field?.theirs || "")}</td></tr>`
+  )).join("");
+  const radios = options.map((choice) => (
+    `<label class="portal-defaults-choice"><input type="radio" name="${groupName}" value="${choice}" data-defaults-index="${index}"${choice === chosen ? " checked" : ""} /><span>${escapeHtml(ADMIN_DEFAULTS_CHOICE_LABELS[choice])}</span></label>`
+  )).join("");
+  return `<fieldset class="portal-defaults-conflict" data-defaults-conflict="${index}"><legend>${escapeHtml(conflict.label || "")}</legend><table class="portal-defaults-diff"><thead><tr><th scope="col"><span class="sr-only">Field</span></th><th scope="col">Yours</th><th scope="col">Administrator's</th></tr></thead><tbody>${rows}</tbody></table><div class="portal-defaults-choices">${radios}</div></fieldset>`;
+}
+
+// The dialog body: what will be added, then each clash with its choices.
+function renderAdminDefaultsPreviewHtml(preview) {
+  const additions = Array.isArray(preview?.additions) ? preview.additions : [];
+  const conflicts = adminDefaultsConflicts(preview);
+  const decisions = defaultAdminDefaultsDecisions(preview);
+  const parts = [];
+  if (additions.length) {
+    const items = additions.map((item) => (
+      `<li><strong>${escapeHtml(item?.label || "")}</strong>${item?.detail ? ` <span class="portal-defaults-detail">${escapeHtml(item.detail)}</span>` : ""}</li>`
+    )).join("");
+    parts.push(`<section class="portal-defaults-block"><h4 class="portal-defaults-heading">Will be added</h4><ul class="portal-defaults-list">${items}</ul></section>`);
+  }
+  if (conflicts.length) {
+    const offered = ADMIN_DEFAULTS_CHOICES.filter((choice) => conflicts.some((conflict) => (conflict.options || []).includes(choice)));
+    const setAll = offered.map((choice) => (
+      `<button type="button" class="portal-defaults-set-all-btn" data-defaults-set-all="${choice}" aria-label="Set all to ${escapeHtml(ADMIN_DEFAULTS_CHOICE_LABELS[choice])}">${escapeHtml(ADMIN_DEFAULTS_CHOICE_LABELS[choice])}</button>`
+    )).join("");
+    const blocks = conflicts.map((conflict, index) => renderAdminDefaultsConflictHtml(conflict, index, decisions[conflict.id])).join("");
+    const shortcuts = conflicts.length > 1 ? `<span class="portal-defaults-set-all" role="group" aria-label="Set all">Set all: ${setAll}</span>` : "";
+    parts.push(`<section class="portal-defaults-block"><div class="portal-defaults-heading-row"><h4 class="portal-defaults-heading">Differs from yours</h4>${shortcuts}</div>${blocks}</section>`);
+  }
+  return parts.join("");
+}
+
+function collectAdminDefaultsDecisions(root, preview) {
+  const conflicts = adminDefaultsConflicts(preview);
+  const decisions = defaultAdminDefaultsDecisions(preview);
+  root.querySelectorAll("input[data-defaults-index]:checked").forEach((input) => {
+    const conflict = conflicts[Number(input.dataset.defaultsIndex)];
+    if (conflict && ADMIN_DEFAULTS_CHOICES.includes(input.value)) decisions[conflict.id] = input.value;
+  });
+  return decisions;
+}
+
+// Resolves to the member's decisions, or null when they cancel. Same classes
+// and keyboard behaviour as the dialogs in dialogs.js, with a body of its own.
+function openAdminDefaultsDialog(preview) {
+  return new Promise((resolve) => {
+    const label = preview?.connector?.label || "this connector";
+    const previouslyFocused = document.activeElement;
+    const root = document.createElement("div");
+    root.className = "modal portal-dialog portal-defaults-dialog";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-labelledby", "admin-defaults-dialog-title");
+    root.setAttribute("aria-describedby", "admin-defaults-dialog-copy");
+    root.innerHTML = `<div class="modal-card panel portal-dialog-card portal-defaults-dialog-card" data-dialog-card>
+      <div class="portal-modal-titlebar"><h3 id="admin-defaults-dialog-title">Default connectors for ${escapeHtml(label)}</h3></div>
+      <p class="portal-modal-copy" id="admin-defaults-dialog-copy">Your administrator's Default connectors differ from your ${escapeHtml(label)} settings. New items are added; where you both set a value, choose what to keep.</p>
+      <div class="portal-defaults-body">${renderAdminDefaultsPreviewHtml(preview)}</div>
+      <p class="portal-inline-note">Apply and save stores ${escapeHtml(label)} for all your assistants, like Save. Idle ones restart to pick it up; a busy one asks you to restart it when you are ready.</p>
+      <div class="portal-modal-actions"><button type="button" class="portal-btn" data-dialog-cancel>Cancel</button><button type="button" class="portal-btn is-primary" data-dialog-confirm>Apply and save</button></div>
+    </div>`;
+    document.body.appendChild(root);
+    // Force reflow so the enter transition runs.
+    // eslint-disable-next-line no-unused-expressions
+    root.offsetWidth;
+    root.classList.add("portal-dialog--in");
+
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", onKeydown, true);
+      root.classList.remove("portal-dialog--in");
+      window.setTimeout(() => {
+        root.remove();
+        // The apply re-renders the panel, so the opener may be gone by now;
+        // pullAdminDefaults places focus in that case.
+        if (previouslyFocused && document.contains(previouslyFocused)) {
+          try { previouslyFocused.focus(); } catch (_err) { /* noop */ }
+        }
+      }, 200);
+      resolve(result);
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(root.querySelectorAll("button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex='-1'])"))
+        .filter((el) => el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKeydown, true);
+    root.addEventListener("mousedown", (event) => {
+      if (event.target === root) finish(null);
+    });
+    root.addEventListener("click", (event) => {
+      const setAll = event.target.closest("[data-defaults-set-all]");
+      if (setAll) {
+        const choice = setAll.dataset.defaultsSetAll;
+        root.querySelectorAll("input[data-defaults-index]").forEach((input) => {
+          if (input.value === choice) input.checked = true;
+        });
+        return;
+      }
+      if (event.target.closest("[data-dialog-cancel]")) finish(null);
+      else if (event.target.closest("[data-dialog-confirm]")) finish(collectAdminDefaultsDecisions(root, preview));
+    });
+    window.requestAnimationFrame(() => root.querySelector("[data-dialog-confirm]")?.focus());
+  });
+}
+
+async function pullAdminDefaults(root, button) {
+  const connectorType = root?.dataset?.connectorType || "";
+  if (!connectorType) return;
+  // Applying re-renders the panel from the stored row, so edits typed here
+  // and not saved would go with it.
+  const touched = Array.from(root.querySelectorAll("[data-touch-flag]")).some((flag) => String(flag.value) === "1");
+  if (touched && !(await showConfirm({
+    title: "Unsaved changes",
+    message: "Getting the administrator defaults replaces this form, so the edits you have not saved here are lost. Continue?",
+    confirmText: "Continue",
+    danger: true,
+  }))) return;
+  const idleText = button ? button.textContent : "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Checking…";
+  }
+  let replacedPanel = false;
+  try {
+    const response = await fetch(`/app/connectors/${encodeURIComponent(connectorType)}/defaults`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(await handleErrorResponse(response));
+    const preview = await response.json();
+    const label = preview?.connector?.label || "This connector";
+    if (!preview?.available) {
+      showToast(`Your administrator has not set Default connectors for ${label} yet.`, { variant: "info" });
+      return;
+    }
+    if (preview.up_to_date) {
+      showToast(`${label} already matches your administrator's Default connectors.`);
+      return;
+    }
+    const decisions = await openAdminDefaultsDialog(preview);
+    if (!decisions) return;
+    // The response is the re-rendered panel (status text starting "Default
+    // connectors") and carries HX-Trigger: connectorsChanged, which htmx
+    // fires for the Connectors list and the assistants' restart markers.
+    // htmx.ajax resolves even when the server answers with an error and
+    // swaps nothing, so the swap is checked, not assumed; the one swap
+    // decision made while this call runs says which status came back.
+    let errorStatus = 0;
+    const onBeforeSwap = (event) => {
+      if (event?.detail && event.detail.shouldSwap === false) errorStatus = Number(event.detail.xhr?.status) || 0;
+    };
+    document.body.addEventListener("htmx:beforeSwap", onBeforeSwap);
+    try {
+      await htmx.ajax("POST", `/app/connectors/${encodeURIComponent(connectorType)}/defaults/apply`, {
+        target: "#workspace-detail-content",
+        swap: "innerHTML",
+        values: { fingerprint: String(preview.fingerprint || ""), decisions: JSON.stringify(decisions) },
+      });
+    } finally {
+      document.body.removeEventListener("htmx:beforeSwap", onBeforeSwap);
+    }
+    replacedPanel = !root.isConnected;
+    if (!replacedPanel) {
+      throw new Error(errorStatus
+        ? `the server answered HTTP ${errorStatus}. Reload the page and try again.`
+        : "the panel did not refresh. Reload the page and try again.");
+    }
+    initializeManagedSettingsPanels();
+    if (window.portalConnectors && typeof window.portalConnectors.initPanel === "function") {
+      window.portalConnectors.initPanel();
+    }
+    // The button that had focus is gone with the old panel: land on the
+    // status line of the new one, or on its own copy of the button.
+    const panel = document.getElementById("connector-settings-panel-root");
+    const target = panel?.querySelector("#settings-status") || panel?.querySelector("[data-admin-defaults-button]");
+    if (target && typeof target.focus === "function") target.focus();
+  } catch (err) {
+    showToast(`Could not get the administrator defaults: ${err?.message || err}`, { variant: "error" });
+  } finally {
+    if (button && !replacedPanel) {
+      button.disabled = false;
+      button.textContent = idleText;
+    }
+  }
 }
 
 function initializeManagedSettingsPanels() {

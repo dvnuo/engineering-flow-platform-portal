@@ -187,6 +187,8 @@ Jira, Confluence, Jenkins, Nexus, Splunk, and PostgreSQL can have multiple insta
 
 Your connector settings start as an editable copy of the administrator's **Default connectors**. That starting setup can include shared service-account credentials; it is not a live policy that locks your service URLs. AI Platform endpoints are the exception: they are supplied by deployment configuration. Check the approved URL with your administrator before changing an unfamiliar endpoint.
 
+When your administrator changes those defaults later, open the connector and click **Get administrator defaults** next to **Save**. New instances and fields you left blank are filled in; where your value differs from the default you choose, per item, to use the administrator's value, keep yours, or (for an instance) keep both. **Apply and save** then saves the connector the same way **Save** does. The Model provider connector has no such button.
+
 For external tokens, follow your organization's current scope and authorization instructions. Grant the repositories and actions you actually need. Copilot model authorization and a GitHub repository token serve different purposes; connecting one does not automatically configure the other.
 
 **Important:** a connector makes credentials available; actual tool availability still depends on the engine, runtime version, installed skills, and runtime permission policy. For example, a Jenkins connector is not a promise that the installed workflow can start builds.
@@ -512,9 +514,9 @@ These are presets for new assistants. Editing a type does not automatically reco
 1. Open **Default connectors**.
 2. Enable the services your organization offers and enter endpoints, instance names, and other starting settings. Leave credential fields empty for members to fill, or enter only an approved service/team credential intended to be shared.
 3. Save the defaults.
-4. Verify the result with a new member's first sign-in: their **Connectors** start from these values. Existing members keep their previous copies; saving defaults does not update or restart their assistants.
+4. Verify the result with a new member's first sign-in: their **Connectors** start from these values. Existing members keep their previous copies until they click **Get administrator defaults** on a connector; saving defaults here does not change or restart their assistants.
 
-**Credentials entered here are copied into new members' connectors and can be seen and changed by those members.** Do not enter a personal token or a credential that must remain private to administrators. Blank credential fields stay blank. This is a starting template, not ongoing central enforcement: subsequent changes to the default setup do not reach members who already have their settings. Coordinate changes or credential rotation with members who hold an earlier copy.
+**Credentials entered here are copied into new members' connectors and can be seen and changed by those members.** Do not enter a personal token or a credential that must remain private to administrators. Blank credential fields stay blank. This is a starting template, not ongoing central enforcement: subsequent changes reach a member who already has settings only when they pull them in with **Get administrator defaults**, and they decide what to keep where their values differ. Coordinate changes or credential rotation with members who hold an earlier copy.
 
 ## 16. Help, shortcuts, and smaller screens
 

@@ -31,7 +31,7 @@ Nineteen actual screenshots show the local UI as of the review; the Connectors c
 
 Notable details confirmed in the second review:
 
-- Default Connections (now **Default connectors**) can include shared service-account credentials. New members receive independent, member-visible/editable copies; later default edits do not update existing members.
+- Default Connections (now **Default connectors**) can include shared service-account credentials. New members receive independent, member-visible/editable copies; later default edits do not update existing members by themselves; a member pulls them in with each connector's **Get administrator defaults** button and decides each value that differs.
 - Saving a member's connection profile could restart its bound running assistants. Since `9b0509f`, saving a connector restarts only the member's idle running assistants; busy ones show **Restart to apply**.
 - Tasks and delegations are visible across members in this revision; management remains owner-restricted. Assistant file access requires the owner or an administrator.
 - Follow-up and rerun reuse the Portal task record and replace its prior result; they are not an automatic archive of every attempt.

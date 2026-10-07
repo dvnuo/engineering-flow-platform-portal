@@ -30,6 +30,10 @@
 
     <div class="portal-connector-save-row">
       <button type="submit" class="portal-btn is-primary">Save</button>
+      {% if connector_admin_defaults %}
+      {# Pulls the administrator's current Default connectors for this connector into the member's row (chat_ui.js pullAdminDefaults); the model provider has none. #}
+      <button type="button" class="portal-btn is-secondary" data-admin-defaults-button title="Add what your administrator's Default connectors have for {{ connector.label }}; you choose where they differ from yours">Get administrator defaults</button>
+      {% endif %}
       <span class="portal-inline-note">Applies to all your assistants. Idle ones restart to pick it up; one that is busy keeps working and asks you to restart it when you are ready.</span>
     </div>
   </form>
