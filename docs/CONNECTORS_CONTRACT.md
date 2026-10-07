@@ -4,7 +4,7 @@ Status: v1 (protocol_version 1). Companion to the [Portal / Runtime Contract](PO
 are the one place a member configures what their assistants can reach. There are two kinds (registry:
 `app/services/connector_registry.py`): **settings** connectors for services the assistant signs in to from its pod
 (the model provider, Jira, GitHub, AWS, ...; see §7.1), and **local** connectors for a program on the member's own PC.
-The first local connector type is `local_browser`. Sections 1–6 and 9–11 describe the local transport. Every
+The first local connector type is `local_bridge`. Sections 1–6 and 9–11 describe the local transport. Every
 transport-level name there is connector-type agnostic, so further local types only add a registry entry and a
 page module.
 
@@ -15,10 +15,10 @@ For installation and use, see the [Beginner Guide](BEGINNER_GUIDE.md). Portal co
 | Term | Meaning |
 |---|---|
 | connector | A per-user capability an assistant can use. A **local** connector's settings are stored in Portal table `user_connectors`, keyed by `(owner_user_id, connector_type)`, and never enter a pod. A **settings** connector's values are sections of the member's single settings row (`runtime_profiles`, §7.1). |
-| connector_type | Stable string id, e.g. `local_browser`, `jira`, `llm`. |
+| connector_type | Stable string id, e.g. `local_bridge`, `jira`, `llm`. |
 | kind | `local` (needs the chat page as a bridge to the user's machine) or `settings` (the runtime talks to the service directly with credentials delivered through the pod Secret at boot). |
 | client_id | Random id generated per Portal browser tab (`sessionStorage`). Identifies which tab (and therefore which machine) executes local requests for one chat turn. |
-| bridge | The page-side dispatcher plus the local program it talks to. For `local_browser` the local program is `browser serve` from `engineering-flow-platform-tools`. |
+| bridge | The page-side dispatcher plus the local program it talks to. For `local_bridge` (shown as **Local bridge**) the local program is `efp-bridge` from `engineering-flow-platform-tools` (its `docs/BRIDGE.md`): browser automation for the runtime's `browser` tool, and mobile recording, which the Mobile testing panel calls directly. |
 
 ## 1. Chat request (page → Portal)
 
@@ -29,14 +29,14 @@ The page adds a **top-level** `connectors` object to `POST /a/{agent_id}/api/cha
 {
   "message": "...", "session_id": "...", "request_id": "...",
   "connectors": {
-    "local_browser": { "client_id": "tab-7f3a9c", "protocol_version": 1 }
+    "local_bridge": { "client_id": "tab-7f3a9c", "protocol_version": 1 }
   }
 }
 ```
 
 Rules
 - Only local connector types the user has **enabled** in Connectors are sent. Settings connectors never travel in this object; they reach the runtime through the pod Secret (§7.1).
-- The current Local browser page also requires a Chromium browser, the chat's **Browser on** toggle, and a reachable bridge. Keep the originating Portal tab open while a request is running.
+- The current Local bridge page also requires a Chromium browser, the chat's **Browser on** toggle, and a reachable bridge. Keep the originating Portal tab open while a request is running.
 - `client_id`: 1–64 chars, `[A-Za-z0-9_-]`.
 - Absent or invalid `connectors` means "no connectors for this turn".
 
@@ -48,7 +48,7 @@ server-trusted form into the runtime execution metadata:
 ```json
 "metadata": {
   "connectors": {
-    "local_browser": {
+    "local_bridge": {
       "enabled": true,
       "client_id": "tab-7f3a9c",
       "protocol_version": 1,
@@ -60,7 +60,7 @@ server-trusted form into the runtime execution metadata:
 ```
 
 - A type that is not enabled for the user is **omitted** (not `enabled:false`).
-- `enable_browser_tool` is set only when `connectors.local_browser` is present and the
+- `enable_browser_tool` is set only when `connectors.local_bridge` is present and the
   request is interactive chat. Runtime treats it like `enable_question_tool`.
 - `config` comes from the member's saved server-side settings, not from the submitted hint. A non-integer or missing `protocol_version` defaults to 1; Portal does not otherwise negotiate the version here.
 
@@ -107,7 +107,7 @@ Failure
 { "ok": false, "action": "page.click", "error": { "code": "connector_timeout", "message": "...", "hint": "..." } }
 ```
 
-Tool-level error codes: `connector_disabled` (no `connectors.local_browser` in metadata),
+Tool-level error codes: `connector_disabled` (no `connectors.local_bridge` in metadata),
 `connector_timeout` (no response within `timeout_seconds`, default 60, max 120),
 `connector_cancelled` (run cancelled while waiting), `connector_error` (bridge returned
 `ok:false`; `error` carries the bridge's code/message/hint verbatim, e.g. `session_busy`,
@@ -128,7 +128,7 @@ the runtime WebSocket `/api/events`, proxied to the page as `/a/{agent_id}/api/e
   "session_id": "…", "request_id": "…",
   "data": {
     "session_id": "…", "request_id": "…",
-    "connector_type": "local_browser",
+    "connector_type": "local_bridge",
     "connector_request": {
       "id": "cr_…",
       "action": "page.snapshot",
@@ -165,7 +165,7 @@ Responses: `202 {"ok": true, "request_id": "..."}`; `409 {"error": "connector_re
 when the id is unknown, already resolved, timed out, or the run was cancelled;
 `400` on malformed JSON. `result` is limited to 2 MB.
 
-## 6. Local bridge HTTP API (`browser serve`, 127.0.0.1)
+## 6. Local bridge HTTP API (`efp-bridge serve`, 127.0.0.1)
 
 Default port 8765; if busy the service tries 8766–8770. The page probes the member's configured `preferred_port` and the default 8765–8770 range, preferring the last working port when available.
 
@@ -194,11 +194,11 @@ Rules
 - The page carries `client_id` only to the Portal, never to the bridge.
 
 Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765[&url=<urlencoded start page>]`
-runs `browser.exe bridge-launch "<url>"`, which starts `browser serve --origin … --port … --url …`
+runs `efp-bridge launch "<url>"`, which starts `efp-bridge serve --origin … --port … --url …`
 if it is not already running and asks a running bridge whose window is closed to reopen it
-(registration: `browser serve --register-protocol --origin <origin>`). The bridge launches
+(registration: `efp-bridge register --origin <origin>`). The bridge launches
 Chrome directly on the start page, so the window opens with that single tab. The `url`
-parameter is `LOCAL_BROWSER_START_URL` (§8) resolved by the page against its own origin; it
+parameter is `LOCAL_BRIDGE_BROWSER_START_URL` (§8) resolved by the page against its own origin; it
 must be absolute http(s) and is omitted when the setting is empty (the bridge then opens the
 origin). The page passes the same value as `session.ensure{url}` so a bridge started before
 the setting changed reopens on the current page.
@@ -207,13 +207,13 @@ the setting changed reopens on the current page.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/connectors` | list of registry types with the current user's state, ordered by category: `[{type, label, kind, category, description, icon, enabled, state, status_label, config, settings, last_verified_at}]`. `state` is `connected`, `off`, or `not_set_up`; `status_label` is its display text. `settings` holds deployment-level values the page needs (read-only; `local_browser`: `{start_url}` raw from `LOCAL_BROWSER_START_URL`) |
+| GET | `/api/connectors` | list of registry types with the current user's state, ordered by category: `[{type, label, kind, category, description, icon, enabled, state, status_label, config, settings, last_verified_at}]`. `state` is `connected`, `off`, or `not_set_up`; `status_label` is its display text. `settings` holds deployment-level values the page needs (read-only; `local_bridge`: `{start_url}` raw from `LOCAL_BRIDGE_BROWSER_START_URL`) |
 | GET | `/api/connectors/{type}` | one entry |
 | PUT | `/api/connectors/{type}` | local connectors only: `{ "enabled": true, "config": { … } }`; config validated against the type's schema |
 | POST | `/api/connectors/{type}/verify` | local connectors only: request `{ "ok": true, "details": {…} }` from the page's own probe; response `{ "ok": true, "last_verified_at": "..." }`. Portal remembers the latest successful verification; it does not probe the member's PC itself |
 | GET | `/app/connectors/{type}/panel` | htmx panel (both kinds; §7.1 for settings connectors) |
 
-`local_browser` config schema: `{ "auto_enable_in_new_chats": bool (default true), "preferred_port": int 1024–65535 (default 8765) }`.
+`local_bridge` config schema: `{ "auto_enable_in_new_chats": bool (default true), "preferred_port": int 1024–65535 (default 8765) }`.
 
 The API is always served. Unconfigured local connectors are listed as disabled (`state: not_set_up`) with their default settings. Unknown connector types return 404; invalid config keys return 400. A malformed request model can return 422. When `CONNECTORS_ENABLED=false`, local connectors are omitted from the list and `GET`/`PUT`/`verify` on them return 404; the Connectors menu and the settings connectors stay available.
 
@@ -267,11 +267,11 @@ clients that need the whole document can use `GET`/`PATCH /api/runtime-profile` 
 
 | Where | Key | Default | Purpose |
 |---|---|---|---|
-| Portal env | `LOCAL_BROWSER_CLI_DOWNLOAD_URL` | empty → `/static/downloads/efp-browser-bridge-{platform}.zip` | download link template; `{platform}` is one of `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64` (tools `scripts/browser-bridge/package.sh` builds one zip per platform: binary, installer, README). The panel offers the member's own system first (User-Agent, refined by client hints on the page) and lists the rest |
-| Portal env | `LOCAL_BROWSER_CLI_VERSION` | empty | shown on the panel |
-| Portal env | `LOCAL_BROWSER_START_URL` | empty → Portal origin | first tab of the EFP window when the bridge opens or reopens it; absolute http(s) URL or a path resolved against the Portal origin; sent as the link's `url` and as `session.ensure{url}` |
+| Portal env | `LOCAL_BRIDGE_DOWNLOAD_URL` | empty → `/static/downloads/efp-bridge-{platform}.zip` | download link template; `{platform}` is one of `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64` (tools `scripts/local-bridge/package.sh` builds one zip per platform: `efp-bridge`, `mobile-auto`, installer, README). The panel offers the member's own system first (User-Agent, refined by client hints on the page) and lists the rest |
+| Portal env | `LOCAL_BRIDGE_VERSION` | empty | shown on the panel |
+| Portal env | `LOCAL_BRIDGE_BROWSER_START_URL` | empty → Portal origin | first tab of the EFP window when the bridge opens or reopens it; absolute http(s) URL or a path resolved against the Portal origin; sent as the link's `url` and as `session.ensure{url}` |
 | Portal env | `CONNECTORS_ENABLED` | `true` | when false, hides the local connectors: omitted from the Connectors list and `/api/connectors`, 404 from their API routes, and no chat **Browser** toggle. The Connectors menu and the settings connectors are unaffected |
-| tools CLI | `EFP_BROWSER_SERVE_PORT`, `EFP_BROWSER_SERVE_ALLOWED_ORIGIN` | 8765, empty | defaults for `browser serve` |
+| efp-bridge | `EFP_BRIDGE_PORT`, `EFP_BRIDGE_ALLOWED_ORIGIN` (config `bridge.port`, `bridge.allowed_origin`) | 8765, empty | defaults of `efp-bridge serve`; `efp-bridge register` stores the origin |
 | runtime | `enable_browser_tool` (Portal-managed runtime field) | false | registers the tool |
 
 ## 9. Timeline rendering (Portal)
@@ -286,4 +286,4 @@ v1 = 1. The current Portal page records the bridge version but does not reject a
 
 ## 11. Package availability
 
-The default download URLs are links, not a package installer or downloader in Portal. The checked-in downloads directory contains a README only, and the current Portal image workflow does not fetch bridge archives. Operators must populate the archives before building/serving the image, mount them into the served directory, or set `LOCAL_BROWSER_CLI_DOWNLOAD_URL` to real published packages. In a deployment that overlays `app/` from Git, packages in the image can be hidden by that mount. See the [downloads note](../app/static/downloads/README.md).
+The default download URLs are links, not a package installer or downloader in Portal. The checked-in downloads directory contains a README only, and the current Portal image workflow does not fetch bridge archives. Operators must populate the archives before building/serving the image, mount them into the served directory, or set `LOCAL_BRIDGE_DOWNLOAD_URL` to real published packages. In a deployment that overlays `app/` from Git, packages in the image can be hidden by that mount. See the [downloads note](../app/static/downloads/README.md).

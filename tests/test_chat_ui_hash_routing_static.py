@@ -90,7 +90,7 @@ def test_portal_hash_route_sections_are_declared():
         # Connectors and survive a reload or a new tab.
         "help",
         # Connectors (every service an assistant can reach, plus the local
-        # browser bridge) are routable so a panel can be deep-linked.
+        # local bridge) are routable so a panel can be deep-linked.
         "connectors",
         "delegations",
         "users",

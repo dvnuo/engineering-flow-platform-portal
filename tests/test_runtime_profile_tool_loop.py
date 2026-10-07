@@ -98,7 +98,7 @@ def test_runtime_metadata_does_not_materialize_default_tool_loop_for_sparse_prof
     assert runtime_context["runtime_profile_id"] == "rp-1"
     assert runtime_context["revision"] is None
     assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
-    assert runtime_context["config"]["llm"]["model"] == "gpt-5.6-terra"
+    assert runtime_context["config"]["llm"]["model"] == "gpt-6-sol"
     assert "tool_loop" not in runtime_context["config"]["llm"]
 
 
@@ -127,7 +127,7 @@ def test_runtime_metadata_drops_explicit_tool_loop_override(monkeypatch):
 
     assert runtime_profile_id == "rp-1"
     assert runtime_context["config"]["llm"]["provider"] == "github_copilot"
-    assert runtime_context["config"]["llm"]["model"] == "gpt-5.6-terra"
+    assert runtime_context["config"]["llm"]["model"] == "gpt-6-sol"
     assert "tool_loop" not in runtime_context["config"]["llm"]
 
 

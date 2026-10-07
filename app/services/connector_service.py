@@ -23,7 +23,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_connector_repo import UserConnectorRepository
 from app.services.connector_registry import (
     KIND_LOCAL,
-    LOCAL_BROWSER_PLATFORMS,
+    LOCAL_BRIDGE_PLATFORMS,
     STATE_CONNECTED,
     STATE_NOT_SET_UP,
     STATE_OFF,
@@ -35,9 +35,9 @@ from app.services.connector_registry import (
 
 logger = logging.getLogger(__name__)
 
-# One package per platform (see LOCAL_BROWSER_PLATFORMS); CI or the operator
+# One package per platform (see LOCAL_BRIDGE_PLATFORMS); CI or the operator
 # drops the zips built by the tools repository under app/static/downloads/.
-LOCAL_BROWSER_FALLBACK_DOWNLOAD_PATH = "/static/downloads/efp-browser-bridge-{platform}.zip"
+LOCAL_BRIDGE_FALLBACK_DOWNLOAD_PATH = "/static/downloads/efp-bridge-{platform}.zip"
 
 
 def _parse_config_json(raw: str | None) -> dict[str, Any]:
@@ -221,31 +221,31 @@ def enabled_connectors_for_user(db: Session, user_id: int | None) -> dict[str, d
     return result
 
 
-def local_browser_download_url(settings=None, platform: str = "") -> str:
-    """Download URL of the bridge package for ``platform`` (a LOCAL_BROWSER_PLATFORMS key).
+def local_bridge_download_url(settings=None, platform: str = "") -> str:
+    """Download URL of the bridge package for ``platform`` (a LOCAL_BRIDGE_PLATFORMS key).
 
-    LOCAL_BROWSER_CLI_DOWNLOAD_URL may carry ``{platform}``, which expands to
+    LOCAL_BRIDGE_DOWNLOAD_URL may carry ``{platform}``, which expands to
     that key; a URL without it hands one package to every system. Empty falls
     back to the per-platform zips under app/static/downloads/.
     """
 
     resolved = settings or get_settings()
-    configured = str(getattr(resolved, "local_browser_cli_download_url", "") or "").strip()
-    template = configured or LOCAL_BROWSER_FALLBACK_DOWNLOAD_PATH
-    return template.replace("{platform}", platform or LOCAL_BROWSER_PLATFORMS[0][0])
+    configured = str(getattr(resolved, "local_bridge_download_url", "") or "").strip()
+    template = configured or LOCAL_BRIDGE_FALLBACK_DOWNLOAD_PATH
+    return template.replace("{platform}", platform or LOCAL_BRIDGE_PLATFORMS[0][0])
 
 
-def local_browser_download_links(settings=None) -> list[dict[str, str]]:
+def local_bridge_download_links(settings=None) -> list[dict[str, str]]:
     """One download entry per offered platform, in display order."""
 
     return [
-        {"platform": platform, "label": label, "url": local_browser_download_url(settings, platform)}
-        for platform, label in LOCAL_BROWSER_PLATFORMS
+        {"platform": platform, "label": label, "url": local_bridge_download_url(settings, platform)}
+        for platform, label in LOCAL_BRIDGE_PLATFORMS
     ]
 
 
-def local_browser_start_url(settings=None, portal_origin: str = "") -> str:
-    """First tab of the EFP browser window (LOCAL_BROWSER_START_URL).
+def local_bridge_browser_start_url(settings=None, portal_origin: str = "") -> str:
+    """First tab of the EFP browser window (LOCAL_BRIDGE_BROWSER_START_URL).
 
     An absolute http(s) URL is returned as configured; a path is resolved
     against ``portal_origin`` when one is given. Empty means the bridge opens
@@ -253,7 +253,7 @@ def local_browser_start_url(settings=None, portal_origin: str = "") -> str:
     """
 
     resolved = settings or get_settings()
-    configured = str(getattr(resolved, "local_browser_start_url", "") or "").strip()
+    configured = str(getattr(resolved, "local_bridge_browser_start_url", "") or "").strip()
     if not configured or configured.lower().startswith(("http://", "https://")):
         return configured
     origin = str(portal_origin or "").strip().rstrip("/")
@@ -266,9 +266,9 @@ __all__ = [
     "enabled_connectors_for_user",
     "get_for_user",
     "list_for_user",
-    "local_browser_download_links",
-    "local_browser_download_url",
-    "local_browser_start_url",
+    "local_bridge_download_links",
+    "local_bridge_download_url",
+    "local_bridge_browser_start_url",
     "member_settings",
     "record_verification",
     "settings_entry",

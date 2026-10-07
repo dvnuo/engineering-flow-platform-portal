@@ -25,7 +25,7 @@ DELEGATION_REPLY_MARKER_PREFIX = "<!-- efp:delegation-reply "
 MAX_SOURCE_TEXT_CHARS = 20000
 MAX_GITHUB_REPLY_CONTEXT_CHARS = 8000
 GITHUB_SOURCES = {"github_pr_review", "github_pr_mention"}
-JIRA_SOURCES = {"jira_assignee", "jira_mention"}
+JIRA_SOURCES = {"jira_assignee", "jira_mention", "jira_status"}
 TIMER_SOURCES = {"timer"}
 SUPPORTED_DELEGATION_SOURCES = GITHUB_SOURCES | JIRA_SOURCES | TIMER_SOURCES
 SOURCE_PROVIDER = {
@@ -33,6 +33,7 @@ SOURCE_PROVIDER = {
     "github_pr_mention": "github",
     "jira_assignee": "jira",
     "jira_mention": "jira",
+    "jira_status": "jira",
     "timer": "timer",
 }
 
@@ -54,6 +55,8 @@ class DelegationSourcePoller:
             return await self._poll_jira_assignee(db, rule)
         if source == "jira_mention":
             return await self._poll_jira_mention(db, rule)
+        if source == "jira_status":
+            return await self._poll_jira_status(db, rule)
         if source == "timer":
             return self._poll_timer(rule)
         raise ValueError(f"Unsupported delegation source: {source}")
@@ -633,16 +636,92 @@ class DelegationSourcePoller:
             terms.append(f'priority = "{cls._jira_jql_text_literal(priority)}"')
         return terms
 
-    async def _jira_search(self, client: httpx.AsyncClient, provider_config: JiraProviderConfig, jql: str) -> list[dict]:
+    async def _jira_search(
+        self, client: httpx.AsyncClient, provider_config: JiraProviderConfig, jql: str, *, expand: str | None = None
+    ) -> list[dict]:
         fields = "summary,status,reporter,assignee,updated,comment,project,issuetype,priority,labels"
+        params = {"jql": jql, "maxResults": 50, "fields": fields}
+        if expand:
+            params["expand"] = expand
         response = await client.get(
             f"{provider_config.base_url}/rest/api/{provider_config.api_version}/search",
             headers=provider_config.headers,
-            params={"jql": jql, "maxResults": 50, "fields": fields},
+            params=params,
         )
         response.raise_for_status()
         issues = response.json().get("issues") or []
         return issues if isinstance(issues, list) else []
+
+    @staticmethod
+    def _jira_status_entered_at(issue: dict, statuses: list[str]) -> str:
+        """When the issue last moved into one of the statuses (changelog), or ""."""
+        wanted = {status.casefold() for status in statuses}
+        changelog = issue.get("changelog") if isinstance(issue.get("changelog"), dict) else {}
+        latest = ""
+        for history in changelog.get("histories") or []:
+            if not isinstance(history, dict):
+                continue
+            created = str(history.get("created") or "")
+            for item in history.get("items") or []:
+                if (
+                    isinstance(item, dict)
+                    and str(item.get("field") or "").lower() == "status"
+                    and str(item.get("toString") or "").casefold() in wanted
+                    and created > latest
+                ):
+                    latest = created
+        return latest
+
+    async def _poll_jira_status(self, db: Session, rule) -> SourcePollResult:
+        """Issues that moved into one of the rule's statuses since the rule began.
+
+        Only transitions after the rule was created count, so turning a rule on
+        does not start work on every issue already sitting in the status. The
+        window is a relative JQL date, so the Jira server's time zone does not
+        matter. An issue that leaves and comes back starts new work: the dedupe
+        key carries the time it entered the status.
+        """
+        source_scope = self._rule_source_scope(rule)
+        conditions = self._rule_source_conditions(rule)
+        statuses = [str(item).strip() for item in (conditions.get("status_include") or []) if str(item).strip()]
+        if not statuses:
+            raise ValueError("A Jira status delegation needs the status that starts the work")
+        provider_config = self._resolve_jira_provider_config(db, rule, source_scope)
+        now = utc_now_naive()
+        created_at = getattr(rule, "created_at", None) or now
+        minutes = max(1, int((now - created_at).total_seconds() // 60) + 1)
+        literals = ", ".join(f'"{self._jira_jql_text_literal(status)}"' for status in statuses)
+        where_terms = [f"status CHANGED TO ({literals}) AFTER -{minutes}m", *self._jira_condition_jql_terms(conditions)]
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            identity = await self._jira_identity(client, provider_config)
+            represented = str(identity.get("displayName") or identity.get("emailAddress") or identity.get("accountId") or "").strip()
+            issues = await self._jira_search(
+                client, provider_config, f"{' AND '.join(where_terms)} ORDER BY updated DESC", expand="changelog"
+            )
+            items: list[dict[str, Any]] = []
+            for issue in issues:
+                key = str(issue.get("key") or "").strip()
+                if not key:
+                    continue
+                fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else {}
+                status = fields.get("status") if isinstance(fields.get("status"), dict) else {}
+                status_name = str(status.get("name") or "").strip() or statuses[0]
+                entered_at = self._jira_status_entered_at(issue, statuses) or str(fields.get("updated") or "").strip()
+                issue_url = self._jira_issue_url(provider_config, key)
+                items.append(
+                    {
+                        "source": "jira_status",
+                        "provider": "jira",
+                        "dedupe_key": f"jira_status:{key}:{status_name}:{entered_at}",
+                        "version_key": entered_at or key,
+                        "source_url": issue_url,
+                        "task_content": f"The Jira issue {key} moved to {status_name}. Work on it:\n{issue_url}",
+                        "represented_identity": represented,
+                        "source_payload": {"issue": self._jira_issue_source_payload(provider_config, issue), "entered_status_at": entered_at},
+                        "reply_target": {"provider": "jira", "kind": "issue_comment", "issue_key": key},
+                    }
+                )
+        return SourcePollResult(items=items)
 
     async def _poll_jira_assignee(self, db: Session, rule) -> SourcePollResult:
         source_scope = self._rule_source_scope(rule)

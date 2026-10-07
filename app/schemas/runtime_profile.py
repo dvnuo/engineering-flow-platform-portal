@@ -135,6 +135,7 @@ PORTAL_MANAGED_FIELD_TREE = {
             "network_mode": True,
             "idle_timeout_seconds": True,
             "new_command_timeout_seconds": True,
+            "appium_version": True,
             "interactive_debugging": True,
             "video": True,
         },
@@ -914,6 +915,10 @@ def sanitize_runtime_profile_mobile(value) -> dict:
             parsed = _sanitize_runtime_profile_positive_int(defaults.get(key))
             if parsed is not None:
                 defaults_out[key] = parsed
+        version = str(defaults.get("appium_version") or "").strip()
+        version_parts = version.split(".")
+        if len(version_parts) == 3 and all(part.isdigit() for part in version_parts):
+            defaults_out["appium_version"] = version
         for key in ("interactive_debugging", "video"):
             if key in defaults:
                 defaults_out[key] = _runtime_profile_bool(defaults.get(key))

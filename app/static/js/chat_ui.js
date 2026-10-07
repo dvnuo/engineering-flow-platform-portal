@@ -138,6 +138,7 @@ const ALLOWED_UTILITY_PANEL_KEYS = new Set([
   "server-files",
   "skills",
   "usage",
+  "recording",
 ]);
 
 const PORTAL_ROUTE_SECTIONS = new Set([
@@ -251,6 +252,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
     dom.contextUsageBtn,
     dom.detailToggle,
     document.getElementById("btn-files"),
+    document.getElementById("btn-recording"),
   ];
   assistantOnlyControls.forEach((element) => {
     element?.classList.toggle("hidden", normalized !== "assistants");
@@ -989,6 +991,11 @@ const md = window.markdownit({
       // Mermaid source stays escaped text: enhanceMarkdownBlock wraps it in a
       // diagram component and renderMermaidDiagrams draws it from textContent.
       return `<pre><code class="language-mermaid">${md.utils.escapeHtml(str)}</code></pre>`;
+    }
+    if (isEfpCardFenceLanguage(language)) {
+      // Review/evidence/matrix JSON stays escaped text; enhanceMarkdownBlock
+      // swaps the block for its card (static/js/efp_cards.js).
+      return `<pre><code class="language-${language}">${md.utils.escapeHtml(str)}</code></pre>`;
     }
     if (language && hljs.getLanguage(language)) {
       const highlighted = hljs.highlight(str, { language }).value;
@@ -3625,7 +3632,7 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
       || "";
     if (connectorRequestId) {
       const action = data.action || (data.connector_request && data.connector_request.action) || "";
-      const label = data.connector_type === "local_browser" ? "Browser" : (data.connector_type || "Connector");
+      const label = data.connector_type === "local_bridge" ? "Browser" : (data.connector_type || "Connector");
       const pendingId = `connector:${connectorRequestId}`;
       const responded = type === "connector.responded";
       const ok = data.ok !== false;
@@ -4675,6 +4682,7 @@ function renderFileBlock(block) {
     : "";
   const metaHtml = meta ? ` · ${escapeHtml(meta)}` : "";
   const descriptionHtml = description ? `<div class="message-file-description">${escapeHtml(description)}</div>` : "";
+  const previewHtml = fileBlockPreviewHtml(currentWorkspaceAgentId(), path, name);
   const directoryAttr = escapeHtmlAttr(workspaceFileDirectory(path));
   return `
     <section class="message-block message-block-file">
@@ -4690,8 +4698,29 @@ function renderFileBlock(block) {
           <button type="button" class="portal-btn is-secondary message-file-open" data-server-path="${directoryAttr}" title="Open in Server Files">Open folder</button>
         </div>
       </div>
+      ${previewHtml}
     </section>
   `;
+}
+
+// An image or a video an assistant wrote (a test run's screenshots and session
+// video) shows under its card instead of only offering a download. Videos
+// stream through the download route, which forwards Range for seeking.
+function fileBlockPreviewHtml(agentId, path, name) {
+  const imageExtensions = ["png", "jpg", "jpeg", "gif", "webp"];
+  const videoExtensions = ["mp4", "webm", "mov", "m4v"];
+  const ext = String(path || "").split(".").pop().toLowerCase();
+  if (imageExtensions.includes(ext)) {
+    const url = buildWorkspaceFileContentUrl(agentId, path);
+    if (!url) return "";
+    return '<a class="message-file-preview" href="' + escapeHtmlAttr(url) + '" target="_blank" rel="noopener"><img src="' + escapeHtmlAttr(url) + '" alt="' + escapeHtmlAttr(name) + '" loading="lazy" /></a>';
+  }
+  if (videoExtensions.includes(ext)) {
+    const url = buildWorkspaceFileDownloadUrl(agentId, path);
+    if (!url) return "";
+    return '<video class="message-file-video" controls preload="metadata" src="' + escapeHtmlAttr(url) + '"></video>';
+  }
+  return "";
 }
 
 function renderSingleDisplayBlock(block) {
@@ -4843,6 +4872,7 @@ function enhanceMarkdownBlock(root) {
       buildDiagramComponent(code);
       return;
     }
+    if (isEfpCardCodeElement(code) && window.EfpCards && window.EfpCards.buildFromCode(code)) return;
     const pre = code.parentElement;
     if (!pre) return;
     const wrapper = document.createElement("div");
@@ -4925,6 +4955,18 @@ function normalizeFenceLanguage(lang) {
 function isMermaidFenceLanguage(lang) {
   const language = normalizeFenceLanguage(lang);
   return language === "mermaid" || language === "mmd";
+}
+
+// ```efp-review, ```efp-evidence, ```efp-matrix and ```efp-replay fences carry
+// JSON that efp_cards.js renders as cards (mobile scenario testing results).
+function isEfpCardFenceLanguage(lang) {
+  const language = normalizeFenceLanguage(lang);
+  return language === "efp-review" || language === "efp-evidence" || language === "efp-matrix" || language === "efp-replay";
+}
+
+function isEfpCardCodeElement(code) {
+  if (!code || !code.classList) return false;
+  return Array.from(code.classList).some((name) => name.startsWith("language-") && isEfpCardFenceLanguage(name.slice("language-".length)));
 }
 
 function isMermaidCodeElement(code) {
@@ -5756,6 +5798,8 @@ function renderMarkdown(scope = document, { highlight = true } = {}) {
     el.querySelectorAll("pre code").forEach((code) => {
       if (code.dataset.highlighted === "1" || code.classList.contains("hljs")) return;
       if (isMermaidCodeElement(code)) return;
+      // A card body left as code (not valid JSON yet) is not a language.
+      if (isEfpCardCodeElement(code)) return;
       hljs.highlightElement(code);
       code.dataset.highlighted = "1";
     });
@@ -5910,6 +5954,7 @@ function applyToolPanelState() {
     sessions: document.getElementById("btn-sessions"),
     context: dom.contextUsageBtn,
     "server-files": document.getElementById("btn-files"),
+    recording: document.getElementById("btn-recording"),
     details: dom.detailToggle,
   };
   Object.entries(utilityButtons).forEach(([panelKey, button]) => {
@@ -6411,8 +6456,31 @@ function updateOwnerOnlyButtons(agentId) {
   const agent = state.mineAgents?.find(a => a.id === agentId);
   const isOwner = canWriteAgent(agent);
   document.querySelectorAll('[data-owner-only]').forEach(btn => {
-    btn.style.display = isOwner ? '' : 'none';
+    // Mobile testing needs the member's BrowserStack connector as well.
+    const shown = isOwner && (btn.id !== "btn-recording" || state.browserstackEnabled === true);
+    btn.style.display = shown ? '' : 'none';
   });
+}
+
+// Whether the member's BrowserStack connector is on: the Mobile testing
+// button appears only then. Unknown counts as off until the list has loaded.
+async function refreshBrowserstackEnabled() {
+  let enabled = false;
+  try {
+    const response = await fetch("/api/connectors", { credentials: "same-origin", cache: "no-store" });
+    if (response.ok) {
+      const payload = await response.json();
+      const list = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.connectors) ? payload.connectors : []);
+      const entry = list.find((item) => item && item.type === "browserstack");
+      enabled = Boolean(entry && entry.enabled);
+    }
+  } catch (_error) {
+    enabled = false;
+  }
+  if (state.browserstackEnabled !== enabled) {
+    state.browserstackEnabled = enabled;
+    updateOwnerOnlyButtons(state.selectedAgentId);
+  }
 }
 
 function agentScope(agent) {
@@ -7450,6 +7518,7 @@ async function refreshAll({ preserveLayout = false, skipRouteApply = false } = {
 
   // Update owner-only button visibility after restoring last agent
   updateOwnerOnlyButtons(state.selectedAgentId);
+  refreshBrowserstackEnabled();
 
   renderAgentList();
   await syncSelectedAgentState();
@@ -10057,6 +10126,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       "server-files",
       "skills",
       "usage",
+      "recording",
         ]);
 
     if (!panelKey) {
@@ -10094,6 +10164,16 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
 
     if (panelKey === "server-files") {
       await openServerFiles();
+      return;
+    }
+
+    if (panelKey === "recording") {
+      // The Mobile testing panel lives in mobile_testing.js.
+      if (window.EfpMobileTesting && typeof window.EfpMobileTesting.openRecordingPanel === "function") {
+        await window.EfpMobileTesting.openRecordingPanel();
+      } else {
+        showPinnedPanelRestorePlaceholder();
+      }
       return;
     }
     if (panelKey === "skills") {
@@ -10699,7 +10779,7 @@ function syncMainHeader() {
   const userManagementMode = state.activeNavSection === "users";
 
   const sessionsBtn = document.getElementById("btn-sessions");
-  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.contextUsageBtn, dom.detailToggle, document.getElementById("btn-files")];
+  const assistantOnlyControls = [sessionsBtn, dom.headerNewChatBtn, dom.contextUsageBtn, dom.detailToggle, document.getElementById("btn-files"), document.getElementById("btn-recording")];
   assistantOnlyControls.forEach((el) => {
     if (!el) return;
     el.classList.toggle("hidden", !assistantMode);
@@ -10710,6 +10790,8 @@ function syncMainHeader() {
 
   if (assistantMode) {
     restoreAssistantHeaderState();
+    // The member may have switched BrowserStack on or off under Connectors.
+    refreshBrowserstackEnabled();
   } else {
     setSelectedStatusText("idle");
     if (state.activeNavSection === "tasks") {
@@ -11032,6 +11114,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
         <span>Owner ${safe(ownerLabel)}</span>
         ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
       </div>
+      ${taskNavScenarioProgressHtml(task.scenario_progress)}
     `;
     row.addEventListener("click", async () => {
       await openTaskDetailInMain(task.id);
@@ -11045,6 +11128,23 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
     dom.taskNavList.append(sentinel);
   }
   if (preserveScroll) dom.taskNavList.scrollTop = previousScrollTop;
+}
+
+// Pass/fail bar of a finished mobile scenario run (the list API adds the
+// counts from the run's matrix card).
+function taskNavScenarioProgressHtml(progress) {
+  const total = Number(progress?.total || 0);
+  if (!total) return "";
+  const passed = Number(progress.passed || 0);
+  const failed = Number(progress.failed || 0);
+  const pending = Number(progress.running || 0) + Number(progress.queued || 0);
+  const pct = (n) => Math.max(0, Math.min(100, (n / total) * 100)).toFixed(1);
+  const label = `${passed}/${total} scenarios passed${failed ? `, ${failed} failed` : ""}`;
+  return `
+      <div class="portal-task-progress" title="Scenario runs">
+        <div class="efp-matrix-bar" aria-hidden="true"><i class="is-success" style="width: ${pct(passed)}%"></i><i class="is-error" style="width: ${pct(failed)}%"></i><i class="is-warning" style="width: ${pct(pending)}%"></i></div>
+        <span>${safe(label)}</span>
+      </div>`;
 }
 
 function formatTaskNavTime(value) {
@@ -12451,11 +12551,12 @@ function updateTemperatureInputState(root) {
 
 const managedProviderModels = {
   github_copilot: [
-    { value: "gpt-5.4", label: "GPT-5.4" },
-    { value: "gpt-5.5", label: "GPT-5.5" },
     { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
     { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { value: "gpt-6-astra", label: "GPT-6 Astra" },
+    { value: "gpt-6-luna", label: "GPT-6 Luna" },
+    { value: "gpt-6-sol", label: "GPT-6 Sol" },
   ],
   ai_platform: [
     { value: "gpt-5.4", label: "GPT-5.4" },
@@ -14204,7 +14305,7 @@ function applyCreateAgentDefaults(form, defaults) {
 // (docs/CONNECTORS_CONTRACT.md). The list comes from the registry merged with
 // the member's state, grouped by category. Settings connectors (model provider,
 // Jira, GitHub, ...) render a server-side form bound by
-// initializeManagedSettingsPanels; local ones (the browser bridge) are bound by
+// initializeManagedSettingsPanels; local ones (the local bridge) are bound by
 // their page module under static/js/connectors/.
 
 async function loadConnectorsList(force = false) {
@@ -14379,6 +14480,7 @@ const DELEGATION_SOURCE_OPTIONS = [
   ["github_pr_mention", "GitHub PR Mention"],
   ["jira_assignee", "Jira Assignee"],
   ["jira_mention", "Jira Mention"],
+  ["jira_status", "Jira Status Change"],
   ["timer", "Timer"],
 ];
 
@@ -14414,6 +14516,7 @@ function delegationInputLabel(source) {
   if (normalized === "github_pr_mention") return "PR URL + comment";
   if (normalized === "jira_assignee") return "Jira URL";
   if (normalized === "jira_mention") return "Jira URL + comment";
+  if (normalized === "jira_status") return "Jira URL (moved to a status)";
   if (normalized === "timer") return "Cron schedule";
   return "Source payload";
 }
@@ -14615,7 +14718,7 @@ function delegationSourceConditionFieldsHtml(source, scope = {}, conditions = {}
         <label class="portal-form-label"><span class="portal-form-label">Jira instance</span>${delegationJiraInstanceSelectHtml(scope, preview)}</label>
         <label class="portal-form-label"><span class="portal-form-label">Project key</span><input class="portal-form-input" name="condition_project_key" value="${escapeHtmlAttr(conditions.project_key || "")}" placeholder="EFP" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Issue type</span><input class="portal-form-input" name="condition_issue_type" value="${escapeHtmlAttr(conditions.issue_type || "")}" placeholder="Bug" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Include statuses</span><input class="portal-form-input" name="condition_status_include" value="${escapeHtmlAttr(delegationCsv(conditions.status_include))}" placeholder="To Do, In Progress" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${source === "jira_status" ? "Starts when an issue moves to" : "Include statuses"}</span><input class="portal-form-input" name="condition_status_include" value="${escapeHtmlAttr(delegationCsv(conditions.status_include))}" placeholder="${source === "jira_status" ? "Ready for Test" : "To Do, In Progress"}" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Exclude statuses</span><input class="portal-form-input" name="condition_status_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.status_exclude))}" placeholder="Done" /></label>
       </div>
       <details class="portal-collapsible portal-delegation-advanced">
@@ -17564,6 +17667,7 @@ function bindEvents() {
   // The connector panel saves through its own bundle; keep the sidebar's
   // "Enabled / Not enabled" line in step without a full section reload.
   document.addEventListener("portal:connectors-changed", () => {
+    refreshBrowserstackEnabled();
     if (state.activeNavSection === "connectors") {
       refreshConnectorList({ preserveSelection: true });
     }
@@ -17905,6 +18009,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     openServerFiles();
+  });
+
+  // Mobile test recording (mobile_testing.js)
+  document.getElementById('btn-recording')?.addEventListener('click', () => {
+    if (!state.selectedAgentId) {
+      showToast('Please select an assistant first');
+      return;
+    }
+    window.EfpMobileTesting?.openRecordingPanel?.();
   });
 
   // Context usage button in header

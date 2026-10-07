@@ -226,6 +226,7 @@ def _select_download_response_headers(upstream_headers) -> dict[str, str]:
         "content-disposition",
         "content-type",
         "content-length",
+        "content-range",
         "accept-ranges",
         "etag",
         "last-modified",
@@ -298,7 +299,7 @@ def _inject_connectors_metadata(payload: dict, db, user) -> dict:
         }
     if injected:
         metadata["connectors"] = injected
-        if "local_browser" in injected:
+        if "local_bridge" in injected:
             metadata["enable_browser_tool"] = True
     return payload
 
@@ -638,6 +639,12 @@ async def proxy_agent(
             download_path = f"/{subpath.strip('/')}" if subpath else "/"
             download_url = f"{base}{download_path}"
             outbound_headers = proxy_service._build_outbound_headers(forward_headers, extra_headers)
+            # A <video> element seeks with Range requests; the runtime's file
+            # response answers them with 206, which passes straight through.
+            for range_header in ("range", "if-range"):
+                range_value = request.headers.get(range_header)
+                if range_value:
+                    outbound_headers[range_header.title()] = range_value
             download_client = httpx.AsyncClient(timeout=None)
             download_stream = download_client.stream(
                 method="GET",

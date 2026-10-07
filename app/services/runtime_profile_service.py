@@ -9,6 +9,7 @@ from app.models.user import User
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.contracts.llm_catalog import (
     DEFAULT_CONTEXT_SIZE,
+    DEFAULT_COPILOT_MODEL,
     DEFAULT_REASONING_EFFORT,
     PROVIDER_MODELS,
     normalize_provider,
@@ -60,7 +61,7 @@ class RuntimeProfileService:
         return {
             "llm": {
                 "provider": "github_copilot",
-                "model": "gpt-5.6-terra",
+                "model": DEFAULT_COPILOT_MODEL,
                 "max_tokens": 64000,
                 "reasoning_effort": DEFAULT_REASONING_EFFORT,
                 "max_context_tokens": DEFAULT_CONTEXT_SIZE,

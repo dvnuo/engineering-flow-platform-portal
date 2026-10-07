@@ -108,6 +108,7 @@
                 <option value="github_pr_mention">GitHub PR Mention</option>
                 <option value="jira_assignee">Jira Assignee</option>
                 <option value="jira_mention">Jira Mention</option>
+                <option value="jira_status">Jira Status Change</option>
                 <option value="timer">Timer</option>
               </select>
             </div>
@@ -209,6 +210,10 @@
           <button id="btn-files" class="portal-header-action" type="button" title="Server files" aria-label="Server files" data-owner-only="true">
             <i data-lucide="folder" class="w-4 h-4"></i>
             <span class="portal-header-action-label">Files</span>
+          </button>
+          <button id="btn-recording" class="portal-header-action" type="button" title="Mobile testing: record and replay on a BrowserStack device" aria-label="Mobile testing" data-owner-only="true">
+            <i data-lucide="smartphone" class="w-4 h-4"></i>
+            <span class="portal-header-action-label">Mobile testing</span>
           </button>
           <button id="detail-toggle" class="portal-header-action" type="button" title="Assistant details" aria-label="Assistant details">
             <i data-lucide="panel-right" class="w-4 h-4"></i>
@@ -741,6 +746,7 @@
   </div>
 </div>
 
+<script src="{{ static_url('js/efp_cards.js') }}"></script>
 <script src="{{ static_url('js/chat_ui.js') }}"></script>
 <script src="{{ static_url('js/admin_users.js') }}"></script>
 <script src="{{ static_url('js/assistant_setup.js') }}"></script>
@@ -748,7 +754,8 @@
 <script src="{{ static_url('js/assistant_personalization.js') }}"></script>
 <script src="{{ static_url('js/assistant_startup.js') }}"></script>
 <script src="{{ static_url('js/composer_skill_chip.js') }}"></script>
+<script src="{{ static_url('js/mobile_testing.js') }}"></script>
 {% if connectors_enabled %}
-<script src="{{ static_url('js/connectors/local_browser.js') }}"></script>
+<script src="{{ static_url('js/connectors/local_bridge.js') }}"></script>
 {% endif %}
 {% endblock %}

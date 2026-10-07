@@ -30,6 +30,7 @@ from app.services.agent_execution_registry import (
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.inference_settings_service import apply_inference_overrides_to_runtime_metadata
 from app.services.proxy_service import ProxyService, build_runtime_trace_headers
+from app.services.efp_cards import portal_task_id_sentence
 
 logger = logging.getLogger(__name__)
 AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION = (
@@ -913,7 +914,9 @@ class TaskDispatcherService:
                         autonomous_instruction = AGENT_ASYNC_TASK_AUTONOMOUS_INSTRUCTION
                     existing_system_prompt = metadata.get("system_prompt")
                     if not isinstance(existing_system_prompt, str) or not existing_system_prompt.strip():
-                        metadata["system_prompt"] = autonomous_instruction.strip()
+                        # The task id lets a skill name task-scoped files, such
+                        # as the live scenario matrix the task page reads.
+                        metadata["system_prompt"] = f"{autonomous_instruction.strip()} {portal_task_id_sentence(task.id)}"
 
                 runtime_body = {
                     "task_id": task.id,

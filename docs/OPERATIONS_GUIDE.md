@@ -16,7 +16,7 @@ For illustrated instructions on signing in, creating assistants, chatting, files
 8. [Deploy to Kubernetes in the right order](#8-deploy-to-kubernetes-in-the-right-order)
 9. [Manage sign-in and member access](#9-manage-sign-in-and-member-access)
 10. [Configure engines, connectors, repositories, and resources](#10-configure-engines-connectors-repositories-and-resources)
-11. [Provide local browser connectors](#11-provide-local-browser-connectors)
+11. [Provide the local bridge connector](#11-provide-the-local-bridge-connector)
 12. [Monitor workers, logs, and availability](#12-monitor-workers-logs-and-availability)
 13. [Back up, upgrade, and recover](#13-back-up-upgrade-and-recover)
 14. [Explore the API](#14-explore-the-api)
@@ -482,7 +482,7 @@ Members set up **Connectors** in Portal: one connector per service (Model provid
 
 The administrator's **Default connectors** page (formerly Default Connections; same route `/app/admin/default-connections/panel` and API `/api/admin/runtime-profile-seed`) seeds each new member's connector settings. It can contain connection shapes and shared service/team credentials. Members own their copied values and can view or replace them; they are not locked administrator-only fields. Later seed edits never update existing members. Treat a seeded credential as shared with every member whose settings received it.
 
-`CONNECTORS_ENABLED` now only controls the local connectors (see [section 11](#11-provide-local-browser-connectors)); the Connectors menu and the service connectors are always available.
+`CONNECTORS_ENABLED` now only controls the local connectors (see [section 11](#11-provide-the-local-bridge-connector)); the Connectors menu and the service connectors are always available.
 
 #### Upgrading from multiple profiles
 
@@ -552,10 +552,14 @@ Private business repositories used during an assistant task are checked out by t
 | `AGENTS_VOLUME_SUB_PATH_PREFIX` | `efp-agents` | Prefix for assistant paths on the shared volume |
 | `EFP_MAX_UPLOAD_MB` | `25` | Portal attachment/workspace upload ceiling |
 | `EFP_CHAT_UPLOAD_EXTENSIONS` | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml` | Chat attachment extension allowlist; separate from workspace file uploads |
+| `EFP_APPIUM_INSPECTOR_DIR` | `/opt/appium-inspector` in the image | The Appium Inspector web build Portal serves at `/inspector/`; empty or missing turns the hosted Inspector off |
+| `EFP_MOBILE_DEFAULT_NETWORK` | empty (public) | The network recordings use when a member's BrowserStack connector does not choose one: `private-managed` when the apps live on the private network (the member's computer then starts BrowserStack Local for each recording) |
 
 An empty CPU or memory request leaves that request unset. Set requests at or below their limits. Resource requests influence scheduling; they do not themselves reserve a separate machine for each assistant.
 
 The code uses the shared claim `efp-agents-efs-pvc`; if it already exists, assistant creation does not resize it to a new assistant's disk setting. Defaults also do not automatically mutate every existing assistant or resize an existing claim. New assistants use `/workspace`; the presence of `DEFAULT_AGENT_MOUNT_PATH` in the settings class does not make it an effective creation override in this revision. Workspace files survive assistant runtime deletion on the shared volume, but deletion removes the Portal assistant and related runtime objects; retained files are not a complete recoverable assistant record. Prefer Stop for a temporary pause.
+
+The image bundles the Appium Inspector web build at build time with curl alone: a `curlimages/curl` stage downloads the `appium-inspector-plugin` package tarball and the Python image copies its `dist-browser` folder. Point it at a reachable registry with `--build-arg NPM_REGISTRY=https://nexus.example.com/repository/npm-proxy` (the tarball path is `<registry>/appium-inspector-plugin/-/appium-inspector-plugin-<version>.tgz`), or at the tarball anywhere with `--build-arg APPIUM_INSPECTOR_URL=...`; curl honors the `HTTPS_PROXY`/`NO_PROXY` build arguments, `--secret id=netrc,src=$HOME/.netrc` supplies a login, and `--secret id=cacert,src=corporate-ca.pem` a private CA (BuildKit is required). An empty `APPIUM_INSPECTOR_VERSION` leaves the Inspector out and members record with the desktop Inspector; any other failure fails the build rather than shipping an image without it. For a Portal run outside the image, point `EFP_APPIUM_INSPECTOR_DIR` at the `dist-browser` folder of that tarball. Portal only serves its static files: the Inspector runs in the member's browser and talks to the local bridge on their computer.
 
 Increasing the upload ceiling requires matching the Portal setting, the runtime's effective limit, and every ingress/proxy limit. The lowest enforced limit wins. Portal now injects `EFP_MAX_UPLOAD_MB` and the normalized `EFP_CHAT_UPLOAD_EXTENSIONS` into assistant pod environments. After changing deployment configuration, restart Portal and recreate or roll out affected runtime pods through the supported lifecycle controls; refresh browser pages and verify the effective pod values and runtime support. Existing pod environments do not update automatically.
 
@@ -569,21 +573,69 @@ Runtime compatibility still matters: supported documents are parsed to text, ZIP
 
 Transcript attachment links preserve the runtime's inline/download choice, but the Portal forces active markup such as HTML, SVG, and XML to download. An older runtime without the chat attachment API produces an explanatory upload error; update its image and restart the assistant.
 
+### Mobile scenario testing
+
+The flow in the in-app help topic *Mobile scenario testing* keeps BrowserStack
+traffic off Portal and the assistant pods: recording runs on the member's
+computer and test runs in Jenkins. These pieces must be current:
+
+- **The local bridge package** (the tools repository's `efp-bridge`, with
+  `mobile-auto` next to it) on each tester's computer, installed from
+  Connectors > Local bridge. The Mobile testing panel calls it on 127.0.0.1; it
+  starts and holds the recording device, uploads builds, and proxies Appium
+  Inspector's WebDriver traffic. That computer needs to reach
+  `api-cloud.browserstack.com` and `hub-cloud.browserstack.com` on 443,
+  directly or through its proxy settings.
+- **A Jenkins job** from the `Jenkinsfile` of the mobile test repository
+  (engineering-flow-platform-mobile-test, or the team's copy of it), which
+  holds the plain Python test project the assistant exports (behave features,
+  step definitions, segment modules; it runs without EFP). The job needs
+  Python 3.9+ and a PyPI index on its agent, a BrowserStack credential, the
+  test accounts' passwords as Jenkins credentials, and the Cucumber Reports
+  plugin for the report; the repository's README lists the setup and the
+  parameters.
+  Members connect Jenkins and GitHub in Connectors; the assistant pushes a
+  branch, starts the job on it, follows its `EFP-MATRIX` console lines for
+  the live matrix, and downloads the evidence.
+- **Assistant runtime images** with a `mobile-auto` that has
+  `inspector import`, `test export`, `test annotate`, and
+  `locate --recording` / `--source` (the tools repository's
+  `feat/mobile-scenario-testing` work). These are file-only; pods need no
+  BrowserStack egress.
+- **Skills** `design-mobile-scenarios`, `record-mobile-segment`,
+  `generate-mobile-scripts`, `run-mobile-scenarios`, and
+  `maintain-mobile-automation-tests` on the `qa` branch of the skills
+  repository (and on `master`, the full library), with the QA persona and
+  instructions on the `qa` branch of the agents repository.
+- **Portal**: the bundled Appium Inspector (`EFP_APPIUM_INSPECTOR_DIR`) for
+  recording without installing anything else.
+- **Jira**: a delegation with the *Jira Status Change* source (for example
+  *Ready for Test*) and the `design-mobile-scenarios` skill starts the flow.
+
+Migration `20260928_0037` seeds the **QA Assistant** type next to Business,
+Dev, and Ops: native engine, icon `flask-conical`, agents and skills branch
+`qa`. Create both `qa` branches before deploying it; an assistant created from
+a type whose branch is missing fails to start with "connection settings aren't
+ready". The migration leaves alone a type an administrator already named *QA
+Assistant*, and an administrator can repoint or retire the type in
+Administration like any other. Recording uses the member's own BrowserStack
+connector and works only on assistants the member owns.
+
 ### OpenCode-specific controls and capability alignment
 
 OpenCode's deployment defaults include `DEFAULT_OPENCODE_PERMISSION_MODE=workspace_full_access` and `DEFAULT_OPENCODE_ALLOW_BASH_ALL=true`. Review these runtime permissions for your deployment. `OPENCODE_WORKSPACE_REPOS_DIR` defaults to `/workspace/repos`; checkout, task completion, and chat-submit budgets are controlled by `OPENCODE_GIT_CHECKOUT_TIMEOUT_SECONDS` (120), `OPENCODE_TASK_COMPLETION_TIMEOUT_SECONDS` (3600), and `OPENCODE_CHAT_SUBMIT_TIMEOUT_SECONDS` (900).
 
 `RUNTIME_CAPABILITY_CATALOG_SNAPSHOT_JSON` optionally supplies a compatibility snapshot. Missing or invalid input falls back to local seed mappings; that fallback does not prove a real runtime has every capability. See the [productization notes](PHASE5_PRODUCTIZATION.md) for the snapshot structure and use the runtime-capability API to inspect or refresh deployed information.
 
-## 11. Provide local browser connectors
+## 11. Provide the local bridge connector
 
-`CONNECTORS_ENABLED=true` offers the local connectors. Setting it false hides them: they disappear from the Connectors menu and `/api/connectors`, their API routes return 404, and the chat **Browser** toggle is not rendered. The Connectors menu itself and the service connectors (Jira, GitHub, and the rest) stay available. Local browser preferences belong to each member and are stored separately from their service connector settings (`user_connectors`, not the pod Secret). The connector uses a program on that member's computer plus a relay in the open Portal browser tab.
+`CONNECTORS_ENABLED=true` offers the local connectors. Setting it false hides them: they disappear from the Connectors menu and `/api/connectors`, their API routes return 404, and the chat **Browser** toggle is not rendered. The Connectors menu itself and the service connectors (Jira, GitHub, and the rest) stay available. Local bridge preferences belong to each member and are stored separately from their service connector settings (`user_connectors`, not the pod Secret). The connector uses a program on that member's computer, `efp-bridge` (browser automation in a managed Chrome window, and the mobile Mobile testing panel's BrowserStack devices), plus a relay in the open Portal browser tab.
 
-The Portal repository does not build or bundle every platform's bridge binary. Supply the packages described in [the download directory guide](../app/static/downloads/README.md), or set `LOCAL_BROWSER_CLI_DOWNLOAD_URL` to a download URL. The optional `{platform}` placeholder expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64`.
+The Portal repository does not build or bundle every platform's bridge binary. Supply the packages described in [the download directory guide](../app/static/downloads/README.md) (`efp-bridge-{platform}.zip`), or set `LOCAL_BRIDGE_DOWNLOAD_URL` to a download URL. The optional `{platform}` placeholder expands to `windows-amd64`, `windows-arm64`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, or `linux-arm64`.
 
-`LOCAL_BROWSER_CLI_VERSION` provides the displayed package version. `LOCAL_BROWSER_START_URL` selects the first browser tab; it can be an absolute HTTP(S) URL or a path such as `/app` resolved against Portal's origin. Empty uses the Portal origin.
+`LOCAL_BRIDGE_VERSION` provides the displayed package version. `LOCAL_BRIDGE_BROWSER_START_URL` selects the first browser tab; it can be an absolute HTTP(S) URL or a path such as `/app` resolved against Portal's origin. Empty uses the Portal origin.
 
-Verify a package download for each operating system you support, then follow the illustrated member setup and **Test connection** action in the [Beginner Guide](BEGINNER_GUIDE.md#14-connect-your-local-browser). The test runs in the member's browser against the local bridge; `/api/connectors/local_browser/verify` records the reported outcome rather than making a server-side loopback request.
+Verify a package download for each operating system you support, then follow the illustrated member setup and **Test connection** action in the [Beginner Guide](BEGINNER_GUIDE.md#14-connect-your-local-bridge). The test runs in the member's browser against the local bridge; `/api/connectors/local_bridge/verify` records the reported outcome rather than making a server-side loopback request.
 
 The default bridge port is 8765. The page can discover ports 8765-8770 and the member's preferred port. The bridge accepts its configured Portal origin; a changed Portal address may require restarting it with the new origin. A compatible Chromium browser, permitted local-network access, and the separate EFP Chrome window are part of the working setup. A running loopback service alone does not prove that its Chrome window is available.
 
@@ -791,7 +843,7 @@ When changing database models, create and review the corresponding Alembic migra
 | Chat upload returns HTTP 415 or reports an unsupported type | Check the filename extension against `EFP_CHAT_UPLOAD_EXTENSIONS`, then verify the runtime parser supports that format. Images need explicit enablement and a vision-capable model. |
 | Upload says the runtime does not expose the chat attachment API | Deploy a compatible current runtime image and restart the assistant. |
 | Attachment uploads but says text not extracted | Inspect the extraction error, confirm runtime parser support, and try a readable UTF-8 text export to isolate format-specific failures. |
-| Local browser package returns 404 | Supply the bridge archive or configure the correct platform download URL. The Portal source does not include all built packages. |
+| Local bridge package returns 404 | Supply the bridge archive or configure the correct platform download URL. The Portal source does not include all built packages. |
 | Connector saves but cannot verify/run | Check the local bridge process/port, allowed Portal origin, Chromium local-network permission, EFP Chrome window, and the originating Portal tab. The browser performs the local connection test. |
 | Delegation does not run | Check rule enabled state, source credentials, schedule/timezone preview, worker enabled state, and rule run/event history. |
 | Task stays active after runtime failure | Check reconciliation worker status and the configured missing/unreachable grace periods before manually altering anything. |
@@ -811,7 +863,7 @@ For an unresolved issue, collect the Git/image revision, operation, approximate 
 - [Connector contract](CONNECTORS_CONTRACT.md): browser connector behavior and configuration contract.
 - [Productization notes](PHASE5_PRODUCTIZATION.md): migration and capability-snapshot details.
 - [Integration smoke suite](../integration/README.md): scope and execution of selected Portal tests.
-- [Browser bridge downloads](../app/static/downloads/README.md): package distribution requirements.
+- [Local bridge downloads](../app/static/downloads/README.md): package distribution requirements.
 - [Configuration source](../app/config.py), [Dockerfile](../Dockerfile), and [CI workflow](../.github/workflows/ci.yml): exact defaults and startup/check commands for this revision.
 
 When a newer revision changes an endpoint, setting, or screen, compare the running OpenAPI schema and checked-out source with this guide before applying older instructions.

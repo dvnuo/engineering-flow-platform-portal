@@ -592,8 +592,8 @@ def test_connector_save_unknown_type_returns_404(monkeypatch):
     try:
         _bind_profile(env.db, env.agent, {})
         assert env.client.post("/app/connectors/no-such-connector/save", data={}).status_code == 404
-        # The local browser connector has no settings form to save.
-        assert env.client.post("/app/connectors/local_browser/save", data={}).status_code == 404
+        # The local bridge connector has no settings form to save.
+        assert env.client.post("/app/connectors/local_bridge/save", data={}).status_code == 404
     finally:
         env.cleanup()
 
@@ -805,7 +805,7 @@ def test_llm_save_merges_into_raw_settings_without_injecting_hidden_defaults(mon
         assert resp.status_code == 200
         cfg = _saved(env.db, rp)
         assert cfg["llm"]["provider"] == "github_copilot"
-        assert cfg["llm"]["model"] == "gpt-5.6-terra"
+        assert cfg["llm"]["model"] == "gpt-6-sol"
         assert "tools" not in cfg["llm"]
         assert "max_retries" not in cfg["llm"]
         assert "system-prompt" not in cfg["llm"]
@@ -841,7 +841,7 @@ def test_llm_save_clears_llm_request_timeout_overrides(monkeypatch):
         assert resp.status_code == 200
         cfg = _saved(env.db, rp)
         assert cfg["llm"]["provider"] == "github_copilot"
-        assert cfg["llm"]["model"] == "gpt-5.6-terra"
+        assert cfg["llm"]["model"] == "gpt-6-sol"
         assert "timeout" not in cfg["llm"]
         assert "timeout_ms" not in cfg["llm"]
         assert "chunk_timeout_ms" not in cfg["llm"]

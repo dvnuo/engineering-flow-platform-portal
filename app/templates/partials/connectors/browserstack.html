@@ -1,4 +1,5 @@
 {% from "partials/connectors/_macros.html" import setup_guide with context %}
+{% set bs_defaults = raw_mobile.get('defaults') if raw_mobile.get('defaults') is mapping else {} %}
 <section class="portal-panel-section" id="profile-section-mobile" data-managed-section="mobile">
       {{ setup_guide('mobile') }}
       <div class="portal-checkbox-row">
@@ -12,4 +13,43 @@
         <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="mobile_browserstack_username" value="{{ raw_mobile_browserstack.get('username', mobile_browserstack.get('username', '')) }}" placeholder="BrowserStack username" class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Access Key</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="BrowserStack access key" class="portal-form-input" /></label>
       </div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-mobile-bridge-test>Test BrowserStack</button><div class="portal-inline-state" data-mobile-bridge-test-result role="status"></div></div>
+      <div class="portal-inline-state" data-mobile-local-binary role="status"></div>
+      <p class="portal-inline-note">The test signs in from this computer through the local bridge, the way recordings do, and says whether BrowserStack Local, the tunnel a recording of an app on your company's network needs, is on this computer.</p>
+      <details class="portal-collapsible">
+        <summary class="portal-collapsible-summary"><span>Advanced</span></summary>
+        <div class="portal-panel-stack">
+          <div class="grid grid-cols-2 gap-3">
+            <label class="portal-form-label"><span class="portal-form-label">Default platform</span>
+              <select name="mobile_default_platform" class="portal-form-select">
+                <option value="" {% if not bs_defaults.get('platform') %}selected{% endif %}>Ask each time</option>
+                <option value="android" {% if bs_defaults.get('platform') == 'android' %}selected{% endif %}>Android</option>
+                <option value="ios" {% if bs_defaults.get('platform') == 'ios' %}selected{% endif %}>iOS</option>
+              </select>
+            </label>
+            <label class="portal-form-label"><span class="portal-form-label">Network</span>
+              <select name="mobile_network_mode" class="portal-form-select">
+                <option value="" {% if not bs_defaults.get('network_mode') %}selected{% endif %}>{% if mobile_default_network == 'private-managed' %}Private: start BrowserStack Local with each session (the deployment's default){% elif mobile_default_network == 'private-external' %}Private: a tunnel your team runs (the deployment's default){% else %}Public (default){% endif %}</option>
+                <option value="private-managed" {% if bs_defaults.get('network_mode') == 'private-managed' %}selected{% endif %}>Private: start BrowserStack Local with each session (the BrowserStackLocal program must be on this computer)</option>
+                <option value="private-external" {% if bs_defaults.get('network_mode') == 'private-external' %}selected{% endif %}>Private: a tunnel your team runs</option>
+              </select>
+            </label>
+            <label class="portal-form-label"><span class="portal-form-label">Idle timeout (seconds)</span><input type="number" min="30" max="300" name="mobile_idle_timeout_seconds" value="{{ bs_defaults.get('idle_timeout_seconds', '') }}" placeholder="300" class="portal-form-input" /></label>
+            <label class="portal-form-label"><span class="portal-form-label">Appium version</span><input type="text" name="mobile_appium_version" value="{{ bs_defaults.get('appium_version', '') }}" placeholder="2.19.0" pattern="[0-9]+[.][0-9]+[.][0-9]+" class="portal-form-input" /></label>
+            <label class="portal-form-label"><span class="portal-form-label">Appium hub URL</span><input type="url" name="mobile_browserstack_appium_base_url" value="{{ raw_mobile_browserstack.get('appium_base_url', '') }}" placeholder="https://hub-cloud.browserstack.com/wd/hub" class="portal-form-input" /></label>
+            <label class="portal-form-label"><span class="portal-form-label">API URL</span><input type="url" name="mobile_browserstack_api_base_url" value="{{ raw_mobile_browserstack.get('api_base_url', '') }}" placeholder="https://api-cloud.browserstack.com" class="portal-form-input" /></label>
+          </div>
+          <div class="portal-checkbox-row">
+            <input type="hidden" name="mobile_video__present" value="1" />
+            <label class="toggle-switch" aria-label="Record session video"><input type="checkbox" name="mobile_video" {% if bs_defaults.get('video', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
+            <span>Record a video of each recording session</span>
+          </div>
+          <div class="portal-checkbox-row">
+            <input type="hidden" name="mobile_interactive_debugging__present" value="1" />
+            <label class="toggle-switch" aria-label="Interactive debugging"><input type="checkbox" name="mobile_interactive_debugging" {% if bs_defaults.get('interactive_debugging', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
+            <span>Allow interactive debugging on the BrowserStack dashboard</span>
+          </div>
+          <p class="portal-inline-note">These settings apply to the devices you record on; the defaults suit a public BrowserStack account. Recording devices run Appium 2.19.0 unless you set another version; BrowserStack's own default, Appium 1.22.0, does not know the Inspector's Back, Home, and App switch buttons. Choose a private network only when the app talks to servers BrowserStack's devices cannot reach. BrowserStack ends a session after the idle timeout without a command, 300 seconds at most; the local bridge keeps the device alive while you record, so leave this at 300 unless your team says otherwise. Test runs use the pipeline's own settings.</p>
+        </div>
+      </details>
     </section>

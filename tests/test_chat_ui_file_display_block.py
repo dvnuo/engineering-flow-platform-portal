@@ -24,6 +24,8 @@ FILE_BLOCK_HELPERS = [
     "hasRenderableDisplayBlock",
     "formatFileBlockSize",
     "formatFileBlockMeta",
+    "buildWorkspaceFileContentUrl",
+    "fileBlockPreviewHtml",
     "renderFileBlock",
 ]
 

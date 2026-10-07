@@ -58,6 +58,18 @@
   <div class="portal-callout is-success">{{ task_view_model.summary_text }}</div>
   {% endif %}
 
+  {% if task_view_model.result_cards or task_view_model.live_matrix_path %}
+  <section class="portal-task-content-panel portal-task-results">
+    <div class="portal-task-section-heading"><span>Results</span></div>
+    {% for card in task_view_model.result_cards %}
+    <div class="efp-card-host" data-efp-card="{{ card.kind }}" data-payload="{{ card.payload_json }}" data-agent-id="{{ task.assignee_agent_id }}" data-task-id="{{ task.id }}" data-surface="task"{% if card.kind == 'review' and not task_view_model.show_followup_form %} data-readonly="1"{% endif %}></div>
+    {% endfor %}
+    {% if task_view_model.live_matrix_path %}
+    <div class="efp-card-host" data-efp-card="matrix" data-path="{{ task_view_model.live_matrix_path }}" data-agent-id="{{ task.assignee_agent_id }}" data-task-id="{{ task.id }}" data-surface="task" data-quiet-missing="1"></div>
+    {% endif %}
+  </section>
+  {% endif %}
+
   <div class="portal-task-detail-grid">
     <section class="portal-task-content-panel">
       <div class="portal-task-section-heading">

@@ -22,6 +22,7 @@ from app.services.delegation_source_config import (
     normalize_delegation_source_scope,
 )
 from app.services.delegation_source_pollers import SOURCE_PROVIDER, SUPPORTED_DELEGATION_SOURCES, DelegationSourcePoller
+from app.services.efp_cards import reply_text_without_cards
 from app.services.delegation_schedule import (
     compute_next_run_at,
     delegation_schedule_interval_seconds,
@@ -92,6 +93,14 @@ class DelegationRuleService:
         return SOURCE_PROVIDER[source]
 
     @staticmethod
+    def _require_trigger_statuses(source: str, conditions: dict) -> None:
+        if source == "jira_status" and not conditions.get("status_include"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A Jira status delegation needs the status that starts the work, for example Ready for Test",
+            )
+
+    @staticmethod
     def _agent_task_dedupe_key(full_dedupe_key: str) -> str:
         if len(full_dedupe_key) <= 240:
             return full_dedupe_key
@@ -135,6 +144,7 @@ class DelegationRuleService:
         provider = self._provider_for_source(source)
         source_scope = normalize_delegation_source_scope(source, payload.source_scope)
         source_conditions = normalize_delegation_source_conditions(source, payload.source_conditions)
+        self._require_trigger_statuses(source, source_conditions)
         self._validate_agent_provider_config(agent_id=payload.target_agent_id, provider=provider, source_scope=source_scope)
         skill_name = str(payload.skill_name or "").strip()
         if not skill_name:
@@ -202,6 +212,7 @@ class DelegationRuleService:
             source_conditions = {}
         else:
             source_conditions = normalize_delegation_source_conditions(source, self._parse_json(rule.trigger_config_json))
+        self._require_trigger_statuses(source, source_conditions)
         target_agent_id = str(data.get("target_agent_id") or rule.target_agent_id).strip()
         should_validate_target = (
             "target_agent_id" in data
@@ -661,6 +672,8 @@ class DelegationRuleService:
                 failed_count += 1
                 continue
             result_text = self._extract_task_result_text(task)
+            if result_text:
+                result_text = reply_text_without_cards(result_text)
             if not result_text:
                 event = self.repo.update_event_status(
                     event,

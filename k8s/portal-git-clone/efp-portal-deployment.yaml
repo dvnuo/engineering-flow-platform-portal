@@ -92,6 +92,10 @@ spec:
               value: ""
             - name: SSO_PROXY_URL
               value: ""
+            # Recordings' network when a member's BrowserStack connector does
+            # not choose one: private-managed for apps on the private network.
+            - name: EFP_MOBILE_DEFAULT_NETWORK
+              value: ""
             - name: BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:

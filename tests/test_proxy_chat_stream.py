@@ -164,7 +164,7 @@ def test_runtime_metadata_carries_concise_runtime_profile_context(monkeypatch):
             {
                 "llm": {
                     "provider": "github_copilot",
-                    "model": "gpt-5.5",
+                    "model": "gpt-6-luna",
                     "api_key": "OA",
                     "tools": ["bash"],
                 },
@@ -226,9 +226,9 @@ def test_runtime_metadata_carries_concise_runtime_profile_context(monkeypatch):
 
     assert metadata["runtime_profile_id"] == "rp-1"
     assert metadata["provider"] == "github_copilot"
-    assert metadata["model"] == "gpt-5.5"
+    assert metadata["model"] == "gpt-6-luna"
     assert cfg["llm"]["provider"] == "github_copilot"
-    assert cfg["llm"]["model"] == "gpt-5.5"
+    assert cfg["llm"]["model"] == "gpt-6-luna"
     assert cfg["llm"]["api_key"] == "OA"
     assert "tools" not in cfg["llm"]
     assert "runtime_type" not in cfg
@@ -246,7 +246,7 @@ def test_runtime_metadata_drops_tool_selection_and_authorization_metadata(monkey
         revision=8,
         config_json=json.dumps(
             {
-                "llm": {"provider": "github_copilot", "model": "gpt-5.5"},
+                "llm": {"provider": "github_copilot", "model": "gpt-6-luna"},
                 "enabled" + "_tools": ["bash", "read"],
                 "disabled" + "_tools": ["webfetch"],
                 "tool" + "_permissions": {"bash": "ask"},
@@ -302,5 +302,5 @@ def test_runtime_metadata_keeps_default_llm_when_profile_only_has_old_tool_field
     assert "enabled" + "_tools" not in cfg
     assert "runtime_type" not in cfg
     assert cfg["llm"]["provider"] == "github_copilot"
-    assert cfg["llm"]["model"] == "gpt-5.6-terra"
+    assert cfg["llm"]["model"] == "gpt-6-sol"
     assert "tools" not in cfg["llm"]
