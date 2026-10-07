@@ -6456,8 +6456,31 @@ function updateOwnerOnlyButtons(agentId) {
   const agent = state.mineAgents?.find(a => a.id === agentId);
   const isOwner = canWriteAgent(agent);
   document.querySelectorAll('[data-owner-only]').forEach(btn => {
-    btn.style.display = isOwner ? '' : 'none';
+    // Mobile testing needs the member's BrowserStack connector as well.
+    const shown = isOwner && (btn.id !== "btn-recording" || state.browserstackEnabled === true);
+    btn.style.display = shown ? '' : 'none';
   });
+}
+
+// Whether the member's BrowserStack connector is on: the Mobile testing
+// button appears only then. Unknown counts as off until the list has loaded.
+async function refreshBrowserstackEnabled() {
+  let enabled = false;
+  try {
+    const response = await fetch("/api/connectors", { credentials: "same-origin", cache: "no-store" });
+    if (response.ok) {
+      const payload = await response.json();
+      const list = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.connectors) ? payload.connectors : []);
+      const entry = list.find((item) => item && item.type === "browserstack");
+      enabled = Boolean(entry && entry.enabled);
+    }
+  } catch (_error) {
+    enabled = false;
+  }
+  if (state.browserstackEnabled !== enabled) {
+    state.browserstackEnabled = enabled;
+    updateOwnerOnlyButtons(state.selectedAgentId);
+  }
 }
 
 function agentScope(agent) {
@@ -7495,6 +7518,7 @@ async function refreshAll({ preserveLayout = false, skipRouteApply = false } = {
 
   // Update owner-only button visibility after restoring last agent
   updateOwnerOnlyButtons(state.selectedAgentId);
+  refreshBrowserstackEnabled();
 
   renderAgentList();
   await syncSelectedAgentState();
@@ -10766,6 +10790,8 @@ function syncMainHeader() {
 
   if (assistantMode) {
     restoreAssistantHeaderState();
+    // The member may have switched BrowserStack on or off under Connectors.
+    refreshBrowserstackEnabled();
   } else {
     setSelectedStatusText("idle");
     if (state.activeNavSection === "tasks") {
@@ -17641,6 +17667,7 @@ function bindEvents() {
   // The connector panel saves through its own bundle; keep the sidebar's
   // "Enabled / Not enabled" line in step without a full section reload.
   document.addEventListener("portal:connectors-changed", () => {
+    refreshBrowserstackEnabled();
     if (state.activeNavSection === "connectors") {
       refreshConnectorList({ preserveSelection: true });
     }

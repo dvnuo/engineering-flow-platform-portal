@@ -323,6 +323,12 @@ def test_recording_button_is_wired_into_the_tool_panel():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert '"recording",' in js[js.index("const ALLOWED_UTILITY_PANEL_KEYS"): js.index("]);", js.index("const ALLOWED_UTILITY_PANEL_KEYS"))]
     assert "window.EfpMobileTesting.openRecordingPanel" in js
+    # The button shows only for the assistant's owner while their BrowserStack
+    # connector is on; the chat asks the connectors list and follows changes.
+    assert 'data-owner-only="true"' in html[html.index('id="btn-recording"'): html.index("</button>", html.index('id="btn-recording"'))]
+    assert 'btn.id !== "btn-recording" || state.browserstackEnabled === true' in js
+    assert "async function refreshBrowserstackEnabled()" in js and 'item.type === "browserstack"' in js
+    assert js.count("refreshBrowserstackEnabled();") >= 3
 
 
 def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):

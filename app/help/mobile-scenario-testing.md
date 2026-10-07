@@ -46,6 +46,8 @@ Portal and the assistants never connect to BrowserStack.
 - **A QA Assistant**: create your assistant with the *QA Assistant* type. It
   carries the skills and instructions this flow uses; other types do not.
 - **Connectors > BrowserStack**: your username and access key, turned on.
+  The **Mobile testing** button in the chat appears only while this connector
+  is on, and only to the assistant's owner.
   Recording devices run Appium 2.19.0 (another version can be set under the
   connector's advanced settings); BrowserStack's own default, Appium 1.22.0,
   does not know the Inspector's Back, Home, and App switch buttons.
