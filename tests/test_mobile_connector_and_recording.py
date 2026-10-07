@@ -316,6 +316,17 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert "SETTLE" not in addon
 
 
+def test_the_connector_page_links_the_browserstack_local_downloads():
+    html = Path("app/templates/partials/connectors/browserstack_extra.html").read_text(encoding="utf-8")
+    # BrowserStack's own downloads (there is no darwin-arm64 build: the x64
+    # one runs on Apple silicon), put next to the bridge in ~/bin or on PATH.
+    assert "https://www.browserstack.com/browserstack-local/BrowserStackLocal-win32.zip" in html
+    assert "https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip" in html
+    assert "<code>~/bin</code>" in html and "BrowserStackLocal.exe" in html
+    help_text = Path("app/help/connect-mobile.md").read_text(encoding="utf-8")
+    assert "### BrowserStack Local" in help_text and "BrowserStackLocal-win32.zip" in help_text
+
+
 def test_recording_button_is_wired_into_the_tool_panel():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert 'id="btn-recording"' in html

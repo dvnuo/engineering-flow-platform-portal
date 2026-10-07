@@ -38,6 +38,10 @@
     <li>Install <a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a> 2026.5.1 or later; the Mobile testing panel shows how to attach it to the device.</li>
     {% endif %}
     <li>Upload the build to record in the Mobile testing panel, or pick one your pipeline already uploaded.</li>
+    <li>An app on the private network needs <strong>BrowserStack Local</strong> on this computer. mobile-auto downloads it by itself; when your network blocks that download, get it from BrowserStack yourself:
+      <a class="portal-link-inline" href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-win32.zip" target="_blank" rel="noopener noreferrer">Windows</a> or
+      <a class="portal-link-inline" href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip" target="_blank" rel="noopener noreferrer">macOS</a> (Intel and Apple silicon),
+      unzip it, and put <code>BrowserStackLocal.exe</code> (Windows) or <code>BrowserStackLocal</code> (macOS) in <code>~/bin</code>, the local bridge's folder, or anywhere on your PATH.</li>
     <li>Type real values while recording. Password fields are never stored; they become names such as <code>MOBILE_SECRET_PASSWORD</code>.</li>
   </ul>
 </section>

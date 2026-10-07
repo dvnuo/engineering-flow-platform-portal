@@ -48,6 +48,18 @@ check the same address in the browser: a BrowserStack sign-in prompt means the
 bridge only needs the browser's proxy; the same block page means the network
 must allow `api-cloud.browserstack.com` and `hub-cloud.browserstack.com`.
 
+### BrowserStack Local
+
+An app on the private network needs BrowserStack's tunnel program,
+BrowserStack Local, on your computer. mobile-auto downloads it by itself the
+first time; when your network blocks that download, get it from BrowserStack
+yourself ([Windows](https://www.browserstack.com/browserstack-local/BrowserStackLocal-win32.zip),
+[macOS](https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip), which
+runs on Intel and Apple silicon), unzip it, and put `BrowserStackLocal.exe`
+(Windows) or `BrowserStackLocal` (macOS) in `~/bin`, the folder the local
+bridge is installed in, or anywhere on your PATH. The connector page carries the
+same links.
+
 ## Builds
 
 The Mobile testing panel lists the builds in your BrowserStack account and uploads
