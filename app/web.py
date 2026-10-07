@@ -1090,6 +1090,7 @@ def _connector_settings_panel_context(
     status_type: str = "",
     status_message: str = "",
 ) -> dict:
+    from app.services.connector_defaults_service import has_admin_defaults
     from app.services.connector_service import settings_entry
 
     raw_config_data = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
@@ -1100,7 +1101,10 @@ def _connector_settings_panel_context(
         "connector": settings_entry(spec, raw_config_data),
         "connector_template": spec.panel_template,
         "connector_extra_template": spec.panel_extra_template,
-        "connector_admin_defaults": bool(spec.admin_defaults),
+        # "Reset to defaults" is offered when the administrator's Default
+        # connectors have something for this connector.
+        "connector_admin_defaults": bool(spec.admin_defaults)
+        and has_admin_defaults(spec, RuntimeProfileSeedService(db).get_seed()),
         "appium_inspector_available": _hosted_inspector_available(),
         "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
@@ -3576,7 +3580,7 @@ async def app_connector_save(request: Request, connector_type: str):
 
 
 def _admin_defaults_connector_spec_or_404(connector_type: str):
-    """A settings connector whose panel offers "Get administrator defaults"."""
+    """A settings connector whose panel offers "Reset to defaults"."""
 
     spec = _settings_connector_spec_or_404(connector_type)
     if not spec.admin_defaults:
@@ -3584,82 +3588,25 @@ def _admin_defaults_connector_spec_or_404(connector_type: str):
     return spec
 
 
-# Longest decisions payload the apply accepts: one short choice per conflict,
-# so anything near this is not a form the page built.
-_ADMIN_DEFAULTS_DECISIONS_MAX_CHARS = 20000
+@router.post("/app/connectors/{connector_type}/defaults/reset")
+async def app_connector_defaults_reset(request: Request, connector_type: str):
+    """Replace this connector's settings with the administrator's Default connectors, then save like /save.
 
-
-def _parse_admin_defaults_decisions(raw: str | None) -> dict[str, str]:
-    """The posted ``decisions`` JSON as ``{conflict id: choice}``; ValueError when it is not that."""
-
-    if raw is not None and not isinstance(raw, str):
-        # A file part instead of a field: not a form the page built.
-        raise ValueError("Some choices were not recognized. Check the Default connectors again.")
-    text = (raw or "").strip() or "{}"
-    if len(text) > _ADMIN_DEFAULTS_DECISIONS_MAX_CHARS:
-        raise ValueError("Some choices were not recognized. Check the Default connectors again.")
-    try:
-        decoded = json.loads(text)
-    except (ValueError, RecursionError) as exc:
-        raise ValueError("Some choices were not recognized. Check the Default connectors again.") from exc
-    if not isinstance(decoded, dict):
-        raise ValueError("Some choices were not recognized. Check the Default connectors again.")
-    decisions: dict[str, str] = {}
-    for key, value in decoded.items():
-        if not isinstance(key, str) or not isinstance(value, str):
-            raise ValueError("Some choices were not recognized. Check the Default connectors again.")
-        decisions[key] = value
-    return decisions
-
-
-@router.get("/app/connectors/{connector_type}/defaults")
-async def app_connector_defaults_preview(request: Request, connector_type: str):
-    """What pulling the admin's Default connectors into this connector would change.
-
-    JSON ``{connector, available, up_to_date, fingerprint, additions,
-    conflicts}`` (connector_defaults_service). Values of credentials are never
-    in it; the page shows them as set or not set.
+    The connector's sections become the seed's, credentials included, as a
+    new member would receive them; everything else in the row stays. The
+    response is the re-rendered panel (status text starting "Reset"); a
+    change bumps the row's revision, is audited, updates the Secret and
+    restarts idle assistants. A seed with nothing for the connector
+    re-renders the panel with an error and saves nothing.
     """
 
     user = _current_user_from_cookie(request)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
-    from app.services.connector_defaults_service import preview_connector_defaults
+    from app.services.connector_defaults_service import NoAdminDefaults, reset_to_admin_defaults
 
     spec = _admin_defaults_connector_spec_or_404(connector_type)
-    db = SessionLocal()
-    try:
-        runtime_profile = RuntimeProfileService(db).get_or_create_for_user(user)
-        member_config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        seed = RuntimeProfileSeedService(db).get_seed()
-        return JSONResponse(
-            preview_connector_defaults(spec, member_config, seed), headers={"Cache-Control": "no-store"}
-        )
-    finally:
-        db.close()
-
-
-@router.post("/app/connectors/{connector_type}/defaults/apply")
-async def app_connector_defaults_apply(request: Request, connector_type: str):
-    """Pull the Default connectors in with the member's decisions, then save like /save does.
-
-    Form fields: ``fingerprint`` (from the preview) and ``decisions`` (JSON
-    object, conflict id -> admin | mine | both). The response is the
-    re-rendered panel; a change bumps the row's revision, is audited, updates
-    the Secret and restarts idle assistants. A seed that changed since the
-    preview, or choices the page did not build, re-render the panel with an
-    error and save nothing.
-    """
-
-    user = _current_user_from_cookie(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-    from app.services.connector_defaults_service import DefaultsChanged, apply_connector_defaults
-
-    spec = _admin_defaults_connector_spec_or_404(connector_type)
-    form = await request.form()
     db = SessionLocal()
     try:
         service = RuntimeProfileService(db)
@@ -3675,23 +3622,17 @@ async def app_connector_defaults_apply(request: Request, connector_type: str):
             )
 
         try:
-            decisions = _parse_admin_defaults_decisions(form.get("decisions"))
-            seed = RuntimeProfileSeedService(db).get_seed()
-            new_config, summary = apply_connector_defaults(
-                spec, config_base, seed, decisions, str(form.get("fingerprint") or "")
-            )
-        except (DefaultsChanged, ValueError) as exc:
+            new_config, sections = reset_to_admin_defaults(spec, config_base, RuntimeProfileSeedService(db).get_seed())
+        except NoAdminDefaults as exc:
             return _panel("error", str(exc))
 
-        nothing_changed = "Default connectors checked. Nothing changed: you kept your own values."
-        if not summary.get("changes"):
-            # Not even a re-save: normalizing an older row would bump its
-            # revision and restart assistants over a change nobody made.
-            return _panel("success", nothing_changed)
-        sanitized_config = sanitize_runtime_profile_config_dict(new_config)
-        runtime_profile, config_changed = service.save_config(runtime_profile, sanitized_config)
+        runtime_profile, config_changed = service.save_config(
+            runtime_profile, sanitize_runtime_profile_config_dict(new_config)
+        )
         if not config_changed:
-            return _panel("success", nothing_changed)
+            return _panel(
+                "success", f"{spec.label} already matches your administrator's Default connectors. Nothing changed."
+            )
 
         audit_runtime_profile_change(
             db,
@@ -3701,19 +3642,19 @@ async def app_connector_defaults_apply(request: Request, connector_type: str):
             before=config_base,
             after=parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True),
         )
-        # Counts only (what was added, how each clash was decided), never values.
+        # The connector and its sections only, never values.
         AuditRepository(db).create(
-            action="apply_connector_defaults",
+            action="reset_connector_defaults",
             target_type="connector",
             target_id=spec.type,
             user_id=user.id,
-            details=summary,
+            details={"connector": spec.type, "sections": sections},
         )
         status_type, rollout_message = _apply_connector_save(db, runtime_profile)
         if status_type == "error":
             status_message = rollout_message
         else:
-            status_message = "Default connectors applied. " + rollout_message.removeprefix("Saved.").strip()
+            status_message = "Reset to your administrator's defaults. " + rollout_message.removeprefix("Saved.").strip()
         response = _panel(status_type, status_message)
         response.headers["HX-Trigger"] = "connectorsChanged"
         return response

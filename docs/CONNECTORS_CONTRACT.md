@@ -236,8 +236,8 @@ The API is always served. Unconfigured local connectors are listed as disabled (
 Storage: every member has exactly one settings row in `runtime_profiles` (unique `owner_user_id`), created from the
 admin's **Default connectors** seed on first use. Each settings connector reads and writes only its own keys of that
 row's `config_json`. Every assistant the member owns is bound to the row (`agents.runtime_profile_id`). A later change
-to the seed reaches an existing row only when the member pulls it in from the panel's **Get administrator defaults**
-button (the `defaults` routes below); every settings connector offers it except `llm`.
+to the seed reaches an existing row only when the member resets the connector to it from the panel's **Reset to
+defaults** button (the `defaults/reset` route below); every settings connector offers it except `llm`.
 
 Delivery: the row is rendered into the Kubernetes Secret `efp-profile-{row id}`, which the assistant's pod reads **at
 boot**. A running pod does not see a change until it restarts. The renderer always writes
@@ -247,34 +247,16 @@ Routes (session-cookie web routes; `{type}` must be a settings connector, otherw
 
 | Method | Path | Behaviour |
 |---|---|---|
-| GET | `/app/connectors/{type}/panel` | `partials/connectors/panel.html` wrapping `partials/connectors/<type>.html`: a header with the connector's state, the restart notice (below), the form, **Save** and, except on Model provider, **Get administrator defaults** |
+| GET | `/app/connectors/{type}/panel` | `partials/connectors/panel.html` wrapping `partials/connectors/<type>.html`: a header with the connector's state, the restart notice (below), the form, **Save** and, when the seed has something for the connector (never on Model provider), **Reset to defaults** |
 | POST | `/app/connectors/{type}/save` | merges the posted form into the stored row. Only the `__touch_<section>` flags for this connector's form sections are honoured, so a save never rewrites another connector's keys. An unchanged save replies "Saved. Nothing changed." without restarting anything. A change bumps the row's `revision`, is audited, updates the Secret, and applies the restart policy. The response is the re-rendered panel (status text starting "Saved.") with header `HX-Trigger: connectorsChanged` |
 | POST | `/app/connectors/{type}/test/{target}` | runs a connection test with the posted (unsaved) form merged over the stored values; JSON `{ok, target, message}`. 404 when `target` is not one of the connector's tests |
-| GET | `/app/connectors/{type}/defaults` | what pulling the administrator's **Default connectors** seed into this connector would change; JSON `{connector: {type, label}, available, up_to_date, fingerprint, additions: [{id, label, detail}], conflicts: [{id, kind: "item" \| "field", label, fields: [{label, mine, theirs, secret}], options: ["admin", "mine"(, "both")]}]}`, served with `Cache-Control: no-store`. `available` is false when the seed has nothing for the connector's sections. Credential values never appear: a credential reads "Set" or "Not set", and every other displayed value passes through the log redactor. 404 for `llm` |
-| POST | `/app/connectors/{type}/defaults/apply` | form fields `fingerprint` (from the preview) and `decisions` (JSON object, conflict id → `admin`, `mine` or `both`). Applies every addition and each conflict as decided (no decision means `mine`; ids the preview did not list are ignored), then saves like `/save`: when nothing was written, or the result equals the stored row, it replies "Default connectors checked. Nothing changed" without touching the row; a change bumps the `revision`, writes the `update_runtime_profile` audit row plus an `apply_connector_defaults` row (connector, sections and counts only), updates the Secret and applies the restart policy. The response is the re-rendered panel (status text starting "Default connectors") with `HX-Trigger: connectorsChanged`. A `fingerprint` that no longer matches (the seed or the member's row changed since the preview), `decisions` that are not an object of strings, a choice that is not one of the three, or one the conflict does not offer (`both` on a plain field) re-render the panel with an error and save nothing |
+| POST | `/app/connectors/{type}/defaults/reset` | replaces the connector's sections of the row with the administrator's **Default connectors** seed, credentials included, exactly as a new member would receive them, then saves like `/save`: a result equal to the stored row replies "<label> already matches your administrator's Default connectors. Nothing changed." without touching it; a change bumps the `revision`, writes the `update_runtime_profile` audit row plus a `reset_connector_defaults` row (connector and sections only), updates the Secret and applies the restart policy. The response is the re-rendered panel (status text starting "Reset") with `HX-Trigger: connectorsChanged`. A seed with nothing for the connector re-renders the panel with an error and saves nothing |
 
-How the defaults are compared (`app/services/connector_defaults_service.py`): the seed's sections of the connector and
-the member's row are both read in their sanitized shape and reduced to the fields the member's panel renders
-(`MEMBER_FIELD_TREE`), so nothing the save would drop, and nothing the member could not see or undo, is promised; the
-`llm`, `git` and `debug` sections are never pulled in. Walking the seed's sections: a value the member left blank is an
-**addition**; an equal value is nothing; two different values are a **conflict** (`admin` replaces the member's,
-`mine` leaves it). A field the panel shows with a concrete default when nothing is stored (`aws.provider`,
-`server_ca`, PostgreSQL `sslmode`/`port`/timeouts) counts as that default rather than blank. Instance-like rows are
-matched by identity, best match first: `<section>.instances` by URL and name (PostgreSQL: host + database, and name;
-the copy "Keep both" appends still matches its seed row by its base name), `aws.accounts` by account id and name,
-`aws.eks_clusters` by account (name or 12-digit id, resolved through each side's account rows) and cluster; the
-region is a field of the row, and a differing one is a clash. Ids in the preview are opaque to the page and unique
-per member row, so two seed rows on one URL (one Jira site, two projects) are decided separately.
-An unmatched seed row is added; a matched row whose other fields only fill blanks is an addition; one with a
-differing field is an item conflict. A credential the seed sets where the member has a different kind of credential
-is a conflict, not a fill, and taking the seed's row replaces the member's credentials as a group. `both` is offered
-for `<section>.instances` rows only (an AWS account or private endpoint is one row): it keeps the member's row and
-appends the seed's, renamed "<name> (administrator default)" when the name is taken. A rename the member accepts is
-followed by the section's default instance / default account and the EKS rows naming the account; a seed name
-another of the member's rows already has is not offered. The `enabled` switches, section and row, are the member's
-own and are never compared; a section the member never had gets the seed's switch. A default instance or AWS default
-account that still names nothing after the apply is dropped, and a seed EKS row whose account the member does not
-have is not added.
+What a reset covers (`app/services/connector_defaults_service.py`): the seed is read in its sanitized shape, so nothing
+the save would drop is copied; only the connector's own sections are replaced (`github` without the commit identity
+`git`; the `llm` and `debug` sections are never reset) and everything else in the row stays. The page asks for a
+confirmation first, since the member's values for the connector, credentials included, are lost, and shows the button
+only when the seed has something for the connector.
 
 Restart policy on save: running assistants bound to the row that are idle are restarted at once. A busy assistant
 (an active task, or an active chat/task execution that reported within the last 2 hours) is not interrupted: it keeps

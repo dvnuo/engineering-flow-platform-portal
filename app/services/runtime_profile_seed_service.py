@@ -17,9 +17,9 @@ into the member's first profile, from which it reaches the runtime through the
 ``efp-profile-*`` Secret with its sensitive values encrypted
 (``profile_secret_encryption``). The member owns that copy and can overwrite it
 with their own credential at any time; later edits to the seed do not reach
-profiles that already exist on their own -- a member pulls them in from a
-connector panel's "Get administrator defaults" button
-(``connector_defaults_service``), deciding each value that differs.
+profiles that already exist on their own -- a member resets a connector to
+the seed from its panel's "Reset to defaults" button
+(``connector_defaults_service``).
 """
 from __future__ import annotations
 

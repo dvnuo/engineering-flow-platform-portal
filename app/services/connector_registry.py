@@ -114,9 +114,9 @@ class ConnectorSpec:
     # things that are not settings (where BrowserStack recordings and test
     # runs happen).
     panel_extra_template: str = ""
-    # KIND_SETTINGS only: whether the panel offers "Get administrator
-    # defaults", which pulls the admin's Default connectors seed for this
-    # connector's sections into the member's row (connector_defaults_service).
+    # KIND_SETTINGS only: whether the panel offers "Reset to defaults", which
+    # replaces this connector's sections of the member's row with the admin's
+    # Default connectors seed (connector_defaults_service).
     # The model provider is left out: its defaults are a provider/model
     # choice and a personal authorization, not a shared shape.
     admin_defaults: bool = False

@@ -4,7 +4,7 @@
   flipped by chat_ui.js when a field in that section changes, and the server
   only rewrites touched sections.
 #}
-<div class="portal-panel-stack" id="connector-settings-panel-root" data-connector-type="{{ connector.type }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/connectors/{{ connector.type }}/test">
+<div class="portal-panel-stack" id="connector-settings-panel-root" data-connector-type="{{ connector.type }}" data-connector-label="{{ connector.label }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/connectors/{{ connector.type }}/test">
   <section class="portal-panel-section portal-connector-head">
     <div class="portal-connector-head-main">
       <span class="portal-connector-icon" aria-hidden="true"><i data-lucide="{{ connector.icon }}" class="w-5 h-5"></i></span>
@@ -31,8 +31,8 @@
     <div class="portal-connector-save-row">
       <button type="submit" class="portal-btn is-primary">Save</button>
       {% if connector_admin_defaults %}
-      {# Pulls the administrator's current Default connectors for this connector into the member's row (chat_ui.js pullAdminDefaults); the model provider has none. #}
-      <button type="button" class="portal-btn is-secondary" data-admin-defaults-button title="Add what your administrator's Default connectors have for {{ connector.label }}; you choose where they differ from yours">Get administrator defaults</button>
+      {# Replaces this connector's settings with the administrator's current Default connectors after a confirmation (chat_ui.js resetConnectorToDefaults); shown only when those have something for it, never on the model provider. #}
+      <button type="button" class="portal-btn is-secondary" data-reset-defaults-button title="Replace your {{ connector.label }} settings with your administrator's Default connectors">Reset to defaults</button>
       {% endif %}
       <span class="portal-inline-note">Applies to all your assistants. Idle ones restart to pick it up; one that is busy keeps working and asks you to restart it when you are ready.</span>
     </div>
