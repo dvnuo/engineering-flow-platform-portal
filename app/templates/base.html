@@ -58,6 +58,14 @@
         document.documentElement.setAttribute("data-theme-preference", preference);
         document.documentElement.classList.toggle("dark", effective === "dark");
       })();
+      // Same for the chat width (default | wide | full): the stylesheet reads
+      // the attribute, so setting it here keeps the column from jumping once
+      // chat_ui.js runs.
+      (function () {
+        const saved = localStorage.getItem("portal-chat-width");
+        const preference = ["default", "wide", "full"].indexOf(saved) >= 0 ? saved : "default";
+        document.documentElement.setAttribute("data-chat-width", preference);
+      })();
     </script>
   </head>
   <body>

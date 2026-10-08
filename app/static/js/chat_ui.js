@@ -43,6 +43,7 @@ const dom = {
   accountMenuBtn: document.getElementById("account-menu-btn"),
   accountMenu: document.getElementById("account-menu"),
   themeOptions: Array.from(document.querySelectorAll("[data-theme-option]")),
+  chatWidthOptions: Array.from(document.querySelectorAll("[data-chat-width-option]")),
   shortcutsBtn: document.getElementById("shortcuts-btn"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
@@ -2402,7 +2403,7 @@ function buildUserMessageArticle(text, attachments = [], options = {}) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user user-message" data-local-user="1" data-optimistic-user="1"${clientRequestAttr}><div class="message-body whitespace-pre-wrap text-sm">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user user-message" data-local-user="1" data-optimistic-user="1"${clientRequestAttr}><div class="message-body">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
@@ -2523,7 +2524,7 @@ function buildPendingAssistantArticle(clientRequestId = "", pendingText = "Think
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = getSelectedAssistantDisplayName();
   const clientRequestAttr = clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(clientRequestId)}"` : "";
-  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"${clientRequestAttr}><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render max-w-none text-sm" data-md="" data-display-blocks="[]"></div><div class="agent-timeline" data-agent-timeline="1"><div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>Working</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"${clientRequestAttr}><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render" data-md="" data-display-blocks="[]"></div><div class="agent-timeline" data-agent-timeline="1"><div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>Working</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div></div></article></div>`;
 }
 
 function findPendingAssistantArticle(requestId = "") {
@@ -2574,7 +2575,7 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
   const copyTextAttr = typeof options.copyText === "string" ? ` data-copy-text="${escapeHtmlAttr(options.copyText)}"` : "";
   const streamingClass = options.isStreaming ? " is-streaming" : "";
   const hasVisibleContent = String(content || "").trim() || (displayBlocks || []).length ? ` data-has-visible-content="1"` : "";
-  return `<div class="message-row message-row-assistant"${hasVisibleContent}><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}${hasVisibleContent}><div class="message-markdown md-render max-w-none text-sm" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
+  return `<div class="message-row message-row-assistant"${hasVisibleContent}><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}${hasVisibleContent}><div class="message-markdown md-render" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
 function parseAssistantDisplayBlocksFromDataset(article) {
@@ -4441,6 +4442,31 @@ if (window.matchMedia) {
   else if (typeof darkQuery.addListener === "function") darkQuery.addListener(onSchemeChange);
 }
 
+// Chat width is a three-way preference as well: default, wide, or full. The
+// default column already grows with the pane (--portal-chat-width in app.css);
+// wide and full are for members on very wide screens who would rather have
+// long lines than blank margins. The attribute on <html> is what the
+// stylesheet reads; base.html sets it before first paint from the same key.
+const CHAT_WIDTH_PREFERENCE_KEY = "portal-chat-width";
+const CHAT_WIDTH_ORDER = ["default", "wide", "full"];
+
+function normalizeChatWidthPreference(value) {
+  return CHAT_WIDTH_ORDER.includes(value) ? value : "default";
+}
+
+function resolveInitialChatWidth() {
+  return normalizeChatWidthPreference(localStorage.getItem(CHAT_WIDTH_PREFERENCE_KEY));
+}
+
+function applyChatWidth(width) {
+  const preference = normalizeChatWidthPreference(width);
+  document.documentElement.setAttribute("data-chat-width", preference);
+  localStorage.setItem(CHAT_WIDTH_PREFERENCE_KEY, preference);
+  dom.chatWidthOptions.forEach((option) => {
+    option.setAttribute("aria-checked", option.dataset.chatWidthOption === preference ? "true" : "false");
+  });
+}
+
 function setChatStatus(text, isError = false) {
   if (!dom.chatStatus) return;
   const agent = getSelectedAgent();
@@ -6085,7 +6111,7 @@ const DEFAULT_WELCOME_MARKDOWN = "👋 Welcome! Ask me anything.";
 
 function defaultWelcomeMessage() {
   const welcomeAgentName = getSelectedAssistantDisplayName();
-  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${escapeHtmlAttr(DEFAULT_WELCOME_MARKDOWN)}"></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render" data-md="${escapeHtmlAttr(DEFAULT_WELCOME_MARKDOWN)}"></div></article></div>`;
 }
 
 /* ===== paused assistant ====================================================
@@ -6116,7 +6142,7 @@ function assistantPausedMessage(agent, status) {
   } else {
     markdown = `**${name} is not running.** Chat will open here once it is started.`;
   }
-  return `<div class="message-row message-row-assistant" data-assistant-paused="1" data-assistant-status="${escapeHtmlAttr(status)}"><div class="message-meta"><span class="message-author">${escapeHtml(name)}</span><span class="message-timestamp">${escapeHtml(health.label)}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render max-w-none text-sm" data-md="${escapeHtmlAttr(markdown)}"></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-assistant-paused="1" data-assistant-status="${escapeHtmlAttr(status)}"><div class="message-meta"><span class="message-author">${escapeHtml(name)}</span><span class="message-timestamp">${escapeHtml(health.label)}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render" data-md="${escapeHtmlAttr(markdown)}"></div></article></div>`;
 }
 
 function transcriptShowsPausedState() {
@@ -8482,7 +8508,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
   const row = article.closest(".message-row");
   const markdownEl = article.querySelector(".message-markdown") || (() => {
     const created = document.createElement("div");
-    created.className = "message-markdown md-render max-w-none text-sm";
+    created.className = "message-markdown md-render";
     article.appendChild(created);
     return created;
   })();
@@ -8491,7 +8517,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
     article.dataset.hasVisibleContent = "1";
     if (row) row.dataset.hasVisibleContent = "1";
   }
-  markdownEl.className = "message-markdown md-render max-w-none text-sm";
+  markdownEl.className = "message-markdown md-render";
   markdownEl.dataset.md = text;
   markdownEl.dataset.displayBlocks = JSON.stringify(displayBlocks || []);
   article.dataset.copyText = text;
@@ -8560,7 +8586,7 @@ function updatePendingAssistantStreamContent(agentId, markdownText, options = {}
   }
   const markdownEl = article.querySelector('.message-markdown') || (() => {
     const created = document.createElement('div');
-    created.className = 'message-markdown md-render max-w-none text-sm';
+    created.className = 'message-markdown md-render';
     article.appendChild(created);
     return created;
   })();
@@ -8647,7 +8673,7 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   article.classList.add('is-complete');
   clearAssistantTimelineFromArticle(article);
   const md = article.querySelector('.message-markdown') || article.appendChild(document.createElement('div'));
-  md.className = 'message-markdown md-render max-w-none text-sm';
+  md.className = 'message-markdown md-render';
   md.dataset.md = String(payload?.response || '');
   md.dataset.displayBlocks = JSON.stringify(payload?.display_blocks || []);
   article.querySelector('.assistant-stream-cursor')?.remove();
@@ -8765,7 +8791,7 @@ function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) 
   article.classList.add("is-incomplete");
   clearAssistantTimelineFromArticle(article);
   const markdownEl = article.querySelector(".message-markdown") || article.appendChild(document.createElement("div"));
-  markdownEl.className = "message-markdown max-w-none text-sm";
+  markdownEl.className = "message-markdown";
   markdownEl.innerHTML = "";
   const warningBlock = document.createElement("div");
   warningBlock.className = "chat-completion-warning-block";
@@ -9853,7 +9879,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
           <span class="message-timestamp">${now}</span>
         </div>
         <article class="message-surface message-surface-assistant message-surface-error">
-          <div class="message-body whitespace-pre-wrap text-sm">${safe(errorMsg)}</div>
+          <div class="message-body">${safe(errorMsg)}</div>
         </article>
       </div>
     `);
@@ -11317,7 +11343,7 @@ function renderChatHistory(messages, metadata = {}) {
       if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
       container.appendChild(header);
       const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id; if (message.metadata?.internal_model_content_hidden) article.dataset.internalModelContentHidden = "1";
-      const content = document.createElement("div"); content.className = "message-body whitespace-pre-wrap text-sm"; content.textContent = getHistoryUserVisibleContent(message); article.appendChild(content);
+      const content = document.createElement("div"); content.className = "message-body"; content.textContent = getHistoryUserVisibleContent(message); article.appendChild(content);
       const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
       if (normalizedAttachments.length > 0) {
         const attachmentDiv = document.createElement("div"); attachmentDiv.className = "message-attachments";
@@ -11365,7 +11391,7 @@ function renderChatHistory(messages, metadata = {}) {
       // nothing. The card is the content of that turn.
       if (!markdown.trim() && !getAssistantGroupDisplayBlocks(entry).length) return;
       article.dataset.copyText = markdown;
-      const content = document.createElement("div"); content.className = "message-markdown md-render max-w-none text-sm";
+      const content = document.createElement("div"); content.className = "message-markdown md-render";
       content.dataset.md = markdown;
       content.dataset.displayBlocks = JSON.stringify(getAssistantGroupDisplayBlocks(entry));
       article.appendChild(content);
@@ -16164,7 +16190,7 @@ function closeEditMessageModal() {
 }
 
 function getUserArticleContent(article) {
-  const contentEl = article?.querySelector(".message-body, .whitespace-pre-wrap");
+  const contentEl = article?.querySelector(".message-body");
   return contentEl ? contentEl.textContent || "" : "";
 }
 
@@ -17732,6 +17758,9 @@ function bindEvents() {
   dom.themeOptions.forEach((option) => {
     option.addEventListener("click", () => applyTheme(option.dataset.themeOption));
   });
+  dom.chatWidthOptions.forEach((option) => {
+    option.addEventListener("click", () => applyChatWidth(option.dataset.chatWidthOption));
+  });
   dom.helpBtn?.addEventListener("click", () => {
     setAccountMenuOpen(false);
     openPortalSection("help");
@@ -17947,6 +17976,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   applyTheme(resolveInitialTheme());
+  applyChatWidth(resolveInitialChatWidth());
 
   // Tool panel resize from left edge
   const resizeHandle = document.getElementById('tool-panel-resize');

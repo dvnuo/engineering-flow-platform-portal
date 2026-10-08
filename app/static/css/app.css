@@ -170,13 +170,14 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-account-sep { height: 1px; margin: 4px 6px; background: var(--portal-border); }
 .portal-account-group { display: grid; gap: 6px; padding: 4px 10px 8px; }
 .portal-account-group-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--portal-text-muted); }
-/* Three explicit choices instead of the old cycle button, whose icon showed
-   the current theme but never what the next click would bring. */
-.portal-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 2px; border: 1px solid var(--portal-border); border-radius: 10px; background: var(--portal-surface-muted); }
-.portal-theme-option { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 0 6px; border: 0; border-radius: 8px; background: transparent; color: var(--portal-text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; }
-.portal-theme-option:hover, .portal-theme-option:focus-visible { color: var(--portal-text); outline: none; }
-.portal-theme-option:focus-visible { box-shadow: 0 0 0 2px var(--portal-accent-soft); }
-.portal-theme-option[aria-checked="true"] { background: var(--portal-surface); color: var(--portal-accent-strong); box-shadow: var(--portal-shadow); }
+/* A segmented control of explicit choices, shared by the theme and chat
+   width groups. Side-by-side options instead of the old cycle button, whose
+   icon showed the current theme but never what the next click would bring. */
+.portal-account-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 2px; border: 1px solid var(--portal-border); border-radius: 10px; background: var(--portal-surface-muted); }
+.portal-account-option { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 0 6px; border: 0; border-radius: 8px; background: transparent; color: var(--portal-text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; }
+.portal-account-option:hover, .portal-account-option:focus-visible { color: var(--portal-text); outline: none; }
+.portal-account-option:focus-visible { box-shadow: 0 0 0 2px var(--portal-accent-soft); }
+.portal-account-option[aria-checked="true"] { background: var(--portal-surface); color: var(--portal-accent-strong); box-shadow: var(--portal-shadow); }
 .portal-account-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--portal-text); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
 .portal-account-item svg { flex: none; color: var(--portal-text-secondary); }
 .portal-account-item:hover, .portal-account-item:focus-visible { background: var(--portal-surface-soft); outline: none; }
@@ -489,7 +490,17 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
   gap: 14px;
 }
 .portal-conversation { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.portal-conversation-main { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* The conversation is a query container so the chat column is sized from the
+   pane it sits in (sidebar collapsed, tool panel pinned) rather than from the
+   viewport. --portal-chat-width is the width of the message list; the composer
+   and the bubbles derive theirs from it. By default the column is 980px and
+   grows to 1400px on a wide pane, which leaves panes under about 1600px
+   exactly as they were; the account menu's chat width choice widens it from
+   there. Every value stays at least 980px so a narrow pane still gets the
+   full width through min(100%, ...). */
+.portal-conversation-main { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; container-type: inline-size; --portal-chat-width: clamp(980px, 62cqw, 1400px); }
+html[data-chat-width="wide"] .portal-conversation-main { --portal-chat-width: clamp(980px, 80cqw, 1800px); }
+html[data-chat-width="full"] .portal-conversation-main { --portal-chat-width: max(980px, 100cqw - 48px); }
 
 /* Shown only once the reader has scrolled away from the tail. */
 .portal-jump-latest {
@@ -535,15 +546,14 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
    empty space the height of the composer plus a gap. chat_ui.js keeps the
    variable in step with the real composer; 200px is the one-line fallback
    for before the first measurement lands. */
-.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: calc(var(--portal-composer-height, 200px) + 24px); min-width: 0; width: min(100%, 980px); max-width: 980px; margin: 0 auto; min-height: 100%; }
+.portal-message-list { display: flex; flex-direction: column; gap: 18px; padding-top: 24px; padding-bottom: calc(var(--portal-composer-height, 200px) + 24px); min-width: 0; width: min(100%, var(--portal-chat-width, 980px)); margin: 0 auto; min-height: 100%; }
 .portal-composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 0 24px 24px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; background: transparent; pointer-events: none; }
 .portal-composer {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  width: min(100%, 1000px);
-  max-width: 1000px;
+  width: min(100%, calc(var(--portal-chat-width, 980px) + 20px));
   padding: 10px 14px 12px;
   border-radius: var(--portal-radius-xl);
   border: 1px solid var(--portal-border);
@@ -958,13 +968,16 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .message-meta { display: flex; align-items: center; gap: 8px; color: var(--portal-text-muted); font-size: 12px; }
 .message-meta-user { justify-content: flex-end; }
 .message-author { font-weight: 600; color: var(--portal-text-secondary); }
-.message-surface { max-width: 920px; padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
+.message-surface { padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
 .message-surface-user { background: rgba(91,140,255,.12); border-color: rgba(91,140,255,.28); color: var(--portal-text); }
 html[data-theme="dark"] .message-surface-user { background: rgba(126,162,255,.16); border-color: rgba(126,162,255,.28); color: #eaf1ff; }
 .message-surface-assistant { background: var(--portal-surface); border-color: #e7ebf3; color: var(--portal-text); }
 html[data-theme="dark"] .message-surface-assistant { background: #131c2f; border-color: #273552; color: var(--portal-text); }
-.message-surface-assistant { width: min(100%, 920px); }
-.message-surface-user { width: fit-content; max-width: min(100%, 760px); }
+/* Bubble widths follow the chat column: the assistant's stops 60px short of
+   it and the member's is capped near three quarters, the shape the fixed
+   920px and 760px gave the 980px column. */
+.message-surface-assistant { width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); }
+.message-surface-user { width: fit-content; max-width: min(100%, calc(var(--portal-chat-width, 980px) * 0.78)); }
 .message-row-error .message-author {
   color: var(--portal-danger);
 }
@@ -978,8 +991,13 @@ html[data-theme="dark"] .message-surface-error {
   border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%);
   background: color-mix(in srgb, var(--portal-danger), #131c2f 88%);
 }
-.message-body { white-space: pre-wrap; }
-.message-markdown { line-height: 1.65; font-size: 14px; color: inherit; }
+/* Message typography is owned here, so no Tailwind utility may sit on a
+   message element: the Tailwind runtime appends its stylesheet after this one,
+   and the text-sm the markup used to carry set a 20px line-height that an
+   inline code chip (about 21px) overflowed, so chips on consecutive lines
+   touched. */
+.message-body { white-space: pre-wrap; font-size: 14px; line-height: 1.7; }
+.message-markdown { line-height: 1.7; font-size: 14px; color: inherit; }
 .message-markdown > :first-child { margin-top: 0; }
 .message-markdown > :last-child { margin-bottom: 0; }
 .message-markdown h1,
@@ -992,6 +1010,11 @@ html[data-theme="dark"] .message-surface-error {
 .message-markdown p { margin: .55rem 0; }
 .message-markdown ul,
 .message-markdown ol { margin: .55rem 0 .75rem 1.2rem; padding-left: .35rem; }
+/* Tailwind preflight strips list markers; a reply's bullets and numbers are
+   content, so put them back. */
+.message-markdown ul { list-style: disc; }
+.message-markdown ol { list-style: decimal; }
+.message-markdown ul ul { list-style: circle; }
 .message-markdown li + li { margin-top: .25rem; }
 .message-markdown blockquote {
   margin: .75rem 0;
@@ -1003,7 +1026,9 @@ html[data-theme="dark"] .message-surface-error {
 .message-markdown code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: .92em;
-  padding: .12rem .35rem;
+  /* Short enough to clear the line box with room to spare; the chip's own
+     glyph box already carries leading. */
+  padding: .05em .4em;
   border-radius: 6px;
   color: var(--portal-code-inline-text);
   background: var(--portal-code-inline-bg);

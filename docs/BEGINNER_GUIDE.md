@@ -90,7 +90,7 @@ The narrow rail on the far left switches sections; the round button at the botto
 | Delegations | Configure recurring or event-driven work |
 | Administration | Manage members, assistant types, and defaults; admins only |
 | Connectors | Set up the model provider, service credentials, and the local bridge on your computer |
-| Account | Your photo from the company directory, or your initials. Opens a menu with your name and role, the theme (System, Light, or Dark), **Help**, **Keyboard shortcuts**, and **Sign out** |
+| Account | Your photo from the company directory, or your initials. Opens a menu with your name and role, the theme (System, Light, or Dark), the chat width (Default, Wide, or Full), **Help**, **Keyboard shortcuts**, and **Sign out** |
 
 The next column contains the list for the selected section. Its **+** button creates an item where supported. The large central area shows the conversation or selected detail. Top-bar buttons change with the section.
 
