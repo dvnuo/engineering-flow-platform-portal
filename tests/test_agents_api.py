@@ -260,7 +260,7 @@ def test_create_agent_ensures_profile_secret_before_deployment(monkeypatch):
         )
         monkeypatch.setattr(
             "app.api.agents.runtime_profile_secret_service.sync_profile_secret",
-            lambda _profile: order.append("sync_profile_secret"),
+            lambda _profile, _db=None: order.append("sync_profile_secret"),
         )
 
         response = client.post("/api/agents", json={"name": "secret-first-create"})
@@ -781,7 +781,7 @@ def test_restart_ensures_profile_secret_and_restarts(monkeypatch):
         monkeypatch.setattr("app.api.agents.k8s_service.restart_agent", _restart_agent)
         monkeypatch.setattr(
             "app.api.agents.runtime_profile_secret_service.sync_profile_secret",
-            lambda _profile: calls.__setitem__("secret", calls["secret"] + 1),
+            lambda _profile, _db=None: calls.__setitem__("secret", calls["secret"] + 1),
         )
         monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.ensure_none_secret", lambda: None)
 
@@ -1086,7 +1086,7 @@ def test_patch_cannot_rebind_an_agent_to_another_runtime_profile(monkeypatch):
             calls["update_runtime"] += 1
             return SimpleNamespace(status="running", message=None)
 
-        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.sync_profile_secret", lambda profile: calls["secret"].append(profile.id))
+        monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.sync_profile_secret", lambda profile, _db=None: calls["secret"].append(profile.id))
         monkeypatch.setattr("app.api.agents.runtime_profile_secret_service.ensure_none_secret", lambda: None)
         monkeypatch.setattr("app.api.agents.k8s_service.update_agent_runtime", _update_runtime)
         resp = client.patch(f"/api/agents/{agent_id}", json={"runtime_profile_id": theirs.id})
