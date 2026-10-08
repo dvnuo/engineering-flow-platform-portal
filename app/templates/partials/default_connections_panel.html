@@ -117,9 +117,24 @@
         </label>
       </div>
 
+      {# Image analysis always runs on AI Platform through the inspect-image CLI (Copilot
+         models no longer accept images). Seeding it on, with a shared AI Platform account
+         below, turns image analysis on for every member. #}
+      {% set seed_vision = seed.get('llm', {}).get('vision', {}) %}
+      <div class="portal-checkbox-row">
+        <label class="toggle-switch" aria-label="Offer image analysis"><input type="checkbox" name="llm_vision_enabled" id="llm_vision_enabled" {% if seed_vision.get('enabled') %}checked{% endif %} /><span class="toggle-slider"></span></label>
+        <span>Image analysis on by default &mdash; images are read through AI Platform whatever the chat provider is</span>
+      </div>
+      <div class="space-y-2 hidden" data-vision-fields>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="portal-form-label"><span class="portal-form-label">Image analysis model</span><select name="llm_vision_model" id="llm_vision_model" class="portal-form-select" data-current-value="{{ seed_vision.get('model', '') }}"></select></label>
+        </div>
+      </div>
+
       {# A credential belongs to the provider it authenticates against, so each block only shows --
-         and is only read on save -- while that provider is selected. With no default provider there
-         is nothing for a member to be signed in to yet. #}
+         and is only read on save -- while that provider is selected; the AI Platform account also
+         shows while image analysis is on, because that is what signs inspect-image in. With no
+         default provider there is nothing for a member to be signed in to yet. #}
       <div class="space-y-2 hidden" data-provider-fields="github_copilot">
         <label class="portal-form-label">
           <span class="portal-form-label">Shared API key</span>

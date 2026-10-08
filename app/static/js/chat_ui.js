@@ -13177,6 +13177,42 @@ function updateCopilotAuthCardsVisibility(root, isCopilot) {
   }
 }
 
+// Image analysis runs on AI Platform through inspect-image whatever the chat
+// provider is (Copilot models no longer accept images), so its model list is
+// always the AI Platform catalog and the AI Platform credentials show while
+// the toggle is on.
+function visionAnalysisEnabled(root) {
+  const toggle = root.querySelector("#llm_vision_enabled");
+  return !!(toggle && toggle.checked);
+}
+
+function updateVisionModelOptions(root) {
+  const select = root.querySelector("#llm_vision_model");
+  if (!select) return;
+  const current = select.value || select.dataset.currentValue || "";
+  const models = managedProviderModels.ai_platform || [];
+  select.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "Default (GPT-5.4)";
+  select.appendChild(defaultOption);
+  models.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = model.value;
+    option.textContent = model.label;
+    select.appendChild(option);
+  });
+  if (current && !models.some((model) => model.value === current)) {
+    const extra = document.createElement("option");
+    extra.value = current;
+    extra.textContent = `${current} (Current)`;
+    select.appendChild(extra);
+  }
+  select.value = current;
+  if (!select.value) select.value = "";
+  select.dataset.currentValue = select.value || "";
+}
+
 function updateModelOptions(root) {
   const providerSelect = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -13224,9 +13260,17 @@ function updateModelOptions(root) {
   if (!isCopilot) {
     if (typeof stopCopilotPolling === "function") stopCopilotPolling(root);
   }
-  // Show only the selected provider's rich-config fields (e.g. AI Platform).
+  const visionEnabled = visionAnalysisEnabled(root);
+  updateVisionModelOptions(root);
+  root.querySelectorAll("[data-vision-fields]").forEach((el) => {
+    el.classList.toggle("hidden", !visionEnabled);
+  });
+  // Show the selected provider's rich-config fields; the AI Platform block also
+  // serves image analysis, so it stays while that is on.
   root.querySelectorAll("[data-provider-fields]").forEach((el) => {
-    el.classList.toggle("hidden", el.getAttribute("data-provider-fields") !== provider);
+    const owner = el.getAttribute("data-provider-fields");
+    const visible = owner === provider || (owner === "ai_platform" && visionEnabled);
+    el.classList.toggle("hidden", !visible);
   });
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
@@ -13432,7 +13476,7 @@ function initializeManagedSettingsRoot(root) {
   if (root.dataset.actionsBound === "1") return;
   root.dataset.actionsBound = "1";
   root.addEventListener("change", (event) => {
-    if (event.target?.id === "llm_provider") updateModelOptions(root);
+    if (event.target?.id === "llm_provider" || event.target?.id === "llm_vision_enabled") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
     if (event.target?.dataset?.field === "enabled") {
       syncInstanceEnabledState(event.target.closest("[data-instance-item]"));

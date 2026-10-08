@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
-from app.contracts.llm_catalog import CONTEXT_SIZE_PRESETS, SUPPORTED_REASONING_EFFORTS
+from app.contracts.llm_catalog import CONTEXT_SIZE_PRESETS, LLM_VISION_SUBTREE, SUPPORTED_REASONING_EFFORTS
 
 ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "llm",
@@ -52,6 +52,8 @@ PORTAL_MANAGED_FIELD_TREE = {
                 "usercase": True,
             },
         },
+        # Image analysis through inspect-image on AI Platform; see llm_catalog.
+        "vision": LLM_VISION_SUBTREE,
     },
     "proxy": {
         "enabled": True,
@@ -1008,6 +1010,15 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy["max_context_tokens"] = max_context_tokens
         else:
             llm_copy.pop("max_context_tokens", None)
+        vision = llm_copy.get("vision")
+        if isinstance(vision, dict):
+            normalized_vision = {"enabled": _runtime_profile_bool(vision.get("enabled"))}
+            vision_model = str(vision.get("model") or "").strip()
+            if vision_model:
+                normalized_vision["model"] = vision_model
+            llm_copy["vision"] = normalized_vision
+        else:
+            llm_copy.pop("vision", None)
         llm = llm_copy
 
     if isinstance(llm, dict):

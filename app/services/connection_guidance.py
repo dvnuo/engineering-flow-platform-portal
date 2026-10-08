@@ -22,6 +22,7 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
             "Choose GitHub Copilot unless your administrator told you otherwise.",
             "Click Authorize GitHub Copilot and follow the three steps it shows.",
             "Come back here and click Save Settings to store the token.",
+            "To let the assistant read screenshots and other images, turn on Image analysis and enter your AI Platform account: Copilot models cannot see images, so images go through AI Platform.",
         ],
         "help_url": "https://github.com/settings/copilot",
         "help_label": "GitHub Copilot settings",
