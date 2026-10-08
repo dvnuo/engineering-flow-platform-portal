@@ -136,6 +136,7 @@ What these settings mean:
 | `COPILOT_LOGIN_ENABLED=false` | Hides external Copilot sign-in for the first local run. This setting controls login, not the runtime's model-provider catalog. |
 | `PORTAL_USER_ALLOWLIST` | Optional comma-, semicolon-, or newline-separated usernames to seed on startup. Adding a name here does not create a password account. |
 | `PORTAL_SUPPORT_CONTACT` | Contact text or a supported `mailto:`/`https:` link shown to members who lack access. |
+| `AVATAR_PHOTO_HOST` | Optional host of the company photo directory, e.g. `https://photos.company.com`. The account button on the rail shows `<host>/casual/square/<first four characters of the username>/<username>.jpg`, fetched by the member's browser; leave it empty to show initials. |
 
 The bootstrap password is not a general password-reset mechanism. If the configured account already exists as an administrator, startup does not replace its password with a new value from `.env`.
 

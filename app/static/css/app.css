@@ -145,6 +145,43 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-rail-btn:hover { transform: translateY(-1px); border-color: var(--portal-border-strong); background: var(--portal-surface-soft); }
 .portal-rail-btn.is-active { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 60%); background: var(--portal-accent-soft); color: var(--portal-accent-strong); }
 
+/* The account button and its menu. The rail's bottom used to be four identical
+   tiles (Connectors, Help, Theme, Logout) although only Connectors is a
+   section: the other three are occasional one-off actions, so they sit behind
+   the member's avatar, which also puts the signed-in identity on screen for
+   the first time. The menu is positioned off the wrapper, to the right of the
+   rail, above the secondary pane and its mobile drawer (z-index 40). */
+.portal-account { position: relative; display: flex; }
+.portal-account-btn { padding: 0; border-radius: 50%; overflow: hidden; }
+.portal-account-btn[aria-expanded="true"],
+.portal-account-btn.is-active { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 60%); box-shadow: 0 0 0 3px var(--portal-accent-soft); }
+.portal-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 50%; overflow: hidden; background: var(--portal-accent-soft); color: var(--portal-accent-strong); font-size: 13px; font-weight: 700; letter-spacing: .02em; line-height: 1; }
+.portal-avatar.is-large { width: 40px; height: 40px; flex: none; font-size: 14px; }
+/* The photo covers the initials once it has loaded; until then, and when the
+   directory has no picture for this member, the initials show through. */
+.portal-avatar-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.portal-avatar.is-fallback .portal-avatar-photo { display: none; }
+.portal-account-menu { position: absolute; left: calc(100% + 10px); bottom: 0; z-index: 80; width: min(272px, calc(100vw - 92px)); padding: 6px; border: 1px solid var(--portal-border); border-radius: 16px; background: var(--portal-surface); box-shadow: var(--portal-shadow-lg); display: grid; gap: 2px; }
+.portal-account-menu.hidden { display: none; }
+.portal-account-identity { display: flex; align-items: center; gap: 10px; padding: 8px 10px 10px; }
+.portal-account-identity-text { min-width: 0; }
+.portal-account-name { font-size: 14px; font-weight: 650; color: var(--portal-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portal-account-meta { font-size: 12px; color: var(--portal-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portal-account-sep { height: 1px; margin: 4px 6px; background: var(--portal-border); }
+.portal-account-group { display: grid; gap: 6px; padding: 4px 10px 8px; }
+.portal-account-group-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--portal-text-muted); }
+/* Three explicit choices instead of the old cycle button, whose icon showed
+   the current theme but never what the next click would bring. */
+.portal-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 2px; border: 1px solid var(--portal-border); border-radius: 10px; background: var(--portal-surface-muted); }
+.portal-theme-option { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 0 6px; border: 0; border-radius: 8px; background: transparent; color: var(--portal-text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; }
+.portal-theme-option:hover, .portal-theme-option:focus-visible { color: var(--portal-text); outline: none; }
+.portal-theme-option:focus-visible { box-shadow: 0 0 0 2px var(--portal-accent-soft); }
+.portal-theme-option[aria-checked="true"] { background: var(--portal-surface); color: var(--portal-accent-strong); box-shadow: var(--portal-shadow); }
+.portal-account-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--portal-text); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+.portal-account-item svg { flex: none; color: var(--portal-text-secondary); }
+.portal-account-item:hover, .portal-account-item:focus-visible { background: var(--portal-surface-soft); outline: none; }
+.portal-account-item.is-active, .portal-account-item.is-active svg { color: var(--portal-accent-strong); }
+
 .portal-secondary-pane {
   grid-area: secondary;
   width: 100%;
