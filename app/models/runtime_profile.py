@@ -28,6 +28,10 @@ class RuntimeProfile(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # {connector type: "custom"} for the connectors the member maintains
+    # themselves; absent types follow the administrator's Default connectors
+    # (connector_defaults_service). NULL: not classified yet, done on startup.
+    connector_modes_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

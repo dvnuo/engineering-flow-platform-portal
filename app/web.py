@@ -12,7 +12,7 @@ from app.services.efp_cards import live_matrix_path as efp_live_matrix_path
 from app.services.efp_cards import scenario_progress as efp_scenario_progress
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -66,6 +66,17 @@ from app.schemas.runtime_profile import (
     sanitize_runtime_profile_config_dict,
 )
 from app.services.runtime_profile_audit import audit_runtime_profile_change
+from app.services.connector_defaults_service import (
+    MODE_CUSTOM,
+    MODE_SYSTEM,
+    changed_connector_types,
+    connector_mode,
+    managed_slice,
+    sanitized_seed,
+)
+from app.services.connector_defaults_sync import sync_followers
+from app.services.connector_registry import get_connector_spec as _connector_spec_by_type
+from app.services.runtime_profile_references import seed_config_error
 from app.services.auth_service import parse_session_token, set_session_cookie
 from app.services.proxy_service import ProxyService, build_portal_agent_headers, build_runtime_trace_headers
 from app.services.k8s_service import K8sService
@@ -1026,11 +1037,15 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
     }
 
 
-def _apply_connector_save(db, runtime_profile) -> tuple[str, str]:
+def _apply_connector_save(
+    db, runtime_profile, *, done: str = "Saved", retry: str = "Save again to retry."
+) -> tuple[str, str]:
     """Update the member's Secret and restart their idle running assistants.
 
     Busy assistants are left alone and listed on the panel as "restart to
-    apply". Returns (status_type, status_message).
+    apply". Returns (status_type, status_message); ``done`` is what the
+    caller just did ("Saved", "Jira now follows ...") and ``retry`` the
+    advice when handing the change to the assistants fails.
     """
     try:
         result = runtime_profile_secret_service.apply_profile_save(db, runtime_profile)
@@ -1039,7 +1054,7 @@ def _apply_connector_save(db, runtime_profile) -> tuple[str, str]:
         logger.exception("connector settings rollout failed profile_id=%s", runtime_profile.id)
         return (
             "error",
-            "Saved, but handing the change to your assistants failed. Save again to retry.",
+            f"{done}, but handing the change to your assistants failed. {retry}",
         )
 
     restarted = len(result.get("restarted_agent_ids") or [])
@@ -1051,8 +1066,8 @@ def _apply_connector_save(db, runtime_profile) -> tuple[str, str]:
         and not (restarted or pending or failed)
     ):
         # Nothing restarts without Kubernetes; the panel's notice lists them.
-        return ("success", "Saved. Restart your running assistants to use it.")
-    parts = ["Saved."]
+        return ("success", f"{done}. Restart your running assistants to use it.")
+    parts = [f"{done}."]
     if restarted:
         parts.append(f"Restarting {restarted} idle assistant{'' if restarted == 1 else 's'} to apply it.")
     if pending:
@@ -1093,14 +1108,24 @@ def _connector_settings_panel_context(
 ) -> dict:
     from app.services.connector_service import settings_entry
 
-    raw_config_data = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+    service = RuntimeProfileService(db)
+    modes = service.connector_modes(runtime_profile)
+    mode = connector_mode(spec, modes)
+    # The form shows what the assistants get: the row, or for a connector in
+    # system mode the administrator's current Default connectors.
+    raw_config_data = service.effective_config_for(runtime_profile)
     config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
     view_data = _settings_view_payload(raw_config_data, config_data)
     return {
         "request": request,
-        "connector": settings_entry(spec, raw_config_data),
+        "connector": settings_entry(spec, raw_config_data, mode),
         "connector_template": spec.panel_template,
         "connector_extra_template": spec.panel_extra_template,
+        # The system-default / custom switch, for the connectors a mode governs.
+        "connector_managed": bool(spec.managed_sections),
+        "connector_mode": mode,
+        "connector_follows_system": bool(spec.managed_sections) and mode == MODE_SYSTEM,
+        "admin_defaults_available": bool(managed_slice(spec, sanitized_seed(service.read_seed()))),
         "appium_inspector_available": _hosted_inspector_available(),
         "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
@@ -2797,9 +2822,21 @@ async def app_default_connections_panel(request: Request):
         db.close()
 
 
+def _default_connections_saved_message(changed_types: list[str]) -> str:
+    """What the admin reads after saving: who gets the change, and how."""
+
+    if not changed_types:
+        return "Default connectors saved. Nothing changed for the members who follow them."
+    labels = ", ".join(_connector_spec_by_type(item).label for item in changed_types)
+    return (
+        f"Default connectors saved. Members who follow {labels} are being updated in the background: "
+        "their idle assistants restart, busy ones show Restart to apply."
+    )
+
+
 @router.post("/app/admin/default-connections/save")
-async def app_default_connections_save(request: Request):
-    """Persist the Default Connections form."""
+async def app_default_connections_save(request: Request, background_tasks: BackgroundTasks):
+    """Persist the Default connectors form and roll the change out to the members who follow them."""
 
     user = _current_user_from_cookie(request)
     if not user:
@@ -2811,36 +2848,48 @@ async def app_default_connections_save(request: Request):
     db = SessionLocal()
     try:
         service = RuntimeProfileSeedService(db)
-        try:
-            service.save_seed(_seed_config_from_form(form), updated_by_user_id=user.id)
-        except ValueError as exc:
+        seed = _seed_config_from_form(form)
+        old_seed = service.get_seed()
+        # Members in system mode receive these values as they are, so what
+        # their own Save would refuse is refused here.
+        error = seed_config_error(seed)
+        if error is None:
+            try:
+                service.save_seed(seed, updated_by_user_id=user.id)
+            except ValueError as exc:
+                error = str(exc)
+        if error:
             # Re-render from the submitted values rather than from storage, so a
             # rejected save does not silently discard the admin's edits.
             return templates.TemplateResponse(
                 "partials/default_connections_panel.html",
                 _default_connections_context(
-                    request,
-                    db,
-                    status_type="error",
-                    status_message=str(exc),
-                    seed_override=_seed_config_from_form(form),
+                    request, db, status_type="error", status_message=error, seed_override=seed
                 ),
             )
 
+        changed = changed_connector_types(old_seed, service.get_seed())
         AuditRepository(db).create(
             action="update_runtime_profile_seed",
             target_type="platform_setting",
             target_id="runtime_profile_seed",
             user_id=user.id,
-            details={"sections": sorted(service.get_seed().keys())},
+            details={"sections": sorted(service.get_seed().keys()), "changed_connectors": changed},
         )
+        if changed:
+            # After this response: Secrets and idle restarts for every member
+            # who follows one of the changed connectors.
+            background_tasks.add_task(
+                sync_followers,
+                changed,
+                secret_service=runtime_profile_secret_service,
+                triggered_by_user_id=user.id,
+                session_factory=SessionLocal,
+            )
         return templates.TemplateResponse(
             "partials/default_connections_panel.html",
             _default_connections_context(
-                request,
-                db,
-                status_type="success",
-                status_message="Default connections saved. New members inherit these, credentials included.",
+                request, db, status_type="success", status_message=_default_connections_saved_message(changed)
             ),
         )
     finally:
@@ -3422,10 +3471,7 @@ async def app_connector_panel(request: Request, connector_type: str):
     try:
         if spec.is_settings:
             runtime_profile = RuntimeProfileService(db).get_or_create_for_user(user)
-            return templates.TemplateResponse(
-                "partials/connectors/panel.html",
-                _connector_settings_panel_context(request, db, spec, runtime_profile),
-            )
+            return _connector_panel_response(request, db, spec, runtime_profile)
         try:
             connector = connector_service.get_for_user(db, user, spec.type)
         except KeyError:
@@ -3517,8 +3563,11 @@ async def app_connector_test(request: Request, connector_type: str, target: str)
     form = _ConnectorFormView(spec, await request.form())
     db = SessionLocal()
     try:
-        runtime_profile = RuntimeProfileService(db).get_or_create_for_user(user)
-        config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+        service = RuntimeProfileService(db)
+        runtime_profile = service.get_or_create_for_user(user)
+        # Tested as the assistants would see it: a connector in system mode
+        # posts no fields of its own, so the Default connectors are what runs.
+        config_base = service.effective_config_for(runtime_profile)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
@@ -3543,38 +3592,149 @@ async def app_connector_save(request: Request, connector_type: str):
     try:
         service = RuntimeProfileService(db)
         runtime_profile = service.get_or_create_for_user(user)
+        if spec.managed_sections and connector_mode(spec, service.connector_modes(runtime_profile)) == MODE_SYSTEM:
+            # A page still showing the editable form after the connector was
+            # switched to the system default (another tab, say).
+            return _connector_panel_response(
+                request,
+                db,
+                spec,
+                runtime_profile,
+                status_type="error",
+                status_message=f"{spec.label} follows your administrator's Default connectors. Choose Customize to edit it.",
+            )
         config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
         config_payload, merge_error = _settings_merge_payload(config_base, form)
         if merge_error:
-            return templates.TemplateResponse(
-                "partials/connectors/panel.html",
-                _connector_settings_panel_context(
-                    request, db, spec, runtime_profile, status_type="error", status_message=merge_error
-                ),
+            return _connector_panel_response(
+                request, db, spec, runtime_profile, status_type="error", status_message=merge_error
             )
 
-        sanitized_config = sanitize_runtime_profile_config_dict(config_payload)
-        runtime_profile, config_changed = service.save_config(runtime_profile, sanitized_config)
-        status_type, status_message = "success", "Saved. Nothing changed."
-        if config_changed:
-            audit_runtime_profile_change(
-                db,
-                action="update_runtime_profile",
-                profile_id=runtime_profile.id,
-                user_id=user.id,
-                before=config_base,
-                after=parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True),
-            )
-            status_type, status_message = _apply_connector_save(db, runtime_profile)
-
-        response = templates.TemplateResponse(
-            "partials/connectors/panel.html",
-            _connector_settings_panel_context(
-                request, db, spec, runtime_profile, status_type=status_type, status_message=status_message
-            ),
+        runtime_profile, config_changed, status_type, status_message = _persist_connector_config(
+            db, user, runtime_profile, config_base, config_payload
+        )
+        if not config_changed:
+            status_type, status_message = "success", "Saved. Nothing changed."
+        response = _connector_panel_response(
+            request, db, spec, runtime_profile, status_type=status_type, status_message=status_message
         )
         # Refreshes the Connectors list (state labels) and the assistants'
         # "restart to apply" markers.
+        response.headers["HX-Trigger"] = "connectorsChanged"
+        return response
+    finally:
+        db.close()
+
+
+def _managed_connector_spec_or_404(connector_type: str):
+    """A settings connector with a system-default / custom mode."""
+
+    spec = _settings_connector_spec_or_404(connector_type)
+    if not spec.managed_sections:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This connector has no system default")
+    return spec
+
+
+def _connector_panel_response(request: Request, db, spec, runtime_profile, *, status_type: str = "", status_message: str = ""):
+    """The connector's panel, re-rendered from its stored (and system-default) settings."""
+
+    return templates.TemplateResponse(
+        "partials/connectors/panel.html",
+        _connector_settings_panel_context(
+            request, db, spec, runtime_profile, status_type=status_type, status_message=status_message
+        ),
+    )
+
+
+def _persist_connector_config(
+    db,
+    user,
+    runtime_profile,
+    config_base: dict,
+    new_config: dict,
+    *,
+    audit_action: str = "update_runtime_profile",
+    done: str = "Saved",
+    retry: str = "Save again to retry.",
+) -> tuple:
+    """Store ``new_config`` on the member's row; when it changed, audit it and roll it out.
+
+    Returns ``(runtime_profile, changed, status_type, status_message)``; the
+    message is empty when nothing changed, so each caller says that its own way.
+    """
+
+    service = RuntimeProfileService(db)
+    runtime_profile, changed = service.save_config(runtime_profile, sanitize_runtime_profile_config_dict(new_config))
+    if not changed:
+        return runtime_profile, False, "success", ""
+    audit_runtime_profile_change(
+        db,
+        action=audit_action,
+        profile_id=runtime_profile.id,
+        user_id=user.id,
+        before=config_base,
+        after=parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True),
+    )
+    status_type, status_message = _apply_connector_save(db, runtime_profile, done=done, retry=retry)
+    return runtime_profile, True, status_type, status_message
+
+
+@router.post("/app/connectors/{connector_type}/mode")
+async def app_connector_mode(request: Request, connector_type: str):
+    """Switch a connector between the administrator's Default connectors and the member's own values.
+
+    Form field ``mode``. ``custom`` makes the connector the member's own,
+    starting from the system default or from the values they had before
+    they last followed it; nothing the assistants see changes, so nothing
+    restarts. ``system`` makes it follow the Default connectors again: when
+    that changes the settings the assistants get, the row's revision is
+    bumped, the change is audited (``follow_connector_defaults``), the
+    Secret is updated and idle assistants restart, like a save. The response
+    is the re-rendered panel with ``HX-Trigger: connectorsChanged``.
+    """
+
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+    spec = _managed_connector_spec_or_404(connector_type)
+    form = await request.form()
+    mode = str(form.get("mode") or "").strip().lower()
+    if mode not in (MODE_SYSTEM, MODE_CUSTOM):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mode must be system or custom")
+    db = SessionLocal()
+    try:
+        service = RuntimeProfileService(db)
+        runtime_profile = service.get_or_create_for_user(user)
+        if mode == MODE_CUSTOM:
+            runtime_profile, restored = service.customize_connector(runtime_profile, spec)
+            start = "your earlier values are back" if restored else "starting from the system default"
+            status_type = "success"
+            status_message = (
+                f"{spec.label} is now yours to maintain, {start}. "
+                "Your administrator's changes to Default connectors no longer apply to it."
+            )
+        else:
+            before = service.effective_config_for(runtime_profile)
+            runtime_profile, changed = service.follow_system_defaults(runtime_profile, spec)
+            done = f"{spec.label} now follows your administrator's Default connectors"
+            if changed:
+                audit_runtime_profile_change(
+                    db,
+                    action="follow_connector_defaults",
+                    profile_id=runtime_profile.id,
+                    user_id=user.id,
+                    before=before,
+                    after=service.effective_config_for(runtime_profile),
+                )
+                status_type, status_message = _apply_connector_save(
+                    db, runtime_profile, done=done, retry="Use Restart on the assistants listed above."
+                )
+            else:
+                status_type, status_message = "success", f"{done}. Nothing changed."
+        response = _connector_panel_response(
+            request, db, spec, runtime_profile, status_type=status_type, status_message=status_message
+        )
         response.headers["HX-Trigger"] = "connectorsChanged"
         return response
     finally:

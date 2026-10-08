@@ -22,13 +22,18 @@ def profile_secret_name(profile_id: str) -> str:
     return f"efp-profile-{profile_id}"
 
 
-def render_profile_secret_data(profile) -> dict[str, str]:
+def render_profile_secret_data(profile, config: dict | None = None) -> dict[str, str]:
     """Render the single runtime-agnostic canonical payload plus the revision.
 
     Each runtime applies its own projection (LLM provider/model form, opencode
     field stripping, native CLI tool instructions) to this config at boot.
+    ``config`` is the member's effective settings (their row with the
+    connectors in system mode read from the Default connectors); without it
+    the row alone is rendered.
     """
-    parsed_config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    parsed_config = (
+        dict(config) if config is not None else parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    )
     payload = {
         "runtime_profile_id": profile.id,
         "name": getattr(profile, "name", "") or "",
@@ -68,10 +73,16 @@ class RuntimeProfileSecretService:
     def __init__(self, k8s_service: K8sService | None = None) -> None:
         self.k8s_service = k8s_service or K8sService()
 
-    def sync_profile_secret(self, profile) -> None:
+    def sync_profile_secret(self, profile, db: Session | None = None) -> None:
+        """Write the Secret from the member's effective settings (``db`` resolves the Default connectors)."""
         if not self.k8s_service.enabled:
             return
-        self.k8s_service.upsert_secret(profile_secret_name(profile.id), render_profile_secret_data(profile))
+        config = None
+        if db is not None:
+            from app.services.runtime_profile_service import RuntimeProfileService
+
+            config = RuntimeProfileService(db).effective_config_for(profile)
+        self.k8s_service.upsert_secret(profile_secret_name(profile.id), render_profile_secret_data(profile, config))
 
     def ensure_none_secret(self) -> None:
         if not self.k8s_service.enabled:
@@ -93,7 +104,7 @@ class RuntimeProfileSecretService:
         """
         from app.services.agent_busy import agent_is_busy
 
-        self.sync_profile_secret(profile)
+        self.sync_profile_secret(profile, db)
 
         agents = list(db.scalars(select(Agent).where(Agent.runtime_profile_id == profile.id)).all())
         running = [agent for agent in agents if (agent.status or "").lower() == "running"]

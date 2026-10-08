@@ -43,6 +43,7 @@ def test_main_calls_setup_logging_on_startup_not_import(monkeypatch):
             ensure_user_has_default_profile=lambda _user: None,
             ensure_defaults_for_all_users=lambda _db2: None,
             sanitize_all_persisted_runtime_profiles=lambda: None,
+            backfill_connector_modes=lambda: 0,
         ),
     )
 
@@ -74,6 +75,7 @@ def test_main_startup_does_not_call_create_all(monkeypatch):
             ensure_user_has_default_profile=lambda _user: None,
             ensure_defaults_for_all_users=lambda _db2: None,
             sanitize_all_persisted_runtime_profiles=lambda: None,
+            backfill_connector_modes=lambda: 0,
         ),
     )
     monkeypatch.setattr(
@@ -104,6 +106,9 @@ def test_main_startup_starts_worker_after_runtime_profile_defaults(monkeypatch):
     )
 
     class DummyRuntimeProfileService:
+        def backfill_connector_modes(self):
+            return 0
+
         def __init__(self, _db):
             pass
 
@@ -143,6 +148,9 @@ def test_main_startup_does_not_start_worker_when_default_setup_raises(monkeypatc
     )
 
     class DummyRuntimeProfileService:
+        def backfill_connector_modes(self):
+            return 0
+
         def __init__(self, _db):
             pass
 

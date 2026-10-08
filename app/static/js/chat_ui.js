@@ -13384,6 +13384,7 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "splunk");
   normalizeInstanceInputs(root, "pgsql");
   window.initPasswordToggles(root);
+  if (root.dataset.connectorMode === "system") applySystemDefaultReadOnly(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
   if (provider && !provider.dataset.initialProvider) provider.dataset.initialProvider = provider.value || "";
@@ -13467,6 +13468,23 @@ function initializeManagedSettingsRoot(root) {
         showToast("Code copied!");
       }
     }
+  });
+}
+
+// ===== system default (settings connectors) =====
+// A connector that follows the administrator's Default connectors (panel root
+// data-connector-mode="system") shows their values read-only: the Test
+// buttons still run on them, nothing is posted by Save (there is none), and
+// editing starts with the Customize button (panel.html, web.py
+// app_connector_mode), which the page posts declaratively through htmx.
+function applySystemDefaultReadOnly(root) {
+  const form = root.querySelector("form");
+  if (!form) return;
+  form.querySelectorAll("input:not([type=hidden]), select, textarea").forEach((field) => {
+    field.disabled = true;
+  });
+  form.querySelectorAll('[data-action="add-instance"], .portal-instance-remove').forEach((el) => {
+    el.hidden = true;
   });
 }
 
@@ -14341,11 +14359,13 @@ function renderConnectorList(errorMessage = "") {
     row.dataset.connectorType = connector.type;
     const connectorState = String(connector.state || (connector.enabled ? "connected" : "not_set_up"));
     const status = connector.status_label || (connector.enabled ? "Enabled" : "Not enabled");
+    // A settings connector that follows the administrator's Default connectors says so.
+    const modeNote = connector.mode === "system" ? '<span class="portal-connector-row-mode"> \u00b7 System default</span>' : "";
     row.innerHTML = `
       <span class="portal-connector-row-icon" aria-hidden="true"><i data-lucide="${escapeHtmlAttr(connector.icon || "plug")}" class="w-4 h-4"></i></span>
       <span class="portal-connector-row-text">
         <span class="portal-list-title">${safe(connector.label || connector.type)}</span>
-        <span class="portal-list-meta portal-connector-row-state is-${escapeHtmlAttr(connectorState)}">${safe(status)}</span>
+        <span class="portal-list-meta portal-connector-row-state is-${escapeHtmlAttr(connectorState)}">${safe(status)}${modeNote}</span>
       </span>
     `;
     row.addEventListener("click", async () => {

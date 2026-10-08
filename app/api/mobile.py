@@ -59,8 +59,8 @@ def recording_config(agent_id: str, user=Depends(get_current_user), db: Session 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant not found")
     if agent.owner_user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the assistant's owner can record on it")
-    profile = RuntimeProfileService(db).get_or_create_for_user(user)
-    config = parse_runtime_profile_config_json(getattr(profile, "config_json", None), fallback_to_empty=True)
+    service = RuntimeProfileService(db)
+    config = service.effective_config_for(service.get_or_create_for_user(user))
     mobile = _section(config, "mobile-auto")
     bs = _section(mobile, "browserstack")
     defaults = _section(mobile, "defaults")

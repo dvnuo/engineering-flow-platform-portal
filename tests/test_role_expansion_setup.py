@@ -114,9 +114,13 @@ def test_a_new_member_inherits_a_seeded_credential():
     db.commit()
     db.refresh(user)
 
-    profile = RuntimeProfileService(db).get_or_create_for_user(user)
+    service = RuntimeProfileService(db)
+    profile = service.get_or_create_for_user(user)
 
-    assert "shared-value" in profile.config_json
+    # Jira follows the Default connectors: the row holds no copy, the
+    # settings the member gets carry the shared credential.
+    assert "shared-value" not in profile.config_json
+    assert service.effective_config_for(profile)["jira"]["instances"][0]["token"] == "shared-value"
 
 
 def test_new_member_profile_inherits_the_seed(monkeypatch):
@@ -131,9 +135,11 @@ def test_new_member_profile_inherits_the_seed(monkeypatch):
     db.commit()
     db.refresh(user)
 
-    profile = RuntimeProfileService(db).get_or_create_for_user(user)
+    service = RuntimeProfileService(db)
+    profile = service.get_or_create_for_user(user)
 
-    assert "company.atlassian.net" in profile.config_json
+    assert "company.atlassian.net" not in profile.config_json
+    assert service.effective_config_for(profile)["jira"]["instances"][0]["url"] == "https://company.atlassian.net"
 
 
 def test_unreadable_seed_still_lets_a_member_sign_in(monkeypatch):
