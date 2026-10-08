@@ -17674,9 +17674,18 @@ function bindEvents() {
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
       items[event.key === "Home" ? 0 : items.length - 1].focus();
-    } else if (event.key === "Tab") {
-      setAccountMenuOpen(false);
     }
+  });
+  // Focus leaving the button and its menu closes the menu: Tab or Shift+Tab
+  // out, or a global shortcut such as "/" moving focus to the composer. The
+  // browser has already picked the next element by then, so focus lands where
+  // it would have without the menu. A null relatedTarget is the window losing
+  // focus or a click on something non-focusable (pointerdown handles clicks),
+  // neither of which is a reason to close.
+  dom.accountMenu?.parentElement?.addEventListener("focusout", (event) => {
+    if (!isAccountMenuOpen() || !(event.relatedTarget instanceof Element)) return;
+    if (event.relatedTarget.closest(".portal-account")) return;
+    setAccountMenuOpen(false);
   });
   // Escape closes the menu and nothing else. This listener runs in the capture
   // phase so the bubbling Escape handlers (stop the run, close the drawer)

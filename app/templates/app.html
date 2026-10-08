@@ -24,21 +24,23 @@
           <i data-lucide="plug-zap" class="w-5 h-5"></i>
         </button>
         {# Help, Theme and Sign out are not sections, so they live behind the
-           member's avatar rather than as three more tiles beside Connectors. #}
+           member's avatar rather than as three more tiles beside Connectors.
+           The avatar is the directory photo over the initials; the initials
+           show until the photo loads and whenever its request fails. #}
+        {% macro member_avatar(extra_class="") -%}
+        <span class="portal-avatar{{ extra_class }}" aria-hidden="true">
+          {% if avatar_url %}<img class="portal-avatar-photo" src="{{ avatar_url }}" alt="" />{% endif %}
+          <span class="portal-avatar-initials">{{ avatar_initials }}</span>
+        </span>
+        {%- endmacro %}
         <div class="portal-account">
           <button id="account-menu-btn" class="portal-rail-btn portal-account-btn" type="button"
                   aria-label="Account: {{ nickname }}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
-            <span class="portal-avatar" aria-hidden="true">
-              {% if avatar_url %}<img class="portal-avatar-photo" src="{{ avatar_url }}" alt="" />{% endif %}
-              <span class="portal-avatar-initials">{{ avatar_initials }}</span>
-            </span>
+            {{ member_avatar() }}
           </button>
           <div id="account-menu" class="portal-account-menu hidden" role="menu" aria-labelledby="account-menu-btn">
             <div class="portal-account-identity">
-              <span class="portal-avatar is-large" aria-hidden="true">
-                {% if avatar_url %}<img class="portal-avatar-photo" src="{{ avatar_url }}" alt="" />{% endif %}
-                <span class="portal-avatar-initials">{{ avatar_initials }}</span>
-              </span>
+              {{ member_avatar(" is-large") }}
               <div class="portal-account-identity-text">
                 <div class="portal-account-name">{{ nickname }}</div>
                 <div class="portal-account-meta">{{ role_label }}{% if username != nickname %} &middot; {{ username }}{% endif %}</div>

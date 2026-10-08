@@ -167,6 +167,9 @@ def test_chat_ui_wires_the_account_menu():
     # Escape is handled in the capture phase so the run-abort and drawer
     # handlers never see a keypress meant for the menu.
     assert 'if (event.key !== "Escape" || !isAccountMenuOpen()) return;' in CHAT_JS
+    # Focus leaving the button and menu (Tab out, or a shortcut moving focus
+    # to the composer) closes the menu instead of leaving it open.
+    assert 'dom.accountMenu?.parentElement?.addEventListener("focusout"' in CHAT_JS
     assert 'photo.addEventListener("error", showInitials);' in CHAT_JS
     # Help is still the section the startup card's "contact support" reaches.
     assert 'document.getElementById("help-btn")?.click();' in STARTUP_JS
