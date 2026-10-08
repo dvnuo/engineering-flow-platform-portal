@@ -6,7 +6,7 @@ This guide takes you from your first sign-in to everyday work with assistants, f
 
 **Version:** reviewed against GitHub `master` commit `021baaafdc3f2406540b467596c6ba961ad821d5` on September 17, 2026, with upload guidance updated for `78701fa` and connector guidance updated for `9b0509f` (Connectors replace Connections). Buttons and available capabilities can vary with your account, enabled engine, runtime version, and administrator's settings.
 
-**About the screenshots:** these are actual captures of Portal revision `021baaa` running locally with a separate demonstration database and a fictional `guide-admin` account. They predate the attachment-card update in `78701fa` and the Connectors change in `9b0509f`: the rail in these captures still has a separate Connections button, which no longer exists, and figures that show the old Connections screens say so. No real service credentials, Kubernetes runtime, model response, or browser bridge were used. The pictures demonstrate the interface and setup forms; a `Running` label in this local mode is not proof of a working AI connection. Runtime-dependent steps below describe what to do on a configured deployment. See [screenshot provenance](screenshots/README.md).
+**About the screenshots:** these are actual captures of Portal revision `021baaa` running locally with a separate demonstration database and a fictional `guide-admin` account. They predate the attachment-card update in `78701fa` and the Connectors change in `9b0509f`: the rail in these captures still has a separate Connections button, which no longer exists, and separate Help, Theme, and Logout buttons, which are now in the account menu behind your avatar; figures that show the old Connections screens say so. No real service credentials, Kubernetes runtime, model response, or browser bridge were used. The pictures demonstrate the interface and setup forms; a `Running` label in this local mode is not proof of a working AI connection. Runtime-dependent steps below describe what to do on a configured deployment. See [screenshot provenance](screenshots/README.md).
 
 ## Contents
 
@@ -81,7 +81,7 @@ If you installed Portal locally with `K8S_ENABLED=false`, you can explore these 
 
 *Figure 2. A new workspace before an assistant has been created.*
 
-The narrow rail on the far left switches sections. Hover over an icon to see its name.
+The narrow rail on the far left switches sections; the round button at the bottom is your account. Hover over an icon to see its name.
 
 | Section/control | What you do there |
 | --- | --- |
@@ -90,9 +90,7 @@ The narrow rail on the far left switches sections. Hover over an icon to see its
 | Delegations | Configure recurring or event-driven work |
 | Administration | Manage members, assistant types, and defaults; admins only |
 | Connectors | Set up the model provider, service credentials, and the local bridge on your computer |
-| Help | Read topic-based instructions and keyboard shortcuts |
-| Theme | Switch the appearance |
-| Logout | End your Portal session |
+| Account | Your photo from the company directory, or your initials. Opens a menu with your name and role, the theme (System, Light, or Dark), **Help**, **Keyboard shortcuts**, and **Sign out** |
 
 The next column contains the list for the selected section. Its **+** button creates an item where supported. The large central area shows the conversation or selected detail. Top-bar buttons change with the section.
 
@@ -520,9 +518,9 @@ These are presets for new assistants. Editing a type does not automatically reco
 
 ![Help section with topic navigation and a step-by-step article](screenshots/17-help.png)
 
-*Figure 17. Help is available from the rail and from connector setup links. This capture predates Connectors and shows the former Connections help group.*
+*Figure 17. Help is available from the account menu at the bottom of the rail and from connector setup links. This capture predates Connectors and the account menu: it shows the former Connections help group, and its rail still has separate Help, Theme, and Logout buttons.*
 
-Open **Help** for getting started, connector-specific instructions, the local bridge connector, questions/approvals, failures, and shortcuts. Connector panels link directly to the matching help topic, and each connector topic has an **Open** button for that connector.
+Open **Help** from the account menu (your avatar at the bottom of the rail) for getting started, connector-specific instructions, the local bridge connector, questions/approvals, failures, and shortcuts. Connector panels link directly to the matching help topic, and each connector topic has an **Open** button for that connector.
 
 | Shortcut | Action |
 | --- | --- |

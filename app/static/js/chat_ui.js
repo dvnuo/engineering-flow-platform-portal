@@ -40,7 +40,10 @@ const dom = {
   agentMeta: document.getElementById("agent-meta"),
   agentActions: document.getElementById("agent-actions"),
   logoutBtn: document.getElementById("logout-btn"),
-  themeToggle: document.getElementById("theme-toggle"),
+  accountMenuBtn: document.getElementById("account-menu-btn"),
+  accountMenu: document.getElementById("account-menu"),
+  themeOptions: Array.from(document.querySelectorAll("[data-theme-option]")),
+  shortcutsBtn: document.getElementById("shortcuts-btn"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
   tasksMenuBtn: document.getElementById("tasks-menu-btn"),
@@ -228,6 +231,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   Object.entries(railButtons).forEach(([key, element]) => {
     element?.classList.toggle("is-active", key === normalized);
   });
+  dom.accountMenuBtn?.classList.toggle("is-active", normalized === "help");
   Object.entries(navSections).forEach(([key, element]) => {
     element?.classList.toggle("hidden", key !== normalized);
   });
@@ -4396,14 +4400,11 @@ function renderRuntimeStateNotes(uiState = {}) {
 
 // Theme is a three-way preference: light, dark, or system. "system" is the
 // default for anyone who has never picked, so a dark-mode OS no longer lands on
-// a light Portal.
+// a light Portal. The choice is made in the account menu, where the three
+// options sit side by side; the old rail button cycled through them, so its
+// icon showed the current theme but never what the next click would bring.
 const THEME_PREFERENCE_KEY = "portal-theme";
 const THEME_ORDER = ["system", "light", "dark"];
-const THEME_META = {
-  system: { icon: "monitor", label: "Theme: follow system" },
-  light: { icon: "sun", label: "Theme: light" },
-  dark: { icon: "moon", label: "Theme: dark" },
-};
 
 function prefersDarkScheme() {
   return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -4424,19 +4425,10 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme-preference", preference);
   document.documentElement.classList.toggle("dark", effective === "dark");
   localStorage.setItem(THEME_PREFERENCE_KEY, preference);
-  const meta = THEME_META[preference];
-  if (dom.themeToggle) {
-    dom.themeToggle.innerHTML = `<i data-lucide="${meta.icon}" class="w-5 h-5"></i>`;
-    dom.themeToggle.title = meta.label;
-    dom.themeToggle.setAttribute("aria-label", meta.label);
-  }
-  renderIcons();
+  dom.themeOptions.forEach((option) => {
+    option.setAttribute("aria-checked", option.dataset.themeOption === preference ? "true" : "false");
+  });
   rerenderMermaidDiagrams();
-}
-
-function toggleTheme() {
-  const current = normalizeThemePreference(localStorage.getItem(THEME_PREFERENCE_KEY));
-  applyTheme(THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length]);
 }
 
 // Follow the OS live while the preference is "system".
@@ -10890,6 +10882,8 @@ async function setActiveNavSection(section, {
   dom.delegationsMenuBtn?.classList.toggle("is-active", state.activeNavSection === "delegations");
   dom.usersMenuBtn?.classList.toggle("is-active", state.activeNavSection === "users");
   dom.helpBtn?.classList.toggle("is-active", state.activeNavSection === "help");
+  // Help lives in the account menu, so the avatar carries its active ring.
+  dom.accountMenuBtn?.classList.toggle("is-active", state.activeNavSection === "help");
 
   dom.assistantsNavSection?.classList.toggle("hidden", state.activeNavSection !== "assistants");
   dom.tasksNavSection?.classList.toggle("hidden", state.activeNavSection !== "tasks");
@@ -17633,7 +17627,90 @@ function bindEvents() {
     }
   });
 
-  dom.helpBtn?.addEventListener("click", () => openPortalSection("help"));
+  // ===== account menu =====
+  // Help, Theme and Sign out used to be three rail tiles beside Connectors,
+  // drawn exactly like the sections although none of them is one. They sit
+  // behind the avatar now: one target, and the member can see who they are
+  // signed in as. Help stays a routable section; only its entry point moved.
+  function accountMenuItems() {
+    return Array.from(dom.accountMenu?.querySelectorAll('[role="menuitem"], [role="menuitemradio"]') || [])
+      .filter((item) => !item.disabled);
+  }
+
+  function isAccountMenuOpen() {
+    return Boolean(dom.accountMenu && !dom.accountMenu.classList.contains("hidden"));
+  }
+
+  function setAccountMenuOpen(open, { focus = "none" } = {}) {
+    if (!dom.accountMenu || !dom.accountMenuBtn) return;
+    dom.accountMenu.classList.toggle("hidden", !open);
+    dom.accountMenuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      const items = accountMenuItems();
+      if (focus === "first") items[0]?.focus();
+      if (focus === "last") items[items.length - 1]?.focus();
+    } else if (focus === "button") {
+      dom.accountMenuBtn.focus();
+    }
+  }
+
+  dom.accountMenuBtn?.addEventListener("click", () => setAccountMenuOpen(!isAccountMenuOpen()));
+  dom.accountMenuBtn?.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    setAccountMenuOpen(true, { focus: event.key === "ArrowDown" ? "first" : "last" });
+  });
+  dom.accountMenu?.addEventListener("keydown", (event) => {
+    const items = accountMenuItems();
+    if (!items.length) return;
+    const index = items.indexOf(document.activeElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const next = index === -1
+        ? (step === 1 ? 0 : items.length - 1)
+        : (index + step + items.length) % items.length;
+      items[next].focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      items[event.key === "Home" ? 0 : items.length - 1].focus();
+    } else if (event.key === "Tab") {
+      setAccountMenuOpen(false);
+    }
+  });
+  // Escape closes the menu and nothing else. This listener runs in the capture
+  // phase so the bubbling Escape handlers (stop the run, close the drawer)
+  // never see the keypress.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !isAccountMenuOpen()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setAccountMenuOpen(false, { focus: "button" });
+  }, true);
+  document.addEventListener("pointerdown", (event) => {
+    if (!isAccountMenuOpen()) return;
+    if (event.target instanceof Element && event.target.closest(".portal-account")) return;
+    setAccountMenuOpen(false);
+  });
+  // The photo directory has no picture for every member: a failed request
+  // uncovers the initials underneath instead of showing a broken image.
+  document.querySelectorAll(".portal-avatar-photo").forEach((photo) => {
+    const showInitials = () => photo.closest(".portal-avatar")?.classList.add("is-fallback");
+    photo.addEventListener("error", showInitials);
+    if (photo.complete && photo.naturalWidth === 0) showInitials();
+  });
+
+  dom.themeOptions.forEach((option) => {
+    option.addEventListener("click", () => applyTheme(option.dataset.themeOption));
+  });
+  dom.helpBtn?.addEventListener("click", () => {
+    setAccountMenuOpen(false);
+    openPortalSection("help");
+  });
+  dom.shortcutsBtn?.addEventListener("click", () => {
+    setAccountMenuOpen(false);
+    openHelpTopic("shortcuts");
+  });
   // A connector guide ends with the action it describes, so the reader does
   // not have to find their way back to Connectors on their own.
   dom.workspaceDetailContent?.addEventListener("click", (event) => {
@@ -17649,8 +17726,6 @@ function bindEvents() {
   document.querySelectorAll("[data-help-topic-nav]").forEach((item) => {
     item.addEventListener("click", () => openHelpTopic(item.dataset.helpTopicNav));
   });
-  dom.themeToggle?.addEventListener("click", toggleTheme);
-
   dom.usersMenuBtn?.addEventListener("click", () => openPortalSection("users"));
   dom.userManagementNavItem?.addEventListener("click", () => openUsersInMain());
 

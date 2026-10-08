@@ -79,6 +79,7 @@ from app.services.help_center import (
     topic_id_for_connection,
     topics_by_group as help_topics_by_group,
 )
+from app.services.member_avatar import avatar_initials, avatar_photo_url
 from app.services.git_branch_cache import cached_branches_for
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import (
@@ -2395,6 +2396,12 @@ def app_page(request: Request):
             "nickname": user.nickname or user.username,
             "user_id": user.id,
             "role": user.role,
+            # The account button at the bottom of the rail: the directory photo
+            # when AVATAR_PHOTO_HOST is set, initials otherwise (and in the
+            # browser when the photo request fails).
+            "role_label": "Administrator" if user.role == "admin" else "Member",
+            "avatar_url": avatar_photo_url(user.username, get_settings().avatar_photo_host),
+            "avatar_initials": avatar_initials(user.nickname, user.username),
             # The help sub-menu is part of the shell, like the other nav lists,
             # so it renders with the page rather than on first open.
             "help_groups": help_topics_by_group(),

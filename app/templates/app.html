@@ -23,15 +23,54 @@
         <button id="connectors-menu-btn" class="portal-rail-btn" type="button" title="Connectors">
           <i data-lucide="plug-zap" class="w-5 h-5"></i>
         </button>
-        <button id="help-btn" class="portal-rail-btn" type="button" title="Help" aria-label="Help">
-          <i data-lucide="circle-help" class="w-5 h-5"></i>
-        </button>
-        <button id="theme-toggle" class="portal-rail-btn" type="button" title="Toggle theme">
-          <i data-lucide="moon" class="w-5 h-5"></i>
-        </button>
-        <button id="logout-btn" class="portal-rail-btn" type="button" title="Logout">
-          <i data-lucide="log-out" class="w-5 h-5"></i>
-        </button>
+        {# Help, Theme and Sign out are not sections, so they live behind the
+           member's avatar rather than as three more tiles beside Connectors. #}
+        <div class="portal-account">
+          <button id="account-menu-btn" class="portal-rail-btn portal-account-btn" type="button"
+                  aria-label="Account: {{ nickname }}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
+            <span class="portal-avatar" aria-hidden="true">
+              {% if avatar_url %}<img class="portal-avatar-photo" src="{{ avatar_url }}" alt="" />{% endif %}
+              <span class="portal-avatar-initials">{{ avatar_initials }}</span>
+            </span>
+          </button>
+          <div id="account-menu" class="portal-account-menu hidden" role="menu" aria-labelledby="account-menu-btn">
+            <div class="portal-account-identity">
+              <span class="portal-avatar is-large" aria-hidden="true">
+                {% if avatar_url %}<img class="portal-avatar-photo" src="{{ avatar_url }}" alt="" />{% endif %}
+                <span class="portal-avatar-initials">{{ avatar_initials }}</span>
+              </span>
+              <div class="portal-account-identity-text">
+                <div class="portal-account-name">{{ nickname }}</div>
+                <div class="portal-account-meta">{{ role_label }}{% if username != nickname %} &middot; {{ username }}{% endif %}</div>
+              </div>
+            </div>
+            <div class="portal-account-group" role="group" aria-labelledby="account-theme-label">
+              <div id="account-theme-label" class="portal-account-group-label">Theme</div>
+              <div class="portal-theme-options">
+                <button type="button" class="portal-theme-option" role="menuitemradio" aria-checked="false" data-theme-option="system">
+                  <i data-lucide="monitor" class="w-4 h-4"></i>System
+                </button>
+                <button type="button" class="portal-theme-option" role="menuitemradio" aria-checked="false" data-theme-option="light">
+                  <i data-lucide="sun" class="w-4 h-4"></i>Light
+                </button>
+                <button type="button" class="portal-theme-option" role="menuitemradio" aria-checked="false" data-theme-option="dark">
+                  <i data-lucide="moon" class="w-4 h-4"></i>Dark
+                </button>
+              </div>
+            </div>
+            <div class="portal-account-sep" role="separator"></div>
+            <button id="help-btn" class="portal-account-item" type="button" role="menuitem">
+              <i data-lucide="circle-help" class="w-4 h-4"></i>Help
+            </button>
+            <button id="shortcuts-btn" class="portal-account-item" type="button" role="menuitem">
+              <i data-lucide="keyboard" class="w-4 h-4"></i>Keyboard shortcuts
+            </button>
+            <div class="portal-account-sep" role="separator"></div>
+            <button id="logout-btn" class="portal-account-item" type="button" role="menuitem">
+              <i data-lucide="log-out" class="w-4 h-4"></i>Sign out
+            </button>
+          </div>
+        </div>
       </div>
     </nav>
 

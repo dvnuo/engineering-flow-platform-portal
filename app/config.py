@@ -260,6 +260,13 @@ class Settings(BaseSettings):
     local_bridge_download_url: str = Field(default="", validation_alias="LOCAL_BRIDGE_DOWNLOAD_URL")
     local_bridge_version: str = Field(default="", validation_alias="LOCAL_BRIDGE_VERSION")
     local_bridge_browser_start_url: str = Field(default="", validation_alias="LOCAL_BRIDGE_BROWSER_START_URL")
+
+    # The account button at the bottom of the rail shows the member's picture
+    # from the company photo directory, which serves
+    # <host>/casual/square/<first four characters of the username>/<username>.jpg.
+    # Only the host is deployment-specific (scheme optional, https assumed).
+    # Empty shows the member's initials instead; so does a failed photo request.
+    avatar_photo_host: str = Field(default="", validation_alias="AVATAR_PHOTO_HOST")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

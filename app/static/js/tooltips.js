@@ -71,8 +71,9 @@
     ["#delegations-menu-btn", "Delegations — rules that start work automatically from GitHub, Jira, or a timer"],
     ["#users-menu-btn", "Administration — members, roles, and who is allowed to sign in"],
     ["#connectors-menu-btn", "Connectors — the model provider and every service your assistants can reach"],
-    ["#help-btn", "What the terms mean, and the keyboard shortcuts"],
-    ["#logout-btn", "Sign out of Portal"],
+    // Help, Theme and Sign out are menu items with visible labels now, so only
+    // the button that opens the menu needs a hint.
+    ["#account-menu-btn", "Your account — theme, help, keyboard shortcuts, and sign out"],
 
     // --- main header ---
     ["#header-new-chat-btn", "Start a fresh conversation (Ctrl/Cmd + Shift + O)"],
