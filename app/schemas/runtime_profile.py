@@ -1137,9 +1137,16 @@ def validate_runtime_profile_config_json(value: str | None) -> str:
 
 
 class RuntimeProfileUpdateRequest(BaseModel):
-    """Replace the member's connector settings in one call (API clients)."""
+    """Replace the member's connector settings in one call (API clients).
+
+    ``connector_modes`` sets, per connector type, whether it follows the
+    administrator's Default connectors (``system``) or the values in
+    ``config_json`` (``custom``). A section written with values that differ
+    from the Default connectors makes its connector custom either way.
+    """
 
     config_json: Optional[str] = None
+    connector_modes: Optional[dict[str, str]] = None
 
     @field_validator("config_json", mode="before")
     @classmethod
@@ -1152,7 +1159,10 @@ class RuntimeProfileUpdateRequest(BaseModel):
 class RuntimeProfileResponse(BaseModel):
     id: str
     owner_user_id: int
+    # The effective settings: the row with every connector in system mode read
+    # from the administrator's Default connectors.
     config_json: str
+    connector_modes: dict[str, str] = {}
     revision: int
     created_at: datetime
     updated_at: datetime

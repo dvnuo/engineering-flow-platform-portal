@@ -207,7 +207,7 @@ the setting changed reopens on the current page.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/connectors` | list of registry types with the current user's state, ordered by category: `[{type, label, kind, category, description, icon, enabled, state, status_label, config, settings, last_verified_at}]`. `state` is `connected`, `off`, or `not_set_up`; `status_label` is its display text. `settings` holds deployment-level values the page needs (read-only; `local_bridge`: `{start_url}` raw from `LOCAL_BRIDGE_BROWSER_START_URL`) |
+| GET | `/api/connectors` | list of registry types with the current user's state, ordered by category: `[{type, label, kind, category, description, icon, enabled, state, status_label, mode, config, settings, last_verified_at}]`. `mode` is `system` or `custom` for settings connectors (section 7.1), null for local ones. `state` is `connected`, `off`, or `not_set_up`; `status_label` is its display text. `settings` holds deployment-level values the page needs (read-only; `local_bridge`: `{start_url}` raw from `LOCAL_BRIDGE_BROWSER_START_URL`) |
 | GET | `/api/connectors/{type}` | one entry |
 | PUT | `/api/connectors/{type}` | local connectors only: `{ "enabled": true, "config": { … } }`; config validated against the type's schema |
 | POST | `/api/connectors/{type}/verify` | local connectors only: request `{ "ok": true, "details": {…} }` from the page's own probe; response `{ "ok": true, "last_verified_at": "..." }`. Portal remembers the latest successful verification; it does not probe the member's PC itself |
@@ -235,9 +235,34 @@ The API is always served. Unconfigured local connectors are listed as disabled (
 
 Storage: every member has exactly one settings row in `runtime_profiles` (unique `owner_user_id`), created from the
 admin's **Default connectors** seed on first use. Each settings connector reads and writes only its own keys of that
-row's `config_json`. Every assistant the member owns is bound to the row (`agents.runtime_profile_id`). A later change
-to the seed reaches an existing row only when the member resets the connector to it from the panel's **Reset to
-defaults** button (the `defaults/reset` route below); every settings connector offers it except `llm`.
+row's `config_json`. Every assistant the member owns is bound to the row (`agents.runtime_profile_id`).
+
+Connector modes: every settings connector of a member is in one of two modes, kept in
+`runtime_profiles.connector_modes_json` as `{type: "custom"}` (a type that is absent is `system`):
+
+- `system`: the connector's values are the administrator's **Default connectors** as they are *now*. Nothing is copied
+  into the row; wherever the row is read (panel, connection test, the pod Secret, `GET /api/runtime-profile`) the
+  connector's `managed_sections` are taken from the seed. A new member, and a connector type that appears later, start
+  here. The seed having nothing for the connector means the connector is not set up.
+- `custom`: the member's own values, in the row. The administrator's later changes do not touch them.
+
+`ConnectorSpec.managed_sections` says which sections the mode governs: every section the connector owns, except
+that `github` manages `github` but not the commit identity `git`, and `llm` manages nothing (the model provider is
+always the member's own, so a changed shared key or password reaches only new members). A member's first row
+therefore holds only the seed's `llm` (and `git`) sections.
+
+When the administrator saves the Default connectors, the members whose connectors in `system` mode changed are
+updated after the response (FastAPI background task, `connector_defaults_sync.sync_followers`): their row's
+`revision` is bumped and the save rollout runs for each of them (Secret, idle restarts, "Restart to apply" on busy
+assistants), one member at a time, a failure never stopping the rest; one `sync_connector_defaults` audit row
+carries the counts. A seed a member's own Save would refuse (a value the sanitizer cannot store, a default instance
+or account or an EKS row naming nothing) is refused on save, since members in `system` mode would receive it as is.
+
+Rows from before modes existed (`connector_modes_json` NULL) count as `custom` everywhere until startup classifies
+them (`RuntimeProfileService.backfill_connector_modes`): a connector whose row values equal the current seed follows
+it from then on and its copy leaves the row; one whose values differ stays the member's own. Nothing an assistant
+sees changes and no revision moves. Writing a connector's values (the panel's Save, `PATCH /api/runtime-profile`)
+makes that connector `custom`, unless the values written are the seed's own, which leaves the mode as it is.
 
 Delivery: the row is rendered into the Kubernetes Secret `efp-profile-{row id}`, which the assistant's pod reads **at
 boot**. A running pod does not see a change until it restarts. The renderer always writes
@@ -247,16 +272,15 @@ Routes (session-cookie web routes; `{type}` must be a settings connector, otherw
 
 | Method | Path | Behaviour |
 |---|---|---|
-| GET | `/app/connectors/{type}/panel` | `partials/connectors/panel.html` wrapping `partials/connectors/<type>.html`: a header with the connector's state, the restart notice (below), the form, **Save** and, when the seed has something for the connector (never on Model provider), **Reset to defaults** |
+| GET | `/app/connectors/{type}/panel` | `partials/connectors/panel.html` wrapping `partials/connectors/<type>.html`: a header with the connector's state, the restart notice (below), the mode switch (below; not on Model provider), the form, and **Save**. In `system` mode the form is read-only (`chat_ui.js applySystemDefaultReadOnly`) and shows the seed's values; Save is not offered and a posted save is refused |
 | POST | `/app/connectors/{type}/save` | merges the posted form into the stored row. Only the `__touch_<section>` flags for this connector's form sections are honoured, so a save never rewrites another connector's keys. An unchanged save replies "Saved. Nothing changed." without restarting anything. A change bumps the row's `revision`, is audited, updates the Secret, and applies the restart policy. The response is the re-rendered panel (status text starting "Saved.") with header `HX-Trigger: connectorsChanged` |
 | POST | `/app/connectors/{type}/test/{target}` | runs a connection test with the posted (unsaved) form merged over the stored values; JSON `{ok, target, message}`. 404 when `target` is not one of the connector's tests |
-| POST | `/app/connectors/{type}/defaults/reset` | replaces the connector's sections of the row with the administrator's **Default connectors** seed, credentials included, exactly as a new member would receive them, then saves like `/save`: a result equal to the stored row replies "<label> already matches your administrator's Default connectors. Nothing changed." without touching it; a change bumps the `revision`, writes the `update_runtime_profile` audit row plus a `reset_connector_defaults` row (connector and sections only), updates the Secret and applies the restart policy. The response is the re-rendered panel (status text starting "Reset") with `HX-Trigger: connectorsChanged`. A seed with nothing for the connector re-renders the panel with an error and saves nothing |
+| POST | `/app/connectors/{type}/mode` | form field `mode`. `custom`: the connector becomes the member's own, starting from the current seed values (copied into the row) or from the values parked in the row since they last followed the system default; nothing the assistants see changes, so no restart. `system`: the connector follows the Default connectors again (the member's own values stay parked in the row); when the settings the assistants get change, the `revision` is bumped, a `follow_connector_defaults` audit row is written (sections and changed secret paths, no values), the Secret is updated and the restart policy applies, as for a save. The response is the re-rendered panel with `HX-Trigger: connectorsChanged`. 404 for `llm`, unknown and local connectors; 400 for another `mode` |
 
-What a reset covers (`app/services/connector_defaults_service.py`): the seed is read in its sanitized shape, so nothing
-the save would drop is copied; only the connector's own sections are replaced (`github` without the commit identity
-`git`; the `llm` and `debug` sections are never reset) and everything else in the row stays. The page asks for a
-confirmation first, since the member's values for the connector, credentials included, are lost, and shows the button
-only when the seed has something for the connector.
+The mode switch on the panel: in `system` mode a **Customize** button (posts `mode=custom`); in `custom` mode a
+**Use system default** button that asks for a confirmation first (`hx-confirm`, routed through the styled dialog by
+`dialogs.js`, which reads `data-confirm-title`, `data-confirm-ok` and `data-confirm-danger` from the element). The
+Connectors list marks connectors in `system` mode with "System default" (`mode` in `GET /api/connectors`).
 
 Restart policy on save: running assistants bound to the row that are idle are restarted at once. A busy assistant
 (an active task, or an active chat/task execution that reported within the last 2 hours) is not interrupted: it keeps

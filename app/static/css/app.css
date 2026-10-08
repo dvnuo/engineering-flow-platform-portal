@@ -6434,6 +6434,38 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
   margin: 0;
 }
 
+/* System default / custom switch at the top of a settings connector panel. */
+.portal-connector-mode.is-system {
+  border-color: color-mix(in srgb, var(--portal-accent-strong), var(--portal-border) 70%);
+}
+
+.portal-connector-mode-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portal-connector-mode-text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.portal-connector-mode-text strong {
+  display: block;
+  font-size: 13px;
+  color: var(--portal-text);
+}
+
+.portal-connector-mode-text .portal-panel-note {
+  margin: 2px 0 0;
+}
+
+.portal-connector-row-mode {
+  color: var(--portal-text-muted);
+  font-weight: 400;
+}
+
 .portal-restart-notice {
   border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 55%);
   background: color-mix(in srgb, var(--portal-warning) 8%, var(--portal-surface) 92%);

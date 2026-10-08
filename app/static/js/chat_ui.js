@@ -13390,6 +13390,7 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "splunk");
   normalizeInstanceInputs(root, "pgsql");
   window.initPasswordToggles(root);
+  if (root.dataset.connectorMode === "system") applySystemDefaultReadOnly(root);
   const provider = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
   if (provider && !provider.dataset.initialProvider) provider.dataset.initialProvider = provider.value || "";
@@ -13457,12 +13458,6 @@ function initializeManagedSettingsRoot(root) {
       await runManagedSettingsTest(root, testBtn.dataset.testTarget, testBtn);
       return;
     }
-    const resetBtn = event.target.closest("[data-reset-defaults-button]");
-    if (resetBtn) {
-      event.preventDefault();
-      await resetConnectorToDefaults(root, resetBtn);
-      return;
-    }
     const btn = event.target.closest("[data-copilot-auth-button]");
     if (btn) {
       event.preventDefault();
@@ -13482,69 +13477,21 @@ function initializeManagedSettingsRoot(root) {
   });
 }
 
-// ===== reset to administrator defaults (settings connectors) =====
-// "Reset to defaults" on a settings connector panel: after the member
-// confirms, POST /app/connectors/<type>/defaults/reset replaces the
-// connector's settings with the administrator's Default connectors and saves
-// the way Save does; the response is the re-rendered panel.
-async function resetConnectorToDefaults(root, button) {
-  const connectorType = root?.dataset?.connectorType || "";
-  if (!connectorType) return;
-  const label = root?.dataset?.connectorLabel || "this connector";
-  const confirmed = await showConfirm({
-    title: `Reset ${label} to the administrator's defaults?`,
-    message: `Your ${label} settings, credentials included, are replaced by your administrator's Default connectors and saved. Idle assistants restart to pick it up; a busy one asks you to restart it when you are ready.`,
-    confirmText: "Reset",
-    danger: true,
+// ===== system default (settings connectors) =====
+// A connector that follows the administrator's Default connectors (panel root
+// data-connector-mode="system") shows their values read-only: the Test
+// buttons still run on them, nothing is posted by Save (there is none), and
+// editing starts with the Customize button (panel.html, web.py
+// app_connector_mode), which the page posts declaratively through htmx.
+function applySystemDefaultReadOnly(root) {
+  const form = root.querySelector("form");
+  if (!form) return;
+  form.querySelectorAll("input:not([type=hidden]), select, textarea").forEach((field) => {
+    field.disabled = true;
   });
-  if (!confirmed) return;
-  const idleText = button ? button.textContent : "";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Resetting…";
-  }
-  try {
-    // htmx.ajax resolves even when the server answers with an error and
-    // swaps nothing, so the swap is checked, not assumed; the one swap
-    // decision made while this call runs says which status came back.
-    let errorStatus = 0;
-    const onBeforeSwap = (event) => {
-      if (event?.detail && event.detail.shouldSwap === false) errorStatus = Number(event.detail.xhr?.status) || 0;
-    };
-    document.body.addEventListener("htmx:beforeSwap", onBeforeSwap);
-    try {
-      // The response is the re-rendered panel (status text starting "Reset")
-      // and carries HX-Trigger: connectorsChanged, which htmx fires for the
-      // Connectors list and the assistants' restart markers.
-      await htmx.ajax("POST", `/app/connectors/${encodeURIComponent(connectorType)}/defaults/reset`, {
-        target: "#workspace-detail-content",
-        swap: "innerHTML",
-      });
-    } finally {
-      document.body.removeEventListener("htmx:beforeSwap", onBeforeSwap);
-    }
-    if (root.isConnected) {
-      throw new Error(errorStatus
-        ? `the server answered HTTP ${errorStatus}. Reload the page and try again.`
-        : "the panel did not refresh. Reload the page and try again.");
-    }
-    initializeManagedSettingsPanels();
-    if (window.portalConnectors && typeof window.portalConnectors.initPanel === "function") {
-      window.portalConnectors.initPanel();
-    }
-    // The button that had focus is gone with the old panel: land on the
-    // status line of the new one, or on its own copy of the button.
-    const panel = document.getElementById("connector-settings-panel-root");
-    const target = panel?.querySelector("#settings-status") || panel?.querySelector("[data-reset-defaults-button]");
-    if (target && typeof target.focus === "function") target.focus();
-  } catch (err) {
-    showToast(`Could not reset ${label}: ${err?.message || err}`, { variant: "error" });
-  } finally {
-    if (button && root.isConnected) {
-      button.disabled = false;
-      button.textContent = idleText;
-    }
-  }
+  form.querySelectorAll('[data-action="add-instance"], .portal-instance-remove').forEach((el) => {
+    el.hidden = true;
+  });
 }
 
 function initializeManagedSettingsPanels() {
@@ -14418,11 +14365,13 @@ function renderConnectorList(errorMessage = "") {
     row.dataset.connectorType = connector.type;
     const connectorState = String(connector.state || (connector.enabled ? "connected" : "not_set_up"));
     const status = connector.status_label || (connector.enabled ? "Enabled" : "Not enabled");
+    // A settings connector that follows the administrator's Default connectors says so.
+    const modeNote = connector.mode === "system" ? '<span class="portal-connector-row-mode"> \u00b7 System default</span>' : "";
     row.innerHTML = `
       <span class="portal-connector-row-icon" aria-hidden="true"><i data-lucide="${escapeHtmlAttr(connector.icon || "plug")}" class="w-4 h-4"></i></span>
       <span class="portal-connector-row-text">
         <span class="portal-list-title">${safe(connector.label || connector.type)}</span>
-        <span class="portal-list-meta portal-connector-row-state is-${escapeHtmlAttr(connectorState)}">${safe(status)}</span>
+        <span class="portal-list-meta portal-connector-row-state is-${escapeHtmlAttr(connectorState)}">${safe(status)}${modeNote}</span>
       </span>
     `;
     row.addEventListener("click", async () => {

@@ -223,7 +223,7 @@ def _ensure_agent_profile_secrets(db: Session, agent) -> int | None:
             profile = RuntimeProfileRepository(db).get_by_id(agent.runtime_profile_id)
             if profile:
                 revision = profile.revision
-                runtime_profile_secret_service.sync_profile_secret(profile)
+                runtime_profile_secret_service.sync_profile_secret(profile, db)
     except Exception:
         logger.exception("failed to ensure runtime profile secret agent_id=%s", getattr(agent, "id", "-"))
     return revision

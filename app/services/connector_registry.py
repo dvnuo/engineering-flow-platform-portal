@@ -114,12 +114,12 @@ class ConnectorSpec:
     # things that are not settings (where BrowserStack recordings and test
     # runs happen).
     panel_extra_template: str = ""
-    # KIND_SETTINGS only: whether the panel offers "Reset to defaults", which
-    # replaces this connector's sections of the member's row with the admin's
-    # Default connectors seed (connector_defaults_service).
-    # The model provider is left out: its defaults are a provider/model
-    # choice and a personal authorization, not a shared shape.
-    admin_defaults: bool = False
+    # KIND_SETTINGS only: the sections of the member's row that the connector's
+    # mode governs (connector_defaults_service): in system mode they are read
+    # from the administrator's Default connectors, in custom mode from the
+    # row. Empty means the connector is always the member's own: the model
+    # provider (a personal authorization), and no local connector.
+    managed_sections: tuple[str, ...] = ()
 
     @property
     def is_settings(self) -> bool:
@@ -249,8 +249,10 @@ def _settings_connector(
     guidance_key: str | None = None,
     extra_guidance_keys: tuple[str, ...] = (),
     panel_extra_template: str = "",
-    admin_defaults: bool = True,
+    managed_sections: tuple[str, ...] | None = None,
 ) -> ConnectorSpec:
+    # By default the mode governs every section the connector owns.
+    sections = config_sections or (type,)
     return ConnectorSpec(
         type=type,
         label=label,
@@ -260,13 +262,13 @@ def _settings_connector(
         panel_template=f"partials/connectors/{type}.html",
         guidance_key=guidance_key or type,
         icon=icon,
-        config_sections=config_sections or (type,),
+        config_sections=sections,
         form_sections=form_sections or (type,),
         test_targets=test_targets,
         extra_guidance_keys=extra_guidance_keys,
         state_of=state_of,
         panel_extra_template=panel_extra_template,
-        admin_defaults=admin_defaults,
+        managed_sections=sections if managed_sections is None else managed_sections,
     )
 
 
@@ -279,7 +281,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         icon="sparkles",
         state_of=_llm_state,
         test_targets=("llm",),
-        admin_defaults=False,
+        managed_sections=(),
     ),
     _settings_connector(
         "jira",
@@ -308,6 +310,8 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         state_of=_github_state,
         config_sections=("github", "git"),
         form_sections=("github", "git"),
+        # The commit identity is the member's name, never a shared default.
+        managed_sections=("github",),
         test_targets=("github",),
         extra_guidance_keys=("git",),
     ),

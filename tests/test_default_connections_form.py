@@ -11,6 +11,7 @@ arrives empty for the member to complete. The tests below hold that line: a
 blank credential must not reach the stored value as "", or "nobody seeded one"
 and "somebody seeded an empty one" would look the same.
 """
+import json
 import re
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from starlette.datastructures import FormData
 
 from app.contracts.llm_catalog import DEFAULT_CONTEXT_SIZE, DEFAULT_REASONING_EFFORT
 from app.db import Base
+from app.models import User
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
 from app.services.runtime_profile_service import RuntimeProfileService
@@ -451,22 +453,34 @@ def test_the_form_output_survives_the_seed_service():
 # ------------------------------------------------------------- what members get
 
 
-def test_a_new_member_inherits_the_seeded_credentials():
-    # The whole point of seeding a shared account: the member's first profile
-    # already has it, so there is nothing left for them to paste in.
+def test_a_new_member_gets_the_seeded_credentials_by_following_the_defaults():
+    # The whole point of seeding a shared account: the member's settings
+    # already carry it, so there is nothing left for them to paste in. The
+    # row itself stays empty for Jira; the value is read from the Default
+    # connectors, so a later rotation reaches the member too.
     db = _database()
     RuntimeProfileSeedService(db).save_seed(
         {
             "jira": {
                 "enabled": True,
                 "instances": [{"name": "Prod", "url": "https://x.atlassian.net", "token": "shared-token"}],
-            }
+            },
+            "llm": {"api_key": "shared-key"},
         }
     )
+    service = RuntimeProfileService(db)
 
-    config_json = RuntimeProfileService(db)._seeded_default_config_json()
+    row_json = service._seeded_default_config_json()
+    assert "shared-token" not in row_json
+    # The model provider is always the member's own, so its shared key is copied.
+    assert "shared-key" in row_json
 
-    assert "shared-token" in config_json
+    user = User(username="newbie", password_hash="test", role="user", is_active=True)
+    db.add(user)
+    db.commit()
+    effective = service.effective_config_for(service.get_or_create_for_user(user))
+    assert effective["jira"]["instances"][0]["token"] == "shared-token"
+    assert effective["llm"]["api_key"] == "shared-key"
 
 
 def test_a_seed_without_credentials_still_leaves_them_to_the_member():
@@ -474,8 +488,12 @@ def test_a_seed_without_credentials_still_leaves_them_to_the_member():
     RuntimeProfileSeedService(db).save_seed(
         {"jira": {"enabled": True, "instances": [{"name": "Prod", "url": "https://x.atlassian.net"}]}}
     )
+    service = RuntimeProfileService(db)
+    user = User(username="newbie", password_hash="test", role="user", is_active=True)
+    db.add(user)
+    db.commit()
 
-    config_json = RuntimeProfileService(db)._seeded_default_config_json()
+    config_json = json.dumps(service.effective_config_for(service.get_or_create_for_user(user)))
 
     for field in SENSITIVE_FIELD_NAMES:
         assert f'"{field}"' not in config_json, field

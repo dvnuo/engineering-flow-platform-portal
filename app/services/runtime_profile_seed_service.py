@@ -12,14 +12,14 @@ Nothing is required. A seed with no credentials behaves exactly as before, so
 leaving every secret field empty keeps the platform out of the business of
 holding anyone's account.
 
-Where a seeded credential ends up: ``RuntimeProfileService`` copies the seed
-into the member's first profile, from which it reaches the runtime through the
-``efp-profile-*`` Secret with its sensitive values encrypted
-(``profile_secret_encryption``). The member owns that copy and can overwrite it
-with their own credential at any time; later edits to the seed do not reach
-profiles that already exist on their own -- a member resets a connector to
-the seed from its panel's "Reset to defaults" button
-(``connector_defaults_service``).
+Where a seeded credential ends up: a member's connectors in ``system`` mode
+(``connector_defaults_service``) read the seed wherever the row is used, so
+the credential reaches the runtime through the ``efp-profile-*`` Secret with
+its sensitive values encrypted (``profile_secret_encryption``) and follows
+later edits to the seed; saving the seed rolls those out in the background
+(``connector_defaults_sync``). A member who customized a connector keeps
+their own values for it. The model provider's section is the one copied
+into a member's first row, since it is always the member's own.
 """
 from __future__ import annotations
 

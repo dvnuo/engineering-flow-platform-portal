@@ -97,6 +97,9 @@ def on_startup() -> None:
         # canonicalize now coerces provider/model to GitHub Copilot, and this
         # rewrites existing rows so the UI and stored config stay consistent.
         runtime_profile_service.sanitize_all_persisted_runtime_profiles()
+        # Rows from before connector modes existed: follow the Default
+        # connectors where their values still equal them, custom elsewhere.
+        runtime_profile_service.backfill_connector_modes()
     finally:
         db.close()
 

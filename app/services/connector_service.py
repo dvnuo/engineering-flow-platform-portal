@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_connector_repo import UserConnectorRepository
+from app.services.connector_defaults_service import connector_mode
 from app.services.connector_registry import (
     KIND_LOCAL,
     LOCAL_BRIDGE_PLATFORMS,
@@ -88,15 +89,19 @@ def _local_entry(spec: ConnectorSpec, row) -> dict[str, Any]:
     }
 
 
-def settings_entry(spec: ConnectorSpec, member_config: Mapping[str, Any] | None) -> dict[str, Any]:
-    """List entry of a settings connector, read from the member's settings.
+def settings_entry(
+    spec: ConnectorSpec, member_config: Mapping[str, Any] | None, mode: str | None = None
+) -> dict[str, Any]:
+    """List entry of a settings connector, read from the member's effective settings.
 
     Values stay out: the entry says what state the connector is in, never what
-    it holds.
+    it holds. ``mode`` is ``system`` (follows the administrator's Default
+    connectors) or ``custom`` (the member's own values).
     """
 
     state = spec.state_of(member_config or {})
     return {
+        "mode": mode,
         "type": spec.type,
         "label": spec.label,
         "kind": spec.kind,
@@ -113,13 +118,17 @@ def settings_entry(spec: ConnectorSpec, member_config: Mapping[str, Any] | None)
 
 
 def member_settings(db: Session, user) -> dict[str, Any]:
-    """The member's stored settings (creating the row from the seed on first use)."""
+    """The member's effective settings (creating the row on first use)."""
 
-    from app.schemas.runtime_profile import parse_runtime_profile_config_json
+    return _member_settings_and_modes(db, user)[0]
+
+
+def _member_settings_and_modes(db: Session, user) -> tuple[dict[str, Any], dict[str, str]]:
     from app.services.runtime_profile_service import RuntimeProfileService
 
-    profile = RuntimeProfileService(db).get_or_create_for_user(user)
-    return parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+    service = RuntimeProfileService(db)
+    profile = service.get_or_create_for_user(user)
+    return service.effective_config_for(profile), service.connector_modes(profile)
 
 
 def local_connectors_enabled() -> bool:
@@ -129,9 +138,11 @@ def local_connectors_enabled() -> bool:
 def list_for_user(db: Session, user) -> list[dict[str, Any]]:
     specs = list_connector_specs(include_local=local_connectors_enabled())
     rows = {row.connector_type: row for row in UserConnectorRepository(db).list_by_owner(user.id)}
-    member_config = member_settings(db, user) if any(spec.is_settings for spec in specs) else {}
+    member_config, modes = _member_settings_and_modes(db, user) if any(spec.is_settings for spec in specs) else ({}, {})
     return [
-        settings_entry(spec, member_config) if spec.is_settings else _local_entry(spec, rows.get(spec.type))
+        settings_entry(spec, member_config, connector_mode(spec, modes))
+        if spec.is_settings
+        else _local_entry(spec, rows.get(spec.type))
         for spec in specs
     ]
 
@@ -141,7 +152,8 @@ def get_for_user(db: Session, user, connector_type: str) -> dict[str, Any]:
 
     spec = get_connector_spec(connector_type)
     if spec.is_settings:
-        return settings_entry(spec, member_settings(db, user))
+        member_config, modes = _member_settings_and_modes(db, user)
+        return settings_entry(spec, member_config, connector_mode(spec, modes))
     if not local_connectors_enabled():
         raise KeyError(connector_type)
     row = UserConnectorRepository(db).get(user.id, spec.type)

@@ -170,13 +170,31 @@
   window.showAlert = function (opts) { return openDialog(Object.assign({ kind: "alert" }, opts || {})); };
 
   // Route htmx's hx-confirm through the styled dialog instead of window.confirm.
+  // The element may name the dialog's title, its confirm button and whether
+  // the action is destructive (data-confirm-title / data-confirm-ok /
+  // data-confirm-danger="1"); otherwise the question alone decides.
   document.addEventListener("htmx:confirm", function (evt) {
     var question = evt.detail && evt.detail.question;
     if (!question) return; // element has no hx-confirm; let htmx proceed normally
     evt.preventDefault();
-    var danger = /delete|remove|restart|interrupt|discard|revoke/i.test(question);
-    window.showConfirm({ message: question, danger: danger }).then(function (ok) {
+    var data = (evt.detail.elt && evt.detail.elt.dataset) || {};
+    var danger = data.confirmDanger === "1" || /delete|remove|restart|interrupt|discard|revoke/i.test(question);
+    window.showConfirm({
+      title: data.confirmTitle || "",
+      message: question,
+      confirmText: data.confirmOk || "",
+      danger: danger,
+    }).then(function (ok) {
       if (ok) evt.detail.issueRequest(true);
     });
+  });
+
+  // A request htmx made that came back with an error status swaps nothing
+  // and would otherwise fail without a word: say so.
+  document.addEventListener("htmx:responseError", function (evt) {
+    if (typeof window.showToast !== "function") return;
+    var xhr = evt.detail && evt.detail.xhr;
+    var status = xhr && xhr.status ? " (HTTP " + xhr.status + ")" : "";
+    window.showToast("The request failed" + status + ". Reload the page and try again.", { variant: "error" });
   });
 })();

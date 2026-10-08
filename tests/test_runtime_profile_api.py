@@ -76,7 +76,7 @@ def test_get_returns_the_callers_own_row_and_creates_it_once(monkeypatch):
         assert first.status_code == 200
         body = first.json()
         assert body["owner_user_id"] == env.u1.id
-        assert set(body) == {"id", "owner_user_id", "config_json", "revision", "created_at", "updated_at"}
+        assert set(body) == {"id", "owner_user_id", "config_json", "connector_modes", "revision", "created_at", "updated_at"}
 
         again = env.client.get("/api/runtime-profile").json()
         assert again["id"] == body["id"]
@@ -256,9 +256,11 @@ def test_first_row_carries_the_shared_default_connections_credentials(monkeypatc
         created = env.client.get("/api/runtime-profile")
         assert created.status_code == 200
 
-        # The response redacts the token, so assert against what was persisted.
+        # Jira follows the Default connectors: the row holds no copy, the
+        # settings the member gets carry the shared token anyway.
         stored = env.db.get(RuntimeProfile, created.json()["id"])
-        assert json.loads(stored.config_json)["jira"]["instances"][0]["token"] == "shared-token"
+        assert "jira" not in json.loads(stored.config_json)
+        assert created.json()["connector_modes"]["jira"] == "system"
 
         # And the response says a token is set without disclosing it.
         instance = json.loads(created.json()["config_json"])["jira"]["instances"][0]

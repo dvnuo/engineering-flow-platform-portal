@@ -12,6 +12,7 @@ REQUIRED_AGENT_COLUMNS = (
 REQUIRED_RUNTIME_PROFILE_COLUMNS = (
     "owner_user_id",
     "is_default",
+    "connector_modes_json",
 )
 REQUIRED_PORTAL_TABLES = (
     "alembic_version",
