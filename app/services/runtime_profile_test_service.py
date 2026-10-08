@@ -1,12 +1,19 @@
 import asyncio
 import base64
 import socket
-from urllib.parse import urlparse
+import ssl
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
-from app.schemas.runtime_profile import PGSQL_DEFAULT_PORT
+from app.schemas.runtime_profile import PGSQL_DEFAULT_PORT, PGSQL_PROXY_NONE
 from app.services.ai_platform_config import materialize_ai_platform_llm_config
+
+# The native runtime's default NO_PROXY (src/utils/proxy.py DEFAULT_NO_PROXY),
+# applied when the Proxy connector names none: in-cluster names, loopback and
+# the metadata endpoint never go through the proxy.
+PGSQL_DEFAULT_NO_PROXY = "localhost,127.0.0.1,169.254.169.254,.svc.cluster.local"
+PGSQL_PROBE_TIMEOUT_SECONDS = 5
 
 
 class RuntimeProfileTestService:
@@ -159,9 +166,12 @@ class RuntimeProfileTestService:
         return True, f"Splunk connection OK for {name} as {who or username or 'token user'}."
 
     async def _test_pgsql(self, config: dict) -> tuple[bool, str]:
-        """Reachability only: the Portal often cannot see the database at all,
-        and the credentials are exercised where they are used, inside the
-        runtime, by `pgsql auth test`."""
+        """Reachability only, along the path the pgsql CLI takes inside the
+        runtime: a CONNECT tunnel through the Proxy connector's proxy unless
+        its NO_PROXY, or the row's own proxy setting, says direct. The Portal
+        often cannot resolve the database itself (that is what the proxy is
+        for), so a direct probe would say nothing about the runtime. The
+        credentials are exercised where they are used, by `pgsql auth test`."""
         pgsql_cfg = config.get("pgsql") if isinstance(config.get("pgsql"), dict) else {}
         if not bool(pgsql_cfg.get("enabled")):
             return False, "PostgreSQL test requires pgsql.enabled=true."
@@ -174,15 +184,97 @@ class RuntimeProfileTestService:
         except (TypeError, ValueError):
             port = PGSQL_DEFAULT_PORT
         name = self._instance_label(instance, host)
+        proxy_cfg = config.get("proxy") if isinstance(config.get("proxy"), dict) else {}
+        proxy_url, source = self._pgsql_egress(host, instance, proxy_cfg)
+        path = self._pgsql_path_text(proxy_url, source)
         try:
-            await asyncio.to_thread(self._tcp_connect, host, port)
+            if proxy_url:
+                await asyncio.to_thread(self._tcp_connect_via_proxy, proxy_url, host, port)
+            else:
+                await asyncio.to_thread(self._tcp_connect, host, port)
         except OSError as exc:
-            return False, f"PostgreSQL connection failed for {name} at {host}:{port}: {exc}"
+            return False, f"PostgreSQL connection failed for {name} at {host}:{port}{path}: {exc}"
         return (
             True,
-            f"PostgreSQL TCP reachability OK for {name}: {host}:{port}. "
+            f"PostgreSQL TCP reachability OK for {name}: {host}:{port}{path}. "
             "Credentials are verified inside the runtime by `pgsql auth test`.",
         )
+
+    @classmethod
+    def _pgsql_egress(cls, host: str, instance: dict, proxy_cfg: dict) -> tuple[str | None, str]:
+        """Where the pgsql CLI's connection to host leaves the runtime.
+
+        Returns (proxy URL or None for direct, why): the row's own proxy
+        setting first (``none`` forces direct, a URL names a proxy for this
+        database), else the Proxy connector when it is on and names a URL and
+        its NO_PROXY does not exempt the host. Mirrors internal/tunnel.Resolve
+        in the tools repo, with the connector standing in for HTTPS_PROXY.
+        """
+        setting = str(instance.get("proxy") or "").strip()
+        if setting.lower() in {PGSQL_PROXY_NONE, "direct", "off"}:
+            return None, "instance_none"
+        if setting:
+            return (setting if "://" in setting else f"http://{setting}"), "instance"
+        url = str(proxy_cfg.get("url") or "").strip()
+        if not bool(proxy_cfg.get("enabled")) or not url:
+            return None, "connector_off"
+        if cls._no_proxy_exempts(host, proxy_cfg.get("no_proxy")):
+            return None, "no_proxy"
+        return cls._proxy_url_with_credentials(url, proxy_cfg.get("username"), proxy_cfg.get("password")), "connector"
+
+    @staticmethod
+    def _proxy_url_with_credentials(url: str, username, password) -> str:
+        """The connector's credentials go into the URL the way the runtime
+        exports them (src/utils/proxy.py), so one parser serves both."""
+        parsed = urlparse(url)
+        if not (username and password) or parsed.username is not None:
+            return url
+        hostport = parsed.netloc.rsplit("@", 1)[-1]
+        netloc = f"{quote(str(username), safe='')}:{quote(str(password), safe='')}@{hostport}"
+        return parsed._replace(netloc=netloc).geturl()
+
+    @staticmethod
+    def _no_proxy_exempts(host: str, no_proxy) -> bool:
+        """Whether NO_PROXY keeps host off the proxy, with the runtime's default
+        list when the connector sets none and the patterns the tools' HTTP
+        clients honour: ``*``, ``.suffix``, ``*.suffix``, exact host."""
+        host = str(host or "").strip().lower().strip("[]")
+        if host in {"localhost", "127.0.0.1", "::1"}:
+            return True
+        raw = str(no_proxy or "").strip() or PGSQL_DEFAULT_NO_PROXY
+        for entry in raw.split(","):
+            pattern = entry.strip().lower()
+            for prefix in ("http://", "https://"):
+                pattern = pattern.removeprefix(prefix)
+            if ":" in pattern and not pattern.startswith("["):
+                pattern = pattern.rsplit(":", 1)[0]
+            if not pattern:
+                continue
+            if pattern == "*":
+                return True
+            if pattern.startswith("*."):
+                if host.endswith(pattern[1:]):
+                    return True
+            elif pattern.startswith("."):
+                if host == pattern[1:] or host.endswith(pattern):
+                    return True
+            elif host == pattern:
+                return True
+        return False
+
+    @staticmethod
+    def _pgsql_path_text(proxy_url: str | None, source: str) -> str:
+        """How the probe went, for the message; never the proxy credentials."""
+        if proxy_url:
+            parsed = urlparse(proxy_url)
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            origin = "the Proxy connector" if source == "connector" else "the instance proxy"
+            return f" through the proxy at {parsed.hostname}:{port} ({origin})"
+        if source == "no_proxy":
+            return " (direct: NO_PROXY of the Proxy connector exempts this host)"
+        if source == "instance_none":
+            return " (direct: the instance proxy is none)"
+        return ""
 
     @staticmethod
     def _tcp_connect(host: str, port: int) -> None:
@@ -193,8 +285,51 @@ class RuntimeProfileTestService:
         the event loop, that stalls every request the Portal is serving, and an
         unreachable database is the common case here, not the exception.
         """
-        with socket.create_connection((host, port), timeout=5):
+        with socket.create_connection((host, port), timeout=PGSQL_PROBE_TIMEOUT_SECONDS):
             pass
+
+    @staticmethod
+    def _tcp_connect_via_proxy(proxy_url: str, host: str, port: int) -> None:
+        """Ask the proxy for a CONNECT tunnel to host:port, in a worker thread.
+
+        The host name goes to the proxy unresolved, as the pgsql CLI sends it,
+        so a name only the proxy can resolve is still checked. Anything but a
+        200 is a refusal and is reported with the proxy's answer; the proxy's
+        credentials go into Proxy-Authorization and never into an error.
+        """
+        parsed = urlparse(proxy_url)
+        scheme = (parsed.scheme or "http").lower()
+        proxy_host = parsed.hostname or ""
+        if scheme not in {"http", "https"} or not proxy_host:
+            raise OSError(f"the proxy must be an http:// or https:// URL with a host, not {scheme}://")
+        proxy_port = parsed.port or (443 if scheme == "https" else 80)
+        target = f"{host}:{port}"
+        sock = socket.create_connection((proxy_host, proxy_port), timeout=PGSQL_PROBE_TIMEOUT_SECONDS)
+        try:
+            sock.settimeout(PGSQL_PROBE_TIMEOUT_SECONDS)
+            if scheme == "https":
+                sock = ssl.create_default_context().wrap_socket(sock, server_hostname=proxy_host)
+            request = f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n"
+            username, password = unquote(parsed.username or ""), unquote(parsed.password or "")
+            if username or password:
+                token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+                request += f"Proxy-Authorization: Basic {token}\r\n"
+            request += "\r\n"
+            sock.sendall(request.encode("utf-8"))
+            head = b""
+            while b"\r\n\r\n" not in head and len(head) < 8192:
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                head += chunk
+        finally:
+            sock.close()
+        status_line = head.split(b"\r\n", 1)[0].decode("latin-1", "replace").strip()
+        parts = status_line.split(" ", 2)
+        if len(parts) < 2 or not parts[0].startswith("HTTP/"):
+            raise OSError(f"proxy {proxy_host}:{proxy_port} gave no HTTP answer to CONNECT {target}")
+        if parts[1] != "200":
+            raise OSError(f"proxy {proxy_host}:{proxy_port} answered CONNECT {target} with {status_line.split(' ', 1)[1]}")
 
     async def _test_proxy(self, config: dict) -> tuple[bool, str]:
         proxy_cfg = config.get("proxy") if isinstance(config.get("proxy"), dict) else {}

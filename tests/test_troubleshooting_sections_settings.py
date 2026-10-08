@@ -39,6 +39,7 @@ from app.schemas.runtime_profile import (
     sanitize_runtime_profile_config_dict,
     sanitize_runtime_profile_nexus,
     sanitize_runtime_profile_pgsql,
+    sanitize_runtime_profile_pgsql_proxy,
     sanitize_runtime_profile_splunk,
 )
 from app.services.connection_guidance import CONNECTION_GUIDANCE
@@ -100,6 +101,7 @@ CANONICAL = {
                 "username": "efp_readonly",
                 "password": "pg-pass",
                 "sslmode": "require",
+                "proxy": "http://proxy.example.test:3128",
                 "enabled": True,
             }
         ],
@@ -402,6 +404,7 @@ def _pgsql_form(**overrides):
         "pgsql_instances_0_username": "efp_readonly",
         "pgsql_instances_0_password": "pg-pass",
         "pgsql_instances_0_sslmode": "require",
+        "pgsql_instances_0_proxy": "http://proxy.example.test:3128",
     }
     form.update(overrides)
     return form
@@ -847,6 +850,7 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
                 # string, the same as port or sslmode would.
                 "statement_timeout_seconds": "",
                 "max_rows": "",
+                "proxy": "",
             }
         ],
     }
@@ -1094,3 +1098,74 @@ def test_tooltips_cover_the_new_inputs_and_beat_the_generic_instance_hints():
     assert selectors.index('[data-instance-item="pgsql"] [data-field="password"]') < generic_password
     scoped_name = next(i for i, selector in enumerate(selectors) if '[data-instance-item="pgsql"] [data-field="name"]' in selector)
     assert scoped_name < generic_name
+
+
+# --------------------------------------------------------------------------
+# pgsql proxy: the row's own egress setting
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("none", "none"),
+        (" Direct ", "none"),
+        ("off", "none"),
+        ("http://proxy.example.test:3128", "http://proxy.example.test:3128"),
+        ("https://proxy.example.test", "https://proxy.example.test"),
+        ("proxy.example.test:3128", "http://proxy.example.test:3128"),
+        ("HTTP://Proxy.Example.test:3128/", "http://proxy.example.test:3128"),
+    ],
+)
+def test_a_pgsql_proxy_is_normalized_to_what_the_cli_reads(value, expected):
+    # The pgsql CLI accepts none, an http(s) URL, or a bare host:port as an
+    # http proxy; the sanitizer stores the form the CLI will print back.
+    assert sanitize_runtime_profile_pgsql_proxy(value) == expected
+    section = sanitize_runtime_profile_pgsql(
+        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "proxy": value}]}
+    )
+    assert section["instances"][0]["proxy"] == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        None,
+        True,
+        3,
+        "socks5://proxy.example.test:1080",
+        "ftp://proxy.example.test",
+        "http://",
+        "http://proxy.example.test:0",
+        "http://proxy.example.test:70000",
+        "http://svc:pw@proxy.example.test:3128",
+        "http://proxy.example.test:3128/path",
+    ],
+)
+def test_an_unusable_pgsql_proxy_is_dropped_so_the_cli_follows_the_environment(value):
+    # Credentials are refused on purpose: the row is stored in the clear, and
+    # the Proxy connector already carries them to the runtime.
+    assert sanitize_runtime_profile_pgsql_proxy(value) is None
+    section = sanitize_runtime_profile_pgsql(
+        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "proxy": value}]}
+    )
+    assert "proxy" not in section["instances"][0]
+
+
+def test_settings_form_keeps_a_pgsql_proxy_and_rejects_one_the_cli_cannot_use():
+    merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_proxy="none"))
+    assert error is None
+    assert merged["pgsql"]["instances"][0]["proxy"] == "none"
+
+    merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_proxy=""))
+    assert error is None
+    assert "proxy" not in merged["pgsql"]["instances"][0]
+
+    for bad in ("socks5://proxy.example.test:1080", "http://svc:pw@proxy.example.test:3128"):
+        merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_proxy=bad))
+        assert error == (
+            "PostgreSQL instance orders-uat needs a proxy of none or an http(s)://host:port URL "
+            "without credentials; proxy credentials belong in the Proxy connector."
+        ), bad
+        assert "pgsql" not in merged

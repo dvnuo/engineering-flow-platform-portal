@@ -31,13 +31,20 @@ want, and name them so the difference is obvious.
   verify, in which case `verify-ca` or `verify-full` is safer. `prefer` is
   for databases that do not offer TLS at all.
 - **Name** is how the assistant addresses this instance with `--instance`.
+- **Proxy** is how the connection leaves the runtime. Blank follows the Proxy
+  connector the way every other tool does: through its proxy unless its
+  `NO_PROXY` exempts the host. Enter `none` for a database the runtime
+  reaches directly, or an `http://host:port` proxy for this database alone.
+  Proxy credentials go in the Proxy connector, not here.
 
 ## Testing the connection
 
-Test connection here only checks that the host and port answer from the
-Portal; the sign-in itself is checked inside the runtime with
-`pgsql auth test`, because the database is often reachable from the cluster
-but not from the Portal.
+Test connection checks that the host and port answer, taking the path the
+runtime would take: through the Proxy connector's proxy unless `NO_PROXY`
+or the row's **Proxy** says otherwise, so a host the Portal cannot resolve
+itself is still checked. The sign-in is verified inside the runtime with
+`pgsql auth test`. A `Name or service not known` on a direct connection
+means the proxy was not used: check the Proxy connector and its `NO_PROXY`.
 
 ## If it stops working
 
