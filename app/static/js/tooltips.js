@@ -142,9 +142,13 @@
 
     // --- connector: proxy ---
     ['input[name="proxy_enabled"]', "Route the assistant's outbound traffic through a proxy"],
-    ['input[name="proxy_url"]', "Proxy address including the port, for example http://proxy.example.com:8080"],
-    ['input[name="proxy_username"]', "Only needed if the proxy requires authentication"],
-    ['input[name="proxy_password"]', "Only needed if the proxy requires authentication"],
+    ['[data-instance-item="proxy"] input[data-field="name"]', "What the dropdowns below call this proxy: letters, digits, - and _"],
+    ['[data-instance-item="proxy"] input[data-field="url"]', "Proxy address including the port, for example http://proxy.example.com:8080"],
+    ['[data-instance-item="proxy"] input[data-field="username"]', "Only needed if the proxy requires authentication"],
+    ['[data-instance-item="proxy"] input[data-field="password"]', "Only needed if the proxy requires authentication"],
+    ['[data-instance-item="proxy"] input[data-field="no_proxy"]', "Hosts this proxy must not be used for, comma separated; a leading dot covers subdomains"],
+    ['select[data-proxy-default]', "The proxy the assistant's environment gets; tools that only read the environment always use it"],
+    ['select[data-proxy-assign]', "Which proxy this connector goes through: the default, none (direct), or one by name"],
     ['[data-test-target="proxy"]', "Check that the proxy is reachable with these settings"],
 
     // --- connector: model provider ---

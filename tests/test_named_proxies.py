@@ -100,7 +100,9 @@ def test_sanitizer_upgrades_the_flat_shape_to_one_proxy_named_default():
         ("https://u:p@proxy.example.test", "https://u:p@proxy.example.test"),
         ("http://proxy.example.test:3128/path?x=1", "http://proxy.example.test:3128"),
         ("http://proxy.example.test:0", None),
+        ("http://proxy.example.test:70000", None),
         ("ftp://proxy.example.test", None),
+        ("bad url with spaces", None),
         ("", None),
     ],
 )
@@ -123,6 +125,12 @@ def test_public_redaction_hides_every_proxy_password():
     assert entries[0] == {"name": "a", "url": "http://a.example.test:1", "password_present": True}
     assert entries[1] == {"name": "b", "url": "http://b.example.test:1", "password_present": False}
     assert "pw" not in str(redacted)
+    # The top-level flag keeps meaning what it meant for the single proxy: the default one's password.
+    assert redacted["proxy"]["password_present"] is True
+    other_default = redact_runtime_profile_config_for_public_response(
+        {"proxy": list_section(default="b", proxies=[{"name": "a", "url": "http://a.example.test:1", "password": "pw"}, {"name": "b", "url": "http://b.example.test:1"}])}
+    )
+    assert other_default["proxy"]["password_present"] is False
 
 
 def test_whole_config_sanitizer_runs_the_proxy_upgrade():
@@ -232,6 +240,8 @@ def test_member_save_refuses_a_card_it_could_not_keep(monkeypatch):
         assert "listed more than once" in duplicate.text
         ghost = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_assign_llm="ghost").multi_items()))
         assert "Model provider is set to use the proxy ghost" in ghost.text
+        ghost_default = env.client.post("/app/connectors/proxy/save", data=dict(_cards_form(proxy_default="ghost").multi_items()))
+        assert "The default proxy ghost is not among the proxies above." in ghost_default.text
         # Nothing of that was stored.
         assert _saved(env.db, rp)["proxy"]["default"] == "corp-a"
     finally:
@@ -290,9 +300,81 @@ def test_admin_form_reads_the_cards_and_the_table():
     errors: list[str] = []
     _seed_config_from_form(_cards_form(proxy_instances_1_url="socks5://x:1"), errors)
     assert errors == ["Proxy corp-b needs an http:// or https:// URL such as http://proxy.example.com:3128."]
-    # The single-URL form still reads as it did.
+    # The single-URL form still reads: as the one proxy named "default".
     legacy = _seed_config_from_form(_form({"proxy_enabled": "on", "proxy_url": "http://p:8080", "proxy_password": "p"}))
-    assert legacy["proxy"] == {"enabled": True, "url": "http://p:8080", "password": "p"}
+    assert legacy["proxy"] == {"enabled": True, "proxies": [{"name": "default", "url": "http://p:8080", "password": "p"}], "default": "default"}
+
+
+def test_admin_error_rerender_keeps_the_posted_cards():
+    from app.web import _proxy_view, _seed_config_from_form
+
+    errors: list[str] = []
+    seed = _seed_config_from_form(_cards_form(proxy_instances_1_url="socks5://x:1", proxy_assign_llm="corp-b"), errors)
+    assert errors == ["Proxy corp-b needs an http:// or https:// URL such as http://proxy.example.com:3128."]
+    # The section carries the cards, the default and the table as posted, bad card included...
+    view = _proxy_view(seed["proxy"], as_posted=True)
+    assert [entry["name"] for entry in view["proxy_entries"]] == ["corp-a", "corp-b"]
+    assert view["proxy_entries"][1]["url"] == "socks5://x:1"
+    assert view["proxy_default"] == "corp-b"
+    assert view["proxy_assignments"] == {"llm": "corp-b", "pgsql": "none"}
+    # ...and the panel re-rendered from it shows them, so the admin can fix the one field.
+    html = _panel_html_as_posted(seed)
+    assert html.count('data-instance-item="proxy"') == 2
+    assert 'value="socks5://x:1"' in html
+    assert '<option value="corp-b" selected>corp-b</option>' in html
+    # The sanitizer still drops the bad card when the section is read for real.
+    assert [entry["name"] for entry in _proxy_view(seed["proxy"])["proxy_entries"]] == ["corp-a"]
+
+    errors = []
+    seed = _seed_config_from_form(_cards_form(proxy_default="ghost"), errors)
+    assert errors == ["The default proxy ghost is not among the proxies above."]
+    assert 'value="ghost" selected>ghost (not listed above)' in _panel_html_as_posted(seed)
+
+
+def _panel_html_as_posted(seed: dict) -> str:
+    """The Default connectors panel the way a rejected save re-renders it: from the posted seed."""
+    from jinja2 import Environment, FileSystemLoader
+
+    from app.web import _default_connections_context
+    from tests.test_default_connections_form import _database
+
+    context = _default_connections_context(None, _database(), status_type="error", status_message="x", seed_override=seed)
+    env = Environment(loader=FileSystemLoader("app/templates"))
+    env.globals["copilot_enterprise_sso_url"] = lambda: ""
+    return env.get_template("partials/default_connections_panel.html").render(**context)
+
+
+def test_single_url_form_rewrites_the_default_proxy_of_the_stored_list(monkeypatch):
+    env = _build_env(monkeypatch)
+    try:
+        rp = _bind_profile(env.db, env.agent, {"proxy": list_section()})
+        # A page from before named proxies posts the one URL: it rewrites the
+        # default proxy, keeps its no_proxy, the other cards and the table; a
+        # password the form did not carry stays.
+        resp = env.client.post(
+            "/app/connectors/proxy/save",
+            data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": "http://new.example.test:2", "proxy_username": "nu"},
+        )
+        assert resp.status_code == 200 and "Saved." in resp.text
+        saved = _saved(env.db, rp)["proxy"]
+        assert saved["proxies"][0] == {"name": "corp-a", "url": "http://new.example.test:2", "username": "nu", "password": "pa", "no_proxy": "localhost,db.internal"}
+        assert saved["proxies"][1]["name"] == "corp-b" and saved["proxies"][1]["password"] == "pb"
+        assert saved["default"] == "corp-a"
+        assert saved["assignments"] == {"llm": "corp-b", "pgsql": "none"}
+        # A blank password posted clears it, as the cards do.
+        resp = env.client.post(
+            "/app/connectors/proxy/save",
+            data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": "http://new.example.test:2", "proxy_password": ""},
+        )
+        assert "Saved." in resp.text
+        assert "password" not in _saved(env.db, rp)["proxy"]["proxies"][0]
+        # A blank URL removes the default proxy; the next card becomes the default.
+        resp = env.client.post("/app/connectors/proxy/save", data={"__touch_proxy": "1", "proxy_enabled": "on", "proxy_url": ""})
+        assert "Saved." in resp.text
+        saved = _saved(env.db, rp)["proxy"]
+        assert [entry["name"] for entry in saved["proxies"]] == ["corp-b"] and saved["default"] == "corp-b"
+    finally:
+        env.cleanup()
 
 
 def test_admin_panel_renders_cards_and_the_table():

@@ -464,7 +464,7 @@ def sanitize_runtime_profile_proxy_url(value) -> str | None:
     fragment is dropped.
     """
     text = str(value or "").strip()
-    if not text:
+    if not text or any(char.isspace() for char in text):
         return None
     raw = text if "://" in text else f"http://{text}"
     try:
@@ -1301,11 +1301,20 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
             proxy["url"] = _strip_url_credentials(proxy["url"])
         entries = proxy.get("proxies")
         if isinstance(entries, list):
-            for entry in entries:
-                if isinstance(entry, dict):
-                    entry["password_present"] = bool(str(entry.pop("password", "")).strip())
-                    if isinstance(entry.get("url"), str):
-                        entry["url"] = _strip_url_credentials(entry["url"])
+            rows = [entry for entry in entries if isinstance(entry, dict)]
+            for entry in rows:
+                entry["password_present"] = bool(str(entry.pop("password", "")).strip())
+                if isinstance(entry.get("url"), str):
+                    entry["url"] = _strip_url_credentials(entry["url"])
+            # The top-level flag keeps meaning what it meant for the single
+            # proxy: whether the default one (the first, when the stored name
+            # is gone) has a password.
+            default_name = str(proxy.get("default") or "")
+            default_entry = next((entry for entry in rows if str(entry.get("name") or "") == default_name), None)
+            if default_entry is None and rows:
+                default_entry = rows[0]
+            if default_entry is not None and default_entry.get("password_present"):
+                proxy["password_present"] = True
     for section in ("jira", "confluence", "jenkins", *TROUBLESHOOTING_INSTANCE_SECTIONS):
         cfg = redacted.get(section)
         if not isinstance(cfg, dict):

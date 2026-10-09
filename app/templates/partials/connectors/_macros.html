@@ -74,6 +74,7 @@
   <select name="proxy_default" class="portal-form-select" data-proxy-default aria-label="Default proxy">
     {% if not entries %}<option value="" selected>No proxies yet</option>{% endif %}
     {% for entry in entries %}<option value="{{ entry.get('name', '') }}"{% if entry.get('name', '') == default %} selected{% endif %}>{{ entry.get('name', '') }}</option>{% endfor %}
+    {% if entries and default and default not in entries|map(attribute='name')|list %}<option value="{{ default }}" selected>{{ default }} (not listed above)</option>{% endif %}
   </select>
 </label>
 <p class="portal-panel-note">What the assistant's environment gets, and what every connector left on Default uses.</p>
@@ -95,6 +96,7 @@
       <option value=""{% if not row.current %} selected{% endif %}>Default</option>
       <option value="none"{% if row.current == 'none' %} selected{% endif %}>None (direct)</option>
       {% for entry in entries %}<option value="{{ entry.get('name', '') }}"{% if row.current == entry.get('name', '') %} selected{% endif %}>{{ entry.get('name', '') }}</option>{% endfor %}
+      {% if row.current and row.current != 'none' and row.current not in entries|map(attribute='name')|list %}<option value="{{ row.current }}" selected>{{ row.current }} (not listed above)</option>{% endif %}
     </select>
     {% endif %}
   </div>

@@ -65,6 +65,7 @@ from app.schemas.runtime_profile import (
     sanitize_runtime_profile_bounded_int,
     sanitize_runtime_profile_pgsql_proxy,
     PROXY_ASSIGNMENT_NONE,
+    PROXY_LEGACY_ENTRY_NAME,
     sanitize_runtime_profile_proxy,
     sanitize_runtime_profile_proxy_name,
     sanitize_runtime_profile_proxy_url,
@@ -1339,17 +1340,31 @@ PROXY_CARD_FIELDS = ["name", "url", "username", "password", "no_proxy"]
 PROXY_CARD_SECRET_FIELDS = frozenset({"password"})
 
 
-def _proxy_view(section) -> dict:
+def _proxy_view(section, *, as_posted: bool = False) -> dict:
     """What the Proxy connector's panels render: the proxies, the default, and
     the table of which proxy each connector uses (connector_registry
-    proxy_assignable_specs), from a section in any shape."""
+    proxy_assignable_specs), from a section in any shape.
+
+    ``as_posted`` renders a list-shaped section as it is, cards the sanitizer
+    would drop included: the error re-render of a rejected save shows the
+    admin what they typed.
+    """
     from app.services.connector_registry import proxy_assignable_specs
 
-    sanitized = sanitize_runtime_profile_proxy(section if isinstance(section, dict) else {})
-    assignments = sanitized.get("assignments") or {}
+    section = section if isinstance(section, dict) else {}
+    if as_posted and isinstance(section.get("proxies"), list):
+        entries = [dict(item) for item in section["proxies"] if isinstance(item, dict)]
+        default = str(section.get("default") or "")
+        raw_assignments = section.get("assignments") if isinstance(section.get("assignments"), dict) else {}
+        assignments = {str(key): str(value or "") for key, value in raw_assignments.items()}
+    else:
+        sanitized = sanitize_runtime_profile_proxy(section)
+        entries = sanitized.get("proxies") or []
+        default = sanitized.get("default") or ""
+        assignments = sanitized.get("assignments") or {}
     return {
-        "proxy_entries": sanitized.get("proxies") or [],
-        "proxy_default": sanitized.get("default") or "",
+        "proxy_entries": entries,
+        "proxy_default": default,
         "proxy_assignments": assignments,
         "proxy_connectors": [
             {
@@ -1397,17 +1412,41 @@ def _proxy_section_from_form(form, existing: dict, *, member: bool) -> tuple[dic
         return str(value or "").lower() in {"1", "true", "on", "yes"}
 
     existing = existing if isinstance(existing, dict) else {}
+    current = sanitize_runtime_profile_proxy(existing)
     section: dict = {"enabled": _bool(form.get("proxy_enabled"))}
     if "proxy_instance_count" not in form:
+        # The single URL rewrites the stored list's default proxy (named
+        # "default" when there is none yet) and keeps the other cards and the
+        # table. A field the form carries blank clears it; a field it does not
+        # carry keeps the stored value, as the cards do.
+        entries = [dict(item) for item in current.get("proxies") or []]
+        default_name = str(current.get("default") or "") or PROXY_LEGACY_ENTRY_NAME
+        position = next((index for index, item in enumerate(entries) if item.get("name") == default_name), None)
+        stored = entries[position] if position is not None else {}
+        entry: dict = {"name": default_name}
+        if stored.get("no_proxy"):
+            entry["no_proxy"] = stored["no_proxy"]
         for key in ("url", "username", "password"):
-            value = (form.get(f"proxy_{key}") or "").strip()
+            if f"proxy_{key}" in form:
+                value = (form.get(f"proxy_{key}") or "").strip()
+            else:
+                value = str(stored.get(key) or "")
             if value:
-                section[key] = value
-        if member and not section.get("password") and existing.get("password") and not _bool(form.get("proxy_password_clear")):
-            section["password"] = existing.get("password")
+                entry[key] = value
+        if entry.get("url"):
+            if position is not None:
+                entries[position] = entry
+            else:
+                entries.insert(0, entry)
+        elif position is not None:
+            del entries[position]
+        if entries:
+            section["proxies"] = entries
+            section["default"] = default_name if any(item.get("name") == default_name for item in entries) else entries[0]["name"]
+        if current.get("assignments"):
+            section["assignments"] = dict(current["assignments"])
         return section, None
 
-    current = sanitize_runtime_profile_proxy(existing)
     if member:
         rows = _settings_parse_instances(
             form,
@@ -1419,9 +1458,6 @@ def _proxy_section_from_form(form, existing: dict, *, member: bool) -> tuple[dic
         )
     else:
         rows = _seed_parse_instances(form, "proxy", PROXY_CARD_FIELDS)
-    error = _proxy_rows_error(rows)
-    if error:
-        return section, error
     entries: list[dict] = []
     for row in rows:
         entry: dict = {"name": str(row.get("name") or "").strip(), "url": str(row.get("url") or "").strip()}
@@ -1431,15 +1467,35 @@ def _proxy_section_from_form(form, existing: dict, *, member: bool) -> tuple[dic
                 entry[key] = value
         entries.append(entry)
     names = [entry["name"] for entry in entries]
+    default = (form.get("proxy_default") or "").strip()
+    posted_assignments = {
+        spec.type: (form.get(f"proxy_assign_{spec.type}") or "").strip()
+        for spec in proxy_assignable_specs()
+        if spec.proxy_choice == PROXY_CHOICE_SELECTABLE
+    }
+
+    def as_posted(message: str) -> tuple[dict, str]:
+        # The cards, the default and the table exactly as posted, so a
+        # rejected save can be re-rendered without discarding the edits.
+        posted = dict(section)
+        posted["proxies"] = entries
+        posted["default"] = default
+        posted["assignments"] = {key: value for key, value in posted_assignments.items() if value}
+        return posted, message
+
+    error = _proxy_rows_error(rows)
+    if error:
+        return as_posted(error)
     if entries:
+        if default and default not in names:
+            return as_posted(f"The default proxy {default} is not among the proxies above.")
         section["proxies"] = entries
-        default = (form.get("proxy_default") or "").strip()
-        section["default"] = default if default in names else names[0]
+        section["default"] = default or names[0]
     assignments: dict = {}
     for spec in proxy_assignable_specs():
         if spec.proxy_choice != PROXY_CHOICE_SELECTABLE:
             continue
-        value = (form.get(f"proxy_assign_{spec.type}") or "").strip()
+        value = posted_assignments[spec.type]
         if not value:
             continue
         if value.lower() == PROXY_ASSIGNMENT_NONE:
@@ -1447,7 +1503,7 @@ def _proxy_section_from_form(form, existing: dict, *, member: bool) -> tuple[dic
         elif value in names:
             assignments[spec.type] = value
         else:
-            return section, f"{spec.label} is set to use the proxy {value}, which is not among the proxies above."
+            return as_posted(f"{spec.label} is set to use the proxy {value}, which is not among the proxies above.")
     if assignments:
         section["assignments"] = assignments
     return section, None
@@ -2049,10 +2105,6 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
     config_payload = dict(config_payload) if isinstance(config_payload, dict) else {}
     config_payload.pop("ssh", None)
 
-    existing_proxy_password = None
-    if "proxy" in config_payload and isinstance(config_payload["proxy"], dict):
-        existing_proxy_password = config_payload["proxy"].get("password")
-
     jira_config = config_payload.get("jira")
     if isinstance(jira_config, dict):
         jira_instances = jira_config.get("instances", [])
@@ -2421,40 +2473,12 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             config_payload.pop("git", None)
 
     if is_section_touched("proxy"):
+        # The cards, or the single-URL form of before named proxies, which
+        # rewrites the default proxy of the stored list.
         existing_proxy = config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}
-        if "proxy_instance_count" in form:
-            proxy_cfg, proxy_error = _proxy_section_from_form(form, existing_proxy, member=True)
-            if proxy_error:
-                return config_payload, proxy_error
-        else:
-            # The single-URL form of before named proxies: field by field, a
-            # blank password keeping the stored one.
-            proxy_cfg = dict(existing_proxy)
-            proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
-            proxy_url_value = (form.get("proxy_url") or "").strip()
-            proxy_username_value = (form.get("proxy_username") or "").strip()
-            if "proxy_url" in form:
-                if proxy_url_value:
-                    proxy_cfg["url"] = proxy_url_value
-                else:
-                    proxy_cfg.pop("url", None)
-            if "proxy_username" in form:
-                if proxy_username_value:
-                    proxy_cfg["username"] = proxy_username_value
-                else:
-                    proxy_cfg.pop("username", None)
-            if "proxy_password" in form:
-                new_password = (form.get("proxy_password") or "").strip()
-                if new_password:
-                    proxy_cfg["password"] = new_password
-                elif "proxy_password" in form or is_clear("proxy_password_clear"):
-                    proxy_cfg.pop("password", None)
-                elif existing_proxy_password:
-                    proxy_cfg["password"] = existing_proxy_password
-                else:
-                    proxy_cfg.pop("password", None)
-            elif existing_proxy_password:
-                proxy_cfg["password"] = existing_proxy_password
+        proxy_cfg, proxy_error = _proxy_section_from_form(form, existing_proxy, member=True)
+        if proxy_error:
+            return config_payload, proxy_error
         config_payload["proxy"] = proxy_cfg
 
     return _settings_finalize_config_payload(config_payload), None
@@ -2918,7 +2942,7 @@ def _default_connections_context(
         "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),
         # The Proxy connector's cards and table (connectors/_macros.html).
-        **_proxy_view(seed.get("proxy")),
+        **_proxy_view(seed.get("proxy"), as_posted=seed_override is not None),
         "guidance": all_guidance(),
         # What a blank BrowserStack Network means (connectors/_macros.html).
         "mobile_default_network": get_settings().mobile_default_network,

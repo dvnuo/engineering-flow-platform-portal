@@ -12897,12 +12897,21 @@ function proxyCardHtml(withTest) {
 function refreshProxyOptions(root) {
   if (!root) return;
   const names = [];
+  // A card renamed since the last refresh carries its selections along: the
+  // default and the table keep pointing at the same card under its new name.
+  const renamed = {};
   root.querySelectorAll('[data-instance-item="proxy"] [data-field="name"]').forEach((input) => {
     const name = String(input.value || "").trim();
-    if (name && !names.includes(name)) names.push(name);
+    if (name) {
+      const previous = String(input.dataset.prevName || "").trim();
+      if (previous && previous !== name) renamed[previous] = name;
+      input.dataset.prevName = name;
+      if (!names.includes(name)) names.push(name);
+    }
   });
   const rebuild = (select, fixed) => {
-    const current = select.value;
+    let current = select.value;
+    if (current && !names.includes(current) && Object.prototype.hasOwnProperty.call(renamed, current)) current = renamed[current];
     select.replaceChildren();
     const add = (value, label, selected) => {
       const option = document.createElement("option");

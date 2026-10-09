@@ -30,9 +30,17 @@ says which one each connector goes through.
   whatever the environment says. AWS and GitHub show *Default* only: their
   tools cannot be given a proxy of their own yet.
 
-**Test** on a card checks that the proxy itself answers. The other
-connectors' Test buttons probe along the path you chose here, so a wrong
-assignment shows up on the connector it affects.
+**Test** on a card checks that the proxy itself answers. The Jira,
+Confluence, GitHub, Jenkins, Nexus, Splunk and PostgreSQL Test buttons probe
+along the path you chose here, so a wrong assignment shows up on the
+connector it affects. The Model provider, image analysis and BrowserStack
+Tests still leave from the Portal itself; their assignments take effect in
+the assistant.
+
+The hosts in **No proxy** are read the way `NO_PROXY` usually is: a name
+covers that host and its subdomains, a leading dot (`.corp.example`) the
+subdomains only, and an address or a CIDR block (`10.0.0.0/8`) the addresses
+in it.
 
 ## One proxy
 

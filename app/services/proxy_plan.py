@@ -23,6 +23,7 @@ native runtime's ``src/utils/proxy_plan.py``); keep the rules in step.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -92,7 +93,10 @@ class ProxyEntry:
         host = parsed.hostname or ""
         if ":" in host:
             host = "[" + host + "]"
-        port = parsed.port
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
         if port is None:
             port = 443 if parsed.scheme == "https" else 80
         return f"{host}:{port}" if host else ""
@@ -186,12 +190,30 @@ class ProxyPlan:
         return ProxyChoice(KIND_PROXY, SOURCE_DEFAULT, entry=self.default)
 
 
+def _ip_address(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(text)
+    except ValueError:
+        return None
+
+
 def _looks_like_url(value: str) -> bool:
+    """Whether a row's own proxy value names a proxy by address rather than
+    by name: a URL, a host:port, an IP address, or a bare host with a dot in
+    it (a proxy name never has one)."""
     text = _text(value)
     if "://" in text:
         return True
+    if " " in text:
+        return False
+    if text.startswith("["):
+        return "]" in text
+    if _ip_address(text) is not None:
+        return True
     host, sep, port = text.rpartition(":")
-    return bool(sep) and host != "" and port.isdigit()
+    if sep and host != "" and port.isdigit() and host.count(":") == 0:
+        return True
+    return ":" not in text and "." in text
 
 
 def build_proxy_plan(raw: Any) -> ProxyPlan:
@@ -243,13 +265,22 @@ def mirror_default_proxy(section: Any) -> Any:
 
 
 def no_proxy_exempts(host: str, no_proxy: str) -> bool:
-    """Whether a NO_PROXY list keeps ``host`` off the proxy, the way the Go CLIs decide it."""
+    """Whether a NO_PROXY list keeps ``host`` off the proxy.
+
+    Read the way Go's ProxyFromEnvironment (golang.org/x/net/http/httpproxy)
+    reads it, which is what the CLIs follow on the environment path: a
+    loopback host always; ``*`` every host; a domain name that name and its
+    subdomains; a name with a leading ``.`` (or ``*.``) its subdomains only;
+    an IP address that address, a CIDR block the addresses in it. A scheme
+    or a port on an entry is ignored.
+    """
     target = _text(host).lower().rstrip(".")
     if target.startswith("[") and target.endswith("]"):
         target = target[1:-1]
     if not target:
         return False
-    if target in _LOOPBACK_HOSTS:
+    target_ip = _ip_address(target)
+    if target in _LOOPBACK_HOSTS or (target_ip is not None and target_ip.is_loopback):
         return True
     for raw_entry in re.split(r"[,\s]+", no_proxy or ""):
         entry = raw_entry.strip().lower()
@@ -264,11 +295,19 @@ def no_proxy_exempts(host: str, no_proxy: str) -> bool:
             entry = entry[1 : entry.index("]")]
         elif entry.count(":") == 1:
             entry = entry.split(":", 1)[0]
+        if "/" in entry:
+            try:
+                network = ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                continue
+            if target_ip is not None and target_ip in network:
+                return True
+            continue
+        entry = entry.rstrip(".")
         if entry.startswith("*."):
             entry = entry[1:]
         if entry.startswith("."):
-            suffix = entry[1:]
-            if target == suffix or target.endswith(entry):
+            if target.endswith(entry):
                 return True
             continue
         if target == entry or target.endswith("." + entry):
