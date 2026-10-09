@@ -1360,11 +1360,23 @@ def _seed_config_from_form(form) -> dict:
     context_tokens = text("llm_max_context_tokens")
     if context_tokens.isdigit():
         llm["max_context_tokens"] = int(context_tokens)
-    # Only the selected provider's credentials are read. The other provider's
-    # fields are hidden in the form, so carrying them over would seed a
-    # credential the admin cannot see -- and with no provider chosen there is
-    # nothing to authorize against yet.
-    if llm.get("provider") == "ai_platform":
+    # Image analysis always runs on AI Platform (inspect-image), whatever the
+    # chat provider is, so the admin can turn it on and seed its model here.
+    vision_on = flag("llm_vision_enabled")
+    vision_model = text("llm_vision_model")
+    if vision_on or vision_model:
+        vision: dict = {"enabled": vision_on}
+        if vision_model:
+            vision["model"] = vision_model
+        llm["vision"] = vision
+    # A credential is read only while its fields are shown, so a hidden one
+    # cannot be seeded where the admin cannot see it: the AI Platform account
+    # whenever AI Platform chat or image analysis needs it, the Copilot key
+    # whenever the provider resolves to GitHub Copilot (which is what the unset
+    # option now says out loud). Gating the key on a provider being picked
+    # dropped a stored key on the next save, because the field is hidden by
+    # CSS rather than removed and posts its value back either way.
+    if llm.get("provider") == "ai_platform" or vision_on:
         auth: dict = {}
         for key, form_key in (
             ("username", "llm_ai_platform_username"),
@@ -1374,12 +1386,7 @@ def _seed_config_from_form(form) -> dict:
             put(auth, key, form_key)
         if auth:
             llm["ai_platform"] = {"auth": auth}
-    else:
-        # Anything other than an explicit ai_platform choice resolves to
-        # GitHub Copilot -- which is what the unset option now says out loud --
-        # so its key is read here too. Gating this on a provider being picked
-        # dropped a stored key on the next save, because the field is hidden by
-        # CSS rather than removed and posts its value back either way.
+    if llm.get("provider") != "ai_platform":
         put(llm, "api_key", "llm_api_key")
     if llm:
         seed["llm"] = llm
@@ -1966,12 +1973,29 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
         # AI Platform profiles persist only user-specific credentials. Fixed
         # endpoints and transport headers are injected from app/config.py when
         # Portal tests, syncs, or otherwise materializes the runtime config.
-        from app.contracts.llm_catalog import normalize_provider
+        from app.contracts.llm_catalog import normalize_provider, vision_enabled
 
-        if normalize_provider(llm.get("provider")) == "ai_platform":
+        # The vision controls post their model select whenever they were
+        # rendered; an older form without them leaves the stored block alone.
+        if "llm_vision_model" in form:
+            vision = dict(llm.get("vision")) if isinstance(llm.get("vision"), dict) else {}
+            vision["enabled"] = as_bool(form.get("llm_vision_enabled"))
+            vision_model_value = (form.get("llm_vision_model") or "").strip()
+            if vision_model_value:
+                vision["model"] = vision_model_value
+            else:
+                vision.pop("model", None)
+            llm["vision"] = vision
+
+        provider_is_ai_platform = normalize_provider(llm.get("provider")) == "ai_platform"
+        if provider_is_ai_platform:
             # api_key is a Copilot-only field; drop any stale value carried over
             # from the hidden Copilot input when the provider is ai_platform.
             llm.pop("api_key", None)
+        # The AI Platform account serves AI Platform chat and image analysis
+        # (inspect-image runs on AI Platform whatever the chat provider is), so
+        # it is read, and required in full, whenever either needs it.
+        if provider_is_ai_platform or vision_enabled(llm):
             existing_ap = llm.get("ai_platform") if isinstance(llm.get("ai_platform"), dict) else {}
             existing_auth = existing_ap.get("auth") if isinstance(existing_ap.get("auth"), dict) else {}
 
@@ -1996,7 +2020,9 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 auth["password"] = existing_auth.get("password")
 
             if not all(str(auth.get(key) or "").strip() for key in ("username", "password", "usercase")):
-                return config_payload, "AI Platform username, password, and usercase are required."
+                if provider_is_ai_platform:
+                    return config_payload, "AI Platform username, password, and usercase are required."
+                return config_payload, "AI Platform username, password, and usercase are required for image analysis."
 
             if auth:
                 llm["ai_platform"] = {"auth": auth}
@@ -3435,7 +3461,7 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         db.close()
 
 
-_MANAGED_TEST_TARGETS = {"proxy", "llm", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "pgsql"}
+_MANAGED_TEST_TARGETS = {"proxy", "llm", "image_analysis", "jira", "confluence", "github", "jenkins", "nexus", "splunk", "pgsql"}
 
 
 def _validate_managed_test_target(target: str) -> str:

@@ -142,6 +142,10 @@ def test_llm_connector_panel_renders_own_routes_and_user_managed_fields(monkeypa
         assert "data-current-value=" in text
         assert 'name="llm_temperature"' not in text
         assert 'name="llm_ai_platform_username"' in text
+        # Image analysis lives in the LLM connector: a toggle, its own model, and a smoke test.
+        assert 'name="llm_vision_enabled"' in text
+        assert 'name="llm_vision_model"' in text
+        assert 'data-test-target="image_analysis"' in text
         assert 'name="llm_ai_platform_password"' in text
         assert 'name="llm_ai_platform_usercase"' in text
         assert 'name="llm_ai_platform_chat_host"' not in text

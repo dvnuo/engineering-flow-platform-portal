@@ -3,7 +3,13 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from app.contracts.llm_catalog import coerce_to_provider_model, normalize_provider
+from app.contracts.llm_catalog import (
+    coerce_to_provider_model,
+    coerce_to_vision_model,
+    normalize_provider,
+    uses_ai_platform_credentials,
+    vision_enabled,
+)
 from app.services.ai_platform_config import profile_ai_platform_config
 
 HIDDEN_PORTAL_LLM_FIELDS: tuple[str, ...] = (
@@ -37,12 +43,24 @@ def canonicalize_portal_runtime_profile_config(config: dict[str, Any] | None) ->
     # for that provider. Keeps the persisted canonical config — and everything
     # projected from it into the runtime Secret — on a supported provider/model
     # pair. Runs on every save and via sanitize_all_persisted_runtime_profiles.
-    if llm.get("provider") or llm.get("model") or llm.get("ai_platform"):
+    if llm.get("provider") or llm.get("model") or llm.get("ai_platform") or llm.get("vision"):
         provider = normalize_provider(llm.get("provider"))
         llm["provider"] = provider
         if llm.get("model") is not None:
             llm["model"] = coerce_to_provider_model(provider, llm.get("model"))
-        if provider == "ai_platform":
+        # Image analysis always runs on AI Platform, so its model is coerced
+        # against that catalog whatever the chat provider is.
+        vision = llm.get("vision")
+        if isinstance(vision, dict):
+            canonical_vision: dict[str, Any] = {"enabled": vision_enabled(llm)}
+            if str(vision.get("model") or "").strip():
+                canonical_vision["model"] = coerce_to_vision_model(vision.get("model"))
+            llm["vision"] = canonical_vision
+        else:
+            llm.pop("vision", None)
+        # The AI Platform account is kept while AI Platform chat or image
+        # analysis needs it; otherwise a stale credential is dropped.
+        if uses_ai_platform_credentials(llm):
             profile_config = profile_ai_platform_config(llm.get("ai_platform"))
             if profile_config:
                 llm["ai_platform"] = profile_config

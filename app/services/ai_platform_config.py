@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import quote
 
 from app.config import Settings, get_settings
-from app.contracts.llm_catalog import AI_PLATFORM_PROVIDER, normalize_provider
+from app.contracts.llm_catalog import AI_PLATFORM_PROVIDER, normalize_provider, uses_ai_platform_credentials
 
 
 PROFILE_AUTH_FIELDS: tuple[str, ...] = ("username", "password", "usercase")
@@ -84,7 +84,9 @@ def materialize_ai_platform_llm_config(
 ) -> dict[str, Any]:
     """Inject fixed Portal settings while retaining only profile credentials."""
     materialized = deepcopy(llm) if isinstance(llm, dict) else {}
-    if normalize_provider(materialized.get("provider")) != AI_PLATFORM_PROVIDER:
+    # The endpoints are needed for AI Platform chat and for image analysis
+    # (inspect-image runs on AI Platform whatever the chat provider is).
+    if not uses_ai_platform_credentials(materialized):
         materialized.pop("ai_platform", None)
         return materialized
 
