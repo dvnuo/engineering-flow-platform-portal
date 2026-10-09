@@ -568,11 +568,11 @@
     return plan ? plan.scripts.map((item) => item.name) : [];
   }
 
-  // A plan's scripts: `scripts`, or `segments` in a plan written before
-  // scripts had a name of their own.
+  // A plan's scenario scripts. A plan from the older flow lists reusable
+  // segments under `segments` instead: those are not scripts, and the
+  // assistant rewrites such a plan before anything is recorded from it.
   function planEntries(plan) {
-    if (plan && Array.isArray(plan.scripts)) return plan.scripts;
-    return plan && Array.isArray(plan.segments) ? plan.segments : [];
+    return plan && Array.isArray(plan.scripts) ? plan.scripts : [];
   }
 
   // The message that asks the assistant for a copy of a script with other
