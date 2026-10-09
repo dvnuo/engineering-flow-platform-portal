@@ -1987,18 +1987,24 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return `${line}.\nReport: ${path}`;
   }
 
-  // What the list says next to a segment: this session's last replay first,
-  // else the plan's status.
-  function segmentMark(name) {
+  // Whether a report's item is this row: the same name, and the same kind
+  // unless the report is from a bridge that did not say.
+  function sameReplayRow(item, row) {
+    return Boolean(item) && item.name === row.name && (!item.kind || item.kind === row.kind);
+  }
+
+  // What the list says next to a row: this session's last replay first, else
+  // the plan's status (the plan lists scripts only).
+  function segmentMark(row) {
     const res = view.replay.result;
     const report = res && res.result ? res.result.report : null;
-    const seg = report && Array.isArray(report.segments) ? report.segments.find((item) => item.name === name) : null;
+    const seg = report && Array.isArray(report.segments) ? report.segments.find((item) => sameReplayRow(item, row)) : null;
     if (seg && seg.status === "passed") return { icon: "check", tone: "success", text: "passed" };
     if (seg && seg.status === "failed") {
       const failed = (seg.steps || []).find((step) => step.ok === false) || {};
       return { icon: "x", tone: "error", text: `failed at step ${failed.step || "?"}` };
     }
-    const planned = view.flow && view.flow.plan ? view.flow.plan.scripts.find((item) => item.name === name) : null;
+    const planned = row.kind === "script" && view.flow && view.flow.plan ? view.flow.plan.scripts.find((item) => item.name === row.name) : null;
     if (planned && planned.status === "replayed") return { icon: "check", tone: "success", text: "replayed" };
     return null;
   }
@@ -2036,7 +2042,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No ${esc(platform)} scenario scripts yet. The assistant compiles one after you save a recording.</p>`;
     else {
       list = `<div class="efp-replay-list">${r.segments.map((seg) => {
-        const mark = segmentMark(seg.name);
+        const mark = segmentMark(seg);
         const older = seg.kind === "segment" ? `<span class="efp-card-meta">older segment</span>` : "";
         return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(replayKey(seg))}"${r.checked.includes(replayKey(seg)) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${older}${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
       }).join("")}</div>`;
@@ -2388,7 +2394,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
       // Scripts and older segments per platform, with the plan's word and the
       // latest replay's.
-      const entries = async (list, dir, platform) => {
+      const entries = async (list, dir, platform, kind) => {
         const items = files(list).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
         return Promise.all(items.map(async (item) => {
           const name = String(item.name).replace(/\.ya?ml$/i, "");
@@ -2399,9 +2405,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
           } catch (_error) {
             /* listed without its details */
           }
-          const plan = lib.plans.find((doc) => planStatus(doc, name, platform)) || null;
-          const latest = lib.replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => seg.name === name && seg.status !== "not_run")) || null;
-          const latestSeg = latest ? latest.segments.find((seg) => seg.name === name) : null;
+          const row = { name, kind };
+          const plan = kind === "script" ? (lib.plans.find((doc) => planStatus(doc, name, platform)) || null) : null;
+          const latest = lib.replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
+          const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
           return {
             name, path, platform, modifiedAt: String(item.modified_at || ""), steps: parsed.steps, grade: parsed.grade, needsReview: parsed.needsReview,
             compiledAt: parsed.compiledAt || String(item.modified_at || ""), planStatus: plan ? planStatus(plan, name, platform) : "",
@@ -2414,8 +2421,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       lib.segments = {};
       for (let i = 0; i < LIBRARY_PLATFORMS.length; i += 1) {
         const platform = LIBRARY_PLATFORMS[i];
-        lib.scripts[platform] = await entries(scriptLists[i], SCRIPTS_DIR, platform);
-        lib.segments[platform] = await entries(segmentLists[i], SEGMENTS_DIR, platform);
+        lib.scripts[platform] = await entries(scriptLists[i], SCRIPTS_DIR, platform, "script");
+        lib.segments[platform] = await entries(segmentLists[i], SEGMENTS_DIR, platform, "segment");
       }
 
       // Recordings with the scripts compiled from them, and the cut of one
@@ -3158,6 +3165,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     replayNoun,
     replayChoice,
     replayKey,
+    sameReplayRow,
     defaultReplayTicks,
     recordingState,
     segmentSecrets,

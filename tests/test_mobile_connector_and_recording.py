@@ -442,6 +442,10 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:seg-a"), ["segment:seg-a"]);
         assert.deepEqual(M.replayChoice(["segment:seg-a"], "segment:seg-b"), ["segment:seg-a", "segment:seg-b"]);
         assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:FX-12-x"), ["segment:FX-12-x"]);
+        // A replay's result marks the row of its kind; a report without kinds marks by name.
+        assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "segment" }), false);
+        assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "script" }), true);
+        assert.equal(M.sameReplayRow({ name: "seg-a" }, { name: "seg-a", kind: "segment" }), true);
         // The default tick: the plan's next script that has not passed, in the
         // plan's order; scripts of other plans and older cuts do not count.
         const listedRows = [
