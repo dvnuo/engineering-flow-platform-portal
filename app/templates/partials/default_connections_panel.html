@@ -1,3 +1,4 @@
+{% from "partials/connectors/_macros.html" import browserstack_advanced %}
 {% macro instance_group(group, label, fields, items=none) -%}
 {# items: the rows to render when they do not live at seed[group].instances (the AWS account matrix). #}
 {% set rows = items if items is not none else (seed.get(group, {}).get('instances') or []) %}
@@ -420,6 +421,8 @@
         <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="mobile_browserstack_username" value="{{ browserstack.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
         <label class="portal-form-label"><span class="portal-form-label">Shared access key</span><input type="password" name="mobile_browserstack_access_key" value="{{ browserstack.get('access_key', '') }}" placeholder="Optional" class="portal-form-input" /></label>
       </div>
+      {# Network, platform, idle timeout, Appium version, addresses: what members following the system default record with. #}
+      {{ browserstack_advanced(seed.get('mobile-auto', {}).get('defaults', {}), browserstack, mobile_default_network, 'admin') }}
     </section>
 
     <div class="flex items-center gap-2">

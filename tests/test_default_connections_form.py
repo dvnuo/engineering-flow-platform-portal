@@ -332,6 +332,69 @@ def test_sections_round_trip_without_credentials(form_pairs, section, expected):
     assert _seed_config_from_form(_form(form_pairs))[section] == expected
 
 
+def test_browserstack_advanced_fields_are_seeded_like_a_members_own():
+    # Members who follow the system default record with these, so the admin
+    # sets the same Advanced fields a member's connector page has.
+    config = _seed_config_from_form(
+        _form(
+            {
+                "mobile_enabled": "on",
+                "mobile_browserstack_username": "u",
+                "mobile_default_platform": "android",
+                "mobile_network_mode": "private-managed",
+                "mobile_idle_timeout_seconds": "300",
+                "mobile_appium_version": "2.19.0",
+                "mobile_browserstack_appium_base_url": "https://hub-cloud.browserstack.com/wd/hub/",
+                "mobile_video__present": "1",
+                "mobile_interactive_debugging__present": "1",
+                "mobile_interactive_debugging": "on",
+            }
+        )
+    )
+
+    assert config["mobile-auto"] == {
+        "enabled": True,
+        "defaults": {
+            "platform": "android",
+            "network_mode": "private-managed",
+            "idle_timeout_seconds": 300,
+            "appium_version": "2.19.0",
+            "video": False,
+            "interactive_debugging": True,
+        },
+        "browserstack": {"username": "u", "appium_base_url": "https://hub-cloud.browserstack.com/wd/hub"},
+    }
+
+
+def test_a_bad_browserstack_advanced_value_is_refused_the_way_a_members_save_is():
+    errors: list[str] = []
+    config = _seed_config_from_form(_form({"mobile_enabled": "on", "mobile_network_mode": "vpn"}), errors)
+
+    assert errors == ["Unsupported value for network mode: vpn."]
+    assert config["mobile-auto"] == {"enabled": True}
+    with pytest.raises(ValueError, match="network mode"):
+        _seed_config_from_form(_form({"mobile_network_mode": "vpn"}))
+
+
+def test_the_panel_offers_the_browserstack_advanced_fields():
+    html = _panel_html(seed={"mobile-auto": {"enabled": True, "defaults": {"network_mode": "private-managed"}}})
+
+    for name in (
+        "mobile_default_platform",
+        "mobile_network_mode",
+        "mobile_idle_timeout_seconds",
+        "mobile_appium_version",
+        "mobile_browserstack_appium_base_url",
+        "mobile_browserstack_api_base_url",
+        "mobile_video",
+        "mobile_interactive_debugging",
+    ):
+        assert f'name="{name}"' in html, name
+    assert 'value="private-managed" selected' in html
+    # The tunnel runs on each member's computer, not the administrator's.
+    assert "on each member's computer" in html
+
+
 def test_a_credential_alone_is_enough_to_store_a_section():
     # An admin may seed only a shared token, leaving the toggle off until they
     # are ready; the token still has to survive the save.

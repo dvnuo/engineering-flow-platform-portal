@@ -568,6 +568,39 @@ def test_admin_save_updates_the_followers_in_the_background(monkeypatch):
         env.cleanup()
 
 
+def test_admin_save_seeds_the_browserstack_advanced_fields_and_a_follower_records_with_them(monkeypatch):
+    env = _build_env(monkeypatch)
+    try:
+        follower = _bind_profile(env.db, env.agent, {})
+        follower.connector_modes_json = "{}"
+        env.db.commit()
+        resp = env.client.post(
+            "/app/admin/default-connections/save",
+            data={
+                "mobile_enabled": "on",
+                "mobile_browserstack_username": "shared",
+                "mobile_network_mode": "private-managed",
+                "mobile_idle_timeout_seconds": "300",
+            },
+        )
+        assert resp.status_code == 200
+        assert "BrowserStack are being updated in the background" in resp.text
+        seed = RuntimeProfileSeedService(env.db).get_seed()
+        assert seed["mobile-auto"]["defaults"] == {"network_mode": "private-managed", "idle_timeout_seconds": 300}
+        # The member's connector page, following the default, shows that network read-only.
+        panel = env.client.get("/app/connectors/browserstack/panel").text
+        assert 'data-connector-mode="system"' in panel
+        assert 'value="private-managed" selected' in panel and 'value="shared"' in panel
+
+        # A value a member's own save would refuse is refused here, and the seed stays.
+        bad = env.client.post("/app/admin/default-connections/save", data={"mobile_enabled": "on", "mobile_network_mode": "vpn"})
+        assert bad.status_code == 200
+        assert "Unsupported value for network mode: vpn." in bad.text
+        assert RuntimeProfileSeedService(env.db).get_seed()["mobile-auto"]["defaults"]["network_mode"] == "private-managed"
+    finally:
+        env.cleanup()
+
+
 # ------------------------------------------------------------------ the APIs
 
 
