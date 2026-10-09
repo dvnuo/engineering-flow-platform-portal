@@ -26,3 +26,59 @@
 </details>
 {%- endif %}
 {%- endmacro %}
+
+{#
+  The BrowserStack connector's Advanced fields, on a member's connector page
+  ('member') and on the administrator's Default connectors ('admin'): members
+  whose connector follows the system default record with the admin's values,
+  so both pages offer the same fields under the same names (web.py
+  _merge_mobile_advanced_fields reads them for both). `defaults` is the
+  mobile-auto.defaults mapping, `browserstack` the mobile-auto.browserstack
+  one, `deployment_network` EFP_MOBILE_DEFAULT_NETWORK (what a blank Network
+  means).
+#}
+{% macro browserstack_advanced(defaults, browserstack, deployment_network, audience='member') -%}
+{% set d = defaults if defaults is mapping else {} %}
+{% set bs = browserstack if browserstack is mapping else {} %}
+{% set tunnel_host = "each member's computer" if audience == 'admin' else "this computer" %}
+<details class="portal-collapsible">
+  <summary class="portal-collapsible-summary"><span>Advanced</span></summary>
+  <div class="portal-panel-stack">
+    <div class="grid grid-cols-2 gap-3">
+      <label class="portal-form-label"><span class="portal-form-label">Default platform</span>
+        <select name="mobile_default_platform" class="portal-form-select">
+          <option value="" {% if not d.get('platform') %}selected{% endif %}>Ask each time</option>
+          <option value="android" {% if d.get('platform') == 'android' %}selected{% endif %}>Android</option>
+          <option value="ios" {% if d.get('platform') == 'ios' %}selected{% endif %}>iOS</option>
+        </select>
+      </label>
+      <label class="portal-form-label"><span class="portal-form-label">Network</span>
+        <select name="mobile_network_mode" class="portal-form-select">
+          <option value="" {% if not d.get('network_mode') %}selected{% endif %}>{% if deployment_network == 'private-managed' %}Private: start BrowserStack Local with each session (the deployment's default){% elif deployment_network == 'private-external' %}Private: a tunnel your team runs (the deployment's default){% else %}Public (default){% endif %}</option>
+          <option value="private-managed" {% if d.get('network_mode') == 'private-managed' %}selected{% endif %}>Private: start BrowserStack Local with each session (the BrowserStackLocal program must be on {{ tunnel_host }})</option>
+          <option value="private-external" {% if d.get('network_mode') == 'private-external' %}selected{% endif %}>Private: a tunnel your team runs</option>
+        </select>
+      </label>
+      <label class="portal-form-label"><span class="portal-form-label">Idle timeout (seconds)</span><input type="number" min="30" max="300" name="mobile_idle_timeout_seconds" value="{{ d.get('idle_timeout_seconds', '') }}" placeholder="300" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">Appium version</span><input type="text" name="mobile_appium_version" value="{{ d.get('appium_version', '') }}" placeholder="2.19.0" pattern="[0-9]+[.][0-9]+[.][0-9]+" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">Appium hub URL</span><input type="url" name="mobile_browserstack_appium_base_url" value="{{ bs.get('appium_base_url', '') }}" placeholder="https://hub-cloud.browserstack.com/wd/hub" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">API URL</span><input type="url" name="mobile_browserstack_api_base_url" value="{{ bs.get('api_base_url', '') }}" placeholder="https://api-cloud.browserstack.com" class="portal-form-input" /></label>
+    </div>
+    <div class="portal-checkbox-row">
+      <input type="hidden" name="mobile_video__present" value="1" />
+      <label class="toggle-switch" aria-label="Record session video"><input type="checkbox" name="mobile_video" {% if d.get('video', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
+      <span>Record a video of each recording session</span>
+    </div>
+    <div class="portal-checkbox-row">
+      <input type="hidden" name="mobile_interactive_debugging__present" value="1" />
+      <label class="toggle-switch" aria-label="Interactive debugging"><input type="checkbox" name="mobile_interactive_debugging" {% if d.get('interactive_debugging', True) %}checked{% endif %} /><span class="toggle-slider"></span></label>
+      <span>Allow interactive debugging on the BrowserStack dashboard</span>
+    </div>
+    {% if audience == 'admin' %}
+    <p class="portal-inline-note">Members whose BrowserStack connector follows the system default record with these settings; a member who customized the connector keeps their own. Choose a private network when the apps talk to servers BrowserStack's devices cannot reach: each recording then starts BrowserStack Local on the member's computer, which must have the program. Recording devices run Appium 2.19.0 unless you set another version; BrowserStack's own default, Appium 1.22.0, does not know the Inspector's Back, Home, and App switch buttons. BrowserStack ends a session after the idle timeout without a command, 300 seconds at most. Test runs use the pipeline's own settings.</p>
+    {% else %}
+    <p class="portal-inline-note">These settings apply to the devices you record on; the defaults suit a public BrowserStack account. Recording devices run Appium 2.19.0 unless you set another version; BrowserStack's own default, Appium 1.22.0, does not know the Inspector's Back, Home, and App switch buttons. Choose a private network only when the app talks to servers BrowserStack's devices cannot reach. BrowserStack ends a session after the idle timeout without a command, 300 seconds at most; the local bridge keeps the device alive while you record, so leave this at 300 unless your team says otherwise. Test runs use the pipeline's own settings.</p>
+    {% endif %}
+  </div>
+</details>
+{%- endmacro %}

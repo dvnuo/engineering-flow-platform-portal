@@ -554,7 +554,7 @@ Private business repositories used during an assistant task are checked out by t
 | `EFP_MAX_UPLOAD_MB` | `25` | Portal attachment/workspace upload ceiling |
 | `EFP_CHAT_UPLOAD_EXTENSIONS` | `pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml` | Chat attachment extension allowlist; separate from workspace file uploads |
 | `EFP_APPIUM_INSPECTOR_DIR` | `/opt/appium-inspector` in the image | The Appium Inspector web build Portal serves at `/inspector/`; empty or missing turns the hosted Inspector off |
-| `EFP_MOBILE_DEFAULT_NETWORK` | empty (public) | The network recordings use when a member's BrowserStack connector does not choose one: `private-managed` when the apps live on the private network (the member's computer then starts BrowserStack Local for each recording) |
+| `EFP_MOBILE_DEFAULT_NETWORK` | empty (public) | The network recordings use when neither the administrator's Default connectors (BrowserStack > Advanced > Network, which every member following the system default records with) nor the member's own BrowserStack connector chooses one: `private-managed` when the apps live on the private network (the member's computer then starts BrowserStack Local for each recording) |
 
 An empty CPU or memory request leaves that request unset. Set requests at or below their limits. Resource requests influence scheduling; they do not themselves reserve a separate machine for each assistant.
 

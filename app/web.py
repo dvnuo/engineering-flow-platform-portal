@@ -1327,7 +1327,7 @@ TROUBLESHOOTING_CARD_LAYOUT = {
 }
 
 
-def _seed_config_from_form(form) -> dict:
+def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
     """Build the seed from the Default Connections form.
 
     Credentials are read like any other field and are entirely optional: a
@@ -1335,9 +1335,16 @@ def _seed_config_from_form(form) -> dict:
     carry only where a service lives (members supply their own account) or a
     shared service account's credential as well. The two cases are told apart by
     the key being absent rather than by an empty string.
+
+    The BrowserStack Advanced fields are checked the way a member's own save
+    checks them: a bad value is appended to ``errors`` when a list is given
+    (the seed then goes without it) and raises ``ValueError`` otherwise.
     """
+    def as_bool(value) -> bool:
+        return str(value or "").lower() in {"1", "true", "on", "yes"}
+
     def flag(name: str) -> bool:
-        return str(form.get(name) or "").lower() in {"1", "true", "on", "yes"}
+        return as_bool(form.get(name))
 
     def text(name: str) -> str:
         return (form.get(name) or "").strip()
@@ -1455,8 +1462,18 @@ def _seed_config_from_form(form) -> dict:
     browserstack: dict = {}
     put(browserstack, "username", "mobile_browserstack_username")
     put(browserstack, "access_key", "mobile_browserstack_access_key")
-    if flag("mobile_enabled") or browserstack:
-        seed["mobile-auto"] = {"enabled": flag("mobile_enabled")}
+    # The Advanced fields of a member's BrowserStack connector (network,
+    # platform, idle timeout, Appium version, hub and API addresses, video,
+    # interactive debugging), read by the rules of a member's own save: a
+    # member whose connector follows the system default records with them.
+    mobile: dict = {}
+    mobile_error = _merge_mobile_advanced_fields(form, mobile, browserstack, as_bool)
+    if mobile_error:
+        if errors is None:
+            raise ValueError(mobile_error)
+        errors.append(mobile_error)
+    if flag("mobile_enabled") or browserstack or mobile:
+        seed["mobile-auto"] = {"enabled": flag("mobile_enabled"), **mobile}
         if browserstack:
             seed["mobile-auto"]["browserstack"] = browserstack
 
@@ -2765,6 +2782,8 @@ def _default_connections_context(
         "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),
         "guidance": all_guidance(),
+        # What a blank BrowserStack Network means (connectors/_macros.html).
+        "mobile_default_network": get_settings().mobile_default_network,
         "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
         "reasoning_efforts": list(SUPPORTED_REASONING_EFFORTS),
         "context_sizes": [(size, f"{size // 1000}K" if size < 1_000_000 else "1M") for size in CONTEXT_SIZE_PRESETS],
@@ -2882,11 +2901,12 @@ async def app_default_connections_save(request: Request, background_tasks: Backg
     db = SessionLocal()
     try:
         service = RuntimeProfileSeedService(db)
-        seed = _seed_config_from_form(form)
+        form_errors: list[str] = []
+        seed = _seed_config_from_form(form, form_errors)
         old_seed = service.get_seed()
         # Members in system mode receive these values as they are, so what
         # their own Save would refuse is refused here.
-        error = seed_config_error(seed)
+        error = form_errors[0] if form_errors else seed_config_error(seed)
         if error is None:
             try:
                 service.save_seed(seed, updated_by_user_id=user.id)

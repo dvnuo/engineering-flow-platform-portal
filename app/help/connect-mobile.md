@@ -79,8 +79,10 @@ them.
 
 ## Private networks
 
-**Network** follows your deployment's default (the first option says which)
-unless you choose otherwise; *Public* is right unless the app talks to
+**Network** comes from your administrator's Default connectors (BrowserStack >
+Advanced) while the connector follows the system default; once you customize
+the connector you choose it yourself, and a blank choice means the deployment's
+default (the first option says which). *Public* is right unless the app talks to
 internal test servers that BrowserStack's devices cannot reach. Then the device needs BrowserStack
 Local: choose *Private: start BrowserStack Local with each session* when the
 computer you record on can reach those servers (the BrowserStackLocal program

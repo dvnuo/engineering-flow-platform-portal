@@ -210,6 +210,19 @@ def test_recording_config_falls_back_to_the_deployments_network(api, monkeypatch
     assert body["defaults"]["network"] == "public", "a member's own choice wins"
 
 
+def test_recording_config_reads_the_administrators_network_while_the_connector_follows_the_default(api):
+    from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
+
+    RuntimeProfileSeedService(api.db).save_seed(
+        {"mobile-auto": {"enabled": True, "defaults": {"network_mode": "private-managed"}, "browserstack": {"username": "shared", "access_key": "k"}}}
+    )
+    api.profile.connector_modes_json = "{}"  # every connector follows the system default
+    api.db.commit()
+    body = api.client.get(f"/api/mobile/recording-config?agent_id={api.agent.id}").json()
+    assert body["defaults"]["network"] == "private-managed"
+    assert body["credentials"]["username"] == "shared"
+
+
 def test_recording_config_is_for_the_owner_only(api):
     api.state["user"] = api.other
     assert api.client.get(f"/api/mobile/recording-config?agent_id={api.agent.id}").status_code == 403
