@@ -2,17 +2,27 @@ import asyncio
 import base64
 import socket
 import ssl
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 
-from app.schemas.runtime_profile import PGSQL_DEFAULT_PORT, PGSQL_PROXY_NONE
+from app.schemas.runtime_profile import PGSQL_DEFAULT_PORT
 from app.services.ai_platform_config import materialize_ai_platform_llm_config
+from app.services.proxy_plan import (
+    DEFAULT_NO_PROXY,
+    KIND_NONE,
+    KIND_PROXY,
+    SOURCE_ASSIGNMENT,
+    SOURCE_DEFAULT,
+    SOURCE_INSTANCE,
+    SOURCE_NO_PROXY,
+    ProxyChoice,
+    ProxyPlan,
+    build_proxy_plan,
+    hostname_of,
+    no_proxy_exempts,
+)
 
-# The native runtime's default NO_PROXY (src/utils/proxy.py DEFAULT_NO_PROXY),
-# applied when the Proxy connector names none: in-cluster names, loopback and
-# the metadata endpoint never go through the proxy.
-PGSQL_DEFAULT_NO_PROXY = "localhost,127.0.0.1,169.254.169.254,.svc.cluster.local"
 PGSQL_PROBE_TIMEOUT_SECONDS = 5
 
 
@@ -33,9 +43,11 @@ class RuntimeProfileTestService:
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
     )
 
-    async def run_test(self, target: str, config: dict, runtime_type: str | None = None) -> tuple[bool, str]:
+    async def run_test(
+        self, target: str, config: dict, runtime_type: str | None = None, *, proxy_name: str | None = None
+    ) -> tuple[bool, str]:
         if target == "proxy":
-            return await self._test_proxy(config)
+            return await self._test_proxy(config, proxy_name=proxy_name)
         if target == "image_analysis":
             return await self._test_image_analysis(config, runtime_type=runtime_type)
         if target == "github":
@@ -82,6 +94,63 @@ class RuntimeProfileTestService:
         encoded = base64.b64encode(f"{username}:{secret}".encode("utf-8")).decode("ascii")
         return {"Authorization": f"Basic {encoded}"}
 
+    # ------------------------------------------------------------------
+    # Egress: along the path the runtime's tool would take
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _egress(config: dict, connector: str, host: str, instance_setting: str | None = None) -> tuple[ProxyChoice, ProxyPlan]:
+        """Where the runtime's connection from ``connector`` to ``host`` leaves:
+        the proxy the Proxy connector assigns it (or the default), or a direct
+        connection; see app/services/proxy_plan.py."""
+        plan = build_proxy_plan(config.get("proxy") if isinstance(config.get("proxy"), dict) else {})
+        return plan.egress(connector, host=host, instance_setting=instance_setting), plan
+
+    @staticmethod
+    def _no_proxy_exempts(host: str, no_proxy) -> bool:
+        """Whether NO_PROXY keeps host off the proxy, with the runtime's default
+        list when the proxy sets none (app/services/proxy_plan.py)."""
+        return no_proxy_exempts(host, str(no_proxy or "").strip() or DEFAULT_NO_PROXY)
+
+    @staticmethod
+    def _client_kwargs(choice: ProxyChoice, plan: ProxyPlan) -> dict:
+        """httpx client arguments for a probe along ``choice``.
+
+        Without a configured Proxy connector the Portal keeps probing the way it
+        always did (its own environment); with one, the probe goes exactly
+        where the runtime's tool goes, the Portal's environment left aside.
+        """
+        if choice.kind == KIND_PROXY:
+            return {"proxy": choice.proxy_url, "trust_env": False}
+        if choice.kind == KIND_NONE and plan.configured:
+            return {"trust_env": False}
+        return {}
+
+    @staticmethod
+    def _path_text(choice: ProxyChoice, connector_label: str) -> str:
+        """How the probe went, for the message; never the proxy credentials."""
+        if choice.kind == KIND_PROXY:
+            entry = choice.entry
+            if entry is None:
+                parsed = urlparse(choice.url)
+                port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                return f" through the proxy at {parsed.hostname}:{port} (the instance proxy)"
+            if choice.source == SOURCE_DEFAULT:
+                origin = "the Proxy connector"
+            elif choice.source == SOURCE_INSTANCE:
+                origin = f"the Proxy connector's {entry.name}, named on the instance"
+            else:
+                origin = f"the Proxy connector's {entry.name}"
+            return f" through the proxy at {entry.address()} ({origin})"
+        if choice.kind == KIND_NONE:
+            if choice.source == SOURCE_NO_PROXY:
+                return " (direct: NO_PROXY of the Proxy connector exempts this host)"
+            if choice.source == SOURCE_INSTANCE:
+                return " (direct: the instance proxy is none)"
+            if choice.source == SOURCE_ASSIGNMENT:
+                return f" (direct: the Proxy connector assigns none to {connector_label})"
+        return ""
+
     @staticmethod
     def _instance_label(instance: dict, fallback: str) -> str:
         return str(instance.get("name") or fallback)
@@ -98,14 +167,16 @@ class RuntimeProfileTestService:
         username = str(instance.get("username") or "").strip()
         secret = str(instance.get("token") or instance.get("password") or "").strip()
         headers = self._basic_auth_header(username, secret) if username and secret else {}
+        choice, plan = self._egress(config, "jenkins", hostname_of(base_url), instance.get("proxy"))
         ok, message, data = await self._http_request(
             method="GET",
             url=f"{base_url}/whoAmI/api/json",
             headers={**headers, "Accept": "application/json"},
             timeout=15.0,
+            client_kwargs=self._client_kwargs(choice, plan),
         )
         if not ok:
-            return False, message
+            return False, message + self._path_text(choice, "Jenkins")
         who = data if isinstance(data, dict) else {}
         name = self._instance_label(instance, base_url)
         # whoAmI answers 200 for anonymous callers too; say which it was so a
@@ -126,14 +197,16 @@ class RuntimeProfileTestService:
         username = str(instance.get("username") or "").strip()
         secret = str(instance.get("token") or instance.get("password") or "").strip()
         headers = self._basic_auth_header(username, secret) if username and secret else {}
+        choice, plan = self._egress(config, "nexus", hostname_of(base_url), instance.get("proxy"))
         ok, message, data = await self._http_request(
             method="GET",
             url=f"{base_url}/service/rest/v1/repositories",
             headers={**headers, "Accept": "application/json"},
             timeout=15.0,
+            client_kwargs=self._client_kwargs(choice, plan),
         )
         if not ok:
-            return False, message
+            return False, message + self._path_text(choice, "Nexus")
         name = self._instance_label(instance, base_url)
         count = len(data) if isinstance(data, list) else 0
         mode = "authenticated" if headers else "anonymous"
@@ -157,14 +230,16 @@ class RuntimeProfileTestService:
             headers = self._basic_auth_header(username, password)
         else:
             return False, "Splunk test needs an authentication token, or a username and password."
+        choice, plan = self._egress(config, "splunk", hostname_of(base_url), instance.get("proxy"))
         ok, message, data = await self._http_request(
             method="GET",
             url=f"{base_url}/services/authentication/current-context?output_mode=json",
             headers={**headers, "Accept": "application/json"},
             timeout=15.0,
+            client_kwargs=self._client_kwargs(choice, plan),
         )
         if not ok:
-            return False, message
+            return False, message + self._path_text(choice, "Splunk")
         name = self._instance_label(instance, base_url)
         entries = (data or {}).get("entry") if isinstance(data, dict) else None
         who = ""
@@ -192,12 +267,11 @@ class RuntimeProfileTestService:
         except (TypeError, ValueError):
             port = PGSQL_DEFAULT_PORT
         name = self._instance_label(instance, host)
-        proxy_cfg = config.get("proxy") if isinstance(config.get("proxy"), dict) else {}
-        proxy_url, source = self._pgsql_egress(host, instance, proxy_cfg)
-        path = self._pgsql_path_text(proxy_url, source)
+        choice, _plan = self._egress(config, "pgsql", host, instance.get("proxy"))
+        path = self._path_text(choice, "PostgreSQL")
         try:
-            if proxy_url:
-                await asyncio.to_thread(self._tcp_connect_via_proxy, proxy_url, host, port)
+            if choice.kind == KIND_PROXY:
+                await asyncio.to_thread(self._tcp_connect_via_proxy, choice.proxy_url, host, port)
             else:
                 await asyncio.to_thread(self._tcp_connect, host, port)
         except OSError as exc:
@@ -207,82 +281,6 @@ class RuntimeProfileTestService:
             f"PostgreSQL TCP reachability OK for {name}: {host}:{port}{path}. "
             "Credentials are verified inside the runtime by `pgsql auth test`.",
         )
-
-    @classmethod
-    def _pgsql_egress(cls, host: str, instance: dict, proxy_cfg: dict) -> tuple[str | None, str]:
-        """Where the pgsql CLI's connection to host leaves the runtime.
-
-        Returns (proxy URL or None for direct, why): the row's own proxy
-        setting first (``none`` forces direct, a URL names a proxy for this
-        database), else the Proxy connector when it is on and names a URL and
-        its NO_PROXY does not exempt the host. Mirrors internal/tunnel.Resolve
-        in the tools repo, with the connector standing in for HTTPS_PROXY.
-        """
-        setting = str(instance.get("proxy") or "").strip()
-        if setting.lower() in {PGSQL_PROXY_NONE, "direct", "off"}:
-            return None, "instance_none"
-        if setting:
-            return (setting if "://" in setting else f"http://{setting}"), "instance"
-        url = str(proxy_cfg.get("url") or "").strip()
-        if not bool(proxy_cfg.get("enabled")) or not url:
-            return None, "connector_off"
-        if cls._no_proxy_exempts(host, proxy_cfg.get("no_proxy")):
-            return None, "no_proxy"
-        return cls._proxy_url_with_credentials(url, proxy_cfg.get("username"), proxy_cfg.get("password")), "connector"
-
-    @staticmethod
-    def _proxy_url_with_credentials(url: str, username, password) -> str:
-        """The connector's credentials go into the URL the way the runtime
-        exports them (src/utils/proxy.py), so one parser serves both."""
-        parsed = urlparse(url)
-        if not (username and password) or parsed.username is not None:
-            return url
-        hostport = parsed.netloc.rsplit("@", 1)[-1]
-        netloc = f"{quote(str(username), safe='')}:{quote(str(password), safe='')}@{hostport}"
-        return parsed._replace(netloc=netloc).geturl()
-
-    @staticmethod
-    def _no_proxy_exempts(host: str, no_proxy) -> bool:
-        """Whether NO_PROXY keeps host off the proxy, with the runtime's default
-        list when the connector sets none and the patterns the tools' HTTP
-        clients honour: ``*``, ``.suffix``, ``*.suffix``, exact host."""
-        host = str(host or "").strip().lower().strip("[]")
-        if host in {"localhost", "127.0.0.1", "::1"}:
-            return True
-        raw = str(no_proxy or "").strip() or PGSQL_DEFAULT_NO_PROXY
-        for entry in raw.split(","):
-            pattern = entry.strip().lower()
-            for prefix in ("http://", "https://"):
-                pattern = pattern.removeprefix(prefix)
-            if ":" in pattern and not pattern.startswith("["):
-                pattern = pattern.rsplit(":", 1)[0]
-            if not pattern:
-                continue
-            if pattern == "*":
-                return True
-            if pattern.startswith("*."):
-                if host.endswith(pattern[1:]):
-                    return True
-            elif pattern.startswith("."):
-                if host == pattern[1:] or host.endswith(pattern):
-                    return True
-            elif host == pattern:
-                return True
-        return False
-
-    @staticmethod
-    def _pgsql_path_text(proxy_url: str | None, source: str) -> str:
-        """How the probe went, for the message; never the proxy credentials."""
-        if proxy_url:
-            parsed = urlparse(proxy_url)
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            origin = "the Proxy connector" if source == "connector" else "the instance proxy"
-            return f" through the proxy at {parsed.hostname}:{port} ({origin})"
-        if source == "no_proxy":
-            return " (direct: NO_PROXY of the Proxy connector exempts this host)"
-        if source == "instance_none":
-            return " (direct: the instance proxy is none)"
-        return ""
 
     @staticmethod
     def _tcp_connect(host: str, port: int) -> None:
@@ -339,27 +337,31 @@ class RuntimeProfileTestService:
         if parts[1] != "200":
             raise OSError(f"proxy {proxy_host}:{proxy_port} answered CONNECT {target} with {status_line.split(' ', 1)[1]}")
 
-    async def _test_proxy(self, config: dict) -> tuple[bool, str]:
+    async def _test_proxy(self, config: dict, proxy_name: str | None = None) -> tuple[bool, str]:
+        """TCP reachability of one named proxy (the default when none is named)."""
         proxy_cfg = config.get("proxy") if isinstance(config.get("proxy"), dict) else {}
         if not bool(proxy_cfg.get("enabled")):
             return False, "Proxy test requires proxy.enabled=true."
 
-        proxy_url = str(proxy_cfg.get("url") or "").strip()
-        if not proxy_url:
+        plan = build_proxy_plan(proxy_cfg)
+        wanted = str(proxy_name or "").strip()
+        entry = plan.entry(wanted) if wanted else plan.default
+        if entry is None:
+            if wanted:
+                return False, f"No proxy named {wanted} is saved; add it with a name and an http(s) URL, then test it."
             return False, "Proxy URL is required."
 
-        parsed = urlparse(proxy_url)
+        parsed = urlparse(entry.url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             return False, "Proxy URL must be a valid http(s) URL with a hostname."
 
         host = parsed.hostname
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         try:
-            with socket.create_connection((host, port), timeout=5):
-                pass
-            return True, f"Proxy TCP reachability OK: {host}:{port}."
+            await asyncio.to_thread(self._tcp_connect, host, port)
+            return True, f"Proxy TCP reachability OK for {entry.name}: {host}:{port}."
         except OSError as exc:
-            return False, f"Proxy connection failed for {host}:{port}: {exc}"
+            return False, f"Proxy connection failed for {entry.name} at {host}:{port}: {exc}"
 
     async def _test_github(self, config: dict) -> tuple[bool, str]:
         github_cfg = config.get("github") if isinstance(config.get("github"), dict) else {}
@@ -376,6 +378,7 @@ class RuntimeProfileTestService:
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
         }
+        choice, plan = self._egress(config, "github", hostname_of(base_url))
         return await self._http_json_smoke(
             method="GET",
             url=endpoint,
@@ -383,6 +386,7 @@ class RuntimeProfileTestService:
             payload=None,
             timeout=15.0,
             success_message_builder=lambda data: f"GitHub connection OK as {data.get('login') or 'unknown user'}.",
+            client_kwargs=self._client_kwargs(choice, plan),
         )
 
     async def _test_jira(self, config: dict) -> tuple[bool, str]:
@@ -397,15 +401,17 @@ class RuntimeProfileTestService:
         base_url = str(instance.get("url") or "").strip().rstrip("/")
         endpoint = f"{base_url}/rest/api/2/myself"
         headers = self._build_auth(instance)
+        choice, plan = self._egress(config, "jira", hostname_of(base_url), instance.get("proxy"))
         ok, message, data = await self._http_json_request(
             method="GET",
             url=endpoint,
             headers=headers,
             payload=None,
             timeout=15.0,
+            client_kwargs=self._client_kwargs(choice, plan),
         )
         if not ok:
-            return False, message
+            return False, message + self._path_text(choice, "Jira")
         display = (data or {}).get("displayName") or (data or {}).get("accountId") or "unknown"
         name = str(instance.get("name") or base_url)
         return True, f"Jira connection OK for {name} as {display}."
@@ -422,15 +428,17 @@ class RuntimeProfileTestService:
         base_url = str(instance.get("url") or "").strip().rstrip("/")
         endpoint = f"{base_url}/rest/api/space?limit=1"
         headers = self._build_auth(instance)
+        choice, plan = self._egress(config, "confluence", hostname_of(base_url), instance.get("proxy"))
         ok, message, _data = await self._http_json_request(
             method="GET",
             url=endpoint,
             headers=headers,
             payload=None,
             timeout=15.0,
+            client_kwargs=self._client_kwargs(choice, plan),
         )
         if not ok:
-            return False, message
+            return False, message + self._path_text(choice, "Confluence")
         name = str(instance.get("name") or base_url)
         return True, f"Confluence connection OK for {name}."
 
@@ -643,13 +651,23 @@ class RuntimeProfileTestService:
             return {"Authorization": f"Basic {encoded}"}
         return {}
 
-    async def _http_json_smoke(self, method: str, url: str, headers: dict, payload: dict | None, timeout: float, success_message_builder):
+    async def _http_json_smoke(
+        self,
+        method: str,
+        url: str,
+        headers: dict,
+        payload: dict | None,
+        timeout: float,
+        success_message_builder,
+        client_kwargs: dict | None = None,
+    ):
         ok, message, data = await self._http_json_request(
             method=method,
             url=url,
             headers=headers,
             payload=payload,
             timeout=timeout,
+            client_kwargs=client_kwargs,
         )
         if not ok:
             return False, message
@@ -662,6 +680,7 @@ class RuntimeProfileTestService:
         headers: dict,
         payload: dict | None,
         timeout: float,
+        client_kwargs: dict | None = None,
     ) -> tuple[bool, str, dict | None]:
         ok, message, data = await self._http_request(
             method=method,
@@ -669,6 +688,7 @@ class RuntimeProfileTestService:
             headers=headers,
             json_payload=payload,
             timeout=timeout,
+            client_kwargs=client_kwargs,
         )
         return ok, message, data if isinstance(data, dict) else None
 
@@ -679,16 +699,18 @@ class RuntimeProfileTestService:
         headers: dict,
         timeout: float,
         json_payload: dict | None = None,
+        client_kwargs: dict | None = None,
     ):
         """One request; returns (ok, message, parsed JSON of any shape or None).
 
         Nexus answers with a JSON list rather than an object, which is why this
         sits under the dict-only helper the older tests use. The failure message
         carries the status and the server's own error text, never the request
-        headers.
+        headers. ``client_kwargs`` is the egress (_client_kwargs): the proxy the
+        runtime's tool would use, or none.
         """
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, **(client_kwargs or {})) as client:
                 response = await client.request(
                     method=method,
                     url=url,

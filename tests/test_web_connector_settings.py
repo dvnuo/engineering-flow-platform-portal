@@ -495,7 +495,9 @@ def test_connector_save_response_triggers_connectors_changed(monkeypatch):
         assert resp.status_code == 200
         assert resp.headers.get("HX-Trigger") == "connectorsChanged"
         assert "Saved." in resp.text
-        assert _saved(env.db, rp)["proxy"]["url"] == "http://proxy.example.com:8080"
+        # The single URL a page from before named proxies posts is stored as
+        # one proxy named "default".
+        assert _saved(env.db, rp)["proxy"]["proxies"] == [{"name": "default", "url": "http://proxy.example.com:8080"}]
         assert rp.revision == 2
         assert env.calls["apply"] == 1
     finally:
@@ -537,7 +539,13 @@ def test_connector_save_only_rewrites_its_own_sections(monkeypatch):
         assert cfg["jira"]["enabled"] is True
         assert cfg["github"] == before["github"]
         assert cfg["git"] == before["git"]
-        assert cfg["proxy"] == before["proxy"]
+        # Untouched, but stored in its current shape: the flat URL reads as
+        # one proxy named "default".
+        assert cfg["proxy"] == {
+            "enabled": True,
+            "default": "default",
+            "proxies": [{"name": "default", "url": "http://proxy.example.com:8080"}],
+        }
         assert cfg["llm"] == before["llm"]
     finally:
         env.cleanup()
@@ -565,7 +573,7 @@ def test_github_connector_save_owns_github_and_git_sections(monkeypatch):
         cfg = _saved(env.db, rp)
         assert cfg["github"] == {"enabled": True, "api_token": "tok"}
         assert cfg["git"] == {"user": {"name": "EFP Bot", "email": "efp-bot@example.com"}}
-        assert cfg["proxy"] == {"enabled": True, "url": "http://p:8080"}
+        assert cfg["proxy"] == {"enabled": True, "default": "default", "proxies": [{"name": "default", "url": "http://p:8080"}]}
     finally:
         env.cleanup()
 
@@ -1154,7 +1162,7 @@ def test_connector_test_runs_offered_target_against_the_posted_form(monkeypatch)
     env = _build_env(monkeypatch)
     seen = {}
 
-    async def _fake_run_test(target, config_payload, runtime_type="native"):
+    async def _fake_run_test(target, config_payload, runtime_type="native", **kwargs):
         seen["target"] = target
         seen["config"] = config_payload
         seen["runtime_type"] = runtime_type
@@ -1176,7 +1184,8 @@ def test_connector_test_runs_offered_target_against_the_posted_form(monkeypatch)
         assert resp.status_code == 200
         assert resp.json() == {"ok": True, "target": "proxy", "message": "reachable"}
         assert seen["target"] == "proxy"
-        assert seen["config"]["proxy"]["url"] == "http://proxy.example.com:8080"
+        # The single URL the old form posts is tested as the proxy named "default".
+        assert seen["config"]["proxy"]["proxies"] == [{"name": "default", "url": "http://proxy.example.com:8080"}]
         # The github flag is not the proxy connector's to honour.
         assert seen["config"]["github"]["api_token"] == "stored"
         # A test never saves.

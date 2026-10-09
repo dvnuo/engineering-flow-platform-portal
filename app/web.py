@@ -64,6 +64,10 @@ from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_bounded_int,
     sanitize_runtime_profile_pgsql_proxy,
+    PROXY_ASSIGNMENT_NONE,
+    sanitize_runtime_profile_proxy,
+    sanitize_runtime_profile_proxy_name,
+    sanitize_runtime_profile_proxy_url,
     sanitize_runtime_profile_config_dict,
 )
 from app.services.runtime_profile_audit import audit_runtime_profile_change
@@ -990,6 +994,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         troubleshooting_view[f"{section}_instances"] = [item for item in section_instances if isinstance(item, dict)]
     raw_git = raw_config.get("git") if isinstance(raw_config.get("git"), dict) else {}
     raw_proxy = raw_config.get("proxy") if isinstance(raw_config.get("proxy"), dict) else {}
+    proxy_view = _proxy_view(effective_config.get("proxy"))
     mobile = effective_config.get("mobile-auto") if isinstance(effective_config.get("mobile-auto"), dict) else {}
     raw_mobile = raw_config.get("mobile-auto") if isinstance(raw_config.get("mobile-auto"), dict) else {}
     mobile_browserstack = mobile.get("browserstack") if isinstance(mobile.get("browserstack"), dict) else {}
@@ -1035,6 +1040,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_git": raw_git,
         "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
         "raw_proxy": raw_proxy,
+        **proxy_view,
     }
 
 
@@ -1327,6 +1333,126 @@ TROUBLESHOOTING_CARD_LAYOUT = {
 }
 
 
+# The Proxy connector's cards: what each posts (proxy_instances_{i}_{field}),
+# and which of those the member's form keeps when posted blank.
+PROXY_CARD_FIELDS = ["name", "url", "username", "password", "no_proxy"]
+PROXY_CARD_SECRET_FIELDS = frozenset({"password"})
+
+
+def _proxy_view(section) -> dict:
+    """What the Proxy connector's panels render: the proxies, the default, and
+    the table of which proxy each connector uses (connector_registry
+    proxy_assignable_specs), from a section in any shape."""
+    from app.services.connector_registry import proxy_assignable_specs
+
+    sanitized = sanitize_runtime_profile_proxy(section if isinstance(section, dict) else {})
+    assignments = sanitized.get("assignments") or {}
+    return {
+        "proxy_entries": sanitized.get("proxies") or [],
+        "proxy_default": sanitized.get("default") or "",
+        "proxy_assignments": assignments,
+        "proxy_connectors": [
+            {
+                "type": spec.type,
+                "label": spec.label,
+                "choice": spec.proxy_choice,
+                "current": assignments.get(spec.type, ""),
+            }
+            for spec in proxy_assignable_specs()
+        ],
+    }
+
+
+def _proxy_rows_error(rows: list[dict]) -> Optional[str]:
+    """Why the proxy cards cannot be stored as given, or None.
+
+    The sanitizer drops a card it cannot use; the form names it instead.
+    """
+    seen: set[str] = set()
+    for index, row in enumerate(rows, 1):
+        name = str(row.get("name") or "").strip()
+        if not name:
+            return f"Proxy {index} needs a name; the connectors refer to it by that name."
+        if sanitize_runtime_profile_proxy_name(name) is None:
+            return f"Proxy name {name} may use letters, digits, - and _ only."
+        if name.lower() in seen:
+            return f"Proxy names must be unique; {name} is listed more than once."
+        seen.add(name.lower())
+        if sanitize_runtime_profile_proxy_url(row.get("url")) is None:
+            return f"Proxy {name} needs an http:// or https:// URL such as http://proxy.example.com:3128."
+    return None
+
+
+def _proxy_section_from_form(form, existing: dict, *, member: bool) -> tuple[dict, Optional[str]]:
+    """The proxy section a form posts: the cards, the default, the assignments.
+
+    Returns ``(section, error)``. A form without cards (an API client, a page
+    from before named proxies) still posts the single URL, which the sanitizer
+    reads as one proxy named ``default``; a member's blank password there keeps
+    the stored one, as it always did.
+    """
+    from app.services.connector_registry import PROXY_CHOICE_SELECTABLE, proxy_assignable_specs
+
+    def _bool(value) -> bool:
+        return str(value or "").lower() in {"1", "true", "on", "yes"}
+
+    existing = existing if isinstance(existing, dict) else {}
+    section: dict = {"enabled": _bool(form.get("proxy_enabled"))}
+    if "proxy_instance_count" not in form:
+        for key in ("url", "username", "password"):
+            value = (form.get(f"proxy_{key}") or "").strip()
+            if value:
+                section[key] = value
+        if member and not section.get("password") and existing.get("password") and not _bool(form.get("proxy_password_clear")):
+            section["password"] = existing.get("password")
+        return section, None
+
+    current = sanitize_runtime_profile_proxy(existing)
+    if member:
+        rows = _settings_parse_instances(
+            form,
+            "proxy",
+            PROXY_CARD_FIELDS,
+            existing_instances=current.get("proxies") or [],
+            preserve_blank_fields=set(PROXY_CARD_SECRET_FIELDS),
+            clearable_fields=set(PROXY_CARD_SECRET_FIELDS),
+        )
+    else:
+        rows = _seed_parse_instances(form, "proxy", PROXY_CARD_FIELDS)
+    error = _proxy_rows_error(rows)
+    if error:
+        return section, error
+    entries: list[dict] = []
+    for row in rows:
+        entry: dict = {"name": str(row.get("name") or "").strip(), "url": str(row.get("url") or "").strip()}
+        for key in ("username", "password", "no_proxy"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                entry[key] = value
+        entries.append(entry)
+    names = [entry["name"] for entry in entries]
+    if entries:
+        section["proxies"] = entries
+        default = (form.get("proxy_default") or "").strip()
+        section["default"] = default if default in names else names[0]
+    assignments: dict = {}
+    for spec in proxy_assignable_specs():
+        if spec.proxy_choice != PROXY_CHOICE_SELECTABLE:
+            continue
+        value = (form.get(f"proxy_assign_{spec.type}") or "").strip()
+        if not value:
+            continue
+        if value.lower() == PROXY_ASSIGNMENT_NONE:
+            assignments[spec.type] = PROXY_ASSIGNMENT_NONE
+        elif value in names:
+            assignments[spec.type] = value
+        else:
+            return section, f"{spec.label} is set to use the proxy {value}, which is not among the proxies above."
+    if assignments:
+        section["assignments"] = assignments
+    return section, None
+
+
 def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
     """Build the seed from the Default Connections form.
 
@@ -1432,11 +1558,13 @@ def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
             if default_instance:
                 seed[section]["default_instance"] = default_instance
 
-    proxy: dict = {}
-    for key in ("url", "username", "password"):
-        put(proxy, key, f"proxy_{key}")
-    if flag("proxy_enabled") or proxy:
-        seed["proxy"] = {"enabled": flag("proxy_enabled"), **proxy}
+    proxy, proxy_error = _proxy_section_from_form(form, {}, member=False)
+    if proxy_error:
+        if errors is None:
+            raise ValueError(proxy_error)
+        errors.append(proxy_error)
+    if flag("proxy_enabled") or len(proxy) > 1:
+        seed["proxy"] = proxy
 
     aws: dict = {}
     for key in AWS_SEED_TEXT_FIELDS:
@@ -2293,32 +2421,40 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             config_payload.pop("git", None)
 
     if is_section_touched("proxy"):
-        proxy_cfg = (config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}).copy()
-        proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
-        proxy_url_value = (form.get("proxy_url") or "").strip()
-        proxy_username_value = (form.get("proxy_username") or "").strip()
-        if "proxy_url" in form:
-            if proxy_url_value:
-                proxy_cfg["url"] = proxy_url_value
-            else:
-                proxy_cfg.pop("url", None)
-        if "proxy_username" in form:
-            if proxy_username_value:
-                proxy_cfg["username"] = proxy_username_value
-            else:
-                proxy_cfg.pop("username", None)
-        if "proxy_password" in form:
-            new_password = (form.get("proxy_password") or "").strip()
-            if new_password:
-                proxy_cfg["password"] = new_password
-            elif "proxy_password" in form or is_clear("proxy_password_clear"):
-                proxy_cfg.pop("password", None)
+        existing_proxy = config_payload.get("proxy") if isinstance(config_payload.get("proxy"), dict) else {}
+        if "proxy_instance_count" in form:
+            proxy_cfg, proxy_error = _proxy_section_from_form(form, existing_proxy, member=True)
+            if proxy_error:
+                return config_payload, proxy_error
+        else:
+            # The single-URL form of before named proxies: field by field, a
+            # blank password keeping the stored one.
+            proxy_cfg = dict(existing_proxy)
+            proxy_cfg["enabled"] = as_bool(form.get("proxy_enabled"))
+            proxy_url_value = (form.get("proxy_url") or "").strip()
+            proxy_username_value = (form.get("proxy_username") or "").strip()
+            if "proxy_url" in form:
+                if proxy_url_value:
+                    proxy_cfg["url"] = proxy_url_value
+                else:
+                    proxy_cfg.pop("url", None)
+            if "proxy_username" in form:
+                if proxy_username_value:
+                    proxy_cfg["username"] = proxy_username_value
+                else:
+                    proxy_cfg.pop("username", None)
+            if "proxy_password" in form:
+                new_password = (form.get("proxy_password") or "").strip()
+                if new_password:
+                    proxy_cfg["password"] = new_password
+                elif "proxy_password" in form or is_clear("proxy_password_clear"):
+                    proxy_cfg.pop("password", None)
+                elif existing_proxy_password:
+                    proxy_cfg["password"] = existing_proxy_password
+                else:
+                    proxy_cfg.pop("password", None)
             elif existing_proxy_password:
                 proxy_cfg["password"] = existing_proxy_password
-            else:
-                proxy_cfg.pop("password", None)
-        elif existing_proxy_password:
-            proxy_cfg["password"] = existing_proxy_password
         config_payload["proxy"] = proxy_cfg
 
     return _settings_finalize_config_payload(config_payload), None
@@ -2781,6 +2917,8 @@ def _default_connections_context(
         "aws_auth_providers": list(AWS_AUTH_PROVIDERS),
         "seed_json": json.dumps(display_seed, indent=2, ensure_ascii=False, sort_keys=True) if seed else "{}",
         "seed_summary": service.seed_summary(),
+        # The Proxy connector's cards and table (connectors/_macros.html).
+        **_proxy_view(seed.get("proxy")),
         "guidance": all_guidance(),
         # What a blank BrowserStack Network means (connectors/_macros.html).
         "mobile_default_network": get_settings().mobile_default_network,
@@ -3627,7 +3765,11 @@ async def app_connector_test(request: Request, connector_type: str, target: str)
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
 
         ok, message = await runtime_profile_test_service.run_test(
-            target, config_payload, runtime_type=(form.get("test_runtime_type") or "native")
+            target,
+            config_payload,
+            runtime_type=(form.get("test_runtime_type") or "native"),
+            # The Proxy panel tests one card at a time (chat_ui.js sends its name).
+            proxy_name=(form.get("proxy_test_name") or "").strip() or None,
         )
         return JSONResponse({"ok": bool(ok), "target": target, "message": message})
     finally:

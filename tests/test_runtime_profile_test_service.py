@@ -122,7 +122,7 @@ def test_jira_uses_basic_for_username_token(monkeypatch):
     svc = RuntimeProfileTestService()
     seen = {}
 
-    async def _fake_http_json_request(*, method, url, headers, payload, timeout):
+    async def _fake_http_json_request(*, method, url, headers, payload, timeout, client_kwargs=None):
         seen["headers"] = headers
         return True, "ok", {"displayName": "User"}
 
@@ -145,7 +145,7 @@ def test_confluence_uses_basic_for_username_token(monkeypatch):
     svc = RuntimeProfileTestService()
     seen = {}
 
-    async def _fake_http_json_request(*, method, url, headers, payload, timeout):
+    async def _fake_http_json_request(*, method, url, headers, payload, timeout, client_kwargs=None):
         seen["headers"] = headers
         return True, "ok", {"results": []}
 

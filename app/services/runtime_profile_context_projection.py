@@ -5,6 +5,7 @@ from typing import Any
 
 from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
 from app.services.ai_platform_config import materialize_ai_platform_llm_config
+from app.services.proxy_plan import mirror_default_proxy
 from app.services.runtime_profile_config_policy import canonicalize_portal_runtime_profile_config
 from app.services.runtime_profile_llm_projection import project_llm_for_runtime
 
@@ -352,6 +353,10 @@ def build_canonical_profile_config(
     """
     sanitized = sanitize_runtime_profile_config_dict(config or {})
     canonical = canonicalize_portal_runtime_profile_config(sanitized)
+    if isinstance(canonical.get("proxy"), dict):
+        # The default proxy also as the flat url/username/password keys, so a
+        # runtime image from before named proxies keeps its proxy.
+        canonical["proxy"] = mirror_default_proxy(canonical["proxy"])
 
     if not include_portal_sections:
         canonical = {

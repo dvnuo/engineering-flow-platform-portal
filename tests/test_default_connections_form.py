@@ -77,11 +77,13 @@ def test_the_panel_offers_a_credential_field_per_connection():
     for name in (
         "llm_api_key",
         "github_api_token",
-        "proxy_password",
         "aws_password",
         "mobile_browserstack_access_key",
     ):
         assert f'name="{name}"' in html, name
+    # The Proxy connector's credentials live on its cards, like the instances'.
+    assert 'data-instance-container="proxy"' in html
+    assert 'name="proxy_default"' in html
 
 
 def test_credentials_are_typed_as_passwords():

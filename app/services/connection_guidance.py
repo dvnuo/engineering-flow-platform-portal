@@ -141,10 +141,12 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
     },
     "proxy": {
         "title": "Network proxy",
-        "summary": "Only needed if your network requires a proxy to reach the internet.",
+        "summary": "Only needed if your network requires a proxy to reach the internet. Add each proxy your assistants may need, pick the default, and choose which proxy each connector uses.",
         "steps": [
             "Leave this off unless your administrator told you to turn it on.",
-            "Enter the proxy URL exactly as your network team provided it.",
+            "Add a proxy per route your network offers: a name, the URL exactly as your network team provided it, and a login if the proxy asks for one.",
+            "Pick the default proxy: it is what the assistant's environment gets, and what every connector left on Default uses.",
+            "In the table below, choose the proxy each connector goes through, or None for a service the assistant reaches directly. AWS and GitHub always use the default.",
         ],
         "help_url": None,
         "help_label": None,

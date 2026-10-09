@@ -57,6 +57,12 @@ PORTAL_MANAGED_FIELD_TREE = {
     },
     "proxy": {
         "enabled": True,
+        # Named proxies (sanitize_runtime_profile_proxy): the list, the one
+        # the pod environment gets, and which proxy each connector uses. The
+        # flat keys are the pre-list shape, upgraded on read.
+        "default": True,
+        "proxies": True,
+        "assignments": True,
         "url": True,
         "username": True,
         "password": True,
@@ -426,6 +432,64 @@ def sanitize_runtime_profile_splunk(value) -> dict:
 PGSQL_PROXY_NONE = "none"
 PGSQL_PROXY_SCHEMES = ("http", "https")
 
+# The Proxy connector: a list of named proxies, the one the pod environment
+# gets (``default``) and which proxy each connector uses (``assignments``:
+# connector type -> proxy name, ``none`` for a direct connection, or absent to
+# follow the default). See MULTI_PROXY_CONNECTOR_PLAN.md.
+PROXY_ASSIGNABLE_CONNECTORS = ("llm", "jira", "confluence", "github", "jenkins", "nexus", "aws", "splunk", "pgsql", "browserstack")
+# Connectors whose tools only read the environment (aws CLI, kubectl, gh,
+# git): they take the default proxy, and the panel shows their row with that
+# one option. An assignment for them is dropped.
+PROXY_DEFAULT_ONLY_CONNECTORS = ("aws", "github")
+PROXY_ASSIGNMENT_NONE = "none"
+PROXY_URL_SCHEMES = ("http", "https")
+# A proxy name is what the dropdowns show and the rows refer to. No dot, so a
+# bare host typed into a pgsql row's proxy field still reads as a host.
+PROXY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+# What the flat pre-list shape (url/username/password/no_proxy) becomes.
+PROXY_LEGACY_ENTRY_NAME = "default"
+_PROXY_NONE_WORDS = frozenset({"none", "direct", "off"})
+
+
+def sanitize_runtime_profile_proxy_name(value) -> str | None:
+    text = str(value or "").strip()
+    return text if PROXY_NAME_PATTERN.match(text) else None
+
+
+def sanitize_runtime_profile_proxy_url(value) -> str | None:
+    """An ``http://`` or ``https://`` proxy URL, or None when unusable.
+
+    A bare ``host:port`` is an http proxy. Credentials in the URL are kept
+    (the runtime hands the whole URL to the CONNECT request); a path, query or
+    fragment is dropped.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    raw = text if "://" in text else f"http://{text}"
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return None
+    if parsed.scheme not in PROXY_URL_SCHEMES or not parsed.hostname:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is not None and not (PORT_MIN <= port <= PORT_MAX):
+        return None
+    host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"
+    userinfo = ""
+    if parsed.username is not None:
+        userinfo = parsed.username
+        if parsed.password is not None:
+            userinfo += ":" + parsed.password
+        userinfo += "@"
+    return f"{parsed.scheme}://{userinfo}{host}" + (f":{port}" if port is not None else "")
+
 
 def sanitize_runtime_profile_pgsql_proxy(value) -> str | None:
     """Normalize a PostgreSQL row's proxy setting, or None when unusable.
@@ -433,20 +497,23 @@ def sanitize_runtime_profile_pgsql_proxy(value) -> str | None:
     The pgsql CLI reaches the database the way an HTTP request would: through
     the proxy the Proxy connector names unless NO_PROXY exempts the host. This
     per-row setting overrides that: ``none`` (also ``direct``/``off``) forces a
-    direct connection, an ``http://`` or ``https://`` URL names the proxy for
-    this database. A bare ``host:port`` is an http proxy. Credentials are
-    refused here because the row is stored in the clear; they belong in the
-    Proxy connector, which the runtime passes to the CLI. Anything else is
-    dropped so the CLI follows the environment rather than failing on a value
-    it cannot parse.
+    direct connection, the name of one of the Proxy connector's proxies picks
+    that proxy, an ``http://`` or ``https://`` URL names a proxy for this
+    database alone. A bare ``host:port`` is an http proxy. Credentials are
+    refused in a URL here because the row is stored in the clear; they belong
+    in the Proxy connector, which the runtime passes to the CLI. Anything else
+    is dropped so the CLI follows the environment rather than failing on a
+    value it cannot parse.
     """
     if not isinstance(value, str):
         return None
     text = value.strip()
     if not text:
         return None
-    if text.lower() in {"none", "direct", "off"}:
+    if text.lower() in _PROXY_NONE_WORDS:
         return PGSQL_PROXY_NONE
+    if PROXY_NAME_PATTERN.match(text) and "://" not in text:
+        return text
     raw = text if "://" in text else f"http://{text}"
     try:
         parsed = urlparse(raw)
@@ -845,25 +912,88 @@ def sanitize_runtime_profile_aws(value) -> dict:
     return out
 
 
+def _proxy_no_proxy_text(item: dict) -> str:
+    raw = item.get("no_proxy")
+    if raw is None or not str(raw).strip():
+        raw = item.get("noProxy")
+    return str(raw or "").strip() if isinstance(raw, str) else ""
+
+
+def sanitize_runtime_profile_proxy_entry(item, taken: set[str] | None = None) -> dict | None:
+    """One named proxy, or None when it has no usable name or URL (or the name is taken)."""
+    if not isinstance(item, dict):
+        return None
+    name = sanitize_runtime_profile_proxy_name(item.get("name"))
+    url = sanitize_runtime_profile_proxy_url(item.get("url"))
+    if not name or not url or (taken is not None and name in taken):
+        return None
+    entry: dict = {"name": name, "url": url}
+    for key in ("username", "password"):
+        cleaned = str(item.get(key) or "").strip()
+        if cleaned:
+            entry[key] = cleaned
+    no_proxy = _proxy_no_proxy_text(item)
+    if no_proxy:
+        entry["no_proxy"] = no_proxy
+    return entry
+
+
 def sanitize_runtime_profile_proxy(value) -> dict:
+    """The Proxy connector in its named-proxies shape, whatever shape it came in.
+
+    ``proxies`` keeps the usable entries (a name, a URL; the first of two rows
+    with the same name), ``default`` names one of them (the first when the
+    stored name is gone), and ``assignments`` keeps only known connectors
+    that point at an existing proxy or at ``none``; a connector whose tools
+    only read the environment never gets one. A row saved before named
+    proxies existed, with the flat url/username/password/no_proxy keys and no
+    list, becomes one proxy named ``default``.
+    """
     if not isinstance(value, dict):
         return {}
     out: dict = {}
     if "enabled" in value:
         out["enabled"] = _runtime_profile_bool(value.get("enabled"))
-    for key in ("url", "username", "password"):
-        cleaned = str(value.get(key) or "").strip()
-        if cleaned:
-            out[key] = cleaned
-    raw_no_proxy = None
-    if "no_proxy" in value:
-        raw_no_proxy = value.get("no_proxy")
-    elif "noProxy" in value:
-        raw_no_proxy = value.get("noProxy")
-    if isinstance(raw_no_proxy, str):
-        cleaned_no_proxy = raw_no_proxy.strip()
-        if cleaned_no_proxy:
-            out["no_proxy"] = cleaned_no_proxy
+    entries: list[dict] = []
+    taken: set[str] = set()
+    raw_entries = value.get("proxies")
+    if isinstance(raw_entries, list):
+        for item in raw_entries:
+            entry = sanitize_runtime_profile_proxy_entry(item, taken)
+            if entry:
+                entries.append(entry)
+                taken.add(entry["name"])
+    if not entries:
+        legacy_url = sanitize_runtime_profile_proxy_url(value.get("url"))
+        if legacy_url:
+            legacy: dict = {"name": PROXY_LEGACY_ENTRY_NAME, "url": legacy_url}
+            for key in ("username", "password"):
+                cleaned = str(value.get(key) or "").strip()
+                if cleaned:
+                    legacy[key] = cleaned
+            no_proxy = _proxy_no_proxy_text(value)
+            if no_proxy:
+                legacy["no_proxy"] = no_proxy
+            entries.append(legacy)
+            taken.add(PROXY_LEGACY_ENTRY_NAME)
+    if entries:
+        out["proxies"] = entries
+        default = str(value.get("default") or "").strip()
+        out["default"] = default if default in taken else entries[0]["name"]
+    assignments: dict = {}
+    raw_assignments = value.get("assignments")
+    if isinstance(raw_assignments, dict):
+        for key, raw_choice in raw_assignments.items():
+            connector = str(key or "").strip()
+            if connector not in PROXY_ASSIGNABLE_CONNECTORS or connector in PROXY_DEFAULT_ONLY_CONNECTORS:
+                continue
+            choice = str(raw_choice or "").strip()
+            if choice.lower() in _PROXY_NONE_WORDS:
+                assignments[connector] = PROXY_ASSIGNMENT_NONE
+            elif choice in taken:
+                assignments[connector] = choice
+    if assignments:
+        out["assignments"] = assignments
     return out
 
 
@@ -1123,6 +1253,21 @@ def dump_runtime_profile_config_json(data: dict) -> str:
     return json.dumps(sanitize_runtime_profile_config_dict(data))
 
 
+def _strip_url_credentials(url: str) -> str:
+    """The URL without its user info, for a public view."""
+    text = str(url or "").strip()
+    if "@" not in text:
+        return text
+    try:
+        parsed = urlparse(text if "://" in text else f"http://{text}")
+    except ValueError:
+        return text
+    if parsed.username is None:
+        return text
+    hostport = parsed.netloc.rsplit("@", 1)[-1]
+    return parsed._replace(netloc=hostport).geturl()
+
+
 def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     redacted = deepcopy(config) if isinstance(config, dict) else {}
     llm = redacted.get("llm")
@@ -1152,6 +1297,15 @@ def redact_runtime_profile_config_for_public_response(config: dict) -> dict:
     proxy = redacted.get("proxy")
     if isinstance(proxy, dict):
         proxy["password_present"] = bool(str(proxy.pop("password", "")).strip())
+        if isinstance(proxy.get("url"), str):
+            proxy["url"] = _strip_url_credentials(proxy["url"])
+        entries = proxy.get("proxies")
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    entry["password_present"] = bool(str(entry.pop("password", "")).strip())
+                    if isinstance(entry.get("url"), str):
+                        entry["url"] = _strip_url_credentials(entry["url"])
     for section in ("jira", "confluence", "jenkins", *TROUBLESHOOTING_INSTANCE_SECTIONS):
         cfg = redacted.get(section)
         if not isinstance(cfg, dict):
