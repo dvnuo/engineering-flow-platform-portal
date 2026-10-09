@@ -8,7 +8,7 @@
  *   ```efp-review    {"title", "summary", "items": [{"id", "title", "type", "examples", "warnings", "detail"}]}
  *   ```efp-evidence  {"path": "mobile/runs/.../evidence.json"} or {"paths": [...]} or inline evidence objects
  *   ```efp-matrix    {"path": "mobile/runs/.../matrix.json"} or an inline efp-matrix/v1 document
- *   ```efp-replay    {"path": "mobile/replays/<id>/report.json"}: a replay of segments on the recording device
+ *   ```efp-replay    {"path": "mobile/replays/<id>/report.json"}: a replay of a scenario script (or segments) on the recording device
  *
  * Paths are workspace paths of the assistant; files are read through the
  * Portal proxy (/a/{agent}/api/server-files/...). chat_ui.js hands fenced
@@ -307,6 +307,8 @@
       const failed = steps.find((step) => step && step.ok === false) || null;
       return {
         name: String(seg.name || ""),
+        // A scenario script, or a segment (what a report says without a kind).
+        kind: seg.kind === "script" ? "script" : "segment",
         status: String(seg.status || ""),
         stepsTotal: Number(seg.steps_total) || steps.length,
         fallbacks: steps.filter((step) => step && step.resolved_by === "fallback").length,
@@ -340,7 +342,9 @@
 
   function replayCardHtml(rp, agentId) {
     const passed = rp.segments.filter((seg) => seg.status === "passed").length;
-    const title = `Replay: ${passed} of ${rp.segments.length} ${rp.segments.length === 1 ? "segment" : "segments"} passed`;
+    const scripts = rp.segments.length > 0 && rp.segments.every((seg) => seg.kind === "script");
+    const noun = scripts ? (rp.segments.length === 1 ? "script" : "scripts") : (rp.segments.length === 1 ? "segment" : "segments");
+    const title = `Replay: ${passed} of ${rp.segments.length} ${noun} passed`;
     const startLabel = { restart: "the app restarted", reset: "the app's data cleared first", current: "the screen the device showed" }[rp.start] || "";
     const meta = [
       [rp.platform === "ios" ? "iOS" : (rp.platform === "android" ? "Android" : rp.platform), rp.device, rp.osVersion].filter(Boolean).join(" · "),
