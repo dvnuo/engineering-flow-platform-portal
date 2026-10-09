@@ -277,10 +277,14 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # The hosted Inspector attaches to the bridge on this computer.
     assert 'hostname: "127.0.0.1"' in js and "path: `/mobile/wd/${rec.id}`" in js and "ssl: false" in js
     # Recordings land where the record-mobile-segment skill looks for them,
-    # announced with the messages it answers to.
-    assert 'const RECORDINGS_DIR = "mobile/recordings";' in js
-    assert "Segment ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
-    assert "Recording finished. Compile any segment not imported yet." in js
+    # announced with the messages it answers to; a recording is a scenario's,
+    # compiled into its script in mobile/scripts/<platform>/.
+    assert 'const RECORDINGS_DIR = "mobile/recordings";' in js and 'const SCRIPTS_DIR = "mobile/scripts";' in js
+    assert "Script ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
+    assert "Recording finished. Compile any recording not compiled yet." in js
+    assert 'Scripts: ${view.planned.join(", ")}' in js
+    # Code from the Inspector's recorder keeps no screens: an older segment.
+    assert "Segment ${name} recorded: ${path}" in js
     # The panel is Mobile testing: the device on top, a progress strip, then
     # the step at hand; settings behind a gear; the Inspector opens itself.
     assert 'const PANEL_TITLE = "Mobile testing";' in js
@@ -289,17 +293,18 @@ def test_the_page_drives_the_local_bridge_not_portal():
         assert marker in js, marker
     # The Library lists what the workspace keeps and deletes through the
     # runtime's workspace API, telling the assistant so the plan follows.
-    for marker in ("data-recording-tabs", "data-recording-library", 'data-recording-action="library-replay"', 'data-recording-action="library-view"', "library-delete-segment", "library-delete-recording", "library-delete-replay", 'workspaceApi("/delete")', "JSON.stringify({ paths })", "${kind} ${name} deleted: ${path}", "efp-lib-pre", "cards.replayCardHtml(cards.normalizeReplay("):
+    for marker in ("data-recording-tabs", "data-recording-library", 'data-recording-action="library-replay"', 'data-recording-action="library-view"', "library-delete-script", "library-delete-segment", "library-delete-recording", "library-delete-replay", 'workspaceApi("/delete")', "JSON.stringify({ paths })", "${kind} ${name} deleted: ${path}", "efp-lib-pre", "cards.replayCardHtml(cards.normalizeReplay(", 'data-recording-action="library-copy"', "library-copy-send", "Copy script ${name} as a variant: "):
         assert marker in js, marker
-    # Compiled segments replay on the held device; the result lands in the
-    # workspace beside the recordings and the chat message hands it over.
+    # A scenario script (or older segments) replays on the held device; the
+    # result lands in the workspace beside the recordings and the chat
+    # message hands it over.
     assert '"segment.replay"' in js and '"replay.status"' in js and '"replay.stop"' in js
     assert 'const REPLAYS_DIR = "mobile/replays";' in js and "Replay finished: " in js
     assert '<input type="password" class="portal-form-input" data-replay-secret' in js
     # The Mobile testing panel has the same proxy fields, the password masked.
     assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in js
-    # Segment names are optional: a member records the whole scenario.
-    assert "Segment names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
+    # Script names are optional: a member can name each recording when saving.
+    assert "Script names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
     assert "params.appium_version = String(defaults.appium_version)" in js
     # The panel starts the bridge for its /mobile routes without the EFP
     # browser window; the pre-opened tab animates and follows the start.
@@ -410,7 +415,7 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         const assert = require("node:assert/strict");
         const M = window.EfpMobileTesting;
         assert.deepEqual(M.parseSegments("seg-login\\n seg skip intro , ../x\\n\\n"), ["seg-login", "seg-skip-intro", "x"]);
-        assert.equal(M.savedMessage("seg-login", "mobile/recordings/seg-login.wdlog.json", ["seg-login"]), "Segment seg-login recorded: mobile/recordings/seg-login.wdlog.json");
+        assert.equal(M.savedMessage("FX-12-buy-100-usd", "mobile/recordings/FX-12-buy-100-usd.wdlog.json", ["FX-12-buy-100-usd"]), "Script FX-12-buy-100-usd recorded: mobile/recordings/FX-12-buy-100-usd.wdlog.json");
         assert.equal(M.savedMessage("recording-1", "mobile/recordings/recording-1.wdlog.json", []), "Recording recording-1 saved: mobile/recordings/recording-1.wdlog.json");
         // The login saved inside the address moved to its own fields.
         assert.deepEqual(store, { "efp.mobile.bridge_proxy": "http://proxy2:8080", "efp.mobile.bridge_proxy_user": "CORP\\\\alice", "efp.mobile.bridge_proxy_password": "s3cret" });
@@ -424,11 +429,60 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           M.replayMessage({ status: "failed", segments: [{ name: "seg-login", status: "failed" }, { name: "seg-open", status: "not_run" }], failure: { segment: "seg-login", step: 3 } }, "p/report.json"),
           "Replay finished: 0 of 2 segments passed; seg-login failed at step 3.\\nReport: p/report.json",
         );
+        // A scenario script replays on its own, and the message says so.
+        assert.equal(
+          M.replayMessage({ status: "failed", segments: [{ name: "FX-12-buy-100-usd", kind: "script", status: "failed" }], failure: { segment: "FX-12-buy-100-usd", step: 14 } }, "p/report.json"),
+          "Replay finished: 0 of 1 script passed; FX-12-buy-100-usd failed at step 14.\\nReport: p/report.json",
+        );
+        // A tick names the row's kind with its name, so a script never rides
+        // along with segments, whatever the latest listing said.
+        assert.equal(M.replayKey({ kind: "script", name: "FX-12-x" }), "script:FX-12-x");
+        assert.equal(M.replayKey({ kind: "segment", name: "FX-12-x" }), "segment:FX-12-x");
+        assert.deepEqual(M.replayChoice(["segment:seg-a", "segment:seg-b"], "script:FX-12-x"), ["script:FX-12-x"]);
+        assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:seg-a"), ["segment:seg-a"]);
+        assert.deepEqual(M.replayChoice(["segment:seg-a"], "segment:seg-b"), ["segment:seg-a", "segment:seg-b"]);
+        assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:FX-12-x"), ["segment:FX-12-x"]);
+        // A replay's result marks the row of its kind; a report without kinds marks by name.
+        assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "segment" }), false);
+        assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "script" }), true);
+        assert.equal(M.sameReplayRow({ name: "seg-a" }, { name: "seg-a", kind: "segment" }), true);
+        // The default tick: the plan's next script that has not passed, in the
+        // plan's order; scripts of other plans and older cuts do not count.
+        const listedRows = [
+          { kind: "script", name: "FX-11-sell-usd" },
+          { kind: "script", name: "FX-12-buy-100-usd" },
+          { kind: "script", name: "FX-12-sell-eur" },
+          { kind: "script", name: "FX-12-sell-usd" },
+          { kind: "segment", name: "seg-login" },
+          { kind: "segment", name: "seg-open" },
+        ];
+        const planRows = [
+          { name: "FX-12-buy-100-usd", status: "replayed" },
+          { name: "FX-12-sell-usd", status: "exists" },
+          { name: "FX-12-sell-eur", status: "exists" },
+        ];
+        assert.deepEqual(M.defaultReplayTicks(listedRows, planRows, ["seg-login", "seg-open"]), ["script:FX-12-sell-usd"]);
+        assert.deepEqual(M.defaultReplayTicks(listedRows, planRows.map((row) => Object.assign({}, row, { status: "replayed" })), []), []);
+        assert.deepEqual(M.defaultReplayTicks(listedRows, null, []), ["script:FX-11-sell-usd"]);
+        assert.deepEqual(M.defaultReplayTicks(listedRows, [{ name: "seg-login", status: "to_record" }], []), ["script:FX-11-sell-usd"]);
+        const segmentRows = listedRows.filter((row) => row.kind === "segment");
+        assert.deepEqual(M.defaultReplayTicks(segmentRows, planRows, ["seg-open"]), ["segment:seg-open"]);
+        assert.deepEqual(M.defaultReplayTicks(segmentRows, null, []), ["segment:seg-login", "segment:seg-open"]);
+        // Where a recording stands: parts still to compile first, then what it became.
+        assert.equal(M.recordingState({ split: { parts: ["FX-12-a", "FX-12-b"], compiled: ["FX-12-a"] }, compiledInto: ["FX-12-a"] }), "cut proposed, 1 of 2 parts not compiled");
+        assert.equal(M.recordingState({ split: null, compiledInto: ["seg-login"] }), "compiled into seg-login");
+        assert.equal(M.recordingState({ split: { parts: ["FX-12-a"], compiled: ["FX-12-a"] }, compiledInto: [] }), "cut into 1 part");
+        assert.equal(M.recordingState({ split: null, compiledInto: [] }), "not compiled yet");
+        assert.equal(M.replayNoun([{ name: "x", kind: "script" }, { name: "y", kind: "script" }]), "scripts");
+        assert.equal(M.replayNoun([{ name: "x", kind: "script" }, { name: "seg-y", kind: "segment" }]), "segments");
+        assert.equal(M.copyMessage("FX-12-buy-100-usd", " EUR instead of USD,\\n 250 instead of 100 "), "Copy script FX-12-buy-100-usd as a variant: EUR instead of USD, 250 instead of 100");
+        // From the Library the message names the file, and so the platform.
+        assert.equal(M.copyMessage("FX-12-a", "EUR", "mobile/scripts/ios/FX-12-a.yaml"), "Copy script FX-12-a as a variant: EUR\\nScript: mobile/scripts/ios/FX-12-a.yaml");
         assert.deepEqual(M.segmentSecrets("name: seg\\nsecrets:\\n    - MOBILE_SECRET_PASSWORD\\nsteps:\\n    - action: type\\n      text_env: MOBILE_SECRET_PIN\\n"), ["MOBILE_SECRET_PASSWORD", "MOBILE_SECRET_PIN"]);
         assert.deepEqual(M.segmentSecrets("secrets: [A_ONE, 'B_TWO']\\nsteps:\\n  - {action: type, text_env: C_THREE}\\n"), ["A_ONE", "B_TWO", "C_THREE"]);
         assert.deepEqual(M.segmentSecrets("name: seg\\nsteps:\\n  - action: tap\\n"), []);
         // The progress strip: nothing recorded yet, then a saved recording whose split waits in the chat.
-        assert.deepEqual(M.flowSteps().map((s) => s.label + ":" + s.state), ["Record:current", "Split:todo", "Replay:todo", "Scripts:todo"]);
+        assert.deepEqual(M.flowSteps().map((s) => s.label + ":" + s.state), ["Record:current", "Compile:todo", "Replay:todo", "Export:todo"]);
         assert.equal(M.proxyForBridge({ url: "", username: "alice", password: "x" }), "");
         assert.deepEqual(M.splitProxyLogin("http://CORP%5Calice:p%40ss@proxy2:8080"), { url: "http://proxy2:8080", username: "CORP\\\\alice", password: "p@ss", login: true });
         assert.deepEqual(M.splitProxyLogin("http://proxy2:8080"), { url: "http://proxy2:8080", username: "", password: "", login: false });
@@ -450,9 +504,16 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.equal(M.deletedMessage("Recording", "recording-1", "mobile/recordings/recording-1.wdlog.json"), "Recording recording-1 deleted: mobile/recordings/recording-1.wdlog.json");
         assert.deepEqual(
           M.parseSegmentYaml("name: seg-login\\nplatform: android\\nsource:\\n  kind: webdriver-log\\n  grade: fair\\n  needs_review: 2\\n  compiled_at: '2026-10-01T10:15:00Z'\\nsteps:\\n  - action: tap\\n    name: Login\\n  - action: type\\n"),
-          { name: "seg-login", platform: "android", steps: 2, grade: "fair", needsReview: 2, compiledAt: "2026-10-01T10:15:00Z" },
+          { name: "seg-login", platform: "android", steps: 2, grade: "fair", needsReview: 2, compiledAt: "2026-10-01T10:15:00Z", issue: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" },
         );
-        assert.deepEqual(M.parseSegmentYaml("steps: []\\n"), { name: "", platform: "", steps: 0, grade: "", needsReview: 0, compiledAt: "" });
+        assert.deepEqual(M.parseSegmentYaml("steps: []\\n"), { name: "", platform: "", steps: 0, grade: "", needsReview: 0, compiledAt: "", issue: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" });
+        // A scenario script names its issue and scenario, and where it came from.
+        const script = M.parseSegmentYaml("name: FX-12-buy-250-eur\\nissue: FX-12\\nscenario: buy-250-eur\\ndescription: Buy 250 EUR within the daily limit\\nplatform: android\\nsource:\\n    kind: copy\\n    copied_from: FX-12-buy-100-usd\\nsteps:\\n    - action: tap\\n      gherkin: Given the customer signs in\\n");
+        assert.equal(script.scenario, "buy-250-eur");
+        assert.equal(script.issue, "FX-12");
+        assert.equal(script.description, "Buy 250 EUR within the daily limit");
+        assert.equal(script.copiedFrom, "FX-12-buy-100-usd");
+        assert.equal(M.parseSegmentYaml("name: FX-12-a\\nsource:\\n    kind: webdriver-log\\n    file: FX-12-a.wdlog.json\\nsteps: []\\n").sourceFile, "FX-12-a.wdlog.json");
         (async () => {
           const state = await M.probeBridge({ force: true });
           assert.deepEqual(state, { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true });

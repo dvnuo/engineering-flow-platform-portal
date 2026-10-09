@@ -311,6 +311,9 @@ def test_efp_cards_paths_and_decision_text_in_node():
         assert.equal(rp.failure.source, "etc/passwd", "a path that climbs out of the report's folder is clamped");
         const replayCard = C.replayCardHtml(rp, "agent-1");
         assert.ok(replayCard.includes("Replay: 1 of 3 segments passed"));
+        // A scenario script's replay says it replayed a script.
+        const scriptCard = C.replayCardHtml(C.normalizeReplay({ status: "passed", segments: [{ name: "FX-12-buy-100-usd", kind: "script", status: "passed", steps: [] }] }, "mobile/replays/r2"), "agent-1");
+        assert.ok(scriptCard.includes("Replay: 1 of 1 script passed"));
         assert.ok(replayCard.includes("failed at step 2 of 2: tap accessibility_id=Details"));
         assert.ok(replayCard.includes("&lt;b&gt;x&lt;/b&gt;"), "error text must be escaped");
         assert.ok(replayCard.includes("1 matched a fallback target"));

@@ -6,7 +6,7 @@ body is JSON:
     ```efp-review    a checklist to approve (scenarios, a dry run)
     ```efp-evidence  one scenario run's result, screenshots, and video
     ```efp-matrix    every scenario run of a suite, live while it runs
-    ```efp-replay    a replay of compiled segments on the recording device
+    ```efp-replay    a replay of a scenario script (or segments) on the recording device
 
 Chat renders them in the browser (static/js/efp_cards.js). The task page
 takes them out of the response text here and places card placeholders that

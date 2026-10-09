@@ -438,20 +438,25 @@
   //
   // The member's computer's side of mobile scenario testing: a BrowserStack
   // device the local bridge holds, recording on it with Appium Inspector, and
-  // replaying compiled segments on it. The chat is where the assistant splits
-  // a recording, reviews a replay, and generates scripts; the panel's progress
-  // strip says which of those comes next.
+  // replaying scenario scripts on it. Each test scenario is one script that
+  // replays its recording exactly, kept in mobile/scripts/<platform>/; older
+  // segments in mobile/segments/<platform>/ still list and replay. The chat
+  // is where the assistant compiles a recording into its script, reviews a
+  // replay, and exports the tests; the panel's progress strip says which of
+  // those comes next.
   //
   // 1. Start: session.start answers at once with the recording "starting";
   //    the panel polls session.status until it is "active" (or "failed", with
   //    the error). When Portal hosts the Inspector, Start also opens a tab
   //    that lands in the Inspector, attached to the device, once it is ready.
-  // 2. Record: the member records the whole scenario; "Save recording" takes
-  //    the log from the bridge (segment.done) and writes it into the
-  //    assistant's workspace. The chat message tells the assistant: a
-  //    recording it splits into segments with the member, or, when the member
-  //    listed segment names, a segment it compiles whole.
-  // 3. Replay: compiled segments run on the held device (segment.replay); the
+  // 2. Record: the member records one scenario from the app's first screen to
+  //    its result; "Save recording" takes the log from the bridge
+  //    (segment.done) and writes it into the assistant's workspace. The chat
+  //    message tells the assistant: the recording of a script (a name the
+  //    member listed, or a script of the plan), which it compiles into that
+  //    script, or a recording whose scenario it finds out first.
+  // 3. Replay: a scenario script runs on the held device on its own, from the
+  //    start the member chose (segment.replay); older segments chain. The
   //    result goes into the workspace and the chat, where the assistant
   //    reviews it.
   // 4. Finish releases the device.
@@ -459,6 +464,7 @@
   const PANEL_TITLE = "Mobile testing";
   const RECORDINGS_DIR = "mobile/recordings";
   const SEGMENTS_DIR = "mobile/segments";
+  const SCRIPTS_DIR = "mobile/scripts";
   const REPLAYS_DIR = "mobile/replays";
   const SCENARIOS_DIR = "mobile/scenarios";
   const POLL_MS = 5000;
@@ -500,7 +506,7 @@
     // workspace is the overlay that holds the Inspector inside Portal.
     workspace: null,
     // tab is Session (the device and the step at hand) or Library (what the
-    // workspace keeps: recordings, segments, replays).
+    // workspace keeps: scripts, recordings, older segments, replays).
     tab: "session",
     library: freshLibrary(),
   };
@@ -547,12 +553,89 @@
       .slice(0, 30);
   }
 
-  // The chat message for a saved file: a name the member listed is a segment
-  // the assistant compiles whole; any other is a recording of the scenario,
-  // which the assistant proposes to split into segments.
+  // The chat message for a saved file: a name the member listed, or a script
+  // the scenario plan lists, is that scenario's recording, which the assistant
+  // compiles into the script; any other is a recording whose scenario the
+  // assistant finds out first.
   function savedMessage(name, path, planned) {
-    const names = Array.isArray(planned) ? planned : view.planned;
-    return names.indexOf(name) >= 0 ? `Segment ${name} recorded: ${path}` : `Recording ${name} saved: ${path}`;
+    const names = Array.isArray(planned) ? planned : view.planned.concat(planScriptNames());
+    return names.indexOf(name) >= 0 ? `Script ${name} recorded: ${path}` : `Recording ${name} saved: ${path}`;
+  }
+
+  // The scripts the scenario plan lists for the platform at hand.
+  function planScriptNames() {
+    const plan = view.flow && view.flow.plan;
+    return plan ? plan.scripts.map((item) => item.name) : [];
+  }
+
+  // A plan's scenario scripts. A plan from the older flow lists reusable
+  // segments under `segments` instead: those are not scripts, and the
+  // assistant rewrites such a plan before anything is recorded from it.
+  function planEntries(plan) {
+    return plan && Array.isArray(plan.scripts) ? plan.scripts : [];
+  }
+
+  // The message that asks the assistant for a copy of a script with other
+  // values: another scenario that does the same with them. The script's path
+  // says which platform's file to copy.
+  function copyMessage(name, changes, path) {
+    const line = `Copy script ${name} as a variant: ${String(changes || "").replace(/\s+/g, " ").trim()}`;
+    return path ? `${line}\nScript: ${path}` : line;
+  }
+
+  // Whether a name is one of the platform's scenario scripts (else an older
+  // segment).
+  function itemKind(name) {
+    return view.flow && Array.isArray(view.flow.scripts) && view.flow.scripts.indexOf(name) >= 0 ? "script" : "segment";
+  }
+
+  // What a replay ran, in words: scripts when every file was one.
+  function replayNoun(items) {
+    const list = Array.isArray(items) ? items : [];
+    const scripts = list.length > 0 && list.every((item) => (item.kind || itemKind(item.name)) === "script");
+    const one = list.length === 1;
+    if (scripts) return one ? "script" : "scripts";
+    return one ? "segment" : "segments";
+  }
+
+  // A row of the replay list by its kind and name, so a scenario script and an
+  // older segment of the same name stay apart.
+  function replayKey(item) {
+    return `${item && item.kind === "script" ? "script" : "segment"}:${item ? item.name : ""}`;
+  }
+
+  function replayKeyKind(key) {
+    return String(key).startsWith("script:") ? "script" : "segment";
+  }
+
+  // The rows ticked for the next replay after ticking `key`: a scenario script
+  // replays on its own, from the app's start, so ticking one leaves it alone;
+  // older segments chain, so ticking one keeps the other segments.
+  function replayChoice(checked, key) {
+    if (replayKeyKind(key) === "script") return [key];
+    return checked.filter((item) => item !== key && replayKeyKind(item) !== "script").concat(key);
+  }
+
+  // What the replay list ticks before the member does. With scripts: the
+  // scenario plan's next script that has not passed a replay, in the plan's
+  // order (a copy comes after its source), or nothing once every script the
+  // plan lists here has passed; the first script when the plan lists none of
+  // them. Without scripts: the older segments in the order of the latest cut,
+  // else all of them, as a chain.
+  function defaultReplayTicks(items, planScripts, cutParts) {
+    const scripts = items.filter((item) => item.kind === "script");
+    if (scripts.length) {
+      const listed = (name) => scripts.some((item) => item.name === name);
+      const plan = Array.isArray(planScripts) ? planScripts.filter((entry) => listed(entry.name)) : [];
+      if (plan.length) {
+        const next = plan.find((entry) => entry.status !== "replayed");
+        return next ? [replayKey({ kind: "script", name: next.name })] : [];
+      }
+      return [replayKey(scripts[0])];
+    }
+    const segments = items.filter((item) => item.kind === "segment").map((item) => item.name);
+    const inCut = (cutParts || []).filter((name) => segments.includes(name));
+    return (inCut.length ? inCut : segments).map((name) => replayKey({ kind: "segment", name }));
   }
 
   function nextPlanned(name) {
@@ -733,10 +816,10 @@
           </label>
         </div>
         <details class="portal-collapsible">
-          <summary class="portal-collapsible-summary"><span>Segment names (optional)</span></summary>
+          <summary class="portal-collapsible-summary"><span>Script names (optional)</span></summary>
           <div class="portal-panel-stack">
-            <textarea class="portal-form-textarea" rows="2" data-recording-segments placeholder="seg-login&#10;seg-select-currency"></textarea>
-            <p class="portal-inline-note">Leave this empty to record the whole scenario in one go: the assistant proposes how to split it into segments, and you confirm. List names only to save each part yourself, in this order.</p>
+            <textarea class="portal-form-textarea" rows="2" data-recording-segments placeholder="FX-12-buy-100-usd&#10;FX-12-over-daily-limit-usd"></textarea>
+            <p class="portal-inline-note">One recording is one scenario, from the app's first screen to its result. List the scenario scripts you are going to record, in order, as the assistant names them (the issue key and the scenario id): each save goes under the next name. Leave it empty to type the name when you save.</p>
           </div>
         </details>
         <div class="efp-card-actions">
@@ -939,13 +1022,16 @@
     const platform = recordingPlatform();
     const key = `${view.agentId}|${platform}|${view.recording ? view.recording.app : ""}`;
     try {
-      const [recordings, segments, scenarios] = await Promise.all([
+      const [recordings, segments, scripts, scenarios] = await Promise.all([
         listWorkspace(RECORDINGS_DIR),
         listWorkspace(`${SEGMENTS_DIR}/${platform}`),
+        listWorkspace(`${SCRIPTS_DIR}/${platform}`),
         listWorkspace(SCENARIOS_DIR),
       ]);
       const files = (items) => items.filter((item) => item.is_file !== false);
-      const segmentNames = files(segments).filter((item) => /\.ya?ml$/i.test(item.name || "")).map((item) => String(item.name).replace(/\.ya?ml$/i, ""));
+      const yamlNames = (items) => files(items).filter((item) => /\.ya?ml$/i.test(item.name || "")).map((item) => String(item.name).replace(/\.ya?ml$/i, ""));
+      const segmentNames = yamlNames(segments);
+      const scriptNames = yamlNames(scripts);
       const splits = files(recordings).filter((item) => /\.split\.json$/.test(item.name || ""));
       splits.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
       let split = null;
@@ -954,7 +1040,7 @@
           const doc = JSON.parse(await readWorkspaceText(`${RECORDINGS_DIR}/${item.name}`));
           if (doc.platform && doc.platform !== platform) continue;
           const parts = (Array.isArray(doc.parts) ? doc.parts : []).map((part) => String(part.segment || "")).filter(Boolean);
-          split = { name: item.name, parts, compiled: parts.filter((name) => segmentNames.includes(name)) };
+          split = { name: item.name, parts, compiled: parts.filter((name) => scriptNames.includes(name) || segmentNames.includes(name)) };
           break;
         } catch (_error) {
           /* a split the assistant is still writing */
@@ -967,16 +1053,17 @@
         key,
         platform,
         recordings: files(recordings).filter((item) => /\.wdlog\.json$/.test(item.name || "")).length,
+        scripts: scriptNames,
         segments: segmentNames,
         split,
         plan: plan ? {
           key: plan.__key,
-          segments: plan.segments.map((seg) => ({ name: String(seg.name || ""), status: seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "") })).filter((seg) => seg.name),
+          scripts: planEntries(plan).map((seg) => ({ name: String(seg.name || ""), status: seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "") })).filter((seg) => seg.name),
           pipeline: plan.pipeline && typeof plan.pipeline === "object" ? plan.pipeline : {},
         } : null,
       };
     } catch (_error) {
-      view.flow = { key, platform, error: true, recordings: 0, segments: [], split: null, plan: null };
+      view.flow = { key, platform, error: true, recordings: 0, scripts: [], segments: [], split: null, plan: null };
     }
     renderFlow();
     renderReplay();
@@ -990,7 +1077,7 @@
     for (const dir of dirs) {
       try {
         const doc = JSON.parse(await readWorkspaceText(`${SCENARIOS_DIR}/${dir.name}/scenarios.json`));
-        if (doc && Array.isArray(doc.segments)) plans.push(Object.assign({ __key: dir.name }, doc));
+        if (doc && (Array.isArray(doc.scripts) || Array.isArray(doc.segments))) plans.push(Object.assign({ __key: dir.name }, doc));
       } catch (_error) {
         /* not a plan */
       }
@@ -999,16 +1086,16 @@
     return plans;
   }
 
-  // A plan segment's status on a platform.
+  // A plan script's status on a platform.
   function planStatus(plan, name, platform) {
-    const seg = plan && Array.isArray(plan.segments) ? plan.segments.find((item) => String(item.name || "") === name) : null;
+    const seg = planEntries(plan).find((item) => String(item.name || "") === name) || null;
     if (!seg) return "";
     return seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "");
   }
 
   // The four steps after a device is up, each with where it stands.
   function flowSteps() {
-    const flow = view.flow || { recordings: 0, segments: [], split: null, plan: null };
+    const flow = view.flow || { recordings: 0, scripts: [], segments: [], split: null, plan: null };
     const rec = view.recording;
     const unsaved = rec ? Number(rec.summary && rec.summary.actions) || 0 : 0;
     const savedNow = view.done.length;
@@ -1018,19 +1105,20 @@
     else record.text = unsaved ? `${unsaved} ${unsaved === 1 ? "action" : "actions"} not saved` : "record in the Inspector";
     record.done = savedNow > 0 || (!rec && flow.recordings > 0);
 
-    const split = {};
-    const planned = flow.plan ? flow.plan.segments.filter((seg) => seg.status !== "to_record") : [];
-    if (flow.split && flow.split.parts.length) {
-      const all = flow.split.compiled.length === flow.split.parts.length;
-      split.text = all ? `${flow.split.parts.length} segments` : "approve the split in the chat";
-      split.done = all;
+    const compile = {};
+    const planned = flow.plan ? flow.plan.scripts.filter((seg) => seg.status !== "to_record") : [];
+    if (flow.split && flow.split.parts.length && flow.split.compiled.length < flow.split.parts.length) {
+      compile.text = "approve the cut in the chat";
+    } else if (flow.scripts.length) {
+      compile.text = `${flow.scripts.length} ${flow.scripts.length === 1 ? "script" : "scripts"}`;
+      compile.done = true;
     } else if (flow.segments.length) {
-      split.text = `${flow.segments.length} ${flow.segments.length === 1 ? "segment" : "segments"}`;
-      split.done = true;
+      compile.text = `${flow.segments.length} ${flow.segments.length === 1 ? "segment" : "segments"}`;
+      compile.done = true;
     } else if (record.done) {
-      split.text = "the assistant proposes it in the chat";
+      compile.text = "the assistant compiles it in the chat";
     } else {
-      split.text = "after recording";
+      compile.text = "after recording";
     }
 
     const replay = {};
@@ -1043,10 +1131,10 @@
       const passed = lastResult.segments.filter((seg) => seg.status === "passed").length;
       replay.text = passed === lastResult.segments.length ? "all passed" : `${passed} of ${lastResult.segments.length} passed`;
       replay.done = passed === lastResult.segments.length;
-    } else if (split.done) {
-      replay.text = "replay the segments";
+    } else if (compile.done) {
+      replay.text = flow.scripts.length ? "replay the scripts" : "replay the segments";
     } else {
-      replay.text = "after the split";
+      replay.text = "after compiling";
     }
 
     const scripts = {};
@@ -1065,9 +1153,9 @@
 
     const steps = [
       { label: "Record", ...record },
-      { label: "Split", ...split },
+      { label: "Compile", ...compile },
       { label: "Replay", ...replay },
-      { label: "Scripts", ...scripts },
+      { label: "Export", ...scripts },
     ];
     let current = true;
     return steps.map((step) => {
@@ -1084,7 +1172,7 @@
   function renderFlow() {
     const target = panelRoot()?.querySelector("[data-recording-flow]");
     if (!target) return;
-    if (view.tab !== "session" || (!view.recording && !(view.flow && (view.flow.recordings || view.flow.segments.length)))) {
+    if (view.tab !== "session" || (!view.recording && !(view.flow && (view.flow.recordings || view.flow.scripts.length || view.flow.segments.length)))) {
       target.innerHTML = "";
       return;
     }
@@ -1116,10 +1204,10 @@
         <span class="efp-card-meta" data-recording-summary>${esc(summaryText(rec.summary))}</span>
       </div>
       <p class="portal-inline-note">${planned
-        ? "Save after each segment you listed; the name moves on to the next one."
-        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record the whole scenario, then save it. The assistant proposes how to split it into segments in the chat."}</p>
+        ? "Save when the scenario reaches its result; the name moves on to the next script you listed."
+        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it under its script's name. The assistant compiles it into the scenario's script in the chat."}</p>
       <div class="efp-record-name">
-        <label class="portal-form-label"><span class="portal-form-label">${planned ? "Segment" : "Save as"}</span>
+        <label class="portal-form-label"><span class="portal-form-label">${planned ? "Script" : "Save as"}</span>
           <input class="portal-form-input" data-recording-name value="${esc(name)}" autocomplete="off" spellcheck="false" />
         </label>
       </div>
@@ -1133,7 +1221,7 @@
         <summary class="portal-collapsible-summary"><span>Other ways to record</span></summary>
         <div class="portal-panel-stack">
           <p class="portal-inline-note">The desktop Appium Inspector, or the Inspector plugin of an Appium server on this computer, attaches to the device through the bridge with the connection details in the device menu.</p>
-          <p class="portal-inline-note">Code from Appium Inspector's recorder compiles too (Python is easiest), as one segment under the name above.</p>
+          <p class="portal-inline-note">Code from Appium Inspector's recorder keeps no screens, so it cannot become a scenario script; it compiles as an older segment under the name above.</p>
           <div class="efp-card-actions">
             <input type="file" accept="${CODE_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-code />
             <button type="button" class="portal-btn is-secondary" data-recording-action="upload-code"><i data-lucide="upload" class="w-4 h-4"></i>Upload recorded code</button>
@@ -1589,7 +1677,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         "Recording on my computer through the Mobile testing panel.",
         `App: ${recording.app || app} (${recording.platform || platform})`,
         recording.device ? `Device: ${recording.device}${recording.os_version ? ` ${recording.os_version}` : ""}` : "",
-        view.planned.length ? `Segments: ${view.planned.join(", ")}` : "",
+        view.planned.length ? `Scripts: ${view.planned.join(", ")}` : "",
       ].filter(Boolean);
       sendChat(lines.join("\n"));
       const what = view.planned.length ? recording.segment : "the scenario";
@@ -1753,12 +1841,13 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   // ---- Replay ---------------------------------------------------------------
   //
   // Compiled segments replay on the device this recording holds, before the
-  // assistant generates scripts from them. The panel lists the segments in
-  // the assistant's workspace for the recording's platform (the parts of the
-  // latest split first, ticked), asks for the values of the secrets they
-  // type (kept in this page's memory only and sent to the bridge alone), and
-  // has the bridge replay them: it borrows the device from the Inspector and
-  // gives it back when the replay ends. The result goes into the workspace
+  // assistant exports them. The panel lists the scenario scripts in the
+  // assistant's workspace for the recording's platform, then the older
+  // segments, asks for the values of the secrets they type (kept in this
+  // page's memory only and sent to the bridge alone), and has the bridge
+  // replay them: one scenario script on its own, or segments in a chain. It
+  // borrows the device from the Inspector and gives it back when the replay
+  // ends. The result goes into the workspace
   // under mobile/replays/<id>/, and the chat message tells the assistant,
   // which reviews it and answers with the result card.
 
@@ -1824,23 +1913,31 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     renderReplay();
     try {
       await loadFlow();
-      const flow = view.flow || { segments: [], split: null };
-      const order = flow.split ? flow.split.parts : [];
-      const rank = (name) => {
-        const index = order.indexOf(name);
+      const flow = view.flow || { scripts: [], segments: [], split: null, plan: null };
+      const cutParts = flow.split ? flow.split.parts : [];
+      const planScripts = flow.plan ? flow.plan.scripts : null;
+      const planOrder = planScripts ? planScripts.map((entry) => entry.name) : [];
+      // Scripts in the plan's order, older segments in the cut's order.
+      const rank = (item) => {
+        const order = item.kind === "script" ? planOrder : cutParts;
+        const index = order.indexOf(item.name);
         return index >= 0 ? index : order.length;
       };
       const platform = recordingPlatform();
-      const segments = flow.segments.map((name) => ({ name, path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` }));
-      segments.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
-      r.segments = segments;
-      if (!r.touched) r.checked = order.filter((name) => segments.some((seg) => seg.name === name));
-      else r.checked = r.checked.filter((name) => segments.some((seg) => seg.name === name));
-      if (!r.touched && !r.checked.length) r.checked = segments.map((seg) => seg.name);
-      r.error = flow.error ? "Could not list the compiled segments. Is the assistant running?" : "";
+      const items = (flow.scripts || []).map((name) => ({ name, kind: "script", path: `${SCRIPTS_DIR}/${platform}/${name}.yaml` }))
+        .concat((flow.segments || []).map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` })));
+      items.sort((a, b) => (a.kind === b.kind ? 0 : (a.kind === "script" ? -1 : 1)) || rank(a) - rank(b) || a.name.localeCompare(b.name));
+      r.segments = items;
+      const keys = items.map(replayKey);
+      if (!r.touched) r.checked = defaultReplayTicks(items, planScripts, cutParts);
+      else r.checked = r.checked.filter((key) => keys.includes(key));
+      // A scenario script replays on its own.
+      const firstScript = r.checked.find((key) => replayKeyKind(key) === "script");
+      if (firstScript) r.checked = [firstScript];
+      r.error = flow.error ? "Could not list the scenario scripts. Is the assistant running?" : "";
       await loadReplaySecrets();
     } catch (error) {
-      r.error = `Could not list the compiled segments: ${errorText(error)}`;
+      r.error = `Could not list the scenario scripts: ${errorText(error)}`;
     }
     r.loading = false;
     renderReplay();
@@ -1849,7 +1946,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   function selectedSegments() {
     const r = view.replay;
-    return (r.segments || []).filter((seg) => r.checked.includes(seg.name));
+    return (r.segments || []).filter((seg) => r.checked.includes(replayKey(seg)));
   }
 
   async function segmentYaml(seg) {
@@ -1884,24 +1981,30 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   function replayMessage(report, path) {
     const segments = Array.isArray(report && report.segments) ? report.segments : [];
     const passed = segments.filter((seg) => seg.status === "passed").length;
-    let line = `Replay finished: ${passed} of ${segments.length} ${segments.length === 1 ? "segment" : "segments"} passed`;
+    let line = `Replay finished: ${passed} of ${segments.length} ${replayNoun(segments)} passed`;
     const failure = report && report.failure;
     if (report && report.status === "failed" && failure && failure.segment) line += `; ${failure.segment} failed at step ${failure.step || "?"}`;
     return `${line}.\nReport: ${path}`;
   }
 
-  // What the list says next to a segment: this session's last replay first,
-  // else the plan's status.
-  function segmentMark(name) {
+  // Whether a report's item is this row: the same name, and the same kind
+  // unless the report is from a bridge that did not say.
+  function sameReplayRow(item, row) {
+    return Boolean(item) && item.name === row.name && (!item.kind || item.kind === row.kind);
+  }
+
+  // What the list says next to a row: this session's last replay first, else
+  // the plan's status (the plan lists scripts only).
+  function segmentMark(row) {
     const res = view.replay.result;
     const report = res && res.result ? res.result.report : null;
-    const seg = report && Array.isArray(report.segments) ? report.segments.find((item) => item.name === name) : null;
+    const seg = report && Array.isArray(report.segments) ? report.segments.find((item) => sameReplayRow(item, row)) : null;
     if (seg && seg.status === "passed") return { icon: "check", tone: "success", text: "passed" };
     if (seg && seg.status === "failed") {
       const failed = (seg.steps || []).find((step) => step.ok === false) || {};
       return { icon: "x", tone: "error", text: `failed at step ${failed.step || "?"}` };
     }
-    const planned = view.flow && view.flow.plan ? view.flow.plan.segments.find((item) => item.name === name) : null;
+    const planned = row.kind === "script" && view.flow && view.flow.plan ? view.flow.plan.scripts.find((item) => item.name === row.name) : null;
     if (planned && planned.status === "replayed") return { icon: "check", tone: "success", text: "replayed" };
     return null;
   }
@@ -1934,13 +2037,14 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const running = r.running && r.running.status === "running" ? r.running : null;
     const platform = platformLabel(rec);
     let list = "";
-    if (r.loading && !r.segments) list = `<p class="portal-inline-note">Looking for compiled segments…</p>`;
+    if (r.loading && !r.segments) list = `<p class="portal-inline-note">Looking for scenario scripts…</p>`;
     else if (r.error) list = `<div class="portal-inline-state is-visible is-error">${esc(r.error)}</div>`;
-    else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No compiled ${esc(platform)} segments yet. The assistant compiles them after you save a recording and approve its split.</p>`;
+    else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No ${esc(platform)} scenario scripts yet. The assistant compiles one after you save a recording.</p>`;
     else {
       list = `<div class="efp-replay-list">${r.segments.map((seg) => {
-        const mark = segmentMark(seg.name);
-        return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(seg.name)}"${r.checked.includes(seg.name) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
+        const mark = segmentMark(seg);
+        const older = seg.kind === "segment" ? `<span class="efp-card-meta">older segment</span>` : "";
+        return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(replayKey(seg))}"${r.checked.includes(replayKey(seg)) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${older}${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
       }).join("")}</div>`;
     }
     const ready = Boolean(r.segments && r.segments.length);
@@ -1951,7 +2055,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       ? `<label class="efp-replay-start"><span class="efp-card-meta">Start from</span><select class="portal-form-select" data-replay-start${running ? " disabled" : ""}>${starts.map(([value, label]) => `<option value="${value}"${r.start === value ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`
       : "";
     const secretsHtml = ready && r.secretNames.length
-      ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the segment types" autocomplete="new-password"${running ? " disabled" : ""} /></label>`).join("")}
+      ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the script types" autocomplete="new-password"${running ? " disabled" : ""} /></label>`).join("")}
         <p class="portal-inline-note">Kept in this page only and sent to the bridge on this computer, never to the assistant.</p>`
       : "";
     let actions;
@@ -1967,9 +2071,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     return `<div class="efp-mobile-section-head">
         <h5>Replay</h5>
-        ${running ? "" : `<button type="button" class="toolbar-icon-btn" data-replay-action="refresh" title="Look for compiled segments again" aria-label="Refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>`}
+        ${running ? "" : `<button type="button" class="toolbar-icon-btn" data-replay-action="refresh" title="Look for scenario scripts again" aria-label="Refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>`}
       </div>
-      <p class="portal-inline-note">Check the compiled segments on this device before the assistant generates scripts from them. The replay borrows the device from the Inspector and hands it back when it ends.</p>
+      <p class="portal-inline-note">Replay a scenario script on this device before the assistant exports it. A script runs on its own, from the start you choose here; older segments run in the order listed. The replay borrows the device from the Inspector and hands it back when it ends.</p>
       ${list}${startHtml}${secretsHtml}${actions}${running ? "" : replayOutcomeHtml()}`;
   }
 
@@ -2119,7 +2223,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     if (!rec || (r.running && r.running.status === "running")) return;
     const chosen = selectedSegments();
     if (!chosen.length) {
-      setStatus("Tick the segments to replay; they run in the order listed.", "error");
+      setStatus("Tick the scenario script to replay (or older segments, which run in the order listed).", "error");
       return;
     }
     if (button) button.disabled = true;
@@ -2129,7 +2233,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (missing.length) {
         renderReplay();
         renderIcons();
-        setStatus(`Fill in ${missing.join(", ")} first: the segments type ${missing.length === 1 ? "it" : "them"}.`, "error");
+        setStatus(`Fill in ${missing.join(", ")} first: the replay types ${missing.length === 1 ? "it" : "them"}.`, "error");
         return;
       }
       const segments = [];
@@ -2152,7 +2256,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         await loadReplaySecrets();
         renderReplay();
         renderIcons();
-        setStatus(`Fill in ${error.data.missing.join(", ")} first: the segments type ${error.data.missing.length === 1 ? "it" : "them"}.`, "error");
+        setStatus(`Fill in ${error.data.missing.join(", ")} first: the replay types ${error.data.missing.length === 1 ? "it" : "them"}.`, "error");
       } else {
         setStatus(`Could not start the replay: ${errorText(error)}`, "error");
       }
@@ -2180,24 +2284,26 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   // ---- Library ----------------------------------------------------------------
   //
   // What the workspace keeps for mobile testing, with what can be done to it:
-  // recordings (and their split's state), segments (with the grade and the
-  // review count inspector import writes into the file, and whether a replay
-  // passed), and replays (their reports as cards). A deletion is done here
-  // and told to the assistant, which keeps the scenario plan in step.
+  // scenario scripts (with the grade and the review count the compiler writes
+  // into the file, and whether a replay passed; a copy for another scenario
+  // asked of the assistant), recordings (and the scripts compiled from them),
+  // older segments, and replays (their reports as cards). A deletion is done
+  // here and told to the assistant, which keeps the scenario plan in step.
 
   const LIBRARY_PLATFORMS = ["android", "ios"];
   const LIBRARY_MAX_FILES = 40;
 
   function freshLibrary() {
-    return { loading: false, loaded: false, error: "", segments: {}, recordings: [], replays: [], plans: [], texts: {}, open: {} };
+    return { loading: false, loaded: false, error: "", scripts: {}, segments: {}, recordings: [], replays: [], plans: [], texts: {}, open: {} };
   }
 
   function deletedMessage(kind, name, path) {
     return `${kind} ${name} deleted: ${path}`;
   }
 
-  // The little a list needs from a segment file, without a YAML parser: its
-  // name, how many steps, and what the compiler wrote into source.
+  // The little a list needs from a script or segment file, without a YAML
+  // parser: its name and scenario, how many steps, and what the compiler (or
+  // a copy) wrote into source.
   function parseSegmentYaml(yaml) {
     const text = String(yaml || "");
     const first = (re) => {
@@ -2211,6 +2317,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       grade: first(/^\s+grade:\s*(.+)$/m),
       needsReview: Number(first(/^\s+needs_review:\s*(\d+)/m)) || 0,
       compiledAt: first(/^\s+compiled_at:\s*(.+)$/m),
+      issue: first(/^issue:\s*(.+)$/m),
+      scenario: first(/^scenario:\s*(.+)$/m),
+      description: first(/^description:\s*(.+)$/m),
+      copiedFrom: first(/^\s+copied_from:\s*(.+)$/m),
+      sourceFile: first(/^\s+file:\s*(.+)$/m),
     };
   }
 
@@ -2251,12 +2362,15 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     renderLibrary();
     try {
       const files = (items) => items.filter((item) => item.is_file !== false && !(item.is_dir || item.type === "directory"));
-      const [recordingItems, replayItems, scenarioItems, ...segmentLists] = await Promise.all([
+      const [recordingItems, replayItems, scenarioItems, ...folderLists] = await Promise.all([
         listWorkspace(RECORDINGS_DIR),
         listWorkspace(REPLAYS_DIR),
         listWorkspace(SCENARIOS_DIR),
+        ...LIBRARY_PLATFORMS.map((platform) => listWorkspace(`${SCRIPTS_DIR}/${platform}`)),
         ...LIBRARY_PLATFORMS.map((platform) => listWorkspace(`${SEGMENTS_DIR}/${platform}`)),
       ]);
+      const scriptLists = folderLists.slice(0, LIBRARY_PLATFORMS.length);
+      const segmentLists = folderLists.slice(LIBRARY_PLATFORMS.length);
       lib.plans = await readPlans(scenarioItems);
 
       // Replays, newest first; their reports name the segments they ran.
@@ -2268,7 +2382,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
           return {
             id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: String(report.status || ""), platform: String(report.platform || ""),
             device: String(report.device || ""), finishedAt: String(report.finished_at || ""), start: String(report.start || ""),
-            segments: (Array.isArray(report.segments) ? report.segments : []).map((seg) => ({ name: String(seg.name || ""), status: String(seg.status || "") })),
+            segments: (Array.isArray(report.segments) ? report.segments : []).map((seg) => ({ name: String(seg.name || ""), kind: String(seg.kind || ""), status: String(seg.status || "") })),
             failure: report.failure && typeof report.failure === "object" ? { segment: String(report.failure.segment || ""), step: Number(report.failure.step) || 0 } : null,
           };
         } catch (_error) {
@@ -2278,32 +2392,41 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       // Newest first by the report's clock; the folder name only breaks ties.
       lib.replays.sort((a, b) => String(b.finishedAt || "").localeCompare(String(a.finishedAt || "")) || String(b.id).localeCompare(String(a.id)));
 
-      // Segments per platform, with the plan's word and the latest replay's.
-      lib.segments = {};
-      for (let i = 0; i < LIBRARY_PLATFORMS.length; i += 1) {
-        const platform = LIBRARY_PLATFORMS[i];
-        const items = files(segmentLists[i]).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
-        lib.segments[platform] = await Promise.all(items.map(async (item) => {
+      // Scripts and older segments per platform, with the plan's word and the
+      // latest replay's.
+      const entries = async (list, dir, platform, kind) => {
+        const items = files(list).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
+        return Promise.all(items.map(async (item) => {
           const name = String(item.name).replace(/\.ya?ml$/i, "");
-          const path = `${SEGMENTS_DIR}/${platform}/${item.name}`;
-          let parsed = { steps: 0, grade: "", needsReview: 0, compiledAt: "" };
+          const path = `${dir}/${platform}/${item.name}`;
+          let parsed = { steps: 0, grade: "", needsReview: 0, compiledAt: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" };
           try {
             parsed = parseSegmentYaml(await cachedText(path, item.modified_at));
           } catch (_error) {
             /* listed without its details */
           }
-          const plan = lib.plans.find((doc) => planStatus(doc, name, platform)) || null;
-          const latest = lib.replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => seg.name === name && seg.status !== "not_run")) || null;
-          const latestSeg = latest ? latest.segments.find((seg) => seg.name === name) : null;
+          const row = { name, kind };
+          const plan = kind === "script" ? (lib.plans.find((doc) => planStatus(doc, name, platform)) || null) : null;
+          const latest = lib.replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
+          const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
           return {
             name, path, platform, modifiedAt: String(item.modified_at || ""), steps: parsed.steps, grade: parsed.grade, needsReview: parsed.needsReview,
             compiledAt: parsed.compiledAt || String(item.modified_at || ""), planStatus: plan ? planStatus(plan, name, platform) : "",
+            scenario: parsed.scenario, description: parsed.description, copiedFrom: parsed.copiedFrom, sourceFile: parsed.sourceFile,
             lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
           };
         }));
+      };
+      lib.scripts = {};
+      lib.segments = {};
+      for (let i = 0; i < LIBRARY_PLATFORMS.length; i += 1) {
+        const platform = LIBRARY_PLATFORMS[i];
+        lib.scripts[platform] = await entries(scriptLists[i], SCRIPTS_DIR, platform, "script");
+        lib.segments[platform] = await entries(segmentLists[i], SEGMENTS_DIR, platform, "segment");
       }
 
-      // Recordings with their split's state.
+      // Recordings with the scripts compiled from them, and the cut of one
+      // that holds several scenarios.
       const recordingFiles = files(recordingItems);
       const splits = {};
       for (const item of recordingFiles.filter((it) => /\.split\.json$/.test(it.name || "")).slice(0, LIBRARY_MAX_FILES)) {
@@ -2311,7 +2434,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
           const doc = JSON.parse(await cachedText(`${RECORDINGS_DIR}/${item.name}`, item.modified_at));
           const platform = String(doc.platform || "");
           const parts = (Array.isArray(doc.parts) ? doc.parts : []).map((part) => String(part.segment || "")).filter(Boolean);
-          const compiled = parts.filter((name) => (lib.segments[platform] || []).some((seg) => seg.name === name));
+          const compiled = parts.filter((name) => (lib.scripts[platform] || []).concat(lib.segments[platform] || []).some((seg) => seg.name === name));
           splits[String(item.name).replace(/\.split\.json$/, "")] = { path: `${RECORDINGS_DIR}/${item.name}`, platform, parts, compiled };
         } catch (_error) {
           /* a split still being written */
@@ -2319,7 +2442,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       }
       lib.recordings = recordingFiles.filter((it) => /\.wdlog\.json$/.test(it.name || "")).sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || ""))).slice(0, LIBRARY_MAX_FILES).map((item) => {
         const name = String(item.name).replace(/\.wdlog\.json$/, "");
-        return { name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null };
+        // The scripts (or older segments) whose source is this recording.
+        const compiledInto = [...new Set(LIBRARY_PLATFORMS.flatMap((platform) => (lib.scripts[platform] || []).concat(lib.segments[platform] || []))
+          .filter((seg) => seg.sourceFile === String(item.name)).map((seg) => seg.name))];
+        return { name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null, compiledInto };
       });
       lib.error = "";
       lib.loaded = true;
@@ -2331,11 +2457,25 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     renderIcons();
   }
 
+  // Where a recording stands in the Library: a cut with parts still to
+  // compile first, then what it was compiled into.
+  function recordingState(item) {
+    const split = item.split && item.split.parts.length ? item.split : null;
+    const missing = split ? split.parts.length - split.compiled.length : 0;
+    if (missing > 0) return `cut proposed, ${missing} of ${split.parts.length} parts not compiled`;
+    if (item.compiledInto && item.compiledInto.length) return `compiled into ${item.compiledInto.join(", ")}`;
+    if (split) return `cut into ${split.parts.length} ${split.parts.length === 1 ? "part" : "parts"}`;
+    return "not compiled yet";
+  }
+
   function segmentLine(seg) {
-    const parts = [`${seg.steps} ${seg.steps === 1 ? "step" : "steps"}`];
+    const parts = [];
+    if (seg.description) parts.push(seg.description);
+    parts.push(`${seg.steps} ${seg.steps === 1 ? "step" : "steps"}`);
     if (seg.grade) parts.push(`grade ${seg.grade}`);
     if (seg.needsReview) parts.push(`${seg.needsReview} to review`);
-    if (seg.compiledAt) parts.push(`compiled ${dateText(seg.compiledAt)}`);
+    if (seg.copiedFrom) parts.push(`copy of ${seg.copiedFrom}`);
+    else if (seg.compiledAt) parts.push(`compiled ${dateText(seg.compiledAt)}`);
     return parts.join(" · ");
   }
 
@@ -2352,32 +2492,47 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const rec = view.recording;
     const held = rec && rec.status === "active";
     const platformName = (p) => (p === "ios" ? "iOS" : "Android");
-    const segmentGroups = LIBRARY_PLATFORMS.map((platform) => {
-      const list = lib.segments[platform] || [];
+    const groups = (byPlatform, kind) => LIBRARY_PLATFORMS.map((platform) => {
+      const list = byPlatform[platform] || [];
       if (!list.length) return "";
       const rows = list.map((seg) => {
         const open = Boolean(lib.open[`file:${seg.path}`]);
+        const copying = kind === "script" && Boolean(lib.open[`copy:${seg.path}`]);
+        const copyButton = kind === "script"
+          ? `<button type="button" class="composer-pill-btn" data-recording-action="library-copy" data-path="${esc(seg.path)}" aria-expanded="${copying ? "true" : "false"}" title="Ask the assistant for a copy of this script for a scenario with other values">Copy</button>`
+          : "";
+        const copyForm = copying
+          ? `<div class="efp-lib-card" data-library-copy="${esc(seg.path)}">
+              <label class="portal-form-label"><span class="portal-form-label">What the copy changes</span>
+                <input class="portal-form-input" data-library-copy-input placeholder="EUR instead of USD, 250 instead of 100" autocomplete="off" />
+              </label>
+              <div class="efp-card-actions"><button type="button" class="portal-btn is-primary" data-recording-action="library-copy-send" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}">Ask the assistant</button></div>
+            </div>`
+          : "";
         return `
         <div class="efp-lib-row">
           <div class="efp-lib-main"><strong>${esc(seg.name)}</strong> ${segmentMarkHtml(seg)}<span class="efp-card-meta">${esc(segmentLine(seg))}</span></div>
           <div class="efp-lib-actions">
-            <button type="button" class="composer-pill-btn" data-recording-action="library-replay" data-name="${esc(seg.name)}" data-platform="${esc(platform)}" title="${held ? "Replay on the held device" : "Tick it for the next replay"}">Replay</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-replay" data-name="${esc(seg.name)}" data-platform="${esc(platform)}" data-kind="${kind}" title="${held ? "Replay on the held device" : "Tick it for the next replay"}">Replay</button>
             <button type="button" class="composer-pill-btn" data-recording-action="library-view" data-path="${esc(seg.path)}" aria-expanded="${open ? "true" : "false"}">${open ? "Hide" : "View"}</button>
-            <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-segment" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}">Delete</button>
+            ${copyButton}
+            <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-${kind}" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}">Delete</button>
           </div>
         </div>
+        ${copyForm}
         ${open ? `<div class="efp-lib-card" data-library-file="${esc(seg.path)}"><pre class="efp-lib-pre">Loading…</pre></div>` : ""}`;
       }).join("");
       return `<div class="efp-lib-group"><span class="efp-card-meta">${esc(platformName(platform))}</span>${rows}</div>`;
     }).join("");
+    const scriptGroups = groups(lib.scripts, "script");
+    const segmentGroups = groups(lib.segments, "segment");
     const recordingRows = lib.recordings.map((item) => {
-      let split = "no split yet";
-      if (item.split && item.split.parts.length) split = item.split.compiled.length === item.split.parts.length ? `split into ${item.split.parts.length} ${item.split.parts.length === 1 ? "segment" : "segments"}` : `split proposed, ${item.split.parts.length - item.split.compiled.length} of ${item.split.parts.length} parts not compiled`;
+      const compiled = recordingState(item);
       return `
         <div class="efp-lib-row">
-          <div class="efp-lib-main"><strong>${esc(item.name)}</strong><span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(split)}</span></div>
+          <div class="efp-lib-main"><strong>${esc(item.name)}</strong><span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(compiled)}</span></div>
           <div class="efp-lib-actions">
-            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Ask the assistant to propose the split again">Split</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Ask the assistant to compile this recording into its scenario script">Compile</button>
             <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-recording" data-name="${esc(item.name)}" data-path="${esc(item.path)}">Delete</button>
           </div>
         </div>`;
@@ -2403,13 +2558,14 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         <h5>Library</h5>
         <button type="button" class="toolbar-icon-btn" data-recording-action="library-refresh" title="Read the workspace again" aria-label="Refresh"${lib.loading ? " disabled" : ""}><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
       </div>
-      <p class="portal-inline-note">What this assistant keeps for mobile testing. Deleting a segment or a recording here tells the assistant, which updates the scenario plan.</p>
+      <p class="portal-inline-note">What this assistant keeps for mobile testing. Deleting a script or a recording here tells the assistant, which updates the scenario plan.</p>
       ${lib.error ? `<div class="portal-inline-state is-visible is-error">${esc(lib.error)}</div>` : ""}
       ${lib.loading && !lib.loaded ? `<p class="portal-inline-note">Reading the workspace…</p>` : ""}
-      <h6>Segments</h6>
-      ${segmentGroups || (lib.loaded ? empty("No compiled segments yet. Save a recording and approve its split in the chat.") : "")}
+      <h6>Scenario scripts</h6>
+      ${scriptGroups || (lib.loaded ? empty("No scenario scripts yet. Save the recording of a scenario; the assistant compiles it in the chat.") : "")}
       <h6>Recordings</h6>
       ${recordingRows || (lib.loaded ? empty("No recordings saved yet.") : "")}
+      ${segmentGroups ? `<h6>Older segments</h6>${segmentGroups}` : ""}
       <h6>Replays</h6>
       ${replayRows || (lib.loaded ? empty("No replays yet.") : "")}`;
   }
@@ -2432,7 +2588,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const slot = [...(panelRoot()?.querySelectorAll("[data-library-file]") || [])].find((el) => el.dataset.libraryFile === path);
     if (!slot) return;
     try {
-      const seg = Object.values(view.library.segments).flat().find((item) => item.path === path);
+      const seg = Object.values(view.library.scripts).flat().concat(Object.values(view.library.segments).flat()).find((item) => item.path === path);
       slot.innerHTML = `<pre class="efp-lib-pre">${esc(await cachedText(path, seg ? seg.modifiedAt : ""))}</pre>`;
     } catch (error) {
       slot.innerHTML = `<div class="portal-inline-state is-visible is-error">${esc(errorText(error))}</div>`;
@@ -2477,16 +2633,19 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     if (action === "library-replay") {
       const platform = button.dataset.platform || "";
+      const kind = button.dataset.kind === "script" ? "script" : "segment";
       const rec = view.recording;
       const r = view.replay;
-      r.touched = true;
-      if (!r.checked.includes(name)) r.checked.push(name);
-      if (!rec || rec.status !== "active") {
-        say(`${name} is ticked for the next replay. Start a device under Session first.`, "warning");
+      const held = Boolean(rec && rec.status === "active");
+      // A row of the other platform leaves the ticks as they are.
+      if (held && recordingPlatform() !== platform) {
+        say(`${name} is a ${platform === "ios" ? "iOS" : "Android"} ${kind}; the held device runs ${platformLabel(rec)}.`, "error");
         return;
       }
-      if (recordingPlatform() !== platform) {
-        say(`${name} is a ${platform === "ios" ? "iOS" : "Android"} segment; the held device runs ${platformLabel(rec)}.`, "error");
+      r.touched = true;
+      r.checked = replayChoice(r.checked, replayKey({ kind, name }));
+      if (!held) {
+        say(`${name} is ticked for the next replay. Start a device under Session first.`, "warning");
         return;
       }
       switchTab("session");
@@ -2501,8 +2660,31 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       return;
     }
     if (action === "library-split") {
-      sendChat(savedMessage(name, path, []));
-      say(`Asked the assistant to propose the split of ${name} again.`, "success");
+      sendChat(savedMessage(name, path));
+      say(`Asked the assistant to compile ${name}.`, "success");
+      return;
+    }
+    if (action === "library-copy") {
+      if (lib.open[`copy:${path}`]) delete lib.open[`copy:${path}`];
+      else lib.open[`copy:${path}`] = true;
+      renderLibrary();
+      renderIcons();
+      panelRoot()?.querySelector(`[data-library-copy="${CSS.escape(path)}"] [data-library-copy-input]`)?.focus();
+      return;
+    }
+    if (action === "library-copy-send") {
+      const input = button.closest("[data-library-copy]")?.querySelector("[data-library-copy-input]");
+      const changes = input ? input.value.trim() : "";
+      if (!changes) {
+        say("Say what the copy changes: the values its scenario uses instead.", "error");
+        input?.focus();
+        return;
+      }
+      sendChat(copyMessage(name, changes, path));
+      delete lib.open[`copy:${path}`];
+      renderLibrary();
+      renderIcons();
+      say(`Asked the assistant for a copy of ${name}.`, "success");
       return;
     }
     if (action === "library-details") {
@@ -2513,10 +2695,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       renderIcons();
       return;
     }
-    if (action === "library-delete-segment" || action === "library-delete-recording" || action === "library-delete-replay") {
-      const kind = action === "library-delete-segment" ? "Segment" : (action === "library-delete-recording" ? "Recording" : "Replay");
+    if (action === "library-delete-script" || action === "library-delete-segment" || action === "library-delete-recording" || action === "library-delete-replay") {
+      const kind = { "library-delete-script": "Script", "library-delete-segment": "Segment", "library-delete-recording": "Recording" }[action] || "Replay";
       const what = kind === "Replay" ? `the replay of ${dateText((lib.replays.find((rp) => rp.id === button.dataset.id) || {}).finishedAt) || button.dataset.id}` : `${kind.toLowerCase()} ${name}`;
-      const hint = kind === "Segment" ? " Scenarios that use it will need it recorded again." : (kind === "Recording" ? " Its split goes with it; segments already compiled from it stay." : "");
+      const hint = { Script: " Its scenario will need it recorded or copied again.", Segment: " Scenarios that use it will need it recorded again.", Recording: " Its cut goes with it; scripts already compiled from it stay." }[kind] || "";
       if (!(await confirmAction(`Delete ${what} from the assistant's workspace?${hint}`, "Delete", "Delete?"))) return;
       const paths = [path];
       if (kind === "Recording") {
@@ -2580,8 +2762,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       view.recording = Object.assign({}, view.recording, { segment: data.next_segment, summary: {} });
       const path = await saveLog(data.segment, data.log, data.summary);
       if (!path) setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
-      else if (view.planned.indexOf(data.segment) >= 0) setStatus(`Saved ${data.segment}; the assistant compiles it. Carry on with ${data.next_segment} in the Inspector.`, "success");
-      else setStatus(`Saved ${data.segment}; the assistant proposes how to split it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
+      else if (view.planned.indexOf(data.segment) >= 0) setStatus(`Saved ${data.segment}; the assistant compiles it. Restart the app and record ${data.next_segment} in the Inspector.`, "success");
+      else setStatus(`Saved ${data.segment}; the assistant compiles it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
       setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack’s own site is not seen by the bridge." : errorText(error), "error");
     } finally {
@@ -2750,7 +2932,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     view.connectionOpen = false;
     remember();
     closeWorkspace({ rerender: false });
-    if (view.done.length) sendChat("Recording finished. Compile any segment not imported yet.");
+    if (view.done.length) sendChat("Recording finished. Compile any recording not compiled yet.");
     view.done = [];
     await loadRecordings();
     renderAll();
@@ -2942,10 +3124,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       renderIcons();
     } else if (target.matches("[data-replay-segment]")) {
       const r = view.replay;
-      const name = target.dataset.replaySegment;
+      const key = target.dataset.replaySegment;
       r.touched = true;
-      r.checked = r.checked.filter((item) => item !== name);
-      if (target.checked) r.checked.push(name);
+      r.checked = r.checked.filter((item) => item !== key);
+      if (target.checked) r.checked = replayChoice(r.checked, key);
       loadReplaySecrets().then(() => {
         renderReplay();
         renderIcons();
@@ -2978,7 +3160,14 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     openRecordingPanel,
     parseSegments,
     savedMessage,
+    copyMessage,
     replayMessage,
+    replayNoun,
+    replayChoice,
+    replayKey,
+    sameReplayRow,
+    defaultReplayTicks,
+    recordingState,
     segmentSecrets,
     flowSteps,
     deletedMessage,
