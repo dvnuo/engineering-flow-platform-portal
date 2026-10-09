@@ -576,9 +576,11 @@
   }
 
   // The message that asks the assistant for a copy of a script with other
-  // values: another scenario that does the same with them.
-  function copyMessage(name, changes) {
-    return `Copy script ${name} as a variant: ${String(changes || "").replace(/\s+/g, " ").trim()}`;
+  // values: another scenario that does the same with them. The script's path
+  // says which platform's file to copy.
+  function copyMessage(name, changes, path) {
+    const line = `Copy script ${name} as a variant: ${String(changes || "").replace(/\s+/g, " ").trim()}`;
+    return path ? `${line}\nScript: ${path}` : line;
   }
 
   // Whether a name is one of the platform's scenario scripts (else an older
@@ -596,13 +598,44 @@
     return one ? "segment" : "segments";
   }
 
-  // The files ticked for the next replay after ticking `name`: a scenario
-  // script replays on its own, from the app's start, so ticking one leaves it
-  // alone; older segments chain, so ticking one leaves the other segments.
-  function replayChoice(checked, name, kindOf) {
-    const kind = kindOf || itemKind;
-    if (kind(name) === "script") return [name];
-    return checked.filter((item) => item !== name && kind(item) !== "script").concat(name);
+  // A row of the replay list by its kind and name, so a scenario script and an
+  // older segment of the same name stay apart.
+  function replayKey(item) {
+    return `${item && item.kind === "script" ? "script" : "segment"}:${item ? item.name : ""}`;
+  }
+
+  function replayKeyKind(key) {
+    return String(key).startsWith("script:") ? "script" : "segment";
+  }
+
+  // The rows ticked for the next replay after ticking `key`: a scenario script
+  // replays on its own, from the app's start, so ticking one leaves it alone;
+  // older segments chain, so ticking one keeps the other segments.
+  function replayChoice(checked, key) {
+    if (replayKeyKind(key) === "script") return [key];
+    return checked.filter((item) => item !== key && replayKeyKind(item) !== "script").concat(key);
+  }
+
+  // What the replay list ticks before the member does. With scripts: the
+  // scenario plan's next script that has not passed a replay, in the plan's
+  // order (a copy comes after its source), or nothing once every script the
+  // plan lists here has passed; the first script when the plan lists none of
+  // them. Without scripts: the older segments in the order of the latest cut,
+  // else all of them, as a chain.
+  function defaultReplayTicks(items, planScripts, cutParts) {
+    const scripts = items.filter((item) => item.kind === "script");
+    if (scripts.length) {
+      const listed = (name) => scripts.some((item) => item.name === name);
+      const plan = Array.isArray(planScripts) ? planScripts.filter((entry) => listed(entry.name)) : [];
+      if (plan.length) {
+        const next = plan.find((entry) => entry.status !== "replayed");
+        return next ? [replayKey({ kind: "script", name: next.name })] : [];
+      }
+      return [replayKey(scripts[0])];
+    }
+    const segments = items.filter((item) => item.kind === "segment").map((item) => item.name);
+    const inCut = (cutParts || []).filter((name) => segments.includes(name));
+    return (inCut.length ? inCut : segments).map((name) => replayKey({ kind: "segment", name }));
   }
 
   function nextPlanned(name) {
@@ -1880,31 +1913,26 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     renderReplay();
     try {
       await loadFlow();
-      const flow = view.flow || { scripts: [], segments: [], split: null };
-      const order = flow.split ? flow.split.parts : [];
-      const rank = (name) => {
-        const index = order.indexOf(name);
+      const flow = view.flow || { scripts: [], segments: [], split: null, plan: null };
+      const cutParts = flow.split ? flow.split.parts : [];
+      const planScripts = flow.plan ? flow.plan.scripts : null;
+      const planOrder = planScripts ? planScripts.map((entry) => entry.name) : [];
+      // Scripts in the plan's order, older segments in the cut's order.
+      const rank = (item) => {
+        const order = item.kind === "script" ? planOrder : cutParts;
+        const index = order.indexOf(item.name);
         return index >= 0 ? index : order.length;
       };
       const platform = recordingPlatform();
       const items = (flow.scripts || []).map((name) => ({ name, kind: "script", path: `${SCRIPTS_DIR}/${platform}/${name}.yaml` }))
-        .concat(flow.segments.map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` })));
-      items.sort((a, b) => (a.kind === b.kind ? 0 : (a.kind === "script" ? -1 : 1)) || rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+        .concat((flow.segments || []).map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` })));
+      items.sort((a, b) => (a.kind === b.kind ? 0 : (a.kind === "script" ? -1 : 1)) || rank(a) - rank(b) || a.name.localeCompare(b.name));
       r.segments = items;
-      const kindOf = (name) => ((items.find((item) => item.name === name) || {}).kind || "segment");
-      const known = (name) => items.some((item) => item.name === name);
-      if (!r.touched) r.checked = order.filter(known);
-      else r.checked = r.checked.filter(known);
-      if (!r.touched && !r.checked.length) {
-        // The script to replay next: the first one the plan does not have as
-        // replayed yet; without scripts, every older segment in a chain.
-        const plan = flow.plan ? flow.plan.scripts : [];
-        const scriptItems = items.filter((item) => item.kind === "script");
-        const next = scriptItems.find((item) => !plan.some((entry) => entry.name === item.name && entry.status === "replayed")) || scriptItems[0];
-        r.checked = next ? [next.name] : items.map((item) => item.name);
-      }
+      const keys = items.map(replayKey);
+      if (!r.touched) r.checked = defaultReplayTicks(items, planScripts, cutParts);
+      else r.checked = r.checked.filter((key) => keys.includes(key));
       // A scenario script replays on its own.
-      const firstScript = r.checked.find((name) => kindOf(name) === "script");
+      const firstScript = r.checked.find((key) => replayKeyKind(key) === "script");
       if (firstScript) r.checked = [firstScript];
       r.error = flow.error ? "Could not list the scenario scripts. Is the assistant running?" : "";
       await loadReplaySecrets();
@@ -1918,7 +1946,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   function selectedSegments() {
     const r = view.replay;
-    return (r.segments || []).filter((seg) => r.checked.includes(seg.name));
+    return (r.segments || []).filter((seg) => r.checked.includes(replayKey(seg)));
   }
 
   async function segmentYaml(seg) {
@@ -2010,7 +2038,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       list = `<div class="efp-replay-list">${r.segments.map((seg) => {
         const mark = segmentMark(seg.name);
         const older = seg.kind === "segment" ? `<span class="efp-card-meta">older segment</span>` : "";
-        return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(seg.name)}"${r.checked.includes(seg.name) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${older}${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
+        return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(replayKey(seg))}"${r.checked.includes(replayKey(seg)) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${older}${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
       }).join("")}</div>`;
     }
     const ready = Boolean(r.segments && r.segments.length);
@@ -2407,8 +2435,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       }
       lib.recordings = recordingFiles.filter((it) => /\.wdlog\.json$/.test(it.name || "")).sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || ""))).slice(0, LIBRARY_MAX_FILES).map((item) => {
         const name = String(item.name).replace(/\.wdlog\.json$/, "");
-        const scripts = LIBRARY_PLATFORMS.flatMap((platform) => lib.scripts[platform] || []).filter((seg) => seg.sourceFile === String(item.name)).map((seg) => seg.name);
-        return { name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null, scripts };
+        // The scripts (or older segments) whose source is this recording.
+        const compiledInto = [...new Set(LIBRARY_PLATFORMS.flatMap((platform) => (lib.scripts[platform] || []).concat(lib.segments[platform] || []))
+          .filter((seg) => seg.sourceFile === String(item.name)).map((seg) => seg.name))];
+        return { name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null, compiledInto };
       });
       lib.error = "";
       lib.loaded = true;
@@ -2418,6 +2448,17 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     lib.loading = false;
     renderLibrary();
     renderIcons();
+  }
+
+  // Where a recording stands in the Library: a cut with parts still to
+  // compile first, then what it was compiled into.
+  function recordingState(item) {
+    const split = item.split && item.split.parts.length ? item.split : null;
+    const missing = split ? split.parts.length - split.compiled.length : 0;
+    if (missing > 0) return `cut proposed, ${missing} of ${split.parts.length} parts not compiled`;
+    if (item.compiledInto && item.compiledInto.length) return `compiled into ${item.compiledInto.join(", ")}`;
+    if (split) return `cut into ${split.parts.length} ${split.parts.length === 1 ? "part" : "parts"}`;
+    return "not compiled yet";
   }
 
   function segmentLine(seg) {
@@ -2479,9 +2520,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const scriptGroups = groups(lib.scripts, "script");
     const segmentGroups = groups(lib.segments, "segment");
     const recordingRows = lib.recordings.map((item) => {
-      let compiled = "not compiled yet";
-      if (item.scripts && item.scripts.length) compiled = `compiled into ${item.scripts.join(", ")}`;
-      else if (item.split && item.split.parts.length) compiled = item.split.compiled.length === item.split.parts.length ? `cut into ${item.split.parts.length} ${item.split.parts.length === 1 ? "part" : "parts"}` : `cut proposed, ${item.split.parts.length - item.split.compiled.length} of ${item.split.parts.length} parts not compiled`;
+      const compiled = recordingState(item);
       return `
         <div class="efp-lib-row">
           <div class="efp-lib-main"><strong>${esc(item.name)}</strong><span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(compiled)}</span></div>
@@ -2590,14 +2629,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const kind = button.dataset.kind === "script" ? "script" : "segment";
       const rec = view.recording;
       const r = view.replay;
-      r.touched = true;
-      r.checked = replayChoice(r.checked, name, (item) => (item === name ? kind : itemKind(item)));
-      if (!rec || rec.status !== "active") {
-        say(`${name} is ticked for the next replay. Start a device under Session first.`, "warning");
+      const held = Boolean(rec && rec.status === "active");
+      // A row of the other platform leaves the ticks as they are.
+      if (held && recordingPlatform() !== platform) {
+        say(`${name} is a ${platform === "ios" ? "iOS" : "Android"} ${kind}; the held device runs ${platformLabel(rec)}.`, "error");
         return;
       }
-      if (recordingPlatform() !== platform) {
-        say(`${name} is a ${platform === "ios" ? "iOS" : "Android"} ${kind}; the held device runs ${platformLabel(rec)}.`, "error");
+      r.touched = true;
+      r.checked = replayChoice(r.checked, replayKey({ kind, name }));
+      if (!held) {
+        say(`${name} is ticked for the next replay. Start a device under Session first.`, "warning");
         return;
       }
       switchTab("session");
@@ -2621,7 +2662,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       else lib.open[`copy:${path}`] = true;
       renderLibrary();
       renderIcons();
-      panelRoot()?.querySelector(`[data-library-copy="${path}"] [data-library-copy-input]`)?.focus();
+      panelRoot()?.querySelector(`[data-library-copy="${CSS.escape(path)}"] [data-library-copy-input]`)?.focus();
       return;
     }
     if (action === "library-copy-send") {
@@ -2632,7 +2673,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         input?.focus();
         return;
       }
-      sendChat(copyMessage(name, changes));
+      sendChat(copyMessage(name, changes, path));
       delete lib.open[`copy:${path}`];
       renderLibrary();
       renderIcons();
@@ -3076,10 +3117,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       renderIcons();
     } else if (target.matches("[data-replay-segment]")) {
       const r = view.replay;
-      const name = target.dataset.replaySegment;
+      const key = target.dataset.replaySegment;
       r.touched = true;
-      r.checked = r.checked.filter((item) => item !== name);
-      if (target.checked) r.checked = replayChoice(r.checked, name);
+      r.checked = r.checked.filter((item) => item !== key);
+      if (target.checked) r.checked = replayChoice(r.checked, key);
       loadReplaySecrets().then(() => {
         renderReplay();
         renderIcons();
@@ -3116,6 +3157,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     replayMessage,
     replayNoun,
     replayChoice,
+    replayKey,
+    defaultReplayTicks,
+    recordingState,
     segmentSecrets,
     flowSteps,
     deletedMessage,

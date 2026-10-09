@@ -434,13 +434,46 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           M.replayMessage({ status: "failed", segments: [{ name: "FX-12-buy-100-usd", kind: "script", status: "failed" }], failure: { segment: "FX-12-buy-100-usd", step: 14 } }, "p/report.json"),
           "Replay finished: 0 of 1 script passed; FX-12-buy-100-usd failed at step 14.\\nReport: p/report.json",
         );
-        const kinds = (name) => (name.startsWith("FX-") ? "script" : "segment");
-        assert.deepEqual(M.replayChoice(["seg-a", "seg-b"], "FX-12-x", kinds), ["FX-12-x"]);
-        assert.deepEqual(M.replayChoice(["FX-12-x"], "seg-a", kinds), ["seg-a"]);
-        assert.deepEqual(M.replayChoice(["seg-a"], "seg-b", kinds), ["seg-a", "seg-b"]);
+        // A tick names the row's kind with its name, so a script never rides
+        // along with segments, whatever the latest listing said.
+        assert.equal(M.replayKey({ kind: "script", name: "FX-12-x" }), "script:FX-12-x");
+        assert.equal(M.replayKey({ kind: "segment", name: "FX-12-x" }), "segment:FX-12-x");
+        assert.deepEqual(M.replayChoice(["segment:seg-a", "segment:seg-b"], "script:FX-12-x"), ["script:FX-12-x"]);
+        assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:seg-a"), ["segment:seg-a"]);
+        assert.deepEqual(M.replayChoice(["segment:seg-a"], "segment:seg-b"), ["segment:seg-a", "segment:seg-b"]);
+        assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:FX-12-x"), ["segment:FX-12-x"]);
+        // The default tick: the plan's next script that has not passed, in the
+        // plan's order; scripts of other plans and older cuts do not count.
+        const listedRows = [
+          { kind: "script", name: "FX-11-sell-usd" },
+          { kind: "script", name: "FX-12-buy-100-usd" },
+          { kind: "script", name: "FX-12-sell-eur" },
+          { kind: "script", name: "FX-12-sell-usd" },
+          { kind: "segment", name: "seg-login" },
+          { kind: "segment", name: "seg-open" },
+        ];
+        const planRows = [
+          { name: "FX-12-buy-100-usd", status: "replayed" },
+          { name: "FX-12-sell-usd", status: "exists" },
+          { name: "FX-12-sell-eur", status: "exists" },
+        ];
+        assert.deepEqual(M.defaultReplayTicks(listedRows, planRows, ["seg-login", "seg-open"]), ["script:FX-12-sell-usd"]);
+        assert.deepEqual(M.defaultReplayTicks(listedRows, planRows.map((row) => Object.assign({}, row, { status: "replayed" })), []), []);
+        assert.deepEqual(M.defaultReplayTicks(listedRows, null, []), ["script:FX-11-sell-usd"]);
+        assert.deepEqual(M.defaultReplayTicks(listedRows, [{ name: "seg-login", status: "to_record" }], []), ["script:FX-11-sell-usd"]);
+        const segmentRows = listedRows.filter((row) => row.kind === "segment");
+        assert.deepEqual(M.defaultReplayTicks(segmentRows, planRows, ["seg-open"]), ["segment:seg-open"]);
+        assert.deepEqual(M.defaultReplayTicks(segmentRows, null, []), ["segment:seg-login", "segment:seg-open"]);
+        // Where a recording stands: parts still to compile first, then what it became.
+        assert.equal(M.recordingState({ split: { parts: ["FX-12-a", "FX-12-b"], compiled: ["FX-12-a"] }, compiledInto: ["FX-12-a"] }), "cut proposed, 1 of 2 parts not compiled");
+        assert.equal(M.recordingState({ split: null, compiledInto: ["seg-login"] }), "compiled into seg-login");
+        assert.equal(M.recordingState({ split: { parts: ["FX-12-a"], compiled: ["FX-12-a"] }, compiledInto: [] }), "cut into 1 part");
+        assert.equal(M.recordingState({ split: null, compiledInto: [] }), "not compiled yet");
         assert.equal(M.replayNoun([{ name: "x", kind: "script" }, { name: "y", kind: "script" }]), "scripts");
         assert.equal(M.replayNoun([{ name: "x", kind: "script" }, { name: "seg-y", kind: "segment" }]), "segments");
         assert.equal(M.copyMessage("FX-12-buy-100-usd", " EUR instead of USD,\\n 250 instead of 100 "), "Copy script FX-12-buy-100-usd as a variant: EUR instead of USD, 250 instead of 100");
+        // From the Library the message names the file, and so the platform.
+        assert.equal(M.copyMessage("FX-12-a", "EUR", "mobile/scripts/ios/FX-12-a.yaml"), "Copy script FX-12-a as a variant: EUR\\nScript: mobile/scripts/ios/FX-12-a.yaml");
         assert.deepEqual(M.segmentSecrets("name: seg\\nsecrets:\\n    - MOBILE_SECRET_PASSWORD\\nsteps:\\n    - action: type\\n      text_env: MOBILE_SECRET_PIN\\n"), ["MOBILE_SECRET_PASSWORD", "MOBILE_SECRET_PIN"]);
         assert.deepEqual(M.segmentSecrets("secrets: [A_ONE, 'B_TWO']\\nsteps:\\n  - {action: type, text_env: C_THREE}\\n"), ["A_ONE", "B_TWO", "C_THREE"]);
         assert.deepEqual(M.segmentSecrets("name: seg\\nsteps:\\n  - action: tap\\n"), []);
