@@ -460,7 +460,7 @@ def test_a_connection_test_in_system_mode_runs_on_the_default(monkeypatch):
         _seed(env, SEED)
         seen = {}
 
-        async def _fake_run_test(target, config, runtime_type="native"):
+        async def _fake_run_test(target, config, runtime_type="native", **kwargs):
             seen["config"] = config
             return True, "ok"
 

@@ -77,11 +77,13 @@ def test_the_panel_offers_a_credential_field_per_connection():
     for name in (
         "llm_api_key",
         "github_api_token",
-        "proxy_password",
         "aws_password",
         "mobile_browserstack_access_key",
     ):
         assert f'name="{name}"' in html, name
+    # The Proxy connector's credentials live on its cards, like the instances'.
+    assert 'data-instance-container="proxy"' in html
+    assert 'name="proxy_default"' in html
 
 
 def test_credentials_are_typed_as_passwords():
@@ -297,9 +299,10 @@ def test_a_blank_instance_credential_is_left_out_rather_than_stored_empty():
             {"enabled": True, "base_url": "https://ghe/api/v3", "api_token": "ghp_x"},
         ),
         (
+            # The single URL of before named proxies is the one proxy named "default".
             {"proxy_enabled": "on", "proxy_url": "http://p:8080", "proxy_username": "u", "proxy_password": "p"},
             "proxy",
-            {"enabled": True, "url": "http://p:8080", "username": "u", "password": "p"},
+            {"enabled": True, "proxies": [{"name": "default", "url": "http://p:8080", "username": "u", "password": "p"}], "default": "default"},
         ),
         (
             {"aws_enabled": "on", "aws_domain": "corp", "aws_username": "u", "aws_password": "p"},
@@ -321,7 +324,7 @@ def test_sections_round_trip_with_credentials(form_pairs, section, expected):
     "form_pairs,section,expected",
     [
         ({"github_enabled": "on", "github_base_url": "https://ghe/api/v3"}, "github", {"enabled": True, "base_url": "https://ghe/api/v3"}),
-        ({"proxy_enabled": "on", "proxy_url": "http://p:8080"}, "proxy", {"enabled": True, "url": "http://p:8080"}),
+        ({"proxy_enabled": "on", "proxy_url": "http://p:8080"}, "proxy", {"enabled": True, "proxies": [{"name": "default", "url": "http://p:8080"}], "default": "default"}),
         ({"aws_enabled": "on", "aws_domain": "corp"}, "aws", {"enabled": True, "domain": "corp"}),
         ({"mobile_enabled": "on"}, "mobile-auto", {"enabled": True}),
     ],

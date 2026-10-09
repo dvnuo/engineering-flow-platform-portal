@@ -12764,7 +12764,7 @@ async function refreshComposerModelProfile(agentId) {
 const managedSettingsActionSelector = "[data-settings-action]";
 // keep regression guard text for static test:
 
-const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "aws_eks_clusters": "EKS cluster", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL" };
+const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "aws_eks_clusters": "EKS cluster", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL", "proxy": "Proxy" };
 
 // The regions a profile may name, offered in every region dropdown (account
 // rows, the section default, EKS private-endpoint rows). Must stay equal to
@@ -12878,7 +12878,56 @@ const INSTANCE_GROUP_FIELD_SPECS = {
 
 // What one card in a group is called in its title. Most groups list product
 // instances; the AWS group lists accounts.
-const INSTANCE_GROUP_ITEM_TITLES = { "aws_accounts": "Account", "aws_eks_clusters": "EKS cluster" };
+const INSTANCE_GROUP_ITEM_TITLES = { "aws_accounts": "Account", "aws_eks_clusters": "EKS cluster", "proxy": "Proxy" };
+
+// A Proxy connector card: name, URL, login, hosts to bypass, and no enabled
+// toggle. Must stay structurally identical to the server-rendered card in
+// partials/connectors/_macros.html (proxy_cards). The Test button exists only
+// where there is a test endpoint (a member's connector page).
+function proxyCardHtml(withTest) {
+  const testHtml = withTest
+    ? `<div class="flex items-end gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy" data-test-card="proxy">Test this proxy</button></div>`
+    : `<div></div>`;
+  return `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Proxy</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="proxy">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">Name</span><input type="text" data-field="name" value="" placeholder="corp-a" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Proxy URL</span><input type="text" data-field="url" value="" placeholder="http://proxy.example.com:3128" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" data-field="username" value="" placeholder="Optional" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" data-field="password" value="" placeholder="Optional" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">No proxy for</span><input type="text" data-field="no_proxy" value="" placeholder="localhost,.svc.cluster.local" class="portal-form-input" /></label>${testHtml}</div></div>`;
+}
+
+// The Proxy connector's dropdowns (the default proxy, one per connector in
+// the table) offer the names on the proxy cards, so a card just added or
+// renamed can be chosen before the page is saved.
+function refreshProxyOptions(root) {
+  if (!root) return;
+  const names = [];
+  // A card renamed since the last refresh carries its selections along: the
+  // default and the table keep pointing at the same card under its new name.
+  const renamed = {};
+  root.querySelectorAll('[data-instance-item="proxy"] [data-field="name"]').forEach((input) => {
+    const name = String(input.value || "").trim();
+    if (name) {
+      const previous = String(input.dataset.prevName || "").trim();
+      if (previous && previous !== name) renamed[previous] = name;
+      input.dataset.prevName = name;
+      if (!names.includes(name)) names.push(name);
+    }
+  });
+  const rebuild = (select, fixed) => {
+    let current = select.value;
+    if (current && !names.includes(current) && Object.prototype.hasOwnProperty.call(renamed, current)) current = renamed[current];
+    select.replaceChildren();
+    const add = (value, label, selected) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = selected;
+      select.append(option);
+    };
+    fixed.forEach(([value, label]) => add(value, label, current === value));
+    names.forEach((name) => add(name, name, name === current));
+    if (current && !names.includes(current) && !fixed.some(([value]) => value === current)) add(current, `${current} (not listed above)`, true);
+    if (!fixed.length && !names.length) add("", "No proxies yet", true);
+  };
+  root.querySelectorAll("select[data-proxy-default]").forEach((select) => rebuild(select, []));
+  root.querySelectorAll("select[data-proxy-assign]").forEach((select) => rebuild(select, [["", "Default"], ["none", "None (direct)"]]));
+}
 
 function instanceGroupLabel(group) {
   return INSTANCE_GROUP_LABELS[group] || String(group || "");
@@ -12999,6 +13048,15 @@ function addInstanceRow(root, group) {
     container.append(div);
     normalizeInstanceInputs(root, group);
     refreshEksAccountOptions(root);
+    return;
+  }
+
+  if (group === "proxy") {
+    div.innerHTML = proxyCardHtml(!!root.dataset.testBase);
+    container.append(div);
+    normalizeInstanceInputs(root, group);
+    refreshProxyOptions(root);
+    if (window.initPasswordToggles) window.initPasswordToggles(root);
     return;
   }
 
@@ -13286,7 +13344,13 @@ async function runManagedSettingsTest(root, target, button) {
   button.disabled = true;
   button.textContent = "Testing...";
   try {
-    const resp = await fetch(`${testBase}/${target}`, { method: "POST", body: new FormData(form) });
+    const body = new FormData(form);
+    // A card's Test names the card: the Proxy connector tests one proxy at a time.
+    if (button?.dataset?.testCard) {
+      const name = button.closest("[data-instance-item]")?.querySelector('[data-field="name"]')?.value || "";
+      body.append("proxy_test_name", String(name).trim());
+    }
+    const resp = await fetch(`${testBase}/${target}`, { method: "POST", body });
     const data = await resp.json();
     const ok = !!data.ok;
     if (resultEl) {
@@ -13454,6 +13518,8 @@ function initializeManagedSettingsRoot(root) {
   normalizeInstanceInputs(root, "nexus");
   normalizeInstanceInputs(root, "splunk");
   normalizeInstanceInputs(root, "pgsql");
+  normalizeInstanceInputs(root, "proxy");
+  refreshProxyOptions(root);
   window.initPasswordToggles(root);
   if (root.dataset.connectorMode === "system") applySystemDefaultReadOnly(root);
   const provider = root.querySelector("#llm_provider");
@@ -13492,6 +13558,10 @@ function initializeManagedSettingsRoot(root) {
     if (event.target?.dataset?.field === "name" && event.target.closest?.('[data-instance-item="aws_accounts"]')) {
       refreshEksAccountOptions(root);
     }
+    // A renamed proxy card has to show up in the Proxy connector's dropdowns.
+    if (event.target?.dataset?.field === "name" && event.target.closest?.('[data-instance-item="proxy"]')) {
+      refreshProxyOptions(root);
+    }
   });
   root.addEventListener("click", async (event) => {
     // The touched section is the one the button sits in, not the group name:
@@ -13514,6 +13584,7 @@ function initializeManagedSettingsRoot(root) {
       removeBtn.closest(`[data-instance-item="${group}"]`)?.remove();
       normalizeInstanceInputs(root, group);
       if (group === "aws_accounts") refreshEksAccountOptions(root);
+      if (group === "proxy") refreshProxyOptions(root);
       markManagedSectionTouched(root, touchedSection);
       return;
     }

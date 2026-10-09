@@ -1,4 +1,4 @@
-{% from "partials/connectors/_macros.html" import browserstack_advanced %}
+{% from "partials/connectors/_macros.html" import browserstack_advanced, proxy_cards, proxy_default_select, proxy_assignment_table %}
 {% macro instance_group(group, label, fields, items=none) -%}
 {# items: the rows to render when they do not live at seed[group].instances (the AWS account matrix). #}
 {% set rows = items if items is not none else (seed.get(group, {}).get('instances') or []) %}
@@ -334,15 +334,14 @@
         </label>
         <span>Route member traffic through a proxy</span>
       </div>
-      <label class="portal-form-label">
-        <span class="portal-form-label">Proxy URL</span>
-        <input type="text" name="proxy_url" value="{{ seed.get('proxy', {}).get('url', '') }}"
-               placeholder="http://proxy.example.com:8080" class="portal-form-input" />
-      </label>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="proxy_username" value="{{ seed.get('proxy', {}).get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" name="proxy_password" value="{{ seed.get('proxy', {}).get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      <p class="portal-panel-note">One card per proxy the members' assistants may need. The default proxy is what their environment gets; the table says which proxy each connector goes through. Members who follow the system default get exactly this.</p>
+      <div data-instance-group="proxy">
+        {{ proxy_cards(proxy_entries, with_test=False) }}
       </div>
+      {{ proxy_default_select(proxy_entries, proxy_default) }}
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Which proxy each connector uses</h6></div>
+      <p class="portal-panel-note">Default is the proxy above. None reaches the service directly. AWS and GitHub always use the default: their tools only read the environment.</p>
+      {{ proxy_assignment_table(proxy_connectors, proxy_entries) }}
     </section>
 
     <section class="portal-panel-section" data-instance-group="aws_accounts">

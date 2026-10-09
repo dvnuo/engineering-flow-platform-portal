@@ -23,9 +23,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.schemas.runtime_profile import PROXY_ASSIGNABLE_CONNECTORS, PROXY_DEFAULT_ONLY_CONNECTORS
+
 
 KIND_LOCAL = "local"
 KIND_SETTINGS = "settings"
+
+# ConnectorSpec.proxy_choice values.
+PROXY_CHOICE_SELECTABLE = "selectable"
+PROXY_CHOICE_DEFAULT_ONLY = "default_only"
 
 # Display order of the categories in the Connectors list.
 CATEGORY_ORDER = (
@@ -125,6 +131,19 @@ class ConnectorSpec:
     def is_settings(self) -> bool:
         return self.kind == KIND_SETTINGS
 
+    @property
+    def proxy_choice(self) -> str:
+        """How the Proxy connector's table offers this connector a proxy.
+
+        ``selectable``: any named proxy, none, or the default. ``default_only``:
+        the tools behind it only read the environment (aws CLI, kubectl, gh,
+        git), so the row shows "Default" alone. Empty for the Proxy connector
+        itself and for local connectors.
+        """
+        if self.type not in PROXY_ASSIGNABLE_CONNECTORS:
+            return ""
+        return PROXY_CHOICE_DEFAULT_ONLY if self.type in PROXY_DEFAULT_ONLY_CONNECTORS else PROXY_CHOICE_SELECTABLE
+
     def normalized_config(self, config: Mapping[str, Any] | None) -> dict[str, Any]:
         """Validate ``config`` and fill in defaults; raises ValueError."""
 
@@ -196,7 +215,11 @@ def _llm_state(config: Mapping[str, Any]) -> str:
 
 def _proxy_state(config: Mapping[str, Any]) -> str:
     proxy = _section(config, "proxy")
-    return _enabled_or_off(proxy, bool(_text(proxy.get("url"))))
+    entries = proxy.get("proxies")
+    has_proxy = bool(_text(proxy.get("url"))) or (
+        isinstance(entries, list) and any(isinstance(item, dict) and _text(item.get("url")) for item in entries)
+    )
+    return _enabled_or_off(proxy, has_proxy)
 
 
 def _instances_state(key: str, address_fields: tuple[str, ...] = ("url",)) -> Callable[[Mapping[str, Any]], str]:
@@ -424,6 +447,13 @@ def list_connector_specs(*, include_local: bool = True) -> list[ConnectorSpec]:
     return sorted(specs, key=lambda spec: order.get(spec.category, len(order)))
 
 
+def proxy_assignable_specs() -> list[ConnectorSpec]:
+    """The connectors the Proxy connector's table lists, in display order:
+    every settings connector but the Proxy connector itself."""
+
+    return [spec for spec in list_connector_specs(include_local=False) if spec.proxy_choice]
+
+
 def is_known_connector(connector_type: str) -> bool:
     return str(connector_type or "").strip() in CONNECTOR_REGISTRY
 
@@ -462,6 +492,9 @@ __all__ = [
     "get_connector_spec",
     "is_known_connector",
     "list_connector_specs",
+    "proxy_assignable_specs",
+    "PROXY_CHOICE_DEFAULT_ONLY",
+    "PROXY_CHOICE_SELECTABLE",
     "local_bridge_platform_label",
     "settings_connector_for_section",
     "state_label",

@@ -95,7 +95,8 @@ def test_registry_covers_the_jargon_heavy_connector_panels():
     for name in (
         "llm_reasoning_effort",
         "llm_max_context_tokens",
-        "proxy_url",
+        '[data-instance-item="proxy"] input[data-field="url"]',
+        "data-proxy-assign",
         "jira_enabled",
         "confluence_enabled",
         "github_enabled",

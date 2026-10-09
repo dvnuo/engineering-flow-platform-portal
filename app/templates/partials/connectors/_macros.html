@@ -28,6 +28,83 @@
 {%- endmacro %}
 
 {#
+  The Proxy connector's cards and table, on a member's connector page and on
+  the administrator's Default connectors. Both post the same names (web.py
+  _proxy_section_from_form): proxy_instance_count,
+  proxy_instances_{i}_{name,url,username,password,no_proxy}, proxy_default and
+  proxy_assign_{type}. `entries` are the sanitized proxies, `default` the
+  default's name, `connectors` the rows of the table (web.py _proxy_view).
+  chat_ui.js builds a freshly added card from the same layout (proxyCardHtml)
+  and keeps the dropdowns in step with the cards' names (refreshProxyOptions).
+#}
+{% macro proxy_cards(entries, with_test=True) -%}
+<input type="hidden" name="proxy_instance_count" value="{{ entries|length }}" data-instance-count="proxy" />
+<div class="space-y-2" data-instance-container="proxy">
+  {% for entry in entries %}
+  <div class="portal-settings-instance-card" data-instance-item="proxy">
+    <input type="hidden" data-original-field="name" value="{{ entry.get('name', '') }}" />
+    <input type="hidden" data-original-field="url" value="{{ entry.get('url', '') }}" />
+    <div class="portal-settings-instance-head">
+      <div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Proxy {{ loop.index }}</span></div>
+      <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="proxy">Remove</button>
+    </div>
+    <div class="portal-settings-instance-body">
+      <div class="grid grid-cols-2 gap-2">
+        <label class="portal-form-label"><span class="portal-form-label">Name</span><input type="text" data-field="name" value="{{ entry.get('name', '') }}" placeholder="corp-a" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Proxy URL</span><input type="text" data-field="url" value="{{ entry.get('url', '') }}" placeholder="http://proxy.example.com:3128" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" data-field="username" value="{{ entry.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" data-field="password" value="{{ entry.get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="portal-form-label"><span class="portal-form-label">No proxy for</span><input type="text" data-field="no_proxy" value="{{ entry.get('no_proxy', '') }}" placeholder="localhost,.svc.cluster.local" class="portal-form-input" /></label>
+        {% if with_test %}<div class="flex items-end gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy" data-test-card="proxy">Test this proxy</button></div>{% else %}<div></div>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="proxy">+ Add proxy</button>
+{%- endmacro %}
+
+{% macro proxy_default_select(entries, default) -%}
+<label class="portal-form-label">
+  <span class="portal-form-label">Default proxy</span>
+  <select name="proxy_default" class="portal-form-select" data-proxy-default aria-label="Default proxy">
+    {% if not entries %}<option value="" selected>No proxies yet</option>{% endif %}
+    {% for entry in entries %}<option value="{{ entry.get('name', '') }}"{% if entry.get('name', '') == default %} selected{% endif %}>{{ entry.get('name', '') }}</option>{% endfor %}
+    {% if entries and default and default not in entries|map(attribute='name')|list %}<option value="{{ default }}" selected>{{ default }} (not listed above)</option>{% endif %}
+  </select>
+</label>
+<p class="portal-panel-note">What the assistant's environment gets, and what every connector left on Default uses.</p>
+{%- endmacro %}
+
+{% macro proxy_assignment_table(connectors, entries) -%}
+<div class="portal-proxy-assignments" data-proxy-assignments>
+  <div class="portal-proxy-assignments-head"><span>Connector</span><span>Goes through</span></div>
+  {% for row in connectors %}
+  <div class="portal-proxy-assignments-row" data-proxy-assignment-row="{{ row.type }}">
+    <span class="portal-proxy-assignments-label">{{ row.label }}</span>
+    {% if row.choice == 'default_only' %}
+    <div>
+      <select class="portal-form-select" disabled aria-label="{{ row.label }} proxy" data-proxy-assign-fixed="{{ row.type }}"><option value="" selected>Default</option></select>
+      <span class="portal-inline-note">Always the default: its tools only read the environment.</span>
+    </div>
+    {% else %}
+    <select name="proxy_assign_{{ row.type }}" class="portal-form-select" data-proxy-assign="{{ row.type }}" aria-label="{{ row.label }} proxy">
+      <option value=""{% if not row.current %} selected{% endif %}>Default</option>
+      <option value="none"{% if row.current == 'none' %} selected{% endif %}>None (direct)</option>
+      {% for entry in entries %}<option value="{{ entry.get('name', '') }}"{% if row.current == entry.get('name', '') %} selected{% endif %}>{{ entry.get('name', '') }}</option>{% endfor %}
+      {% if row.current and row.current != 'none' and row.current not in entries|map(attribute='name')|list %}<option value="{{ row.current }}" selected>{{ row.current }} (not listed above)</option>{% endif %}
+    </select>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{#
   The BrowserStack connector's Advanced fields, on a member's connector page
   ('member') and on the administrator's Default connectors ('admin'): members
   whose connector follows the system default record with the admin's values,

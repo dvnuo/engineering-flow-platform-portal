@@ -568,14 +568,21 @@ def test_pgsql_refuses_a_proxy_it_cannot_tunnel_through():
 @pytest.mark.parametrize(
     "host,no_proxy,exempt",
     [
+        # NO_PROXY the way Go's ProxyFromEnvironment reads it, which the
+        # tools follow on the environment path: a bare domain covers its
+        # subdomains, a leading dot (or *.) the subdomains only.
         ("db.internal.test", "localhost,.internal.test", True),
-        ("internal.test", ".internal.test", True),
+        ("internal.test", ".internal.test", False),
+        ("db.internal.test", "internal.test", True),
         ("db.internal.test", "*.internal.test", True),
+        ("internal.test", "*.internal.test", False),
         ("db.internal.test", "db.internal.test:5432", True),
         ("db.internal.test", "https://db.internal.test", True),
         ("db.internal.test", "*", True),
         ("db.internal.test", "other.test, .corp", False),
         ("db.internal.test", "", False),
+        ("10.1.2.3", "10.0.0.0/8", True),
+        ("11.1.2.3", "10.0.0.0/8", False),
         ("pg.efp.svc.cluster.local", "", True),
         ("169.254.169.254", None, True),
         ("localhost", "nothing", True),

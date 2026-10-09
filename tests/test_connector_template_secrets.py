@@ -6,7 +6,8 @@ CONNECTOR_TEMPLATES = Path("app/templates/partials/connectors")
 
 # Secret fields each settings connector form renders back for the signed-in member.
 SECRET_VALUE_MARKERS = {
-    "proxy.html": ["value=\"{{ proxy.get('password', '') }}\""],
+    # The Proxy connector's cards (proxy.html renders them through this macro).
+    "_macros.html": ["value=\"{{ entry.get('password', '') }}\""],
     "llm.html": ["value=\"{{ raw_llm.get('api_key', '') }}\""],
     "github.html": ["value=\"{{ raw_github.get('api_token', '') }}\""],
     "aws.html": [

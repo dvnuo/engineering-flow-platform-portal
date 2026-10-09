@@ -70,6 +70,8 @@ def test_app_template_contains_new_portal_shell():
     connector_panel = Path("app/templates/partials/connectors/panel.html").read_text(encoding="utf-8")
     llm_form = Path("app/templates/partials/connectors/llm.html").read_text(encoding="utf-8")
     proxy_form = Path("app/templates/partials/connectors/proxy.html").read_text(encoding="utf-8")
+    # The Proxy connector's cards (and their Test buttons) come from the shared macros.
+    proxy_macros = Path("app/templates/partials/connectors/_macros.html").read_text(encoding="utf-8")
     assert "toggle-switch" in proxy_form
     assert "toggle-slider" in proxy_form
     assert 'data-test-base="/app/connectors/{{ connector.type }}/test"' in connector_panel
@@ -78,7 +80,7 @@ def test_app_template_contains_new_portal_shell():
     assert 'data-copilot-agent-id' not in llm_form
     assert 'copilot_proxy_agent_hint' not in llm_form
     assert 'data-current-value="{{ raw_llm.get(\'model\', \'\') }}"' in llm_form
-    assert 'data-test-target="proxy"' in proxy_form
+    assert "proxy_cards(" in proxy_form and 'data-test-target="proxy"' in proxy_macros
     assert "providerModels" not in llm_form
 
     css = Path("app/static/css/app.css").read_text(encoding="utf-8")

@@ -107,7 +107,8 @@ def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config(
             }
         ],
     }
-    assert s["proxy"]["password"] == "secret"
+    # The flat proxy keys read as one proxy named "default".
+    assert s["proxy"]["proxies"] == [{"name": "default", "url": "http://proxy", "username": "me", "password": "secret"}]
     assert s["git"] == {"user": {"name": "Bot", "email": "bot@example.com"}}
     assert s["debug"]["log_level"] == "INFO"
 
@@ -149,32 +150,46 @@ def test_proxy_no_proxy_is_sanitized_and_persisted_in_config_json():
     }
 
     sanitized = sanitize_runtime_profile_config_dict(raw)
+    # The flat keys of a row from before named proxies become one proxy named
+    # "default", no_proxy included.
     assert sanitized["proxy"] == {
         "enabled": True,
-        "url": "http://proxy.local:8080",
-        "username": "u",
-        "password": "p",
-        "no_proxy": "127.0.0.1,localhost,.svc,.cluster.local",
+        "default": "default",
+        "proxies": [
+            {
+                "name": "default",
+                "url": "http://proxy.local:8080",
+                "username": "u",
+                "password": "p",
+                "no_proxy": "127.0.0.1,localhost,.svc,.cluster.local",
+            }
+        ],
     }
 
     persisted = json.loads(dump_runtime_profile_config_json(raw))
-    assert persisted["proxy"]["no_proxy"] == "127.0.0.1,localhost,.svc,.cluster.local"
-    assert "token" not in persisted["proxy"]
-    assert "unknown" not in persisted["proxy"]
+    assert persisted["proxy"]["proxies"][0]["no_proxy"] == "127.0.0.1,localhost,.svc,.cluster.local"
+    assert "token" not in persisted["proxy"] and "token" not in persisted["proxy"]["proxies"][0]
+    assert "unknown" not in persisted["proxy"] and "unknown" not in persisted["proxy"]["proxies"][0]
 
 
 def test_proxy_no_proxy_alias_is_normalized_and_canonical_key_takes_priority():
     alias_only = sanitize_runtime_profile_config_dict(
-        {"proxy": {"noProxy": " localhost, .internal "}}
+        {"proxy": {"url": "http://proxy.local:8080", "noProxy": " localhost, .internal "}}
     )
-    assert alias_only["proxy"]["no_proxy"] == "localhost, .internal"
-    assert "noProxy" not in alias_only["proxy"]
+    assert alias_only["proxy"]["proxies"][0]["no_proxy"] == "localhost, .internal"
+    assert "noProxy" not in alias_only["proxy"] and "noProxy" not in alias_only["proxy"]["proxies"][0]
 
     with_both = sanitize_runtime_profile_config_dict(
-        {"proxy": {"no_proxy": " canonical.local ", "noProxy": "alias.local"}}
+        {"proxy": {"url": "http://proxy.local:8080", "no_proxy": " canonical.local ", "noProxy": "alias.local"}}
     )
-    assert with_both["proxy"]["no_proxy"] == "canonical.local"
-    assert "noProxy" not in with_both["proxy"]
+    assert with_both["proxy"]["proxies"][0]["no_proxy"] == "canonical.local"
+    assert "noProxy" not in with_both["proxy"]["proxies"][0]
+
+    # The same alias on a card of the list.
+    on_card = sanitize_runtime_profile_config_dict(
+        {"proxy": {"proxies": [{"name": "a", "url": "http://a.local:1", "noProxy": " card.local "}]}}
+    )
+    assert on_card["proxy"]["proxies"][0]["no_proxy"] == "card.local"
 
 
 def test_proxy_no_proxy_rejects_non_string_and_blank_values():

@@ -32,10 +32,12 @@ want, and name them so the difference is obvious.
   for databases that do not offer TLS at all.
 - **Name** is how the assistant addresses this instance with `--instance`.
 - **Proxy** is how the connection leaves the runtime. Blank follows the Proxy
-  connector the way every other tool does: through its proxy unless its
-  `NO_PROXY` exempts the host. Enter `none` for a database the runtime
-  reaches directly, or an `http://host:port` proxy for this database alone.
-  Proxy credentials go in the Proxy connector, not here.
+  connector the way every other tool does: through the proxy it assigns to
+  PostgreSQL unless that proxy's **No proxy** exempts the host. Enter the
+  name of one of the Proxy connector's proxies to pick it for this database,
+  `none` for a database the runtime reaches directly, or an `http://host:port`
+  proxy for this database alone. Proxy credentials go in the Proxy connector,
+  not here.
 
 ## Testing the connection
 

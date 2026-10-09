@@ -6679,3 +6679,10 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 body.efp-workspace-open { overflow: hidden; }
 @media (max-width: 1100px) { .efp-workspace-side { flex-basis: 320px; } }
 .portal-task-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; color: var(--portal-text-muted); font-size: 12px; }
+
+/* The Proxy connector's table of which proxy each connector uses (connectors/_macros.html proxy_assignment_table). */
+.portal-proxy-assignments { display: flex; flex-direction: column; gap: 8px; }
+.portal-proxy-assignments-head, .portal-proxy-assignments-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr); gap: 12px; align-items: start; }
+.portal-proxy-assignments-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--portal-text-muted); }
+.portal-proxy-assignments-label { align-self: center; font-size: 14px; }
+.portal-proxy-assignments-row .portal-inline-note { display: block; margin-top: 4px; }
