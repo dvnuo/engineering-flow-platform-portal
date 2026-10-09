@@ -63,6 +63,7 @@ from app.schemas.runtime_profile import (
     normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_bounded_int,
+    sanitize_runtime_profile_pgsql_proxy,
     sanitize_runtime_profile_config_dict,
 )
 from app.services.runtime_profile_audit import audit_runtime_profile_change
@@ -1243,7 +1244,7 @@ TROUBLESHOOTING_INSTANCE_FIELDS = {
     ],
     "pgsql": [
         "enabled", "name", "host", "port", "database", "username", "password", "sslmode",
-        "statement_timeout_seconds", "max_rows",
+        "statement_timeout_seconds", "max_rows", "proxy",
     ],
 }
 TROUBLESHOOTING_SECTION_LABELS = {
@@ -1271,7 +1272,7 @@ TROUBLESHOOTING_CARD_ROWS = {
     ],
     "pgsql": [
         ["name", "host"], ["port", "database"], ["username", "password"],
-        ["sslmode", "statement_timeout_seconds"], ["max_rows", ""],
+        ["sslmode", "statement_timeout_seconds"], ["max_rows", "proxy"],
     ],
 }
 TROUBLESHOOTING_CARD_FIELD_SPECS = {
@@ -1316,6 +1317,7 @@ TROUBLESHOOTING_CARD_PLACEHOLDERS = {
         "password": "Password",
         "statement_timeout_seconds": "Statement timeout in seconds (default 30)",
         "max_rows": "Max rows per query (default 5000)",
+        "proxy": "Proxy: blank follows the Proxy connector, none, or http://proxy.example.com:3128",
     },
 }
 TROUBLESHOOTING_CARD_LAYOUT = {
@@ -1762,6 +1764,12 @@ def _settings_parse_troubleshooting_instances(
                 return [], (
                     f"{label} instance {name} needs a max rows value between "
                     f"{PGSQL_MAX_ROWS_MIN} and {PGSQL_MAX_ROWS_MAX}."
+                )
+            proxy_text = str(row.get("proxy") or "").strip()
+            if proxy_text and sanitize_runtime_profile_pgsql_proxy(proxy_text) is None:
+                return [], (
+                    f"{label} instance {name} needs a proxy of none or an http(s)://host:port URL "
+                    "without credentials; proxy credentials belong in the Proxy connector."
                 )
         if section == "splunk":
             max_results_text = str(row.get("max_results") or "").strip()

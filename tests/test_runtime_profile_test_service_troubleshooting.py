@@ -358,3 +358,228 @@ def test_dict_only_helper_still_narrows_to_objects(monkeypatch):
         RuntimeProfileTestService()._http_json_request(method="GET", url="https://x", headers={}, payload=None, timeout=5.0)
     )
     assert ok is True and message == "ok" and data is None
+
+
+# ------------------------------------------------------- pgsql through a proxy
+
+import socket
+import threading
+
+
+class _ConnectProxy:
+    """A CONNECT proxy on 127.0.0.1 of the kind the Proxy connector names: it
+    records what it was asked for and answers every tunnel with ``status``."""
+
+    def __init__(self, status="200 Connection established"):
+        self.status = status
+        self.requests = []
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.bind(("127.0.0.1", 0))
+        self.server.listen(5)
+        self.port = self.server.getsockname()[1]
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.port}"
+
+    def _serve(self):
+        while True:
+            try:
+                conn, _ = self.server.accept()
+            except OSError:
+                return
+            with conn:
+                conn.settimeout(2)
+                data = b""
+                try:
+                    while b"\r\n\r\n" not in data:
+                        chunk = conn.recv(1024)
+                        if not chunk:
+                            break
+                        data += chunk
+                    self.requests.append(data.decode("latin-1"))
+                    conn.sendall(f"HTTP/1.1 {self.status}\r\nContent-Length: 0\r\n\r\n".encode("ascii"))
+                except OSError:
+                    pass
+
+    def close(self):
+        self.server.close()
+
+
+@pytest.fixture
+def connect_proxy():
+    proxy = _ConnectProxy()
+    yield proxy
+    proxy.close()
+
+
+@pytest.fixture
+def refusing_proxy():
+    proxy = _ConnectProxy(status="403 Forbidden")
+    yield proxy
+    proxy.close()
+
+
+def _pgsql_config(connector=None, **instance):
+    row = {"name": "orders-uat", "host": "orders-uat.internal.test", "database": "orders", "username": "ro", "password": "pg-pass"}
+    row.update(instance)
+    config = {"pgsql": {"enabled": True, "instances": [row]}}
+    if connector is not None:
+        config["proxy"] = connector
+    return config
+
+
+def _connector(url, **extra):
+    return {"enabled": True, "url": url, "username": "svc", "password": "proxy-pass", **extra}
+
+
+class _DirectConn:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _record_direct_connects(monkeypatch):
+    seen = []
+
+    def fake_connect(address, timeout=None):
+        seen.append(address)
+        return _DirectConn()
+
+    monkeypatch.setattr(test_service_module.socket, "create_connection", fake_connect)
+    return seen
+
+
+def test_pgsql_probes_through_the_proxy_connector_as_the_runtime_would(connect_proxy):
+    """The runtime hands the Proxy connector to the pgsql CLI as HTTPS_PROXY,
+    and the CLI tunnels through it with CONNECT; the probe takes the same
+    path, so a host only the proxy can resolve is still checked."""
+    ok, message = _run(
+        RuntimeProfileTestService()._test_pgsql(
+            _pgsql_config(connector=_connector(connect_proxy.url, no_proxy=".svc.cluster.local"))
+        )
+    )
+    assert ok is True, message
+    assert message == (
+        "PostgreSQL TCP reachability OK for orders-uat: orders-uat.internal.test:5432 "
+        f"through the proxy at 127.0.0.1:{connect_proxy.port} (the Proxy connector). "
+        "Credentials are verified inside the runtime by `pgsql auth test`."
+    )
+    request = connect_proxy.requests[0]
+    assert request.startswith("CONNECT orders-uat.internal.test:5432 HTTP/1.1\r\n"), "the host name goes to the proxy unresolved"
+    assert "Proxy-Authorization: Basic " + base64.b64encode(b"svc:proxy-pass").decode("ascii") + "\r\n" in request
+    assert "proxy-pass" not in message and "pg-pass" not in message
+
+
+def test_pgsql_takes_credentials_already_in_the_connector_url(connect_proxy):
+    config = _pgsql_config(connector={"enabled": True, "url": f"http://u%40corp:p%3Aw@127.0.0.1:{connect_proxy.port}"})
+    ok, message = _run(RuntimeProfileTestService()._test_pgsql(config))
+    assert ok is True, message
+    assert "Proxy-Authorization: Basic " + base64.b64encode(b"u@corp:p:w").decode("ascii") in connect_proxy.requests[0]
+    assert "p%3Aw" not in message and "p:w" not in message and "u@corp" not in message
+
+
+def test_pgsql_no_proxy_of_the_connector_keeps_the_probe_direct(monkeypatch):
+    seen = _record_direct_connects(monkeypatch)
+    service = RuntimeProfileTestService()
+    unreachable = _connector("http://proxy.unreachable.test:3128", no_proxy="localhost,.internal.test")
+
+    ok, message = _run(service._test_pgsql(_pgsql_config(connector=unreachable)))
+    assert ok is True, message
+    assert seen == [("orders-uat.internal.test", 5432)]
+    assert "(direct: NO_PROXY of the Proxy connector exempts this host)" in message
+
+    # Without a NO_PROXY of its own the connector gets the runtime's default
+    # list, which keeps in-cluster names off the proxy.
+    ok, message = _run(
+        service._test_pgsql(_pgsql_config(connector=_connector("http://proxy.unreachable.test:3128"), host="pg.efp.svc.cluster.local"))
+    )
+    assert ok is True and seen[-1] == ("pg.efp.svc.cluster.local", 5432)
+    assert "exempts this host" in message
+
+    # A connector that is off, or names no URL, is a direct connection, worded
+    # as before.
+    for connector in ({"enabled": False, "url": "http://proxy.unreachable.test:3128"}, {"enabled": True, "url": ""}):
+        ok, message = _run(service._test_pgsql(_pgsql_config(connector=connector)))
+        assert ok is True
+        assert message == (
+            "PostgreSQL TCP reachability OK for orders-uat: orders-uat.internal.test:5432. "
+            "Credentials are verified inside the runtime by `pgsql auth test`."
+        )
+
+
+def test_pgsql_instance_proxy_none_forces_a_direct_probe(monkeypatch):
+    seen = _record_direct_connects(monkeypatch)
+    ok, message = _run(
+        RuntimeProfileTestService()._test_pgsql(
+            _pgsql_config(connector=_connector("http://proxy.unreachable.test:3128"), proxy="none")
+        )
+    )
+    assert ok is True, message
+    assert seen == [("orders-uat.internal.test", 5432)]
+    assert "(direct: the instance proxy is none)" in message
+
+
+def test_pgsql_instance_proxy_url_is_used_instead_of_the_connector(connect_proxy):
+    config = _pgsql_config(connector=_connector("http://proxy.unreachable.test:3128"), proxy=connect_proxy.url)
+    ok, message = _run(RuntimeProfileTestService()._test_pgsql(config))
+    assert ok is True, message
+    assert f"through the proxy at 127.0.0.1:{connect_proxy.port} (the instance proxy)" in message
+    # The connector's credentials are for the connector's proxy, not this one.
+    assert "Proxy-Authorization" not in connect_proxy.requests[0]
+
+    # A bare host:port is an http proxy, as the CLI reads it.
+    ok, message = _run(RuntimeProfileTestService()._test_pgsql(_pgsql_config(proxy=f"127.0.0.1:{connect_proxy.port}")))
+    assert ok is True, message
+    assert len(connect_proxy.requests) == 2
+
+
+def test_pgsql_reports_a_proxy_that_refuses_the_tunnel(refusing_proxy):
+    ok, message = _run(RuntimeProfileTestService()._test_pgsql(_pgsql_config(connector=_connector(refusing_proxy.url))))
+    assert ok is False
+    assert message == (
+        "PostgreSQL connection failed for orders-uat at orders-uat.internal.test:5432 "
+        f"through the proxy at 127.0.0.1:{refusing_proxy.port} (the Proxy connector): "
+        f"proxy 127.0.0.1:{refusing_proxy.port} answered CONNECT orders-uat.internal.test:5432 with 403 Forbidden"
+    )
+    assert "proxy-pass" not in message
+
+
+def test_pgsql_reports_a_proxy_that_is_not_there():
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    ok, message = _run(RuntimeProfileTestService()._test_pgsql(_pgsql_config(connector=_connector(f"http://127.0.0.1:{port}"))))
+    assert ok is False
+    assert f"through the proxy at 127.0.0.1:{port} (the Proxy connector): " in message
+    assert "proxy-pass" not in message
+
+
+def test_pgsql_refuses_a_proxy_it_cannot_tunnel_through():
+    ok, message = _run(RuntimeProfileTestService()._test_pgsql(_pgsql_config(proxy="socks5://proxy.example.test:1080")))
+    assert ok is False
+    assert "http:// or https://" in message
+
+
+@pytest.mark.parametrize(
+    "host,no_proxy,exempt",
+    [
+        ("db.internal.test", "localhost,.internal.test", True),
+        ("internal.test", ".internal.test", True),
+        ("db.internal.test", "*.internal.test", True),
+        ("db.internal.test", "db.internal.test:5432", True),
+        ("db.internal.test", "https://db.internal.test", True),
+        ("db.internal.test", "*", True),
+        ("db.internal.test", "other.test, .corp", False),
+        ("db.internal.test", "", False),
+        ("pg.efp.svc.cluster.local", "", True),
+        ("169.254.169.254", None, True),
+        ("localhost", "nothing", True),
+    ],
+)
+def test_no_proxy_patterns_follow_the_tools_http_clients(host, no_proxy, exempt):
+    assert RuntimeProfileTestService._no_proxy_exempts(host, no_proxy) is exempt

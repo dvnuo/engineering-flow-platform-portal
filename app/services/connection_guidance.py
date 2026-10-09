@@ -108,6 +108,7 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
             "The role is the control: a login with SELECT and nothing else makes this instance read-only, whatever the assistant is asked to do.",
             "Use a role that may write only for an instance you intend the assistant to change things through.",
             "Keep SSL on require unless the server offers a CA you can verify.",
+            "Leave Proxy blank to reach the database the way the Proxy connector routes traffic; enter none for a database the runtime reaches directly.",
         ],
         "help_url": None,
         "help_label": None,

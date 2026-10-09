@@ -12852,7 +12852,8 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
     "username": "Username (read-only role)",
     "password": "Password",
     "statement_timeout_seconds": "Statement timeout in seconds (default 30)",
-    "max_rows": "Max rows per query (default 5000)"
+    "max_rows": "Max rows per query (default 5000)",
+    "proxy": "Proxy: blank follows the Proxy connector, none, or http://proxy.example.com:3128"
   }
 };
 
@@ -12862,7 +12863,7 @@ const INSTANCE_GROUP_PLACEHOLDERS = {
 const INSTANCE_GROUP_CARD_ROWS = {
   "nexus": [["name", "url"], ["username", "password"], ["token", ""]],
   "splunk": [["name", "url"], ["username", "password"], ["token", "default_index"], ["default_earliest", "max_results"], ["app", "owner"]],
-  "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", "statement_timeout_seconds"], ["max_rows", ""]]
+  "pgsql": [["name", "host"], ["port", "database"], ["username", "password"], ["sslmode", "statement_timeout_seconds"], ["max_rows", "proxy"]]
 };
 
 const INSTANCE_GROUP_FIELD_SPECS = {

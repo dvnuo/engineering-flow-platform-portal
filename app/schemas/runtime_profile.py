@@ -423,6 +423,53 @@ def sanitize_runtime_profile_splunk(value) -> dict:
     return sanitize_runtime_profile_named_instance_section(value, kind="splunk")
 
 
+PGSQL_PROXY_NONE = "none"
+PGSQL_PROXY_SCHEMES = ("http", "https")
+
+
+def sanitize_runtime_profile_pgsql_proxy(value) -> str | None:
+    """Normalize a PostgreSQL row's proxy setting, or None when unusable.
+
+    The pgsql CLI reaches the database the way an HTTP request would: through
+    the proxy the Proxy connector names unless NO_PROXY exempts the host. This
+    per-row setting overrides that: ``none`` (also ``direct``/``off``) forces a
+    direct connection, an ``http://`` or ``https://`` URL names the proxy for
+    this database. A bare ``host:port`` is an http proxy. Credentials are
+    refused here because the row is stored in the clear; they belong in the
+    Proxy connector, which the runtime passes to the CLI. Anything else is
+    dropped so the CLI follows the environment rather than failing on a value
+    it cannot parse.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.lower() in {"none", "direct", "off"}:
+        return PGSQL_PROXY_NONE
+    raw = text if "://" in text else f"http://{text}"
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return None
+    if parsed.scheme not in PGSQL_PROXY_SCHEMES or not parsed.hostname:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is not None and not (PORT_MIN <= port <= PORT_MAX):
+        return None
+    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        return None
+    host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{parsed.scheme}://{host}" + (f":{port}" if port is not None else "")
+
+
 def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
     """Return the usable PostgreSQL instance rows.
 
@@ -469,6 +516,9 @@ def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
         )
         if max_rows is not None:
             instance["max_rows"] = max_rows
+        proxy = sanitize_runtime_profile_pgsql_proxy(item.get("proxy"))
+        if proxy is not None:
+            instance["proxy"] = proxy
         if "enabled" in item:
             instance["enabled"] = _runtime_profile_bool(item.get("enabled"))
         instances.append(instance)
