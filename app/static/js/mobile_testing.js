@@ -553,10 +553,10 @@
       .slice(0, 30);
   }
 
-  // The chat message for a saved file: a name the member listed, or a script
-  // the scenario plan lists, is that scenario's recording, which the assistant
-  // compiles into the script; any other is a recording whose scenario the
-  // assistant finds out first.
+  // The chat message for a saved recording this computer did not compile: a
+  // name the member listed, or a script the scenario plan lists, is that
+  // scenario's recording, which the assistant compiles; any other is a
+  // recording whose scenario the assistant finds out first.
   function savedMessage(name, path, planned) {
     const names = Array.isArray(planned) ? planned : view.planned.concat(planScriptNames());
     return names.indexOf(name) >= 0 ? `Script ${name} recorded: ${path}` : `Recording ${name} saved: ${path}`;
@@ -581,6 +581,80 @@
   function copyMessage(name, changes, path) {
     const line = `Copy script ${name} as a variant: ${String(changes || "").replace(/\s+/g, " ").trim()}`;
     return path ? `${line}\nScript: ${path}` : line;
+  }
+
+  // The message that hands a script this computer compiled to the assistant
+  // for review, with the compiler's report.
+  function compiledMessage(name, path, reportPath) {
+    return `Script ${name} compiled: ${path}\nReport: ${reportPath}`;
+  }
+
+  // The message that asks the assistant what to record next and how. The
+  // panel shows the plan's next scenario itself, so it goes on request.
+  function startMessage(rec) {
+    return [
+      "/record-mobile-segment",
+      "Recording on my computer through the Mobile testing panel.",
+      `App: ${rec.app || ""} (${rec.platform || recordingPlatform()})`,
+      rec.device ? `Device: ${rec.device}${rec.os_version ? ` ${rec.os_version}` : ""}` : "",
+      view.planned.length ? `Scripts: ${view.planned.join(", ")}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  // A plan as the panel reads it: its issue, its scripts (name, scenario,
+  // and which script a copy comes from), and its scenarios' words.
+  function planView(doc) {
+    const scenarios = {};
+    (Array.isArray(doc && doc.scenarios) ? doc.scenarios : []).forEach((sc) => {
+      if (!sc || !sc.id) return;
+      const list = (v) => (Array.isArray(v) ? v.map(String) : []);
+      scenarios[String(sc.id)] = { title: String(sc.title || ""), given: list(sc.given), when: list(sc.when), then: list(sc.then) };
+    });
+    return {
+      key: doc ? String(doc.__key || "") : "",
+      issue: doc ? String(doc.issue || "") : "",
+      scripts: planEntries(doc).map((seg) => ({ name: String(seg.name || ""), scenario: String(seg.scenario || ""), copyOf: String(seg.copy_of || ""), status: "to_record" })).filter((seg) => seg.name),
+      scenarios,
+      pipeline: doc && doc.pipeline && typeof doc.pipeline === "object" ? doc.pipeline : {},
+    };
+  }
+
+  // The scenario a recording saved under a name is: the plan's script of
+  // that name, else <KEY>-<id> read from the name itself; null when neither.
+  function scriptScenario(name, plan) {
+    const entry = plan && Array.isArray(plan.scripts) ? plan.scripts.find((item) => item.name === name) : null;
+    if (entry && entry.scenario && plan.issue) {
+      const scenario = plan.scenarios && plan.scenarios[entry.scenario];
+      return { issue: plan.issue, scenario: entry.scenario, title: scenario ? scenario.title : "" };
+    }
+    const m = /^([A-Za-z][A-Za-z0-9_]*-\d+)-([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(String(name || ""));
+    return m ? { issue: m[1], scenario: m[2], title: "" } : null;
+  }
+
+  // A script's status, from the files rather than a word in the plan: to
+  // record without a file; replayed when the latest replay of the file as it
+  // is now (the report item's script_sha256 is the file's) passed; else it
+  // exists. `replays` come newest first. mobile-auto plan status derives the
+  // same for the assistant.
+  function scriptStatus(file, replays, platform, name) {
+    if (!file || !file.exists) return "to_record";
+    const row = { name, kind: "script" };
+    for (const rp of Array.isArray(replays) ? replays : []) {
+      if (rp.platform !== platform) continue;
+      const seg = rp.segments.find((item) => sameReplayRow(item, row) && item.sha256 && item.sha256 === file.hash);
+      if (seg) return seg.status === "passed" ? "replayed" : "exists";
+    }
+    return "exists";
+  }
+
+  // SHA-256 of a text, as the bridge hashes the YAML it replays. Without
+  // Web Crypto (an origin that is not secure) it is "", and no script counts
+  // as replayed here.
+  async function sha256Hex(text) {
+    const subtle = globalThis.crypto && globalThis.crypto.subtle;
+    if (!subtle) return "";
+    const digest = await subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   }
 
   // Whether a name is one of the platform's scenario scripts (else an older
@@ -1022,16 +1096,22 @@
     const platform = recordingPlatform();
     const key = `${view.agentId}|${platform}|${view.recording ? view.recording.app : ""}`;
     try {
-      const [recordings, segments, scripts, scenarios] = await Promise.all([
+      const [recordings, segments, scripts, scenarios, replays] = await Promise.all([
         listWorkspace(RECORDINGS_DIR),
         listWorkspace(`${SEGMENTS_DIR}/${platform}`),
         listWorkspace(`${SCRIPTS_DIR}/${platform}`),
         listWorkspace(SCENARIOS_DIR),
+        loadReplayReports(),
       ]);
       const files = (items) => items.filter((item) => item.is_file !== false);
       const yamlNames = (items) => files(items).filter((item) => /\.ya?ml$/i.test(item.name || "")).map((item) => String(item.name).replace(/\.ya?ml$/i, ""));
       const segmentNames = yamlNames(segments);
       const scriptNames = yamlNames(scripts);
+      // Each script's status comes from its file and the replays of it.
+      const statuses = {};
+      (await scriptRows(scripts, SCRIPTS_DIR, platform, "script", replays)).forEach((row) => {
+        statuses[row.name] = row.status;
+      });
       const splits = files(recordings).filter((item) => /\.split\.json$/.test(item.name || ""));
       splits.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
       let split = null;
@@ -1048,24 +1128,25 @@
       }
       const plans = await readPlans(scenarios);
       const app = view.recording ? view.recording.app : "";
-      const plan = plans.find((doc) => app && doc.apps && doc.apps[platform] === app) || plans[0] || null;
+      const chosen = plans.find((doc) => app && doc.apps && doc.apps[platform] === app) || plans[0] || null;
+      const plan = chosen ? planView(chosen) : null;
+      if (plan) plan.scripts.forEach((seg) => { seg.status = statuses[seg.name] || "to_record"; });
       view.flow = {
         key,
         platform,
         recordings: files(recordings).filter((item) => /\.wdlog\.json$/.test(item.name || "")).length,
         scripts: scriptNames,
         segments: segmentNames,
+        statuses,
+        replays,
         split,
-        plan: plan ? {
-          key: plan.__key,
-          scripts: planEntries(plan).map((seg) => ({ name: String(seg.name || ""), status: seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "") })).filter((seg) => seg.name),
-          pipeline: plan.pipeline && typeof plan.pipeline === "object" ? plan.pipeline : {},
-        } : null,
+        plan,
       };
     } catch (_error) {
-      view.flow = { key, platform, error: true, recordings: 0, scripts: [], segments: [], split: null, plan: null };
+      view.flow = { key, platform, error: true, recordings: 0, scripts: [], segments: [], statuses: {}, replays: [], split: null, plan: null };
     }
     renderFlow();
+    renderRecord();
     renderReplay();
     renderIcons();
   }
@@ -1086,11 +1167,66 @@
     return plans;
   }
 
-  // A plan script's status on a platform.
-  function planStatus(plan, name, platform) {
-    const seg = planEntries(plan).find((item) => String(item.name || "") === name) || null;
-    if (!seg) return "";
-    return seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "");
+  // Whether a plan lists a script.
+  function planLists(plan, name) {
+    return planEntries(plan).some((item) => String(item.name || "") === name);
+  }
+
+  // The replays in the workspace, newest first, with what each one ran and
+  // the hash of the file it ran.
+  async function loadReplayReports() {
+    const replayItems = await listWorkspace(REPLAYS_DIR);
+    const dirs = replayItems.filter((item) => item.is_dir || item.type === "directory").sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(0, LIBRARY_MAX_REPLAYS);
+    const replays = (await Promise.all(dirs.map(async (dir) => {
+      const path = `${REPLAYS_DIR}/${dir.name}/report.json`;
+      try {
+        const report = JSON.parse(await cachedText(path, dir.modified_at));
+        return {
+          id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: String(report.status || ""), platform: String(report.platform || ""),
+          device: String(report.device || ""), finishedAt: String(report.finished_at || ""), start: String(report.start || ""),
+          segments: (Array.isArray(report.segments) ? report.segments : []).map((seg) => ({ name: String(seg.name || ""), kind: String(seg.kind || ""), status: String(seg.status || ""), sha256: String(seg.script_sha256 || "") })),
+          failure: report.failure && typeof report.failure === "object" ? { segment: String(report.failure.segment || ""), step: Number(report.failure.step) || 0 } : null,
+        };
+      } catch (_error) {
+        return { id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: "", platform: "", segments: [], broken: true };
+      }
+    }))).filter(Boolean);
+    // Newest first by the report's clock; the folder name only breaks ties.
+    replays.sort((a, b) => String(b.finishedAt || "").localeCompare(String(a.finishedAt || "")) || String(b.id).localeCompare(String(a.id)));
+    return replays;
+  }
+
+  // The scenario scripts (or older segments) of one platform, each with what
+  // its file says, its latest replay, and its status derived from them.
+  async function scriptRows(list, dir, platform, kind, replays) {
+    const files = (items) => items.filter((item) => item.is_file !== false && !(item.is_dir || item.type === "directory"));
+    const names = new Set(files(list).map((item) => String(item.name || "")));
+    const items = files(list).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
+    return Promise.all(items.map(async (item) => {
+      const name = String(item.name).replace(/\.ya?ml$/i, "");
+      const path = `${dir}/${platform}/${item.name}`;
+      let parsed = { steps: 0, grade: "", needsReview: 0, compiledAt: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" };
+      let hash = "";
+      try {
+        const text = await cachedText(path, item.modified_at);
+        parsed = parseSegmentYaml(text);
+        hash = await sha256Hex(text);
+      } catch (_error) {
+        /* listed without its details */
+      }
+      const row = { name, kind };
+      const latest = replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
+      const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
+      const reportName = `${name}.report.json`;
+      return {
+        name, path, platform, kind, hash, modifiedAt: String(item.modified_at || ""), steps: parsed.steps, grade: parsed.grade, needsReview: parsed.needsReview,
+        compiledAt: parsed.compiledAt || String(item.modified_at || ""),
+        status: kind === "script" ? scriptStatus({ exists: true, hash }, replays, platform, name) : "",
+        reportPath: names.has(reportName) ? `${dir}/${platform}/${reportName}` : "",
+        scenario: parsed.scenario, description: parsed.description, copiedFrom: parsed.copiedFrom, sourceFile: parsed.sourceFile,
+        lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, current: Boolean(hash) && latestSeg.sha256 === hash, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
+      };
+    }));
   }
 
   // The four steps after a device is up, each with where it stands.
@@ -1116,7 +1252,7 @@
       compile.text = `${flow.segments.length} ${flow.segments.length === 1 ? "segment" : "segments"}`;
       compile.done = true;
     } else if (record.done) {
-      compile.text = "the assistant compiles it in the chat";
+      compile.text = "compiled when you save";
     } else {
       compile.text = "after recording";
     }
@@ -1205,10 +1341,12 @@
       </div>
       <p class="portal-inline-note">${planned
         ? "Save when the scenario reaches its result; the name moves on to the next script you listed."
-        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it under its script's name. The assistant compiles it into the scenario's script in the chat."}</p>
+        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it under its script's name: it is compiled into the scenario's script here, and the assistant reviews it in the chat."}</p>
+      ${nextToRecordHtml()}
       <div class="efp-record-name">
         <label class="portal-form-label"><span class="portal-form-label">${planned ? "Script" : "Save as"}</span>
-          <input class="portal-form-input" data-recording-name value="${esc(name)}" autocomplete="off" spellcheck="false" />
+          <input class="portal-form-input" data-recording-name value="${esc(name)}" list="efp-script-names" autocomplete="off" spellcheck="false" />
+          <datalist id="efp-script-names">${recordNameSuggestions().map((item) => `<option value="${esc(item)}"></option>`).join("")}</datalist>
         </label>
       </div>
       <div class="efp-card-actions">
@@ -1230,6 +1368,59 @@
       </details>`;
   }
 
+  // The plan's scripts still to record on this platform, in the plan's
+  // order, after the names listed at the start: what Save as offers.
+  function recordNameSuggestions() {
+    const plan = view.flow && view.flow.plan;
+    const planned = plan ? plan.scripts.filter((item) => item.status === "to_record" && !item.copyOf).map((item) => item.name) : [];
+    return [...new Set(view.planned.concat(planned))];
+  }
+
+  // The next scenario the plan wants recorded on this platform, with its
+  // steps in the plan's words; a copy is not recorded.
+  function nextToRecord() {
+    const plan = view.flow && view.flow.plan;
+    if (!plan) return null;
+    const entry = plan.scripts.find((item) => item.status === "to_record" && !item.copyOf && !view.done.some((done) => done.name === item.name));
+    if (!entry) return null;
+    const scenario = plan.scenarios[entry.scenario] || { title: "", given: [], when: [], then: [] };
+    const steps = [].concat(scenario.given.map((t) => `Given ${t}`), scenario.when.map((t) => `When ${t}`), scenario.then.map((t) => `Then ${t}`));
+    return { name: entry.name, title: scenario.title, steps };
+  }
+
+  function nextToRecordHtml() {
+    const ask = `<button type="button" class="composer-pill-btn" data-recording-action="ask-assistant" title="Ask the assistant what to record and how">Ask the assistant</button>`;
+    const plan = view.flow && view.flow.plan;
+    if (!plan) return `<p class="portal-inline-note" data-recording-next>No scenario plan in the workspace yet; the assistant writes one from the Jira story. ${ask}</p>`;
+    const next = nextToRecord();
+    if (!next) return `<p class="portal-inline-note" data-recording-next>Every scenario of the plan has a script on this platform. ${ask}</p>`;
+    return `<div class="efp-lib-card" data-recording-next>
+        <div class="efp-lib-main"><strong>Next: ${esc(next.name)}</strong>${next.title ? `<span class="efp-card-meta">${esc(next.title)}</span>` : ""}</div>
+        ${next.steps.length ? `<ol class="efp-next-steps">${next.steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ol>` : ""}
+        <div class="efp-card-actions">
+          <button type="button" class="composer-pill-btn" data-recording-action="use-name" data-name="${esc(next.name)}" title="Save the recording under this name">Save as ${esc(next.name)}</button>
+          ${ask}
+        </div>
+      </div>`;
+  }
+
+  function askAssistant() {
+    const rec = view.recording;
+    if (!rec) {
+      setStatus("Start a device first.", "error");
+      return;
+    }
+    sendChat(startMessage(rec));
+    setStatus("Asked the assistant what to record next.", "success");
+  }
+
+  function useName(root, name) {
+    const input = root.querySelector("[data-recording-name]");
+    if (!input || !name) return;
+    input.value = name;
+    input.focus();
+  }
+
   function renderRecord() {
     const target = panelRoot()?.querySelector("[data-recording-record]");
     if (!target) return;
@@ -1244,11 +1435,18 @@
     const summary = target.querySelector("[data-recording-summary]");
     if (summary) summary.textContent = summaryText(rec.summary);
     // Re-render only when the recording changes, so typing in the name field
-    // is not interrupted by the poll.
-    const key = [rec.id, rec.session_id, rec.status, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.planned.length, inspectorAvailable(), rec.replay ? rec.replay.status : ""].join("|");
+    // is not interrupted by the poll. The plan's next scenario is part of the
+    // card, so a change of the plan's statuses re-renders it too, keeping
+    // the name typed so far.
+    const recKey = [rec.id, rec.session_id, rec.status, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.planned.length, inspectorAvailable(), rec.replay ? rec.replay.status : ""].join("|");
+    const flow = view.flow;
+    const flowKey = flow ? [flow.key, flow.plan ? flow.plan.scripts.map((item) => `${item.name}:${item.status}`).join(",") : "none"].join("|") : "";
+    const key = `${recKey}#${flowKey}`;
     if (key === view.sessionKey) return;
     const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-name]");
-    const typedName = focused ? document.activeElement.value : null;
+    const current = target.querySelector("[data-recording-name]");
+    const sameRecording = view.sessionKey.split("#")[0] === recKey;
+    const typedName = focused ? document.activeElement.value : (sameRecording && current ? current.value : null);
     view.sessionKey = key;
     target.innerHTML = recordHtml(rec);
     if (typedName !== null) {
@@ -1672,14 +1870,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       remember();
       renderAll();
       const recording = started.status === "starting" ? await waitForDevice(started.id) : started;
-      const lines = [
-        "/record-mobile-segment",
-        "Recording on my computer through the Mobile testing panel.",
-        `App: ${recording.app || app} (${recording.platform || platform})`,
-        recording.device ? `Device: ${recording.device}${recording.os_version ? ` ${recording.os_version}` : ""}` : "",
-        view.planned.length ? `Scripts: ${view.planned.join(", ")}` : "",
-      ].filter(Boolean);
-      sendChat(lines.join("\n"));
       const what = view.planned.length ? recording.segment : "the scenario";
       if (landInspectorTab()) setStatus(`Device ready. The Inspector opened in its own tab; record ${what} there, then press Save recording.`, "success");
       else if (inspectorAvailable()) setStatus(`Device ready. Open the Inspector and record ${what}.`, "success");
@@ -2004,8 +2194,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const failed = (seg.steps || []).find((step) => step.ok === false) || {};
       return { icon: "x", tone: "error", text: `failed at step ${failed.step || "?"}` };
     }
-    const planned = row.kind === "script" && view.flow && view.flow.plan ? view.flow.plan.scripts.find((item) => item.name === row.name) : null;
-    if (planned && planned.status === "replayed") return { icon: "check", tone: "success", text: "replayed" };
+    if (row.kind === "script" && view.flow && view.flow.statuses && view.flow.statuses[row.name] === "replayed") return { icon: "check", tone: "success", text: "replayed" };
     return null;
   }
 
@@ -2022,7 +2211,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const session = report.session_url ? ` <a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
     const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
     let saved = "";
-    if (res.path) saved = `<span class="efp-card-meta">The result and screenshots are in the chat; the assistant reviews them.</span>`;
+    if (res.path && status === "failed") saved = `<span class="efp-card-meta">The result and screenshots went to the chat; the assistant looks into the failure.</span>`;
+    else if (res.path) saved = `<span class="efp-card-meta">The result and screenshots are in the Library; the script counts as replayed as it is now.</span>`;
     else if (res.error) saved = `<div class="portal-inline-state is-visible is-error">${esc(res.error)}<div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button></div></div>`;
     return `<div class="efp-replay-outcome">
         <div><span class="portal-status-badge is-${tone}">${esc(label)}</span>${where ? `<span class="efp-card-meta">${esc(where)}</span>` : ""}${session}</div>
@@ -2208,7 +2398,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       res.error = "";
       if (!r.saved.includes(res.replay.id)) r.saved.push(res.replay.id);
       remember();
-      sendChat(replayMessage(res.result.report, path));
+      // A replay that passed shows in the Library and the plan's status; the
+      // assistant is asked only to look into a failure.
+      if (res.result.report && res.result.report.status === "failed") sendChat(replayMessage(res.result.report, path));
     } catch (error) {
       res.error = `Could not save the replay into the assistant's workspace: ${errorText(error)}`;
     }
@@ -2292,13 +2484,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   const LIBRARY_PLATFORMS = ["android", "ios"];
   const LIBRARY_MAX_FILES = 40;
+  const LIBRARY_MAX_REPLAYS = 20;
 
   function freshLibrary() {
     return { loading: false, loaded: false, error: "", scripts: {}, segments: {}, recordings: [], replays: [], plans: [], texts: {}, open: {} };
-  }
-
-  function deletedMessage(kind, name, path) {
-    return `${kind} ${name} deleted: ${path}`;
   }
 
   // The little a list needs from a script or segment file, without a YAML
@@ -2362,9 +2551,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     renderLibrary();
     try {
       const files = (items) => items.filter((item) => item.is_file !== false && !(item.is_dir || item.type === "directory"));
-      const [recordingItems, replayItems, scenarioItems, ...folderLists] = await Promise.all([
+      const [recordingItems, scenarioItems, ...folderLists] = await Promise.all([
         listWorkspace(RECORDINGS_DIR),
-        listWorkspace(REPLAYS_DIR),
         listWorkspace(SCENARIOS_DIR),
         ...LIBRARY_PLATFORMS.map((platform) => listWorkspace(`${SCRIPTS_DIR}/${platform}`)),
         ...LIBRARY_PLATFORMS.map((platform) => listWorkspace(`${SEGMENTS_DIR}/${platform}`)),
@@ -2372,57 +2560,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const scriptLists = folderLists.slice(0, LIBRARY_PLATFORMS.length);
       const segmentLists = folderLists.slice(LIBRARY_PLATFORMS.length);
       lib.plans = await readPlans(scenarioItems);
+      lib.replays = await loadReplayReports();
 
-      // Replays, newest first; their reports name the segments they ran.
-      const replayDirs = replayItems.filter((item) => item.is_dir || item.type === "directory").sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(0, 20);
-      lib.replays = (await Promise.all(replayDirs.map(async (dir) => {
-        const path = `${REPLAYS_DIR}/${dir.name}/report.json`;
-        try {
-          const report = JSON.parse(await cachedText(path, dir.modified_at));
-          return {
-            id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: String(report.status || ""), platform: String(report.platform || ""),
-            device: String(report.device || ""), finishedAt: String(report.finished_at || ""), start: String(report.start || ""),
-            segments: (Array.isArray(report.segments) ? report.segments : []).map((seg) => ({ name: String(seg.name || ""), kind: String(seg.kind || ""), status: String(seg.status || "") })),
-            failure: report.failure && typeof report.failure === "object" ? { segment: String(report.failure.segment || ""), step: Number(report.failure.step) || 0 } : null,
-          };
-        } catch (_error) {
-          return { id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: "", segments: [], broken: true };
-        }
-      }))).filter(Boolean);
-      // Newest first by the report's clock; the folder name only breaks ties.
-      lib.replays.sort((a, b) => String(b.finishedAt || "").localeCompare(String(a.finishedAt || "")) || String(b.id).localeCompare(String(a.id)));
-
-      // Scripts and older segments per platform, with the plan's word and the
-      // latest replay's.
-      const entries = async (list, dir, platform, kind) => {
-        const items = files(list).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
-        return Promise.all(items.map(async (item) => {
-          const name = String(item.name).replace(/\.ya?ml$/i, "");
-          const path = `${dir}/${platform}/${item.name}`;
-          let parsed = { steps: 0, grade: "", needsReview: 0, compiledAt: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" };
-          try {
-            parsed = parseSegmentYaml(await cachedText(path, item.modified_at));
-          } catch (_error) {
-            /* listed without its details */
-          }
-          const row = { name, kind };
-          const plan = kind === "script" ? (lib.plans.find((doc) => planStatus(doc, name, platform)) || null) : null;
-          const latest = lib.replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
-          const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
-          return {
-            name, path, platform, modifiedAt: String(item.modified_at || ""), steps: parsed.steps, grade: parsed.grade, needsReview: parsed.needsReview,
-            compiledAt: parsed.compiledAt || String(item.modified_at || ""), planStatus: plan ? planStatus(plan, name, platform) : "",
-            scenario: parsed.scenario, description: parsed.description, copiedFrom: parsed.copiedFrom, sourceFile: parsed.sourceFile,
-            lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
-          };
-        }));
-      };
+      // Scripts and older segments per platform, each with its status from
+      // its file and its replays.
       lib.scripts = {};
       lib.segments = {};
       for (let i = 0; i < LIBRARY_PLATFORMS.length; i += 1) {
         const platform = LIBRARY_PLATFORMS[i];
-        lib.scripts[platform] = await entries(scriptLists[i], SCRIPTS_DIR, platform, "script");
-        lib.segments[platform] = await entries(segmentLists[i], SEGMENTS_DIR, platform, "segment");
+        lib.scripts[platform] = await scriptRows(scriptLists[i], SCRIPTS_DIR, platform, "script", lib.replays);
+        lib.segments[platform] = await scriptRows(segmentLists[i], SEGMENTS_DIR, platform, "segment", lib.replays);
       }
 
       // Recordings with the scripts compiled from them, and the cut of one
@@ -2479,12 +2626,14 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return parts.join(" · ");
   }
 
+  // What a row says about its replays: the latest replay of the file as it
+  // is now, or that the file changed since its last replay.
   function segmentMarkHtml(seg) {
-    if (seg.lastReplay && seg.lastReplay.status === "passed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>passed ${esc(dateText(seg.lastReplay.at))}</span>`;
-    if (seg.lastReplay && seg.lastReplay.status === "failed") return `<span class="efp-replay-mark is-error"><i data-lucide="x" class="w-3 h-3"></i>failed${seg.lastReplay.step ? ` at step ${esc(String(seg.lastReplay.step))}` : ""}</span>`;
-    if (seg.planStatus === "replayed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>replayed</span>`;
-    if (seg.planStatus === "to_record") return `<span class="efp-replay-mark is-error"><i data-lucide="minus" class="w-3 h-3"></i>to record</span>`;
-    return `<span class="efp-replay-mark">not replayed</span>`;
+    const last = seg.lastReplay;
+    if (!last) return `<span class="efp-replay-mark">not replayed</span>`;
+    if (last.current && last.status === "passed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>passed ${esc(dateText(last.at))}</span>`;
+    if (last.current && last.status === "failed") return `<span class="efp-replay-mark is-error"><i data-lucide="x" class="w-3 h-3"></i>failed${last.step ? ` at step ${esc(String(last.step))}` : ""}</span>`;
+    return `<span class="efp-replay-mark is-warning"><i data-lucide="pencil" class="w-3 h-3"></i>edited since it ${last.status === "passed" ? "passed" : "failed"} ${esc(dateText(last.at))}</span>`;
   }
 
   function libraryHtml() {
@@ -2532,7 +2681,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         <div class="efp-lib-row">
           <div class="efp-lib-main"><strong>${esc(item.name)}</strong><span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(compiled)}</span></div>
           <div class="efp-lib-actions">
-            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Ask the assistant to compile this recording into its scenario script">Compile</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Compile this recording into its scenario script on this computer; the assistant reviews it">Compile</button>
             <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-recording" data-name="${esc(item.name)}" data-path="${esc(item.path)}">Delete</button>
           </div>
         </div>`;
@@ -2558,11 +2707,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         <h5>Library</h5>
         <button type="button" class="toolbar-icon-btn" data-recording-action="library-refresh" title="Read the workspace again" aria-label="Refresh"${lib.loading ? " disabled" : ""}><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
       </div>
-      <p class="portal-inline-note">What this assistant keeps for mobile testing. Deleting a script or a recording here tells the assistant, which updates the scenario plan.</p>
+      <p class="portal-inline-note">What this assistant keeps for mobile testing. A scenario's status follows these files: its script exists once the file is here, and is replayed once the latest replay of the file as it is passed.</p>
       ${lib.error ? `<div class="portal-inline-state is-visible is-error">${esc(lib.error)}</div>` : ""}
       ${lib.loading && !lib.loaded ? `<p class="portal-inline-note">Reading the workspace…</p>` : ""}
       <h6>Scenario scripts</h6>
-      ${scriptGroups || (lib.loaded ? empty("No scenario scripts yet. Save the recording of a scenario; the assistant compiles it in the chat.") : "")}
+      ${scriptGroups || (lib.loaded ? empty("No scenario scripts yet. Save the recording of a scenario under its script's name; it is compiled here.") : "")}
       <h6>Recordings</h6>
       ${recordingRows || (lib.loaded ? empty("No recordings saved yet.") : "")}
       ${segmentGroups ? `<h6>Older segments</h6>${segmentGroups}` : ""}
@@ -2660,8 +2809,36 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       return;
     }
     if (action === "library-split") {
-      sendChat(savedMessage(name, path));
-      say(`Asked the assistant to compile ${name}.`, "success");
+      const plan = lib.plans.find((doc) => planLists(doc, name)) || lib.plans[0] || null;
+      const what = scriptScenario(name, plan ? planView(plan) : null);
+      if (!what) {
+        // A recording the plan does not name: the assistant finds out which
+        // scenario it is, or proposes the cut of several.
+        sendChat(savedMessage(name, path, []));
+        say(`Asked the assistant which scenario ${name} is.`, "success");
+        return;
+      }
+      let log;
+      try {
+        log = JSON.parse(await readWorkspaceText(path));
+      } catch (error) {
+        sendChat(savedMessage(name, path));
+        say(`Could not read ${name} here (${errorText(error)}); the assistant compiles it.`, "warning");
+        return;
+      }
+      const platform = String(log.platform || "").toLowerCase() === "ios" ? "ios" : "android";
+      const existing = (lib.scripts[platform] || []).find((row) => row.name === name);
+      if (existing && !(await confirmAction(`Compile ${name} again? The script in the workspace, with the assistant's review, is replaced.`, "Compile", "Compile again?"))) return;
+      button.disabled = true;
+      try {
+        const compiled = await compileRecording(name, log, what);
+        say(`Compiled ${compiled.name} (grade ${compiled.report.grade || "?"}); the assistant reviews it in the chat.`, "success");
+      } catch (error) {
+        sendChat(savedMessage(name, path));
+        say(`Could not compile ${name} on this computer (${errorText(error)}); the assistant compiles it.`, "warning");
+      }
+      lib.loaded = false;
+      await Promise.all([loadLibrary(), loadFlow()]);
       return;
     }
     if (action === "library-copy") {
@@ -2698,12 +2875,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     if (action === "library-delete-script" || action === "library-delete-segment" || action === "library-delete-recording" || action === "library-delete-replay") {
       const kind = { "library-delete-script": "Script", "library-delete-segment": "Segment", "library-delete-recording": "Recording" }[action] || "Replay";
       const what = kind === "Replay" ? `the replay of ${dateText((lib.replays.find((rp) => rp.id === button.dataset.id) || {}).finishedAt) || button.dataset.id}` : `${kind.toLowerCase()} ${name}`;
-      const hint = { Script: " Its scenario will need it recorded or copied again.", Segment: " Scenarios that use it will need it recorded again.", Recording: " Its cut goes with it; scripts already compiled from it stay." }[kind] || "";
+      const hint = { Script: " Its scenario is to record or copy again.", Segment: " Scenarios that use it will need it recorded again.", Recording: " Its cut goes with it; scripts already compiled from it stay." }[kind] || "";
       if (!(await confirmAction(`Delete ${what} from the assistant's workspace?${hint}`, "Delete", "Delete?"))) return;
       const paths = [path];
       if (kind === "Recording") {
         const item = lib.recordings.find((it) => it.name === name);
         if (item && item.split) paths.push(item.split.path);
+      }
+      if (kind === "Script") {
+        const row = LIBRARY_PLATFORMS.flatMap((platform) => lib.scripts[platform] || []).find((it) => it.path === path);
+        if (row && row.reportPath) paths.push(row.reportPath);
       }
       button.disabled = true;
       try {
@@ -2713,7 +2894,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         say(`Could not delete ${what}: ${errorText(error)}`, "error");
         return;
       }
-      if (kind !== "Replay") sendChat(deletedMessage(kind, name, path));
       say(`Deleted ${what}.`, "success");
       lib.loaded = false;
       view.replay.segments = null;
@@ -2724,24 +2904,68 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   // ---- saving a recording -----------------------------------------------------------
 
-  // Writes a saved log into the assistant's workspace and tells the
-  // assistant. The bridge has already moved on to the next log, so a failed
-  // write keeps this one here to save again or download.
+  // Writes a saved log into the assistant's workspace, then compiles it into
+  // its scenario script here when its name says which scenario it is. The
+  // bridge has already moved on to the next log, so a failed write keeps
+  // this one here to save again or download.
   async function saveLog(name, log, summary) {
     const fileName = `${name}.wdlog.json`;
     const blob = new Blob([JSON.stringify(log, null, 2)], { type: "application/json" });
+    let path;
     try {
-      const path = await writeToWorkspace(fileName, blob);
-      view.unsaved = null;
-      const s = summary || {};
-      view.done.push({ name, detail: `${Number(s.actions) || 0} actions${s.secrets ? `, ${s.secrets} secret` : ""}` });
-      remember();
-      sendChat(savedMessage(name, path));
-      return path;
+      path = await writeToWorkspace(fileName, blob);
     } catch (error) {
       view.unsaved = { name, log, summary, error: errorText(error) };
       return "";
     }
+    view.unsaved = null;
+    const s = summary || {};
+    const done = { name, detail: `${Number(s.actions) || 0} actions${s.secrets ? `, ${s.secrets} secret` : ""}`, compiled: false };
+    view.done.push(done);
+    remember();
+    const compiled = await compileSaved(name, log, path);
+    if (compiled) {
+      done.compiled = true;
+      done.detail += `, compiled (grade ${compiled.report.grade || "?"})`;
+      remember();
+    }
+    return path;
+  }
+
+  // Compiles a recording saved under a scenario's name into its script on
+  // this computer. Any other recording, and one this computer could not
+  // compile, goes to the assistant by message instead.
+  async function compileSaved(name, log, path) {
+    const listed = view.planned.indexOf(name) >= 0 || planScriptNames().indexOf(name) >= 0;
+    const what = listed ? scriptScenario(name, view.flow && view.flow.plan) : null;
+    if (!what) {
+      sendChat(savedMessage(name, path));
+      return null;
+    }
+    try {
+      return await compileRecording(name, log, what);
+    } catch (error) {
+      sendChat(savedMessage(name, path));
+      setStatus(`Could not compile ${name} on this computer (${errorText(error)}); the assistant compiles it in the chat.`, "warning");
+      return null;
+    }
+  }
+
+  // Runs the compiler on this computer through the bridge, writes the script
+  // and the compiler's report into the workspace next to each other, and
+  // hands the script to the assistant for review.
+  async function compileRecording(name, log, what) {
+    const platform = String((log && log.platform) || recordingPlatform()).toLowerCase() === "ios" ? "ios" : "android";
+    const data = await call("script.compile", { log, issue: what.issue, scenario: what.scenario, title: what.title || "", platform }, { timeoutMs: 120000 });
+    const fileName = String(data.name || name);
+    const folder = `${SCRIPTS_DIR}/${platform}`;
+    const scriptPath = await writeToWorkspace(`${fileName}.yaml`, new Blob([String(data.script || "")], { type: "application/yaml" }), folder);
+    const reportPath = await writeToWorkspace(`${fileName}.report.json`, new Blob([JSON.stringify(data.report || {}, null, 2)], { type: "application/json" }), folder);
+    view.library.loaded = false;
+    view.replay.segments = null;
+    view.replay.yaml = {};
+    sendChat(compiledMessage(fileName, scriptPath, reportPath));
+    return { name: fileName, path: scriptPath, reportPath, report: data.report || {} };
   }
 
   async function saveRecording(root, button) {
@@ -2761,8 +2985,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const data = await call("segment.done", { id: view.recording.id, segment: name, next_segment: nextPlanned(name || view.recording.segment) }, { timeoutMs: 30000 });
       view.recording = Object.assign({}, view.recording, { segment: data.next_segment, summary: {} });
       const path = await saveLog(data.segment, data.log, data.summary);
+      const last = view.done[view.done.length - 1];
+      const compiled = Boolean(path && last && last.name === data.segment && last.compiled);
       if (!path) setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
-      else if (view.planned.indexOf(data.segment) >= 0) setStatus(`Saved ${data.segment}; the assistant compiles it. Restart the app and record ${data.next_segment} in the Inspector.`, "success");
+      else if (compiled) setStatus(`Saved and compiled ${data.segment}; the assistant reviews it in the chat. Restart the app and record the next scenario in the Inspector.`, "success");
       else setStatus(`Saved ${data.segment}; the assistant compiles it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
       setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack’s own site is not seen by the bridge." : errorText(error), "error");
@@ -2932,7 +3158,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     view.connectionOpen = false;
     remember();
     closeWorkspace({ rerender: false });
-    if (view.done.length) sendChat("Recording finished. Compile any recording not compiled yet.");
     view.done = [];
     await loadRecordings();
     renderAll();
@@ -3078,6 +3303,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else if (action === "upload-code") uploadCode(root);
     else if (action === "extend") extend(button);
     else if (action === "finish") finish(button);
+    else if (action === "ask-assistant") askAssistant();
+    else if (action === "use-name") useName(root, button.dataset.name || "");
     else if (action === "finish-other") finishOther(button.dataset.id || "", button);
     else if (action === "adopt") adopt(button.dataset.id || "");
   });
@@ -3161,6 +3388,12 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     parseSegments,
     savedMessage,
     copyMessage,
+    compiledMessage,
+    startMessage,
+    planView,
+    scriptScenario,
+    scriptStatus,
+    nextToRecord,
     replayMessage,
     replayNoun,
     replayChoice,
@@ -3170,7 +3403,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     recordingState,
     segmentSecrets,
     flowSteps,
-    deletedMessage,
     parseSegmentYaml,
     proxyForBridge,
     splitProxyLogin,

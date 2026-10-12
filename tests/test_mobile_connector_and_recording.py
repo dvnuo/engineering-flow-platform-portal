@@ -276,12 +276,16 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert "/api/mobile/recording-config" in js
     # The hosted Inspector attaches to the bridge on this computer.
     assert 'hostname: "127.0.0.1"' in js and "path: `/mobile/wd/${rec.id}`" in js and "ssl: false" in js
-    # Recordings land where the record-mobile-segment skill looks for them,
-    # announced with the messages it answers to; a recording is a scenario's,
-    # compiled into its script in mobile/scripts/<platform>/.
+    # Recordings land where the record-mobile-segment skill looks for them.
+    # A recording saved under a scenario's name is compiled into its script
+    # here, through the bridge, and the assistant is asked to review it; any
+    # other recording goes to the assistant by message.
     assert 'const RECORDINGS_DIR = "mobile/recordings";' in js and 'const SCRIPTS_DIR = "mobile/scripts";' in js
+    assert '"script.compile"' in js and "Script ${name} compiled: ${path}\\nReport: ${reportPath}" in js and "${fileName}.report.json" in js
     assert "Script ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
-    assert "Recording finished. Compile any recording not compiled yet." in js
+    # Finishing and deleting say nothing: the plan's statuses come from the files.
+    assert "Recording finished." not in js and "deleted: ${path}" not in js
+    assert "script_sha256" in js and 'data-recording-action="ask-assistant"' in js and "data-recording-next" in js
     assert 'Scripts: ${view.planned.join(", ")}' in js
     # Code from the Inspector's recorder keeps no screens: an older segment.
     assert "Segment ${name} recorded: ${path}" in js
@@ -292,8 +296,8 @@ def test_the_page_drives_the_local_bridge_not_portal():
     for marker in ("data-recording-flow", "data-recording-settings", 'data-recording-action="settings"', "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", "data-recording-auto-inspector"):
         assert marker in js, marker
     # The Library lists what the workspace keeps and deletes through the
-    # runtime's workspace API, telling the assistant so the plan follows.
-    for marker in ("data-recording-tabs", "data-recording-library", 'data-recording-action="library-replay"', 'data-recording-action="library-view"', "library-delete-script", "library-delete-segment", "library-delete-recording", "library-delete-replay", 'workspaceApi("/delete")', "JSON.stringify({ paths })", "${kind} ${name} deleted: ${path}", "efp-lib-pre", "cards.replayCardHtml(cards.normalizeReplay(", 'data-recording-action="library-copy"', "library-copy-send", "Copy script ${name} as a variant: "):
+    # runtime's workspace API; a script's report goes with it.
+    for marker in ("data-recording-tabs", "data-recording-library", 'data-recording-action="library-replay"', 'data-recording-action="library-view"', "library-delete-script", "library-delete-segment", "library-delete-recording", "library-delete-replay", 'workspaceApi("/delete")', "JSON.stringify({ paths })", "row.reportPath", "efp-lib-pre", "cards.replayCardHtml(cards.normalizeReplay(", 'data-recording-action="library-copy"', "library-copy-send", "Copy script ${name} as a variant: "):
         assert marker in js, marker
     # A scenario script (or older segments) replays on the held device; the
     # result lands in the workspace beside the recordings and the chat
@@ -499,9 +503,28 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.ok(noLocal.html.includes('href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip"'));
         assert.ok(noLocal.html.includes("<code>BrowserStackLocal</code> in <code>/Users/alice/bin</code>"));
         assert.ok(M.localBinaryHtml({ found: false }).html.includes("download it from BrowserStack"));
-        // The Library's messages and what it reads out of a segment file.
-        assert.equal(M.deletedMessage("Segment", "seg-login", "mobile/segments/android/seg-login.yaml"), "Segment seg-login deleted: mobile/segments/android/seg-login.yaml");
-        assert.equal(M.deletedMessage("Recording", "recording-1", "mobile/recordings/recording-1.wdlog.json"), "Recording recording-1 deleted: mobile/recordings/recording-1.wdlog.json");
+        // A compiled script goes to the assistant for review, with its report.
+        assert.equal(M.compiledMessage("FX-12-buy-100-usd", "mobile/scripts/android/FX-12-buy-100-usd.yaml", "mobile/scripts/android/FX-12-buy-100-usd.report.json"), "Script FX-12-buy-100-usd compiled: mobile/scripts/android/FX-12-buy-100-usd.yaml\\nReport: mobile/scripts/android/FX-12-buy-100-usd.report.json");
+        // Which scenario a recording is: the plan's script of that name, else the name's own <KEY>-<id>.
+        const plan = M.planView({ __key: "FX-12", issue: "FX-12", scripts: [{ name: "FX-12-buy-100-usd", scenario: "buy-100-usd" }, { name: "FX-12-buy-250-eur", scenario: "buy-250-eur", copy_of: "FX-12-buy-100-usd" }],
+          scenarios: [{ id: "buy-100-usd", title: "Buy 100 USD", given: ["the customer signs in"], when: ["the customer buys 100 USD"], then: ["the confirmation shows 100.00 USD"] }] });
+        assert.deepEqual(M.scriptScenario("FX-12-buy-100-usd", plan), { issue: "FX-12", scenario: "buy-100-usd", title: "Buy 100 USD" });
+        assert.deepEqual(M.scriptScenario("FX-13-sell-usd", plan), { issue: "FX-13", scenario: "sell-usd", title: "" });
+        assert.equal(M.scriptScenario("recording-1", plan), null);
+        assert.deepEqual(plan.scripts.map((s) => s.name + ":" + s.copyOf), ["FX-12-buy-100-usd:", "FX-12-buy-250-eur:FX-12-buy-100-usd"]);
+        // A script's status from the files: the latest replay of the file as it is now.
+        const replays = [
+          { platform: "android", finishedAt: "2026-10-09T12:00:00Z", segments: [{ name: "FX-12-a", kind: "script", status: "failed", sha256: "new" }] },
+          { platform: "android", finishedAt: "2026-10-09T11:00:00Z", segments: [{ name: "FX-12-a", kind: "script", status: "passed", sha256: "old" }, { name: "FX-12-b", kind: "script", status: "passed", sha256: "b1" }] },
+          { platform: "ios", finishedAt: "2026-10-09T10:00:00Z", segments: [{ name: "FX-12-b", kind: "script", status: "passed", sha256: "b1" }] },
+        ];
+        assert.equal(M.scriptStatus({ exists: false, hash: "" }, replays, "android", "FX-12-a"), "to_record");
+        assert.equal(M.scriptStatus({ exists: true, hash: "new" }, replays, "android", "FX-12-a"), "exists");
+        assert.equal(M.scriptStatus({ exists: true, hash: "old" }, replays, "android", "FX-12-a"), "replayed");
+        assert.equal(M.scriptStatus({ exists: true, hash: "b1" }, replays, "android", "FX-12-b"), "replayed");
+        assert.equal(M.scriptStatus({ exists: true, hash: "b2" }, replays, "android", "FX-12-b"), "exists");
+        assert.equal(M.scriptStatus({ exists: true, hash: "" }, replays, "android", "FX-12-b"), "exists");
+        // What it reads out of a segment file.
         assert.deepEqual(
           M.parseSegmentYaml("name: seg-login\\nplatform: android\\nsource:\\n  kind: webdriver-log\\n  grade: fair\\n  needs_review: 2\\n  compiled_at: '2026-10-01T10:15:00Z'\\nsteps:\\n  - action: tap\\n    name: Login\\n  - action: type\\n"),
           { name: "seg-login", platform: "android", steps: 2, grade: "fair", needsReview: 2, compiledAt: "2026-10-01T10:15:00Z", issue: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" },
