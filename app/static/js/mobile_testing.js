@@ -478,6 +478,10 @@
   const CUSTOM_ID = /^[A-Za-z0-9._-]{1,100}$/;
   const RECORDING_KEY_PREFIX = "efp.mobile.recording:";
   const AUTO_INSPECTOR_KEY = "efp.mobile.auto_inspector";
+  // Whether a script goes to the assistant for review as soon as it is
+  // compiled; off by default, so a member replays it first and asks for the
+  // review when it passes.
+  const AUTO_REVIEW_KEY = "efp.mobile.auto_review";
 
   const view = {
     agentId: "",
@@ -543,6 +547,10 @@
   // Start opens a tab for the Inspector unless the member switched it off.
   function autoInspector() {
     return readStorage(AUTO_INSPECTOR_KEY) !== "off";
+  }
+
+  function autoReview() {
+    return readStorage(AUTO_REVIEW_KEY) === "on";
   }
 
   function parseSegments(text) {
@@ -1109,8 +1117,10 @@
       const scriptNames = yamlNames(scripts);
       // Each script's status comes from its file and the replays of it.
       const statuses = {};
+      const reportPaths = {};
       (await scriptRows(scripts, SCRIPTS_DIR, platform, "script", replays)).forEach((row) => {
         statuses[row.name] = row.status;
+        if (row.reportPath) reportPaths[row.name] = row.reportPath;
       });
       const splits = files(recordings).filter((item) => /\.split\.json$/.test(item.name || ""));
       splits.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
@@ -1138,12 +1148,13 @@
         scripts: scriptNames,
         segments: segmentNames,
         statuses,
+        reportPaths,
         replays,
         split,
         plan,
       };
     } catch (_error) {
-      view.flow = { key, platform, error: true, recordings: 0, scripts: [], segments: [], statuses: {}, replays: [], split: null, plan: null };
+      view.flow = { key, platform, error: true, recordings: 0, scripts: [], segments: [], statuses: {}, reportPaths: {}, replays: [], split: null, plan: null };
     }
     renderFlow();
     renderRecord();
@@ -1332,7 +1343,7 @@
         </div>`
       : "";
     const doneList = view.done.length
-      ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.name)} <span class="efp-card-meta">${esc(item.detail)}</span></li>`).join("")}</ul>`
+      ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.name)} <span class="efp-card-meta">${esc(item.detail)}</span>${doneActionsHtml(item)}</li>`).join("")}</ul>`
       : "";
     return `
       <div class="efp-mobile-section-head">
@@ -1341,7 +1352,7 @@
       </div>
       <p class="portal-inline-note">${planned
         ? "Save when the scenario reaches its result; the name moves on to the next script you listed."
-        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it under its script's name: it is compiled into the scenario's script here, and the assistant reviews it in the chat."}</p>
+        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it under its script's name: it is compiled into the scenario's script here. Replay it, then press Review for the assistant to add the plan's checks."}</p>
       ${nextToRecordHtml()}
       <div class="efp-record-name">
         <label class="portal-form-label"><span class="portal-form-label">${planned ? "Script" : "Save as"}</span>
@@ -1366,6 +1377,44 @@
           </div>
         </div>
       </details>`;
+  }
+
+  // What a saved recording's line offers once it is compiled: replay the
+  // script, and ask the assistant for the review.
+  function doneActionsHtml(item) {
+    if (!item.compiled || !item.scriptPath) return "";
+    const review = item.reviewed
+      ? `<span class="efp-card-meta">review asked</span>`
+      : `<button type="button" class="composer-pill-btn" data-recording-action="review-script" data-name="${esc(item.name)}" data-path="${esc(item.scriptPath)}" data-report="${esc(item.reportPath || "")}" title="Ask the assistant to review the script: label its steps with the plan's and add the expected-result checks">Review</button>`;
+    return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-script" data-name="${esc(item.name)}" title="Tick it under Replay">Replay</button> ${review}`;
+  }
+
+  // Ticks a script for the next replay and brings the Replay section up.
+  async function tickScript(root, name) {
+    const r = view.replay;
+    r.touched = true;
+    r.checked = replayChoice(r.checked, replayKey({ kind: "script", name }));
+    if (r.segments === null) await loadReplaySegments();
+    else {
+      await loadReplaySecrets();
+      renderReplay();
+      renderIcons();
+    }
+    root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    setStatus(`${name} is ticked under Replay.`, "");
+  }
+
+  // Hands a compiled script to the assistant for review, with the
+  // compiler's report next to it.
+  function requestReview(name, scriptPath, reportPath) {
+    sendChat(compiledMessage(name, scriptPath, reportPath || `${scriptPath.replace(/\.ya?ml$/i, "")}.report.json`));
+    view.done.forEach((item) => {
+      if (item.name === name) item.reviewed = true;
+    });
+    remember();
+    setStatus(`Asked the assistant to review ${name}. Its edits need one more replay to pass.`, "success");
+    renderRecord();
+    renderIcons();
   }
 
   // The plan's scripts still to record on this platform, in the plan's
@@ -1438,7 +1487,8 @@
     // is not interrupted by the poll. The plan's next scenario is part of the
     // card, so a change of the plan's statuses re-renders it too, keeping
     // the name typed so far.
-    const recKey = [rec.id, rec.session_id, rec.status, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.planned.length, inspectorAvailable(), rec.replay ? rec.replay.status : ""].join("|");
+    const doneKey = view.done.map((item) => `${item.name}:${item.compiled ? "c" : ""}${item.reviewed ? "r" : ""}`).join(",");
+    const recKey = [rec.id, rec.session_id, rec.status, rec.segment, doneKey, view.unsaved ? view.unsaved.name : "", view.planned.length, inspectorAvailable(), rec.replay ? rec.replay.status : ""].join("|");
     const flow = view.flow;
     const flowKey = flow ? [flow.key, flow.plan ? flow.plan.scripts.map((item) => `${item.name}:${item.status}`).join(",") : "none"].join("|") : "";
     const key = `${recKey}#${flowKey}`;
@@ -1475,6 +1525,11 @@
           <button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button>
           <a class="portal-link-inline" href="#/connectors/local_bridge">Connectors &gt; Local bridge</a>
         </div>
+      </div>
+      <div class="efp-settings-group">
+        <h6>Review</h6>
+        <label class="efp-replay-row"><input type="checkbox" data-recording-auto-review${autoReview() ? " checked" : ""} /><span>Ask the assistant to review a script as soon as it is compiled</span></label>
+        <p class="portal-inline-note">Off, a compiled script waits for you: replay it, and press Review when it passes. The assistant then labels its steps with the plan's and adds the expected-result checks.</p>
       </div>
       ${inspectorAvailable() ? `
       <div class="efp-settings-group">
@@ -2212,6 +2267,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
     let saved = "";
     if (res.path && status === "failed") saved = `<span class="efp-card-meta">The result and screenshots went to the chat; the assistant looks into the failure.</span>`;
+    else if (res.path && status === "passed" && reviewableReplay(report)) saved = `<span class="efp-card-meta">The result and screenshots are in the Library; the script counts as replayed as it is now.</span>
+        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="review" title="Ask the assistant to label the steps with the plan's and add the expected-result checks">Review with the assistant</button></div>`;
     else if (res.path) saved = `<span class="efp-card-meta">The result and screenshots are in the Library; the script counts as replayed as it is now.</span>`;
     else if (res.error) saved = `<div class="portal-inline-state is-visible is-error">${esc(res.error)}<div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button></div></div>`;
     return `<div class="efp-replay-outcome">
@@ -2219,6 +2276,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         ${error}
         ${saved}
       </div>`;
+  }
+
+  // The scenario script a replay ran, when the compiler's report is still
+  // next to it: what Review under the outcome hands to the assistant.
+  function reviewableReplay(report) {
+    const items = Array.isArray(report && report.segments) ? report.segments : [];
+    const script = items.length === 1 && items[0].kind === "script" ? items[0] : null;
+    if (!script || !view.flow || !view.flow.reportPaths) return null;
+    const reportPath = view.flow.reportPaths[script.name];
+    return reportPath ? { name: script.name, path: script.path || `${SCRIPTS_DIR}/${recordingPlatform()}/${script.name}.yaml`, reportPath } : null;
   }
 
   function replayHtml() {
@@ -2650,6 +2717,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         const copyButton = kind === "script"
           ? `<button type="button" class="composer-pill-btn" data-recording-action="library-copy" data-path="${esc(seg.path)}" aria-expanded="${copying ? "true" : "false"}" title="Ask the assistant for a copy of this script for a scenario with other values">Copy</button>`
           : "";
+        const reviewButton = kind === "script" && seg.reportPath
+          ? `<button type="button" class="composer-pill-btn" data-recording-action="library-review" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}" data-report="${esc(seg.reportPath)}" title="Ask the assistant to review this script: label its steps with the plan's and add the expected-result checks">Review</button>`
+          : "";
         const copyForm = copying
           ? `<div class="efp-lib-card" data-library-copy="${esc(seg.path)}">
               <label class="portal-form-label"><span class="portal-form-label">What the copy changes</span>
@@ -2664,6 +2734,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
           <div class="efp-lib-actions">
             <button type="button" class="composer-pill-btn" data-recording-action="library-replay" data-name="${esc(seg.name)}" data-platform="${esc(platform)}" data-kind="${kind}" title="${held ? "Replay on the held device" : "Tick it for the next replay"}">Replay</button>
             <button type="button" class="composer-pill-btn" data-recording-action="library-view" data-path="${esc(seg.path)}" aria-expanded="${open ? "true" : "false"}">${open ? "Hide" : "View"}</button>
+            ${reviewButton}
             ${copyButton}
             <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-${kind}" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}">Delete</button>
           </div>
@@ -2832,13 +2903,18 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       button.disabled = true;
       try {
         const compiled = await compileRecording(name, log, what);
-        say(`Compiled ${compiled.name} (grade ${compiled.report.grade || "?"}); the assistant reviews it in the chat.`, "success");
+        if (autoReview()) requestReview(compiled.name, compiled.path, compiled.reportPath);
+        else say(`Compiled ${compiled.name} (grade ${compiled.report.grade || "?"}). Replay it, then press Review when it passes.`, "success");
       } catch (error) {
         sendChat(savedMessage(name, path));
         say(`Could not compile ${name} on this computer (${errorText(error)}); the assistant compiles it.`, "warning");
       }
       lib.loaded = false;
       await Promise.all([loadLibrary(), loadFlow()]);
+      return;
+    }
+    if (action === "library-review") {
+      requestReview(name, path, button.dataset.report || "");
       return;
     }
     if (action === "library-copy") {
@@ -2927,7 +3003,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     if (compiled) {
       done.compiled = true;
       done.detail += `, compiled (grade ${compiled.report.grade || "?"})`;
+      done.scriptPath = compiled.path;
+      done.reportPath = compiled.reportPath;
       remember();
+      if (autoReview()) requestReview(compiled.name, compiled.path, compiled.reportPath);
     }
     return path;
   }
@@ -2951,9 +3030,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
   }
 
-  // Runs the compiler on this computer through the bridge, writes the script
-  // and the compiler's report into the workspace next to each other, and
-  // hands the script to the assistant for review.
+  // Runs the compiler on this computer through the bridge and writes the
+  // script and the compiler's report into the workspace next to each other.
+  // The review is asked for apart (requestReview), once the member wants it.
   async function compileRecording(name, log, what) {
     const platform = String((log && log.platform) || recordingPlatform()).toLowerCase() === "ios" ? "ios" : "android";
     const data = await call("script.compile", { log, issue: what.issue, scenario: what.scenario, title: what.title || "", platform }, { timeoutMs: 120000 });
@@ -2964,7 +3043,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     view.library.loaded = false;
     view.replay.segments = null;
     view.replay.yaml = {};
-    sendChat(compiledMessage(fileName, scriptPath, reportPath));
     return { name: fileName, path: scriptPath, reportPath, report: data.report || {} };
   }
 
@@ -2988,7 +3066,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const last = view.done[view.done.length - 1];
       const compiled = Boolean(path && last && last.name === data.segment && last.compiled);
       if (!path) setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
-      else if (compiled) setStatus(`Saved and compiled ${data.segment}; the assistant reviews it in the chat. Restart the app and record the next scenario in the Inspector.`, "success");
+      else if (compiled && autoReview()) setStatus(`Saved and compiled ${data.segment}; the assistant reviews it in the chat. Restart the app and record the next scenario in the Inspector.`, "success");
+      else if (compiled) setStatus(`Saved and compiled ${data.segment}. Replay it, then press Review when it passes; or restart the app and record the next scenario.`, "success");
       else setStatus(`Saved ${data.segment}; the assistant compiles it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
       setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack’s own site is not seen by the bridge." : errorText(error), "error");
@@ -3263,6 +3342,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       else if (action === "stop") stopReplay(replayButton);
       else if (action === "refresh") loadReplaySegments();
       else if (action === "save-again") saveReplay();
+      else if (action === "review") {
+        const res = view.replay.result;
+        const script = reviewableReplay(res && res.result ? res.result.report : null);
+        if (script) requestReview(script.name, script.path, script.reportPath);
+      }
       return;
     }
     const tab = target.closest("[data-recording-tab]");
@@ -3305,6 +3389,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else if (action === "finish") finish(button);
     else if (action === "ask-assistant") askAssistant();
     else if (action === "use-name") useName(root, button.dataset.name || "");
+    else if (action === "review-script") requestReview(button.dataset.name || "", button.dataset.path || "", button.dataset.report || "");
+    else if (action === "replay-script") tickScript(root, button.dataset.name || "");
     else if (action === "finish-other") finishOther(button.dataset.id || "", button);
     else if (action === "adopt") adopt(button.dataset.id || "");
   });
@@ -3344,6 +3430,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const custom = root.querySelector("[data-recording-custom-id]");
       const file = target.files && target.files[0];
       if (custom && file && !custom.value.trim()) custom.value = suggestCustomId(file.name);
+    } else if (target.matches("[data-recording-auto-review]")) {
+      writeStorage(AUTO_REVIEW_KEY, target.checked ? "on" : "");
     } else if (target.matches("[data-recording-auto-inspector]")) {
       writeStorage(AUTO_INSPECTOR_KEY, target.checked ? "" : "off");
       view.formKey = "";

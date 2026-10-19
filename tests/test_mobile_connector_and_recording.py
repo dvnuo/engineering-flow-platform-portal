@@ -282,6 +282,12 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # other recording goes to the assistant by message.
     assert 'const RECORDINGS_DIR = "mobile/recordings";' in js and 'const SCRIPTS_DIR = "mobile/scripts";' in js
     assert '"script.compile"' in js and "Script ${name} compiled: ${path}\\nReport: ${reportPath}" in js and "${fileName}.report.json" in js
+    # The review is a step of its own: a Review button on the saved line, on
+    # the Library's script row, and under a replay that passed; saving sends
+    # nothing unless the member switched the review on in Settings.
+    for marker in ('data-recording-action="review-script"', 'data-recording-action="replay-script"', "library-review", 'data-replay-action="review"', "data-recording-auto-review", 'const AUTO_REVIEW_KEY = "efp.mobile.auto_review";', 'readStorage(AUTO_REVIEW_KEY) === "on"'):
+        assert marker in js, marker
+    assert js.count("sendChat(compiledMessage(") == 1
     assert "Script ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
     # Finishing and deleting say nothing: the plan's statuses come from the files.
     assert "Recording finished." not in js and "deleted: ${path}" not in js
