@@ -6619,6 +6619,7 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-device-tools { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
 .efp-device-tools > .efp-card-meta { display: inline-flex; align-items: center; gap: 4px; margin-right: 4px; font-variant-numeric: tabular-nums; }
 .efp-device-connection { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--portal-border); }
+.efp-device-replay { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .efp-menu { position: relative; }
 .efp-menu > summary { list-style: none; cursor: pointer; }
 .efp-menu > summary::-webkit-details-marker { display: none; }

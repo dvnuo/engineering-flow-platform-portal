@@ -287,6 +287,15 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # nothing unless the member switched the review on in Settings.
     for marker in ('data-recording-action="review-script"', 'data-recording-action="replay-script"', "library-review", 'data-replay-action="review"', "data-recording-auto-review", 'const AUTO_REVIEW_KEY = "efp.mobile.auto_review";', 'readStorage(AUTO_REVIEW_KEY) === "on"'):
         assert marker in js, marker
+    # A replay is set up, followed and read in a dialog opened on the file:
+    # where to start, the secret values, the bridge's phases with a link to
+    # watch it live, then the outcome. The panel has no replay section.
+    for marker in ("data-recording-dialog-host", "data-recording-dialog", 'data-replay-action="show"', 'data-replay-action="close"', 'data-replay-action="again"', "Watch on BrowserStack", "REPLAY_PHASES", "data-replay-chain"):
+        assert marker in js, marker
+    assert "data-recording-replay" not in js and "data-replay-segment" not in js
+    # Finishing asks first and shows the release; the status line sits under the strip.
+    assert "Finish recording?" in js and "releasingCardHtml" in js and "Releasing…" in js
+    assert js.index('data-recording-status role="status"') < js.index("data-recording-record></section>")
     assert js.count("sendChat(compiledMessage(") == 1
     # A recording is just a recording: it replays as it is (the bridge
     # compiles it on the way), and is compiled as a scenario the member picks
@@ -450,46 +459,19 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           M.replayMessage({ status: "failed", segments: [{ name: "FX-12-buy-100-usd", kind: "script", status: "failed" }], failure: { segment: "FX-12-buy-100-usd", step: 14 } }, "p/report.json"),
           "Replay finished: 0 of 1 script passed; FX-12-buy-100-usd failed at step 14.\\nReport: p/report.json",
         );
-        // A tick names the row's kind with its name, so a script never rides
-        // along with segments, whatever the latest listing said.
-        assert.equal(M.replayKey({ kind: "script", name: "FX-12-x" }), "script:FX-12-x");
-        assert.equal(M.replayKey({ kind: "segment", name: "FX-12-x" }), "segment:FX-12-x");
-        assert.deepEqual(M.replayChoice(["segment:seg-a", "segment:seg-b"], "script:FX-12-x"), ["script:FX-12-x"]);
-        assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:seg-a"), ["segment:seg-a"]);
-        assert.deepEqual(M.replayChoice(["segment:seg-a"], "segment:seg-b"), ["segment:seg-a", "segment:seg-b"]);
-        assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:FX-12-x"), ["segment:FX-12-x"]);
-        // A recording replays on its own too, and a fresh one is ticked first.
-        assert.equal(M.replayKeyKind("recording:recording-3"), "recording");
-        assert.deepEqual(M.replayChoice(["segment:seg-a", "script:FX-12-x"], "recording:recording-3"), ["recording:recording-3"]);
-        assert.deepEqual(M.replayChoice(["recording:recording-3"], "segment:seg-a"), ["segment:seg-a"]);
-        assert.deepEqual(M.defaultReplayTicks([{ kind: "script", name: "FX-12-x" }, { kind: "recording", name: "recording-3" }], [{ name: "FX-12-x", status: "exists" }], []), ["recording:recording-3"]);
+        // A replay's phases, as the bridge's progress text names them.
+        assert.equal(M.replayPhaseIndex("starting"), 0);
+        assert.equal(M.replayPhaseIndex("taking the device back from the Inspector"), 0);
+        assert.equal(M.replayPhaseIndex("restarting the app"), 1);
+        assert.equal(M.replayPhaseIndex("replaying"), 2);
+        assert.equal(M.replayPhaseIndex("FX-12-buy-100-usd: step 3 of 10 (tap)"), 2);
+        assert.equal(M.replayPhaseIndex("handing the device back to the Inspector"), 3);
+        // A recording replays on its own too.
         assert.equal(M.replayNoun([{ name: "recording-3", kind: "recording" }]), "recording");
         // A replay's result marks the row of its kind; a report without kinds marks by name.
         assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "segment" }), false);
         assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "script" }), true);
         assert.equal(M.sameReplayRow({ name: "seg-a" }, { name: "seg-a", kind: "segment" }), true);
-        // The default tick: the plan's next script that has not passed, in the
-        // plan's order; scripts of other plans and older cuts do not count.
-        const listedRows = [
-          { kind: "script", name: "FX-11-sell-usd" },
-          { kind: "script", name: "FX-12-buy-100-usd" },
-          { kind: "script", name: "FX-12-sell-eur" },
-          { kind: "script", name: "FX-12-sell-usd" },
-          { kind: "segment", name: "seg-login" },
-          { kind: "segment", name: "seg-open" },
-        ];
-        const planRows = [
-          { name: "FX-12-buy-100-usd", status: "replayed" },
-          { name: "FX-12-sell-usd", status: "exists" },
-          { name: "FX-12-sell-eur", status: "exists" },
-        ];
-        assert.deepEqual(M.defaultReplayTicks(listedRows, planRows, ["seg-login", "seg-open"]), ["script:FX-12-sell-usd"]);
-        assert.deepEqual(M.defaultReplayTicks(listedRows, planRows.map((row) => Object.assign({}, row, { status: "replayed" })), []), []);
-        assert.deepEqual(M.defaultReplayTicks(listedRows, null, []), ["script:FX-11-sell-usd"]);
-        assert.deepEqual(M.defaultReplayTicks(listedRows, [{ name: "seg-login", status: "to_record" }], []), ["script:FX-11-sell-usd"]);
-        const segmentRows = listedRows.filter((row) => row.kind === "segment");
-        assert.deepEqual(M.defaultReplayTicks(segmentRows, planRows, ["seg-open"]), ["segment:seg-open"]);
-        assert.deepEqual(M.defaultReplayTicks(segmentRows, null, []), ["segment:seg-login", "segment:seg-open"]);
         // Where a recording stands: parts still to compile first, then what it became.
         assert.equal(M.recordingState({ split: { parts: ["FX-12-a", "FX-12-b"], compiled: ["FX-12-a"] }, compiledInto: ["FX-12-a"] }), "cut proposed, 1 of 2 parts not compiled");
         assert.equal(M.recordingState({ split: null, compiledInto: ["seg-login"] }), "compiled into seg-login");

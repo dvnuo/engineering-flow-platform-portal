@@ -496,6 +496,8 @@
     done: [],
     unsaved: null,
     busy: "",
+    releasing: null,
+    releasingOther: "",
     sessionKey: "",
     formKey: "",
     polls: 0,
@@ -681,53 +683,6 @@
     return one ? "segment" : "segments";
   }
 
-  // A row of the replay list by its kind and name, so a scenario script, a
-  // recording and an older segment of the same name stay apart.
-  function replayKey(item) {
-    const kind = item && (item.kind === "script" || item.kind === "recording") ? item.kind : "segment";
-    return `${kind}:${item ? item.name : ""}`;
-  }
-
-  function replayKeyKind(key) {
-    const k = String(key);
-    if (k.startsWith("script:")) return "script";
-    if (k.startsWith("recording:")) return "recording";
-    return "segment";
-  }
-
-  // The rows ticked for the next replay after ticking `key`: a scenario script
-  // or a recording replays on its own, from the app's start, so ticking one
-  // leaves it alone; older segments chain, so ticking one keeps the others.
-  function replayChoice(checked, key) {
-    if (replayKeyKind(key) !== "segment") return [key];
-    return checked.filter((item) => item !== key && replayKeyKind(item) === "segment").concat(key);
-  }
-
-  // What the replay list ticks before the member does. A recording just
-  // saved and not compiled yet comes first: replaying it is how it is
-  // checked. Then with scripts: the scenario plan's next script that has not
-  // passed a replay, in the plan's order (a copy comes after its source), or
-  // nothing once every script the plan lists here has passed; the first
-  // script when the plan lists none of them. Without scripts: the older
-  // segments in the order of the latest cut, else all of them, as a chain.
-  function defaultReplayTicks(items, planScripts, cutParts) {
-    const recordings = items.filter((item) => item.kind === "recording");
-    if (recordings.length) return [replayKey(recordings[0])];
-    const scripts = items.filter((item) => item.kind === "script");
-    if (scripts.length) {
-      const listed = (name) => scripts.some((item) => item.name === name);
-      const plan = Array.isArray(planScripts) ? planScripts.filter((entry) => listed(entry.name)) : [];
-      if (plan.length) {
-        const next = plan.find((entry) => entry.status !== "replayed");
-        return next ? [replayKey({ kind: "script", name: next.name })] : [];
-      }
-      return [replayKey(scripts[0])];
-    }
-    const segments = items.filter((item) => item.kind === "segment").map((item) => item.name);
-    const inCut = (cutParts || []).filter((name) => segments.includes(name));
-    return (inCut.length ? inCut : segments).map((name) => replayKey({ kind: "segment", name }));
-  }
-
   function nextPlanned(name) {
     const index = view.planned.indexOf(name);
     if (index >= 0 && index + 1 < view.planned.length) return view.planned[index + 1];
@@ -805,11 +760,11 @@
         <div data-recording-device></div>
         <div class="efp-mobile-tabs" data-recording-tabs role="tablist"></div>
         <div data-recording-flow></div>
+        <div class="portal-inline-state" data-recording-status role="status"></div>
         <section class="efp-mobile-section hidden" data-recording-record></section>
-        <section class="efp-mobile-section hidden" data-recording-replay></section>
         <section class="efp-mobile-section hidden" data-recording-library></section>
         <section class="efp-mobile-section efp-mobile-settings hidden" data-recording-settings></section>
-        <div class="portal-inline-state" data-recording-status role="status"></div>
+        <div data-recording-dialog-host></div>
       </div>`;
   }
 
@@ -976,7 +931,7 @@
         This computer still holds a device from another recording: ${esc(rec.device || rec.platform || "a device")}, recording ${esc(rec.segment || "")}.
         <div class="efp-card-actions">
           <button type="button" class="portal-btn is-secondary" data-recording-action="adopt" data-id="${esc(rec.id)}">Continue it here</button>
-          <button type="button" class="portal-btn is-secondary" data-recording-action="finish-other" data-id="${esc(rec.id)}">Release the device</button>
+          <button type="button" class="portal-btn is-secondary" data-recording-action="finish-other" data-id="${esc(rec.id)}"${view.releasingOther === rec.id ? " disabled" : ""}>${view.releasingOther === rec.id ? `<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i>Releasing…` : "Release the device"}</button>
         </div>
       </div>`).join("");
   }
@@ -1035,7 +990,23 @@
       </div>`;
   }
 
+  // The card while the device is being released: nothing to do but wait.
+  function releasingCardHtml(rec) {
+    const since = view.releasing.since;
+    return `
+      <div class="efp-card efp-device">
+        <div class="efp-card-head">
+          <span class="portal-status-badge is-warning">Releasing</span>
+          <strong class="efp-card-title">${esc(rec.device || "BrowserStack device")}</strong>
+          <span class="efp-card-meta">${esc(platformLabel(rec))}${rec.os_version ? ` ${esc(rec.os_version)}` : ""}</span>
+        </div>
+        <div class="efp-card-meta efp-device-replay"><i data-lucide="loader-circle" class="w-3 h-3 animate-spin"></i><span>Ending the BrowserStack session and releasing the device… <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></span></div>
+        <p class="portal-inline-note">${view.releasing.replaying ? "The running replay finishes its step and hands the device back first." : "Usually under a minute."} Recordings saved in the assistant's workspace stay.</p>
+      </div>`;
+  }
+
   function deviceCardHtml(rec) {
+    if (view.releasing) return releasingCardHtml(rec);
     const ended = rec.status && rec.status !== "active";
     const held = rec.hold_deadline && remaining(rec.hold_deadline) !== "expired";
     const badge = ended ? "Ended" : (held ? "Held" : "Hold expired");
@@ -1065,6 +1036,7 @@
           </span>
         </div>
         <div class="efp-card-meta">Build ${esc(rec.app || "")}</div>
+        ${replayLineHtml()}
         ${view.connectionOpen ? connectionHtml(rec) : ""}
       </div>`;
   }
@@ -1400,17 +1372,6 @@
     return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-script" data-name="${esc(item.name)}" title="Tick it under Replay">Replay</button> ${review}`;
   }
 
-  // Ticks a script (or a recording) for the next replay and brings the
-  // Replay section up.
-  async function tickScript(root, name, kind = "script") {
-    const r = view.replay;
-    r.touched = true;
-    r.checked = replayChoice(r.checked, replayKey({ kind, name }));
-    await loadReplaySegments();
-    root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
-    setStatus(`${name} is ticked under Replay.`, "");
-  }
-
   // Hands a compiled script to the assistant for review, with the
   // compiler's report next to it.
   function requestReview(name, scriptPath, reportPath) {
@@ -1493,7 +1454,7 @@
     const target = panelRoot()?.querySelector("[data-recording-record]");
     if (!target) return;
     const rec = view.recording;
-    if (!rec || rec.status !== "active" || view.tab !== "session") {
+    if (!rec || rec.status !== "active" || view.tab !== "session" || view.releasing) {
       target.innerHTML = "";
       target.classList.add("hidden");
       view.sessionKey = "";
@@ -1795,7 +1756,7 @@
       closeWorkspace({ rerender: false });
       Object.assign(view, {
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
-        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", formKey: "", polls: 0,
+        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", releasing: null, releasingOther: "", sessionKey: "", formKey: "", polls: 0,
         replay: freshReplay(), flow: null, settingsOpen: false, connectionOpen: false, inspectorTab: null,
         tab: "session", library: freshLibrary(),
       });
@@ -2117,9 +2078,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   function freshReplay() {
     return {
-      segments: null, loading: false, error: "", checked: [], touched: false, start: "restart",
-      secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, logs: {}, extraRecordings: [], running: null, polling: false,
-      result: null, saved: [],
+      start: "restart", secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, logs: {},
+      running: null, polling: false, result: null, saved: [],
+      // The replay dialog: the file it was opened on, the older segments
+      // ticked in it, and its phase (setup, running, done).
+      dialog: null,
     };
   }
 
@@ -2169,58 +2132,26 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return [...names].sort();
   }
 
-  async function loadReplaySegments() {
-    const rec = view.recording;
-    if (!rec || !view.agentId) return;
-    const r = view.replay;
-    r.loading = true;
-    renderReplay();
-    try {
-      await loadFlow();
-      const flow = view.flow || { scripts: [], segments: [], split: null, plan: null };
-      const cutParts = flow.split ? flow.split.parts : [];
-      const planScripts = flow.plan ? flow.plan.scripts : null;
-      const planOrder = planScripts ? planScripts.map((entry) => entry.name) : [];
-      // Scripts in the plan's order, older segments in the cut's order.
-      const rank = (item) => {
-        const order = item.kind === "script" ? planOrder : cutParts;
-        const index = order.indexOf(item.name);
-        return index >= 0 ? index : order.length;
-      };
-      const platform = recordingPlatform();
-      const kindRank = { recording: 0, script: 1, segment: 2 };
-      const items = pendingRecordings()
-        .concat((flow.scripts || []).map((name) => ({ name, kind: "script", path: `${SCRIPTS_DIR}/${platform}/${name}.yaml` })))
-        .concat((flow.segments || []).map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` })));
-      items.sort((a, b) => (kindRank[a.kind] - kindRank[b.kind]) || rank(a) - rank(b) || a.name.localeCompare(b.name));
-      r.segments = items;
-      const keys = items.map(replayKey);
-      if (!r.touched) r.checked = defaultReplayTicks(items, planScripts, cutParts);
-      else r.checked = r.checked.filter((key) => keys.includes(key));
-      // A scenario script, or a recording, replays on its own.
-      const firstAlone = r.checked.find((key) => replayKeyKind(key) !== "segment");
-      if (firstAlone) r.checked = [firstAlone];
-      r.error = flow.error ? "Could not list the scenario scripts. Is the assistant running?" : "";
-      await loadReplaySecrets();
-    } catch (error) {
-      r.error = `Could not list the scenario scripts: ${errorText(error)}`;
-    }
-    r.loading = false;
-    renderReplay();
-    renderIcons();
+  // The files a replay dialog runs: the file it was opened on, or for an
+  // older segment the chain ticked in it, in the order of the latest cut.
+  function dialogItems() {
+    const d = view.replay.dialog;
+    if (!d) return [];
+    if (d.item.kind !== "segment") return [d.item];
+    return olderSegments().filter((seg) => d.chain.includes(seg.name));
   }
 
-  // The recordings this session saved and did not compile, and the ones
-  // ticked from the Library: replayable as they are, before any scenario.
-  function pendingRecordings() {
-    const mine = view.done.filter((item) => !item.compiled && !item.code).map((item) => ({ name: item.name, path: `${RECORDINGS_DIR}/${item.name}.wdlog.json` }));
-    const extra = (view.replay.extraRecordings || []).filter((item) => !mine.some((m) => m.name === item.name));
-    return mine.concat(extra).map((item) => ({ name: item.name, kind: "recording", path: item.path }));
-  }
-
-  function selectedSegments() {
-    const r = view.replay;
-    return (r.segments || []).filter((seg) => r.checked.includes(replayKey(seg)));
+  // The older segments of the held device's platform, in the order of the
+  // latest cut, then by name.
+  function olderSegments() {
+    const flow = view.flow || { segments: [], split: null };
+    const platform = recordingPlatform();
+    const order = flow.split ? flow.split.parts : [];
+    const rank = (name) => {
+      const index = order.indexOf(name);
+      return index >= 0 ? index : order.length;
+    };
+    return (flow.segments || []).slice().sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml`, platform }));
   }
 
   async function segmentYaml(seg) {
@@ -2234,7 +2165,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     // A segment that cannot be read leaves it to the bridge to name what is
     // missing.
     // A recording has no YAML here; the bridge names what it types.
-    const found = await Promise.all(selectedSegments().filter((seg) => seg.kind !== "recording").map((seg) => segmentYaml(seg).then(segmentSecrets, () => [])));
+    const found = await Promise.all(dialogItems().filter((seg) => seg.kind !== "recording").map((seg) => segmentYaml(seg).then(segmentSecrets, () => [])));
     found.forEach((list) => list.forEach((name) => names.add(name)));
     r.secretNames = [...names].sort();
   }
@@ -2268,51 +2199,31 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return Boolean(item) && item.name === row.name && (!item.kind || item.kind === row.kind);
   }
 
-  // What the list says next to a row: this session's last replay first, else
-  // the plan's status (the plan lists scripts only).
-  function segmentMark(row) {
-    const res = view.replay.result;
-    const report = res && res.result ? res.result.report : null;
-    const seg = report && Array.isArray(report.segments) ? report.segments.find((item) => sameReplayRow(item, row)) : null;
-    if (seg && seg.status === "passed") return { icon: "check", tone: "success", text: "passed" };
-    if (seg && seg.status === "failed") {
-      const failed = (seg.steps || []).find((step) => step.ok === false) || {};
-      return { icon: "x", tone: "error", text: `failed at step ${failed.step || "?"}` };
-    }
-    if (row.kind === "script" && view.flow && view.flow.statuses && view.flow.statuses[row.name] === "replayed") return { icon: "check", tone: "success", text: "replayed" };
-    return null;
-  }
+  // ---- the replay dialog -------------------------------------------------------
+  //
+  // A replay is asked for on a file: a recording saved in this session, or a
+  // script, a recording or an older segment in the Library. A dialog takes
+  // where to start and the values the replay types, runs it with its phases
+  // in view, and shows the outcome; the device card says what runs meanwhile.
 
-  function replayOutcomeHtml() {
-    const res = view.replay.result;
-    if (!res) return "";
-    const replay = res.replay || {};
-    const report = (res.result && res.result.report) || {};
-    const status = replay.status || report.status || "";
-    const tone = status === "passed" ? "success" : (status === "cancelled" ? "warning" : "error");
-    const label = { passed: "Replay passed", failed: "Replay failed", cancelled: "Replay stopped", error: "Replay could not run" }[status] || "Replay";
-    const failure = report.failure || {};
-    const where = status === "failed" && failure.segment ? ` at ${failure.segment}, step ${failure.step || "?"}` : "";
-    const session = report.session_url ? ` <a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
-    const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
-    let saved = "";
-    const recordingReplay = Array.isArray(report.segments) && report.segments.length > 0 && report.segments.every((seg) => seg.kind === "recording");
-    if (res.path && status === "failed" && recordingReplay) saved = `<span class="efp-card-meta">The recording did not replay as it is; the result is in the Library. Record it again, or compile it as its scenario and ask the assistant.</span>`;
-    else if (res.path && status === "failed") saved = `<span class="efp-card-meta">The result and screenshots went to the chat; the assistant looks into the failure.</span>`;
-    else if (res.path && status === "passed" && reviewableReplay(report)) saved = `<span class="efp-card-meta">The result and screenshots are in the Library; the script counts as replayed as it is now.</span>
-        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="review" title="Ask the assistant to label the steps with the plan's and add the expected-result checks">Review with the assistant</button></div>`;
-    else if (res.path && recordingReplay) saved = `<span class="efp-card-meta">The recording replayed as it is; the result is in the Library. Compile it as its scenario from the Library when it is what you want.</span>`;
-    else if (res.path) saved = `<span class="efp-card-meta">The result and screenshots are in the Library; the script counts as replayed as it is now.</span>`;
-    else if (res.error) saved = `<div class="portal-inline-state is-visible is-error">${esc(res.error)}<div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button></div></div>`;
-    return `<div class="efp-replay-outcome">
-        <div><span class="portal-status-badge is-${tone}">${esc(label)}</span>${where ? `<span class="efp-card-meta">${esc(where)}</span>` : ""}${session}</div>
-        ${error}
-        ${saved}
-      </div>`;
+  // The bridge's phases, as its progress text names them.
+  const REPLAY_PHASES = [
+    ["Take the device back", /taking the device back|^starting$/],
+    ["Start the app", /restarting the app|clearing|resetting/],
+    ["Replay", /^replaying|step \d+ of \d+/],
+    ["Hand the device back", /handing the device back/],
+  ];
+
+  function replayPhaseIndex(progress) {
+    const text = String(progress || "").trim();
+    for (let i = REPLAY_PHASES.length - 1; i >= 0; i -= 1) {
+      if (REPLAY_PHASES[i][1].test(text)) return i;
+    }
+    return 0;
   }
 
   // The scenario script a replay ran, when the compiler's report is still
-  // next to it: what Review under the outcome hands to the assistant.
+  // next to it: what Review in the outcome hands to the assistant.
   function reviewableReplay(report) {
     const items = Array.isArray(report && report.segments) ? report.segments : [];
     const script = items.length === 1 && items[0].kind === "script" ? items[0] : null;
@@ -2321,71 +2232,178 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return reportPath ? { name: script.name, path: script.path || `${SCRIPTS_DIR}/${recordingPlatform()}/${script.name}.yaml`, reportPath } : null;
   }
 
-  function replayHtml() {
+  // The file the running (or last) replay ran, from what the bridge said.
+  function replayedItem() {
+    const r = view.replay;
+    const running = r.running && r.running.status === "running" ? r.running : null;
+    const report = r.result && r.result.result ? r.result.result.report : null;
+    const seg = report && Array.isArray(report.segments) && report.segments[0] ? report.segments[0] : null;
+    const name = (running && (running.segments || [])[0]) || (seg && seg.name) || "";
+    if (!name) return null;
+    const kind = seg && seg.kind ? seg.kind : "script";
+    const platform = recordingPlatform();
+    const path = (seg && seg.path) || (kind === "recording" ? `${RECORDINGS_DIR}/${name}.wdlog.json` : `${kind === "segment" ? SEGMENTS_DIR : SCRIPTS_DIR}/${platform}/${name}.yaml`);
+    return { name, kind, path, platform };
+  }
+
+  // Opens the dialog on a file, to set a replay up; on the running one, or
+  // the last result, when asked to show those.
+  async function openReplayDialog(item, phase = "setup") {
+    const rec = view.recording;
+    const r = view.replay;
+    if (!rec || rec.status !== "active") {
+      setStatus("Start a device under Session first; a replay runs on the held device.", "warning");
+      return;
+    }
+    if (r.running && r.running.status === "running") phase = "running";
+    if (phase !== "setup") {
+      r.dialog = { item, chain: [], phase, busy: false, notice: "" };
+      renderReplay();
+      renderIcons();
+      return;
+    }
+    r.dialog = { item, chain: item.kind === "segment" ? [item.name] : [], phase: "setup", busy: false, notice: "" };
+    r.extraSecretNames = [];
+    await loadReplaySecrets();
+    renderReplay();
+    renderIcons();
+    focusFirstSecret();
+  }
+
+  function closeReplayDialog() {
+    view.replay.dialog = null;
+    renderReplay();
+    renderDevice();
+    renderIcons();
+  }
+
+  function focusFirstSecret() {
+    const inputs = [...(panelRoot()?.querySelectorAll("[data-recording-dialog] [data-replay-secret]") || [])];
+    const input = inputs.find((el) => !el.value);
+    if (input) input.focus();
+  }
+
+  function replayKindLine(kind) {
+    if (kind === "recording") return "A recording, as it is: the bridge compiles it on the way and replays it on its own, from the start you choose.";
+    if (kind === "segment") return "Older segments run in the order ticked, from the start you choose.";
+    return "A scenario script replays on its own, from the start you choose.";
+  }
+
+  function replayDialogHtml() {
     const r = view.replay;
     const rec = view.recording;
+    const d = r.dialog;
+    if (!d || !rec) return "";
     const running = r.running && r.running.status === "running" ? r.running : null;
-    const platform = platformLabel(rec);
-    let list = "";
-    if (r.loading && !r.segments) list = `<p class="portal-inline-note">Looking for scenario scripts…</p>`;
-    else if (r.error) list = `<div class="portal-inline-state is-visible is-error">${esc(r.error)}</div>`;
-    else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No ${esc(platform)} scenario scripts yet. The assistant compiles one after you save a recording.</p>`;
-    else {
-      list = `<div class="efp-replay-list">${r.segments.map((seg) => {
-        const mark = segmentMark(seg);
-        const older = seg.kind === "segment" ? `<span class="efp-card-meta">older segment</span>` : (seg.kind === "recording" ? `<span class="efp-card-meta">recording, as it is</span>` : "");
-        return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(replayKey(seg))}"${r.checked.includes(replayKey(seg)) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${older}${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
-      }).join("")}</div>`;
-    }
-    const ready = Boolean(r.segments && r.segments.length);
-    const starts = [["restart", "Restart the app"]];
-    if (rec.platform !== "ios") starts.push(["reset", "Clear the app's data first"]);
-    starts.push(["current", "The screen the device shows"]);
-    const startHtml = ready
-      ? `<label class="efp-replay-start"><span class="efp-card-meta">Start from</span><select class="portal-form-select" data-replay-start${running ? " disabled" : ""}>${starts.map(([value, label]) => `<option value="${value}"${r.start === value ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`
-      : "";
-    const secretsHtml = ready && r.secretNames.length
-      ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the script types" autocomplete="new-password"${running ? " disabled" : ""} /></label>`).join("")}
-        <p class="portal-inline-note">Kept in this page only and sent to the bridge on this computer, never to the assistant.</p>`
-      : "";
-    let actions;
-    if (running) {
+    let title = "";
+    let body = "";
+    let actions = "";
+    if (d.phase === "setup" && !running) {
+      title = `Replay ${d.item.name}`;
+      const starts = [["restart", "Restart the app"]];
+      if (rec.platform !== "ios") starts.push(["reset", "Clear the app's data first"]);
+      starts.push(["current", "The screen the device shows"]);
+      const chain = d.item.kind === "segment"
+        ? `<div class="efp-replay-list">${olderSegments().map((seg) => `<label class="efp-replay-row"><input type="checkbox" data-replay-chain="${esc(seg.name)}"${d.chain.includes(seg.name) ? " checked" : ""} /><span>${esc(seg.name)}</span></label>`).join("")}</div>`
+        : "";
+      const secrets = r.secretNames.length
+        ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the replay types" autocomplete="off" /></label>`).join("")}
+          <p class="portal-inline-note">Kept in this page only and sent to the bridge on this computer, never to the assistant.</p>`
+        : "";
+      body = `<p class="portal-dialog-msg">${esc(replayKindLine(d.item.kind))} The device is borrowed from the Inspector and handed back when it ends.</p>
+        ${chain}
+        <label class="portal-form-label"><span class="portal-form-label">Start from</span><select class="portal-form-select" data-replay-start>${starts.map(([value, label]) => `<option value="${value}"${r.start === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>
+        ${secrets}
+        ${d.notice ? `<div class="portal-inline-state is-visible is-error">${esc(d.notice)}</div>` : ""}`;
+      actions = `<button type="button" class="portal-btn" data-replay-action="close">Cancel</button>
+        <button type="button" class="portal-btn is-primary" data-replay-action="start"${d.busy ? " disabled" : ""}><i data-lucide="play" class="w-4 h-4"></i>${d.busy ? "Starting…" : "Replay"}</button>`;
+    } else if (running) {
+      title = `Replaying ${(running.segments || [])[0] || d.item.name}`;
+      const current = replayPhaseIndex(running.progress);
       const since = Date.parse(running.started_at || "") || Date.now();
-      actions = `<div class="efp-card-meta">Replaying: <span data-replay-progress>${esc(running.progress || "starting")}</span> · <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></div>
-        <p class="portal-inline-note">While it runs, the Inspector can only watch.</p>
-        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="stop"><i data-lucide="square" class="w-4 h-4"></i>Stop replay</button></div>`;
+      body = `<ol class="efp-flow">${REPLAY_PHASES.map(([label], i) => `<li class="efp-flow-step is-${i < current ? "done" : (i === current ? "current" : "todo")}"><span class="efp-flow-label">${esc(label)}</span></li>`).join("")}</ol>
+        <div class="efp-card-meta"><span data-replay-progress>${esc(progressText(running))}</span> · <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></div>
+        <p class="portal-inline-note">Watch it live on BrowserStack. The Inspector shows nothing until the device is handed back; the result lands in the Library.</p>`;
+      actions = `${rec.dashboard_url ? `<a class="portal-btn is-secondary" href="${esc(rec.dashboard_url)}" target="_blank" rel="noopener noreferrer"><i data-lucide="smartphone" class="w-4 h-4"></i>Watch on BrowserStack</a>` : ""}
+        <button type="button" class="portal-btn is-secondary" data-replay-action="stop"><i data-lucide="square" class="w-4 h-4"></i>Stop</button>
+        <button type="button" class="portal-btn" data-replay-action="close">Hide</button>`;
     } else {
-      actions = `<div class="efp-card-actions">
-          <button type="button" class="portal-btn is-primary" data-replay-action="start"${ready ? "" : " disabled"}><i data-lucide="play" class="w-4 h-4"></i>Replay</button>
-        </div>`;
+      const res = r.result || {};
+      const replay = res.replay || {};
+      const report = (res.result && res.result.report) || {};
+      const status = replay.status || report.status || "";
+      const tone = status === "passed" ? "success" : (status === "cancelled" ? "warning" : "error");
+      title = { passed: "Replay passed", failed: "Replay failed", cancelled: "Replay stopped", error: "Replay could not run" }[status] || "Replay";
+      const failure = report.failure || {};
+      const where = status === "failed" && failure.segment ? ` at ${failure.segment}, step ${failure.step || "?"}` : "";
+      const session = report.session_url ? `<a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
+      const recordingReplay = Array.isArray(report.segments) && report.segments.length > 0 && report.segments.every((seg) => seg.kind === "recording");
+      const script = status === "passed" ? reviewableReplay(report) : null;
+      let saved = "";
+      if (res.path && status === "failed" && recordingReplay) saved = "The recording did not replay as it is; the result is in the Library. Record it again, or compile it as its scenario and ask the assistant.";
+      else if (res.path && status === "failed") saved = "The result and screenshots went to the chat; the assistant looks into the failure.";
+      else if (res.path && recordingReplay) saved = "The recording replayed as it is; the result is in the Library. Compile it as its scenario when it is what you want.";
+      else if (res.path) saved = "The result and screenshots are in the Library; the script counts as replayed as it is now.";
+      const word = { passed: "Passed", failed: "Failed", cancelled: "Stopped", error: "Not run" }[status] || status || "Over";
+      body = `<div><span class="portal-status-badge is-${tone}">${esc(word)}</span>${where ? `<span class="efp-card-meta">${esc(where)}</span>` : ""} ${session}</div>
+        ${replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : ""}
+        ${saved ? `<p class="portal-dialog-msg">${esc(saved)}</p>` : ""}
+        ${res.error ? `<div class="portal-inline-state is-visible is-error">${esc(res.error)}</div>` : ""}`;
+      actions = `${res.error ? `<button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button>` : ""}
+        ${script ? `<button type="button" class="portal-btn is-secondary" data-replay-action="review" title="Ask the assistant to label the steps with the plan's and add the expected-result checks">Review with the assistant</button>` : ""}
+        ${status !== "passed" ? `<button type="button" class="portal-btn is-secondary" data-replay-action="again"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>Replay again</button>` : ""}
+        <button type="button" class="portal-btn is-primary" data-replay-action="close">Close</button>`;
     }
-    return `<div class="efp-mobile-section-head">
-        <h5>Replay</h5>
-        ${running ? "" : `<button type="button" class="toolbar-icon-btn" data-replay-action="refresh" title="Look for scenario scripts again" aria-label="Refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>`}
-      </div>
-      <p class="portal-inline-note">Replay a scenario script on this device before the assistant exports it. A script runs on its own, from the start you choose here; older segments run in the order listed. The replay borrows the device from the Inspector and hands it back when it ends.</p>
-      ${list}${startHtml}${secretsHtml}${actions}${running ? "" : replayOutcomeHtml()}`;
+    return `<div class="modal portal-dialog portal-dialog--in" data-recording-dialog role="dialog" aria-modal="true" aria-label="${esc(title)}">
+        <div class="modal-card panel portal-dialog-card">
+          <div class="portal-modal-titlebar"><h3>${esc(title)}</h3></div>
+          ${body}
+          <div class="portal-modal-actions">${actions}</div>
+        </div>
+      </div>`;
+  }
+
+  // The bridge's progress, without the file's name it starts with on a step.
+  function progressText(running) {
+    const name = (running.segments || [])[0] || "";
+    const text = running.progress || "starting";
+    return name && text.startsWith(`${name}: `) ? text.slice(name.length + 2) : text;
+  }
+
+  // What the device card says about replays: the one running, with a way
+  // back into the dialog, or the last result.
+  function replayLineHtml() {
+    const r = view.replay;
+    const running = r.running && r.running.status === "running" ? r.running : null;
+    if (running) {
+      return `<div class="efp-card-meta efp-device-replay"><i data-lucide="play" class="w-3 h-3"></i><span>Replaying ${esc((running.segments || [])[0] || "")}: <span data-replay-progress>${esc(progressText(running))}</span></span><button type="button" class="composer-pill-btn" data-replay-action="show">Show</button></div>`;
+    }
+    const res = r.result;
+    if (res && res.replay && !r.dialog) {
+      const status = res.replay.status || "";
+      const icon = { passed: "check", failed: "x", cancelled: "square" }[status] || "alert-circle";
+      return `<div class="efp-card-meta efp-device-replay"><i data-lucide="${icon}" class="w-3 h-3"></i><span>Last replay: ${esc({ passed: "passed", failed: "failed", cancelled: "stopped" }[status] || "could not run")}</span><button type="button" class="composer-pill-btn" data-replay-action="show">Show</button></div>`;
+    }
+    return "";
   }
 
   function renderReplay() {
-    const box = panelRoot()?.querySelector("[data-recording-replay]");
-    if (!box) return;
-    if (!view.recording || view.recording.status !== "active" || view.tab !== "session") {
-      box.innerHTML = "";
-      box.classList.add("hidden");
+    const host = panelRoot()?.querySelector("[data-recording-dialog-host]");
+    if (!host) return;
+    if (view.recording && view.recording.status === "active") syncReplay();
+    const r = view.replay;
+    if (!r.dialog || !view.recording || view.recording.status !== "active") {
+      host.innerHTML = "";
       return;
     }
-    box.classList.remove("hidden");
-    syncReplay();
-    if (view.replay.segments === null && !view.replay.loading) loadReplaySegments();
     const active = document.activeElement;
     const focused = active && active.matches && active.matches("[data-replay-secret]") ? active.dataset.replaySecret : "";
-    box.innerHTML = replayHtml();
-    box.querySelectorAll("[data-replay-secret]").forEach((input) => {
-      input.value = view.replay.secrets[input.dataset.replaySecret] || "";
+    host.innerHTML = replayDialogHtml();
+    host.querySelectorAll("[data-replay-secret]").forEach((input) => {
+      input.value = r.secrets[input.dataset.replaySecret] || "";
       if (input.dataset.replaySecret === focused) input.focus();
     });
-    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(box);
+    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(host);
   }
 
   function scheduleReplayPoll() {
@@ -2436,11 +2454,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     const replay = data.replay || {};
     if (replay.status === "running") {
-      const same = view.replay.running && view.replay.running.id === replay.id;
+      const before = view.replay.running;
+      const same = before && before.id === replay.id;
+      const phaseChanged = !same || replayPhaseIndex(before.progress) !== replayPhaseIndex(replay.progress);
       view.replay.running = replay;
-      const progress = panelRoot()?.querySelector("[data-replay-progress]");
-      if (same && progress) progress.textContent = replay.progress || "starting";
-      else {
+      if (same && !phaseChanged) {
+        panelRoot()?.querySelectorAll("[data-replay-progress]").forEach((el) => {
+          el.textContent = progressText(replay);
+        });
+      } else {
+        renderDevice();
         renderReplay();
         renderIcons();
       }
@@ -2460,6 +2483,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       return;
     }
     r.result = { replay, result, path: "", error: "" };
+    if (r.dialog) {
+      r.dialog.phase = "done";
+      r.dialog.busy = false;
+    }
     if (view.recording) view.recording = Object.assign({}, view.recording, { replay });
     const report = (result && result.report) || {};
     const failure = report.failure || {};
@@ -2514,20 +2541,25 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   async function startReplay(button) {
     const r = view.replay;
     const rec = view.recording;
-    if (!rec || (r.running && r.running.status === "running")) return;
-    const chosen = selectedSegments();
-    if (!chosen.length) {
-      setStatus("Tick the scenario script to replay (or older segments, which run in the order listed).", "error");
+    const d = r.dialog;
+    if (!rec || !d || (r.running && r.running.status === "running")) return;
+    const items = dialogItems();
+    if (!items.length) {
+      d.notice = "Tick the segments to replay.";
+      renderReplay();
       return;
     }
-    if (button) button.disabled = true;
+    d.busy = true;
+    d.notice = "";
+    renderReplay();
     try {
       await loadReplaySecrets();
       const missing = r.secretNames.filter((name) => !r.secrets[name]);
       if (missing.length) {
+        d.busy = false;
+        d.notice = `Fill in ${missing.join(", ")} first: the replay types ${missing.length === 1 ? "it" : "them"}.`;
         renderReplay();
-        renderIcons();
-        setStatus(`Fill in ${missing.join(", ")} first: the replay types ${missing.length === 1 ? "it" : "them"}.`, "error");
+        focusFirstSecret();
         return;
       }
       const secrets = {};
@@ -2535,37 +2567,39 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         secrets[name] = r.secrets[name];
       });
       let data;
-      const recordingRow = chosen.length === 1 && chosen[0].kind === "recording" ? chosen[0] : null;
-      if (recordingRow) {
+      if (items.length === 1 && items[0].kind === "recording") {
         // A recording replays as it is: the bridge compiles it on the way.
-        const log = r.logs[recordingRow.path] || JSON.parse(await readWorkspaceText(recordingRow.path));
-        r.logs[recordingRow.path] = log;
-        data = await call("recording.replay", { id: rec.id, name: recordingRow.name, path: recordingRow.path, log, secrets, start: r.start }, { timeoutMs: 120000 });
+        const log = r.logs[items[0].path] || JSON.parse(await readWorkspaceText(items[0].path));
+        r.logs[items[0].path] = log;
+        data = await call("recording.replay", { id: rec.id, name: items[0].name, path: items[0].path, log, secrets, start: r.start }, { timeoutMs: 120000 });
       } else {
         const segments = [];
-        for (const seg of chosen) segments.push({ name: seg.name, path: seg.path, yaml: await segmentYaml(seg) });
+        for (const seg of items) segments.push({ name: seg.name, path: seg.path, yaml: await segmentYaml(seg) });
         data = await call("segment.replay", { id: rec.id, segments, secrets, start: r.start }, { timeoutMs: 30000 });
       }
       r.result = null;
       r.running = data.replay || null;
+      d.busy = false;
+      d.phase = "running";
       // The card disables saving and holding at once, not at the next poll.
       if (view.recording && r.running) view.recording = Object.assign({}, view.recording, { replay: r.running });
-      setStatus(`Replaying ${chosen.map((seg) => seg.name).join(", ")}.`, "");
+      setStatus(`Replaying ${items.map((seg) => seg.name).join(", ")}.`, "");
       renderSession();
       scheduleReplayPoll();
     } catch (error) {
+      d.busy = false;
       if (error.code === "missing_secrets" && error.data && Array.isArray(error.data.missing)) {
         r.extraSecretNames = error.data.missing.map(String);
         await loadReplaySecrets();
+        d.notice = `Fill in ${error.data.missing.join(", ")} first: the replay types ${error.data.missing.length === 1 ? "it" : "them"}.`;
         renderReplay();
-        renderIcons();
-        setStatus(`Fill in ${error.data.missing.join(", ")} first: the replay types ${error.data.missing.length === 1 ? "it" : "them"}.`, "error");
+        focusFirstSecret();
       } else {
-        setStatus(`Could not start the replay: ${errorText(error)}`, "error");
+        d.notice = `Could not start the replay: ${errorText(error)}`;
+        renderReplay();
       }
-    } finally {
-      if (button) button.disabled = false;
     }
+    renderIcons();
   }
 
   async function stopReplay(button) {
@@ -2944,28 +2978,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const platform = button.dataset.platform || "";
       const kind = button.dataset.kind === "script" ? "script" : "segment";
       const rec = view.recording;
-      const r = view.replay;
-      const held = Boolean(rec && rec.status === "active");
-      // A row of the other platform leaves the ticks as they are.
-      if (held && recordingPlatform() !== platform) {
+      if (!(rec && rec.status === "active")) {
+        say("Start a device under Session first; a replay runs on the held device.", "warning");
+        return;
+      }
+      if (recordingPlatform() !== platform) {
         say(`${name} is a ${platform === "ios" ? "iOS" : "Android"} ${kind}; the held device runs ${platformLabel(rec)}.`, "error");
         return;
       }
-      r.touched = true;
-      r.checked = replayChoice(r.checked, replayKey({ kind, name }));
-      if (!held) {
-        say(`${name} is ticked for the next replay. Start a device under Session first.`, "warning");
-        return;
-      }
-      switchTab("session");
-      if (r.segments === null) await loadReplaySegments();
-      else {
-        await loadReplaySecrets();
-        renderReplay();
-        renderIcons();
-      }
-      root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
-      say(`${name} is ticked under Replay.`, "");
+      // A script's or segment's row names the file by its kind.
+      await openReplayDialog({ name, kind, path: path || `${kind === "script" ? SCRIPTS_DIR : SEGMENTS_DIR}/${platform}/${name}.yaml`, platform });
       return;
     }
     if (action === "library-split") {
@@ -3038,13 +3060,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         return;
       }
       r.logs[path] = log;
-      if (!r.extraRecordings.some((item) => item.name === name)) r.extraRecordings.push({ name, path });
-      r.touched = true;
-      r.checked = replayChoice(r.checked, replayKey({ kind: "recording", name }));
-      switchTab("session");
-      await loadReplaySegments();
-      root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
-      say(`${name} is ticked under Replay, as it is.`, "");
+      await openReplayDialog({ name, kind: "recording", path, platform });
       return;
     }
     if (action === "library-review") {
@@ -3106,7 +3122,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       }
       say(`Deleted ${what}.`, "success");
       lib.loaded = false;
-      view.replay.segments = null;
       view.replay.yaml = {};
       await Promise.all([loadLibrary(), loadFlow()]);
     }
@@ -3174,7 +3189,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const scriptPath = await writeToWorkspace(`${fileName}.yaml`, new Blob([String(data.script || "")], { type: "application/yaml" }), folder);
     const reportPath = await writeToWorkspace(`${fileName}.report.json`, new Blob([JSON.stringify(data.report || {}, null, 2)], { type: "application/json" }), folder);
     view.library.loaded = false;
-    view.replay.segments = null;
     view.replay.yaml = {};
     return { name: fileName, path: scriptPath, reportPath, report: data.report || {} };
   }
@@ -3209,9 +3223,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (button) button.disabled = false;
     }
     renderSession();
-    // The saved recording joins the replay list, ticked when nothing else is.
-    view.replay.touched = false;
-    loadReplaySegments();
+    loadFlow();
   }
 
   async function saveAgain() {
@@ -3351,19 +3363,27 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (!(await confirmAction(`Recording ${view.unsaved.name} is not saved in the assistant's workspace. Finish anyway? Download it first to keep it.`, "Finish"))) return;
     } else if (pending > 0) {
       if (!(await confirmAction(`${pending} recorded ${pending === 1 ? "action is" : "actions are"} not saved. Finish without ${pending === 1 ? "it" : "them"}? Press Save recording first to keep ${pending === 1 ? "it" : "them"}.`, "Finish"))) return;
+    } else if (!(await confirmAction(`Release ${rec.device || "the device"}? The BrowserStack session ends and the Inspector closes; recordings saved in the assistant's workspace stay.`, "Finish", "Finish recording?"))) {
+      return;
     }
     if (button) button.disabled = true;
+    view.releasing = { since: Date.now(), replaying };
+    view.replay.dialog = null;
+    renderSession();
     try {
       // The bridge lets a running replay finish its step and hand the
       // device back first.
       await call("session.finish", { id: rec.id }, { credentials: credentials(), timeoutMs: replaying ? 300000 : 120000 });
     } catch (error) {
       if (error.code !== "not_found") {
-        setStatus(errorText(error), "error");
+        view.releasing = null;
+        renderSession();
+        setStatus(`Could not release the device: ${errorText(error)}. Try Finish recording again.`, "error");
         if (button) button.disabled = false;
         return;
       }
     }
+    view.releasing = null;
     closeInspectorTab();
     view.recording = null;
     view.unsaved = null;
@@ -3380,15 +3400,20 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   }
 
   async function finishOther(id, button) {
-    if (button) button.disabled = true;
+    if (!(await confirmAction("Release this device? Its BrowserStack session ends; recordings saved in the assistant's workspace stay.", "Release", "Release the device?"))) return;
+    view.releasingOther = id;
+    renderOthers();
+    renderIcons();
     try {
       await call("session.finish", { id }, { credentials: credentials(), timeoutMs: 120000 });
       setStatus("Released the device.", "success");
     } catch (error) {
-      if (error.code !== "not_found") setStatus(errorText(error), "error");
+      if (error.code !== "not_found") setStatus(`Could not release the device: ${errorText(error)}`, "error");
     }
+    view.releasingOther = "";
     await loadRecordings();
     renderOthers();
+    renderIcons();
   }
 
   function adopt(id) {
@@ -3470,15 +3495,30 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       copyText(copy, copy.dataset.recordingCopy || "");
       return;
     }
+    if (target.matches("[data-recording-dialog]") && view.replay.dialog && !view.replay.dialog.busy) {
+      // A click on the backdrop closes (or hides) the dialog.
+      closeReplayDialog();
+      return;
+    }
     const replayButton = target.closest("[data-replay-action]");
     if (replayButton && replayButton.closest("[data-recording-root]")) {
       const action = replayButton.dataset.replayAction;
+      const r = view.replay;
       if (action === "start") startReplay(replayButton);
       else if (action === "stop") stopReplay(replayButton);
-      else if (action === "refresh") loadReplaySegments();
-      else if (action === "save-again") saveReplay();
+      else if (action === "close") closeReplayDialog();
+      else if (action === "show") {
+        const item = (r.dialog && r.dialog.item) || replayedItem();
+        if (item) openReplayDialog(item, r.running && r.running.status === "running" ? "running" : (r.result ? "done" : "setup"));
+      } else if (action === "again") {
+        const item = r.dialog && r.dialog.item;
+        if (item) {
+          r.result = null;
+          openReplayDialog(item);
+        }
+      } else if (action === "save-again") saveReplay();
       else if (action === "review") {
-        const res = view.replay.result;
+        const res = r.result;
         const script = reviewableReplay(res && res.result ? res.result.report : null);
         if (script) requestReview(script.name, script.path, script.reportPath);
       }
@@ -3525,8 +3565,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else if (action === "ask-assistant") askAssistant();
     else if (action === "use-name") useName(root, button.dataset.name || "");
     else if (action === "review-script") requestReview(button.dataset.name || "", button.dataset.path || "", button.dataset.report || "");
-    else if (action === "replay-script") tickScript(root, button.dataset.name || "");
-    else if (action === "replay-recording") tickScript(root, button.dataset.name || "", "recording");
+    else if (action === "replay-script") openReplayDialog({ name: button.dataset.name || "", kind: "script", path: `${SCRIPTS_DIR}/${recordingPlatform()}/${button.dataset.name || ""}.yaml`, platform: recordingPlatform() });
+    else if (action === "replay-recording") openReplayDialog({ name: button.dataset.name || "", kind: "recording", path: `${RECORDINGS_DIR}/${button.dataset.name || ""}.wdlog.json`, platform: recordingPlatform() });
     else if (action === "compile-recording") openCompile(button.dataset.name || "");
     else if (action === "finish-other") finishOther(button.dataset.id || "", button);
     else if (action === "adopt") adopt(button.dataset.id || "");
@@ -3574,19 +3614,23 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       view.formKey = "";
       renderDevice();
       renderIcons();
-    } else if (target.matches("[data-replay-segment]")) {
-      const r = view.replay;
-      const key = target.dataset.replaySegment;
-      r.touched = true;
-      r.checked = r.checked.filter((item) => item !== key);
-      if (target.checked) r.checked = replayChoice(r.checked, key);
-      loadReplaySecrets().then(() => {
-        renderReplay();
-        renderIcons();
-      });
+    } else if (target.matches("[data-replay-chain]")) {
+      const d = view.replay.dialog;
+      if (d) {
+        const name = target.dataset.replayChain;
+        d.chain = target.checked ? d.chain.concat(name) : d.chain.filter((item) => item !== name);
+        loadReplaySecrets().then(() => renderReplay());
+      }
     } else if (target.matches("[data-replay-start]")) {
       view.replay.start = target.value;
     }
+  });
+
+  // Escape closes (or hides) the replay dialog.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const d = view.replay && view.replay.dialog;
+    if (d && !d.busy && panelRoot()?.querySelector("[data-recording-dialog]")) closeReplayDialog();
   });
 
   // Secret values stay in this page's memory as they are typed.
@@ -3621,11 +3665,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     nextToRecord,
     replayMessage,
     replayNoun,
-    replayChoice,
-    replayKey,
-    replayKeyKind,
+    replayPhaseIndex,
     sameReplayRow,
-    defaultReplayTicks,
     recordingState,
     segmentSecrets,
     flowSteps,
