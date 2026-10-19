@@ -384,6 +384,18 @@ def test_the_page_drives_the_local_bridge_not_portal():
     for marker in ("INSPECTOR_TAB_HTML", 'id="efp-status"', "@keyframes efp-fill", "updateInspectorTab(rec.progress"):
         assert marker in js, marker
     assert "Everything you do through the Inspector is recorded; there is nothing to start there." in js
+    # A build upload: the copy to the bridge first, then, with a bridge that
+    # answers at once (upload_status on /ping), the send to BrowserStack
+    # followed with apps.upload.status and a Cancel upload button that asks
+    # apps.upload.cancel; an older bridge holds the request, and the wait says
+    # how long it has been. The upload sits in the view, so a re-render draws
+    # the area as it is.
+    for marker in ('"apps.upload.status"', '"apps.upload.cancel"', "info.mobile.upload_status", 'data-recording-action="upload-cancel"', "Copying ${file.name} to the local bridge\\u2026", "Sending ${file.name} on to BrowserStack\\u2026 (${elapsedLabel(since)})", "BrowserStack is checking the build\\u2026", "upload: null,", "view.upload.fraction", "const UPLOAD_POLL_MS = 1500;"):
+        assert marker in js, marker
+    # A lost status ask (a slow answer, a moment's "Failed to fetch") keeps
+    # the last progress on the line; only several in a row end the follow.
+    assert "const UPLOAD_STATUS_RETRIES = 3;" in js and "(waiting for the local bridge\\u2026)" in js
+    assert "Sending ${file.name} on to BrowserStack\u2026`" not in js, "the wait names its length"
     # The chat composer's "Local bridge offline" keeps up: the panel tells it
     # when the bridge appears, and the composer looks again while offline.
     assert "window.portalConnectors.refreshToggle()" in js
@@ -453,16 +465,97 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         };
         globalThis.document = { readyState: "complete", addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; } };
         const calls = [];
+        // What apps.upload.status answers per upload id, in order; the last
+        // answer repeats. apps.upload.cancel turns an upload cancelled.
+        const uploadScripts = {
+          "u-ok": [
+            { id: "u-ok", status: "sending", sent: 0, total: 300, file_name: "fx.ipa" },
+            { id: "u-ok", status: "sending", sent: 150, total: 300, file_name: "fx.ipa" },
+            { id: "u-ok", status: "processing", sent: 300, total: 300, file_name: "fx.ipa" },
+            { id: "u-ok", status: "done", sent: 300, total: 300, file_name: "fx.ipa", app: { app_url: "bs://new1", custom_id: "fx-ios", platform: "ios" } },
+          ],
+          "u-bad": [
+            { id: "u-bad", status: "sending", sent: 10, total: 300 },
+            { id: "u-bad", status: "failed", sent: 10, total: 300, error: { code: "network_error", message: "The upload stalled: no data reached BrowserStack for 2 minutes.", hint: "Check this computer's network and its proxy to BrowserStack, then upload the build again." } },
+          ],
+          "u-slow": [{ id: "u-slow", status: "sending", sent: 50, total: 300 }],
+          // One ask lost to the network, one to the 20 s limit, between answers.
+          "u-blip": [
+            { fail: "fetch" },
+            { id: "u-blip", status: "sending", sent: 100, total: 300 },
+            { fail: "abort" },
+            { id: "u-blip", status: "done", sent: 300, total: 300, app: { app_url: "bs://blip" } },
+          ],
+          "u-gone": [{ fail: "fetch" }],
+        };
+        const cancelled = [];
+        // The page copies a build to the bridge with XMLHttpRequest, for its
+        // progress events: one scripted answer per request.
+        const xhrs = [];
+        const xhrAnswers = [];
+        globalThis.XMLHttpRequest = class {
+          constructor() {
+            this.upload = {};
+            this.headers = {};
+            this.status = 0;
+            this.responseText = "";
+            this.aborted = false;
+            xhrs.push(this);
+          }
+          open(method, url) {
+            this.method = method;
+            this.url = url;
+          }
+          setRequestHeader(name, value) {
+            this.headers[name] = value;
+          }
+          send(body) {
+            this.body = body;
+            const answer = xhrAnswers.shift() || { status: 500, payload: { ok: false, error: { code: "bridge_error", message: "no answer scripted" } } };
+            setTimeout(() => {
+              if (this.aborted) return;
+              if (this.upload.onprogress) {
+                this.upload.onprogress({ lengthComputable: true, loaded: body.size / 2, total: body.size });
+                this.upload.onprogress({ lengthComputable: true, loaded: body.size, total: body.size });
+              }
+              if (answer.hold) return;
+              this.status = answer.status;
+              this.responseText = JSON.stringify(answer.payload);
+              this.onload();
+            }, 1);
+          }
+          abort() {
+            this.aborted = true;
+            if (this.onabort) this.onabort();
+          }
+        };
         globalThis.fetch = async (url, options = {}) => {
           calls.push({ url, options });
           if (url.endsWith("/ping")) {
             if (!url.startsWith("http://127.0.0.1:8766/")) throw new TypeError("Failed to fetch");
-            return { ok: true, status: 200, json: async () => ({ ok: true, data: { version: "1.2.3", capabilities: ["browser", "mobile"], mobile: { available: true } } }) };
+            return { ok: true, status: 200, json: async () => ({ ok: true, data: { version: "1.2.3", capabilities: ["browser", "mobile"], mobile: { available: true, upload_status: true } } }) };
           }
           if (url === "http://127.0.0.1:8766/mobile/run") {
             const body = JSON.parse(options.body);
             if (body.command === "plan") {
               return { ok: true, status: 200, json: async () => ({ ok: true, data: { username: body.credentials.username, parallel_sessions_running: 1, parallel_sessions_max_allowed: 5 } }) };
+            }
+            if (body.command === "apps.upload.status") {
+              const script = uploadScripts[body.params.id] || [];
+              const upload = script.length > 1 ? script.shift() : script[0];
+              if (!upload) return { ok: false, status: 404, json: async () => ({ ok: false, error: { code: "not_found", message: "upload not found", hint: "Upload the build again." } }) };
+              if (upload.fail === "fetch") throw new TypeError("Failed to fetch");
+              if (upload.fail === "abort") {
+                const aborted = new Error("The operation was aborted.");
+                aborted.name = "AbortError";
+                throw aborted;
+              }
+              return { ok: true, status: 200, json: async () => ({ ok: true, data: { upload } }) };
+            }
+            if (body.command === "apps.upload.cancel") {
+              cancelled.push(body.params.id);
+              uploadScripts[body.params.id] = [{ id: body.params.id, status: "cancelled", sent: 50, total: 300 }];
+              return { ok: true, status: 200, json: async () => ({ ok: true, data: { upload: uploadScripts[body.params.id][0] } }) };
             }
             if (body.command === "session.status" && body.params.id === "r-up") {
               // Starting on the first ask, active on the second: the bridge answers session.start at once.
@@ -587,9 +680,32 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.equal(script.description, "Buy 250 EUR within the daily limit");
         assert.equal(script.copiedFrom, "FX-12-buy-100-usd");
         assert.equal(M.parseSegmentYaml("name: FX-12-a\\nsource:\\n    kind: webdriver-log\\n    file: FX-12-a.wdlog.json\\nsteps: []\\n").sourceFile, "FX-12-a.wdlog.json");
+        // The status line of a build on its way to BrowserStack.
+        const MB = 1024 * 1024;
+        assert.equal(M.formatBytes(512), "512 B");
+        assert.equal(M.formatBytes(734 * 1024), "734 KB");
+        assert.equal(M.formatBytes(1.2 * MB), "1.2 MB");
+        assert.equal(M.formatBytes(87 * MB), "87 MB");
+        assert.equal(M.formatBytes(2.5 * 1024 * MB), "2.50 GB");
+        assert.equal(M.uploadProgressText("fx.ipa", { status: "sending", sent: 87 * MB, total: 200 * MB }, 1.2 * MB), "Sending fx.ipa to BrowserStack: 87 MB of 200 MB (1.2 MB/s, about 2 min left)");
+        assert.equal(M.uploadProgressText("fx.ipa", { status: "sending", sent: 199 * MB, total: 200 * MB }, 1.2 * MB), "Sending fx.ipa to BrowserStack: 199 MB of 200 MB (1.2 MB/s, under a minute left)");
+        assert.equal(M.uploadProgressText("fx.ipa", { status: "sending", sent: 0, total: 200 * MB }, 0), "Sending fx.ipa to BrowserStack: 0 B of 200 MB");
+        assert.equal(M.uploadProgressText("fx.ipa", { status: "processing", sent: 10, total: 10 }, 5), "BrowserStack is checking the build\\u2026");
+        // The rate over the last answers; a count that went back starts over.
+        const meter = M.uploadMeter();
+        meter.add(0, 1000);
+        assert.equal(meter.rate(), 0);
+        meter.add(1024, 2000);
+        assert.equal(meter.rate(), 1024);
+        meter.add(512, 3000);
+        assert.equal(meter.rate(), 0);
+        meter.add(1536, 4000);
+        assert.equal(meter.rate(), 1024);
+        assert.equal(M.elapsedLabel(Date.now() - 3 * 60 * 1000 - 5000), "3 min");
+        assert.equal(M.elapsedLabel(Date.now() - 40 * 1000), "40 s");
         (async () => {
           const state = await M.probeBridge({ force: true });
-          assert.deepEqual(state, { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true });
+          assert.deepEqual(state, { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true, uploadStatus: true });
           const plan = await M.callBridge("plan", {}, { credentials: { username: "alice", access_key: "k" } });
           assert.equal(plan.username, "alice");
           const sent = JSON.parse(calls.find((c) => c.url.endsWith("/mobile/run")).options.body);
@@ -601,6 +717,68 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           assert.equal(up.session_id, "sess-1");
           assert.equal(calls.filter((c) => c.options.body && c.options.body.indexOf('"r-up"') >= 0).length, 2);
           await assert.rejects(M.waitForDevice("r-down", { pollMs: 1 }), (err) => err.code === "local_tunnel_connection_failed" && /refused the session/.test(err.message) && /tunnel log/.test(err.hint));
+          // A build goes in two legs: the copy to the bridge (the request
+          // answers as soon as the bridge has the file), then the send to
+          // BrowserStack, asked after until the build is there.
+          const file = { name: "fx.ipa", size: 300 };
+          const creds = { username: "alice", access_key: "k" };
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { upload: { id: "u-ok", status: "sending", sent: 0, total: 300, file_name: "fx.ipa" } } } });
+          const copied = [];
+          const seen = [];
+          let started = null;
+          const app = await M.transferBuild(file, { credentials: creds, customId: "fx-ios", pollMs: 1, onCopy: (fraction) => copied.push(fraction), onStarted: (upload) => { started = upload; }, onSend: (upload, rate) => seen.push(`${upload.status}:${upload.sent}:${rate >= 0}`) });
+          assert.deepEqual(app, { app_url: "bs://new1", custom_id: "fx-ios", platform: "ios" });
+          assert.deepEqual(copied, [0.5, 1]);
+          assert.equal(started.id, "u-ok");
+          assert.deepEqual(seen, ["sending:0:true", "sending:150:true", "processing:300:true", "done:300:true"]);
+          const copy = xhrs[xhrs.length - 1];
+          assert.equal(copy.url, "http://127.0.0.1:8766/mobile/apps/upload");
+          assert.equal(copy.headers["X-EFP-File-Name"], "fx.ipa");
+          assert.equal(copy.headers["X-EFP-BS-User"], "alice");
+          assert.equal(copy.headers["X-EFP-BS-Key"], "k");
+          assert.equal(copy.headers["X-EFP-Custom-Id"], "fx-ios");
+          assert.equal(copy.headers["X-EFP-Proxy"], "http://CORP%5Calice:s3cret@proxy2:8080");
+          const asked = calls.filter((c) => c.options.body && c.options.body.indexOf('"apps.upload.status"') >= 0);
+          assert.equal(asked.length, 4);
+          assert.deepEqual(JSON.parse(asked[0].options.body).params, { id: "u-ok" });
+          // A send that failed ends with the bridge's error, hint and all.
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { upload: { id: "u-bad", status: "sending", sent: 0, total: 300 } } } });
+          await assert.rejects(M.transferBuild(file, { credentials: creds, pollMs: 1 }), (err) => err.code === "network_error" && /The upload stalled/.test(err.message) && /proxy/.test(err.hint));
+          // Cancel asks the bridge to give the send up; the next answer ends it.
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { upload: { id: "u-slow", status: "sending", sent: 0, total: 300 } } } });
+          const slow = {};
+          await assert.rejects(M.transferBuild(file, { credentials: creds, controller: slow, pollMs: 1, onStarted: () => slow.cancel() }), (err) => err.code === "upload_cancelled");
+          assert.deepEqual(cancelled, ["u-slow"]);
+          // An older bridge answers the copy request itself with the app once
+          // the build is on BrowserStack; nothing is asked after.
+          const before = calls.length;
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { app: { app_url: "bs://old", custom_id: "legacy" } } } });
+          assert.deepEqual(await M.transferBuild(file, { credentials: creds, pollMs: 1 }), { app_url: "bs://old", custom_id: "legacy" });
+          assert.equal(calls.length, before);
+          // ...and a cancel there drops the request, which stops that bridge's send.
+          xhrAnswers.push({ hold: true });
+          const old = {};
+          await assert.rejects(M.transferBuild(file, { credentials: creds, controller: old, onCopy: (fraction) => { if (fraction >= 1) old.cancel(); } }), (err) => err.code === "upload_cancelled");
+          assert.equal(xhrs[xhrs.length - 1].aborted, true);
+          assert.equal(calls.length, before);
+          // A lost status ask does not end the follow: the bridge keeps
+          // sending. The line keeps the last answer, the bridge is probed
+          // again after a "Failed to fetch", and the next answer carries on.
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { upload: { id: "u-blip", status: "sending", sent: 0, total: 300 } } } });
+          const waits = [];
+          const pings = calls.filter((c) => c.url.endsWith("/ping")).length;
+          const blip = await M.transferBuild(file, { credentials: creds, pollMs: 1, onWaiting: (upload, lost) => waits.push(`${upload ? upload.sent : "none"}:${lost}`) });
+          assert.deepEqual(blip, { app_url: "bs://blip" });
+          assert.deepEqual(waits, ["none:1", "100:1"]);
+          assert.ok(calls.filter((c) => c.url.endsWith("/ping")).length > pings, "the bridge is probed again after a failed fetch");
+          // A bridge gone for several asks in a row ends it as unreachable.
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { upload: { id: "u-gone", status: "sending", sent: 0, total: 300 } } } });
+          const asksBefore = calls.filter((c) => c.options.body && c.options.body.indexOf('"u-gone"') >= 0).length;
+          const lostCounts = [];
+          await assert.rejects(M.transferBuild(file, { credentials: creds, pollMs: 1, onWaiting: (upload, lost) => lostCounts.push(lost) }), (err) => err.code === "bridge_unreachable" && /stopped answering while it was sending/.test(err.message) && /look for the build/.test(err.hint));
+          assert.deepEqual(lostCounts, [1, 2, 3]);
+          assert.equal(calls.filter((c) => c.options.body && c.options.body.indexOf('"u-gone"') >= 0).length - asksBefore, 4);
+          assert.deepEqual(await M.probeBridge({ force: true }), { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true, uploadStatus: true });
         })().catch((error) => {
           console.error(error);
           process.exit(1);
