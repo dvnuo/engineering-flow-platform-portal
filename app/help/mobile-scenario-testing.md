@@ -74,8 +74,11 @@ proxy, uploading a build) sit behind the gear icon.
 1. If the panel says the local bridge is not running, press **Start bridge**.
    It starts the bridge without the EFP browser window; that window belongs
    to the chat's browser automation and opens when the chat needs it.
-2. Pick a build, the platform, and optionally a device, then **Start and
-   open Inspector**. The bridge starts the device and holds it; the panel
+2. Pick a build, the platform, and a device, then **Start and open
+   Inspector**. The device list has phones first and tablets after;
+   **Newest phone (default)** leaves the choice to the bridge, which takes
+   the newest phone of the platform, and the panel remembers your last
+   choice per platform. The bridge starts the device and holds it; the panel
    shows what it is doing, usually for about a minute, longer when all your
    parallel sessions are busy. The Inspector opens in its own tab and attaches
    to the device as soon as it is ready; nothing to type in. (When your Portal
