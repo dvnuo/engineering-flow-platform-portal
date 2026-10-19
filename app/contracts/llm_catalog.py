@@ -16,11 +16,12 @@ SUPPORTED_PROVIDERS: tuple[str, ...] = (COPILOT_PROVIDER, AI_PLATFORM_PROVIDER)
 
 # Selectable models per provider. Copilot offers the GPT-6 line (Astra: the
 # flagship reasoning model; Sol: the balanced default for interactive and
-# agentic coding; Luna: fast and cheap) next to the GPT-5.6 line. gpt-5.4 and
-# gpt-5.5 were dropped from Copilot when GPT-6 arrived; a profile still holding
-# one of them is repaired to DEFAULT_COPILOT_MODEL by coerce_to_provider_model.
-# All three GPT-6 models publish a 1,050,000-token window (922k input + 128k
-# output), so the 1M preset below still fits.
+# agentic coding; Luna: fast and cheap) plus GPT-6.1 Sol (GA in Copilot since
+# 2026-09-29) next to the GPT-5.6 line. gpt-5.4 and gpt-5.5 were dropped from
+# Copilot when GPT-6 arrived; a profile still holding one of them is repaired
+# to DEFAULT_COPILOT_MODEL by coerce_to_provider_model. GPT-6 and GPT-6.1 all
+# publish a 1,050,000-token window (922k input + 128k output), so the 1M
+# preset below still fits.
 COPILOT_MODELS: tuple[str, ...] = (
     "gpt-5.6-luna",
     "gpt-5.6-sol",
@@ -28,6 +29,7 @@ COPILOT_MODELS: tuple[str, ...] = (
     "gpt-6-astra",
     "gpt-6-luna",
     "gpt-6-sol",
+    "gpt-6.1-sol",
 )
 # The gateway fronts the GPT-5.6 line, so the variants are offered here too.
 # Keeping the shared models aligned means switching a profile between

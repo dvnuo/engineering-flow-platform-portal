@@ -82,6 +82,16 @@ def test_managed_models_per_provider():
     assert RuntimeProfileService.normalize_managed_llm_provider("") == ""
 
 
+def test_gpt_6_1_sol_is_offered_on_copilot_only():
+    # GPT-6.1 Sol reached Copilot on 2026-09-29. The gateway does not serve
+    # the GPT-6 line, so switching a profile to AI Platform repairs it to that
+    # provider's default instead of sending an id the gateway rejects.
+    assert "gpt-6.1-sol" in RuntimeProfileService.managed_model_values_for_provider("github_copilot")
+    assert "gpt-6.1-sol" not in RuntimeProfileService.managed_model_values_for_provider("ai_platform")
+    assert coerce_to_provider_model("github_copilot", "gpt-6.1-sol") == "gpt-6.1-sol"
+    assert coerce_to_provider_model("ai_platform", "gpt-6.1-sol") == "gpt-5.4"
+
+
 def test_canonicalize_keeps_only_ai_platform_profile_credentials_and_coerces_model():
     c = canon(_ai_profile(model="gpt-9-bogus"))["llm"]
     assert c["provider"] == "ai_platform"
