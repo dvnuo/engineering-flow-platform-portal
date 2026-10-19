@@ -392,6 +392,9 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # the area as it is.
     for marker in ('"apps.upload.status"', '"apps.upload.cancel"', "info.mobile.upload_status", 'data-recording-action="upload-cancel"', "Copying ${file.name} to the local bridge\\u2026", "Sending ${file.name} on to BrowserStack\\u2026 (${elapsedLabel(since)})", "BrowserStack is checking the build\\u2026", "upload: null,", "view.upload.fraction", "const UPLOAD_POLL_MS = 1500;"):
         assert marker in js, marker
+    # A lost status ask (a slow answer, a moment's "Failed to fetch") keeps
+    # the last progress on the line; only several in a row end the follow.
+    assert "const UPLOAD_STATUS_RETRIES = 3;" in js and "(waiting for the local bridge\\u2026)" in js
     assert "Sending ${file.name} on to BrowserStack\u2026`" not in js, "the wait names its length"
     # The chat composer's "Local bridge offline" keeps up: the panel tells it
     # when the bridge appears, and the composer looks again while offline.
@@ -476,6 +479,14 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
             { id: "u-bad", status: "failed", sent: 10, total: 300, error: { code: "network_error", message: "The upload stalled: no data reached BrowserStack for 2 minutes.", hint: "Check this computer's network and its proxy to BrowserStack, then upload the build again." } },
           ],
           "u-slow": [{ id: "u-slow", status: "sending", sent: 50, total: 300 }],
+          // One ask lost to the network, one to the 20 s limit, between answers.
+          "u-blip": [
+            { fail: "fetch" },
+            { id: "u-blip", status: "sending", sent: 100, total: 300 },
+            { fail: "abort" },
+            { id: "u-blip", status: "done", sent: 300, total: 300, app: { app_url: "bs://blip" } },
+          ],
+          "u-gone": [{ fail: "fetch" }],
         };
         const cancelled = [];
         // The page copies a build to the bridge with XMLHttpRequest, for its
@@ -533,6 +544,12 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
               const script = uploadScripts[body.params.id] || [];
               const upload = script.length > 1 ? script.shift() : script[0];
               if (!upload) return { ok: false, status: 404, json: async () => ({ ok: false, error: { code: "not_found", message: "upload not found", hint: "Upload the build again." } }) };
+              if (upload.fail === "fetch") throw new TypeError("Failed to fetch");
+              if (upload.fail === "abort") {
+                const aborted = new Error("The operation was aborted.");
+                aborted.name = "AbortError";
+                throw aborted;
+              }
               return { ok: true, status: 200, json: async () => ({ ok: true, data: { upload } }) };
             }
             if (body.command === "apps.upload.cancel") {
@@ -744,6 +761,24 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           await assert.rejects(M.transferBuild(file, { credentials: creds, controller: old, onCopy: (fraction) => { if (fraction >= 1) old.cancel(); } }), (err) => err.code === "upload_cancelled");
           assert.equal(xhrs[xhrs.length - 1].aborted, true);
           assert.equal(calls.length, before);
+          // A lost status ask does not end the follow: the bridge keeps
+          // sending. The line keeps the last answer, the bridge is probed
+          // again after a "Failed to fetch", and the next answer carries on.
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { upload: { id: "u-blip", status: "sending", sent: 0, total: 300 } } } });
+          const waits = [];
+          const pings = calls.filter((c) => c.url.endsWith("/ping")).length;
+          const blip = await M.transferBuild(file, { credentials: creds, pollMs: 1, onWaiting: (upload, lost) => waits.push(`${upload ? upload.sent : "none"}:${lost}`) });
+          assert.deepEqual(blip, { app_url: "bs://blip" });
+          assert.deepEqual(waits, ["none:1", "100:1"]);
+          assert.ok(calls.filter((c) => c.url.endsWith("/ping")).length > pings, "the bridge is probed again after a failed fetch");
+          // A bridge gone for several asks in a row ends it as unreachable.
+          xhrAnswers.push({ status: 200, payload: { ok: true, data: { upload: { id: "u-gone", status: "sending", sent: 0, total: 300 } } } });
+          const asksBefore = calls.filter((c) => c.options.body && c.options.body.indexOf('"u-gone"') >= 0).length;
+          const lostCounts = [];
+          await assert.rejects(M.transferBuild(file, { credentials: creds, pollMs: 1, onWaiting: (upload, lost) => lostCounts.push(lost) }), (err) => err.code === "bridge_unreachable" && /stopped answering while it was sending/.test(err.message) && /look for the build/.test(err.hint));
+          assert.deepEqual(lostCounts, [1, 2, 3]);
+          assert.equal(calls.filter((c) => c.options.body && c.options.body.indexOf('"u-gone"') >= 0).length - asksBefore, 4);
+          assert.deepEqual(await M.probeBridge({ force: true }), { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true, uploadStatus: true });
         })().catch((error) => {
           console.error(error);
           process.exit(1);

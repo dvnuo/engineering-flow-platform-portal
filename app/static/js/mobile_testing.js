@@ -331,12 +331,30 @@
 
   // Asks the bridge after a build it is sending to BrowserStack until the
   // build is there, reporting each answer with the rate so far; a send that
-  // failed or was cancelled ends in an error.
-  async function followUpload(id, { onUpdate = null, pollMs = UPLOAD_POLL_MS } = {}) {
+  // failed or was cancelled ends in an error. An ask that is lost (a slow
+  // answer, a moment's "Failed to fetch") does not: the bridge keeps sending
+  // meanwhile, so onWaiting hears the last answer and the follow asks again,
+  // and only UPLOAD_STATUS_RETRIES lost asks in a row end it as
+  // bridge_unreachable. An answer clears the count.
+  async function followUpload(id, { onUpdate = null, onWaiting = null, pollMs = UPLOAD_POLL_MS, retries = UPLOAD_STATUS_RETRIES } = {}) {
     const meter = uploadMeter();
+    let last = null;
+    let lost = 0;
     for (;;) {
-      const data = await call("apps.upload.status", { id }, { timeoutMs: 20000 });
-      const upload = data.upload || {};
+      let upload;
+      try {
+        const data = await call("apps.upload.status", { id }, { timeoutMs: 20000 });
+        upload = data.upload || {};
+        lost = 0;
+      } catch (error) {
+        if (error.code !== "bridge_timeout" && error.code !== "bridge_unreachable") throw error;
+        lost += 1;
+        if (lost > retries) throw bridgeError({ code: "bridge_unreachable", message: "The local bridge stopped answering while it was sending the build.", hint: "Start it again, and look for the build on BrowserStack before uploading it again." });
+        if (onWaiting) onWaiting(last, lost);
+        await sleep(pollMs);
+        continue;
+      }
+      last = upload;
       meter.add(Number(upload.sent) || 0);
       if (onUpdate) onUpdate(upload, meter.rate());
       if (upload.status === "done") return upload.app || {};
@@ -351,9 +369,9 @@
   // /ping) is then asked after the send until the build is there, while an
   // older bridge answers the copy request itself once it is. onCopy hears the
   // copy's fraction, onStarted the bridge's upload record, onSend each status
-  // answer with the rate; controller.cancel() gives up whichever leg is under
-  // way.
-  async function transferBuild(file, { credentials, customId, onCopy = null, onStarted = null, onSend = null, controller = {}, pollMs = UPLOAD_POLL_MS } = {}) {
+  // answer with the rate, onWaiting a lost ask with the last answer;
+  // controller.cancel() gives up whichever leg is under way.
+  async function transferBuild(file, { credentials, customId, onCopy = null, onStarted = null, onSend = null, onWaiting = null, controller = {}, pollMs = UPLOAD_POLL_MS, retries = UPLOAD_STATUS_RETRIES } = {}) {
     let request = null;
     let uploadId = "";
     let askedToStop = false;
@@ -374,7 +392,7 @@
     if (onStarted) onStarted(upload);
     // A cancel that came while the bridge was answering the copy.
     if (controller.cancelled && !askedToStop) await stop();
-    return followUpload(uploadId, { onUpdate: onSend, pollMs });
+    return followUpload(uploadId, { onUpdate: onSend, onWaiting, pollMs, retries });
   }
 
   // The panel starts the bridge for its /mobile routes only: browser=off
@@ -576,6 +594,8 @@
   const START_TIMEOUT_MS = 16 * 60 * 1000;
   const REPLAY_POLL_MS = 2000;
   const UPLOAD_POLL_MS = 1500;
+  // Lost asks after a send, in a row, before the bridge counts as gone.
+  const UPLOAD_STATUS_RETRIES = 3;
   // Of the upload bar, the share that is the copy to the local bridge; the
   // send to BrowserStack, which takes the time, is the rest.
   const UPLOAD_COPY_SHARE = 0.08;
@@ -3376,6 +3396,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
           const total = Number(upload.total) || file.size || 1;
           setBar(copyShare + (1 - copyShare) * (Math.min(Number(upload.sent) || 0, total) / total));
           setStatus(uploadProgressText(file.name, upload, rate), "");
+        },
+        onWaiting: (upload) => {
+          // The last answer stays on the line while an ask is lost.
+          const known = upload ? uploadProgressText(file.name, upload, 0) : `Sending ${file.name} to BrowserStack`;
+          setStatus(`${known.replace(/\u2026$/, "")} (waiting for the local bridge\u2026)`, "");
         },
       });
       setStatus(`Uploaded ${file.name}${app.custom_id ? ` as ${app.custom_id}` : ""}. BrowserStack keeps builds for 30 days.`, "success");
