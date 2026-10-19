@@ -346,6 +346,8 @@
   async function testConnector(button) {
     const form = button.closest("form") || document;
     const result = form.querySelector("[data-mobile-bridge-test-result]");
+    // The test runs through the proxy as the fields hold it, saved or not.
+    readProxyFields(document.querySelector("[data-mobile-overview]"));
     const credentials = connectorCredentials(form);
     if (!credentials.username || !credentials.access_key) {
       setInline(result, "Enter your BrowserStack username and access key first.", "error");
@@ -1342,12 +1344,14 @@
   function doneActionsHtml(item) {
     if (item.code) return "";
     if (!item.compiled || !item.scriptPath) {
-      return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-recording" data-name="${esc(item.name)}" title="Tick it under Replay, to replay it as it is">Replay</button> <button type="button" class="composer-pill-btn" data-recording-action="compile-recording" data-name="${esc(item.name)}" title="Compile it as one of the plan's scenarios, in the Library">Compile</button>`;
+      return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-recording" data-name="${esc(item.name)}" title="Replay it as it is">Replay</button> <button type="button" class="composer-pill-btn" data-recording-action="compile-recording" data-name="${esc(item.name)}" title="Compile it as one of the plan's scenarios, in the Library">Compile</button>`;
     }
+    // The script is the compiler's: its name may not be the recording's.
+    const scriptName = item.scriptName || item.name;
     const review = item.reviewed
       ? `<span class="efp-card-meta">review asked</span>`
-      : `<button type="button" class="composer-pill-btn" data-recording-action="review-script" data-name="${esc(item.name)}" data-path="${esc(item.scriptPath)}" data-report="${esc(item.reportPath || "")}" title="Ask the assistant to review the script: label its steps with the plan's and add the expected-result checks">Review</button>`;
-    return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-script" data-name="${esc(item.name)}" title="Tick it under Replay">Replay</button> ${review}`;
+      : `<button type="button" class="composer-pill-btn" data-recording-action="review-script" data-name="${esc(scriptName)}" data-path="${esc(item.scriptPath)}" data-report="${esc(item.reportPath || "")}" title="Ask the assistant to review the script: label its steps with the plan's and add the expected-result checks">Review</button>`;
+    return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-script" data-name="${esc(scriptName)}" data-path="${esc(item.scriptPath)}" title="Replay the script on the held device">Replay</button> ${review}`;
   }
 
   // Hands a compiled script to the assistant for review, with the
@@ -1773,7 +1777,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const select = root.querySelector("[data-recording-app]");
     const app = select ? select.value : "";
     if (!app) {
-      setStatus("Pick a build, or upload one in Settings first.", "error");
+      setStatus("Pick a build, or upload one under Build first.", "error");
       return;
     }
     const platform = root.querySelector("[data-recording-platform]")?.value || "android";
@@ -1977,6 +1981,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return {
       start: "restart", secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, logs: {},
       running: null, polling: false, result: null, saved: [],
+      // lastItem is the file the latest replay was started on from here.
+      lastItem: null,
       // The replay dialog: the file it was opened on, the older segments
       // ticked in it, and its phase (setup, running, done).
       dialog: null,
@@ -2137,6 +2143,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const seg = report && Array.isArray(report.segments) && report.segments[0] ? report.segments[0] : null;
     const name = (running && (running.segments || [])[0]) || (seg && seg.name) || "";
     if (!name) return null;
+    if (r.lastItem && r.lastItem.name === name) return r.lastItem;
     const kind = seg && seg.kind ? seg.kind : "script";
     const platform = recordingPlatform();
     const path = (seg && seg.path) || (kind === "recording" ? `${RECORDINGS_DIR}/${name}.wdlog.json` : `${kind === "segment" ? SEGMENTS_DIR : SCRIPTS_DIR}/${platform}/${name}.yaml`);
@@ -2161,6 +2168,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     r.dialog = { item, chain: item.kind === "segment" ? [item.name] : [], phase: "setup", busy: false, notice: "" };
     r.extraSecretNames = [];
+    // The file as it is now: the assistant may have reviewed it since it
+    // was last read, and the replay's hash is the status.
+    r.yaml = {};
     await loadReplaySecrets();
     renderReplay();
     renderIcons();
@@ -2212,7 +2222,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         <label class="portal-form-label"><span class="portal-form-label">Start from</span><select class="portal-form-select" data-replay-start>${starts.map(([value, label]) => `<option value="${value}"${r.start === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>
         ${secrets}
         ${d.notice ? `<div class="portal-inline-state is-visible is-error">${esc(d.notice)}</div>` : ""}`;
-      actions = `<button type="button" class="portal-btn" data-replay-action="close">Cancel</button>
+      actions = `<button type="button" class="portal-btn" data-replay-action="close"${d.busy ? " disabled" : ""}>Cancel</button>
         <button type="button" class="portal-btn is-primary" data-replay-action="start"${d.busy ? " disabled" : ""}><i data-lucide="play" class="w-4 h-4"></i>${d.busy ? "Starting…" : "Replay"}</button>`;
     } else if (running) {
       title = `Replaying ${(running.segments || [])[0] || d.item.name}`;
@@ -2476,6 +2486,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       }
       r.result = null;
       r.running = data.replay || null;
+      r.lastItem = Object.assign({}, d.item);
       d.busy = false;
       d.phase = "running";
       // The card disables saving and holding at once, not at the next poll.
@@ -3048,6 +3059,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     if (compiled) {
       done.compiled = true;
       done.detail += `, compiled (grade ${compiled.report.grade || "?"})`;
+      done.scriptName = compiled.name;
       done.scriptPath = compiled.path;
       done.reportPath = compiled.reportPath;
       remember();
@@ -3522,7 +3534,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else if (action === "ask-assistant") askAssistant();
     else if (action === "use-name") useName(root, button.dataset.name || "");
     else if (action === "review-script") requestReview(button.dataset.name || "", button.dataset.path || "", button.dataset.report || "");
-    else if (action === "replay-script") openReplayDialog({ name: button.dataset.name || "", kind: "script", path: `${SCRIPTS_DIR}/${recordingPlatform()}/${button.dataset.name || ""}.yaml`, platform: recordingPlatform() });
+    else if (action === "replay-script") openReplayDialog({ name: button.dataset.name || "", kind: "script", path: button.dataset.path || `${SCRIPTS_DIR}/${recordingPlatform()}/${button.dataset.name || ""}.yaml`, platform: recordingPlatform() });
     else if (action === "replay-recording") openReplayDialog({ name: button.dataset.name || "", kind: "recording", path: `${RECORDINGS_DIR}/${button.dataset.name || ""}.wdlog.json`, platform: recordingPlatform() });
     else if (action === "compile-recording") openCompile(button.dataset.name || "");
     else if (action === "finish-other") finishOther(button.dataset.id || "", button);
@@ -3567,7 +3579,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   // Escape closes (or hides) the replay dialog.
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || view.workspace) return;
     const d = view.replay && view.replay.dialog;
     if (d && !d.busy && panelRoot()?.querySelector("[data-recording-dialog]")) closeReplayDialog();
   });

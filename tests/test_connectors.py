@@ -114,6 +114,9 @@ def test_registry_keeps_the_bridges_proxy_to_browserstack():
         {"preferred_port": 8766, "mobile_proxy": {"url": " http://Proxy.example.com:3128/ ", "username": "CORP\\alice", "password": "s3cret"}}
     )
     assert normalized["mobile_proxy"] == {"url": "http://proxy.example.com:3128", "username": "CORP\\alice", "password": "s3cret"}
+    # An IPv6 address keeps its brackets; a port is kept as typed.
+    assert spec.normalized_config({"mobile_proxy": {"url": "http://[fd00::1]:3128"}})["mobile_proxy"] == {"url": "http://[fd00::1]:3128"}
+    assert spec.normalized_config({"mobile_proxy": {"url": "https://proxy.example.com"}})["mobile_proxy"] == {"url": "https://proxy.example.com"}
     # No address means the computer's own proxy settings: nothing is kept.
     assert "mobile_proxy" not in spec.normalized_config({"mobile_proxy": {"url": "", "username": "alice"}})
     assert "mobile_proxy" not in spec.normalized_config({"mobile_proxy": None})

@@ -119,6 +119,8 @@ def test_browserstack_panel_tests_through_the_bridge_and_says_where_runs_happen(
         assert "user:password@" not in html
         # Saved into the member's Local bridge connector, not this browser.
         assert "data-bridge-proxy-save" in html and "Saved with your Local bridge connector" in html
+        # The test runs through the proxy as typed, saved or not.
+        assert 'readProxyFields(document.querySelector("[data-mobile-overview]"));' in js
         assert "Kept in this browser only" not in html
         assert 'name="mobile_idle_timeout_seconds"' in html
         assert 'name="mobile_browserstack_local_mode"' not in html and 'name="mobile_browserstack_verify_ssl"' not in html
@@ -313,6 +315,11 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # watch it live, then the outcome. The panel has no replay section.
     for marker in ("data-recording-dialog-host", "data-recording-dialog", 'data-replay-action="show"', 'data-replay-action="close"', 'data-replay-action="again"', "Watch on BrowserStack", "REPLAY_PHASES", "data-replay-chain"):
         assert marker in js, marker
+    # A replay sends the file as it is now (the hash is the status), Show and
+    # Replay again know the file the replay ran, and the done line names the
+    # script the compiler wrote.
+    assert "r.yaml = {};\n    await loadReplaySecrets();" in js.replace("\r\n", "\n") and "r.lastItem = Object.assign({}, d.item);" in js
+    assert "done.scriptName = compiled.name;" in js and 'data-recording-action="replay-script" data-name="${esc(scriptName)}" data-path="${esc(item.scriptPath)}"' in js
     assert "data-recording-replay" not in js and "data-replay-segment" not in js
     # Finishing asks first and shows the release; the status line sits under the strip.
     assert "Finish recording?" in js and "releasingCardHtml" in js and "Releasing…" in js

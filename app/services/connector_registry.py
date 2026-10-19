@@ -183,7 +183,9 @@ def _normalize_mobile_proxy(value: Any) -> dict[str, Any]:
         port = parsed.port
     except ValueError as exc:
         raise ValueError("mobile_proxy.url has an invalid port") from exc
-    result: dict[str, Any] = {"url": f"{parsed.scheme}://{parsed.hostname}{f':{port}' if port else ''}"}
+    # The host as typed, brackets of an IPv6 address included; a host name
+    # is case-insensitive.
+    result: dict[str, Any] = {"url": f"{parsed.scheme}://{parsed.netloc.lower()}"}
     username = str(value.get("username") or "").strip()
     password = str(value.get("password") or "")
     if username:
