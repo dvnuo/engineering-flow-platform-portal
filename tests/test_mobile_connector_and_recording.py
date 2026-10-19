@@ -288,6 +288,12 @@ def test_the_page_drives_the_local_bridge_not_portal():
     for marker in ('data-recording-action="review-script"', 'data-recording-action="replay-script"', "library-review", 'data-replay-action="review"', "data-recording-auto-review", 'const AUTO_REVIEW_KEY = "efp.mobile.auto_review";', 'readStorage(AUTO_REVIEW_KEY) === "on"'):
         assert marker in js, marker
     assert js.count("sendChat(compiledMessage(") == 1
+    # A recording is just a recording: it replays as it is (the bridge
+    # compiles it on the way), and is compiled as a scenario the member picks
+    # in the Library; only the cut of several scenarios asks the assistant.
+    for marker in ('"recording.replay"', "library-replay-recording", "library-compile-as", "library-cut", "data-library-scenario", 'data-recording-action="compile-recording"', 'data-recording-action="replay-recording"', "file: `${name}.wdlog.json`"):
+        assert marker in js, marker
+    assert js.count("sendChat(savedMessage(") == 2, "the cut, and the fallback when this computer cannot compile"
     assert "Script ${name} recorded: ${path}" in js and "Recording ${name} saved: ${path}" in js
     # Finishing and deleting say nothing: the plan's statuses come from the files.
     assert "Recording finished." not in js and "deleted: ${path}" not in js
@@ -452,6 +458,12 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:seg-a"), ["segment:seg-a"]);
         assert.deepEqual(M.replayChoice(["segment:seg-a"], "segment:seg-b"), ["segment:seg-a", "segment:seg-b"]);
         assert.deepEqual(M.replayChoice(["script:FX-12-x"], "segment:FX-12-x"), ["segment:FX-12-x"]);
+        // A recording replays on its own too, and a fresh one is ticked first.
+        assert.equal(M.replayKeyKind("recording:recording-3"), "recording");
+        assert.deepEqual(M.replayChoice(["segment:seg-a", "script:FX-12-x"], "recording:recording-3"), ["recording:recording-3"]);
+        assert.deepEqual(M.replayChoice(["recording:recording-3"], "segment:seg-a"), ["segment:seg-a"]);
+        assert.deepEqual(M.defaultReplayTicks([{ kind: "script", name: "FX-12-x" }, { kind: "recording", name: "recording-3" }], [{ name: "FX-12-x", status: "exists" }], []), ["recording:recording-3"]);
+        assert.equal(M.replayNoun([{ name: "recording-3", kind: "recording" }]), "recording");
         // A replay's result marks the row of its kind; a report without kinds marks by name.
         assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "segment" }), false);
         assert.equal(M.sameReplayRow({ name: "FX-12-x", kind: "script" }, { name: "FX-12-x", kind: "script" }), true);

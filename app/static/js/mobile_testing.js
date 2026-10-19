@@ -674,37 +674,45 @@
   // What a replay ran, in words: scripts when every file was one.
   function replayNoun(items) {
     const list = Array.isArray(items) ? items : [];
-    const scripts = list.length > 0 && list.every((item) => (item.kind || itemKind(item.name)) === "script");
+    const kinds = list.map((item) => item.kind || itemKind(item.name));
     const one = list.length === 1;
-    if (scripts) return one ? "script" : "scripts";
+    if (list.length > 0 && kinds.every((kind) => kind === "script")) return one ? "script" : "scripts";
+    if (list.length > 0 && kinds.every((kind) => kind === "recording")) return one ? "recording" : "recordings";
     return one ? "segment" : "segments";
   }
 
-  // A row of the replay list by its kind and name, so a scenario script and an
-  // older segment of the same name stay apart.
+  // A row of the replay list by its kind and name, so a scenario script, a
+  // recording and an older segment of the same name stay apart.
   function replayKey(item) {
-    return `${item && item.kind === "script" ? "script" : "segment"}:${item ? item.name : ""}`;
+    const kind = item && (item.kind === "script" || item.kind === "recording") ? item.kind : "segment";
+    return `${kind}:${item ? item.name : ""}`;
   }
 
   function replayKeyKind(key) {
-    return String(key).startsWith("script:") ? "script" : "segment";
+    const k = String(key);
+    if (k.startsWith("script:")) return "script";
+    if (k.startsWith("recording:")) return "recording";
+    return "segment";
   }
 
   // The rows ticked for the next replay after ticking `key`: a scenario script
-  // replays on its own, from the app's start, so ticking one leaves it alone;
-  // older segments chain, so ticking one keeps the other segments.
+  // or a recording replays on its own, from the app's start, so ticking one
+  // leaves it alone; older segments chain, so ticking one keeps the others.
   function replayChoice(checked, key) {
-    if (replayKeyKind(key) === "script") return [key];
-    return checked.filter((item) => item !== key && replayKeyKind(item) !== "script").concat(key);
+    if (replayKeyKind(key) !== "segment") return [key];
+    return checked.filter((item) => item !== key && replayKeyKind(item) === "segment").concat(key);
   }
 
-  // What the replay list ticks before the member does. With scripts: the
-  // scenario plan's next script that has not passed a replay, in the plan's
-  // order (a copy comes after its source), or nothing once every script the
-  // plan lists here has passed; the first script when the plan lists none of
-  // them. Without scripts: the older segments in the order of the latest cut,
-  // else all of them, as a chain.
+  // What the replay list ticks before the member does. A recording just
+  // saved and not compiled yet comes first: replaying it is how it is
+  // checked. Then with scripts: the scenario plan's next script that has not
+  // passed a replay, in the plan's order (a copy comes after its source), or
+  // nothing once every script the plan lists here has passed; the first
+  // script when the plan lists none of them. Without scripts: the older
+  // segments in the order of the latest cut, else all of them, as a chain.
   function defaultReplayTicks(items, planScripts, cutParts) {
+    const recordings = items.filter((item) => item.kind === "recording");
+    if (recordings.length) return [replayKey(recordings[0])];
     const scripts = items.filter((item) => item.kind === "script");
     if (scripts.length) {
       const listed = (name) => scripts.some((item) => item.name === name);
@@ -1263,7 +1271,7 @@
       compile.text = `${flow.segments.length} ${flow.segments.length === 1 ? "segment" : "segments"}`;
       compile.done = true;
     } else if (record.done) {
-      compile.text = "compiled when you save";
+      compile.text = "compile each recording as its scenario in the Library";
     } else {
       compile.text = "after recording";
     }
@@ -1352,7 +1360,7 @@
       </div>
       <p class="portal-inline-note">${planned
         ? "Save when the scenario reaches its result; the name moves on to the next script you listed."
-        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it under its script's name: it is compiled into the scenario's script here. Replay it, then press Review for the assistant to add the plan's checks."}</p>
+        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it. Replay the recording as it is to check it, compile it as its scenario from the Library, and press Review once the script passes. Saved under its scenario's name, it is compiled at once."}</p>
       ${nextToRecordHtml()}
       <div class="efp-record-name">
         <label class="portal-form-label"><span class="portal-form-label">${planned ? "Script" : "Save as"}</span>
@@ -1382,24 +1390,23 @@
   // What a saved recording's line offers once it is compiled: replay the
   // script, and ask the assistant for the review.
   function doneActionsHtml(item) {
-    if (!item.compiled || !item.scriptPath) return "";
+    if (item.code) return "";
+    if (!item.compiled || !item.scriptPath) {
+      return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-recording" data-name="${esc(item.name)}" title="Tick it under Replay, to replay it as it is">Replay</button> <button type="button" class="composer-pill-btn" data-recording-action="compile-recording" data-name="${esc(item.name)}" title="Compile it as one of the plan's scenarios, in the Library">Compile</button>`;
+    }
     const review = item.reviewed
       ? `<span class="efp-card-meta">review asked</span>`
       : `<button type="button" class="composer-pill-btn" data-recording-action="review-script" data-name="${esc(item.name)}" data-path="${esc(item.scriptPath)}" data-report="${esc(item.reportPath || "")}" title="Ask the assistant to review the script: label its steps with the plan's and add the expected-result checks">Review</button>`;
     return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-script" data-name="${esc(item.name)}" title="Tick it under Replay">Replay</button> ${review}`;
   }
 
-  // Ticks a script for the next replay and brings the Replay section up.
-  async function tickScript(root, name) {
+  // Ticks a script (or a recording) for the next replay and brings the
+  // Replay section up.
+  async function tickScript(root, name, kind = "script") {
     const r = view.replay;
     r.touched = true;
-    r.checked = replayChoice(r.checked, replayKey({ kind: "script", name }));
-    if (r.segments === null) await loadReplaySegments();
-    else {
-      await loadReplaySecrets();
-      renderReplay();
-      renderIcons();
-    }
+    r.checked = replayChoice(r.checked, replayKey({ kind, name }));
+    await loadReplaySegments();
     root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
     setStatus(`${name} is ticked under Replay.`, "");
   }
@@ -1451,6 +1458,18 @@
           ${ask}
         </div>
       </div>`;
+  }
+
+  // Opens the Library on a recording's scenario choice.
+  async function openCompile(name) {
+    const lib = view.library;
+    lib.open[`compile:${RECORDINGS_DIR}/${name}.wdlog.json`] = true;
+    switchTab("library");
+    if (!lib.loaded) await loadLibrary();
+    else {
+      renderLibrary();
+      renderIcons();
+    }
   }
 
   function askAssistant() {
@@ -2099,7 +2118,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   function freshReplay() {
     return {
       segments: null, loading: false, error: "", checked: [], touched: false, start: "restart",
-      secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, running: null, polling: false,
+      secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, logs: {}, extraRecordings: [], running: null, polling: false,
       result: null, saved: [],
     };
   }
@@ -2169,16 +2188,18 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         return index >= 0 ? index : order.length;
       };
       const platform = recordingPlatform();
-      const items = (flow.scripts || []).map((name) => ({ name, kind: "script", path: `${SCRIPTS_DIR}/${platform}/${name}.yaml` }))
+      const kindRank = { recording: 0, script: 1, segment: 2 };
+      const items = pendingRecordings()
+        .concat((flow.scripts || []).map((name) => ({ name, kind: "script", path: `${SCRIPTS_DIR}/${platform}/${name}.yaml` })))
         .concat((flow.segments || []).map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` })));
-      items.sort((a, b) => (a.kind === b.kind ? 0 : (a.kind === "script" ? -1 : 1)) || rank(a) - rank(b) || a.name.localeCompare(b.name));
+      items.sort((a, b) => (kindRank[a.kind] - kindRank[b.kind]) || rank(a) - rank(b) || a.name.localeCompare(b.name));
       r.segments = items;
       const keys = items.map(replayKey);
       if (!r.touched) r.checked = defaultReplayTicks(items, planScripts, cutParts);
       else r.checked = r.checked.filter((key) => keys.includes(key));
-      // A scenario script replays on its own.
-      const firstScript = r.checked.find((key) => replayKeyKind(key) === "script");
-      if (firstScript) r.checked = [firstScript];
+      // A scenario script, or a recording, replays on its own.
+      const firstAlone = r.checked.find((key) => replayKeyKind(key) !== "segment");
+      if (firstAlone) r.checked = [firstAlone];
       r.error = flow.error ? "Could not list the scenario scripts. Is the assistant running?" : "";
       await loadReplaySecrets();
     } catch (error) {
@@ -2187,6 +2208,14 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     r.loading = false;
     renderReplay();
     renderIcons();
+  }
+
+  // The recordings this session saved and did not compile, and the ones
+  // ticked from the Library: replayable as they are, before any scenario.
+  function pendingRecordings() {
+    const mine = view.done.filter((item) => !item.compiled && !item.code).map((item) => ({ name: item.name, path: `${RECORDINGS_DIR}/${item.name}.wdlog.json` }));
+    const extra = (view.replay.extraRecordings || []).filter((item) => !mine.some((m) => m.name === item.name));
+    return mine.concat(extra).map((item) => ({ name: item.name, kind: "recording", path: item.path }));
   }
 
   function selectedSegments() {
@@ -2204,7 +2233,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const names = new Set(r.extraSecretNames);
     // A segment that cannot be read leaves it to the bridge to name what is
     // missing.
-    const found = await Promise.all(selectedSegments().map((seg) => segmentYaml(seg).then(segmentSecrets, () => [])));
+    // A recording has no YAML here; the bridge names what it types.
+    const found = await Promise.all(selectedSegments().filter((seg) => seg.kind !== "recording").map((seg) => segmentYaml(seg).then(segmentSecrets, () => [])));
     found.forEach((list) => list.forEach((name) => names.add(name)));
     r.secretNames = [...names].sort();
   }
@@ -2266,9 +2296,12 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const session = report.session_url ? ` <a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
     const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
     let saved = "";
-    if (res.path && status === "failed") saved = `<span class="efp-card-meta">The result and screenshots went to the chat; the assistant looks into the failure.</span>`;
+    const recordingReplay = Array.isArray(report.segments) && report.segments.length > 0 && report.segments.every((seg) => seg.kind === "recording");
+    if (res.path && status === "failed" && recordingReplay) saved = `<span class="efp-card-meta">The recording did not replay as it is; the result is in the Library. Record it again, or compile it as its scenario and ask the assistant.</span>`;
+    else if (res.path && status === "failed") saved = `<span class="efp-card-meta">The result and screenshots went to the chat; the assistant looks into the failure.</span>`;
     else if (res.path && status === "passed" && reviewableReplay(report)) saved = `<span class="efp-card-meta">The result and screenshots are in the Library; the script counts as replayed as it is now.</span>
         <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="review" title="Ask the assistant to label the steps with the plan's and add the expected-result checks">Review with the assistant</button></div>`;
+    else if (res.path && recordingReplay) saved = `<span class="efp-card-meta">The recording replayed as it is; the result is in the Library. Compile it as its scenario from the Library when it is what you want.</span>`;
     else if (res.path) saved = `<span class="efp-card-meta">The result and screenshots are in the Library; the script counts as replayed as it is now.</span>`;
     else if (res.error) saved = `<div class="portal-inline-state is-visible is-error">${esc(res.error)}<div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button></div></div>`;
     return `<div class="efp-replay-outcome">
@@ -2300,7 +2333,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else {
       list = `<div class="efp-replay-list">${r.segments.map((seg) => {
         const mark = segmentMark(seg);
-        const older = seg.kind === "segment" ? `<span class="efp-card-meta">older segment</span>` : "";
+        const older = seg.kind === "segment" ? `<span class="efp-card-meta">older segment</span>` : (seg.kind === "recording" ? `<span class="efp-card-meta">recording, as it is</span>` : "");
         return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(replayKey(seg))}"${r.checked.includes(replayKey(seg)) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${older}${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
       }).join("")}</div>`;
     }
@@ -2467,7 +2500,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       remember();
       // A replay that passed shows in the Library and the plan's status; the
       // assistant is asked only to look into a failure.
-      if (res.result.report && res.result.report.status === "failed") sendChat(replayMessage(res.result.report, path));
+      const doc = res.result.report || {};
+      const recordingReplay = Array.isArray(doc.segments) && doc.segments.length > 0 && doc.segments.every((seg) => seg.kind === "recording");
+      if (doc.status === "failed" && !recordingReplay) sendChat(replayMessage(doc, path));
     } catch (error) {
       res.error = `Could not save the replay into the assistant's workspace: ${errorText(error)}`;
     }
@@ -2495,13 +2530,22 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         setStatus(`Fill in ${missing.join(", ")} first: the replay types ${missing.length === 1 ? "it" : "them"}.`, "error");
         return;
       }
-      const segments = [];
-      for (const seg of chosen) segments.push({ name: seg.name, path: seg.path, yaml: await segmentYaml(seg) });
       const secrets = {};
       r.secretNames.forEach((name) => {
         secrets[name] = r.secrets[name];
       });
-      const data = await call("segment.replay", { id: rec.id, segments, secrets, start: r.start }, { timeoutMs: 30000 });
+      let data;
+      const recordingRow = chosen.length === 1 && chosen[0].kind === "recording" ? chosen[0] : null;
+      if (recordingRow) {
+        // A recording replays as it is: the bridge compiles it on the way.
+        const log = r.logs[recordingRow.path] || JSON.parse(await readWorkspaceText(recordingRow.path));
+        r.logs[recordingRow.path] = log;
+        data = await call("recording.replay", { id: rec.id, name: recordingRow.name, path: recordingRow.path, log, secrets, start: r.start }, { timeoutMs: 120000 });
+      } else {
+        const segments = [];
+        for (const seg of chosen) segments.push({ name: seg.name, path: seg.path, yaml: await segmentYaml(seg) });
+        data = await call("segment.replay", { id: rec.id, segments, secrets, start: r.start }, { timeoutMs: 30000 });
+      }
       r.result = null;
       r.running = data.replay || null;
       // The card disables saving and holding at once, not at the next poll.
@@ -2659,7 +2703,13 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         // The scripts (or older segments) whose source is this recording.
         const compiledInto = [...new Set(LIBRARY_PLATFORMS.flatMap((platform) => (lib.scripts[platform] || []).concat(lib.segments[platform] || []))
           .filter((seg) => seg.sourceFile === String(item.name)).map((seg) => seg.name))];
-        return { name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null, compiledInto };
+        const row = { name, kind: "recording" };
+        const latest = lib.replays.find((rp) => rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
+        const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
+        return {
+          name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null, compiledInto,
+          lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
+        };
       });
       lib.error = "";
       lib.loaded = true;
@@ -2669,6 +2719,37 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     lib.loading = false;
     renderLibrary();
     renderIcons();
+  }
+
+  // The scenarios a recording can be compiled as: every plan's scripts, the
+  // recording's own name preselected when it is one of them. The cut of a
+  // recording that holds several scenarios is the assistant's.
+  function compileChoicesHtml(item) {
+    const lib = view.library;
+    const plans = lib.plans.map(planView).filter((plan) => plan.scripts.length);
+    const guess = scriptScenario(item.name, plans.find((plan) => plan.scripts.some((s) => s.name === item.name)) || plans[0] || null);
+    const existing = (name) => LIBRARY_PLATFORMS.filter((p) => (lib.scripts[p] || []).some((row) => row.name === name));
+    let chosen = guess ? `${guess.issue}|${guess.scenario}` : "";
+    if (!chosen) {
+      const next = plans.flatMap((plan) => plan.scripts.filter((s) => !s.copyOf && !existing(s.name).length).map((s) => `${plan.issue}|${s.scenario}`))[0];
+      chosen = next || "";
+    }
+    const options = plans.map((plan) => `<optgroup label="${esc(plan.issue || plan.key)}">${plan.scripts.map((s) => {
+      const title = plan.scenarios[s.scenario] ? plan.scenarios[s.scenario].title : "";
+      const exists = existing(s.name);
+      const label = `${s.name}${title ? ` · ${title}` : ""}${exists.length ? ` (script on ${exists.join(", ")})` : ""}`;
+      const selected = chosen === `${plan.issue}|${s.scenario}`;
+      return `<option value="${esc(`${plan.key}|${s.name}`)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
+    }).join("")}</optgroup>`).join("");
+    return `<div class="efp-lib-card" data-library-compile="${esc(item.path)}">
+        <label class="portal-form-label"><span class="portal-form-label">Compile as the scenario</span>
+          <select class="portal-form-select" data-library-scenario>${options || `<option value="">No scenario plan in the workspace yet</option>`}</select>
+        </label>
+        <div class="efp-card-actions">
+          <button type="button" class="portal-btn is-primary" data-recording-action="library-compile-as" data-name="${esc(item.name)}" data-path="${esc(item.path)}"${options ? "" : " disabled"}>Compile</button>
+          <button type="button" class="composer-pill-btn" data-recording-action="library-cut" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Several scenarios in one recording: the assistant proposes where to cut it">Several scenarios: ask the assistant to cut it</button>
+        </div>
+      </div>`;
   }
 
   // Where a recording stands in the Library: a cut with parts still to
@@ -2748,14 +2829,22 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const segmentGroups = groups(lib.segments, "segment");
     const recordingRows = lib.recordings.map((item) => {
       const compiled = recordingState(item);
+      const picking = Boolean(lib.open[`compile:${item.path}`]);
+      const mark = item.lastReplay
+        ? (item.lastReplay.status === "passed"
+          ? `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>replayed ${esc(dateText(item.lastReplay.at))}</span>`
+          : `<span class="efp-replay-mark is-error"><i data-lucide="x" class="w-3 h-3"></i>failed${item.lastReplay.step ? ` at step ${esc(String(item.lastReplay.step))}` : ""}</span>`)
+        : "";
       return `
         <div class="efp-lib-row">
-          <div class="efp-lib-main"><strong>${esc(item.name)}</strong><span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(compiled)}</span></div>
+          <div class="efp-lib-main"><strong>${esc(item.name)}</strong> ${mark}<span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(compiled)}</span></div>
           <div class="efp-lib-actions">
-            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Compile this recording into its scenario script on this computer; the assistant reviews it">Compile</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-replay-recording" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="${held ? "Replay it as it is on the held device" : "Tick it for the next replay"}">Replay</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" aria-expanded="${picking ? "true" : "false"}" title="Compile it as one of the plan's scenarios on this computer">Compile</button>
             <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-recording" data-name="${esc(item.name)}" data-path="${esc(item.path)}">Delete</button>
           </div>
-        </div>`;
+        </div>
+        ${picking ? compileChoicesHtml(item) : ""}`;
     }).join("");
     const replayRows = lib.replays.map((rp) => {
       const passed = rp.segments.filter((seg) => seg.status === "passed").length;
@@ -2880,37 +2969,82 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       return;
     }
     if (action === "library-split") {
-      const plan = lib.plans.find((doc) => planLists(doc, name)) || lib.plans[0] || null;
-      const what = scriptScenario(name, plan ? planView(plan) : null);
-      if (!what) {
-        // A recording the plan does not name: the assistant finds out which
-        // scenario it is, or proposes the cut of several.
-        sendChat(savedMessage(name, path, []));
-        say(`Asked the assistant which scenario ${name} is.`, "success");
+      if (lib.open[`compile:${path}`]) delete lib.open[`compile:${path}`];
+      else lib.open[`compile:${path}`] = true;
+      renderLibrary();
+      renderIcons();
+      return;
+    }
+    if (action === "library-compile-as") {
+      const select = button.closest("[data-library-compile]")?.querySelector("[data-library-scenario]");
+      const [planKey, scriptName] = String(select ? select.value : "").split("|");
+      const plan = lib.plans.map(planView).find((p) => p.key === planKey) || null;
+      const entry = plan ? plan.scripts.find((s) => s.name === scriptName) : null;
+      if (!plan || !entry) {
+        say("Pick the scenario this recording is.", "error");
+        return;
+      }
+      const what = { issue: plan.issue, scenario: entry.scenario, title: (plan.scenarios[entry.scenario] || {}).title || "" };
+      let log;
+      try {
+        log = JSON.parse(await readWorkspaceText(path));
+      } catch (error) {
+        say(`Could not read ${name}: ${errorText(error)}`, "error");
+        return;
+      }
+      const platform = String(log.platform || "").toLowerCase() === "ios" ? "ios" : "android";
+      const existing = (lib.scripts[platform] || []).find((row) => row.name === entry.name);
+      if (existing && !(await confirmAction(`Compile ${name} as ${entry.name} again? The script in the workspace, with the assistant's review, is replaced.`, "Compile", "Compile again?"))) return;
+      button.disabled = true;
+      try {
+        const compiled = await compileRecording(name, log, what);
+        delete lib.open[`compile:${path}`];
+        if (autoReview()) requestReview(compiled.name, compiled.path, compiled.reportPath);
+        else say(`Compiled ${name} as ${compiled.name} (grade ${compiled.report.grade || "?"}). Replay it, then press Review when it passes.`, "success");
+      } catch (error) {
+        // This computer could not compile it (an older bridge): the assistant does.
+        sendChat(`Script ${entry.name} recorded: ${path}`);
+        say(`Could not compile ${name} on this computer (${errorText(error)}); the assistant compiles it as ${entry.name}.`, "warning");
+      }
+      lib.loaded = false;
+      await Promise.all([loadLibrary(), loadFlow()]);
+      return;
+    }
+    if (action === "library-cut") {
+      sendChat(savedMessage(name, path, []));
+      delete lib.open[`compile:${path}`];
+      renderLibrary();
+      renderIcons();
+      say(`Asked the assistant to cut ${name} into its scenarios.`, "success");
+      return;
+    }
+    if (action === "library-replay-recording") {
+      const rec = view.recording;
+      const r = view.replay;
+      if (!(rec && rec.status === "active")) {
+        say("Start a device under Session first; a recording replays on the held device.", "warning");
         return;
       }
       let log;
       try {
         log = JSON.parse(await readWorkspaceText(path));
       } catch (error) {
-        sendChat(savedMessage(name, path));
-        say(`Could not read ${name} here (${errorText(error)}); the assistant compiles it.`, "warning");
+        say(`Could not read ${name}: ${errorText(error)}`, "error");
         return;
       }
       const platform = String(log.platform || "").toLowerCase() === "ios" ? "ios" : "android";
-      const existing = (lib.scripts[platform] || []).find((row) => row.name === name);
-      if (existing && !(await confirmAction(`Compile ${name} again? The script in the workspace, with the assistant's review, is replaced.`, "Compile", "Compile again?"))) return;
-      button.disabled = true;
-      try {
-        const compiled = await compileRecording(name, log, what);
-        if (autoReview()) requestReview(compiled.name, compiled.path, compiled.reportPath);
-        else say(`Compiled ${compiled.name} (grade ${compiled.report.grade || "?"}). Replay it, then press Review when it passes.`, "success");
-      } catch (error) {
-        sendChat(savedMessage(name, path));
-        say(`Could not compile ${name} on this computer (${errorText(error)}); the assistant compiles it.`, "warning");
+      if (platform !== recordingPlatform()) {
+        say(`${name} was recorded on ${platform === "ios" ? "iOS" : "Android"}; the held device runs ${platformLabel(rec)}.`, "error");
+        return;
       }
-      lib.loaded = false;
-      await Promise.all([loadLibrary(), loadFlow()]);
+      r.logs[path] = log;
+      if (!r.extraRecordings.some((item) => item.name === name)) r.extraRecordings.push({ name, path });
+      r.touched = true;
+      r.checked = replayChoice(r.checked, replayKey({ kind: "recording", name }));
+      switchTab("session");
+      await loadReplaySegments();
+      root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      say(`${name} is ticked under Replay, as it is.`, "");
       return;
     }
     if (action === "library-review") {
@@ -3017,10 +3151,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   async function compileSaved(name, log, path) {
     const listed = view.planned.indexOf(name) >= 0 || planScriptNames().indexOf(name) >= 0;
     const what = listed ? scriptScenario(name, view.flow && view.flow.plan) : null;
-    if (!what) {
-      sendChat(savedMessage(name, path));
-      return null;
-    }
+    // A recording saved under no scenario's name stays a recording: replay
+    // it as it is, and compile it as its scenario from the Library.
+    if (!what) return null;
     try {
       return await compileRecording(name, log, what);
     } catch (error) {
@@ -3035,7 +3168,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   // The review is asked for apart (requestReview), once the member wants it.
   async function compileRecording(name, log, what) {
     const platform = String((log && log.platform) || recordingPlatform()).toLowerCase() === "ios" ? "ios" : "android";
-    const data = await call("script.compile", { log, issue: what.issue, scenario: what.scenario, title: what.title || "", platform }, { timeoutMs: 120000 });
+    const data = await call("script.compile", { log, file: `${name}.wdlog.json`, issue: what.issue, scenario: what.scenario, title: what.title || "", platform }, { timeoutMs: 120000 });
     const fileName = String(data.name || name);
     const folder = `${SCRIPTS_DIR}/${platform}`;
     const scriptPath = await writeToWorkspace(`${fileName}.yaml`, new Blob([String(data.script || "")], { type: "application/yaml" }), folder);
@@ -3068,7 +3201,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (!path) setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
       else if (compiled && autoReview()) setStatus(`Saved and compiled ${data.segment}; the assistant reviews it in the chat. Restart the app and record the next scenario in the Inspector.`, "success");
       else if (compiled) setStatus(`Saved and compiled ${data.segment}. Replay it, then press Review when it passes; or restart the app and record the next scenario.`, "success");
-      else setStatus(`Saved ${data.segment}; the assistant compiles it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
+      else setStatus(`Saved ${data.segment}. Replay it as it is to check it, then compile it as its scenario from the Library. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
       setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack’s own site is not seen by the bridge." : errorText(error), "error");
     } finally {
@@ -3076,7 +3209,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (button) button.disabled = false;
     }
     renderSession();
-    loadFlow();
+    // The saved recording joins the replay list, ticked when nothing else is.
+    view.replay.touched = false;
+    loadReplaySegments();
   }
 
   async function saveAgain() {
@@ -3124,7 +3259,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     try {
       const path = await writeToWorkspace(`${name}${ext}`, file);
-      view.done.push({ name, detail: file.name });
+      view.done.push({ name, detail: file.name, code: true });
       remember();
       const next = nextPlanned(name);
       // Recorder code has no screens to split by: it is one segment.
@@ -3391,6 +3526,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else if (action === "use-name") useName(root, button.dataset.name || "");
     else if (action === "review-script") requestReview(button.dataset.name || "", button.dataset.path || "", button.dataset.report || "");
     else if (action === "replay-script") tickScript(root, button.dataset.name || "");
+    else if (action === "replay-recording") tickScript(root, button.dataset.name || "", "recording");
+    else if (action === "compile-recording") openCompile(button.dataset.name || "");
     else if (action === "finish-other") finishOther(button.dataset.id || "", button);
     else if (action === "adopt") adopt(button.dataset.id || "");
   });
@@ -3486,6 +3623,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     replayNoun,
     replayChoice,
     replayKey,
+    replayKeyKind,
     sameReplayRow,
     defaultReplayTicks,
     recordingState,
