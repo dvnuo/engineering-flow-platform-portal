@@ -1114,7 +1114,7 @@ def _connector_settings_panel_context(
     status_type: str = "",
     status_message: str = "",
 ) -> dict:
-    from app.services.connector_service import settings_entry
+    from app.services.connector_service import local_bridge_mobile_proxy, settings_entry
 
     service = RuntimeProfileService(db)
     modes = service.connector_modes(runtime_profile)
@@ -1135,6 +1135,9 @@ def _connector_settings_panel_context(
         "connector_follows_system": bool(spec.managed_sections) and mode == MODE_SYSTEM,
         "admin_defaults_available": bool(managed_slice(spec, sanitized_seed(service.read_seed()))),
         "appium_inspector_available": _hosted_inspector_available(),
+        # The proxy the local bridge uses to reach BrowserStack from the
+        # member's computer, kept in their Local bridge connector.
+        "local_bridge_proxy": local_bridge_mobile_proxy(db, getattr(runtime_profile, "owner_user_id", None)),
         "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
         "status_type": status_type,

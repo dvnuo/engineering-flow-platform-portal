@@ -86,6 +86,11 @@ def test_registry_has_local_bridge_with_defaults():
         ({"preferred_port": True}, "preferred_port"),
         ({"auto_enable_in_new_chats": 3}, "auto_enable_in_new_chats"),
         ({"surprise": 1}, "Unknown"),
+        ({"mobile_proxy": "http://proxy:3128"}, "mobile_proxy"),
+        ({"mobile_proxy": {"url": "ftp://proxy:3128"}}, "mobile_proxy.url"),
+        ({"mobile_proxy": {"url": "proxy.example.com:3128"}}, "mobile_proxy.url"),
+        ({"mobile_proxy": {"url": "http://alice:pw@proxy:3128"}}, "login"),
+        ({"mobile_proxy": {"url": "http://proxy:3128", "host": "x"}}, "Unknown mobile_proxy"),
     ],
 )
 def test_registry_rejects_bad_local_bridge_config(config, message):
@@ -99,6 +104,35 @@ def test_registry_coerces_string_values():
         {"auto_enable_in_new_chats": "false", "preferred_port": "8766"}
     )
     assert normalized == {"auto_enable_in_new_chats": False, "preferred_port": 8766}
+
+
+def test_registry_keeps_the_bridges_proxy_to_browserstack():
+    # The proxy the bridge on the member's computer uses to reach
+    # BrowserStack: the address alone, the login apart from it.
+    spec = get_connector_spec(LOCAL_BRIDGE_TYPE)
+    normalized = spec.normalized_config(
+        {"preferred_port": 8766, "mobile_proxy": {"url": " http://Proxy.example.com:3128/ ", "username": "CORP\\alice", "password": "s3cret"}}
+    )
+    assert normalized["mobile_proxy"] == {"url": "http://proxy.example.com:3128", "username": "CORP\\alice", "password": "s3cret"}
+    # No address means the computer's own proxy settings: nothing is kept.
+    assert "mobile_proxy" not in spec.normalized_config({"mobile_proxy": {"url": "", "username": "alice"}})
+    assert "mobile_proxy" not in spec.normalized_config({"mobile_proxy": None})
+    assert spec.private_config_keys == ("mobile_proxy",)
+
+
+def test_service_keeps_the_bridges_proxy_off_the_runtime(db_session, users):
+    alice, _bob = users
+    entry = connector_service.update_for_user(
+        db_session, alice, LOCAL_BRIDGE_TYPE, enabled=True, config={"mobile_proxy": {"url": "http://proxy.example.com:3128", "password": "s3cret"}}
+    )
+    assert entry["config"]["mobile_proxy"] == {"url": "http://proxy.example.com:3128", "password": "s3cret"}
+    # The member's pages read it; a chat's runtime metadata never carries it.
+    assert connector_service.local_bridge_mobile_proxy(db_session, alice.id) == {"url": "http://proxy.example.com:3128", "username": "", "password": "s3cret"}
+    assert "mobile_proxy" not in connector_service.enabled_connectors_for_user(db_session, alice.id)[LOCAL_BRIDGE_TYPE]
+    # Without an address the proxy is dropped from the row.
+    cleared = connector_service.update_for_user(db_session, alice, LOCAL_BRIDGE_TYPE, enabled=True, config={"mobile_proxy": {"url": ""}})
+    assert "mobile_proxy" not in cleared["config"]
+    assert connector_service.local_bridge_mobile_proxy(db_session, alice.id) == {"url": "", "username": "", "password": ""}
 
 
 # ---------------------------------------------------------------------------

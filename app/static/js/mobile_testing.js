@@ -19,9 +19,6 @@
   const PORTS = [8765, 8766, 8767, 8768, 8769, 8770];
   const PING_TIMEOUT_MS = 1500;
   const PROBE_CACHE_MS = 4000;
-  const PROXY_KEY = "efp.mobile.bridge_proxy";
-  const PROXY_USER_KEY = "efp.mobile.bridge_proxy_user";
-  const PROXY_PASSWORD_KEY = "efp.mobile.bridge_proxy_password";
   const BRIDGE_MESSAGES = {
     not_running: "The local bridge is not running on this computer. Start it here; if it is not installed yet, install it from Connectors > Local bridge first.",
     outdated: "The local bridge on this computer is an older version without mobile recording. Download it again from Connectors > Local bridge and restart it.",
@@ -47,15 +44,19 @@
     }
   }
 
-  // The proxy to BrowserStack from this computer is kept in this browser: its
-  // address, and apart from it the login a corporate proxy asks for, so the
-  // password sits in a password field instead of in the address.
+  // The proxy to BrowserStack from this computer: its address, and apart
+  // from it the login a corporate proxy asks for. It is saved in the member's
+  // Local bridge connector: the Mobile testing panel gets it with its
+  // recording settings, the BrowserStack connector page from its fields.
+  let bridgeProxy = { url: "", username: "", password: "" };
+
   function proxySettings() {
-    return {
-      url: readStorage(PROXY_KEY).trim(),
-      username: readStorage(PROXY_USER_KEY),
-      password: readStorage(PROXY_PASSWORD_KEY),
-    };
+    return bridgeProxy;
+  }
+
+  function setBridgeProxy(value) {
+    const source = value && typeof value === "object" ? value : {};
+    bridgeProxy = { url: String(source.url || "").trim(), username: String(source.username || ""), password: String(source.password || "") };
   }
 
   // Takes a login typed into a proxy address out of it, decoded.
@@ -93,29 +94,17 @@
     return `${parsed.protocol}//${login}@${parsed.host}`;
   }
 
-  // Shows the saved proxy in the fields of the connector page or the
-  // Mobile testing panel, leaving alone the one being typed in.
-  function fillProxyFields(container) {
+  // The connector page renders the saved proxy into its fields; what they
+  // hold is what the test from that page and the panel's calls use.
+  function readProxyFields(container) {
     if (!container) return;
-    const settings = proxySettings();
-    container.querySelectorAll("[data-bridge-proxy]").forEach((input) => {
-      if (document.activeElement !== input) input.value = settings[input.dataset.bridgeProxy] || "";
+    const field = (name) => container.querySelector(`[data-bridge-proxy="${name}"]`);
+    setBridgeProxy({
+      url: field("url") ? field("url").value : "",
+      username: field("username") ? field("username").value : "",
+      password: field("password") ? field("password").value : "",
     });
   }
-
-  // A login saved inside the address, before it had fields of its own, moves
-  // to them, so it is no longer shown in the clear.
-  function moveProxyLoginOutOfTheAddress() {
-    const saved = splitProxyLogin(readStorage(PROXY_KEY));
-    if (!saved.login) return;
-    writeStorage(PROXY_KEY, saved.url);
-    if (!readStorage(PROXY_USER_KEY) && !readStorage(PROXY_PASSWORD_KEY)) {
-      writeStorage(PROXY_USER_KEY, saved.username);
-      writeStorage(PROXY_PASSWORD_KEY, saved.password);
-    }
-  }
-
-  moveProxyLoginOutOfTheAddress();
 
   function sleep(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -414,7 +403,7 @@
   async function refreshOverview(root) {
     const status = root.querySelector("[data-mobile-bridge-status]");
     const start = root.querySelector('[data-mobile-bridge-action="start"]');
-    fillProxyFields(root);
+    readProxyFields(root);
     const state = await probe({ force: true });
     const problem = bridgeProblem(state);
     if (problem) setInline(status, BRIDGE_MESSAGES[problem], problem === "not_running" ? "warning" : "error");
@@ -477,11 +466,6 @@
   const SEGMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
   const CUSTOM_ID = /^[A-Za-z0-9._-]{1,100}$/;
   const RECORDING_KEY_PREFIX = "efp.mobile.recording:";
-  const AUTO_INSPECTOR_KEY = "efp.mobile.auto_inspector";
-  // Whether a script goes to the assistant for review as soon as it is
-  // compiled; off by default, so a member replays it first and asks for the
-  // review when it passes.
-  const AUTO_REVIEW_KEY = "efp.mobile.auto_review";
 
   const view = {
     agentId: "",
@@ -505,7 +489,6 @@
     // flow is what the workspace says about the steps after recording: the
     // latest split, the compiled segments, and the scenario plan.
     flow: null,
-    settingsOpen: false,
     connectionOpen: false,
     // inspectorTab is the tab Start opened to land in the Inspector.
     inspectorTab: null,
@@ -544,15 +527,6 @@
 
   function inspectorAvailable() {
     return Boolean(view.config && view.config.inspector_available);
-  }
-
-  // Start opens a tab for the Inspector unless the member switched it off.
-  function autoInspector() {
-    return readStorage(AUTO_INSPECTOR_KEY) !== "off";
-  }
-
-  function autoReview() {
-    return readStorage(AUTO_REVIEW_KEY) === "on";
   }
 
   function parseSegments(text) {
@@ -763,7 +737,6 @@
         <div class="portal-inline-state" data-recording-status role="status"></div>
         <section class="efp-mobile-section hidden" data-recording-record></section>
         <section class="efp-mobile-section hidden" data-recording-library></section>
-        <section class="efp-mobile-section efp-mobile-settings hidden" data-recording-settings></section>
         <div data-recording-dialog-host></div>
       </div>`;
   }
@@ -778,7 +751,6 @@
     renderRecord();
     renderReplay();
     renderLibrary();
-    renderSettings();
     renderIcons();
   }
 
@@ -813,7 +785,7 @@
     renderIcons();
   }
 
-  // The bar names the bridge, or what is wrong with it, and holds Settings.
+  // The bar names the bridge, or what is wrong with it.
   function renderBar() {
     const bar = panelRoot()?.querySelector("[data-recording-bar]");
     if (!bar) return;
@@ -836,12 +808,11 @@
           <div class="efp-card-actions">${start}<button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button></div>`;
       }
     }
-    bar.innerHTML = `<div class="efp-mobile-bar-main">${main}</div>
-      <button type="button" class="toolbar-icon-btn" data-recording-action="settings" title="Settings" aria-label="Settings" aria-pressed="${view.settingsOpen ? "true" : "false"}"><i data-lucide="settings" class="w-4 h-4"></i></button>`;
+    bar.innerHTML = `<div class="efp-mobile-bar-main">${main}</div>`;
   }
 
   function startLabel() {
-    return inspectorAvailable() && autoInspector() ? "Start and open Inspector" : "Start recording device";
+    return inspectorAvailable() ? "Start and open Inspector" : "Start recording device";
   }
 
   function startFormHtml() {
@@ -867,9 +838,20 @@
             <p class="portal-inline-note">One recording is one scenario, from the app's first screen to its result. List the scenario scripts you are going to record, in order, as the assistant names them (the issue key and the scenario id): each save goes under the next name. Leave it empty to type the name when you save.</p>
           </div>
         </details>
+        <details class="portal-collapsible" data-recording-upload>
+          <summary class="portal-collapsible-summary"><span>Upload a build</span></summary>
+          <div class="portal-panel-stack">
+            <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
+            <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
+              <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
+            </label>
+            <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
+            <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
+            <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button></div>
+          </div>
+        </details>
         <div class="efp-card-actions">
           <button type="button" class="portal-btn is-primary" data-recording-action="start"><i data-lucide="play" class="w-4 h-4"></i>${esc(startLabel())}</button>
-          <button type="button" class="portal-btn is-secondary" data-recording-action="settings-upload"><i data-lucide="upload" class="w-4 h-4"></i>Upload a build</button>
         </div>
       </div>
       <div data-recording-others></div>`;
@@ -1490,85 +1472,6 @@
 
   // ---- Settings ----------------------------------------------------------------------
 
-  function settingsHtml() {
-    const problem = view.config && view.config.configured ? bridgeProblem(view.bridge) : "";
-    const bridge = !view.bridge
-      ? "Looking for the local bridge…"
-      : (problem ? BRIDGE_MESSAGES[problem] : `Running on 127.0.0.1:${view.bridge.port}${view.bridge.version ? ` (version ${view.bridge.version})` : ""}.`);
-    return `
-      <div class="efp-mobile-section-head"><h5>Settings</h5></div>
-      <div class="efp-settings-group">
-        <h6>Local bridge</h6>
-        <p class="efp-card-meta">${esc(bridge)}</p>
-        <div class="efp-card-actions">
-          ${problem === "not_running" ? `<button type="button" class="portal-btn is-secondary" data-recording-action="start-bridge"${view.busy === "bridge" ? " disabled" : ""}><i data-lucide="plug" class="w-4 h-4"></i>Start bridge</button>` : ""}
-          <button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button>
-          <a class="portal-link-inline" href="#/connectors/local_bridge">Connectors &gt; Local bridge</a>
-        </div>
-      </div>
-      <div class="efp-settings-group">
-        <h6>Review</h6>
-        <label class="efp-replay-row"><input type="checkbox" data-recording-auto-review${autoReview() ? " checked" : ""} /><span>Ask the assistant to review a script as soon as it is compiled</span></label>
-        <p class="portal-inline-note">Off, a compiled script waits for you: replay it, and press Review when it passes. The assistant then labels its steps with the plan's and adds the expected-result checks.</p>
-      </div>
-      ${inspectorAvailable() ? `
-      <div class="efp-settings-group">
-        <h6>Appium Inspector</h6>
-        <label class="efp-replay-row"><input type="checkbox" data-recording-auto-inspector${autoInspector() ? " checked" : ""} /><span>Open the Inspector in a new tab when the device is ready</span></label>
-        <p class="portal-inline-note">Portal hosts the Inspector; it attaches to the device through the bridge on this computer. The device menu opens it inside Portal instead.</p>
-      </div>` : `
-      <div class="efp-settings-group">
-        <h6>Appium Inspector</h6>
-        <p class="portal-inline-note">This Portal does not host the Inspector, so recording uses the desktop Appium Inspector with the connection details in the device menu. An administrator can bundle it in the Portal image.</p>
-      </div>`}
-      <div class="efp-settings-group">
-        <h6>Proxy to BrowserStack from this computer</h6>
-        <label class="portal-form-label"><span class="portal-form-label">Proxy (optional)</span>
-          <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
-        </label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
-            <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
-          </label>
-          <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
-            <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
-          </label>
-        </div>
-        <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\\user; the password stays hidden on screen.</p>
-      </div>
-      <div class="efp-settings-group" data-recording-upload>
-        <h6>Upload a build to BrowserStack</h6>
-        <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
-        <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
-          <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
-        </label>
-        <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
-        <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
-        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button></div>
-      </div>`;
-  }
-
-  function renderSettings() {
-    const target = panelRoot()?.querySelector("[data-recording-settings]");
-    if (!target) return;
-    target.classList.toggle("hidden", !view.settingsOpen);
-    if (!view.settingsOpen) {
-      target.innerHTML = "";
-      return;
-    }
-    if (target.querySelector("[data-recording-build]")) return;
-    target.innerHTML = settingsHtml();
-    fillProxyFields(target);
-    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(target);
-  }
-
-  function toggleSettings(open) {
-    view.settingsOpen = typeof open === "boolean" ? open : !view.settingsOpen;
-    renderBar();
-    renderSettings();
-    renderIcons();
-  }
-
   // ---- loading -----------------------------------------------------------------------
 
   async function loadConfig() {
@@ -1576,6 +1479,7 @@
       const response = await fetch(`/api/mobile/recording-config?agent_id=${encodeURIComponent(view.agentId)}`, { credentials: "same-origin", cache: "no-store" });
       if (response.ok) {
         view.config = await response.json();
+        setBridgeProxy(view.config.bridge_proxy);
       } else {
         view.config = {
           configured: false,
@@ -1637,7 +1541,6 @@
   async function refreshAll() {
     await Promise.all([loadConfig(), probe({ force: true }).then((state) => { view.bridge = state; })]);
     renderBar();
-    renderSettings();
     if (!bridgeProblem(view.bridge)) {
       // A held recording shows up without waiting for the build list.
       await Promise.all([
@@ -1757,7 +1660,7 @@
       Object.assign(view, {
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
         recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", releasing: null, releasingOther: "", sessionKey: "", formKey: "", polls: 0,
-        replay: freshReplay(), flow: null, settingsOpen: false, connectionOpen: false, inspectorTab: null,
+        replay: freshReplay(), flow: null, connectionOpen: false, inspectorTab: null,
         tab: "session", library: freshLibrary(),
       });
     } else {
@@ -1773,7 +1676,6 @@
   async function startBridge() {
     view.busy = "bridge";
     renderBar();
-    renderSettings();
     setStatus("Starting the local bridge… allow the efp-bridge link if Chrome asks.", "");
     try {
       view.bridge = await launchAndWait();
@@ -1783,7 +1685,6 @@
     if (bridgeProblem(view.bridge)) {
       setStatus("The bridge did not start. Install it from Connectors > Local bridge, or start it from there and check again.", "error");
       renderBar();
-      renderSettings();
       return;
     }
     setStatus("", "");
@@ -1832,7 +1733,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   }
 
   function openInspectorTabEarly() {
-    if (!inspectorAvailable() || !autoInspector()) return null;
+    if (!inspectorAvailable()) return null;
     let tab = null;
     try {
       tab = window.open("", "_blank");
@@ -3021,8 +2922,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       try {
         const compiled = await compileRecording(name, log, what);
         delete lib.open[`compile:${path}`];
-        if (autoReview()) requestReview(compiled.name, compiled.path, compiled.reportPath);
-        else say(`Compiled ${name} as ${compiled.name} (grade ${compiled.report.grade || "?"}). Replay it, then press Review when it passes.`, "success");
+        say(`Compiled ${name} as ${compiled.name} (grade ${compiled.report.grade || "?"}). Replay it, then press Review when it passes.`, "success");
       } catch (error) {
         // This computer could not compile it (an older bridge): the assistant does.
         sendChat(`Script ${entry.name} recorded: ${path}`);
@@ -3155,7 +3055,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       done.scriptPath = compiled.path;
       done.reportPath = compiled.reportPath;
       remember();
-      if (autoReview()) requestReview(compiled.name, compiled.path, compiled.reportPath);
     }
     return path;
   }
@@ -3213,7 +3112,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const last = view.done[view.done.length - 1];
       const compiled = Boolean(path && last && last.name === data.segment && last.compiled);
       if (!path) setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
-      else if (compiled && autoReview()) setStatus(`Saved and compiled ${data.segment}; the assistant reviews it in the chat. Restart the app and record the next scenario in the Inspector.`, "success");
       else if (compiled) setStatus(`Saved and compiled ${data.segment}. Replay it, then press Review when it passes; or restart the app and record the next scenario.`, "success");
       else setStatus(`Saved ${data.segment}. Replay it as it is to check it, then compile it as its scenario from the Library. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
@@ -3435,8 +3333,31 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   // goes only to the local bridge, which hands it to mobile-auto and
   // BrowserStack Local. A login pasted into the address moves to the user
   // name and password fields, so the password is never shown in the clear.
-  function saveProxy(container, report) {
-    const say = report || setStatus;
+  const LOCAL_BRIDGE_CONNECTOR = "local_bridge";
+
+  // A Portal connectors API call: the JSON body, or an error with the
+  // detail the API gave.
+  async function connectorJson(url, options) {
+    const response = await fetch(url, Object.assign({ credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" } }, options || {}));
+    let body = null;
+    try {
+      body = await response.json();
+    } catch (_error) {
+      body = null;
+    }
+    if (!response.ok) {
+      const detail = body && (body.detail || body.error);
+      throw new Error(typeof detail === "string" && detail ? detail : `HTTP ${response.status}`);
+    }
+    return body && typeof body === "object" ? body : {};
+  }
+
+  // Saves the proxy typed on the BrowserStack connector page into the
+  // member's Local bridge connector, keeping the rest of its settings; the
+  // test on that page and the panel's calls use it from then on.
+  async function saveProxy(container, button) {
+    if (!container) return false;
+    const say = (text, tone) => setInline(container.querySelector("[data-bridge-proxy-result]"), text, tone);
     const field = (name) => container.querySelector(`[data-bridge-proxy="${name}"]`);
     const urlInput = field("url");
     const userInput = field("username");
@@ -3445,6 +3366,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     let username = userInput ? userInput.value.trim() : "";
     let password = passwordInput ? passwordInput.value : "";
     if (typed.login) {
+      // A login typed into the address moves to its own fields.
       username = typed.username;
       password = typed.password;
       if (urlInput) urlInput.value = typed.url;
@@ -3463,14 +3385,24 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         return false;
       }
     }
-    writeStorage(PROXY_KEY, typed.url);
-    writeStorage(PROXY_USER_KEY, username);
-    writeStorage(PROXY_PASSWORD_KEY, password);
-    const login = Boolean(username || password);
-    if (typed.url) say(login ? "Proxy saved for this computer; its login stays in this browser." : "Proxy saved for this computer.", "success");
-    else say(login ? "Using this computer's proxy settings; the user name and password apply only with a proxy address." : "Using this computer's proxy settings.", "success");
-    if (panelRoot() && ready()) loadApps();
-    return true;
+    if (button) button.disabled = true;
+    say("Saving…", "");
+    try {
+      const current = await connectorJson(`/api/connectors/${LOCAL_BRIDGE_CONNECTOR}`, { method: "GET" });
+      const config = Object.assign({}, current.config && typeof current.config === "object" ? current.config : {});
+      if (typed.url) config.mobile_proxy = { url: typed.url, username, password };
+      else delete config.mobile_proxy;
+      const saved = await connectorJson(`/api/connectors/${LOCAL_BRIDGE_CONNECTOR}`, { method: "PUT", body: JSON.stringify({ enabled: Boolean(current.enabled), config }) });
+      setBridgeProxy(saved.config ? saved.config.mobile_proxy : null);
+      if (typed.url) say(username || password ? "Proxy saved for this computer, with its login." : "Proxy saved for this computer.", "success");
+      else say("Using this computer's own proxy settings; a user name and password are kept only with a proxy address.", "success");
+      return true;
+    } catch (error) {
+      say(`Could not save the proxy: ${errorText(error)}`, "error");
+      return false;
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
   // ---- events -----------------------------------------------------------------
@@ -3488,6 +3420,12 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     if (overviewStart) {
       event.preventDefault();
       startBridgeFromOverview(overviewStart);
+      return;
+    }
+    const proxySave = target.closest("[data-bridge-proxy-save]");
+    if (proxySave) {
+      event.preventDefault();
+      saveProxy(proxySave.closest("[data-mobile-overview]"), proxySave);
       return;
     }
     const copy = target.closest("[data-recording-copy]");
@@ -3543,11 +3481,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const action = button.dataset.recordingAction;
     if (action === "start-bridge") startBridge();
     else if (action === "check-bridge") refreshAll();
-    else if (action === "settings") toggleSettings();
-    else if (action === "settings-upload") {
-      toggleSettings(true);
-      root.querySelector("[data-recording-build]")?.scrollIntoView({ block: "center" });
-    } else if (action === "upload-build") uploadBuildFromPanel(root, button);
+    else if (action === "upload-build") uploadBuildFromPanel(root, button);
     else if (action === "start") startRecording(root, button);
     else if (action === "open-inspector") openInspector();
     else if (action === "open-workspace") openWorkspace();
@@ -3586,17 +3520,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   document.addEventListener("change", (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target && target.matches("[data-bridge-proxy]")) {
-      const overview = target.closest("[data-mobile-overview]");
-      const panel = target.closest("[data-recording-root]");
-      if (overview) {
-        const result = overview.parentElement ? overview.parentElement.querySelector("[data-mobile-bridge-test-result]") : null;
-        saveProxy(overview, (text, tone) => setInline(result, text, tone));
-      } else if (panel) {
-        saveProxy(panel);
-      }
-      return;
-    }
     if (!target || !target.closest("[data-recording-root]")) return;
     if (target.matches("[data-recording-app]")) {
       syncPlatform();
@@ -3607,13 +3530,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const custom = root.querySelector("[data-recording-custom-id]");
       const file = target.files && target.files[0];
       if (custom && file && !custom.value.trim()) custom.value = suggestCustomId(file.name);
-    } else if (target.matches("[data-recording-auto-review]")) {
-      writeStorage(AUTO_REVIEW_KEY, target.checked ? "on" : "");
-    } else if (target.matches("[data-recording-auto-inspector]")) {
-      writeStorage(AUTO_INSPECTOR_KEY, target.checked ? "" : "off");
-      view.formKey = "";
-      renderDevice();
-      renderIcons();
     } else if (target.matches("[data-replay-chain]")) {
       const d = view.replay.dialog;
       if (d) {
@@ -3672,6 +3588,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     flowSteps,
     parseSegmentYaml,
     proxyForBridge,
+    proxySettings,
+    setBridgeProxy,
     splitProxyLogin,
     suggestCustomId,
     probeBridge: probe,

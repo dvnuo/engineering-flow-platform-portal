@@ -1,7 +1,9 @@
 {#
   Below the BrowserStack settings form: where recordings and test runs
-  happen. Nothing here is a setting; static/js/mobile_testing.js fills in the
-  local bridge's status.
+  happen, and the one setting that is this computer's: the proxy the local
+  bridge uses to reach BrowserStack, saved into the member's Local bridge
+  connector by static/js/mobile_testing.js, which also fills in the bridge's
+  status.
 #}
 <section class="portal-panel-section" data-mobile-overview>
   <div class="portal-settings-section-title">
@@ -18,18 +20,20 @@
     <div class="portal-inline-state is-visible" data-mobile-bridge-status role="status">Looking for the local bridge…</div>
     <button type="button" class="portal-btn is-secondary hidden" data-mobile-bridge-action="start">Start bridge</button>
   </div>
+  {% set bridge_proxy = local_bridge_proxy if local_bridge_proxy is mapping else {} %}
   <label class="portal-form-label"><span class="portal-form-label">Proxy to BrowserStack from this computer (optional)</span>
-    <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
+    <input class="portal-form-input" data-bridge-proxy="url" value="{{ bridge_proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
   </label>
   <div class="grid grid-cols-2 gap-3">
     <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
-      <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
+      <input class="portal-form-input" data-bridge-proxy="username" value="{{ bridge_proxy.get('username', '') }}" placeholder="Optional" autocomplete="off" spellcheck="false" />
     </label>
     <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
-      <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
+      <input type="password" class="portal-form-input" data-bridge-proxy="password" value="{{ bridge_proxy.get('password', '') }}" placeholder="Optional" autocomplete="new-password" />
     </label>
   </div>
-  <p class="portal-inline-note">Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Kept in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\user; the password stays hidden on screen and goes only to the local bridge on this computer.</p>
+  <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary flex-none" data-bridge-proxy-save>Save proxy</button><div class="portal-inline-state" data-bridge-proxy-result role="status"></div></div>
+  <p class="portal-inline-note">Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Saved with your Local bridge connector and handed only to the bridge on this computer; the assistants never get it. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\user.</p>
   <ul class="portal-setup-guide-steps">
     <li>Install the local bridge once from <strong>Connectors &gt; Local bridge</strong>; its package includes mobile-auto for recordings.</li>
     {% if appium_inspector_available %}

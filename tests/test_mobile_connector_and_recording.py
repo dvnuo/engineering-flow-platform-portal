@@ -117,6 +117,9 @@ def test_browserstack_panel_tests_through_the_bridge_and_says_where_runs_happen(
         assert 'data-bridge-proxy="url"' in html and 'data-bridge-proxy="username"' in html
         assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in html
         assert "user:password@" not in html
+        # Saved into the member's Local bridge connector, not this browser.
+        assert "data-bridge-proxy-save" in html and "Saved with your Local bridge connector" in html
+        assert "Kept in this browser only" not in html
         assert 'name="mobile_idle_timeout_seconds"' in html
         assert 'name="mobile_browserstack_local_mode"' not in html and 'name="mobile_browserstack_verify_ssl"' not in html
         assert "data-test-secrets" not in html and "data-app-packages" not in html
@@ -198,6 +201,23 @@ def test_recording_config_hands_the_owner_their_settings_for_the_bridge(api):
     # The device's Appium version travels to the bridge with the other defaults.
     assert body["defaults"]["appium_version"] == "2.19.0"
     assert body["inspector_available"] is True and body["recordings_dir"] == "mobile/recordings"
+    # No proxy set for this computer: the bridge uses the computer's own.
+    assert body["bridge_proxy"] == {"url": "", "username": "", "password": ""}
+
+
+def test_recording_config_carries_the_bridges_proxy_to_browserstack(api):
+    from app.repositories.user_connector_repo import UserConnectorRepository
+
+    # The proxy lives in the member's Local bridge connector, so it follows
+    # the member and is never admin-managed; the panel hands it to the bridge
+    # with the credentials.
+    UserConnectorRepository(api.db).upsert(
+        api.owner.id, "local_bridge", enabled=True,
+        config_json=json.dumps({"preferred_port": 8765, "mobile_proxy": {"url": "http://proxy.example.com:3128", "username": "CORP\\alice", "password": "s3cret"}}),
+    )
+    api.db.commit()
+    body = api.client.get(f"/api/mobile/recording-config?agent_id={api.agent.id}").json()
+    assert body["bridge_proxy"] == {"url": "http://proxy.example.com:3128", "username": "CORP\\alice", "password": "s3cret"}
 
 
 def test_recording_config_falls_back_to_the_deployments_network(api, monkeypatch):
@@ -284,9 +304,10 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert '"script.compile"' in js and "Script ${name} compiled: ${path}\\nReport: ${reportPath}" in js and "${fileName}.report.json" in js
     # The review is a step of its own: a Review button on the saved line, on
     # the Library's script row, and under a replay that passed; saving sends
-    # nothing unless the member switched the review on in Settings.
-    for marker in ('data-recording-action="review-script"', 'data-recording-action="replay-script"', "library-review", 'data-replay-action="review"', "data-recording-auto-review", 'const AUTO_REVIEW_KEY = "efp.mobile.auto_review";', 'readStorage(AUTO_REVIEW_KEY) === "on"'):
+    # nothing, and nothing sends the review by itself.
+    for marker in ('data-recording-action="review-script"', 'data-recording-action="replay-script"', "library-review", 'data-replay-action="review"'):
         assert marker in js, marker
+    assert "AUTO_REVIEW_KEY" not in js and "data-recording-auto-review" not in js and "autoReview()" not in js
     # A replay is set up, followed and read in a dialog opened on the file:
     # where to start, the secret values, the bridge's phases with a link to
     # watch it live, then the outcome. The panel has no replay section.
@@ -311,11 +332,16 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # Code from the Inspector's recorder keeps no screens: an older segment.
     assert "Segment ${name} recorded: ${path}" in js
     # The panel is Mobile testing: the device on top, a progress strip, then
-    # the step at hand; settings behind a gear; the Inspector opens itself.
+    # the step at hand; the Inspector opens itself. It has no settings of its
+    # own: the configuration lives in Connectors, and the build upload sits
+    # in the start form with the build it adds to.
     assert 'const PANEL_TITLE = "Mobile testing";' in js
     assert "Recording on my computer through the Mobile testing panel." in js
-    for marker in ("data-recording-flow", "data-recording-settings", 'data-recording-action="settings"', "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", "data-recording-auto-inspector"):
+    for marker in ("data-recording-flow", "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", '<details class="portal-collapsible" data-recording-upload>'):
         assert marker in js, marker
+    for gone in ("data-recording-settings", 'data-recording-action="settings"', "settings-upload", "data-recording-auto-inspector", "AUTO_INSPECTOR_KEY", "efp.mobile.auto_"):
+        assert gone not in js, gone
+    assert js.index('data-recording-upload>') < js.index('data-recording-action="start"><i data-lucide="play"')
     # The Library lists what the workspace keeps and deletes through the
     # runtime's workspace API; a script's report goes with it.
     for marker in ("data-recording-tabs", "data-recording-library", 'data-recording-action="library-replay"', 'data-recording-action="library-view"', "library-delete-script", "library-delete-segment", "library-delete-recording", "library-delete-replay", 'workspaceApi("/delete")', "JSON.stringify({ paths })", "row.reportPath", "efp-lib-pre", "cards.replayCardHtml(cards.normalizeReplay(", 'data-recording-action="library-copy"', "library-copy-send", "Copy script ${name} as a variant: "):
@@ -326,8 +352,12 @@ def test_the_page_drives_the_local_bridge_not_portal():
     assert '"segment.replay"' in js and '"replay.status"' in js and '"replay.stop"' in js
     assert 'const REPLAYS_DIR = "mobile/replays";' in js and "Replay finished: " in js
     assert '<input type="password" class="portal-form-input" data-replay-secret' in js
-    # The Mobile testing panel has the same proxy fields, the password masked.
-    assert '<input type="password" class="portal-form-input" data-bridge-proxy="password"' in js
+    # The proxy to BrowserStack from this computer is set on the connector
+    # page alone and saved in the Local bridge connector; the panel gets it
+    # with its recording settings, never from this browser's storage.
+    assert 'data-bridge-proxy="password"' not in js and "efp.mobile.bridge_proxy" not in js
+    assert "setBridgeProxy(view.config.bridge_proxy)" in js and "config.mobile_proxy = { url: typed.url, username, password }" in js
+    assert "data-bridge-proxy-save" in js and "/api/connectors/${LOCAL_BRIDGE_CONNECTOR}" in js
     # Script names are optional: a member can name each recording when saving.
     assert "Script names (optional)" in js and 'segment: view.planned[0] || "recording-1"' in js
     assert "params.appium_version = String(defaults.appium_version)" in js
@@ -398,8 +428,7 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
     shim = textwrap.dedent(
         """
         globalThis.window = globalThis;
-        // A proxy saved the old way, its login inside the address.
-        const store = { "efp.mobile.bridge_proxy": "http://CORP%5Calice:s3cret@proxy2:8080" };
+        const store = {};
         globalThis.localStorage = {
           getItem: (key) => (key in store ? store[key] : null),
           setItem: (key, value) => { store[key] = String(value); },
@@ -442,8 +471,12 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.deepEqual(M.parseSegments("seg-login\\n seg skip intro , ../x\\n\\n"), ["seg-login", "seg-skip-intro", "x"]);
         assert.equal(M.savedMessage("FX-12-buy-100-usd", "mobile/recordings/FX-12-buy-100-usd.wdlog.json", ["FX-12-buy-100-usd"]), "Script FX-12-buy-100-usd recorded: mobile/recordings/FX-12-buy-100-usd.wdlog.json");
         assert.equal(M.savedMessage("recording-1", "mobile/recordings/recording-1.wdlog.json", []), "Recording recording-1 saved: mobile/recordings/recording-1.wdlog.json");
-        // The login saved inside the address moved to its own fields.
-        assert.deepEqual(store, { "efp.mobile.bridge_proxy": "http://proxy2:8080", "efp.mobile.bridge_proxy_user": "CORP\\\\alice", "efp.mobile.bridge_proxy_password": "s3cret" });
+        // The proxy comes with the recording settings and reaches the bridge
+        // as one address with the login in it; nothing is kept in this browser.
+        M.setBridgeProxy({ url: " http://proxy2:8080 ", username: "CORP\\\\alice", password: "s3cret" });
+        assert.deepEqual(M.proxySettings(), { url: "http://proxy2:8080", username: "CORP\\\\alice", password: "s3cret" });
+        assert.equal(M.proxyForBridge(), "http://CORP%5Calice:s3cret@proxy2:8080");
+        assert.deepEqual(store, {});
         assert.equal(M.proxyForBridge({ url: "http://proxy2:8080", username: "CORP\\\\alice", password: "p@ss:w/rd 50%" }), "http://CORP%5Calice:p%40ss%3Aw%2Frd%2050%25@proxy2:8080");
         assert.equal(M.proxyForBridge({ url: "http://proxy2:8080", username: "", password: "" }), "http://proxy2:8080");
         assert.equal(

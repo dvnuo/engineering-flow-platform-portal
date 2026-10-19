@@ -6611,8 +6611,6 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-mobile-section { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--portal-border); }
 .efp-mobile-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
 .efp-mobile-section h5 { margin: 0; color: var(--portal-text); font-size: 13px; font-weight: 700; }
-.efp-mobile-settings h6 { margin: 0 0 4px; color: var(--portal-text); font-size: 12px; font-weight: 700; }
-.efp-settings-group { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--portal-radius-sm); background: var(--portal-surface-soft); }
 .efp-device { gap: 6px; }
 .efp-device .efp-card-head { flex-wrap: nowrap; }
 .efp-device .efp-card-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

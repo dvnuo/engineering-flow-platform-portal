@@ -23,6 +23,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.connector_service import local_bridge_mobile_proxy
 from app.services.runtime_profile_service import RuntimeProfileService
 
 router = APIRouter(tags=["mobile"])
@@ -76,6 +77,10 @@ def recording_config(agent_id: str, user=Depends(get_current_user), db: Session 
         "problem": problem,
         "inspector_available": appium_inspector_dir() is not None,
         "recordings_dir": RECORDINGS_DIR,
+        # The proxy the bridge on the member's computer uses to reach
+        # BrowserStack, from their Local bridge connector; empty means the
+        # computer's own proxy settings.
+        "bridge_proxy": local_bridge_mobile_proxy(db, user.id),
         "defaults": {
             "platform": str(defaults.get("platform") or ""),
             "network": str(defaults.get("network_mode") or get_settings().mobile_default_network or "").strip(),
