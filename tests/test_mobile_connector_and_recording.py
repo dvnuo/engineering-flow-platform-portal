@@ -337,11 +337,19 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # in the start form with the build it adds to.
     assert 'const PANEL_TITLE = "Mobile testing";' in js
     assert "Recording on my computer through the Mobile testing panel." in js
-    for marker in ("data-recording-flow", "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", '<details class="portal-collapsible" data-recording-upload>'):
+    for marker in ("data-recording-flow", "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", 'data-recording-action="upload-toggle"', 'class="efp-upload${view.uploadOpen ? "" : " hidden"}" data-recording-upload'):
         assert marker in js, marker
     for gone in ("data-recording-settings", 'data-recording-action="settings"', "settings-upload", "data-recording-auto-inspector", "AUTO_INSPECTOR_KEY", "efp.mobile.auto_"):
         assert gone not in js, gone
-    assert js.index('data-recording-upload>') < js.index('data-recording-action="start"><i data-lucide="play"')
+    assert js.index('data-recording-action="upload-toggle"') < js.index('data-recording-action="start"><i data-lucide="play"')
+    # The device area is the same on both tabs: the Library never hides the
+    # start form, and a replay asked for without a device points at it.
+    assert "No device held" not in js and "under Session" not in js and js.count("askForDevice(") == 4
+    # A collapsible reads as something to open, in the panel and on the
+    # connector pages alike: the base style draws the chevron.
+    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
+    assert ".portal-collapsible-summary::after" in css and ".portal-collapsible[open] > .portal-collapsible-summary::after" in css
+    assert ".portal-collapsible-summary:has(> i, > svg)::after" in css
     # The Library lists what the workspace keeps and deletes through the
     # runtime's workspace API; a script's report goes with it.
     for marker in ("data-recording-tabs", "data-recording-library", 'data-recording-action="library-replay"', 'data-recording-action="library-view"', "library-delete-script", "library-delete-segment", "library-delete-recording", "library-delete-replay", 'workspaceApi("/delete")', "JSON.stringify({ paths })", "row.reportPath", "efp-lib-pre", "cards.replayCardHtml(cards.normalizeReplay(", 'data-recording-action="library-copy"', "library-copy-send", "Copy script ${name} as a variant: "):

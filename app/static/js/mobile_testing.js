@@ -490,6 +490,8 @@
     // latest split, the compiled segments, and the scenario plan.
     flow: null,
     connectionOpen: false,
+    // uploadOpen is the start form's upload area, shown by its button.
+    uploadOpen: false,
     // inspectorTab is the tab Start opened to land in the Inspector.
     inspectorTab: null,
     // workspace is the overlay that holds the Inspector inside Portal.
@@ -763,10 +765,8 @@
 
   function switchTab(tab) {
     view.tab = tab === "library" ? "library" : "session";
-    view.formKey = "";
     renderTabs();
     renderDevice();
-    renderFlow();
     renderFlow();
     renderRecord();
     renderReplay();
@@ -820,9 +820,22 @@
       <div class="efp-card efp-device">
         <div class="efp-card-head"><strong class="efp-card-title">Start a device</strong></div>
         <p class="efp-card-meta">The local bridge starts a BrowserStack device with the build and holds it while you record and replay.</p>
-        <label class="portal-form-label"><span class="portal-form-label">Build</span>
-          <select class="portal-form-select" data-recording-app><option value="">Looking for your builds…</option></select>
-        </label>
+        <div class="efp-field">
+          <div class="efp-field-head"><span class="portal-form-label">Build</span><button type="button" class="composer-pill-btn" data-recording-action="upload-toggle" aria-expanded="${view.uploadOpen ? "true" : "false"}" title="Upload an .apk, .aab or .ipa to BrowserStack"><i data-lucide="upload" class="w-3 h-3"></i>Upload a build</button></div>
+          <select class="portal-form-select" data-recording-app aria-label="Build"><option value="">Looking for your builds…</option></select>
+        </div>
+        <div class="efp-upload${view.uploadOpen ? "" : " hidden"}" data-recording-upload>
+          <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
+          <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
+            <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
+          </label>
+          <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
+          <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
+          <div class="efp-card-actions">
+            <button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button>
+            <button type="button" class="portal-btn" data-recording-action="upload-toggle">Cancel</button>
+          </div>
+        </div>
         <div class="grid grid-cols-2 gap-3">
           <label class="portal-form-label"><span class="portal-form-label">Platform</span>
             <select class="portal-form-select" data-recording-platform><option value="android">Android</option><option value="ios">iOS</option></select>
@@ -836,18 +849,6 @@
           <div class="portal-panel-stack">
             <textarea class="portal-form-textarea" rows="2" data-recording-segments placeholder="FX-12-buy-100-usd&#10;FX-12-over-daily-limit-usd"></textarea>
             <p class="portal-inline-note">One recording is one scenario, from the app's first screen to its result. List the scenario scripts you are going to record, in order, as the assistant names them (the issue key and the scenario id): each save goes under the next name. Leave it empty to type the name when you save.</p>
-          </div>
-        </details>
-        <details class="portal-collapsible" data-recording-upload>
-          <summary class="portal-collapsible-summary"><span>Upload a build</span></summary>
-          <div class="portal-panel-stack">
-            <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
-            <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
-              <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
-            </label>
-            <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
-            <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
-            <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button></div>
           </div>
         </details>
         <div class="efp-card-actions">
@@ -1027,11 +1028,6 @@
     const target = panelRoot()?.querySelector("[data-recording-device]");
     if (!target) return;
     const rec = view.recording;
-    if (!rec && view.tab === "library") {
-      view.formKey = "";
-      target.innerHTML = `<div class="efp-card efp-device"><div class="efp-card-meta">No device held. Start one under Session to record or replay.</div></div>`;
-      return;
-    }
     if (!rec) {
       // The start form keeps what the member typed across polls.
       const key = ["form", startLabel(), view.config ? view.config.configured : ""].join("|");
@@ -1660,7 +1656,7 @@
       Object.assign(view, {
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
         recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", releasing: null, releasingOther: "", sessionKey: "", formKey: "", polls: 0,
-        replay: freshReplay(), flow: null, connectionOpen: false, inspectorTab: null,
+        replay: freshReplay(), flow: null, connectionOpen: false, uploadOpen: false, inspectorTab: null,
         tab: "session", library: freshLibrary(),
       });
     } else {
@@ -2153,7 +2149,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const rec = view.recording;
     const r = view.replay;
     if (!rec || rec.status !== "active") {
-      setStatus("Start a device under Session first; a replay runs on the held device.", "warning");
+      askForDevice("a replay runs on it");
       return;
     }
     if (r.running && r.running.status === "running") phase = "running";
@@ -2880,7 +2876,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const kind = button.dataset.kind === "script" ? "script" : "segment";
       const rec = view.recording;
       if (!(rec && rec.status === "active")) {
-        say("Start a device under Session first; a replay runs on the held device.", "warning");
+        askForDevice("a replay runs on it");
         return;
       }
       if (recordingPlatform() !== platform) {
@@ -2944,7 +2940,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const rec = view.recording;
       const r = view.replay;
       if (!(rec && rec.status === "active")) {
-        say("Start a device under Session first; a recording replays on the held device.", "warning");
+        askForDevice("a recording replays on it");
         return;
       }
       let log;
@@ -3219,6 +3215,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       setStatus(`Uploaded ${file.name}${app.custom_id ? ` as ${app.custom_id}` : ""}. BrowserStack keeps builds for 30 days.`, "success");
       input.value = "";
       await loadApps(app.custom_id || app.app_url || "");
+      toggleUpload(root, false);
     } catch (error) {
       setStatus(errorText(error), "error");
     } finally {
@@ -3226,6 +3223,31 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (button) button.disabled = false;
       if (progress) progress.classList.add("hidden");
     }
+  }
+
+  // Shows or hides the start form's upload area in place, so what the
+  // member typed elsewhere in the form stays.
+  function toggleUpload(root, open) {
+    const block = root.querySelector("[data-recording-upload]");
+    if (!block) return;
+    view.uploadOpen = typeof open === "boolean" ? open : block.classList.contains("hidden");
+    block.classList.toggle("hidden", !view.uploadOpen);
+    root.querySelectorAll('[data-recording-action="upload-toggle"]').forEach((button) => button.setAttribute("aria-expanded", view.uploadOpen ? "true" : "false"));
+    if (view.uploadOpen) block.querySelector("[data-recording-build]")?.focus();
+  }
+
+  // Without a held device, points at the start form: a replay runs on the
+  // device this panel holds, whichever tab is open.
+  function askForDevice(what) {
+    if (view.recording && view.recording.status === "starting") {
+      setStatus(`The device is still starting; ${what} once it is ready.`, "warning");
+      return;
+    }
+    setStatus(`Start a device first; ${what}.`, "warning");
+    const root = panelRoot();
+    root?.querySelector("[data-recording-device]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    const start = root?.querySelector('[data-recording-action="start"]');
+    if (start) start.focus({ preventScroll: true });
   }
 
   // ---- holding and releasing the device ------------------------------------------------
@@ -3481,6 +3503,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const action = button.dataset.recordingAction;
     if (action === "start-bridge") startBridge();
     else if (action === "check-bridge") refreshAll();
+    else if (action === "upload-toggle") toggleUpload(root);
     else if (action === "upload-build") uploadBuildFromPanel(root, button);
     else if (action === "start") startRecording(root, button);
     else if (action === "open-inspector") openInspector();
