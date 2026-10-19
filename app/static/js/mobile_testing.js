@@ -496,9 +496,9 @@
     inspectorTab: null,
     // workspace is the overlay that holds the Inspector inside Portal.
     workspace: null,
-    // tab is Session (the device and the step at hand) or Library (what the
+    // tab is Record (the device and the step at hand) or Library (what the
     // workspace keeps: scripts, recordings, older segments, replays).
-    tab: "session",
+    tab: "record",
     library: freshLibrary(),
   };
   let pollTimer = 0;
@@ -760,11 +760,11 @@
     const target = panelRoot()?.querySelector("[data-recording-tabs]");
     if (!target) return;
     const tab = (key, label) => `<button type="button" role="tab" data-recording-tab="${key}" aria-selected="${view.tab === key ? "true" : "false"}">${label}</button>`;
-    target.innerHTML = tab("session", "Session") + tab("library", "Library");
+    target.innerHTML = tab("record", "Record") + tab("library", "Library");
   }
 
   function switchTab(tab) {
-    view.tab = tab === "library" ? "library" : "session";
+    view.tab = tab === "library" ? "library" : "record";
     renderTabs();
     renderDevice();
     renderFlow();
@@ -1277,7 +1277,7 @@
   function renderFlow() {
     const target = panelRoot()?.querySelector("[data-recording-flow]");
     if (!target) return;
-    if (view.tab !== "session" || (!view.recording && !(view.flow && (view.flow.recordings || view.flow.scripts.length || view.flow.segments.length)))) {
+    if (view.tab !== "record" || (!view.recording && !(view.flow && (view.flow.recordings || view.flow.scripts.length || view.flow.segments.length)))) {
       target.innerHTML = "";
       return;
     }
@@ -1432,7 +1432,7 @@
     const target = panelRoot()?.querySelector("[data-recording-record]");
     if (!target) return;
     const rec = view.recording;
-    if (!rec || rec.status !== "active" || view.tab !== "session" || view.releasing) {
+    if (!rec || rec.status !== "active" || view.tab !== "record" || view.releasing) {
       target.innerHTML = "";
       target.classList.add("hidden");
       view.sessionKey = "";
@@ -1657,7 +1657,7 @@
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
         recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", releasing: null, releasingOther: "", sessionKey: "", formKey: "", polls: 0,
         replay: freshReplay(), flow: null, connectionOpen: false, uploadOpen: false, inspectorTab: null,
-        tab: "session", library: freshLibrary(),
+        tab: "record", library: freshLibrary(),
       });
     } else {
       view.sessionKey = "";

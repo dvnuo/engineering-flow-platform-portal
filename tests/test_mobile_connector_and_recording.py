@@ -345,6 +345,8 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # The device area is the same on both tabs: the Library never hides the
     # start form, and a replay asked for without a device points at it.
     assert "No device held" not in js and "under Session" not in js and js.count("askForDevice(") == 4
+    # The tabs name what the member does there: Record, or the Library.
+    assert 'tab("record", "Record") + tab("library", "Library")' in js and '"session"' not in js
     # A collapsible reads as something to open, in the panel and on the
     # connector pages alike: the base style draws the chevron.
     css = Path("app/static/css/app.css").read_text(encoding="utf-8")
