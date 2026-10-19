@@ -6652,6 +6652,8 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-device-replay { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .efp-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .efp-field-head > .portal-form-label { margin: 0; }
+/* The start form's device field: the note under the text field (an older bridge, a list that could not be had) is a note, not a label. */
+.efp-device [data-recording-device-field] > .portal-inline-note { display: block; margin-top: 4px; font-weight: 400; }
 .efp-upload { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--portal-border); border-radius: var(--portal-radius-sm); }
 .efp-menu { position: relative; }
 .efp-menu > summary { list-style: none; cursor: pointer; }

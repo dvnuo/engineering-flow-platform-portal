@@ -395,6 +395,13 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # A lost status ask (a slow answer, a moment's "Failed to fetch") keeps
     # the last progress on the line; only several in a row end the follow.
     assert "const UPLOAD_STATUS_RETRIES = 3;" in js and "(waiting for the local bridge\\u2026)" in js
+    # The device is chosen from the list the bridge gives (devices.list,
+    # phones first), the newest phone being the default, and the last choice
+    # is kept per platform; an older bridge leaves the free-text field. The
+    # start sends the device, or nothing, as before.
+    for marker in ('"devices.list"', "info.mobile.device_list", "data-recording-device-field", 'group("Phones", phones)', 'group("Tablets", tablets)', "Newest phone (default)", 'const DEVICE_KEY_PREFIX = "efp.mobile.device:";', 'target.matches("[data-recording-device-name]")', "rememberDevice(platform, device);", "if (device) params.device = device;"):
+        assert marker in js, marker
+    assert "Device (optional)" not in js and "params.form_factor" not in js
     assert "Sending ${file.name} on to BrowserStack\u2026`" not in js, "the wait names its length"
     # The chat composer's "Local bridge offline" keeps up: the panel tells it
     # when the bridge appears, and the composer looks again while offline.
@@ -533,12 +540,33 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           calls.push({ url, options });
           if (url.endsWith("/ping")) {
             if (!url.startsWith("http://127.0.0.1:8766/")) throw new TypeError("Failed to fetch");
-            return { ok: true, status: 200, json: async () => ({ ok: true, data: { version: "1.2.3", capabilities: ["browser", "mobile"], mobile: { available: true, upload_status: true } } }) };
+            return { ok: true, status: 200, json: async () => ({ ok: true, data: { version: "1.2.3", capabilities: ["browser", "mobile"], mobile: { available: true, upload_status: true, device_list: globalThis.pingDeviceList !== false } } }) };
+          }
+          if (url.startsWith("/api/mobile/recording-config")) {
+            return { ok: true, status: 200, json: async () => ({ configured: true, credentials: { username: "alice", access_key: "k" }, defaults: { platform: "ios" }, bridge_proxy: { url: "http://proxy2:8080", username: "CORP\\\\alice", password: "s3cret" } }) };
           }
           if (url === "http://127.0.0.1:8766/mobile/run") {
             const body = JSON.parse(options.body);
             if (body.command === "plan") {
               return { ok: true, status: 200, json: async () => ({ ok: true, data: { username: body.credentials.username, parallel_sessions_running: 1, parallel_sessions_max_allowed: 5 } }) };
+            }
+            if (body.command === "devices.list") {
+              if (globalThis.devicesListFail) return { ok: false, status: 502, json: async () => ({ ok: false, error: { code: "mobile_auto_failed", message: "mobile-auto device list failed: boom", hint: "" } }) };
+              // BrowserStack's order, a device on two OS versions among them.
+              const lists = {
+                ios: [
+                  { device: "iPhone 16", os: "ios", os_version: "18", form_factor: "phone" },
+                  { device: "iPad Air 11 2026", os: "ios", os_version: "26", form_factor: "tablet" },
+                  { device: "iPhone 17", os: "ios", os_version: "26", form_factor: "phone" },
+                  { device: "iPhone 16", os: "ios", os_version: "17", form_factor: "phone" },
+                  { device: "iPad Pro 13 2025", os: "ios", os_version: "26", form_factor: "tablet" },
+                ],
+                android: [
+                  { device: "Samsung Galaxy Tab S10", os: "android", os_version: "15.0", form_factor: "tablet" },
+                  { device: "Google Pixel 10", os: "android", os_version: "16.0", form_factor: "phone" },
+                ],
+              };
+              return { ok: true, status: 200, json: async () => ({ ok: true, data: { devices: lists[body.params.platform] || [] } }) };
             }
             if (body.command === "apps.upload.status") {
               const script = uploadScripts[body.params.id] || [];
@@ -705,7 +733,7 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         assert.equal(M.elapsedLabel(Date.now() - 40 * 1000), "40 s");
         (async () => {
           const state = await M.probeBridge({ force: true });
-          assert.deepEqual(state, { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true, uploadStatus: true });
+          assert.deepEqual(state, { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true, uploadStatus: true, deviceList: true });
           const plan = await M.callBridge("plan", {}, { credentials: { username: "alice", access_key: "k" } });
           assert.equal(plan.username, "alice");
           const sent = JSON.parse(calls.find((c) => c.url.endsWith("/mobile/run")).options.body);
@@ -778,7 +806,56 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
           await assert.rejects(M.transferBuild(file, { credentials: creds, pollMs: 1, onWaiting: (upload, lost) => lostCounts.push(lost) }), (err) => err.code === "bridge_unreachable" && /stopped answering while it was sending/.test(err.message) && /look for the build/.test(err.hint));
           assert.deepEqual(lostCounts, [1, 2, 3]);
           assert.equal(calls.filter((c) => c.options.body && c.options.body.indexOf('"u-gone"') >= 0).length - asksBefore, 4);
-          assert.deepEqual(await M.probeBridge({ force: true }), { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true, uploadStatus: true });
+          assert.deepEqual(await M.probeBridge({ force: true }), { alive: true, port: 8766, version: "1.2.3", mobile: true, mobileAuto: true, uploadStatus: true, deviceList: true });
+          // The start form's device chooser: the bridge lists the platform's
+          // devices with the member's account; one row per device, phones
+          // first, the newest first, so the first phone is the default.
+          await M.loadConfig();
+          const ios = await M.loadDevices("ios");
+          assert.equal(ios.length, 5);
+          const listed = JSON.parse(calls.filter((c) => c.options.body && c.options.body.indexOf('"devices.list"') >= 0).pop().options.body);
+          assert.deepEqual(listed.params, { platform: "ios" });
+          assert.equal(listed.credentials.username, "alice");
+          assert.deepEqual(M.deviceRows(ios).map((d) => `${d.device}|${d.os_version}|${d.form_factor}`), ["iPhone 17|26|phone", "iPhone 16|18|phone", "iPad Air 11 2026|26|tablet", "iPad Pro 13 2025|26|tablet"]);
+          assert.equal(M.deviceLabel(M.newestPhone(ios)), "iPhone 17 \\u00b7 iOS 26");
+          let field = M.deviceFieldHtml("ios");
+          assert.ok(field.startsWith('<select class="portal-form-select" data-recording-device-name aria-label="Device">'), field);
+          assert.ok(field.indexOf('<optgroup label="Phones">') < field.indexOf('<optgroup label="Tablets">'), field);
+          assert.ok(field.includes('<option value="" selected>Newest phone (default): iPhone 17 \\u00b7 iOS 26</option><optgroup label="Phones"><option value="iPhone 17">iPhone 17 \\u00b7 iOS 26</option><option value="iPhone 16">iPhone 16 \\u00b7 iOS 18</option></optgroup>'), field);
+          assert.ok(field.includes('<optgroup label="Tablets"><option value="iPad Air 11 2026">iPad Air 11 2026 \\u00b7 iOS 26</option><option value="iPad Pro 13 2025">iPad Pro 13 2025 \\u00b7 iOS 26</option></optgroup>'), field);
+          assert.equal((field.match(/ selected/g) || []).length, 1);
+          // The last choice per platform is kept in this browser and preselected.
+          M.rememberDevice("ios", "iPhone 16");
+          assert.equal(store["efp.mobile.device:ios"], "iPhone 16");
+          field = M.deviceFieldHtml("ios");
+          assert.ok(field.includes('<option value="">Newest phone (default): iPhone 17 \\u00b7 iOS 26</option>') && field.includes('<option value="iPhone 16" selected>'), field);
+          assert.equal(M.rememberedDevice("android"), "");
+          // A device no longer listed falls back to the default; the default clears the memory.
+          M.rememberDevice("ios", "iPhone 3G");
+          assert.ok(M.deviceFieldHtml("ios").includes('<option value="" selected>Newest phone'));
+          M.rememberDevice("ios", "");
+          assert.equal("efp.mobile.device:ios" in store, false);
+          // The list is asked once per platform.
+          const listAsks = calls.filter((c) => c.options.body && c.options.body.indexOf('"devices.list"') >= 0).length;
+          await M.loadDevices("ios");
+          assert.equal(calls.filter((c) => c.options.body && c.options.body.indexOf('"devices.list"') >= 0).length, listAsks);
+          // A list that cannot be had leaves the free-text field, with the reason.
+          globalThis.devicesListFail = true;
+          assert.equal(await M.loadDevices("android"), null);
+          field = M.deviceFieldHtml("android");
+          assert.ok(field.startsWith('<input class="portal-form-input" data-recording-device-name placeholder="Google Pixel 8"'), field);
+          assert.ok(field.includes("Could not list the devices (mobile-auto device list failed: boom). Type a name, or leave it empty for the newest phone."), field);
+          globalThis.devicesListFail = false;
+          // An older bridge, without devices.list: the free-text field, and a
+          // word that the newest-phone default needs the bridge installed again.
+          globalThis.pingDeviceList = false;
+          assert.equal((await M.probeBridge({ force: true })).deviceList, false);
+          const callsBefore = calls.length;
+          assert.equal(await M.loadDevices("android"), null);
+          assert.equal(calls.length, callsBefore);
+          field = M.deviceFieldHtml("android");
+          assert.ok(field.startsWith('<input class="portal-form-input" data-recording-device-name placeholder="Google Pixel 8"'), field);
+          assert.ok(field.includes("This local bridge is older: install it again from Connectors &gt; Local bridge") && !field.includes("<select"), field);
         })().catch((error) => {
           console.error(error);
           process.exit(1);

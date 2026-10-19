@@ -143,6 +143,9 @@
       // uploadStatus: the bridge answers a build upload as soon as it has the
       // file and reports the send to BrowserStack through apps.upload.status.
       uploadStatus: Boolean(info && info.mobile && info.mobile.upload_status),
+      // deviceList: the bridge lists the platform's devices (devices.list)
+      // for the start form's chooser; without it the form keeps a text field.
+      deviceList: Boolean(info && info.mobile && info.mobile.device_list),
     };
   }
 
@@ -634,6 +637,12 @@
     // once known, the file's name and size, the bar's fraction, and the
     // controller that cancels it. A re-render draws the area from it.
     upload: null,
+    // devices are the bridge's device lists by platform: an array once
+    // listed, null when the list could not be had (the text field stays),
+    // undefined while it is asked for; devicesLoading holds the asks.
+    devices: {},
+    devicesLoading: {},
+    devicesError: "",
     // inspectorTab is the tab Start opened to land in the Inspector.
     inspectorTab: null,
     // workspace is the overlay that holds the Inspector inside Portal.
@@ -985,8 +994,8 @@
           <label class="portal-form-label"><span class="portal-form-label">Platform</span>
             <select class="portal-form-select" data-recording-platform><option value="android">Android</option><option value="ios">iOS</option></select>
           </label>
-          <label class="portal-form-label"><span class="portal-form-label">Device (optional)</span>
-            <input class="portal-form-input" data-recording-device-name placeholder="Google Pixel 8" />
+          <label class="portal-form-label"><span class="portal-form-label">Device</span>
+            <span data-recording-device-field>${deviceFieldHtml(formPlatform())}</span>
           </label>
         </div>
         <details class="portal-collapsible">
@@ -1045,6 +1054,132 @@
     const value = fromApp || fallback;
     if (value === "android" || value === "ios") platform.value = value;
     view.selectedApp = select.value || view.selectedApp;
+    loadDevices(recordingPlatform());
+  }
+
+  // ---- the device chooser ------------------------------------------------------
+
+  const DEVICE_KEY_PREFIX = "efp.mobile.device:";
+
+  // The platform the start form is set to, or will be set to once drawn.
+  function formPlatform() {
+    const select = panelRoot()?.querySelector("[data-recording-platform]");
+    const value = select ? select.value : (view.config && view.config.defaults ? view.config.defaults.platform : "");
+    return value === "ios" ? "ios" : "android";
+  }
+
+  // The device the member chose last for a platform, kept in this browser;
+  // empty is the default, the newest phone.
+  function rememberedDevice(platform) {
+    return readStorage(DEVICE_KEY_PREFIX + platform);
+  }
+
+  function rememberDevice(platform, name) {
+    writeStorage(DEVICE_KEY_PREFIX + platform, String(name || "").trim());
+  }
+
+  function deviceListAvailable() {
+    return bridgeView().deviceList;
+  }
+
+  // Lists the platform's devices through the bridge, once per platform. A
+  // bridge without devices.list, or a list that cannot be had, leaves the
+  // free-text field; the panel asks again when it is opened anew.
+  function loadDevices(platform) {
+    platform = platform === "ios" ? "ios" : "android";
+    if (!deviceListAvailable() || !credentials() || view.devices[platform] !== undefined) {
+      renderDeviceChoices();
+      return Promise.resolve(Array.isArray(view.devices[platform]) ? view.devices[platform] : null);
+    }
+    if (view.devicesLoading[platform]) return view.devicesLoading[platform];
+    view.devicesLoading[platform] = (async () => {
+      renderDeviceChoices();
+      try {
+        const data = await call("devices.list", { platform }, { credentials: credentials(), timeoutMs: 45000 });
+        view.devices[platform] = Array.isArray(data.devices) ? data.devices : [];
+        view.devicesError = "";
+      } catch (error) {
+        view.devices[platform] = null;
+        view.devicesError = errorText(error);
+      } finally {
+        delete view.devicesLoading[platform];
+      }
+      renderDeviceChoices();
+      return view.devices[platform];
+    })();
+    return view.devicesLoading[platform];
+  }
+
+  function deviceLabel(d) {
+    const os = d.os === "ios" ? "iOS" : (d.os === "android" ? "Android" : String(d.os || ""));
+    return `${d.device} \u00b7 ${os} ${d.os_version}`.trim();
+  }
+
+  function compareVersions(a, b) {
+    const pa = String(a || "").split(/[^0-9]+/).filter(Boolean).map(Number);
+    const pb = String(b || "").split(/[^0-9]+/).filter(Boolean).map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d;
+    }
+    return 0;
+  }
+
+  // One row per device name, with its newest OS version: phones before
+  // tablets, the newest OS first, then by name, the order mobile-auto picks
+  // the default in, so the first phone is what a start without a device takes.
+  function deviceRows(devices) {
+    const rows = (Array.isArray(devices) ? devices : [])
+      .filter((d) => d && d.device)
+      .map((d) => ({ device: String(d.device), os: String(d.os || ""), os_version: String(d.os_version || ""), form_factor: d.form_factor === "tablet" ? "tablet" : "phone" }));
+    const byName = (a, b) => (a.device < b.device ? -1 : (a.device > b.device ? 1 : 0));
+    rows.sort((a, b) => (a.form_factor === b.form_factor ? 0 : (a.form_factor === "tablet" ? 1 : -1)) || compareVersions(b.os_version, a.os_version) || byName(a, b));
+    const seen = new Set();
+    return rows.filter((d) => !seen.has(d.device) && seen.add(d.device));
+  }
+
+  function newestPhone(devices) {
+    return deviceRows(devices).find((d) => d.form_factor === "phone") || null;
+  }
+
+  // The chooser's options: the default first, then the phones and the
+  // tablets in groups; chosen (the member's last choice) is preselected when
+  // it is still listed.
+  function deviceOptionsHtml(devices, chosen) {
+    const rows = deviceRows(devices);
+    const phones = rows.filter((d) => d.form_factor === "phone");
+    const tablets = rows.filter((d) => d.form_factor === "tablet");
+    const wanted = String(chosen || "").trim();
+    const known = wanted !== "" && rows.some((d) => d.device === wanted);
+    const option = (d) => `<option value="${esc(d.device)}"${known && d.device === wanted ? " selected" : ""}>${esc(deviceLabel(d))}</option>`;
+    const group = (label, list) => (list.length ? `<optgroup label="${label}">${list.map(option).join("")}</optgroup>` : "");
+    const first = phones.length ? `Newest phone (default): ${deviceLabel(phones[0])}` : "Newest phone (default)";
+    return `<option value=""${known ? "" : " selected"}>${esc(first)}</option>${group("Phones", phones)}${group("Tablets", tablets)}`;
+  }
+
+  // The start form's device field: a chooser of the platform's devices once
+  // the bridge has listed them, else the free-text field, which says why.
+  function deviceFieldHtml(platform) {
+    const devices = view.devices[platform];
+    const listable = deviceListAvailable() && Boolean(credentials());
+    if (listable && devices === undefined) {
+      return `<select class="portal-form-select" data-recording-device-name aria-label="Device" disabled><option value="">Looking for devices\u2026</option></select>`;
+    }
+    if (!Array.isArray(devices) || !devices.length) {
+      const bridge = bridgeView();
+      let note = "Type a BrowserStack device name, or leave it empty for the newest phone.";
+      if (bridge.alive && !bridge.deviceList) note = "A BrowserStack device name. This local bridge is older: install it again from Connectors > Local bridge to choose from a list, with the newest phone as the default.";
+      else if (devices === null && view.devicesError) note = `Could not list the devices (${view.devicesError}). Type a name, or leave it empty for the newest phone.`;
+      return `<input class="portal-form-input" data-recording-device-name placeholder="${platform === "ios" ? "iPhone 17" : "Google Pixel 8"}" value="${esc(rememberedDevice(platform))}" autocomplete="off" spellcheck="false" />
+        <span class="portal-inline-note">${esc(note)}</span>`;
+    }
+    return `<select class="portal-form-select" data-recording-device-name aria-label="Device">${deviceOptionsHtml(devices, rememberedDevice(platform))}</select>`;
+  }
+
+  function renderDeviceChoices() {
+    const field = panelRoot()?.querySelector("[data-recording-device-field]");
+    if (!field) return;
+    field.innerHTML = deviceFieldHtml(recordingPlatform());
   }
 
   function renderOthers() {
@@ -1682,6 +1817,7 @@
   }
 
   async function refreshAll() {
+    view.devices = {};
     await Promise.all([loadConfig(), probe({ force: true }).then((state) => { view.bridge = state; })]);
     renderBar();
     if (!bridgeProblem(view.bridge)) {
@@ -1925,6 +2061,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     const platform = root.querySelector("[data-recording-platform]")?.value || "android";
     const device = (root.querySelector("[data-recording-device-name]")?.value || "").trim();
+    rememberDevice(platform, device);
     view.planned = parseSegments(root.querySelector("[data-recording-segments]")?.value);
     view.done = [];
     const defaults = (view.config && view.config.defaults) || {};
@@ -3784,6 +3921,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       syncPlatform();
     } else if (target.matches("[data-recording-platform]")) {
       loadFlow();
+      loadDevices(recordingPlatform());
+    } else if (target.matches("[data-recording-device-name]")) {
+      rememberDevice(recordingPlatform(), target.value);
     } else if (target.matches("[data-recording-build]")) {
       const root = target.closest("[data-recording-root]");
       const custom = root.querySelector("[data-recording-custom-id]");
@@ -3854,6 +3994,15 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     probeBridge: probe,
     callBridge: call,
     waitForDevice,
+    loadConfig,
+    loadDevices,
+    deviceRows,
+    newestPhone,
+    deviceLabel,
+    deviceOptionsHtml,
+    deviceFieldHtml,
+    rememberDevice,
+    rememberedDevice,
     localBinaryHtml,
     formatBytes,
     elapsedLabel,
