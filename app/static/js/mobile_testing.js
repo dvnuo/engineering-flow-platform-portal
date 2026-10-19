@@ -140,6 +140,9 @@
       version: info ? String(info.version || "") : "",
       mobile: capabilities.indexOf("mobile") >= 0,
       mobileAuto: Boolean(info && info.mobile && info.mobile.available),
+      // uploadStatus: the bridge answers a build upload as soon as it has the
+      // file and reports the send to BrowserStack through apps.upload.status.
+      uploadStatus: Boolean(info && info.mobile && info.mobile.upload_status),
     };
   }
 
@@ -226,9 +229,12 @@
     return String(name || "build").replace(/[^A-Za-z0-9._-]+/g, "_");
   }
 
-  // Streams a build to the bridge, which uploads it to BrowserStack. XHR for
-  // the progress events fetch does not have.
-  function uploadBuild(file, { credentials, customId, onProgress }) {
+  // Copies a build to the bridge, which sends it on to BrowserStack. XHR for
+  // the progress events fetch does not have; onRequest gets the request so
+  // the copy can be given up. A bridge that answers as soon as it has the
+  // file resolves {upload}; an older one holds the request and resolves
+  // {app} once the build is on BrowserStack.
+  function uploadBuild(file, { credentials, customId, onProgress, onRequest }) {
     return new Promise((resolve, reject) => {
       const state = bridgeView();
       if (!state.alive) {
@@ -256,13 +262,119 @@
         } catch (_error) {
           payload = null;
         }
-        if (payload && payload.ok === true) resolve((payload.data || {}).app || {});
+        if (payload && payload.ok === true) resolve(payload.data || {});
         else reject(bridgeError(payload && payload.error ? payload.error : { code: "bridge_error", message: `The upload failed (HTTP ${xhr.status}).` }));
       };
       xhr.onerror = () => reject(bridgeError({ code: "bridge_unreachable", message: "Could not reach the local bridge on this computer." }));
+      xhr.onabort = () => reject(bridgeError({ code: "upload_cancelled", message: "The upload was cancelled." }));
       xhr.ontimeout = () => reject(bridgeError({ code: "bridge_timeout", message: "The upload took longer than 30 minutes." }));
+      if (onRequest) onRequest(xhr);
       xhr.send(file);
     });
+  }
+
+  function formatBytes(bytes) {
+    const n = Math.max(0, Number(bytes) || 0);
+    if (n < 1024) return `${Math.round(n)} B`;
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+    if (n < 1024 * 1024 * 1024) {
+      const mb = n / (1024 * 1024);
+      return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+    }
+    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
+  function remainingText(seconds) {
+    if (seconds < 60) return "under a minute";
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `about ${minutes} min`;
+    return `about ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  }
+
+  // How long something has been going, for a line that waits: "40 s", "3 min".
+  function elapsedLabel(since) {
+    const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
+    return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min`;
+  }
+
+  // The status line while the bridge sends a build to BrowserStack: the
+  // bytes so far and, once there is a rate, the rate and what is left; then
+  // the wait for BrowserStack's check.
+  function uploadProgressText(name, upload, rate) {
+    if (upload.status === "processing") return "BrowserStack is checking the build\u2026";
+    const sent = Number(upload.sent) || 0;
+    const total = Number(upload.total) || 0;
+    let text = `Sending ${name} to BrowserStack: ${formatBytes(sent)} of ${formatBytes(total)}`;
+    if (rate > 0) text += ` (${formatBytes(rate)}/s, ${remainingText(Math.max(0, total - sent) / rate)} left)`;
+    return text;
+  }
+
+  // The send's rate over its last few status answers. A count that went
+  // back (the bridge sent the file again from its start) starts over.
+  function uploadMeter(windowMs = 10000) {
+    let samples = [];
+    return {
+      add(sent, at = Date.now()) {
+        if (samples.length && sent < samples[samples.length - 1].sent) samples = [];
+        samples.push({ sent, at });
+        while (samples.length > 2 && at - samples[0].at > windowMs) samples.shift();
+      },
+      rate() {
+        if (samples.length < 2) return 0;
+        const first = samples[0];
+        const last = samples[samples.length - 1];
+        const seconds = (last.at - first.at) / 1000;
+        return seconds > 0 && last.sent > first.sent ? (last.sent - first.sent) / seconds : 0;
+      },
+    };
+  }
+
+  // Asks the bridge after a build it is sending to BrowserStack until the
+  // build is there, reporting each answer with the rate so far; a send that
+  // failed or was cancelled ends in an error.
+  async function followUpload(id, { onUpdate = null, pollMs = UPLOAD_POLL_MS } = {}) {
+    const meter = uploadMeter();
+    for (;;) {
+      const data = await call("apps.upload.status", { id }, { timeoutMs: 20000 });
+      const upload = data.upload || {};
+      meter.add(Number(upload.sent) || 0);
+      if (onUpdate) onUpdate(upload, meter.rate());
+      if (upload.status === "done") return upload.app || {};
+      if (upload.status === "failed") throw bridgeError(upload.error || { code: "upload_failed", message: "The upload failed." });
+      if (upload.status === "cancelled") throw bridgeError({ code: "upload_cancelled", message: "The upload was cancelled." });
+      await sleep(pollMs);
+    }
+  }
+
+  // Moves a build to BrowserStack. The copy to the local bridge comes first;
+  // a bridge that answers it as soon as it has the file (upload_status on
+  // /ping) is then asked after the send until the build is there, while an
+  // older bridge answers the copy request itself once it is. onCopy hears the
+  // copy's fraction, onStarted the bridge's upload record, onSend each status
+  // answer with the rate; controller.cancel() gives up whichever leg is under
+  // way.
+  async function transferBuild(file, { credentials, customId, onCopy = null, onStarted = null, onSend = null, controller = {}, pollMs = UPLOAD_POLL_MS } = {}) {
+    let request = null;
+    let uploadId = "";
+    let askedToStop = false;
+    const stop = async () => {
+      askedToStop = true;
+      await call("apps.upload.cancel", { id: uploadId }, { timeoutMs: 15000 });
+    };
+    controller.cancelled = false;
+    controller.cancel = async () => {
+      controller.cancelled = true;
+      if (uploadId) await stop();
+      else if (request) request.abort();
+    };
+    const data = await uploadBuild(file, { credentials, customId, onProgress: onCopy, onRequest: (xhr) => { request = xhr; } });
+    const upload = data.upload && data.upload.id ? data.upload : null;
+    if (!upload) return data.app || {};
+    uploadId = upload.id;
+    if (onStarted) onStarted(upload);
+    // A cancel that came while the bridge was answering the copy.
+    if (controller.cancelled && !askedToStop) await stop();
+    return followUpload(uploadId, { onUpdate: onSend, pollMs });
   }
 
   // The panel starts the bridge for its /mobile routes only: browser=off
@@ -463,6 +575,10 @@
   const START_POLL_MS = 3000;
   const START_TIMEOUT_MS = 16 * 60 * 1000;
   const REPLAY_POLL_MS = 2000;
+  const UPLOAD_POLL_MS = 1500;
+  // Of the upload bar, the share that is the copy to the local bridge; the
+  // send to BrowserStack, which takes the time, is the rest.
+  const UPLOAD_COPY_SHARE = 0.08;
   const CODE_EXTENSIONS = [".py", ".java", ".js", ".rb", ".robot", ".cs"];
   const BUILD_EXTENSIONS = [".apk", ".aab", ".ipa"];
   const SEGMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -494,6 +610,10 @@
     connectionOpen: false,
     // uploadOpen is the start form's upload area, shown by its button.
     uploadOpen: false,
+    // upload is the build on its way to BrowserStack: the bridge's upload id
+    // once known, the file's name and size, the bar's fraction, and the
+    // controller that cancels it. A re-render draws the area from it.
+    upload: null,
     // inspectorTab is the tab Start opened to land in the Inspector.
     inspectorTab: null,
     // workspace is the overlay that holds the Inspector inside Portal.
@@ -818,6 +938,8 @@
   }
 
   function startFormHtml() {
+    const uploading = Boolean(view.upload);
+    const disabled = uploading ? " disabled" : "";
     return `
       <div class="efp-card efp-device">
         <div class="efp-card-head"><strong class="efp-card-title">Start a device</strong></div>
@@ -827,15 +949,16 @@
           <select class="portal-form-select" data-recording-app aria-label="Build"><option value="">Looking for your builds…</option></select>
         </div>
         <div class="efp-upload${view.uploadOpen ? "" : " hidden"}" data-recording-upload>
-          <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
+          <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build${disabled} />
           <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
-            <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
+            <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false"${disabled} />
           </label>
           <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
-          <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
+          <div class="portal-progress${uploading ? "" : " hidden"}" data-recording-upload-progress><i style="width:${uploading ? Math.round(view.upload.fraction * 100) : 0}%"></i></div>
           <div class="efp-card-actions">
-            <button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button>
-            <button type="button" class="portal-btn" data-recording-action="upload-toggle">Cancel</button>
+            <button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"${disabled}><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button>
+            <button type="button" class="portal-btn${uploading ? " hidden" : ""}" data-recording-action="upload-toggle">Cancel</button>
+            <button type="button" class="portal-btn${uploading ? "" : " hidden"}" data-recording-action="upload-cancel">Cancel upload</button>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
@@ -1660,7 +1783,7 @@
       Object.assign(view, {
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
         recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", releasing: null, releasingOther: "", sessionKey: "", formKey: "", polls: 0,
-        replay: freshReplay(), flow: null, connectionOpen: false, uploadOpen: false, inspectorTab: null,
+        replay: freshReplay(), flow: null, connectionOpen: false, uploadOpen: false, upload: null, inspectorTab: null,
         tab: "record", library: freshLibrary(),
       });
     } else {
@@ -3192,7 +3315,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
   }
 
-  async function uploadBuildFromPanel(root, button) {
+  async function uploadBuildFromPanel(root) {
     const input = root.querySelector("[data-recording-build]");
     const file = input && input.files && input.files[0];
     if (!file) {
@@ -3210,30 +3333,105 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       setStatus("A custom id uses letters, digits, dot, dash, and underscore (up to 100).", "error");
       return;
     }
-    if (!ensureReady()) return;
-    const progress = root.querySelector("[data-recording-upload-progress]");
-    const bar = progress && progress.querySelector("i");
-    const setProgress = (fraction) => {
-      if (bar) bar.style.width = `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`;
-      if (fraction >= 1) setStatus(`Sending ${file.name} on to BrowserStack…`, "");
-    };
+    if (!ensureReady() || view.upload) return;
+    // With a bridge that answers as soon as it has the file, the copy to it
+    // is the first part of the bar and the send to BrowserStack the rest; an
+    // older bridge's bar is the copy alone, then a wait that says how long.
+    const legacy = !(view.bridge && view.bridge.uploadStatus);
+    const copyShare = legacy ? 1 : UPLOAD_COPY_SHARE;
+    const controller = {};
+    view.upload = { id: "", fileName: file.name, total: file.size, since: Date.now(), fraction: 0, controller };
     view.busy = "upload";
-    if (button) button.disabled = true;
-    if (progress) progress.classList.remove("hidden");
-    setProgress(0);
-    setStatus(`Uploading ${file.name} through the local bridge…`, "");
+    applyUploadState();
+    const setBar = (fraction) => {
+      if (!view.upload) return;
+      view.upload.fraction = Math.max(0, Math.min(1, fraction));
+      const bar = panelRoot()?.querySelector("[data-recording-upload-progress] i");
+      if (bar) bar.style.width = `${Math.round(view.upload.fraction * 100)}%`;
+    };
+    let waitTimer = 0;
+    setStatus(`Copying ${file.name} to the local bridge\u2026`, "");
     try {
-      const app = await uploadBuild(file, { credentials: credentials(), customId, onProgress: setProgress });
+      const app = await transferBuild(file, {
+        credentials: credentials(),
+        customId,
+        controller,
+        onCopy: (fraction) => {
+          setBar(fraction * copyShare);
+          if (legacy && fraction >= 1 && !waitTimer) {
+            // An older bridge answers once the build is on BrowserStack, with
+            // no word meanwhile: say how long that has been.
+            const since = Date.now();
+            const waiting = () => setStatus(`Sending ${file.name} on to BrowserStack\u2026 (${elapsedLabel(since)})`, "");
+            waiting();
+            waitTimer = window.setInterval(waiting, 1000);
+          }
+        },
+        onStarted: (upload) => {
+          if (view.upload) view.upload.id = upload.id;
+          setBar(copyShare);
+          setStatus(uploadProgressText(file.name, upload, 0), "");
+        },
+        onSend: (upload, rate) => {
+          const total = Number(upload.total) || file.size || 1;
+          setBar(copyShare + (1 - copyShare) * (Math.min(Number(upload.sent) || 0, total) / total));
+          setStatus(uploadProgressText(file.name, upload, rate), "");
+        },
+      });
       setStatus(`Uploaded ${file.name}${app.custom_id ? ` as ${app.custom_id}` : ""}. BrowserStack keeps builds for 30 days.`, "success");
-      input.value = "";
+      const picker = panelRoot()?.querySelector("[data-recording-build]");
+      if (picker) picker.value = "";
       await loadApps(app.custom_id || app.app_url || "");
-      toggleUpload(root, false);
+      const current = panelRoot();
+      if (current) toggleUpload(current, false);
     } catch (error) {
-      setStatus(errorText(error), "error");
+      if (error.code === "upload_cancelled") setStatus(`The upload of ${file.name} was cancelled.`, "warning");
+      else setStatus(errorText(error), "error");
     } finally {
+      window.clearInterval(waitTimer);
+      view.upload = null;
       view.busy = "";
+      applyUploadState();
+    }
+  }
+
+  // Puts the start form's upload area in, or out of, its uploading state in
+  // place: the inputs and the Upload button wait, the bar shows, and Cancel
+  // upload stands where Cancel was. A re-render draws the same from
+  // view.upload.
+  function applyUploadState() {
+    const block = panelRoot()?.querySelector("[data-recording-upload]");
+    if (!block) return;
+    const uploading = Boolean(view.upload);
+    block.querySelectorAll('[data-recording-build], [data-recording-custom-id], [data-recording-action="upload-build"]').forEach((el) => {
+      el.disabled = uploading;
+    });
+    block.querySelector('[data-recording-action="upload-toggle"]')?.classList.toggle("hidden", uploading);
+    const cancel = block.querySelector('[data-recording-action="upload-cancel"]');
+    if (cancel) {
+      cancel.classList.toggle("hidden", !uploading);
+      cancel.disabled = false;
+    }
+    const progress = block.querySelector("[data-recording-upload-progress]");
+    if (progress) {
+      progress.classList.toggle("hidden", !uploading);
+      const bar = progress.querySelector("i");
+      if (bar) bar.style.width = `${Math.round((uploading ? view.upload.fraction : 0) * 100)}%`;
+    }
+  }
+
+  // Cancel upload: the bridge gives the send up (or the copy is dropped), and
+  // the transfer ends as cancelled.
+  async function cancelUpload(button) {
+    const upload = view.upload;
+    if (!upload || !upload.controller || typeof upload.controller.cancel !== "function") return;
+    if (button) button.disabled = true;
+    setStatus(`Cancelling the upload of ${upload.fileName}\u2026`, "");
+    try {
+      await upload.controller.cancel();
+    } catch (error) {
+      setStatus(`Could not cancel the upload: ${errorText(error)}`, "error");
       if (button) button.disabled = false;
-      if (progress) progress.classList.add("hidden");
     }
   }
 
@@ -3516,7 +3714,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     if (action === "start-bridge") startBridge();
     else if (action === "check-bridge") refreshAll();
     else if (action === "upload-toggle") toggleUpload(root);
-    else if (action === "upload-build") uploadBuildFromPanel(root, button);
+    else if (action === "upload-build") uploadBuildFromPanel(root);
+    else if (action === "upload-cancel") cancelUpload(button);
     else if (action === "start") startRecording(root, button);
     else if (action === "open-inspector") openInspector();
     else if (action === "open-workspace") openWorkspace();
@@ -3631,5 +3830,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     callBridge: call,
     waitForDevice,
     localBinaryHtml,
+    formatBytes,
+    elapsedLabel,
+    uploadProgressText,
+    uploadMeter,
+    followUpload,
+    transferBuild,
   });
 })();
