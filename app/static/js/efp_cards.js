@@ -307,8 +307,9 @@
       const failed = steps.find((step) => step && step.ok === false) || null;
       return {
         name: String(seg.name || ""),
-        // A scenario script, or a segment (what a report says without a kind).
-        kind: seg.kind === "script" ? "script" : "segment",
+        // A scenario script, a recording replayed as it is, or a segment
+        // (what a report says without a kind).
+        kind: seg.kind === "script" || seg.kind === "recording" ? seg.kind : "segment",
         status: String(seg.status || ""),
         stepsTotal: Number(seg.steps_total) || steps.length,
         fallbacks: steps.filter((step) => step && step.resolved_by === "fallback").length,
@@ -342,8 +343,9 @@
 
   function replayCardHtml(rp, agentId) {
     const passed = rp.segments.filter((seg) => seg.status === "passed").length;
-    const scripts = rp.segments.length > 0 && rp.segments.every((seg) => seg.kind === "script");
-    const noun = scripts ? (rp.segments.length === 1 ? "script" : "scripts") : (rp.segments.length === 1 ? "segment" : "segments");
+    const one = rp.segments.length === 1;
+    const allOf = (kind) => rp.segments.length > 0 && rp.segments.every((seg) => seg.kind === kind);
+    const noun = allOf("script") ? (one ? "script" : "scripts") : (allOf("recording") ? (one ? "recording" : "recordings") : (one ? "segment" : "segments"));
     const title = `Replay: ${passed} of ${rp.segments.length} ${noun} passed`;
     const startLabel = { restart: "the app restarted", reset: "the app's data cleared first", current: "the screen the device showed" }[rp.start] || "";
     const meta = [

@@ -314,6 +314,9 @@ def test_efp_cards_paths_and_decision_text_in_node():
         // A scenario script's replay says it replayed a script.
         const scriptCard = C.replayCardHtml(C.normalizeReplay({ status: "passed", segments: [{ name: "FX-12-buy-100-usd", kind: "script", status: "passed", steps: [] }] }, "mobile/replays/r2"), "agent-1");
         assert.ok(scriptCard.includes("Replay: 1 of 1 script passed"));
+        // A recording replayed as it is says so.
+        const recordingCard = C.replayCardHtml(C.normalizeReplay({ status: "failed", segments: [{ name: "recording-3", kind: "recording", status: "failed", steps: [] }] }, "mobile/replays/r3"), "agent-1");
+        assert.ok(recordingCard.includes("Replay: 0 of 1 recording passed"));
         assert.ok(replayCard.includes("failed at step 2 of 2: tap accessibility_id=Details"));
         assert.ok(replayCard.includes("&lt;b&gt;x&lt;/b&gt;"), "error text must be escaped");
         assert.ok(replayCard.includes("1 matched a fallback target"));

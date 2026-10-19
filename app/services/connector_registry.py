@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.schemas.runtime_profile import PROXY_ASSIGNABLE_CONNECTORS, PROXY_DEFAULT_ONLY_CONNECTORS
 
@@ -126,6 +127,10 @@ class ConnectorSpec:
     # row. Empty means the connector is always the member's own: the model
     # provider (a personal authorization), and no local connector.
     managed_sections: tuple[str, ...] = ()
+    # Config keys Portal keeps for the member's own pages and the Mobile
+    # testing panel, never handed to a runtime with the connector: the Local
+    # bridge's proxy to BrowserStack carries a login.
+    private_config_keys: tuple[str, ...] = ()
 
     @property
     def is_settings(self) -> bool:
@@ -153,9 +158,44 @@ class ConnectorSpec:
         return dict(self.settings_provider() or {})
 
 
+def _normalize_mobile_proxy(value: Any) -> dict[str, Any]:
+    """The proxy the bridge on the member's computer uses to reach BrowserStack:
+    an http(s) address, and apart from it the login a corporate proxy asks
+    for. No address means the computer's own proxy settings, and nothing is
+    kept."""
+
+    if value is None or value == "" or value == {}:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("mobile_proxy must be an object with url, username and password")
+    unknown = sorted(str(key) for key in value.keys() if key not in {"url", "username", "password"})
+    if unknown:
+        raise ValueError(f"Unknown mobile_proxy keys: {', '.join(unknown)}")
+    url = str(value.get("url") or "").strip()
+    if not url:
+        return {}
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("mobile_proxy.url must be an http or https address such as http://proxy.example.com:8080")
+    if parsed.username or parsed.password:
+        raise ValueError("mobile_proxy.url must not carry a login; put it in username and password")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("mobile_proxy.url has an invalid port") from exc
+    result: dict[str, Any] = {"url": f"{parsed.scheme}://{parsed.hostname}{f':{port}' if port else ''}"}
+    username = str(value.get("username") or "").strip()
+    password = str(value.get("password") or "")
+    if username:
+        result["username"] = username
+    if password:
+        result["password"] = password
+    return result
+
+
 def _validate_local_bridge_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
     source = dict(config or {})
-    allowed = {"auto_enable_in_new_chats", "preferred_port"}
+    allowed = {"auto_enable_in_new_chats", "preferred_port", "mobile_proxy"}
     unknown = sorted(str(key) for key in source.keys() if key not in allowed)
     if unknown:
         raise ValueError(f"Unknown local_bridge config keys: {', '.join(unknown)}")
@@ -179,7 +219,11 @@ def _validate_local_bridge_config(config: Mapping[str, Any] | None) -> dict[str,
     if not isinstance(port, int) or port < 1024 or port > 65535:
         raise ValueError("preferred_port must be an integer between 1024 and 65535")
 
-    return {"auto_enable_in_new_chats": bool(auto_enable), "preferred_port": int(port)}
+    result: dict[str, Any] = {"auto_enable_in_new_chats": bool(auto_enable), "preferred_port": int(port)}
+    proxy = _normalize_mobile_proxy(source.get("mobile_proxy"))
+    if proxy:
+        result["mobile_proxy"] = proxy
+    return result
 
 
 def _local_bridge_settings() -> dict[str, Any]:
@@ -425,6 +469,7 @@ CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
         config_defaults={"auto_enable_in_new_chats": True, "preferred_port": LOCAL_BRIDGE_DEFAULT_PORT},
         validate_config=_validate_local_bridge_config,
         settings_provider=_local_bridge_settings,
+        private_config_keys=("mobile_proxy",),
     ),
 }
 

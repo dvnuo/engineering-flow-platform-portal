@@ -19,9 +19,6 @@
   const PORTS = [8765, 8766, 8767, 8768, 8769, 8770];
   const PING_TIMEOUT_MS = 1500;
   const PROBE_CACHE_MS = 4000;
-  const PROXY_KEY = "efp.mobile.bridge_proxy";
-  const PROXY_USER_KEY = "efp.mobile.bridge_proxy_user";
-  const PROXY_PASSWORD_KEY = "efp.mobile.bridge_proxy_password";
   const BRIDGE_MESSAGES = {
     not_running: "The local bridge is not running on this computer. Start it here; if it is not installed yet, install it from Connectors > Local bridge first.",
     outdated: "The local bridge on this computer is an older version without mobile recording. Download it again from Connectors > Local bridge and restart it.",
@@ -47,15 +44,19 @@
     }
   }
 
-  // The proxy to BrowserStack from this computer is kept in this browser: its
-  // address, and apart from it the login a corporate proxy asks for, so the
-  // password sits in a password field instead of in the address.
+  // The proxy to BrowserStack from this computer: its address, and apart
+  // from it the login a corporate proxy asks for. It is saved in the member's
+  // Local bridge connector: the Mobile testing panel gets it with its
+  // recording settings, the BrowserStack connector page from its fields.
+  let bridgeProxy = { url: "", username: "", password: "" };
+
   function proxySettings() {
-    return {
-      url: readStorage(PROXY_KEY).trim(),
-      username: readStorage(PROXY_USER_KEY),
-      password: readStorage(PROXY_PASSWORD_KEY),
-    };
+    return bridgeProxy;
+  }
+
+  function setBridgeProxy(value) {
+    const source = value && typeof value === "object" ? value : {};
+    bridgeProxy = { url: String(source.url || "").trim(), username: String(source.username || ""), password: String(source.password || "") };
   }
 
   // Takes a login typed into a proxy address out of it, decoded.
@@ -93,29 +94,17 @@
     return `${parsed.protocol}//${login}@${parsed.host}`;
   }
 
-  // Shows the saved proxy in the fields of the connector page or the
-  // Mobile testing panel, leaving alone the one being typed in.
-  function fillProxyFields(container) {
+  // The connector page renders the saved proxy into its fields; what they
+  // hold is what the test from that page and the panel's calls use.
+  function readProxyFields(container) {
     if (!container) return;
-    const settings = proxySettings();
-    container.querySelectorAll("[data-bridge-proxy]").forEach((input) => {
-      if (document.activeElement !== input) input.value = settings[input.dataset.bridgeProxy] || "";
+    const field = (name) => container.querySelector(`[data-bridge-proxy="${name}"]`);
+    setBridgeProxy({
+      url: field("url") ? field("url").value : "",
+      username: field("username") ? field("username").value : "",
+      password: field("password") ? field("password").value : "",
     });
   }
-
-  // A login saved inside the address, before it had fields of its own, moves
-  // to them, so it is no longer shown in the clear.
-  function moveProxyLoginOutOfTheAddress() {
-    const saved = splitProxyLogin(readStorage(PROXY_KEY));
-    if (!saved.login) return;
-    writeStorage(PROXY_KEY, saved.url);
-    if (!readStorage(PROXY_USER_KEY) && !readStorage(PROXY_PASSWORD_KEY)) {
-      writeStorage(PROXY_USER_KEY, saved.username);
-      writeStorage(PROXY_PASSWORD_KEY, saved.password);
-    }
-  }
-
-  moveProxyLoginOutOfTheAddress();
 
   function sleep(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -414,7 +403,7 @@
   async function refreshOverview(root) {
     const status = root.querySelector("[data-mobile-bridge-status]");
     const start = root.querySelector('[data-mobile-bridge-action="start"]');
-    fillProxyFields(root);
+    readProxyFields(root);
     const state = await probe({ force: true });
     const problem = bridgeProblem(state);
     if (problem) setInline(status, BRIDGE_MESSAGES[problem], problem === "not_running" ? "warning" : "error");
@@ -477,7 +466,6 @@
   const SEGMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
   const CUSTOM_ID = /^[A-Za-z0-9._-]{1,100}$/;
   const RECORDING_KEY_PREFIX = "efp.mobile.recording:";
-  const AUTO_INSPECTOR_KEY = "efp.mobile.auto_inspector";
 
   const view = {
     agentId: "",
@@ -492,6 +480,8 @@
     done: [],
     unsaved: null,
     busy: "",
+    releasing: null,
+    releasingOther: "",
     sessionKey: "",
     formKey: "",
     polls: 0,
@@ -499,15 +489,16 @@
     // flow is what the workspace says about the steps after recording: the
     // latest split, the compiled segments, and the scenario plan.
     flow: null,
-    settingsOpen: false,
     connectionOpen: false,
+    // uploadOpen is the start form's upload area, shown by its button.
+    uploadOpen: false,
     // inspectorTab is the tab Start opened to land in the Inspector.
     inspectorTab: null,
     // workspace is the overlay that holds the Inspector inside Portal.
     workspace: null,
-    // tab is Session (the device and the step at hand) or Library (what the
+    // tab is Record (the device and the step at hand) or Library (what the
     // workspace keeps: scripts, recordings, older segments, replays).
-    tab: "session",
+    tab: "record",
     library: freshLibrary(),
   };
   let pollTimer = 0;
@@ -540,11 +531,6 @@
     return Boolean(view.config && view.config.inspector_available);
   }
 
-  // Start opens a tab for the Inspector unless the member switched it off.
-  function autoInspector() {
-    return readStorage(AUTO_INSPECTOR_KEY) !== "off";
-  }
-
   function parseSegments(text) {
     return String(text || "")
       .split(/[\n,]+/)
@@ -553,10 +539,10 @@
       .slice(0, 30);
   }
 
-  // The chat message for a saved file: a name the member listed, or a script
-  // the scenario plan lists, is that scenario's recording, which the assistant
-  // compiles into the script; any other is a recording whose scenario the
-  // assistant finds out first.
+  // The chat message for a saved recording this computer did not compile: a
+  // name the member listed, or a script the scenario plan lists, is that
+  // scenario's recording, which the assistant compiles; any other is a
+  // recording whose scenario the assistant finds out first.
   function savedMessage(name, path, planned) {
     const names = Array.isArray(planned) ? planned : view.planned.concat(planScriptNames());
     return names.indexOf(name) >= 0 ? `Script ${name} recorded: ${path}` : `Recording ${name} saved: ${path}`;
@@ -583,6 +569,80 @@
     return path ? `${line}\nScript: ${path}` : line;
   }
 
+  // The message that hands a script this computer compiled to the assistant
+  // for review, with the compiler's report.
+  function compiledMessage(name, path, reportPath) {
+    return `Script ${name} compiled: ${path}\nReport: ${reportPath}`;
+  }
+
+  // The message that asks the assistant what to record next and how. The
+  // panel shows the plan's next scenario itself, so it goes on request.
+  function startMessage(rec) {
+    return [
+      "/record-mobile-segment",
+      "Recording on my computer through the Mobile testing panel.",
+      `App: ${rec.app || ""} (${rec.platform || recordingPlatform()})`,
+      rec.device ? `Device: ${rec.device}${rec.os_version ? ` ${rec.os_version}` : ""}` : "",
+      view.planned.length ? `Scripts: ${view.planned.join(", ")}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  // A plan as the panel reads it: its issue, its scripts (name, scenario,
+  // and which script a copy comes from), and its scenarios' words.
+  function planView(doc) {
+    const scenarios = {};
+    (Array.isArray(doc && doc.scenarios) ? doc.scenarios : []).forEach((sc) => {
+      if (!sc || !sc.id) return;
+      const list = (v) => (Array.isArray(v) ? v.map(String) : []);
+      scenarios[String(sc.id)] = { title: String(sc.title || ""), given: list(sc.given), when: list(sc.when), then: list(sc.then) };
+    });
+    return {
+      key: doc ? String(doc.__key || "") : "",
+      issue: doc ? String(doc.issue || "") : "",
+      scripts: planEntries(doc).map((seg) => ({ name: String(seg.name || ""), scenario: String(seg.scenario || ""), copyOf: String(seg.copy_of || ""), status: "to_record" })).filter((seg) => seg.name),
+      scenarios,
+      pipeline: doc && doc.pipeline && typeof doc.pipeline === "object" ? doc.pipeline : {},
+    };
+  }
+
+  // The scenario a recording saved under a name is: the plan's script of
+  // that name, else <KEY>-<id> read from the name itself; null when neither.
+  function scriptScenario(name, plan) {
+    const entry = plan && Array.isArray(plan.scripts) ? plan.scripts.find((item) => item.name === name) : null;
+    if (entry && entry.scenario && plan.issue) {
+      const scenario = plan.scenarios && plan.scenarios[entry.scenario];
+      return { issue: plan.issue, scenario: entry.scenario, title: scenario ? scenario.title : "" };
+    }
+    const m = /^([A-Za-z][A-Za-z0-9_]*-\d+)-([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(String(name || ""));
+    return m ? { issue: m[1], scenario: m[2], title: "" } : null;
+  }
+
+  // A script's status, from the files rather than a word in the plan: to
+  // record without a file; replayed when the latest replay of the file as it
+  // is now (the report item's script_sha256 is the file's) passed; else it
+  // exists. `replays` come newest first. mobile-auto plan status derives the
+  // same for the assistant.
+  function scriptStatus(file, replays, platform, name) {
+    if (!file || !file.exists) return "to_record";
+    const row = { name, kind: "script" };
+    for (const rp of Array.isArray(replays) ? replays : []) {
+      if (rp.platform !== platform) continue;
+      const seg = rp.segments.find((item) => sameReplayRow(item, row) && item.sha256 && item.sha256 === file.hash);
+      if (seg) return seg.status === "passed" ? "replayed" : "exists";
+    }
+    return "exists";
+  }
+
+  // SHA-256 of a text, as the bridge hashes the YAML it replays. Without
+  // Web Crypto (an origin that is not secure) it is "", and no script counts
+  // as replayed here.
+  async function sha256Hex(text) {
+    const subtle = globalThis.crypto && globalThis.crypto.subtle;
+    if (!subtle) return "";
+    const digest = await subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
   // Whether a name is one of the platform's scenario scripts (else an older
   // segment).
   function itemKind(name) {
@@ -592,50 +652,11 @@
   // What a replay ran, in words: scripts when every file was one.
   function replayNoun(items) {
     const list = Array.isArray(items) ? items : [];
-    const scripts = list.length > 0 && list.every((item) => (item.kind || itemKind(item.name)) === "script");
+    const kinds = list.map((item) => item.kind || itemKind(item.name));
     const one = list.length === 1;
-    if (scripts) return one ? "script" : "scripts";
+    if (list.length > 0 && kinds.every((kind) => kind === "script")) return one ? "script" : "scripts";
+    if (list.length > 0 && kinds.every((kind) => kind === "recording")) return one ? "recording" : "recordings";
     return one ? "segment" : "segments";
-  }
-
-  // A row of the replay list by its kind and name, so a scenario script and an
-  // older segment of the same name stay apart.
-  function replayKey(item) {
-    return `${item && item.kind === "script" ? "script" : "segment"}:${item ? item.name : ""}`;
-  }
-
-  function replayKeyKind(key) {
-    return String(key).startsWith("script:") ? "script" : "segment";
-  }
-
-  // The rows ticked for the next replay after ticking `key`: a scenario script
-  // replays on its own, from the app's start, so ticking one leaves it alone;
-  // older segments chain, so ticking one keeps the other segments.
-  function replayChoice(checked, key) {
-    if (replayKeyKind(key) === "script") return [key];
-    return checked.filter((item) => item !== key && replayKeyKind(item) !== "script").concat(key);
-  }
-
-  // What the replay list ticks before the member does. With scripts: the
-  // scenario plan's next script that has not passed a replay, in the plan's
-  // order (a copy comes after its source), or nothing once every script the
-  // plan lists here has passed; the first script when the plan lists none of
-  // them. Without scripts: the older segments in the order of the latest cut,
-  // else all of them, as a chain.
-  function defaultReplayTicks(items, planScripts, cutParts) {
-    const scripts = items.filter((item) => item.kind === "script");
-    if (scripts.length) {
-      const listed = (name) => scripts.some((item) => item.name === name);
-      const plan = Array.isArray(planScripts) ? planScripts.filter((entry) => listed(entry.name)) : [];
-      if (plan.length) {
-        const next = plan.find((entry) => entry.status !== "replayed");
-        return next ? [replayKey({ kind: "script", name: next.name })] : [];
-      }
-      return [replayKey(scripts[0])];
-    }
-    const segments = items.filter((item) => item.kind === "segment").map((item) => item.name);
-    const inCut = (cutParts || []).filter((name) => segments.includes(name));
-    return (inCut.length ? inCut : segments).map((name) => replayKey({ kind: "segment", name }));
   }
 
   function nextPlanned(name) {
@@ -715,11 +736,10 @@
         <div data-recording-device></div>
         <div class="efp-mobile-tabs" data-recording-tabs role="tablist"></div>
         <div data-recording-flow></div>
-        <section class="efp-mobile-section hidden" data-recording-record></section>
-        <section class="efp-mobile-section hidden" data-recording-replay></section>
-        <section class="efp-mobile-section hidden" data-recording-library></section>
-        <section class="efp-mobile-section efp-mobile-settings hidden" data-recording-settings></section>
         <div class="portal-inline-state" data-recording-status role="status"></div>
+        <section class="efp-mobile-section hidden" data-recording-record></section>
+        <section class="efp-mobile-section hidden" data-recording-library></section>
+        <div data-recording-dialog-host></div>
       </div>`;
   }
 
@@ -733,7 +753,6 @@
     renderRecord();
     renderReplay();
     renderLibrary();
-    renderSettings();
     renderIcons();
   }
 
@@ -741,15 +760,13 @@
     const target = panelRoot()?.querySelector("[data-recording-tabs]");
     if (!target) return;
     const tab = (key, label) => `<button type="button" role="tab" data-recording-tab="${key}" aria-selected="${view.tab === key ? "true" : "false"}">${label}</button>`;
-    target.innerHTML = tab("session", "Session") + tab("library", "Library");
+    target.innerHTML = tab("record", "Record") + tab("library", "Library");
   }
 
   function switchTab(tab) {
-    view.tab = tab === "library" ? "library" : "session";
-    view.formKey = "";
+    view.tab = tab === "library" ? "library" : "record";
     renderTabs();
     renderDevice();
-    renderFlow();
     renderFlow();
     renderRecord();
     renderReplay();
@@ -768,7 +785,7 @@
     renderIcons();
   }
 
-  // The bar names the bridge, or what is wrong with it, and holds Settings.
+  // The bar names the bridge, or what is wrong with it.
   function renderBar() {
     const bar = panelRoot()?.querySelector("[data-recording-bar]");
     if (!bar) return;
@@ -791,12 +808,11 @@
           <div class="efp-card-actions">${start}<button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button></div>`;
       }
     }
-    bar.innerHTML = `<div class="efp-mobile-bar-main">${main}</div>
-      <button type="button" class="toolbar-icon-btn" data-recording-action="settings" title="Settings" aria-label="Settings" aria-pressed="${view.settingsOpen ? "true" : "false"}"><i data-lucide="settings" class="w-4 h-4"></i></button>`;
+    bar.innerHTML = `<div class="efp-mobile-bar-main">${main}</div>`;
   }
 
   function startLabel() {
-    return inspectorAvailable() && autoInspector() ? "Start and open Inspector" : "Start recording device";
+    return inspectorAvailable() ? "Start and open Inspector" : "Start recording device";
   }
 
   function startFormHtml() {
@@ -804,9 +820,22 @@
       <div class="efp-card efp-device">
         <div class="efp-card-head"><strong class="efp-card-title">Start a device</strong></div>
         <p class="efp-card-meta">The local bridge starts a BrowserStack device with the build and holds it while you record and replay.</p>
-        <label class="portal-form-label"><span class="portal-form-label">Build</span>
-          <select class="portal-form-select" data-recording-app><option value="">Looking for your builds…</option></select>
-        </label>
+        <div class="efp-field">
+          <div class="efp-field-head"><span class="portal-form-label">Build</span><button type="button" class="composer-pill-btn" data-recording-action="upload-toggle" aria-expanded="${view.uploadOpen ? "true" : "false"}" title="Upload an .apk, .aab or .ipa to BrowserStack"><i data-lucide="upload" class="w-3 h-3"></i>Upload a build</button></div>
+          <select class="portal-form-select" data-recording-app aria-label="Build"><option value="">Looking for your builds…</option></select>
+        </div>
+        <div class="efp-upload${view.uploadOpen ? "" : " hidden"}" data-recording-upload>
+          <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
+          <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
+            <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
+          </label>
+          <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
+          <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
+          <div class="efp-card-actions">
+            <button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button>
+            <button type="button" class="portal-btn" data-recording-action="upload-toggle">Cancel</button>
+          </div>
+        </div>
         <div class="grid grid-cols-2 gap-3">
           <label class="portal-form-label"><span class="portal-form-label">Platform</span>
             <select class="portal-form-select" data-recording-platform><option value="android">Android</option><option value="ios">iOS</option></select>
@@ -824,7 +853,6 @@
         </details>
         <div class="efp-card-actions">
           <button type="button" class="portal-btn is-primary" data-recording-action="start"><i data-lucide="play" class="w-4 h-4"></i>${esc(startLabel())}</button>
-          <button type="button" class="portal-btn is-secondary" data-recording-action="settings-upload"><i data-lucide="upload" class="w-4 h-4"></i>Upload a build</button>
         </div>
       </div>
       <div data-recording-others></div>`;
@@ -886,7 +914,7 @@
         This computer still holds a device from another recording: ${esc(rec.device || rec.platform || "a device")}, recording ${esc(rec.segment || "")}.
         <div class="efp-card-actions">
           <button type="button" class="portal-btn is-secondary" data-recording-action="adopt" data-id="${esc(rec.id)}">Continue it here</button>
-          <button type="button" class="portal-btn is-secondary" data-recording-action="finish-other" data-id="${esc(rec.id)}">Release the device</button>
+          <button type="button" class="portal-btn is-secondary" data-recording-action="finish-other" data-id="${esc(rec.id)}"${view.releasingOther === rec.id ? " disabled" : ""}>${view.releasingOther === rec.id ? `<i data-lucide="loader-circle" class="w-4 h-4 animate-spin"></i>Releasing…` : "Release the device"}</button>
         </div>
       </div>`).join("");
   }
@@ -945,7 +973,23 @@
       </div>`;
   }
 
+  // The card while the device is being released: nothing to do but wait.
+  function releasingCardHtml(rec) {
+    const since = view.releasing.since;
+    return `
+      <div class="efp-card efp-device">
+        <div class="efp-card-head">
+          <span class="portal-status-badge is-warning">Releasing</span>
+          <strong class="efp-card-title">${esc(rec.device || "BrowserStack device")}</strong>
+          <span class="efp-card-meta">${esc(platformLabel(rec))}${rec.os_version ? ` ${esc(rec.os_version)}` : ""}</span>
+        </div>
+        <div class="efp-card-meta efp-device-replay"><i data-lucide="loader-circle" class="w-3 h-3 animate-spin"></i><span>Ending the BrowserStack session and releasing the device… <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></span></div>
+        <p class="portal-inline-note">${view.releasing.replaying ? "The running replay finishes its step and hands the device back first." : "Usually under a minute."} Recordings saved in the assistant's workspace stay.</p>
+      </div>`;
+  }
+
   function deviceCardHtml(rec) {
+    if (view.releasing) return releasingCardHtml(rec);
     const ended = rec.status && rec.status !== "active";
     const held = rec.hold_deadline && remaining(rec.hold_deadline) !== "expired";
     const badge = ended ? "Ended" : (held ? "Held" : "Hold expired");
@@ -975,6 +1019,7 @@
           </span>
         </div>
         <div class="efp-card-meta">Build ${esc(rec.app || "")}</div>
+        ${replayLineHtml()}
         ${view.connectionOpen ? connectionHtml(rec) : ""}
       </div>`;
   }
@@ -983,11 +1028,6 @@
     const target = panelRoot()?.querySelector("[data-recording-device]");
     if (!target) return;
     const rec = view.recording;
-    if (!rec && view.tab === "library") {
-      view.formKey = "";
-      target.innerHTML = `<div class="efp-card efp-device"><div class="efp-card-meta">No device held. Start one under Session to record or replay.</div></div>`;
-      return;
-    }
     if (!rec) {
       // The start form keeps what the member typed across polls.
       const key = ["form", startLabel(), view.config ? view.config.configured : ""].join("|");
@@ -1022,16 +1062,24 @@
     const platform = recordingPlatform();
     const key = `${view.agentId}|${platform}|${view.recording ? view.recording.app : ""}`;
     try {
-      const [recordings, segments, scripts, scenarios] = await Promise.all([
+      const [recordings, segments, scripts, scenarios, replays] = await Promise.all([
         listWorkspace(RECORDINGS_DIR),
         listWorkspace(`${SEGMENTS_DIR}/${platform}`),
         listWorkspace(`${SCRIPTS_DIR}/${platform}`),
         listWorkspace(SCENARIOS_DIR),
+        loadReplayReports(),
       ]);
       const files = (items) => items.filter((item) => item.is_file !== false);
       const yamlNames = (items) => files(items).filter((item) => /\.ya?ml$/i.test(item.name || "")).map((item) => String(item.name).replace(/\.ya?ml$/i, ""));
       const segmentNames = yamlNames(segments);
       const scriptNames = yamlNames(scripts);
+      // Each script's status comes from its file and the replays of it.
+      const statuses = {};
+      const reportPaths = {};
+      (await scriptRows(scripts, SCRIPTS_DIR, platform, "script", replays)).forEach((row) => {
+        statuses[row.name] = row.status;
+        if (row.reportPath) reportPaths[row.name] = row.reportPath;
+      });
       const splits = files(recordings).filter((item) => /\.split\.json$/.test(item.name || ""));
       splits.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
       let split = null;
@@ -1048,24 +1096,26 @@
       }
       const plans = await readPlans(scenarios);
       const app = view.recording ? view.recording.app : "";
-      const plan = plans.find((doc) => app && doc.apps && doc.apps[platform] === app) || plans[0] || null;
+      const chosen = plans.find((doc) => app && doc.apps && doc.apps[platform] === app) || plans[0] || null;
+      const plan = chosen ? planView(chosen) : null;
+      if (plan) plan.scripts.forEach((seg) => { seg.status = statuses[seg.name] || "to_record"; });
       view.flow = {
         key,
         platform,
         recordings: files(recordings).filter((item) => /\.wdlog\.json$/.test(item.name || "")).length,
         scripts: scriptNames,
         segments: segmentNames,
+        statuses,
+        reportPaths,
+        replays,
         split,
-        plan: plan ? {
-          key: plan.__key,
-          scripts: planEntries(plan).map((seg) => ({ name: String(seg.name || ""), status: seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "") })).filter((seg) => seg.name),
-          pipeline: plan.pipeline && typeof plan.pipeline === "object" ? plan.pipeline : {},
-        } : null,
+        plan,
       };
     } catch (_error) {
-      view.flow = { key, platform, error: true, recordings: 0, scripts: [], segments: [], split: null, plan: null };
+      view.flow = { key, platform, error: true, recordings: 0, scripts: [], segments: [], statuses: {}, reportPaths: {}, replays: [], split: null, plan: null };
     }
     renderFlow();
+    renderRecord();
     renderReplay();
     renderIcons();
   }
@@ -1086,11 +1136,66 @@
     return plans;
   }
 
-  // A plan script's status on a platform.
-  function planStatus(plan, name, platform) {
-    const seg = planEntries(plan).find((item) => String(item.name || "") === name) || null;
-    if (!seg) return "";
-    return seg.status && typeof seg.status === "object" ? String(seg.status[platform] || "") : String(seg.status || "");
+  // Whether a plan lists a script.
+  function planLists(plan, name) {
+    return planEntries(plan).some((item) => String(item.name || "") === name);
+  }
+
+  // The replays in the workspace, newest first, with what each one ran and
+  // the hash of the file it ran.
+  async function loadReplayReports() {
+    const replayItems = await listWorkspace(REPLAYS_DIR);
+    const dirs = replayItems.filter((item) => item.is_dir || item.type === "directory").sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(0, LIBRARY_MAX_REPLAYS);
+    const replays = (await Promise.all(dirs.map(async (dir) => {
+      const path = `${REPLAYS_DIR}/${dir.name}/report.json`;
+      try {
+        const report = JSON.parse(await cachedText(path, dir.modified_at));
+        return {
+          id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: String(report.status || ""), platform: String(report.platform || ""),
+          device: String(report.device || ""), finishedAt: String(report.finished_at || ""), start: String(report.start || ""),
+          segments: (Array.isArray(report.segments) ? report.segments : []).map((seg) => ({ name: String(seg.name || ""), kind: String(seg.kind || ""), status: String(seg.status || ""), sha256: String(seg.script_sha256 || "") })),
+          failure: report.failure && typeof report.failure === "object" ? { segment: String(report.failure.segment || ""), step: Number(report.failure.step) || 0 } : null,
+        };
+      } catch (_error) {
+        return { id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: "", platform: "", segments: [], broken: true };
+      }
+    }))).filter(Boolean);
+    // Newest first by the report's clock; the folder name only breaks ties.
+    replays.sort((a, b) => String(b.finishedAt || "").localeCompare(String(a.finishedAt || "")) || String(b.id).localeCompare(String(a.id)));
+    return replays;
+  }
+
+  // The scenario scripts (or older segments) of one platform, each with what
+  // its file says, its latest replay, and its status derived from them.
+  async function scriptRows(list, dir, platform, kind, replays) {
+    const files = (items) => items.filter((item) => item.is_file !== false && !(item.is_dir || item.type === "directory"));
+    const names = new Set(files(list).map((item) => String(item.name || "")));
+    const items = files(list).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
+    return Promise.all(items.map(async (item) => {
+      const name = String(item.name).replace(/\.ya?ml$/i, "");
+      const path = `${dir}/${platform}/${item.name}`;
+      let parsed = { steps: 0, grade: "", needsReview: 0, compiledAt: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" };
+      let hash = "";
+      try {
+        const text = await cachedText(path, item.modified_at);
+        parsed = parseSegmentYaml(text);
+        hash = await sha256Hex(text);
+      } catch (_error) {
+        /* listed without its details */
+      }
+      const row = { name, kind };
+      const latest = replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
+      const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
+      const reportName = `${name}.report.json`;
+      return {
+        name, path, platform, kind, hash, modifiedAt: String(item.modified_at || ""), steps: parsed.steps, grade: parsed.grade, needsReview: parsed.needsReview,
+        compiledAt: parsed.compiledAt || String(item.modified_at || ""),
+        status: kind === "script" ? scriptStatus({ exists: true, hash }, replays, platform, name) : "",
+        reportPath: names.has(reportName) ? `${dir}/${platform}/${reportName}` : "",
+        scenario: parsed.scenario, description: parsed.description, copiedFrom: parsed.copiedFrom, sourceFile: parsed.sourceFile,
+        lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, current: Boolean(hash) && latestSeg.sha256 === hash, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
+      };
+    }));
   }
 
   // The four steps after a device is up, each with where it stands.
@@ -1116,7 +1221,7 @@
       compile.text = `${flow.segments.length} ${flow.segments.length === 1 ? "segment" : "segments"}`;
       compile.done = true;
     } else if (record.done) {
-      compile.text = "the assistant compiles it in the chat";
+      compile.text = "compile each recording as its scenario in the Library";
     } else {
       compile.text = "after recording";
     }
@@ -1172,7 +1277,7 @@
   function renderFlow() {
     const target = panelRoot()?.querySelector("[data-recording-flow]");
     if (!target) return;
-    if (view.tab !== "session" || (!view.recording && !(view.flow && (view.flow.recordings || view.flow.scripts.length || view.flow.segments.length)))) {
+    if (view.tab !== "record" || (!view.recording && !(view.flow && (view.flow.recordings || view.flow.scripts.length || view.flow.segments.length)))) {
       target.innerHTML = "";
       return;
     }
@@ -1196,7 +1301,7 @@
         </div>`
       : "";
     const doneList = view.done.length
-      ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.name)} <span class="efp-card-meta">${esc(item.detail)}</span></li>`).join("")}</ul>`
+      ? `<ul class="efp-recording-done">${view.done.map((item) => `<li><i data-lucide="check" class="w-3 h-3"></i> ${esc(item.name)} <span class="efp-card-meta">${esc(item.detail)}</span>${doneActionsHtml(item)}</li>`).join("")}</ul>`
       : "";
     return `
       <div class="efp-mobile-section-head">
@@ -1205,10 +1310,12 @@
       </div>
       <p class="portal-inline-note">${planned
         ? "Save when the scenario reaches its result; the name moves on to the next script you listed."
-        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it under its script's name. The assistant compiles it into the scenario's script in the chat."}</p>
+        : "Everything you do through the Inspector is recorded; there is nothing to start there. Record one scenario from the app's first screen to its result, then save it. Replay the recording as it is to check it, compile it as its scenario from the Library, and press Review once the script passes. Saved under its scenario's name, it is compiled at once."}</p>
+      ${nextToRecordHtml()}
       <div class="efp-record-name">
         <label class="portal-form-label"><span class="portal-form-label">${planned ? "Script" : "Save as"}</span>
-          <input class="portal-form-input" data-recording-name value="${esc(name)}" autocomplete="off" spellcheck="false" />
+          <input class="portal-form-input" data-recording-name value="${esc(name)}" list="efp-script-names" autocomplete="off" spellcheck="false" />
+          <datalist id="efp-script-names">${recordNameSuggestions().map((item) => `<option value="${esc(item)}"></option>`).join("")}</datalist>
         </label>
       </div>
       <div class="efp-card-actions">
@@ -1230,11 +1337,102 @@
       </details>`;
   }
 
+  // What a saved recording's line offers once it is compiled: replay the
+  // script, and ask the assistant for the review.
+  function doneActionsHtml(item) {
+    if (item.code) return "";
+    if (!item.compiled || !item.scriptPath) {
+      return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-recording" data-name="${esc(item.name)}" title="Tick it under Replay, to replay it as it is">Replay</button> <button type="button" class="composer-pill-btn" data-recording-action="compile-recording" data-name="${esc(item.name)}" title="Compile it as one of the plan's scenarios, in the Library">Compile</button>`;
+    }
+    const review = item.reviewed
+      ? `<span class="efp-card-meta">review asked</span>`
+      : `<button type="button" class="composer-pill-btn" data-recording-action="review-script" data-name="${esc(item.name)}" data-path="${esc(item.scriptPath)}" data-report="${esc(item.reportPath || "")}" title="Ask the assistant to review the script: label its steps with the plan's and add the expected-result checks">Review</button>`;
+    return ` <button type="button" class="composer-pill-btn" data-recording-action="replay-script" data-name="${esc(item.name)}" title="Tick it under Replay">Replay</button> ${review}`;
+  }
+
+  // Hands a compiled script to the assistant for review, with the
+  // compiler's report next to it.
+  function requestReview(name, scriptPath, reportPath) {
+    sendChat(compiledMessage(name, scriptPath, reportPath || `${scriptPath.replace(/\.ya?ml$/i, "")}.report.json`));
+    view.done.forEach((item) => {
+      if (item.name === name) item.reviewed = true;
+    });
+    remember();
+    setStatus(`Asked the assistant to review ${name}. Its edits need one more replay to pass.`, "success");
+    renderRecord();
+    renderIcons();
+  }
+
+  // The plan's scripts still to record on this platform, in the plan's
+  // order, after the names listed at the start: what Save as offers.
+  function recordNameSuggestions() {
+    const plan = view.flow && view.flow.plan;
+    const planned = plan ? plan.scripts.filter((item) => item.status === "to_record" && !item.copyOf).map((item) => item.name) : [];
+    return [...new Set(view.planned.concat(planned))];
+  }
+
+  // The next scenario the plan wants recorded on this platform, with its
+  // steps in the plan's words; a copy is not recorded.
+  function nextToRecord() {
+    const plan = view.flow && view.flow.plan;
+    if (!plan) return null;
+    const entry = plan.scripts.find((item) => item.status === "to_record" && !item.copyOf && !view.done.some((done) => done.name === item.name));
+    if (!entry) return null;
+    const scenario = plan.scenarios[entry.scenario] || { title: "", given: [], when: [], then: [] };
+    const steps = [].concat(scenario.given.map((t) => `Given ${t}`), scenario.when.map((t) => `When ${t}`), scenario.then.map((t) => `Then ${t}`));
+    return { name: entry.name, title: scenario.title, steps };
+  }
+
+  function nextToRecordHtml() {
+    const ask = `<button type="button" class="composer-pill-btn" data-recording-action="ask-assistant" title="Ask the assistant what to record and how">Ask the assistant</button>`;
+    const plan = view.flow && view.flow.plan;
+    if (!plan) return `<p class="portal-inline-note" data-recording-next>No scenario plan in the workspace yet; the assistant writes one from the Jira story. ${ask}</p>`;
+    const next = nextToRecord();
+    if (!next) return `<p class="portal-inline-note" data-recording-next>Every scenario of the plan has a script on this platform. ${ask}</p>`;
+    return `<div class="efp-lib-card" data-recording-next>
+        <div class="efp-lib-main"><strong>Next: ${esc(next.name)}</strong>${next.title ? `<span class="efp-card-meta">${esc(next.title)}</span>` : ""}</div>
+        ${next.steps.length ? `<ol class="efp-next-steps">${next.steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ol>` : ""}
+        <div class="efp-card-actions">
+          <button type="button" class="composer-pill-btn" data-recording-action="use-name" data-name="${esc(next.name)}" title="Save the recording under this name">Save as ${esc(next.name)}</button>
+          ${ask}
+        </div>
+      </div>`;
+  }
+
+  // Opens the Library on a recording's scenario choice.
+  async function openCompile(name) {
+    const lib = view.library;
+    lib.open[`compile:${RECORDINGS_DIR}/${name}.wdlog.json`] = true;
+    switchTab("library");
+    if (!lib.loaded) await loadLibrary();
+    else {
+      renderLibrary();
+      renderIcons();
+    }
+  }
+
+  function askAssistant() {
+    const rec = view.recording;
+    if (!rec) {
+      setStatus("Start a device first.", "error");
+      return;
+    }
+    sendChat(startMessage(rec));
+    setStatus("Asked the assistant what to record next.", "success");
+  }
+
+  function useName(root, name) {
+    const input = root.querySelector("[data-recording-name]");
+    if (!input || !name) return;
+    input.value = name;
+    input.focus();
+  }
+
   function renderRecord() {
     const target = panelRoot()?.querySelector("[data-recording-record]");
     if (!target) return;
     const rec = view.recording;
-    if (!rec || rec.status !== "active" || view.tab !== "session") {
+    if (!rec || rec.status !== "active" || view.tab !== "record" || view.releasing) {
       target.innerHTML = "";
       target.classList.add("hidden");
       view.sessionKey = "";
@@ -1244,11 +1442,19 @@
     const summary = target.querySelector("[data-recording-summary]");
     if (summary) summary.textContent = summaryText(rec.summary);
     // Re-render only when the recording changes, so typing in the name field
-    // is not interrupted by the poll.
-    const key = [rec.id, rec.session_id, rec.status, rec.segment, view.done.length, view.unsaved ? view.unsaved.name : "", view.planned.length, inspectorAvailable(), rec.replay ? rec.replay.status : ""].join("|");
+    // is not interrupted by the poll. The plan's next scenario is part of the
+    // card, so a change of the plan's statuses re-renders it too, keeping
+    // the name typed so far.
+    const doneKey = view.done.map((item) => `${item.name}:${item.compiled ? "c" : ""}${item.reviewed ? "r" : ""}`).join(",");
+    const recKey = [rec.id, rec.session_id, rec.status, rec.segment, doneKey, view.unsaved ? view.unsaved.name : "", view.planned.length, inspectorAvailable(), rec.replay ? rec.replay.status : ""].join("|");
+    const flow = view.flow;
+    const flowKey = flow ? [flow.key, flow.plan ? flow.plan.scripts.map((item) => `${item.name}:${item.status}`).join(",") : "none"].join("|") : "";
+    const key = `${recKey}#${flowKey}`;
     if (key === view.sessionKey) return;
     const focused = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-recording-name]");
-    const typedName = focused ? document.activeElement.value : null;
+    const current = target.querySelector("[data-recording-name]");
+    const sameRecording = view.sessionKey.split("#")[0] === recKey;
+    const typedName = focused ? document.activeElement.value : (sameRecording && current ? current.value : null);
     view.sessionKey = key;
     target.innerHTML = recordHtml(rec);
     if (typedName !== null) {
@@ -1262,80 +1468,6 @@
 
   // ---- Settings ----------------------------------------------------------------------
 
-  function settingsHtml() {
-    const problem = view.config && view.config.configured ? bridgeProblem(view.bridge) : "";
-    const bridge = !view.bridge
-      ? "Looking for the local bridge…"
-      : (problem ? BRIDGE_MESSAGES[problem] : `Running on 127.0.0.1:${view.bridge.port}${view.bridge.version ? ` (version ${view.bridge.version})` : ""}.`);
-    return `
-      <div class="efp-mobile-section-head"><h5>Settings</h5></div>
-      <div class="efp-settings-group">
-        <h6>Local bridge</h6>
-        <p class="efp-card-meta">${esc(bridge)}</p>
-        <div class="efp-card-actions">
-          ${problem === "not_running" ? `<button type="button" class="portal-btn is-secondary" data-recording-action="start-bridge"${view.busy === "bridge" ? " disabled" : ""}><i data-lucide="plug" class="w-4 h-4"></i>Start bridge</button>` : ""}
-          <button type="button" class="portal-btn is-secondary" data-recording-action="check-bridge"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Check again</button>
-          <a class="portal-link-inline" href="#/connectors/local_bridge">Connectors &gt; Local bridge</a>
-        </div>
-      </div>
-      ${inspectorAvailable() ? `
-      <div class="efp-settings-group">
-        <h6>Appium Inspector</h6>
-        <label class="efp-replay-row"><input type="checkbox" data-recording-auto-inspector${autoInspector() ? " checked" : ""} /><span>Open the Inspector in a new tab when the device is ready</span></label>
-        <p class="portal-inline-note">Portal hosts the Inspector; it attaches to the device through the bridge on this computer. The device menu opens it inside Portal instead.</p>
-      </div>` : `
-      <div class="efp-settings-group">
-        <h6>Appium Inspector</h6>
-        <p class="portal-inline-note">This Portal does not host the Inspector, so recording uses the desktop Appium Inspector with the connection details in the device menu. An administrator can bundle it in the Portal image.</p>
-      </div>`}
-      <div class="efp-settings-group">
-        <h6>Proxy to BrowserStack from this computer</h6>
-        <label class="portal-form-label"><span class="portal-form-label">Proxy (optional)</span>
-          <input class="portal-form-input" data-bridge-proxy="url" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
-        </label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
-            <input class="portal-form-input" data-bridge-proxy="username" placeholder="Optional" autocomplete="off" spellcheck="false" />
-          </label>
-          <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
-            <input type="password" class="portal-form-input" data-bridge-proxy="password" placeholder="Optional" autocomplete="new-password" />
-          </label>
-        </div>
-        <p class="portal-inline-note">Empty uses this computer's proxy settings. Saved in this browser only. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\\user; the password stays hidden on screen.</p>
-      </div>
-      <div class="efp-settings-group" data-recording-upload>
-        <h6>Upload a build to BrowserStack</h6>
-        <input type="file" accept="${BUILD_EXTENSIONS.join(",")}" class="portal-form-input" data-recording-build />
-        <label class="portal-form-label"><span class="portal-form-label">Custom id (optional)</span>
-          <input class="portal-form-input" data-recording-custom-id placeholder="fxapp-android-uat" autocomplete="off" spellcheck="false" />
-        </label>
-        <p class="portal-inline-note">A custom id names the latest build uploaded with it, so recordings and the pipeline keep using the same name. BrowserStack keeps builds for 30 days.</p>
-        <div class="portal-progress hidden" data-recording-upload-progress><i></i></div>
-        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-recording-action="upload-build"><i data-lucide="upload" class="w-4 h-4"></i>Upload to BrowserStack</button></div>
-      </div>`;
-  }
-
-  function renderSettings() {
-    const target = panelRoot()?.querySelector("[data-recording-settings]");
-    if (!target) return;
-    target.classList.toggle("hidden", !view.settingsOpen);
-    if (!view.settingsOpen) {
-      target.innerHTML = "";
-      return;
-    }
-    if (target.querySelector("[data-recording-build]")) return;
-    target.innerHTML = settingsHtml();
-    fillProxyFields(target);
-    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(target);
-  }
-
-  function toggleSettings(open) {
-    view.settingsOpen = typeof open === "boolean" ? open : !view.settingsOpen;
-    renderBar();
-    renderSettings();
-    renderIcons();
-  }
-
   // ---- loading -----------------------------------------------------------------------
 
   async function loadConfig() {
@@ -1343,6 +1475,7 @@
       const response = await fetch(`/api/mobile/recording-config?agent_id=${encodeURIComponent(view.agentId)}`, { credentials: "same-origin", cache: "no-store" });
       if (response.ok) {
         view.config = await response.json();
+        setBridgeProxy(view.config.bridge_proxy);
       } else {
         view.config = {
           configured: false,
@@ -1404,7 +1537,6 @@
   async function refreshAll() {
     await Promise.all([loadConfig(), probe({ force: true }).then((state) => { view.bridge = state; })]);
     renderBar();
-    renderSettings();
     if (!bridgeProblem(view.bridge)) {
       // A held recording shows up without waiting for the build list.
       await Promise.all([
@@ -1523,9 +1655,9 @@
       closeWorkspace({ rerender: false });
       Object.assign(view, {
         agentId, config: null, bridge: null, apps: null, appsError: "", selectedApp: "",
-        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", sessionKey: "", formKey: "", polls: 0,
-        replay: freshReplay(), flow: null, settingsOpen: false, connectionOpen: false, inspectorTab: null,
-        tab: "session", library: freshLibrary(),
+        recording: null, others: [], planned: [], done: [], unsaved: null, busy: "", releasing: null, releasingOther: "", sessionKey: "", formKey: "", polls: 0,
+        replay: freshReplay(), flow: null, connectionOpen: false, uploadOpen: false, inspectorTab: null,
+        tab: "record", library: freshLibrary(),
       });
     } else {
       view.sessionKey = "";
@@ -1540,7 +1672,6 @@
   async function startBridge() {
     view.busy = "bridge";
     renderBar();
-    renderSettings();
     setStatus("Starting the local bridge… allow the efp-bridge link if Chrome asks.", "");
     try {
       view.bridge = await launchAndWait();
@@ -1550,7 +1681,6 @@
     if (bridgeProblem(view.bridge)) {
       setStatus("The bridge did not start. Install it from Connectors > Local bridge, or start it from there and check again.", "error");
       renderBar();
-      renderSettings();
       return;
     }
     setStatus("", "");
@@ -1599,7 +1729,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   }
 
   function openInspectorTabEarly() {
-    if (!inspectorAvailable() || !autoInspector()) return null;
+    if (!inspectorAvailable()) return null;
     let tab = null;
     try {
       tab = window.open("", "_blank");
@@ -1672,14 +1802,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       remember();
       renderAll();
       const recording = started.status === "starting" ? await waitForDevice(started.id) : started;
-      const lines = [
-        "/record-mobile-segment",
-        "Recording on my computer through the Mobile testing panel.",
-        `App: ${recording.app || app} (${recording.platform || platform})`,
-        recording.device ? `Device: ${recording.device}${recording.os_version ? ` ${recording.os_version}` : ""}` : "",
-        view.planned.length ? `Scripts: ${view.planned.join(", ")}` : "",
-      ].filter(Boolean);
-      sendChat(lines.join("\n"));
       const what = view.planned.length ? recording.segment : "the scenario";
       if (landInspectorTab()) setStatus(`Device ready. The Inspector opened in its own tab; record ${what} there, then press Save recording.`, "success");
       else if (inspectorAvailable()) setStatus(`Device ready. Open the Inspector and record ${what}.`, "success");
@@ -1853,9 +1975,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   function freshReplay() {
     return {
-      segments: null, loading: false, error: "", checked: [], touched: false, start: "restart",
-      secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, running: null, polling: false,
-      result: null, saved: [],
+      start: "restart", secretNames: [], extraSecretNames: [], secrets: {}, yaml: {}, logs: {},
+      running: null, polling: false, result: null, saved: [],
+      // The replay dialog: the file it was opened on, the older segments
+      // ticked in it, and its phase (setup, running, done).
+      dialog: null,
     };
   }
 
@@ -1905,48 +2029,26 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return [...names].sort();
   }
 
-  async function loadReplaySegments() {
-    const rec = view.recording;
-    if (!rec || !view.agentId) return;
-    const r = view.replay;
-    r.loading = true;
-    renderReplay();
-    try {
-      await loadFlow();
-      const flow = view.flow || { scripts: [], segments: [], split: null, plan: null };
-      const cutParts = flow.split ? flow.split.parts : [];
-      const planScripts = flow.plan ? flow.plan.scripts : null;
-      const planOrder = planScripts ? planScripts.map((entry) => entry.name) : [];
-      // Scripts in the plan's order, older segments in the cut's order.
-      const rank = (item) => {
-        const order = item.kind === "script" ? planOrder : cutParts;
-        const index = order.indexOf(item.name);
-        return index >= 0 ? index : order.length;
-      };
-      const platform = recordingPlatform();
-      const items = (flow.scripts || []).map((name) => ({ name, kind: "script", path: `${SCRIPTS_DIR}/${platform}/${name}.yaml` }))
-        .concat((flow.segments || []).map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml` })));
-      items.sort((a, b) => (a.kind === b.kind ? 0 : (a.kind === "script" ? -1 : 1)) || rank(a) - rank(b) || a.name.localeCompare(b.name));
-      r.segments = items;
-      const keys = items.map(replayKey);
-      if (!r.touched) r.checked = defaultReplayTicks(items, planScripts, cutParts);
-      else r.checked = r.checked.filter((key) => keys.includes(key));
-      // A scenario script replays on its own.
-      const firstScript = r.checked.find((key) => replayKeyKind(key) === "script");
-      if (firstScript) r.checked = [firstScript];
-      r.error = flow.error ? "Could not list the scenario scripts. Is the assistant running?" : "";
-      await loadReplaySecrets();
-    } catch (error) {
-      r.error = `Could not list the scenario scripts: ${errorText(error)}`;
-    }
-    r.loading = false;
-    renderReplay();
-    renderIcons();
+  // The files a replay dialog runs: the file it was opened on, or for an
+  // older segment the chain ticked in it, in the order of the latest cut.
+  function dialogItems() {
+    const d = view.replay.dialog;
+    if (!d) return [];
+    if (d.item.kind !== "segment") return [d.item];
+    return olderSegments().filter((seg) => d.chain.includes(seg.name));
   }
 
-  function selectedSegments() {
-    const r = view.replay;
-    return (r.segments || []).filter((seg) => r.checked.includes(replayKey(seg)));
+  // The older segments of the held device's platform, in the order of the
+  // latest cut, then by name.
+  function olderSegments() {
+    const flow = view.flow || { segments: [], split: null };
+    const platform = recordingPlatform();
+    const order = flow.split ? flow.split.parts : [];
+    const rank = (name) => {
+      const index = order.indexOf(name);
+      return index >= 0 ? index : order.length;
+    };
+    return (flow.segments || []).slice().sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).map((name) => ({ name, kind: "segment", path: `${SEGMENTS_DIR}/${platform}/${name}.yaml`, platform }));
   }
 
   async function segmentYaml(seg) {
@@ -1959,7 +2061,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const names = new Set(r.extraSecretNames);
     // A segment that cannot be read leaves it to the bridge to name what is
     // missing.
-    const found = await Promise.all(selectedSegments().map((seg) => segmentYaml(seg).then(segmentSecrets, () => [])));
+    // A recording has no YAML here; the bridge names what it types.
+    const found = await Promise.all(dialogItems().filter((seg) => seg.kind !== "recording").map((seg) => segmentYaml(seg).then(segmentSecrets, () => [])));
     found.forEach((list) => list.forEach((name) => names.add(name)));
     r.secretNames = [...names].sort();
   }
@@ -1993,109 +2096,211 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return Boolean(item) && item.name === row.name && (!item.kind || item.kind === row.kind);
   }
 
-  // What the list says next to a row: this session's last replay first, else
-  // the plan's status (the plan lists scripts only).
-  function segmentMark(row) {
-    const res = view.replay.result;
-    const report = res && res.result ? res.result.report : null;
-    const seg = report && Array.isArray(report.segments) ? report.segments.find((item) => sameReplayRow(item, row)) : null;
-    if (seg && seg.status === "passed") return { icon: "check", tone: "success", text: "passed" };
-    if (seg && seg.status === "failed") {
-      const failed = (seg.steps || []).find((step) => step.ok === false) || {};
-      return { icon: "x", tone: "error", text: `failed at step ${failed.step || "?"}` };
+  // ---- the replay dialog -------------------------------------------------------
+  //
+  // A replay is asked for on a file: a recording saved in this session, or a
+  // script, a recording or an older segment in the Library. A dialog takes
+  // where to start and the values the replay types, runs it with its phases
+  // in view, and shows the outcome; the device card says what runs meanwhile.
+
+  // The bridge's phases, as its progress text names them.
+  const REPLAY_PHASES = [
+    ["Take the device back", /taking the device back|^starting$/],
+    ["Start the app", /restarting the app|clearing|resetting/],
+    ["Replay", /^replaying|step \d+ of \d+/],
+    ["Hand the device back", /handing the device back/],
+  ];
+
+  function replayPhaseIndex(progress) {
+    const text = String(progress || "").trim();
+    for (let i = REPLAY_PHASES.length - 1; i >= 0; i -= 1) {
+      if (REPLAY_PHASES[i][1].test(text)) return i;
     }
-    const planned = row.kind === "script" && view.flow && view.flow.plan ? view.flow.plan.scripts.find((item) => item.name === row.name) : null;
-    if (planned && planned.status === "replayed") return { icon: "check", tone: "success", text: "replayed" };
-    return null;
+    return 0;
   }
 
-  function replayOutcomeHtml() {
-    const res = view.replay.result;
-    if (!res) return "";
-    const replay = res.replay || {};
-    const report = (res.result && res.result.report) || {};
-    const status = replay.status || report.status || "";
-    const tone = status === "passed" ? "success" : (status === "cancelled" ? "warning" : "error");
-    const label = { passed: "Replay passed", failed: "Replay failed", cancelled: "Replay stopped", error: "Replay could not run" }[status] || "Replay";
-    const failure = report.failure || {};
-    const where = status === "failed" && failure.segment ? ` at ${failure.segment}, step ${failure.step || "?"}` : "";
-    const session = report.session_url ? ` <a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
-    const error = replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : "";
-    let saved = "";
-    if (res.path) saved = `<span class="efp-card-meta">The result and screenshots are in the chat; the assistant reviews them.</span>`;
-    else if (res.error) saved = `<div class="portal-inline-state is-visible is-error">${esc(res.error)}<div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button></div></div>`;
-    return `<div class="efp-replay-outcome">
-        <div><span class="portal-status-badge is-${tone}">${esc(label)}</span>${where ? `<span class="efp-card-meta">${esc(where)}</span>` : ""}${session}</div>
-        ${error}
-        ${saved}
+  // The scenario script a replay ran, when the compiler's report is still
+  // next to it: what Review in the outcome hands to the assistant.
+  function reviewableReplay(report) {
+    const items = Array.isArray(report && report.segments) ? report.segments : [];
+    const script = items.length === 1 && items[0].kind === "script" ? items[0] : null;
+    if (!script || !view.flow || !view.flow.reportPaths) return null;
+    const reportPath = view.flow.reportPaths[script.name];
+    return reportPath ? { name: script.name, path: script.path || `${SCRIPTS_DIR}/${recordingPlatform()}/${script.name}.yaml`, reportPath } : null;
+  }
+
+  // The file the running (or last) replay ran, from what the bridge said.
+  function replayedItem() {
+    const r = view.replay;
+    const running = r.running && r.running.status === "running" ? r.running : null;
+    const report = r.result && r.result.result ? r.result.result.report : null;
+    const seg = report && Array.isArray(report.segments) && report.segments[0] ? report.segments[0] : null;
+    const name = (running && (running.segments || [])[0]) || (seg && seg.name) || "";
+    if (!name) return null;
+    const kind = seg && seg.kind ? seg.kind : "script";
+    const platform = recordingPlatform();
+    const path = (seg && seg.path) || (kind === "recording" ? `${RECORDINGS_DIR}/${name}.wdlog.json` : `${kind === "segment" ? SEGMENTS_DIR : SCRIPTS_DIR}/${platform}/${name}.yaml`);
+    return { name, kind, path, platform };
+  }
+
+  // Opens the dialog on a file, to set a replay up; on the running one, or
+  // the last result, when asked to show those.
+  async function openReplayDialog(item, phase = "setup") {
+    const rec = view.recording;
+    const r = view.replay;
+    if (!rec || rec.status !== "active") {
+      askForDevice("a replay runs on it");
+      return;
+    }
+    if (r.running && r.running.status === "running") phase = "running";
+    if (phase !== "setup") {
+      r.dialog = { item, chain: [], phase, busy: false, notice: "" };
+      renderReplay();
+      renderIcons();
+      return;
+    }
+    r.dialog = { item, chain: item.kind === "segment" ? [item.name] : [], phase: "setup", busy: false, notice: "" };
+    r.extraSecretNames = [];
+    await loadReplaySecrets();
+    renderReplay();
+    renderIcons();
+    focusFirstSecret();
+  }
+
+  function closeReplayDialog() {
+    view.replay.dialog = null;
+    renderReplay();
+    renderDevice();
+    renderIcons();
+  }
+
+  function focusFirstSecret() {
+    const inputs = [...(panelRoot()?.querySelectorAll("[data-recording-dialog] [data-replay-secret]") || [])];
+    const input = inputs.find((el) => !el.value);
+    if (input) input.focus();
+  }
+
+  function replayKindLine(kind) {
+    if (kind === "recording") return "A recording, as it is: the bridge compiles it on the way and replays it on its own, from the start you choose.";
+    if (kind === "segment") return "Older segments run in the order ticked, from the start you choose.";
+    return "A scenario script replays on its own, from the start you choose.";
+  }
+
+  function replayDialogHtml() {
+    const r = view.replay;
+    const rec = view.recording;
+    const d = r.dialog;
+    if (!d || !rec) return "";
+    const running = r.running && r.running.status === "running" ? r.running : null;
+    let title = "";
+    let body = "";
+    let actions = "";
+    if (d.phase === "setup" && !running) {
+      title = `Replay ${d.item.name}`;
+      const starts = [["restart", "Restart the app"]];
+      if (rec.platform !== "ios") starts.push(["reset", "Clear the app's data first"]);
+      starts.push(["current", "The screen the device shows"]);
+      const chain = d.item.kind === "segment"
+        ? `<div class="efp-replay-list">${olderSegments().map((seg) => `<label class="efp-replay-row"><input type="checkbox" data-replay-chain="${esc(seg.name)}"${d.chain.includes(seg.name) ? " checked" : ""} /><span>${esc(seg.name)}</span></label>`).join("")}</div>`
+        : "";
+      const secrets = r.secretNames.length
+        ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the replay types" autocomplete="off" /></label>`).join("")}
+          <p class="portal-inline-note">Kept in this page only and sent to the bridge on this computer, never to the assistant.</p>`
+        : "";
+      body = `<p class="portal-dialog-msg">${esc(replayKindLine(d.item.kind))} The device is borrowed from the Inspector and handed back when it ends.</p>
+        ${chain}
+        <label class="portal-form-label"><span class="portal-form-label">Start from</span><select class="portal-form-select" data-replay-start>${starts.map(([value, label]) => `<option value="${value}"${r.start === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>
+        ${secrets}
+        ${d.notice ? `<div class="portal-inline-state is-visible is-error">${esc(d.notice)}</div>` : ""}`;
+      actions = `<button type="button" class="portal-btn" data-replay-action="close">Cancel</button>
+        <button type="button" class="portal-btn is-primary" data-replay-action="start"${d.busy ? " disabled" : ""}><i data-lucide="play" class="w-4 h-4"></i>${d.busy ? "Starting…" : "Replay"}</button>`;
+    } else if (running) {
+      title = `Replaying ${(running.segments || [])[0] || d.item.name}`;
+      const current = replayPhaseIndex(running.progress);
+      const since = Date.parse(running.started_at || "") || Date.now();
+      body = `<ol class="efp-flow">${REPLAY_PHASES.map(([label], i) => `<li class="efp-flow-step is-${i < current ? "done" : (i === current ? "current" : "todo")}"><span class="efp-flow-label">${esc(label)}</span></li>`).join("")}</ol>
+        <div class="efp-card-meta"><span data-replay-progress>${esc(progressText(running))}</span> · <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></div>
+        <p class="portal-inline-note">Watch it live on BrowserStack. The Inspector shows nothing until the device is handed back; the result lands in the Library.</p>`;
+      actions = `${rec.dashboard_url ? `<a class="portal-btn is-secondary" href="${esc(rec.dashboard_url)}" target="_blank" rel="noopener noreferrer"><i data-lucide="smartphone" class="w-4 h-4"></i>Watch on BrowserStack</a>` : ""}
+        <button type="button" class="portal-btn is-secondary" data-replay-action="stop"><i data-lucide="square" class="w-4 h-4"></i>Stop</button>
+        <button type="button" class="portal-btn" data-replay-action="close">Hide</button>`;
+    } else {
+      const res = r.result || {};
+      const replay = res.replay || {};
+      const report = (res.result && res.result.report) || {};
+      const status = replay.status || report.status || "";
+      const tone = status === "passed" ? "success" : (status === "cancelled" ? "warning" : "error");
+      title = { passed: "Replay passed", failed: "Replay failed", cancelled: "Replay stopped", error: "Replay could not run" }[status] || "Replay";
+      const failure = report.failure || {};
+      const where = status === "failed" && failure.segment ? ` at ${failure.segment}, step ${failure.step || "?"}` : "";
+      const session = report.session_url ? `<a class="portal-link-inline" href="${esc(report.session_url)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "";
+      const recordingReplay = Array.isArray(report.segments) && report.segments.length > 0 && report.segments.every((seg) => seg.kind === "recording");
+      const script = status === "passed" ? reviewableReplay(report) : null;
+      let saved = "";
+      if (res.path && status === "failed" && recordingReplay) saved = "The recording did not replay as it is; the result is in the Library. Record it again, or compile it as its scenario and ask the assistant.";
+      else if (res.path && status === "failed") saved = "The result and screenshots went to the chat; the assistant looks into the failure.";
+      else if (res.path && recordingReplay) saved = "The recording replayed as it is; the result is in the Library. Compile it as its scenario when it is what you want.";
+      else if (res.path) saved = "The result and screenshots are in the Library; the script counts as replayed as it is now.";
+      const word = { passed: "Passed", failed: "Failed", cancelled: "Stopped", error: "Not run" }[status] || status || "Over";
+      body = `<div><span class="portal-status-badge is-${tone}">${esc(word)}</span>${where ? `<span class="efp-card-meta">${esc(where)}</span>` : ""} ${session}</div>
+        ${replay.error ? `<div class="portal-inline-state is-visible is-error">${esc(errorText(replay.error))}</div>` : ""}
+        ${saved ? `<p class="portal-dialog-msg">${esc(saved)}</p>` : ""}
+        ${res.error ? `<div class="portal-inline-state is-visible is-error">${esc(res.error)}</div>` : ""}`;
+      actions = `${res.error ? `<button type="button" class="portal-btn is-secondary" data-replay-action="save-again">Save again</button>` : ""}
+        ${script ? `<button type="button" class="portal-btn is-secondary" data-replay-action="review" title="Ask the assistant to label the steps with the plan's and add the expected-result checks">Review with the assistant</button>` : ""}
+        ${status !== "passed" ? `<button type="button" class="portal-btn is-secondary" data-replay-action="again"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>Replay again</button>` : ""}
+        <button type="button" class="portal-btn is-primary" data-replay-action="close">Close</button>`;
+    }
+    return `<div class="modal portal-dialog portal-dialog--in" data-recording-dialog role="dialog" aria-modal="true" aria-label="${esc(title)}">
+        <div class="modal-card panel portal-dialog-card">
+          <div class="portal-modal-titlebar"><h3>${esc(title)}</h3></div>
+          ${body}
+          <div class="portal-modal-actions">${actions}</div>
+        </div>
       </div>`;
   }
 
-  function replayHtml() {
+  // The bridge's progress, without the file's name it starts with on a step.
+  function progressText(running) {
+    const name = (running.segments || [])[0] || "";
+    const text = running.progress || "starting";
+    return name && text.startsWith(`${name}: `) ? text.slice(name.length + 2) : text;
+  }
+
+  // What the device card says about replays: the one running, with a way
+  // back into the dialog, or the last result.
+  function replayLineHtml() {
     const r = view.replay;
-    const rec = view.recording;
     const running = r.running && r.running.status === "running" ? r.running : null;
-    const platform = platformLabel(rec);
-    let list = "";
-    if (r.loading && !r.segments) list = `<p class="portal-inline-note">Looking for scenario scripts…</p>`;
-    else if (r.error) list = `<div class="portal-inline-state is-visible is-error">${esc(r.error)}</div>`;
-    else if (!r.segments || !r.segments.length) list = `<p class="portal-inline-note">No ${esc(platform)} scenario scripts yet. The assistant compiles one after you save a recording.</p>`;
-    else {
-      list = `<div class="efp-replay-list">${r.segments.map((seg) => {
-        const mark = segmentMark(seg);
-        const older = seg.kind === "segment" ? `<span class="efp-card-meta">older segment</span>` : "";
-        return `<label class="efp-replay-row"><input type="checkbox" data-replay-segment="${esc(replayKey(seg))}"${r.checked.includes(replayKey(seg)) ? " checked" : ""}${running ? " disabled" : ""} /><span>${esc(seg.name)}</span>${older}${mark ? `<span class="efp-replay-mark is-${mark.tone}"><i data-lucide="${mark.icon}" class="w-3 h-3"></i>${esc(mark.text)}</span>` : ""}</label>`;
-      }).join("")}</div>`;
-    }
-    const ready = Boolean(r.segments && r.segments.length);
-    const starts = [["restart", "Restart the app"]];
-    if (rec.platform !== "ios") starts.push(["reset", "Clear the app's data first"]);
-    starts.push(["current", "The screen the device shows"]);
-    const startHtml = ready
-      ? `<label class="efp-replay-start"><span class="efp-card-meta">Start from</span><select class="portal-form-select" data-replay-start${running ? " disabled" : ""}>${starts.map(([value, label]) => `<option value="${value}"${r.start === value ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`
-      : "";
-    const secretsHtml = ready && r.secretNames.length
-      ? `${r.secretNames.map((name) => `<label class="portal-form-label"><span class="portal-form-label">${esc(name)}</span><input type="password" class="portal-form-input" data-replay-secret="${esc(name)}" placeholder="The value the script types" autocomplete="new-password"${running ? " disabled" : ""} /></label>`).join("")}
-        <p class="portal-inline-note">Kept in this page only and sent to the bridge on this computer, never to the assistant.</p>`
-      : "";
-    let actions;
     if (running) {
-      const since = Date.parse(running.started_at || "") || Date.now();
-      actions = `<div class="efp-card-meta">Replaying: <span data-replay-progress>${esc(running.progress || "starting")}</span> · <span data-recording-countdown data-since="${esc(String(since))}">${esc(elapsedText(since))}</span></div>
-        <p class="portal-inline-note">While it runs, the Inspector can only watch.</p>
-        <div class="efp-card-actions"><button type="button" class="portal-btn is-secondary" data-replay-action="stop"><i data-lucide="square" class="w-4 h-4"></i>Stop replay</button></div>`;
-    } else {
-      actions = `<div class="efp-card-actions">
-          <button type="button" class="portal-btn is-primary" data-replay-action="start"${ready ? "" : " disabled"}><i data-lucide="play" class="w-4 h-4"></i>Replay</button>
-        </div>`;
+      return `<div class="efp-card-meta efp-device-replay"><i data-lucide="play" class="w-3 h-3"></i><span>Replaying ${esc((running.segments || [])[0] || "")}: <span data-replay-progress>${esc(progressText(running))}</span></span><button type="button" class="composer-pill-btn" data-replay-action="show">Show</button></div>`;
     }
-    return `<div class="efp-mobile-section-head">
-        <h5>Replay</h5>
-        ${running ? "" : `<button type="button" class="toolbar-icon-btn" data-replay-action="refresh" title="Look for scenario scripts again" aria-label="Refresh"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>`}
-      </div>
-      <p class="portal-inline-note">Replay a scenario script on this device before the assistant exports it. A script runs on its own, from the start you choose here; older segments run in the order listed. The replay borrows the device from the Inspector and hands it back when it ends.</p>
-      ${list}${startHtml}${secretsHtml}${actions}${running ? "" : replayOutcomeHtml()}`;
+    const res = r.result;
+    if (res && res.replay && !r.dialog) {
+      const status = res.replay.status || "";
+      const icon = { passed: "check", failed: "x", cancelled: "square" }[status] || "alert-circle";
+      return `<div class="efp-card-meta efp-device-replay"><i data-lucide="${icon}" class="w-3 h-3"></i><span>Last replay: ${esc({ passed: "passed", failed: "failed", cancelled: "stopped" }[status] || "could not run")}</span><button type="button" class="composer-pill-btn" data-replay-action="show">Show</button></div>`;
+    }
+    return "";
   }
 
   function renderReplay() {
-    const box = panelRoot()?.querySelector("[data-recording-replay]");
-    if (!box) return;
-    if (!view.recording || view.recording.status !== "active" || view.tab !== "session") {
-      box.innerHTML = "";
-      box.classList.add("hidden");
+    const host = panelRoot()?.querySelector("[data-recording-dialog-host]");
+    if (!host) return;
+    if (view.recording && view.recording.status === "active") syncReplay();
+    const r = view.replay;
+    if (!r.dialog || !view.recording || view.recording.status !== "active") {
+      host.innerHTML = "";
       return;
     }
-    box.classList.remove("hidden");
-    syncReplay();
-    if (view.replay.segments === null && !view.replay.loading) loadReplaySegments();
     const active = document.activeElement;
     const focused = active && active.matches && active.matches("[data-replay-secret]") ? active.dataset.replaySecret : "";
-    box.innerHTML = replayHtml();
-    box.querySelectorAll("[data-replay-secret]").forEach((input) => {
-      input.value = view.replay.secrets[input.dataset.replaySecret] || "";
+    host.innerHTML = replayDialogHtml();
+    host.querySelectorAll("[data-replay-secret]").forEach((input) => {
+      input.value = r.secrets[input.dataset.replaySecret] || "";
       if (input.dataset.replaySecret === focused) input.focus();
     });
-    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(box);
+    if (typeof window.initPasswordToggles === "function") window.initPasswordToggles(host);
   }
 
   function scheduleReplayPoll() {
@@ -2146,11 +2351,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     const replay = data.replay || {};
     if (replay.status === "running") {
-      const same = view.replay.running && view.replay.running.id === replay.id;
+      const before = view.replay.running;
+      const same = before && before.id === replay.id;
+      const phaseChanged = !same || replayPhaseIndex(before.progress) !== replayPhaseIndex(replay.progress);
       view.replay.running = replay;
-      const progress = panelRoot()?.querySelector("[data-replay-progress]");
-      if (same && progress) progress.textContent = replay.progress || "starting";
-      else {
+      if (same && !phaseChanged) {
+        panelRoot()?.querySelectorAll("[data-replay-progress]").forEach((el) => {
+          el.textContent = progressText(replay);
+        });
+      } else {
+        renderDevice();
         renderReplay();
         renderIcons();
       }
@@ -2170,6 +2380,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       return;
     }
     r.result = { replay, result, path: "", error: "" };
+    if (r.dialog) {
+      r.dialog.phase = "done";
+      r.dialog.busy = false;
+    }
     if (view.recording) view.recording = Object.assign({}, view.recording, { replay });
     const report = (result && result.report) || {};
     const failure = report.failure || {};
@@ -2208,7 +2422,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       res.error = "";
       if (!r.saved.includes(res.replay.id)) r.saved.push(res.replay.id);
       remember();
-      sendChat(replayMessage(res.result.report, path));
+      // A replay that passed shows in the Library and the plan's status; the
+      // assistant is asked only to look into a failure.
+      const doc = res.result.report || {};
+      const recordingReplay = Array.isArray(doc.segments) && doc.segments.length > 0 && doc.segments.every((seg) => seg.kind === "recording");
+      if (doc.status === "failed" && !recordingReplay) sendChat(replayMessage(doc, path));
     } catch (error) {
       res.error = `Could not save the replay into the assistant's workspace: ${errorText(error)}`;
     }
@@ -2220,49 +2438,65 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   async function startReplay(button) {
     const r = view.replay;
     const rec = view.recording;
-    if (!rec || (r.running && r.running.status === "running")) return;
-    const chosen = selectedSegments();
-    if (!chosen.length) {
-      setStatus("Tick the scenario script to replay (or older segments, which run in the order listed).", "error");
+    const d = r.dialog;
+    if (!rec || !d || (r.running && r.running.status === "running")) return;
+    const items = dialogItems();
+    if (!items.length) {
+      d.notice = "Tick the segments to replay.";
+      renderReplay();
       return;
     }
-    if (button) button.disabled = true;
+    d.busy = true;
+    d.notice = "";
+    renderReplay();
     try {
       await loadReplaySecrets();
       const missing = r.secretNames.filter((name) => !r.secrets[name]);
       if (missing.length) {
+        d.busy = false;
+        d.notice = `Fill in ${missing.join(", ")} first: the replay types ${missing.length === 1 ? "it" : "them"}.`;
         renderReplay();
-        renderIcons();
-        setStatus(`Fill in ${missing.join(", ")} first: the replay types ${missing.length === 1 ? "it" : "them"}.`, "error");
+        focusFirstSecret();
         return;
       }
-      const segments = [];
-      for (const seg of chosen) segments.push({ name: seg.name, path: seg.path, yaml: await segmentYaml(seg) });
       const secrets = {};
       r.secretNames.forEach((name) => {
         secrets[name] = r.secrets[name];
       });
-      const data = await call("segment.replay", { id: rec.id, segments, secrets, start: r.start }, { timeoutMs: 30000 });
+      let data;
+      if (items.length === 1 && items[0].kind === "recording") {
+        // A recording replays as it is: the bridge compiles it on the way.
+        const log = r.logs[items[0].path] || JSON.parse(await readWorkspaceText(items[0].path));
+        r.logs[items[0].path] = log;
+        data = await call("recording.replay", { id: rec.id, name: items[0].name, path: items[0].path, log, secrets, start: r.start }, { timeoutMs: 120000 });
+      } else {
+        const segments = [];
+        for (const seg of items) segments.push({ name: seg.name, path: seg.path, yaml: await segmentYaml(seg) });
+        data = await call("segment.replay", { id: rec.id, segments, secrets, start: r.start }, { timeoutMs: 30000 });
+      }
       r.result = null;
       r.running = data.replay || null;
+      d.busy = false;
+      d.phase = "running";
       // The card disables saving and holding at once, not at the next poll.
       if (view.recording && r.running) view.recording = Object.assign({}, view.recording, { replay: r.running });
-      setStatus(`Replaying ${chosen.map((seg) => seg.name).join(", ")}.`, "");
+      setStatus(`Replaying ${items.map((seg) => seg.name).join(", ")}.`, "");
       renderSession();
       scheduleReplayPoll();
     } catch (error) {
+      d.busy = false;
       if (error.code === "missing_secrets" && error.data && Array.isArray(error.data.missing)) {
         r.extraSecretNames = error.data.missing.map(String);
         await loadReplaySecrets();
+        d.notice = `Fill in ${error.data.missing.join(", ")} first: the replay types ${error.data.missing.length === 1 ? "it" : "them"}.`;
         renderReplay();
-        renderIcons();
-        setStatus(`Fill in ${error.data.missing.join(", ")} first: the replay types ${error.data.missing.length === 1 ? "it" : "them"}.`, "error");
+        focusFirstSecret();
       } else {
-        setStatus(`Could not start the replay: ${errorText(error)}`, "error");
+        d.notice = `Could not start the replay: ${errorText(error)}`;
+        renderReplay();
       }
-    } finally {
-      if (button) button.disabled = false;
     }
+    renderIcons();
   }
 
   async function stopReplay(button) {
@@ -2292,13 +2526,10 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   const LIBRARY_PLATFORMS = ["android", "ios"];
   const LIBRARY_MAX_FILES = 40;
+  const LIBRARY_MAX_REPLAYS = 20;
 
   function freshLibrary() {
     return { loading: false, loaded: false, error: "", scripts: {}, segments: {}, recordings: [], replays: [], plans: [], texts: {}, open: {} };
-  }
-
-  function deletedMessage(kind, name, path) {
-    return `${kind} ${name} deleted: ${path}`;
   }
 
   // The little a list needs from a script or segment file, without a YAML
@@ -2362,9 +2593,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     renderLibrary();
     try {
       const files = (items) => items.filter((item) => item.is_file !== false && !(item.is_dir || item.type === "directory"));
-      const [recordingItems, replayItems, scenarioItems, ...folderLists] = await Promise.all([
+      const [recordingItems, scenarioItems, ...folderLists] = await Promise.all([
         listWorkspace(RECORDINGS_DIR),
-        listWorkspace(REPLAYS_DIR),
         listWorkspace(SCENARIOS_DIR),
         ...LIBRARY_PLATFORMS.map((platform) => listWorkspace(`${SCRIPTS_DIR}/${platform}`)),
         ...LIBRARY_PLATFORMS.map((platform) => listWorkspace(`${SEGMENTS_DIR}/${platform}`)),
@@ -2372,57 +2602,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const scriptLists = folderLists.slice(0, LIBRARY_PLATFORMS.length);
       const segmentLists = folderLists.slice(LIBRARY_PLATFORMS.length);
       lib.plans = await readPlans(scenarioItems);
+      lib.replays = await loadReplayReports();
 
-      // Replays, newest first; their reports name the segments they ran.
-      const replayDirs = replayItems.filter((item) => item.is_dir || item.type === "directory").sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(0, 20);
-      lib.replays = (await Promise.all(replayDirs.map(async (dir) => {
-        const path = `${REPLAYS_DIR}/${dir.name}/report.json`;
-        try {
-          const report = JSON.parse(await cachedText(path, dir.modified_at));
-          return {
-            id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: String(report.status || ""), platform: String(report.platform || ""),
-            device: String(report.device || ""), finishedAt: String(report.finished_at || ""), start: String(report.start || ""),
-            segments: (Array.isArray(report.segments) ? report.segments : []).map((seg) => ({ name: String(seg.name || ""), kind: String(seg.kind || ""), status: String(seg.status || "") })),
-            failure: report.failure && typeof report.failure === "object" ? { segment: String(report.failure.segment || ""), step: Number(report.failure.step) || 0 } : null,
-          };
-        } catch (_error) {
-          return { id: String(dir.name), path, dir: `${REPLAYS_DIR}/${dir.name}`, status: "", segments: [], broken: true };
-        }
-      }))).filter(Boolean);
-      // Newest first by the report's clock; the folder name only breaks ties.
-      lib.replays.sort((a, b) => String(b.finishedAt || "").localeCompare(String(a.finishedAt || "")) || String(b.id).localeCompare(String(a.id)));
-
-      // Scripts and older segments per platform, with the plan's word and the
-      // latest replay's.
-      const entries = async (list, dir, platform, kind) => {
-        const items = files(list).filter((item) => /\.ya?ml$/i.test(item.name || "")).slice(0, LIBRARY_MAX_FILES);
-        return Promise.all(items.map(async (item) => {
-          const name = String(item.name).replace(/\.ya?ml$/i, "");
-          const path = `${dir}/${platform}/${item.name}`;
-          let parsed = { steps: 0, grade: "", needsReview: 0, compiledAt: "", scenario: "", description: "", copiedFrom: "", sourceFile: "" };
-          try {
-            parsed = parseSegmentYaml(await cachedText(path, item.modified_at));
-          } catch (_error) {
-            /* listed without its details */
-          }
-          const row = { name, kind };
-          const plan = kind === "script" ? (lib.plans.find((doc) => planStatus(doc, name, platform)) || null) : null;
-          const latest = lib.replays.find((rp) => rp.platform === platform && rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
-          const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
-          return {
-            name, path, platform, modifiedAt: String(item.modified_at || ""), steps: parsed.steps, grade: parsed.grade, needsReview: parsed.needsReview,
-            compiledAt: parsed.compiledAt || String(item.modified_at || ""), planStatus: plan ? planStatus(plan, name, platform) : "",
-            scenario: parsed.scenario, description: parsed.description, copiedFrom: parsed.copiedFrom, sourceFile: parsed.sourceFile,
-            lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
-          };
-        }));
-      };
+      // Scripts and older segments per platform, each with its status from
+      // its file and its replays.
       lib.scripts = {};
       lib.segments = {};
       for (let i = 0; i < LIBRARY_PLATFORMS.length; i += 1) {
         const platform = LIBRARY_PLATFORMS[i];
-        lib.scripts[platform] = await entries(scriptLists[i], SCRIPTS_DIR, platform, "script");
-        lib.segments[platform] = await entries(segmentLists[i], SEGMENTS_DIR, platform, "segment");
+        lib.scripts[platform] = await scriptRows(scriptLists[i], SCRIPTS_DIR, platform, "script", lib.replays);
+        lib.segments[platform] = await scriptRows(segmentLists[i], SEGMENTS_DIR, platform, "segment", lib.replays);
       }
 
       // Recordings with the scripts compiled from them, and the cut of one
@@ -2445,7 +2634,13 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         // The scripts (or older segments) whose source is this recording.
         const compiledInto = [...new Set(LIBRARY_PLATFORMS.flatMap((platform) => (lib.scripts[platform] || []).concat(lib.segments[platform] || []))
           .filter((seg) => seg.sourceFile === String(item.name)).map((seg) => seg.name))];
-        return { name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null, compiledInto };
+        const row = { name, kind: "recording" };
+        const latest = lib.replays.find((rp) => rp.segments.some((seg) => sameReplayRow(seg, row) && seg.status !== "not_run")) || null;
+        const latestSeg = latest ? latest.segments.find((seg) => sameReplayRow(seg, row)) : null;
+        return {
+          name, path: `${RECORDINGS_DIR}/${item.name}`, savedAt: String(item.modified_at || ""), size: Number(item.size) || 0, split: splits[name] || null, compiledInto,
+          lastReplay: latestSeg ? { status: latestSeg.status, at: latest.finishedAt, step: latest.failure && latest.failure.segment === name ? latest.failure.step : 0 } : null,
+        };
       });
       lib.error = "";
       lib.loaded = true;
@@ -2455,6 +2650,37 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     lib.loading = false;
     renderLibrary();
     renderIcons();
+  }
+
+  // The scenarios a recording can be compiled as: every plan's scripts, the
+  // recording's own name preselected when it is one of them. The cut of a
+  // recording that holds several scenarios is the assistant's.
+  function compileChoicesHtml(item) {
+    const lib = view.library;
+    const plans = lib.plans.map(planView).filter((plan) => plan.scripts.length);
+    const guess = scriptScenario(item.name, plans.find((plan) => plan.scripts.some((s) => s.name === item.name)) || plans[0] || null);
+    const existing = (name) => LIBRARY_PLATFORMS.filter((p) => (lib.scripts[p] || []).some((row) => row.name === name));
+    let chosen = guess ? `${guess.issue}|${guess.scenario}` : "";
+    if (!chosen) {
+      const next = plans.flatMap((plan) => plan.scripts.filter((s) => !s.copyOf && !existing(s.name).length).map((s) => `${plan.issue}|${s.scenario}`))[0];
+      chosen = next || "";
+    }
+    const options = plans.map((plan) => `<optgroup label="${esc(plan.issue || plan.key)}">${plan.scripts.map((s) => {
+      const title = plan.scenarios[s.scenario] ? plan.scenarios[s.scenario].title : "";
+      const exists = existing(s.name);
+      const label = `${s.name}${title ? ` · ${title}` : ""}${exists.length ? ` (script on ${exists.join(", ")})` : ""}`;
+      const selected = chosen === `${plan.issue}|${s.scenario}`;
+      return `<option value="${esc(`${plan.key}|${s.name}`)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
+    }).join("")}</optgroup>`).join("");
+    return `<div class="efp-lib-card" data-library-compile="${esc(item.path)}">
+        <label class="portal-form-label"><span class="portal-form-label">Compile as the scenario</span>
+          <select class="portal-form-select" data-library-scenario>${options || `<option value="">No scenario plan in the workspace yet</option>`}</select>
+        </label>
+        <div class="efp-card-actions">
+          <button type="button" class="portal-btn is-primary" data-recording-action="library-compile-as" data-name="${esc(item.name)}" data-path="${esc(item.path)}"${options ? "" : " disabled"}>Compile</button>
+          <button type="button" class="composer-pill-btn" data-recording-action="library-cut" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Several scenarios in one recording: the assistant proposes where to cut it">Several scenarios: ask the assistant to cut it</button>
+        </div>
+      </div>`;
   }
 
   // Where a recording stands in the Library: a cut with parts still to
@@ -2479,12 +2705,14 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     return parts.join(" · ");
   }
 
+  // What a row says about its replays: the latest replay of the file as it
+  // is now, or that the file changed since its last replay.
   function segmentMarkHtml(seg) {
-    if (seg.lastReplay && seg.lastReplay.status === "passed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>passed ${esc(dateText(seg.lastReplay.at))}</span>`;
-    if (seg.lastReplay && seg.lastReplay.status === "failed") return `<span class="efp-replay-mark is-error"><i data-lucide="x" class="w-3 h-3"></i>failed${seg.lastReplay.step ? ` at step ${esc(String(seg.lastReplay.step))}` : ""}</span>`;
-    if (seg.planStatus === "replayed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>replayed</span>`;
-    if (seg.planStatus === "to_record") return `<span class="efp-replay-mark is-error"><i data-lucide="minus" class="w-3 h-3"></i>to record</span>`;
-    return `<span class="efp-replay-mark">not replayed</span>`;
+    const last = seg.lastReplay;
+    if (!last) return `<span class="efp-replay-mark">not replayed</span>`;
+    if (last.current && last.status === "passed") return `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>passed ${esc(dateText(last.at))}</span>`;
+    if (last.current && last.status === "failed") return `<span class="efp-replay-mark is-error"><i data-lucide="x" class="w-3 h-3"></i>failed${last.step ? ` at step ${esc(String(last.step))}` : ""}</span>`;
+    return `<span class="efp-replay-mark is-warning"><i data-lucide="pencil" class="w-3 h-3"></i>edited since it ${last.status === "passed" ? "passed" : "failed"} ${esc(dateText(last.at))}</span>`;
   }
 
   function libraryHtml() {
@@ -2501,6 +2729,9 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         const copyButton = kind === "script"
           ? `<button type="button" class="composer-pill-btn" data-recording-action="library-copy" data-path="${esc(seg.path)}" aria-expanded="${copying ? "true" : "false"}" title="Ask the assistant for a copy of this script for a scenario with other values">Copy</button>`
           : "";
+        const reviewButton = kind === "script" && seg.reportPath
+          ? `<button type="button" class="composer-pill-btn" data-recording-action="library-review" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}" data-report="${esc(seg.reportPath)}" title="Ask the assistant to review this script: label its steps with the plan's and add the expected-result checks">Review</button>`
+          : "";
         const copyForm = copying
           ? `<div class="efp-lib-card" data-library-copy="${esc(seg.path)}">
               <label class="portal-form-label"><span class="portal-form-label">What the copy changes</span>
@@ -2515,6 +2746,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
           <div class="efp-lib-actions">
             <button type="button" class="composer-pill-btn" data-recording-action="library-replay" data-name="${esc(seg.name)}" data-platform="${esc(platform)}" data-kind="${kind}" title="${held ? "Replay on the held device" : "Tick it for the next replay"}">Replay</button>
             <button type="button" class="composer-pill-btn" data-recording-action="library-view" data-path="${esc(seg.path)}" aria-expanded="${open ? "true" : "false"}">${open ? "Hide" : "View"}</button>
+            ${reviewButton}
             ${copyButton}
             <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-${kind}" data-name="${esc(seg.name)}" data-path="${esc(seg.path)}">Delete</button>
           </div>
@@ -2528,14 +2760,22 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const segmentGroups = groups(lib.segments, "segment");
     const recordingRows = lib.recordings.map((item) => {
       const compiled = recordingState(item);
+      const picking = Boolean(lib.open[`compile:${item.path}`]);
+      const mark = item.lastReplay
+        ? (item.lastReplay.status === "passed"
+          ? `<span class="efp-replay-mark is-success"><i data-lucide="check" class="w-3 h-3"></i>replayed ${esc(dateText(item.lastReplay.at))}</span>`
+          : `<span class="efp-replay-mark is-error"><i data-lucide="x" class="w-3 h-3"></i>failed${item.lastReplay.step ? ` at step ${esc(String(item.lastReplay.step))}` : ""}</span>`)
+        : "";
       return `
         <div class="efp-lib-row">
-          <div class="efp-lib-main"><strong>${esc(item.name)}</strong><span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(compiled)}</span></div>
+          <div class="efp-lib-main"><strong>${esc(item.name)}</strong> ${mark}<span class="efp-card-meta">saved ${esc(dateText(item.savedAt))} · ${esc(sizeText(item.size))} · ${esc(compiled)}</span></div>
           <div class="efp-lib-actions">
-            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="Ask the assistant to compile this recording into its scenario script">Compile</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-replay-recording" data-name="${esc(item.name)}" data-path="${esc(item.path)}" title="${held ? "Replay it as it is on the held device" : "Tick it for the next replay"}">Replay</button>
+            <button type="button" class="composer-pill-btn" data-recording-action="library-split" data-name="${esc(item.name)}" data-path="${esc(item.path)}" aria-expanded="${picking ? "true" : "false"}" title="Compile it as one of the plan's scenarios on this computer">Compile</button>
             <button type="button" class="composer-pill-btn is-danger" data-recording-action="library-delete-recording" data-name="${esc(item.name)}" data-path="${esc(item.path)}">Delete</button>
           </div>
-        </div>`;
+        </div>
+        ${picking ? compileChoicesHtml(item) : ""}`;
     }).join("");
     const replayRows = lib.replays.map((rp) => {
       const passed = rp.segments.filter((seg) => seg.status === "passed").length;
@@ -2558,11 +2798,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         <h5>Library</h5>
         <button type="button" class="toolbar-icon-btn" data-recording-action="library-refresh" title="Read the workspace again" aria-label="Refresh"${lib.loading ? " disabled" : ""}><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
       </div>
-      <p class="portal-inline-note">What this assistant keeps for mobile testing. Deleting a script or a recording here tells the assistant, which updates the scenario plan.</p>
+      <p class="portal-inline-note">What this assistant keeps for mobile testing. A scenario's status follows these files: its script exists once the file is here, and is replayed once the latest replay of the file as it is passed.</p>
       ${lib.error ? `<div class="portal-inline-state is-visible is-error">${esc(lib.error)}</div>` : ""}
       ${lib.loading && !lib.loaded ? `<p class="portal-inline-note">Reading the workspace…</p>` : ""}
       <h6>Scenario scripts</h6>
-      ${scriptGroups || (lib.loaded ? empty("No scenario scripts yet. Save the recording of a scenario; the assistant compiles it in the chat.") : "")}
+      ${scriptGroups || (lib.loaded ? empty("No scenario scripts yet. Save the recording of a scenario under its script's name; it is compiled here.") : "")}
       <h6>Recordings</h6>
       ${recordingRows || (lib.loaded ? empty("No recordings saved yet.") : "")}
       ${segmentGroups ? `<h6>Older segments</h6>${segmentGroups}` : ""}
@@ -2635,33 +2875,92 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const platform = button.dataset.platform || "";
       const kind = button.dataset.kind === "script" ? "script" : "segment";
       const rec = view.recording;
-      const r = view.replay;
-      const held = Boolean(rec && rec.status === "active");
-      // A row of the other platform leaves the ticks as they are.
-      if (held && recordingPlatform() !== platform) {
+      if (!(rec && rec.status === "active")) {
+        askForDevice("a replay runs on it");
+        return;
+      }
+      if (recordingPlatform() !== platform) {
         say(`${name} is a ${platform === "ios" ? "iOS" : "Android"} ${kind}; the held device runs ${platformLabel(rec)}.`, "error");
         return;
       }
-      r.touched = true;
-      r.checked = replayChoice(r.checked, replayKey({ kind, name }));
-      if (!held) {
-        say(`${name} is ticked for the next replay. Start a device under Session first.`, "warning");
-        return;
-      }
-      switchTab("session");
-      if (r.segments === null) await loadReplaySegments();
-      else {
-        await loadReplaySecrets();
-        renderReplay();
-        renderIcons();
-      }
-      root.querySelector("[data-recording-replay]")?.scrollIntoView({ block: "start", behavior: "smooth" });
-      say(`${name} is ticked under Replay.`, "");
+      // A script's or segment's row names the file by its kind.
+      await openReplayDialog({ name, kind, path: path || `${kind === "script" ? SCRIPTS_DIR : SEGMENTS_DIR}/${platform}/${name}.yaml`, platform });
       return;
     }
     if (action === "library-split") {
-      sendChat(savedMessage(name, path));
-      say(`Asked the assistant to compile ${name}.`, "success");
+      if (lib.open[`compile:${path}`]) delete lib.open[`compile:${path}`];
+      else lib.open[`compile:${path}`] = true;
+      renderLibrary();
+      renderIcons();
+      return;
+    }
+    if (action === "library-compile-as") {
+      const select = button.closest("[data-library-compile]")?.querySelector("[data-library-scenario]");
+      const [planKey, scriptName] = String(select ? select.value : "").split("|");
+      const plan = lib.plans.map(planView).find((p) => p.key === planKey) || null;
+      const entry = plan ? plan.scripts.find((s) => s.name === scriptName) : null;
+      if (!plan || !entry) {
+        say("Pick the scenario this recording is.", "error");
+        return;
+      }
+      const what = { issue: plan.issue, scenario: entry.scenario, title: (plan.scenarios[entry.scenario] || {}).title || "" };
+      let log;
+      try {
+        log = JSON.parse(await readWorkspaceText(path));
+      } catch (error) {
+        say(`Could not read ${name}: ${errorText(error)}`, "error");
+        return;
+      }
+      const platform = String(log.platform || "").toLowerCase() === "ios" ? "ios" : "android";
+      const existing = (lib.scripts[platform] || []).find((row) => row.name === entry.name);
+      if (existing && !(await confirmAction(`Compile ${name} as ${entry.name} again? The script in the workspace, with the assistant's review, is replaced.`, "Compile", "Compile again?"))) return;
+      button.disabled = true;
+      try {
+        const compiled = await compileRecording(name, log, what);
+        delete lib.open[`compile:${path}`];
+        say(`Compiled ${name} as ${compiled.name} (grade ${compiled.report.grade || "?"}). Replay it, then press Review when it passes.`, "success");
+      } catch (error) {
+        // This computer could not compile it (an older bridge): the assistant does.
+        sendChat(`Script ${entry.name} recorded: ${path}`);
+        say(`Could not compile ${name} on this computer (${errorText(error)}); the assistant compiles it as ${entry.name}.`, "warning");
+      }
+      lib.loaded = false;
+      await Promise.all([loadLibrary(), loadFlow()]);
+      return;
+    }
+    if (action === "library-cut") {
+      sendChat(savedMessage(name, path, []));
+      delete lib.open[`compile:${path}`];
+      renderLibrary();
+      renderIcons();
+      say(`Asked the assistant to cut ${name} into its scenarios.`, "success");
+      return;
+    }
+    if (action === "library-replay-recording") {
+      const rec = view.recording;
+      const r = view.replay;
+      if (!(rec && rec.status === "active")) {
+        askForDevice("a recording replays on it");
+        return;
+      }
+      let log;
+      try {
+        log = JSON.parse(await readWorkspaceText(path));
+      } catch (error) {
+        say(`Could not read ${name}: ${errorText(error)}`, "error");
+        return;
+      }
+      const platform = String(log.platform || "").toLowerCase() === "ios" ? "ios" : "android";
+      if (platform !== recordingPlatform()) {
+        say(`${name} was recorded on ${platform === "ios" ? "iOS" : "Android"}; the held device runs ${platformLabel(rec)}.`, "error");
+        return;
+      }
+      r.logs[path] = log;
+      await openReplayDialog({ name, kind: "recording", path, platform });
+      return;
+    }
+    if (action === "library-review") {
+      requestReview(name, path, button.dataset.report || "");
       return;
     }
     if (action === "library-copy") {
@@ -2698,12 +2997,16 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     if (action === "library-delete-script" || action === "library-delete-segment" || action === "library-delete-recording" || action === "library-delete-replay") {
       const kind = { "library-delete-script": "Script", "library-delete-segment": "Segment", "library-delete-recording": "Recording" }[action] || "Replay";
       const what = kind === "Replay" ? `the replay of ${dateText((lib.replays.find((rp) => rp.id === button.dataset.id) || {}).finishedAt) || button.dataset.id}` : `${kind.toLowerCase()} ${name}`;
-      const hint = { Script: " Its scenario will need it recorded or copied again.", Segment: " Scenarios that use it will need it recorded again.", Recording: " Its cut goes with it; scripts already compiled from it stay." }[kind] || "";
+      const hint = { Script: " Its scenario is to record or copy again.", Segment: " Scenarios that use it will need it recorded again.", Recording: " Its cut goes with it; scripts already compiled from it stay." }[kind] || "";
       if (!(await confirmAction(`Delete ${what} from the assistant's workspace?${hint}`, "Delete", "Delete?"))) return;
       const paths = [path];
       if (kind === "Recording") {
         const item = lib.recordings.find((it) => it.name === name);
         if (item && item.split) paths.push(item.split.path);
+      }
+      if (kind === "Script") {
+        const row = LIBRARY_PLATFORMS.flatMap((platform) => lib.scripts[platform] || []).find((it) => it.path === path);
+        if (row && row.reportPath) paths.push(row.reportPath);
       }
       button.disabled = true;
       try {
@@ -2713,10 +3016,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         say(`Could not delete ${what}: ${errorText(error)}`, "error");
         return;
       }
-      if (kind !== "Replay") sendChat(deletedMessage(kind, name, path));
       say(`Deleted ${what}.`, "success");
       lib.loaded = false;
-      view.replay.segments = null;
       view.replay.yaml = {};
       await Promise.all([loadLibrary(), loadFlow()]);
     }
@@ -2724,24 +3025,67 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   // ---- saving a recording -----------------------------------------------------------
 
-  // Writes a saved log into the assistant's workspace and tells the
-  // assistant. The bridge has already moved on to the next log, so a failed
-  // write keeps this one here to save again or download.
+  // Writes a saved log into the assistant's workspace, then compiles it into
+  // its scenario script here when its name says which scenario it is. The
+  // bridge has already moved on to the next log, so a failed write keeps
+  // this one here to save again or download.
   async function saveLog(name, log, summary) {
     const fileName = `${name}.wdlog.json`;
     const blob = new Blob([JSON.stringify(log, null, 2)], { type: "application/json" });
+    let path;
     try {
-      const path = await writeToWorkspace(fileName, blob);
-      view.unsaved = null;
-      const s = summary || {};
-      view.done.push({ name, detail: `${Number(s.actions) || 0} actions${s.secrets ? `, ${s.secrets} secret` : ""}` });
-      remember();
-      sendChat(savedMessage(name, path));
-      return path;
+      path = await writeToWorkspace(fileName, blob);
     } catch (error) {
       view.unsaved = { name, log, summary, error: errorText(error) };
       return "";
     }
+    view.unsaved = null;
+    const s = summary || {};
+    const done = { name, detail: `${Number(s.actions) || 0} actions${s.secrets ? `, ${s.secrets} secret` : ""}`, compiled: false };
+    view.done.push(done);
+    remember();
+    const compiled = await compileSaved(name, log, path);
+    if (compiled) {
+      done.compiled = true;
+      done.detail += `, compiled (grade ${compiled.report.grade || "?"})`;
+      done.scriptPath = compiled.path;
+      done.reportPath = compiled.reportPath;
+      remember();
+    }
+    return path;
+  }
+
+  // Compiles a recording saved under a scenario's name into its script on
+  // this computer. Any other recording, and one this computer could not
+  // compile, goes to the assistant by message instead.
+  async function compileSaved(name, log, path) {
+    const listed = view.planned.indexOf(name) >= 0 || planScriptNames().indexOf(name) >= 0;
+    const what = listed ? scriptScenario(name, view.flow && view.flow.plan) : null;
+    // A recording saved under no scenario's name stays a recording: replay
+    // it as it is, and compile it as its scenario from the Library.
+    if (!what) return null;
+    try {
+      return await compileRecording(name, log, what);
+    } catch (error) {
+      sendChat(savedMessage(name, path));
+      setStatus(`Could not compile ${name} on this computer (${errorText(error)}); the assistant compiles it in the chat.`, "warning");
+      return null;
+    }
+  }
+
+  // Runs the compiler on this computer through the bridge and writes the
+  // script and the compiler's report into the workspace next to each other.
+  // The review is asked for apart (requestReview), once the member wants it.
+  async function compileRecording(name, log, what) {
+    const platform = String((log && log.platform) || recordingPlatform()).toLowerCase() === "ios" ? "ios" : "android";
+    const data = await call("script.compile", { log, file: `${name}.wdlog.json`, issue: what.issue, scenario: what.scenario, title: what.title || "", platform }, { timeoutMs: 120000 });
+    const fileName = String(data.name || name);
+    const folder = `${SCRIPTS_DIR}/${platform}`;
+    const scriptPath = await writeToWorkspace(`${fileName}.yaml`, new Blob([String(data.script || "")], { type: "application/yaml" }), folder);
+    const reportPath = await writeToWorkspace(`${fileName}.report.json`, new Blob([JSON.stringify(data.report || {}, null, 2)], { type: "application/json" }), folder);
+    view.library.loaded = false;
+    view.replay.yaml = {};
+    return { name: fileName, path: scriptPath, reportPath, report: data.report || {} };
   }
 
   async function saveRecording(root, button) {
@@ -2761,9 +3105,11 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const data = await call("segment.done", { id: view.recording.id, segment: name, next_segment: nextPlanned(name || view.recording.segment) }, { timeoutMs: 30000 });
       view.recording = Object.assign({}, view.recording, { segment: data.next_segment, summary: {} });
       const path = await saveLog(data.segment, data.log, data.summary);
+      const last = view.done[view.done.length - 1];
+      const compiled = Boolean(path && last && last.name === data.segment && last.compiled);
       if (!path) setStatus(`Could not save ${data.segment} into the assistant's workspace.`, "error");
-      else if (view.planned.indexOf(data.segment) >= 0) setStatus(`Saved ${data.segment}; the assistant compiles it. Restart the app and record ${data.next_segment} in the Inspector.`, "success");
-      else setStatus(`Saved ${data.segment}; the assistant compiles it in the chat. Anything you record from here goes into ${data.next_segment}.`, "success");
+      else if (compiled) setStatus(`Saved and compiled ${data.segment}. Replay it, then press Review when it passes; or restart the app and record the next scenario.`, "success");
+      else setStatus(`Saved ${data.segment}. Replay it as it is to check it, then compile it as its scenario from the Library. Anything you record from here goes into ${data.next_segment}.`, "success");
     } catch (error) {
       setStatus(error.code === "nothing_recorded" ? "Nothing recorded yet: tap and type in the Inspector attached through the bridge. What you do on BrowserStack’s own site is not seen by the bridge." : errorText(error), "error");
     } finally {
@@ -2819,7 +3165,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     }
     try {
       const path = await writeToWorkspace(`${name}${ext}`, file);
-      view.done.push({ name, detail: file.name });
+      view.done.push({ name, detail: file.name, code: true });
       remember();
       const next = nextPlanned(name);
       // Recorder code has no screens to split by: it is one segment.
@@ -2869,6 +3215,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       setStatus(`Uploaded ${file.name}${app.custom_id ? ` as ${app.custom_id}` : ""}. BrowserStack keeps builds for 30 days.`, "success");
       input.value = "";
       await loadApps(app.custom_id || app.app_url || "");
+      toggleUpload(root, false);
     } catch (error) {
       setStatus(errorText(error), "error");
     } finally {
@@ -2876,6 +3223,31 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (button) button.disabled = false;
       if (progress) progress.classList.add("hidden");
     }
+  }
+
+  // Shows or hides the start form's upload area in place, so what the
+  // member typed elsewhere in the form stays.
+  function toggleUpload(root, open) {
+    const block = root.querySelector("[data-recording-upload]");
+    if (!block) return;
+    view.uploadOpen = typeof open === "boolean" ? open : block.classList.contains("hidden");
+    block.classList.toggle("hidden", !view.uploadOpen);
+    root.querySelectorAll('[data-recording-action="upload-toggle"]').forEach((button) => button.setAttribute("aria-expanded", view.uploadOpen ? "true" : "false"));
+    if (view.uploadOpen) block.querySelector("[data-recording-build]")?.focus();
+  }
+
+  // Without a held device, points at the start form: a replay runs on the
+  // device this panel holds, whichever tab is open.
+  function askForDevice(what) {
+    if (view.recording && view.recording.status === "starting") {
+      setStatus(`The device is still starting; ${what} once it is ready.`, "warning");
+      return;
+    }
+    setStatus(`Start a device first; ${what}.`, "warning");
+    const root = panelRoot();
+    root?.querySelector("[data-recording-device]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    const start = root?.querySelector('[data-recording-action="start"]');
+    if (start) start.focus({ preventScroll: true });
   }
 
   // ---- holding and releasing the device ------------------------------------------------
@@ -2911,19 +3283,27 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       if (!(await confirmAction(`Recording ${view.unsaved.name} is not saved in the assistant's workspace. Finish anyway? Download it first to keep it.`, "Finish"))) return;
     } else if (pending > 0) {
       if (!(await confirmAction(`${pending} recorded ${pending === 1 ? "action is" : "actions are"} not saved. Finish without ${pending === 1 ? "it" : "them"}? Press Save recording first to keep ${pending === 1 ? "it" : "them"}.`, "Finish"))) return;
+    } else if (!(await confirmAction(`Release ${rec.device || "the device"}? The BrowserStack session ends and the Inspector closes; recordings saved in the assistant's workspace stay.`, "Finish", "Finish recording?"))) {
+      return;
     }
     if (button) button.disabled = true;
+    view.releasing = { since: Date.now(), replaying };
+    view.replay.dialog = null;
+    renderSession();
     try {
       // The bridge lets a running replay finish its step and hand the
       // device back first.
       await call("session.finish", { id: rec.id }, { credentials: credentials(), timeoutMs: replaying ? 300000 : 120000 });
     } catch (error) {
       if (error.code !== "not_found") {
-        setStatus(errorText(error), "error");
+        view.releasing = null;
+        renderSession();
+        setStatus(`Could not release the device: ${errorText(error)}. Try Finish recording again.`, "error");
         if (button) button.disabled = false;
         return;
       }
     }
+    view.releasing = null;
     closeInspectorTab();
     view.recording = null;
     view.unsaved = null;
@@ -2932,7 +3312,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     view.connectionOpen = false;
     remember();
     closeWorkspace({ rerender: false });
-    if (view.done.length) sendChat("Recording finished. Compile any recording not compiled yet.");
     view.done = [];
     await loadRecordings();
     renderAll();
@@ -2941,15 +3320,20 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   }
 
   async function finishOther(id, button) {
-    if (button) button.disabled = true;
+    if (!(await confirmAction("Release this device? Its BrowserStack session ends; recordings saved in the assistant's workspace stay.", "Release", "Release the device?"))) return;
+    view.releasingOther = id;
+    renderOthers();
+    renderIcons();
     try {
       await call("session.finish", { id }, { credentials: credentials(), timeoutMs: 120000 });
       setStatus("Released the device.", "success");
     } catch (error) {
-      if (error.code !== "not_found") setStatus(errorText(error), "error");
+      if (error.code !== "not_found") setStatus(`Could not release the device: ${errorText(error)}`, "error");
     }
+    view.releasingOther = "";
     await loadRecordings();
     renderOthers();
+    renderIcons();
   }
 
   function adopt(id) {
@@ -2971,8 +3355,31 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
   // goes only to the local bridge, which hands it to mobile-auto and
   // BrowserStack Local. A login pasted into the address moves to the user
   // name and password fields, so the password is never shown in the clear.
-  function saveProxy(container, report) {
-    const say = report || setStatus;
+  const LOCAL_BRIDGE_CONNECTOR = "local_bridge";
+
+  // A Portal connectors API call: the JSON body, or an error with the
+  // detail the API gave.
+  async function connectorJson(url, options) {
+    const response = await fetch(url, Object.assign({ credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" } }, options || {}));
+    let body = null;
+    try {
+      body = await response.json();
+    } catch (_error) {
+      body = null;
+    }
+    if (!response.ok) {
+      const detail = body && (body.detail || body.error);
+      throw new Error(typeof detail === "string" && detail ? detail : `HTTP ${response.status}`);
+    }
+    return body && typeof body === "object" ? body : {};
+  }
+
+  // Saves the proxy typed on the BrowserStack connector page into the
+  // member's Local bridge connector, keeping the rest of its settings; the
+  // test on that page and the panel's calls use it from then on.
+  async function saveProxy(container, button) {
+    if (!container) return false;
+    const say = (text, tone) => setInline(container.querySelector("[data-bridge-proxy-result]"), text, tone);
     const field = (name) => container.querySelector(`[data-bridge-proxy="${name}"]`);
     const urlInput = field("url");
     const userInput = field("username");
@@ -2981,6 +3388,7 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     let username = userInput ? userInput.value.trim() : "";
     let password = passwordInput ? passwordInput.value : "";
     if (typed.login) {
+      // A login typed into the address moves to its own fields.
       username = typed.username;
       password = typed.password;
       if (urlInput) urlInput.value = typed.url;
@@ -2999,14 +3407,24 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
         return false;
       }
     }
-    writeStorage(PROXY_KEY, typed.url);
-    writeStorage(PROXY_USER_KEY, username);
-    writeStorage(PROXY_PASSWORD_KEY, password);
-    const login = Boolean(username || password);
-    if (typed.url) say(login ? "Proxy saved for this computer; its login stays in this browser." : "Proxy saved for this computer.", "success");
-    else say(login ? "Using this computer's proxy settings; the user name and password apply only with a proxy address." : "Using this computer's proxy settings.", "success");
-    if (panelRoot() && ready()) loadApps();
-    return true;
+    if (button) button.disabled = true;
+    say("Saving…", "");
+    try {
+      const current = await connectorJson(`/api/connectors/${LOCAL_BRIDGE_CONNECTOR}`, { method: "GET" });
+      const config = Object.assign({}, current.config && typeof current.config === "object" ? current.config : {});
+      if (typed.url) config.mobile_proxy = { url: typed.url, username, password };
+      else delete config.mobile_proxy;
+      const saved = await connectorJson(`/api/connectors/${LOCAL_BRIDGE_CONNECTOR}`, { method: "PUT", body: JSON.stringify({ enabled: Boolean(current.enabled), config }) });
+      setBridgeProxy(saved.config ? saved.config.mobile_proxy : null);
+      if (typed.url) say(username || password ? "Proxy saved for this computer, with its login." : "Proxy saved for this computer.", "success");
+      else say("Using this computer's own proxy settings; a user name and password are kept only with a proxy address.", "success");
+      return true;
+    } catch (error) {
+      say(`Could not save the proxy: ${errorText(error)}`, "error");
+      return false;
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
   // ---- events -----------------------------------------------------------------
@@ -3026,18 +3444,44 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       startBridgeFromOverview(overviewStart);
       return;
     }
+    const proxySave = target.closest("[data-bridge-proxy-save]");
+    if (proxySave) {
+      event.preventDefault();
+      saveProxy(proxySave.closest("[data-mobile-overview]"), proxySave);
+      return;
+    }
     const copy = target.closest("[data-recording-copy]");
     if (copy) {
       copyText(copy, copy.dataset.recordingCopy || "");
       return;
     }
+    if (target.matches("[data-recording-dialog]") && view.replay.dialog && !view.replay.dialog.busy) {
+      // A click on the backdrop closes (or hides) the dialog.
+      closeReplayDialog();
+      return;
+    }
     const replayButton = target.closest("[data-replay-action]");
     if (replayButton && replayButton.closest("[data-recording-root]")) {
       const action = replayButton.dataset.replayAction;
+      const r = view.replay;
       if (action === "start") startReplay(replayButton);
       else if (action === "stop") stopReplay(replayButton);
-      else if (action === "refresh") loadReplaySegments();
-      else if (action === "save-again") saveReplay();
+      else if (action === "close") closeReplayDialog();
+      else if (action === "show") {
+        const item = (r.dialog && r.dialog.item) || replayedItem();
+        if (item) openReplayDialog(item, r.running && r.running.status === "running" ? "running" : (r.result ? "done" : "setup"));
+      } else if (action === "again") {
+        const item = r.dialog && r.dialog.item;
+        if (item) {
+          r.result = null;
+          openReplayDialog(item);
+        }
+      } else if (action === "save-again") saveReplay();
+      else if (action === "review") {
+        const res = r.result;
+        const script = reviewableReplay(res && res.result ? res.result.report : null);
+        if (script) requestReview(script.name, script.path, script.reportPath);
+      }
       return;
     }
     const tab = target.closest("[data-recording-tab]");
@@ -3059,11 +3503,8 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     const action = button.dataset.recordingAction;
     if (action === "start-bridge") startBridge();
     else if (action === "check-bridge") refreshAll();
-    else if (action === "settings") toggleSettings();
-    else if (action === "settings-upload") {
-      toggleSettings(true);
-      root.querySelector("[data-recording-build]")?.scrollIntoView({ block: "center" });
-    } else if (action === "upload-build") uploadBuildFromPanel(root, button);
+    else if (action === "upload-toggle") toggleUpload(root);
+    else if (action === "upload-build") uploadBuildFromPanel(root, button);
     else if (action === "start") startRecording(root, button);
     else if (action === "open-inspector") openInspector();
     else if (action === "open-workspace") openWorkspace();
@@ -3078,6 +3519,12 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     else if (action === "upload-code") uploadCode(root);
     else if (action === "extend") extend(button);
     else if (action === "finish") finish(button);
+    else if (action === "ask-assistant") askAssistant();
+    else if (action === "use-name") useName(root, button.dataset.name || "");
+    else if (action === "review-script") requestReview(button.dataset.name || "", button.dataset.path || "", button.dataset.report || "");
+    else if (action === "replay-script") openReplayDialog({ name: button.dataset.name || "", kind: "script", path: `${SCRIPTS_DIR}/${recordingPlatform()}/${button.dataset.name || ""}.yaml`, platform: recordingPlatform() });
+    else if (action === "replay-recording") openReplayDialog({ name: button.dataset.name || "", kind: "recording", path: `${RECORDINGS_DIR}/${button.dataset.name || ""}.wdlog.json`, platform: recordingPlatform() });
+    else if (action === "compile-recording") openCompile(button.dataset.name || "");
     else if (action === "finish-other") finishOther(button.dataset.id || "", button);
     else if (action === "adopt") adopt(button.dataset.id || "");
   });
@@ -3096,17 +3543,6 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
 
   document.addEventListener("change", (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target && target.matches("[data-bridge-proxy]")) {
-      const overview = target.closest("[data-mobile-overview]");
-      const panel = target.closest("[data-recording-root]");
-      if (overview) {
-        const result = overview.parentElement ? overview.parentElement.querySelector("[data-mobile-bridge-test-result]") : null;
-        saveProxy(overview, (text, tone) => setInline(result, text, tone));
-      } else if (panel) {
-        saveProxy(panel);
-      }
-      return;
-    }
     if (!target || !target.closest("[data-recording-root]")) return;
     if (target.matches("[data-recording-app]")) {
       syncPlatform();
@@ -3117,24 +3553,23 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
       const custom = root.querySelector("[data-recording-custom-id]");
       const file = target.files && target.files[0];
       if (custom && file && !custom.value.trim()) custom.value = suggestCustomId(file.name);
-    } else if (target.matches("[data-recording-auto-inspector]")) {
-      writeStorage(AUTO_INSPECTOR_KEY, target.checked ? "" : "off");
-      view.formKey = "";
-      renderDevice();
-      renderIcons();
-    } else if (target.matches("[data-replay-segment]")) {
-      const r = view.replay;
-      const key = target.dataset.replaySegment;
-      r.touched = true;
-      r.checked = r.checked.filter((item) => item !== key);
-      if (target.checked) r.checked = replayChoice(r.checked, key);
-      loadReplaySecrets().then(() => {
-        renderReplay();
-        renderIcons();
-      });
+    } else if (target.matches("[data-replay-chain]")) {
+      const d = view.replay.dialog;
+      if (d) {
+        const name = target.dataset.replayChain;
+        d.chain = target.checked ? d.chain.concat(name) : d.chain.filter((item) => item !== name);
+        loadReplaySecrets().then(() => renderReplay());
+      }
     } else if (target.matches("[data-replay-start]")) {
       view.replay.start = target.value;
     }
+  });
+
+  // Escape closes (or hides) the replay dialog.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const d = view.replay && view.replay.dialog;
+    if (d && !d.busy && panelRoot()?.querySelector("[data-recording-dialog]")) closeReplayDialog();
   });
 
   // Secret values stay in this page's memory as they are typed.
@@ -3161,18 +3596,23 @@ p{margin:6px 0;font-size:14px;line-height:1.5;color:#52606d}
     parseSegments,
     savedMessage,
     copyMessage,
+    compiledMessage,
+    startMessage,
+    planView,
+    scriptScenario,
+    scriptStatus,
+    nextToRecord,
     replayMessage,
     replayNoun,
-    replayChoice,
-    replayKey,
+    replayPhaseIndex,
     sameReplayRow,
-    defaultReplayTicks,
     recordingState,
     segmentSecrets,
     flowSteps,
-    deletedMessage,
     parseSegmentYaml,
     proxyForBridge,
+    proxySettings,
+    setBridgeProxy,
     splitProxyLogin,
     suggestCustomId,
     probeBridge: probe,

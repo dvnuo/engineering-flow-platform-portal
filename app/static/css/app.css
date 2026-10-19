@@ -2438,13 +2438,19 @@ a.message-attachment-file { color: var(--portal-text); }
   gap: 4px;
 }
 
+/* A collapsible section: a box whose summary names what it holds. The
+   browser's disclosure marker is replaced by a chevron drawn here, so every
+   closed section reads as something to open rather than as a disabled
+   field; a summary that carries an icon of its own keeps that one. */
 .portal-collapsible {
   border: 1px solid var(--portal-border);
   border-radius: var(--portal-radius-md);
   background: var(--portal-surface-muted);
   padding: 12px;
+  transition: border-color .15s ease;
 }
 
+.portal-collapsible:hover,
 .portal-collapsible[open] {
   border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%);
 }
@@ -2454,16 +2460,40 @@ a.message-attachment-file { color: var(--portal-text); }
   cursor: pointer;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
+  font-weight: 600;
+  color: var(--portal-text);
+  user-select: none;
 }
 
 .portal-collapsible-summary:hover {
-  color: var(--portal-text);
+  color: var(--portal-accent);
 }
 
 .portal-collapsible-summary::-webkit-details-marker {
   display: none;
+}
+
+.portal-collapsible-summary::after {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  opacity: .7;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform .18s ease;
+}
+
+.portal-collapsible[open] > .portal-collapsible-summary::after {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.portal-collapsible-summary:has(> i, > svg)::after {
+  content: none;
 }
 
 .portal-raw-disclosure {
@@ -5562,6 +5592,7 @@ a.message-attachment-file { color: var(--portal-text); }
   align-items: center;
   gap: 6px;
   font-size: 0.84rem;
+  font-weight: 500;
   color: var(--portal-text-muted);
 }
 
@@ -6123,6 +6154,7 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
 
 .chat-completion-raw .portal-collapsible-summary {
   font-size: 0.82rem;
+  font-weight: 500;
   color: var(--portal-text-muted);
 }
 
@@ -6611,14 +6643,16 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .efp-mobile-section { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--portal-border); }
 .efp-mobile-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
 .efp-mobile-section h5 { margin: 0; color: var(--portal-text); font-size: 13px; font-weight: 700; }
-.efp-mobile-settings h6 { margin: 0 0 4px; color: var(--portal-text); font-size: 12px; font-weight: 700; }
-.efp-settings-group { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--portal-radius-sm); background: var(--portal-surface-soft); }
 .efp-device { gap: 6px; }
 .efp-device .efp-card-head { flex-wrap: nowrap; }
 .efp-device .efp-card-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .efp-device-tools { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
 .efp-device-tools > .efp-card-meta { display: inline-flex; align-items: center; gap: 4px; margin-right: 4px; font-variant-numeric: tabular-nums; }
 .efp-device-connection { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--portal-border); }
+.efp-device-replay { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.efp-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.efp-field-head > .portal-form-label { margin: 0; }
+.efp-upload { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--portal-border); border-radius: var(--portal-radius-sm); }
 .efp-menu { position: relative; }
 .efp-menu > summary { list-style: none; cursor: pointer; }
 .efp-menu > summary::-webkit-details-marker { display: none; }

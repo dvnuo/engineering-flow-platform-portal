@@ -25,6 +25,7 @@ from app.services.connector_defaults_service import connector_mode
 from app.services.connector_registry import (
     KIND_LOCAL,
     LOCAL_BRIDGE_PLATFORMS,
+    LOCAL_BRIDGE_TYPE,
     STATE_CONNECTED,
     STATE_NOT_SET_UP,
     STATE_OFF,
@@ -217,7 +218,8 @@ def record_verification(
 
 
 def enabled_connectors_for_user(db: Session, user_id: int | None) -> dict[str, dict[str, Any]]:
-    """``{connector_type: normalized_config}`` for the member's enabled rows."""
+    """``{connector_type: normalized_config}`` for the member's enabled rows,
+    without the keys Portal keeps to itself (``private_config_keys``)."""
 
     if user_id is None:
         return {}
@@ -229,8 +231,27 @@ def enabled_connectors_for_user(db: Session, user_id: int | None) -> dict[str, d
             continue
         if spec.kind != KIND_LOCAL:
             continue
-        result[spec.type] = _safe_config(spec, row.config_json)
+        config = _safe_config(spec, row.config_json)
+        for key in spec.private_config_keys:
+            config.pop(key, None)
+        result[spec.type] = config
     return result
+
+
+def local_bridge_mobile_proxy(db: Session, user_id: int | None) -> dict[str, str]:
+    """The proxy the bridge on the member's computer uses to reach BrowserStack,
+    as the Mobile testing panel and the BrowserStack page take it: the address,
+    the user name and the password, each empty when the member set none."""
+
+    empty = {"url": "", "username": "", "password": ""}
+    if user_id is None or not local_connectors_enabled():
+        return empty
+    spec = get_connector_spec(LOCAL_BRIDGE_TYPE)
+    row = UserConnectorRepository(db).get(int(user_id), spec.type)
+    proxy = _safe_config(spec, row.config_json if row is not None else None).get("mobile_proxy")
+    if not isinstance(proxy, dict):
+        return empty
+    return {key: str(proxy.get(key) or "") for key in empty}
 
 
 def local_bridge_download_url(settings=None, platform: str = "") -> str:
@@ -280,6 +301,7 @@ __all__ = [
     "list_for_user",
     "local_bridge_download_links",
     "local_bridge_download_url",
+    "local_bridge_mobile_proxy",
     "local_bridge_browser_start_url",
     "member_settings",
     "record_verification",
