@@ -63,6 +63,14 @@ def test_ai_platform_offers_the_gpt_5_6_line():
     ]
 
 
+def test_copilot_offers_only_the_gpt_6_line():
+    # The GPT-5.6 line left Copilot on 2026-10-19 (Terra itself retires on
+    # 2026-11-16). Copilot auto routing will pick among these, and they all
+    # publish the same 1,050,000-token window, so nothing below GPT-6 may
+    # come back without revisiting that.
+    assert PROVIDER_MODELS["github_copilot"] == ("gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol")
+
+
 def test_every_model_carries_a_label_in_the_picker():
     source = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     for models in PROVIDER_MODELS.values():

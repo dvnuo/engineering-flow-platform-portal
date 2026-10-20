@@ -17,26 +17,23 @@ SUPPORTED_PROVIDERS: tuple[str, ...] = (COPILOT_PROVIDER, AI_PLATFORM_PROVIDER)
 # Selectable models per provider. Copilot offers the GPT-6 line (Astra: the
 # flagship reasoning model; Sol: the balanced default for interactive and
 # agentic coding; Luna: fast and cheap) plus GPT-6.1 Sol (GA in Copilot since
-# 2026-09-29) next to the GPT-5.6 line. gpt-5.4 and gpt-5.5 were dropped from
-# Copilot when GPT-6 arrived; a profile still holding one of them is repaired
-# to DEFAULT_COPILOT_MODEL by coerce_to_provider_model. GPT-6 and GPT-6.1 all
+# 2026-09-29). gpt-5.4 and gpt-5.5 were dropped from Copilot when GPT-6
+# arrived, and the GPT-5.6 line on 2026-10-19 (ahead of Terra's 2026-11-16
+# retirement, and so that Copilot auto routing can only ever land on a
+# 1,050,000-token model); a profile still holding one of them is repaired to
+# DEFAULT_COPILOT_MODEL by coerce_to_provider_model. GPT-6 and GPT-6.1 all
 # publish a 1,050,000-token window (922k input + 128k output), so the 1M
 # preset below still fits.
 COPILOT_MODELS: tuple[str, ...] = (
-    "gpt-5.6-luna",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
     "gpt-6-astra",
     "gpt-6-luna",
     "gpt-6-sol",
     "gpt-6.1-sol",
 )
-# The gateway fronts the GPT-5.6 line, so the variants are offered here too.
-# Keeping the shared models aligned means switching a profile between
-# providers keeps its model instead of being coerced back to 5.4 -- the
-# fallback in coerce_to_provider_model only fires for a model the target
-# provider does not have. The GPT-6 line is Copilot-only until the gateway
-# serves it.
+# The gateway fronts gpt-5.4 and the GPT-5.6 line and does not serve GPT-6,
+# so the two providers no longer share a model: switching a profile's
+# provider always coerces its model to the target provider's default
+# (coerce_to_provider_model only keeps a model the target provider has).
 AI_PLATFORM_MODELS: tuple[str, ...] = (
     "gpt-5.4",
     "gpt-5.6-luna",

@@ -74,10 +74,11 @@ def test_coerce_model_is_provider_aware():
 def test_managed_models_per_provider():
     ai_platform = RuntimeProfileService.managed_model_values_for_provider("ai_platform")
     assert "gpt-5.4" in ai_platform
-    # The gateway fronts the same 5.6 line, so a member switching provider is
-    # not quietly moved off the model they picked.
+    # The gateway still fronts the 5.6 line; Copilot dropped it on 2026-10-19,
+    # so a Copilot profile left on it is repaired to the Copilot default.
     assert "gpt-5.6-terra" in ai_platform
-    assert "gpt-5.6-terra" in RuntimeProfileService.managed_model_values_for_provider("github_copilot")
+    assert "gpt-5.6-terra" not in RuntimeProfileService.managed_model_values_for_provider("github_copilot")
+    assert coerce_to_provider_model("github_copilot", "gpt-5.6-terra") == "gpt-6-sol"
     assert RuntimeProfileService.normalize_managed_llm_provider("ai-platform") == "ai_platform"
     assert RuntimeProfileService.normalize_managed_llm_provider("") == ""
 

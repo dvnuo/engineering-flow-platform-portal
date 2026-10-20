@@ -19,7 +19,7 @@ def _install_profile(monkeypatch, *, runtime_type="native"):
             {
                 "llm": {
                     "provider": "github_copilot",
-                    "model": "gpt-5.6-terra",
+                    "model": "gpt-6-luna",
                     "reasoning_effort": "medium",
                     "max_context_tokens": 256_000,
                 }
@@ -42,7 +42,7 @@ def test_resolve_agent_inference_profile_exposes_capabilities(monkeypatch):
     assert resolved.runtime_profile_id == "profile-1"
     assert resolved.revision == 7
     assert resolved.provider == "github_copilot"
-    assert resolved.current_model == "gpt-5.6-terra"
+    assert resolved.current_model == "gpt-6-luna"
     assert resolved.current_reasoning_effort == "medium"
     assert resolved.current_max_context_tokens == 256_000
     assert resolved.supports_reasoning_effort is True
@@ -56,14 +56,14 @@ def test_normalize_and_project_native_request_overrides(monkeypatch):
         object(),
         agent,
         {
-            "model_override": "gpt-5.6-sol",
+            "model_override": "gpt-6.1-sol",
             "reasoning_effort": "MAX",
             "max_context_tokens": 256_000,
         },
     )
 
     assert overrides == {
-        "model": "gpt-5.6-sol",
+        "model": "gpt-6.1-sol",
         "reasoning_effort": "max",
         "max_context_tokens": 256_000,
     }
@@ -74,10 +74,10 @@ def test_normalize_and_project_native_request_overrides(monkeypatch):
         runtime_type="native",
         provider="github_copilot",
     )
-    assert metadata["model"] == "gpt-5.6-sol"
+    assert metadata["model"] == "gpt-6.1-sol"
     assert metadata["reasoning_effort"] == "max"
     assert metadata["max_context_tokens"] == 256_000
-    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-5.6-sol"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "gpt-6.1-sol"
     assert metadata["runtime_profile"]["config"]["llm"]["reasoning_effort"] == "max"
     assert metadata["runtime_profile"]["config"]["max_context_tokens"] == 256_000
 
@@ -91,7 +91,7 @@ def test_opencode_rejects_context_override_but_projects_model_and_reasoning(monk
     overrides = normalize_agent_inference_overrides(
         object(),
         agent,
-        {"model_override": "gpt-5.6-luna", "reasoning_effort": "low"},
+        {"model_override": "gpt-6-astra", "reasoning_effort": "low"},
     )
     metadata = apply_inference_overrides_to_runtime_metadata(
         {},
@@ -99,9 +99,9 @@ def test_opencode_rejects_context_override_but_projects_model_and_reasoning(monk
         runtime_type="opencode",
         provider="github_copilot",
     )
-    assert metadata["model"] == "github-copilot/gpt-5.6-luna"
+    assert metadata["model"] == "github-copilot/gpt-6-astra"
     assert metadata["reasoning_effort"] == "low"
-    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "github-copilot/gpt-5.6-luna"
+    assert metadata["runtime_profile"]["config"]["llm"]["model"] == "github-copilot/gpt-6-astra"
 
 
 def test_rejects_unknown_model_and_context_outside_supported_presets(monkeypatch):
@@ -113,12 +113,12 @@ def test_rejects_unknown_model_and_context_outside_supported_presets(monkeypatch
         normalize_agent_inference_overrides(
             object(),
             agent,
-            {"model_override": "gpt-5.6-luna", "max_context_tokens": 400_000},
+            {"model_override": "gpt-6-astra", "max_context_tokens": 400_000},
         )
 
     normalized = normalize_agent_inference_overrides(
         object(),
         agent,
-        {"model_override": "gpt-5.6-luna", "max_context_tokens": 1_000_000},
+        {"model_override": "gpt-6-astra", "max_context_tokens": 1_000_000},
     )
     assert normalized["max_context_tokens"] == 1_000_000

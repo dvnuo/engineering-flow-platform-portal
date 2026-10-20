@@ -160,7 +160,7 @@ def test_api_create_and_update_delegation_inference_settings():
     try:
         profile = db.get(RuntimeProfile, agents.both.runtime_profile_id)
         config = json.loads(profile.config_json)
-        config["llm"] = {"provider": "github_copilot", "model": "gpt-5.6-terra", "reasoning_effort": "high"}
+        config["llm"] = {"provider": "github_copilot", "model": "gpt-6-luna", "reasoning_effort": "high"}
         profile.config_json = json.dumps(config)
         db.add(profile)
         db.commit()
@@ -168,7 +168,7 @@ def test_api_create_and_update_delegation_inference_settings():
         payload = _payload(agents.both.id, "github_pr_review")
         payload.update(
             {
-                "model_override": "gpt-5.6-sol",
+                "model_override": "gpt-6.1-sol",
                 "reasoning_effort": "xhigh",
                 "max_context_tokens": 256_000,
             }
@@ -177,11 +177,11 @@ def test_api_create_and_update_delegation_inference_settings():
 
         assert created.status_code == 200
         body = created.json()
-        assert body["model_override"] == "gpt-5.6-sol"
+        assert body["model_override"] == "gpt-6.1-sol"
         assert body["reasoning_effort"] == "xhigh"
         assert body["max_context_tokens"] == 256_000
         assert json.loads(body["task_config_json"])["inference"] == {
-            "model": "gpt-5.6-sol",
+            "model": "gpt-6.1-sol",
             "reasoning_effort": "xhigh",
             "max_context_tokens": 256_000,
         }
