@@ -65,10 +65,18 @@ def test_ai_platform_offers_the_gpt_5_6_line():
 
 def test_copilot_offers_auto_plus_the_gpt_6_line():
     # The GPT-5.6 line left Copilot on 2026-10-19 (Terra itself retires on
-    # 2026-11-16). Copilot auto routing picks among the GPT-6 ids, and they all
-    # publish the same 1,050,000-token window, so nothing below GPT-6 may
-    # come back without revisiting that. "auto" is the routing mode itself.
-    assert PROVIDER_MODELS["github_copilot"] == ("auto", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol")
+    # 2026-11-16), so nothing below GPT-6 may come back without revisiting
+    # that. The auto ids are the routing mode itself: Balance ("auto"),
+    # Efficiency and Intelligence, VS Code's three Auto tiers.
+    assert PROVIDER_MODELS["github_copilot"] == (
+        "auto",
+        "auto-efficiency",
+        "auto-intelligence",
+        "gpt-6-astra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+    )
 
 
 def test_every_model_carries_a_label_in_the_picker():

@@ -29,9 +29,12 @@ def test_model_attribution_helpers_read_runtime_fields_and_render_a_badge():
     for name in ("assistantModelAttribution", "assistantModelBadgeText", "buildAssistantModelBadgeHtml", "applyAssistantModelBadge", "latestAssistantModelAttribution"):
         assert f"function {name}(" in helpers, name
     # The runtime field names, exactly as the native runner and the opencode adapter stamp them.
-    for field in ("\"model\"", "\"resolved_model\"", "\"requested_model\"", "\"model_fallback_reason\"", "\"resolved_model_fallback\""):
+    for field in ("\"model\"", "\"resolved_model\"", "\"requested_model\"", "\"auto_tier\"", "\"model_fallback_reason\"", "\"resolved_model_fallback\""):
         assert field in helpers, field
-    assert "Auto \\u2192" in helpers
+    # "Auto -> GPT-6 Luna", "Auto (Efficiency) -> ...": the requested auto id's
+    # own label leads, the tier goes to the tooltip.
+    assert "inferenceModelLabel(assistantModelBareId(requested))} \\u2192 ${label}" in helpers
+    assert "if (attribution.autoTier) lines.push(`Tier: ${attribution.autoTier}`);" in helpers
     assert 'class="message-model' in helpers
     assert "message-model-fallback" in helpers
     assert "inferenceModelLabel(attribution.model)" in helpers
@@ -41,7 +44,9 @@ def test_model_attribution_helpers_read_runtime_fields_and_render_a_badge():
     assert 'for (const key of ["resolved_model", "model", "modelID", "model_id"])' in helpers
     assert "const sawAuto = candidates.some(isAutoModelId);" in helpers
     assert "candidates.find((value) => !isAutoModelId(value))" in helpers
-    assert 'if (!requestedModel && sawAuto) requestedModel = "auto";' in helpers
+    assert 'if (!requestedModel && sawAuto) requestedModel = assistantModelBareId(candidates.find(isAutoModelId)) || "auto";' in helpers
+    # Every auto id counts as auto, bare or behind OpenCode's provider prefix.
+    assert "return /^(?:[a-z0-9_.-]+\\/)?auto(?:-[a-z]+)?$/.test(text);" in helpers
 
 
 def test_history_and_live_rows_apply_the_badge():
@@ -77,10 +82,12 @@ def test_canonical_history_keeps_the_model_fields_for_opencode_sessions():
     canonical = _extract_js_function(src, "getCanonicalMessagesFromSessionPayload")
     assert "assistantModelAttribution(message)" in canonical
     assert "model_fallback_reason: attribution?.fallbackReason" in canonical
+    assert "auto_tier: attribution?.autoTier" in canonical
 
     legacy = _extract_js_function(src, "canonicalMessageToLegacyDisplayMessage")
     assert "model: String(message.model || info.modelID || info.model_id || \"\")" in legacy
     assert "requested_model: String(message.requested_model || \"\")" in legacy
+    assert "auto_tier: String(message.auto_tier || \"\")" in legacy
 
 
 def test_badge_shows_on_hover_at_the_top_right_of_the_bubble():
