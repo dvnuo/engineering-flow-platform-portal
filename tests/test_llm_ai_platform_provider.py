@@ -63,12 +63,13 @@ def test_coerce_model_is_provider_aware():
     assert coerce_to_provider_model("ai_platform", "gpt-6-sol") == "gpt-5.4"
     assert coerce_to_provider_model("ai_platform", "gpt-5.4") == "gpt-5.4"
     # gpt-5.4 and gpt-5.5 left Copilot with the GPT-6 release: a profile still
-    # holding one is repaired to the Copilot default (gpt-6-sol), while AI
-    # Platform keeps serving gpt-5.4.
-    assert coerce_to_provider_model("github_copilot", "gpt-5.4") == "gpt-6-sol"
-    assert coerce_to_provider_model("github_copilot", "gpt-5.5") == "gpt-6-sol"
+    # holding one is repaired to the Copilot default (auto since 2026-10-20),
+    # while AI Platform keeps serving gpt-5.4.
+    assert coerce_to_provider_model("github_copilot", "gpt-5.4") == "auto"
+    assert coerce_to_provider_model("github_copilot", "gpt-5.5") == "auto"
     assert coerce_to_provider_model("github_copilot", "gpt-6-astra") == "gpt-6-astra"
-    assert coerce_to_provider_model("github_copilot", "bogus") == "gpt-6-sol"
+    assert coerce_to_provider_model("github_copilot", "gpt-6-sol") == "gpt-6-sol"
+    assert coerce_to_provider_model("github_copilot", "bogus") == "auto"
 
 
 def test_managed_models_per_provider():
@@ -78,7 +79,7 @@ def test_managed_models_per_provider():
     # so a Copilot profile left on it is repaired to the Copilot default.
     assert "gpt-5.6-terra" in ai_platform
     assert "gpt-5.6-terra" not in RuntimeProfileService.managed_model_values_for_provider("github_copilot")
-    assert coerce_to_provider_model("github_copilot", "gpt-5.6-terra") == "gpt-6-sol"
+    assert coerce_to_provider_model("github_copilot", "gpt-5.6-terra") == "auto"
     assert RuntimeProfileService.normalize_managed_llm_provider("ai-platform") == "ai_platform"
     assert RuntimeProfileService.normalize_managed_llm_provider("") == ""
 
@@ -162,7 +163,7 @@ def test_public_redaction_hides_ai_platform_password_and_token():
 def test_legacy_and_copilot_still_coerce_to_copilot():
     c = canon({"llm": {"provider": "openai", "model": "gpt-4o", "api_key": "sk"}})["llm"]
     assert c["provider"] == "github_copilot"
-    assert c["model"] == "gpt-6-sol"
+    assert c["model"] == "auto"
     assert c["api_key"] == "sk"
 
 

@@ -49,7 +49,11 @@ AI_PLATFORM_MODELS: tuple[str, ...] = (
     "gpt-5.6-terra",
 )
 
-DEFAULT_COPILOT_MODEL = "gpt-6-sol"
+# Since 2026-10-20 a Copilot profile defaults to auto: Copilot picks within the
+# GPT-6 line per run (the runtimes fall back to gpt-6-sol when they cannot
+# open an auto session). It is also the repair value coerce_to_provider_model
+# lands a retired or unknown Copilot model on.
+DEFAULT_COPILOT_MODEL = COPILOT_AUTO_MODEL
 # Deliberately still 5.4: this is the repair value coerce_to_provider_model
 # falls back to for an unrecognized model, not a recommendation, and moving it
 # would silently change which model an existing broken profile lands on.
