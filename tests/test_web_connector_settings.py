@@ -817,7 +817,7 @@ def test_llm_save_merges_into_raw_settings_without_injecting_hidden_defaults(mon
         assert resp.status_code == 200
         cfg = _saved(env.db, rp)
         assert cfg["llm"]["provider"] == "github_copilot"
-        assert cfg["llm"]["model"] == "gpt-6-sol"
+        assert cfg["llm"]["model"] == "auto"
         assert "tools" not in cfg["llm"]
         assert "max_retries" not in cfg["llm"]
         assert "system-prompt" not in cfg["llm"]
@@ -853,7 +853,7 @@ def test_llm_save_clears_llm_request_timeout_overrides(monkeypatch):
         assert resp.status_code == 200
         cfg = _saved(env.db, rp)
         assert cfg["llm"]["provider"] == "github_copilot"
-        assert cfg["llm"]["model"] == "gpt-6-sol"
+        assert cfg["llm"]["model"] == "auto"
         assert "timeout" not in cfg["llm"]
         assert "timeout_ms" not in cfg["llm"]
         assert "chunk_timeout_ms" not in cfg["llm"]

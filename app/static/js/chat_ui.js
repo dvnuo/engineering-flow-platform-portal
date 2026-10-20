@@ -2174,12 +2174,16 @@ function getCanonicalMessagesFromSessionPayload(payload = {}) {
       const messageId = String(message.message_id || info.id || "");
       const role = String(message.role || info.role || "").toLowerCase();
 
+      const attribution = assistantModelAttribution(message);
       return {
         info,
         parts,
         message_id: messageId,
         role,
         source_of_truth: "runtime",
+        model: attribution?.model || "",
+        requested_model: attribution?.requestedModel || "",
+        model_fallback_reason: attribution?.fallbackReason || "",
       };
     })
     .filter((message) => message.message_id || message.role || message.parts.length);
@@ -2218,6 +2222,9 @@ function canonicalMessageToLegacyDisplayMessage(message = {}, index = 0) {
     content,
     display_content: content,
     request_id: String(info.requestID || info.request_id || ""),
+    model: String(message.model || info.modelID || info.model_id || ""),
+    requested_model: String(message.requested_model || ""),
+    model_fallback_reason: String(message.model_fallback_reason || ""),
     metadata: {
       source_of_truth: "runtime",
       runtime_message_id: id,
@@ -2506,17 +2513,101 @@ function getAssistantGroupDisplayBlocks(group) {
   return (group?.messages || []).flatMap((m) => Array.isArray(m?.display_blocks) ? m.display_blocks : []);
 }
 
+// RUNTIME_EVENT_HELPER_START: assistantModelAttribution
+// Which model answered. The runtimes stamp `model` (what was actually sent;
+// for Copilot auto the GPT-6 id the session picked), `requested_model`
+// ("auto") and `model_fallback_reason` on assistant messages, on the final
+// chat payload and on usage.updated events; history and live rows read
+// them the same way.
+function assistantModelAttribution(source = {}) {
+  if (!source || typeof source !== "object") return null;
+  const layers = [source, source.metadata, source.payload, source.data, source.info].filter((v) => v && typeof v === "object");
+  const pick = (...keys) => {
+    for (const layer of layers) {
+      for (const key of keys) {
+        const value = layer[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
+    }
+    return "";
+  };
+  const model = pick("model", "resolved_model", "modelID", "model_id");
+  if (!model) return null;
+  return {
+    model,
+    requestedModel: pick("requested_model", "requestedModel"),
+    fallbackReason: pick("model_fallback_reason", "modelFallbackReason", "resolved_model_fallback"),
+  };
+}
+
+function assistantModelBadgeText(attribution) {
+  if (!attribution || !attribution.model) return "";
+  const label = inferenceModelLabel(attribution.model);
+  const requested = String(attribution.requestedModel || "").toLowerCase();
+  if (requested === "auto" || requested.endsWith("/auto")) return `Auto \u2192 ${label}`;
+  return label;
+}
+
+function assistantModelBadgeTitle(attribution) {
+  if (!attribution || !attribution.model) return "";
+  const lines = [`Model: ${attribution.model}`];
+  if (attribution.requestedModel) lines.push(`Requested: ${attribution.requestedModel}`);
+  if (attribution.fallbackReason) lines.push(`Fallback: ${attribution.fallbackReason}`);
+  return lines.join("\n");
+}
+
+function buildAssistantModelBadgeHtml(attribution) {
+  const text = assistantModelBadgeText(attribution);
+  if (!text) return "";
+  const fallbackClass = attribution.fallbackReason ? " message-model-fallback" : "";
+  return `<span class="message-model${fallbackClass}" title="${escapeHtmlAttr(assistantModelBadgeTitle(attribution))}" data-model="${escapeHtmlAttr(attribution.model)}">${escapeHtml(text)}</span>`;
+}
+
+function applyAssistantModelBadge(target, attribution) {
+  if (!target || !attribution || !attribution.model) return null;
+  const row = target.classList?.contains("message-row") ? target : target.closest?.(".message-row");
+  if (!row) return null;
+  const header = row.querySelector(".message-meta");
+  if (!header) return null;
+  let badge = header.querySelector(".message-model");
+  if (!badge) {
+    badge = document.createElement("span");
+    header.appendChild(badge);
+  }
+  badge.className = `message-model${attribution.fallbackReason ? " message-model-fallback" : ""}`;
+  badge.textContent = assistantModelBadgeText(attribution);
+  badge.title = assistantModelBadgeTitle(attribution);
+  badge.dataset.model = attribution.model;
+  const article = row.querySelector("article.assistant-message");
+  if (article) article.dataset.model = attribution.model;
+  return badge;
+}
+
+function latestAssistantModelAttribution(messages = []) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const attribution = assistantModelAttribution(list[index]);
+    if (attribution) return attribution;
+  }
+  return null;
+}
+// RUNTIME_EVENT_HELPER_END: assistantModelAttribution
+
 function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
   const messageIds = getAssistantGroupMessageIds(group);
   const primaryMessageId = messageIds[messageIds.length - 1] || "";
   const markdown = getAssistantGroupMarkdown(group);
   const displayBlocks = getAssistantGroupDisplayBlocks(group);
+  const attribution = latestAssistantModelAttribution(group?.messages || []);
   return buildAssistantMessageArticle(markdown, displayBlocks, authorName, primaryMessageId, {
     messageIds,
     primaryMessageId,
     userMessageId: group?.userMessageId || "",
     assistantGroupKey: group?.key || "",
     copyText: markdown,
+    model: attribution?.model || "",
+    requestedModel: attribution?.requestedModel || "",
+    modelFallbackReason: attribution?.fallbackReason || "",
   });
 }
 
@@ -2575,7 +2666,8 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
   const copyTextAttr = typeof options.copyText === "string" ? ` data-copy-text="${escapeHtmlAttr(options.copyText)}"` : "";
   const streamingClass = options.isStreaming ? " is-streaming" : "";
   const hasVisibleContent = String(content || "").trim() || (displayBlocks || []).length ? ` data-has-visible-content="1"` : "";
-  return `<div class="message-row message-row-assistant"${hasVisibleContent}><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}${hasVisibleContent}><div class="message-markdown md-render" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
+  const modelBadgeHtml = buildAssistantModelBadgeHtml(assistantModelAttribution(options));
+  return `<div class="message-row message-row-assistant"${hasVisibleContent}><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span>${modelBadgeHtml}</div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}${hasVisibleContent}><div class="message-markdown md-render" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
 function parseAssistantDisplayBlocksFromDataset(article) {
@@ -8506,6 +8598,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
   if (!article) return null;
 
   const row = article.closest(".message-row");
+  applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
   const markdownEl = article.querySelector(".message-markdown") || (() => {
     const created = document.createElement("div");
     created.className = "message-markdown md-render";
@@ -8678,6 +8771,7 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   md.dataset.displayBlocks = JSON.stringify(payload?.display_blocks || []);
   article.querySelector('.assistant-stream-cursor')?.remove();
   article.querySelector('.assistant-waiting-indicator')?.remove();
+  applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
   renderMarkdown(article); decorateToolMessages(article); renderIcons();
   return true;
 }
@@ -9132,6 +9226,13 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     };
     handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
     rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType);
+    if (embeddedType === "usage.updated") {
+      const modelAttribution = assistantModelAttribution(eventData);
+      if (modelAttribution) {
+        requestCtx.modelAttribution = modelAttribution;
+        applyAssistantModelBadge(findPendingAssistantArticle(requestCtx.clientRequestId || requestCtx.requestId || ""), modelAttribution);
+      }
+    }
     const wrapperDeltaText = getChatStreamTextPayload(eventData);
     if (localIsSyntheticFinalDeltaEvent(eventData, null)) {
       requestCtx.awaitingAuthoritativeFinal = true;
@@ -11375,6 +11476,8 @@ function renderChatHistory(messages, metadata = {}) {
       let timeStr = "";
       if (last?.timestamp || last?.created_at || first?.timestamp || first?.created_at) { try { timeStr = new Date(last.timestamp || last.created_at || first.timestamp || first.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
       if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      const modelBadgeHtml = buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages));
+      if (modelBadgeHtml) header.insertAdjacentHTML("beforeend", modelBadgeHtml);
       row.appendChild(header);
       const article = document.createElement("article"); article.className = "message-surface message-surface-assistant assistant-message";
       const ids = getAssistantGroupMessageIds(entry);

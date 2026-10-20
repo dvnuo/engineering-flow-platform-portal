@@ -302,5 +302,5 @@ def test_runtime_metadata_keeps_default_llm_when_profile_only_has_old_tool_field
     assert "enabled" + "_tools" not in cfg
     assert "runtime_type" not in cfg
     assert cfg["llm"]["provider"] == "github_copilot"
-    assert cfg["llm"]["model"] == "gpt-6-sol"
+    assert cfg["llm"]["model"] == "auto"
     assert "tools" not in cfg["llm"]

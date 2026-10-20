@@ -967,6 +967,14 @@ html[data-chat-width="full"] .portal-conversation-main { --portal-chat-width: ma
 .message-row-assistant { align-items: flex-start; }
 .message-meta { display: flex; align-items: center; gap: 8px; color: var(--portal-text-muted); font-size: 12px; }
 .message-meta-user { justify-content: flex-end; }
+/* The assistant header spans the bubble so the model badge sits at its
+   top-right; it shows on hover like the timestamp. */
+.message-row-assistant .message-meta { width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); }
+.message-model { margin-left: auto; font-size: 11px; line-height: 1; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text-muted); white-space: nowrap; opacity: 0; transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.message-model-fallback { border-style: dashed; }
+.message-row:hover .message-model,
+.message-row:focus-within .message-model { opacity: 1; }
+@media (hover: none) { .message-model { opacity: 1; } }
 .message-author { font-weight: 600; color: var(--portal-text-secondary); }
 .message-surface { padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
 .message-surface-user { background: rgba(91,140,255,.12); border-color: rgba(91,140,255,.28); color: var(--portal-text); }
