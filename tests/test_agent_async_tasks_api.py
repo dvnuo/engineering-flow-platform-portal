@@ -139,7 +139,7 @@ def test_create_agent_async_task_persists_request_inference_settings(monkeypatch
             owner_user_id=agent.owner_user_id,
             name="Inference settings",
             config_json=json.dumps(
-                {"llm": {"provider": "github_copilot", "model": "gpt-5.6-terra", "reasoning_effort": "high"}}
+                {"llm": {"provider": "github_copilot", "model": "gpt-6-luna", "reasoning_effort": "high"}}
             ),
             is_default=True,
         )
@@ -157,7 +157,7 @@ def test_create_agent_async_task_persists_request_inference_settings(monkeypatch
                 "assignee_agent_id": agent.id,
                 "skill_name": "implement",
                 "task_content": "Build it.",
-                "model_override": "gpt-5.6-sol",
+                "model_override": "gpt-6.1-sol",
                 "reasoning_effort": "xhigh",
                 "max_context_tokens": 256_000,
             },
@@ -166,7 +166,7 @@ def test_create_agent_async_task_persists_request_inference_settings(monkeypatch
         assert response.status_code == 200
         payload = json.loads(db.get(AgentTask, response.json()["id"]).input_payload_json)
         assert payload["inference"] == {
-            "model": "gpt-5.6-sol",
+            "model": "gpt-6.1-sol",
             "reasoning_effort": "xhigh",
             "max_context_tokens": 256_000,
         }

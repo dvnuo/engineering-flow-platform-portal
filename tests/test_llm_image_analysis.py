@@ -41,7 +41,7 @@ def _copilot_vision_profile(vision_model="gpt-5.6-sol", enabled=True):
     return {
         "llm": {
             "provider": "github_copilot",
-            "model": "gpt-5.6-terra",
+            "model": "gpt-6-luna",
             "api_key": "ghu_token",
             "vision": {"enabled": enabled, "model": vision_model},
             "ai_platform": {"auth": {"username": "u", "password": "pw", "usercase": "uc"}},
@@ -120,7 +120,7 @@ def test_sanitize_keeps_vision_and_the_ai_platform_account_on_a_copilot_profile(
 def test_canonicalize_coerces_the_vision_model_and_keeps_the_account_only_while_needed():
     on = canon(_copilot_vision_profile(vision_model="gpt-9-bogus"))["llm"]
     assert on["provider"] == "github_copilot"
-    assert on["model"] == "gpt-5.6-terra"
+    assert on["model"] == "gpt-6-luna"
     assert on["vision"] == {"enabled": True, "model": "gpt-5.4"}
     assert on["ai_platform"] == {"auth": {"username": "u", "password": "pw", "usercase": "uc"}}
     assert on["api_key"] == "ghu_token"

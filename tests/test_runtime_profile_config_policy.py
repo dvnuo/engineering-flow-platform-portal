@@ -10,7 +10,7 @@ def test_canonicalize_strips_hidden_llm_fields_and_preserves_other_llm_fields():
     raw = {
         "llm": {
             "provider": "github_copilot",
-            "model": "gpt-5.6-terra",
+            "model": "gpt-6-luna",
             "temperature": 0.1,
             "response_flow": {"plan_policy": "always"},
             "tool_loop": {"one_tool_per_turn": True},
@@ -22,7 +22,7 @@ def test_canonicalize_strips_hidden_llm_fields_and_preserves_other_llm_fields():
     }
     result = canonicalize_portal_runtime_profile_config(raw)
     assert result["llm"]["provider"] == "github_copilot"
-    assert result["llm"]["model"] == "gpt-5.6-terra"
+    assert result["llm"]["model"] == "gpt-6-luna"
     assert "temperature" not in result["llm"]
     assert "response_flow" not in result["llm"]
     assert "tool_loop" not in result["llm"]
