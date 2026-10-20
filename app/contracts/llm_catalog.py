@@ -19,20 +19,28 @@ SUPPORTED_PROVIDERS: tuple[str, ...] = (COPILOT_PROVIDER, AI_PLATFORM_PROVIDER)
 # agentic coding; Luna: fast and cheap) plus GPT-6.1 Sol (GA in Copilot since
 # 2026-09-29). gpt-5.4 and gpt-5.5 were dropped from Copilot when GPT-6
 # arrived, and the GPT-5.6 line on 2026-10-19 (ahead of Terra's 2026-11-16
-# retirement, and so that Copilot auto routing can only ever land on a
-# 1,050,000-token model); a profile still holding one of them is repaired to
-# DEFAULT_COPILOT_MODEL by coerce_to_provider_model. GPT-6 and GPT-6.1 all
-# publish a 1,050,000-token window (922k input + 128k output), so the 1M
-# preset below still fits.
+# retirement); a profile still holding one of them is repaired to
+# DEFAULT_COPILOT_MODEL by coerce_to_provider_model. Copilot's own catalog
+# reports a 400,000-token window (272k prompt + 128k output) for the whole
+# line, whatever OpenAI publishes; the runtimes budget from that, so the 1M
+# preset below is clamped by them.
 #
-# "auto" is Copilot's auto model selection, not a model id: the runtimes open
-# an auto session per run and send one of the GPT-6 ids below with the
-# session token (native: efp_runtime/llm/models.py AUTO_MODEL_ID; opencode:
-# the adapter's Copilot proxy). It is Copilot-only, and its context budget is
-# the GPT-6 window, so the presets apply to it unchanged.
+# The auto ids are Copilot's auto model selection, not model ids: the
+# runtimes post each turn's prompt and a tier to Copilot's ``POST /auto`` (the
+# way VS Code's Auto picker works) and send the model Copilot picked with the
+# session token. "auto" is the Balance tier, the two others VS Code's
+# selectable alternatives; the tier is part of the id so nothing else has to
+# carry it (native: efp_runtime/llm/models.py COPILOT_AUTO_TIERS; opencode:
+# the adapter's copilot_auto_catalog). Copilot-only.
 COPILOT_AUTO_MODEL = "auto"
+COPILOT_AUTO_TIERS: dict[str, str] = {
+    COPILOT_AUTO_MODEL: "balance",
+    "auto-efficiency": "efficiency",
+    "auto-intelligence": "intelligence",
+}
+COPILOT_AUTO_MODELS: tuple[str, ...] = tuple(COPILOT_AUTO_TIERS)
 COPILOT_MODELS: tuple[str, ...] = (
-    COPILOT_AUTO_MODEL,
+    *COPILOT_AUTO_MODELS,
     "gpt-6-astra",
     "gpt-6-luna",
     "gpt-6-sol",
@@ -49,10 +57,10 @@ AI_PLATFORM_MODELS: tuple[str, ...] = (
     "gpt-5.6-terra",
 )
 
-# Since 2026-10-20 a Copilot profile defaults to auto: Copilot picks within the
-# GPT-6 line per run (the runtimes fall back to gpt-6-sol when they cannot
-# open an auto session). It is also the repair value coerce_to_provider_model
-# lands a retired or unknown Copilot model on.
+# Since 2026-10-20 a Copilot profile defaults to auto (Balance): Copilot picks
+# the model per turn (the runtimes fall back to gpt-6-sol when the route
+# fails or they cannot drive the pick). It is also the repair value
+# coerce_to_provider_model lands a retired or unknown Copilot model on.
 DEFAULT_COPILOT_MODEL = COPILOT_AUTO_MODEL
 # Deliberately still 5.4: this is the repair value coerce_to_provider_model
 # falls back to for an unrecognized model, not a recommendation, and moving it
@@ -140,6 +148,22 @@ def coerce_to_provider_model(provider: str | None, model: str | None) -> str:
 def coerce_to_copilot_model(model: str | None) -> str:
     """Backwards-compatible helper: coerce to a valid Copilot model."""
     return coerce_to_provider_model(COPILOT_PROVIDER, model)
+
+
+def is_copilot_auto_model(model: str | None) -> bool:
+    """Whether ``model`` is one of the Copilot auto ids (bare or ``provider/`` prefixed)."""
+    text = str(model or "").strip().lower()
+    if "/" in text:
+        text = text.rsplit("/", 1)[1]
+    return text in COPILOT_AUTO_TIERS
+
+
+def copilot_auto_tier(model: str | None) -> str | None:
+    """The ``POST /auto`` tier an auto id asks for, or None for a concrete model."""
+    text = str(model or "").strip().lower()
+    if "/" in text:
+        text = text.rsplit("/", 1)[1]
+    return COPILOT_AUTO_TIERS.get(text)
 
 
 # Image analysis ("vision"). GitHub Copilot's models no longer accept image

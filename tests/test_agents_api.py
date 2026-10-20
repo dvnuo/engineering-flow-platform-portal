@@ -644,7 +644,7 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
             "current_model": "gpt-6-luna",
             "current_reasoning_effort": "high",
             "current_max_context_tokens": 256000,
-            "available_models": ["auto", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"],
+            "available_models": ["auto", "auto-efficiency", "auto-intelligence", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"],
             "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"],
             "context_sizes": [64000, 256000, 1000000],
             "supports_reasoning_effort": True,

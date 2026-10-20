@@ -2183,6 +2183,7 @@ function getCanonicalMessagesFromSessionPayload(payload = {}) {
         source_of_truth: "runtime",
         model: attribution?.model || "",
         requested_model: attribution?.requestedModel || "",
+        auto_tier: attribution?.autoTier || "",
         model_fallback_reason: attribution?.fallbackReason || "",
       };
     })
@@ -2224,6 +2225,7 @@ function canonicalMessageToLegacyDisplayMessage(message = {}, index = 0) {
     request_id: String(info.requestID || info.request_id || ""),
     model: String(message.model || info.modelID || info.model_id || ""),
     requested_model: String(message.requested_model || ""),
+    auto_tier: String(message.auto_tier || ""),
     model_fallback_reason: String(message.model_fallback_reason || ""),
     metadata: {
       source_of_truth: "runtime",
@@ -2515,17 +2517,25 @@ function getAssistantGroupDisplayBlocks(group) {
 
 // RUNTIME_EVENT_HELPER_START: assistantModelAttribution
 // Which model answered. The runtimes stamp `model` (what was actually sent;
-// for Copilot auto the GPT-6 id the session picked), `requested_model`
-// ("auto") and `model_fallback_reason` on assistant messages, on the final
-// chat payload and on usage.updated events; history and live rows read
-// them the same way. "auto" itself is never the model that answered: it
-// is only what was requested (OpenCode's own record of an auto run says
-// "auto", a runtime image that predates the attribution reports nothing
-// better), so without a concrete id there is no badge rather than a
-// misleading one.
+// for Copilot auto the model Copilot picked for the turn), `requested_model`
+// (the auto id asked for), `auto_tier` and `model_fallback_reason` on
+// assistant messages, on the final chat payload and on usage.updated events;
+// history and live rows read them the same way. An auto id itself is never
+// the model that answered: it is only what was requested (OpenCode's own
+// record of an auto run says the auto id, a runtime image that predates the
+// attribution reports nothing better), so without a concrete id there is no
+// badge rather than a misleading one.
 function isAutoModelId(value) {
   const text = String(value || "").trim().toLowerCase();
-  return text === "auto" || text.endsWith("/auto");
+  // "auto" is the Balance tier; "auto-efficiency" / "auto-intelligence" name
+  // the other tiers. A provider prefix ("github-copilot/auto") is OpenCode's.
+  return /^(?:[a-z0-9_.-]+\/)?auto(?:-[a-z]+)?$/.test(text);
+}
+
+function assistantModelBareId(value) {
+  const text = String(value || "").trim();
+  const slash = text.lastIndexOf("/");
+  return slash >= 0 ? text.slice(slash + 1) : text;
 }
 
 function assistantModelAttribution(source = {}) {
@@ -2553,10 +2563,11 @@ function assistantModelAttribution(source = {}) {
   const sawAuto = candidates.some(isAutoModelId);
   const model = candidates.find((value) => !isAutoModelId(value)) || "";
   if (!model) return null;
-  if (!requestedModel && sawAuto) requestedModel = "auto";
+  if (!requestedModel && sawAuto) requestedModel = assistantModelBareId(candidates.find(isAutoModelId)) || "auto";
   return {
     model,
     requestedModel,
+    autoTier: pick("auto_tier", "autoTier"),
     fallbackReason: pick("model_fallback_reason", "modelFallbackReason", "resolved_model_fallback"),
   };
 }
@@ -2565,7 +2576,8 @@ function assistantModelBadgeText(attribution) {
   if (!attribution || !attribution.model) return "";
   const label = inferenceModelLabel(attribution.model);
   const requested = String(attribution.requestedModel || "").toLowerCase();
-  if (requested === "auto" || requested.endsWith("/auto")) return `Auto \u2192 ${label}`;
+  // "Auto -> GPT-6 Luna", or "Auto (Efficiency) -> ..." for the other tiers.
+  if (isAutoModelId(requested)) return `${inferenceModelLabel(assistantModelBareId(requested))} \u2192 ${label}`;
   return label;
 }
 
@@ -2573,6 +2585,7 @@ function assistantModelBadgeTitle(attribution) {
   if (!attribution || !attribution.model) return "";
   const lines = [`Model: ${attribution.model}`];
   if (attribution.requestedModel) lines.push(`Requested: ${attribution.requestedModel}`);
+  if (attribution.autoTier) lines.push(`Tier: ${attribution.autoTier}`);
   if (attribution.fallbackReason) lines.push(`Fallback: ${attribution.fallbackReason}`);
   return lines.join("\n");
 }
@@ -2628,6 +2641,7 @@ function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
     copyText: markdown,
     model: attribution?.model || "",
     requestedModel: attribution?.requestedModel || "",
+    autoTier: attribution?.autoTier || "",
     modelFallbackReason: attribution?.fallbackReason || "",
   });
 }
@@ -12704,6 +12718,8 @@ function updateTemperatureInputState(root) {
 const managedProviderModels = {
   github_copilot: [
     { value: "auto", label: "Auto" },
+    { value: "auto-efficiency", label: "Auto (Efficiency)" },
+    { value: "auto-intelligence", label: "Auto (Intelligence)" },
     { value: "gpt-6-astra", label: "GPT-6 Astra" },
     { value: "gpt-6-luna", label: "GPT-6 Luna" },
     { value: "gpt-6-sol", label: "GPT-6 Sol" },
