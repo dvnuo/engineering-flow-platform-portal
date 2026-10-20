@@ -12571,6 +12571,7 @@ function updateTemperatureInputState(root) {
 
 const managedProviderModels = {
   github_copilot: [
+    { value: "auto", label: "Auto" },
     { value: "gpt-6-astra", label: "GPT-6 Astra" },
     { value: "gpt-6-luna", label: "GPT-6 Luna" },
     { value: "gpt-6-sol", label: "GPT-6 Sol" },

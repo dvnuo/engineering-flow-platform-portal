@@ -83,6 +83,16 @@ def test_managed_models_per_provider():
     assert RuntimeProfileService.normalize_managed_llm_provider("") == ""
 
 
+def test_auto_is_a_copilot_only_selection():
+    # Copilot auto model selection is a routing mode the runtimes resolve to a
+    # GPT-6 id per run; the AI Platform gateway has nothing like it, so a
+    # profile switched there is repaired to that provider's default.
+    assert coerce_to_provider_model("github_copilot", "auto") == "auto"
+    assert coerce_to_provider_model("ai_platform", "auto") == "gpt-5.4"
+    assert "auto" in RuntimeProfileService.managed_model_values_for_provider("github_copilot")
+    assert "auto" not in RuntimeProfileService.managed_model_values_for_provider("ai_platform")
+
+
 def test_gpt_6_1_sol_is_offered_on_copilot_only():
     # GPT-6.1 Sol reached Copilot on 2026-09-29. The gateway does not serve
     # the GPT-6 line, so switching a profile to AI Platform repairs it to that
