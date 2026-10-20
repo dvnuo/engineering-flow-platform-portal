@@ -12,7 +12,6 @@ from app.schemas.runtime_profile import (
     PROXY_DEFAULT_ONLY_CONNECTORS,
     redact_runtime_profile_config_for_public_response,
     sanitize_runtime_profile_config_dict,
-    sanitize_runtime_profile_pgsql_proxy,
     sanitize_runtime_profile_proxy,
     sanitize_runtime_profile_proxy_url,
 )
@@ -108,13 +107,6 @@ def test_sanitizer_upgrades_the_flat_shape_to_one_proxy_named_default():
 )
 def test_proxy_url_rules(value, expected):
     assert sanitize_runtime_profile_proxy_url(value) == expected
-
-
-def test_pgsql_row_proxy_accepts_a_proxy_name():
-    assert sanitize_runtime_profile_pgsql_proxy("corp-b") == "corp-b"
-    assert sanitize_runtime_profile_pgsql_proxy("none") == "none"
-    assert sanitize_runtime_profile_pgsql_proxy("proxy.example.test:3128") == "http://proxy.example.test:3128"
-    assert sanitize_runtime_profile_pgsql_proxy("http://u:p@proxy.example.test:3128") is None
 
 
 def test_public_redaction_hides_every_proxy_password():

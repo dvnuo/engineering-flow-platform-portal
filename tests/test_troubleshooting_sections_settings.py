@@ -39,7 +39,6 @@ from app.schemas.runtime_profile import (
     sanitize_runtime_profile_config_dict,
     sanitize_runtime_profile_nexus,
     sanitize_runtime_profile_pgsql,
-    sanitize_runtime_profile_pgsql_proxy,
     sanitize_runtime_profile_splunk,
 )
 from app.services.connection_guidance import CONNECTION_GUIDANCE
@@ -92,6 +91,12 @@ CANONICAL = {
     "pgsql": {
         "enabled": True,
         "default_instance": "orders-uat",
+        # What every instance shares: the connector's access policy, the TLS
+        # mode and the query budget. A row carries connection fields only.
+        "access": "read_write",
+        "sslmode": "require",
+        "statement_timeout_seconds": 45,
+        "max_rows": 2500,
         "instances": [
             {
                 "name": "orders-uat",
@@ -100,13 +105,16 @@ CANONICAL = {
                 "database": "orders",
                 "username": "efp_readonly",
                 "password": "pg-pass",
-                "sslmode": "require",
-                "proxy": "http://proxy.example.test:3128",
                 "enabled": True,
             }
         ],
     },
 }
+PGSQL_SHARED = ("access", "sslmode", "statement_timeout_seconds", "max_rows")
+
+
+def _pgsql_row(**extra):
+    return {"name": "d", "host": "h", "database": "o", "username": "u", **extra}
 
 
 def _copy(value):
@@ -122,7 +130,14 @@ def test_the_sections_are_portal_managed_with_the_jenkins_field_tree():
     for section in SECTIONS:
         assert section in ALLOWED_RUNTIME_PROFILE_SECTIONS
         assert section in PORTAL_RUNTIME_PROFILE_SECTIONS
-        assert PORTAL_MANAGED_FIELD_TREE[section] == {"enabled": True, "instances": True, "default_instance": True}
+        assert {"enabled", "instances", "default_instance"} <= set(PORTAL_MANAGED_FIELD_TREE[section])
+    assert PORTAL_MANAGED_FIELD_TREE["nexus"] == PORTAL_MANAGED_FIELD_TREE["splunk"] == {"enabled": True, "instances": True, "default_instance": True}
+    # PostgreSQL also carries what every instance shares; the tree is what the
+    # runtime receives, so a key missing here never reaches the pgsql CLI.
+    assert PORTAL_MANAGED_FIELD_TREE["pgsql"] == {
+        "enabled": True, "instances": True, "default_instance": True,
+        "access": True, "sslmode": True, "statement_timeout_seconds": True, "max_rows": True,
+    }
     assert TROUBLESHOOTING_INSTANCE_SECTIONS == SECTIONS
 
 
@@ -175,8 +190,11 @@ def test_sanitizer_normalizes_typed_values_and_aliases():
             }
         ],
     }
+    # The row's TLS mode belongs to the section now: lifted once, then gone
+    # from the row.
+    assert sanitized["pgsql"]["sslmode"] == "verify-full"
     assert sanitized["pgsql"]["instances"] == [
-        {"name": "db", "host": "db.example.test", "port": 5433, "database": "orders", "username": "ro", "sslmode": "verify-full", "enabled": False}
+        {"name": "db", "host": "db.example.test", "port": 5433, "database": "orders", "username": "ro", "enabled": False}
     ]
 
 
@@ -229,25 +247,24 @@ def test_an_invalid_pgsql_port_is_dropped_but_the_row_kept(value):
 
 @pytest.mark.parametrize("value", ["disable", "allow", "", None, 3])
 def test_an_unknown_pgsql_sslmode_is_dropped(value):
-    section = sanitize_runtime_profile_pgsql({"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "sslmode": value}]})
+    # Dropped from the section and never kept on a row: the CLI default
+    # (require) applies.
+    section = sanitize_runtime_profile_pgsql({"sslmode": value, "instances": [_pgsql_row(sslmode=value)]})
+    assert "sslmode" not in section
     assert "sslmode" not in section["instances"][0]
 
 
 @pytest.mark.parametrize("value", ["0", "301", "abc", "", None, True, "12.5", -5])
 def test_an_out_of_range_pgsql_statement_timeout_is_dropped(value):
     # Out of range means the CLI default (30s) applies, not an unusable budget.
-    section = sanitize_runtime_profile_pgsql(
-        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "statement_timeout_seconds": value}]}
-    )
-    assert "statement_timeout_seconds" not in section["instances"][0]
+    section = sanitize_runtime_profile_pgsql({"statement_timeout_seconds": value, "instances": [_pgsql_row()]})
+    assert "statement_timeout_seconds" not in section
 
 
 @pytest.mark.parametrize("value", ["0", "100001", "many", "", None, True, -1])
 def test_an_out_of_range_pgsql_max_rows_is_dropped(value):
-    section = sanitize_runtime_profile_pgsql(
-        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "max_rows": value}]}
-    )
-    assert "max_rows" not in section["instances"][0]
+    section = sanitize_runtime_profile_pgsql({"max_rows": value, "instances": [_pgsql_row()]})
+    assert "max_rows" not in section
 
 
 @pytest.mark.parametrize(
@@ -262,12 +279,64 @@ def test_an_out_of_range_pgsql_max_rows_is_dropped(value):
     ],
 )
 def test_pgsql_query_bounds_inside_the_range_are_kept_as_ints(field, value, expected):
-    # They ride to the runtime as EFP_PGSQL_INSTANCES_0_STATEMENT_TIMEOUT_SECONDS
-    # and _MAX_ROWS, which the pgsql CLI reads as ints.
+    # They ride to the runtime as EFP_PGSQL_STATEMENT_TIMEOUT_SECONDS and
+    # EFP_PGSQL_MAX_ROWS, which the pgsql CLI reads as ints for every instance.
+    section = sanitize_runtime_profile_pgsql({field: value, "instances": [_pgsql_row()]})
+    assert section[field] == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("read_only", "read_only"),
+        ("Read-Write", "read_write"),
+        (" rw ", "read_write"),
+        ("readonly", "read_only"),
+        ("maybe", None),
+        ("", None),
+        (None, None),
+        (3, None),
+    ],
+)
+def test_pgsql_access_is_normalized_and_unknown_values_are_dropped(value, expected):
+    # Absent reads as read_only downstream (the CLI's default), so an unknown
+    # value is dropped rather than stored for the CLI to fail closed on.
+    section = sanitize_runtime_profile_pgsql({"access": value, "instances": [_pgsql_row()]})
+    assert section.get("access") == expected
+
+
+def test_the_row_budget_and_proxy_of_an_older_profile_are_lifted_once_then_dropped():
+    # Rows saved before the shared settings existed: the default instance's
+    # values become the section's, the first row fills what it lacks, and
+    # every row loses its copies (and its proxy, which the Proxy connector's
+    # assignment replaced).
     section = sanitize_runtime_profile_pgsql(
-        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", field: value}]}
+        {
+            "default_instance": "second",
+            "instances": [
+                _pgsql_row(name="first", sslmode="prefer", statement_timeout_seconds=10, max_rows=50, proxy="none"),
+                _pgsql_row(name="second", sslmode="verify-full", max_rows="200", proxy="http://proxy.example.test:3128"),
+            ],
+        }
     )
-    assert section["instances"][0][field] == expected
+    assert section["sslmode"] == "verify-full"
+    assert section["max_rows"] == 200
+    assert section["statement_timeout_seconds"] == 10
+    assert section["instances"] == [_pgsql_row(name="first"), _pgsql_row(name="second")]
+
+    # A section that carries the key keeps its own answer, None (a blank
+    # field on the form) included: nothing is lifted over it.
+    own = sanitize_runtime_profile_pgsql({"sslmode": "require", "max_rows": None, "instances": [_pgsql_row(sslmode="prefer", max_rows=50)]})
+    assert own["sslmode"] == "require"
+    assert "max_rows" not in own
+    assert own["instances"] == [_pgsql_row()]
+
+    # The same through the whole-config sanitizer, which is what a stored
+    # profile goes through when it is parsed.
+    whole = sanitize_runtime_profile_config_dict(
+        {"pgsql": {"enabled": True, "instances": [_pgsql_row(statement_timeout_seconds="30", proxy="corp-b")]}}
+    )
+    assert whole["pgsql"] == {"enabled": True, "statement_timeout_seconds": 30, "instances": [_pgsql_row()]}
 
 
 def test_splunk_namespace_is_kept_and_needs_an_app():
@@ -403,8 +472,10 @@ def _pgsql_form(**overrides):
         "pgsql_instances_0_database": "orders",
         "pgsql_instances_0_username": "efp_readonly",
         "pgsql_instances_0_password": "pg-pass",
-        "pgsql_instances_0_sslmode": "require",
-        "pgsql_instances_0_proxy": "http://proxy.example.test:3128",
+        "pgsql_access": "read_write",
+        "pgsql_sslmode": "require",
+        "pgsql_statement_timeout_seconds": "45",
+        "pgsql_max_rows": "2500",
     }
     form.update(overrides)
     return form
@@ -555,10 +626,65 @@ def test_settings_form_rejects_a_splunk_max_results_outside_the_bounds(count):
     assert "splunk" not in merged
 
 
-def test_settings_form_rejects_an_unknown_sslmode():
-    merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_sslmode="disable"))
-    assert error == "PostgreSQL instance orders-uat needs an SSL mode of require, verify-ca, verify-full, prefer."
+@pytest.mark.parametrize(
+    "field,value,error",
+    [
+        ("access", "maybe", "PostgreSQL access must be read_only or read_write."),
+        ("sslmode", "disable", "PostgreSQL SSL mode must be one of require, verify-ca, verify-full, prefer."),
+        ("statement_timeout_seconds", "0", "PostgreSQL statement timeout must be between 1 and 300 seconds."),
+        ("statement_timeout_seconds", "abc", "PostgreSQL statement timeout must be between 1 and 300 seconds."),
+        ("max_rows", "100001", "PostgreSQL max rows must be between 1 and 100000."),
+    ],
+)
+def test_settings_form_rejects_a_shared_setting_the_cli_cannot_use(field, value, error):
+    merged, err = _settings_merge_payload({}, _pgsql_form(**{f"pgsql_{field}": value}))
+    assert err == error
     assert "pgsql" not in merged
+
+
+def test_settings_form_stores_the_shared_settings_and_blank_means_the_runtime_default():
+    merged, error = _settings_merge_payload({}, _pgsql_form())
+    assert error is None
+    assert {field: merged["pgsql"][field] for field in PGSQL_SHARED} == {
+        "access": "read_write", "sslmode": "require", "statement_timeout_seconds": 45, "max_rows": 2500
+    }
+
+    merged, error = _settings_merge_payload(
+        {"pgsql": _copy(CANONICAL["pgsql"])},
+        _pgsql_form(pgsql_access="", pgsql_statement_timeout_seconds="", pgsql_max_rows=""),
+    )
+    assert error is None
+    for field in ("access", "statement_timeout_seconds", "max_rows"):
+        assert field not in merged["pgsql"], field
+    assert merged["pgsql"]["sslmode"] == "require"
+
+
+def test_settings_form_from_an_older_panel_keeps_the_stored_shared_settings():
+    form = _pgsql_form()
+    for field in PGSQL_SHARED:
+        form.pop(f"pgsql_{field}")
+    merged, error = _settings_merge_payload({"pgsql": _copy(CANONICAL["pgsql"])}, form)
+    assert error is None
+    for field in PGSQL_SHARED:
+        assert merged["pgsql"][field] == CANONICAL["pgsql"][field], field
+
+
+def test_settings_form_strips_per_row_leftovers_once_it_posts_the_shared_settings():
+    # A row saved before the shared settings existed, and a panel that posts
+    # the settings without the rows: the section's answer is the only one
+    # left, so nothing is lifted back from the row later.
+    stored = {"pgsql": {"enabled": True, "instances": [_pgsql_row(sslmode="prefer", max_rows=9, proxy="none")]}}
+    form = {
+        "__touch_pgsql": "1", "pgsql_enabled": "on",
+        "pgsql_access": "read_only", "pgsql_sslmode": "require",
+        "pgsql_statement_timeout_seconds": "", "pgsql_max_rows": "",
+    }
+    merged, error = _settings_merge_payload(stored, form)
+    assert error is None
+    assert merged["pgsql"]["instances"] == [_pgsql_row()]
+    assert merged["pgsql"]["sslmode"] == "require" and merged["pgsql"]["access"] == "read_only"
+    assert "max_rows" not in merged["pgsql"]
+    assert "max_rows" not in sanitize_runtime_profile_config_dict(merged)["pgsql"]
 
 
 def test_settings_form_rejects_a_default_instance_that_names_no_row():
@@ -732,8 +858,10 @@ def test_cli_instructions_teach_each_troubleshooting_cli_verbatim():
         "--name <artifact> --version <ver> --json`), splunk for log searches (`splunk search run --query \"index=<idx> ...\" "
         "--earliest -1h --count 100 --json`; always give a time range and a count), and pgsql for PostgreSQL "
         "(`pgsql schema tables --json`, `pgsql query --sql \"select ...\" --limit 200 --json`; "
-        "`pgsql exec` applies statements that change data, and whether that succeeds is decided by the database role "
-        "and endpoint the PostgreSQL connector configures, not by the CLI). "
+        "`pgsql exec` applies statements that change data when the PostgreSQL connector's access is read-write; "
+        "with the default read-only access the CLI refuses every write with read_only_mode, which is a final answer "
+        "to report, and with read-write access whether a write succeeds is decided by the database role and endpoint "
+        "the connector configures, not by the CLI). "
         "For every nexus, splunk, and pgsql command add --json and use --instance when "
         "several instances are configured. "
     )
@@ -823,7 +951,10 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
                 ("pgsql_instances_0_database", "orders"),
                 ("pgsql_instances_0_username", "efp_readonly"),
                 ("pgsql_instances_0_password", ""),
-                ("pgsql_instances_0_sslmode", "require"),
+                ("pgsql_access", "read_only"),
+                ("pgsql_sslmode", "require"),
+                ("pgsql_statement_timeout_seconds", ""),
+                ("pgsql_max_rows", ""),
                 ("splunk_instance_count", "1"),
                 ("splunk_instances_0_name", "prod"),
                 ("splunk_instances_0_url", "https://splunk-api.example.test:8089"),
@@ -833,10 +964,13 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
             ]
         )
     )
-    # A blank shared password is left out rather than stored as "".
+    # A blank shared password is left out rather than stored as ""; so is a
+    # blank shared budget field (the member's panel then shows the default).
     assert config["pgsql"] == {
         "enabled": True,
         "default_instance": "orders-uat",
+        "access": "read_only",
+        "sslmode": "require",
         "instances": [
             {
                 "enabled": True,
@@ -845,12 +979,6 @@ def test_default_connections_form_offers_the_sections_and_reads_them_back():
                 "port": "5432",
                 "database": "orders",
                 "username": "efp_readonly",
-                "sslmode": "require",
-                # Rendered but left blank: a non-credential field keeps the empty
-                # string, the same as port or sslmode would.
-                "statement_timeout_seconds": "",
-                "max_rows": "",
-                "proxy": "",
             }
         ],
     }
@@ -1085,10 +1213,16 @@ def test_tooltips_cover_the_new_inputs_and_beat_the_generic_instance_hints():
         '[data-instance-item="pgsql"] [data-field="host"]',
         '[data-instance-item="pgsql"] [data-field="port"]',
         '[data-instance-item="pgsql"] [data-field="database"]',
-        '[data-instance-item="pgsql"] [data-field="sslmode"]',
         '[data-instance-item="pgsql"] [data-field="password"]',
+        'select[name="pgsql_access"]',
+        'select[name="pgsql_sslmode"]',
+        'input[name="pgsql_statement_timeout_seconds"]',
+        'input[name="pgsql_max_rows"]',
     ):
         assert selector in selectors, selector
+    # The per-row copies are gone, and so are their hints.
+    assert '[data-instance-item="pgsql"] [data-field="sslmode"]' not in selectors
+    assert '[data-instance-item="pgsql"] [data-field="proxy"]' not in selectors
     # First match wins, so the scoped hints must come before the generic ones.
     generic_username = selectors.index('[data-instance-item] [data-field="username"]')
     generic_name = selectors.index('[data-instance-item] [data-field="name"]')
@@ -1101,71 +1235,77 @@ def test_tooltips_cover_the_new_inputs_and_beat_the_generic_instance_hints():
 
 
 # --------------------------------------------------------------------------
-# pgsql proxy: the row's own egress setting
+# pgsql shared settings: access, TLS mode and the query budget on the panels
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "value,expected",
-    [
-        ("none", "none"),
-        (" Direct ", "none"),
-        ("off", "none"),
-        ("http://proxy.example.test:3128", "http://proxy.example.test:3128"),
-        ("https://proxy.example.test", "https://proxy.example.test"),
-        ("proxy.example.test:3128", "http://proxy.example.test:3128"),
-        ("HTTP://Proxy.Example.test:3128/", "http://proxy.example.test:3128"),
-    ],
-)
-def test_a_pgsql_proxy_is_normalized_to_what_the_cli_reads(value, expected):
-    # The pgsql CLI accepts none, an http(s) URL, or a bare host:port as an
-    # http proxy; the sanitizer stores the form the CLI will print back.
-    assert sanitize_runtime_profile_pgsql_proxy(value) == expected
-    section = sanitize_runtime_profile_pgsql(
-        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "proxy": value}]}
+def test_pgsql_shared_settings_render_above_the_cards_on_both_panels(monkeypatch):
+    html = _render_panel(monkeypatch, {"pgsql": _copy(CANONICAL["pgsql"])}, "pgsql")
+    assert 'name="pgsql_access"' in html and '<option value="read_write" selected>' in html
+    assert 'name="pgsql_sslmode"' in html and '<option value="require" selected>require</option>' in html
+    assert 'name="pgsql_statement_timeout_seconds" value="45"' in html
+    assert 'name="pgsql_max_rows" value="2500"' in html
+    assert html.index('name="pgsql_access"') < html.index('data-instance-container="pgsql"')
+    # No per-row copies any more: a card is connection fields only.
+    assert 'data-field="sslmode"' not in html and 'data-field="proxy"' not in html
+    assert 'data-field="statement_timeout_seconds"' not in html and 'data-field="max_rows"' not in html
+
+    # Nothing stored: the defaults are selected and the budget fields say
+    # what blank means.
+    bare = _render_panel(monkeypatch, {"pgsql": {"enabled": True, "instances": []}}, "pgsql")
+    assert '<option value="read_only" selected>' in bare
+    assert '<option value="require" selected>require</option>' in bare
+    assert 'name="pgsql_statement_timeout_seconds" value=""' in bare and 'placeholder="Default 30"' in bare
+    assert 'name="pgsql_max_rows" value=""' in bare and 'placeholder="Default 5000"' in bare
+
+    admin = _default_connections_html(seed={"pgsql": _copy(CANONICAL["pgsql"])})
+    assert 'name="pgsql_access"' in admin and '<option value="read_write" selected>' in admin
+    assert 'name="pgsql_statement_timeout_seconds" value="45"' in admin
+    assert 'name="pgsql_max_rows" value="2500"' in admin
+    assert 'data-field="sslmode"' not in admin and 'data-field="proxy"' not in admin
+
+
+def test_default_connections_form_reads_the_shared_settings_and_rejects_a_bad_one():
+    config = _seed_config_from_form(
+        FormData(
+            [
+                ("pgsql_access", "read-write"),
+                ("pgsql_sslmode", "verify-full"),
+                ("pgsql_statement_timeout_seconds", "60"),
+                ("pgsql_max_rows", ""),
+                ("pgsql_instance_count", "0"),
+            ]
+        )
     )
-    assert section["instances"][0]["proxy"] == expected
+    # A shared setting alone is enough to store the section, toggle off.
+    assert config["pgsql"] == {"enabled": False, "instances": [], "access": "read_write", "sslmode": "verify-full", "statement_timeout_seconds": 60}
+
+    errors: list[str] = []
+    config = _seed_config_from_form(FormData([("pgsql_enabled", "on"), ("pgsql_max_rows", "0"), ("pgsql_instance_count", "0")]), errors)
+    assert errors == ["PostgreSQL max rows must be between 1 and 100000."]
+    assert config["pgsql"] == {"enabled": True, "instances": []}
+
+    with pytest.raises(ValueError, match="PostgreSQL access must be read_only or read_write."):
+        _seed_config_from_form(FormData([("pgsql_access", "maybe"), ("pgsql_instance_count", "0")]))
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        "",
-        None,
-        True,
-        3,
-        "socks5://proxy.example.test:1080",
-        "ftp://proxy.example.test",
-        "http://",
-        "http://proxy.example.test:0",
-        "http://proxy.example.test:70000",
-        "http://svc:pw@proxy.example.test:3128",
-        "http://proxy.example.test:3128/path",
-    ],
-)
-def test_an_unusable_pgsql_proxy_is_dropped_so_the_cli_follows_the_environment(value):
-    # Credentials are refused on purpose: the row is stored in the clear, and
-    # the Proxy connector already carries them to the runtime.
-    assert sanitize_runtime_profile_pgsql_proxy(value) is None
-    section = sanitize_runtime_profile_pgsql(
-        {"instances": [{"name": "d", "host": "h", "database": "o", "username": "u", "proxy": value}]}
-    )
-    assert "proxy" not in section["instances"][0]
+def test_end_to_end_connector_save_round_trips_the_shared_settings(monkeypatch):
+    client, db, agent, cleanup = _build_client(monkeypatch)
+    try:
+        rp = _bind_profile(db, agent, {"pgsql": {"enabled": True}})
+        resp = client.post("/app/connectors/pgsql/save", data=_pgsql_form(pgsql_access="read_only", pgsql_max_rows=""))
+        assert resp.status_code == 200
+        db.refresh(rp)
+        stored = json.loads(rp.config_json)["pgsql"]
+        assert stored["access"] == "read_only" and stored["sslmode"] == "require" and stored["statement_timeout_seconds"] == 45
+        assert "max_rows" not in stored
+        assert '<option value="read_only" selected>' in resp.text
+        assert 'name="pgsql_max_rows" value=""' in resp.text
 
-
-def test_settings_form_keeps_a_pgsql_proxy_and_rejects_one_the_cli_cannot_use():
-    merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_proxy="none"))
-    assert error is None
-    assert merged["pgsql"]["instances"][0]["proxy"] == "none"
-
-    merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_proxy=""))
-    assert error is None
-    assert "proxy" not in merged["pgsql"]["instances"][0]
-
-    for bad in ("socks5://proxy.example.test:1080", "http://svc:pw@proxy.example.test:3128"):
-        merged, error = _settings_merge_payload({}, _pgsql_form(pgsql_instances_0_proxy=bad))
-        assert error == (
-            "PostgreSQL instance orders-uat needs a proxy of none or an http(s)://host:port URL "
-            "without credentials; proxy credentials belong in the Proxy connector."
-        ), bad
-        assert "pgsql" not in merged
+        resp = client.post("/app/connectors/pgsql/save", data=_pgsql_form(pgsql_statement_timeout_seconds="301"))
+        assert resp.status_code == 200
+        assert "PostgreSQL statement timeout must be between 1 and 300 seconds." in resp.text
+        db.refresh(rp)
+        assert json.loads(rp.config_json)["pgsql"]["access"] == "read_only"
+    finally:
+        cleanup()

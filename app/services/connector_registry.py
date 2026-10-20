@@ -423,7 +423,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "pgsql",
         "PostgreSQL",
         "Cloud & data",
-        "Run read-only queries against your databases.",
+        "Query your databases; writes only where you allow them.",
         icon="database",
         state_of=_instances_state("pgsql", ("host",)),
         test_targets=("pgsql",),

@@ -131,6 +131,12 @@ PORTAL_MANAGED_FIELD_TREE = {
         "enabled": True,
         "instances": True,
         "default_instance": True,
+        # What every instance shares: the connector's access policy and the
+        # query budget (PGSQL_CONNECTOR_SETTINGS_PLAN.md).
+        "access": True,
+        "sslmode": True,
+        "statement_timeout_seconds": True,
+        "max_rows": True,
     },
     "mobile-auto": {
         "enabled": True,
@@ -350,14 +356,41 @@ def sanitize_runtime_profile_external_instances(value, *, kind: str) -> list[dic
 SPLUNK_MAX_RESULTS_MIN = 1
 SPLUNK_MAX_RESULTS_MAX = 10000
 PGSQL_SSL_MODES = ("require", "verify-ca", "verify-full", "prefer")
+PGSQL_DEFAULT_SSL_MODE = "require"
 PGSQL_DEFAULT_PORT = 5432
-# Per-instance query bounds. Both are optional: the pgsql CLI falls back to 30
-# seconds and 5000 rows. They exist so a production database can be given a
-# tighter budget than a UAT one without touching the runtime image.
+# The query budget every PostgreSQL instance shares. Both are optional: the
+# pgsql CLI falls back to 30 seconds and 5000 rows.
 PGSQL_STATEMENT_TIMEOUT_MIN = 1
 PGSQL_STATEMENT_TIMEOUT_MAX = 300
+PGSQL_DEFAULT_STATEMENT_TIMEOUT = 30
 PGSQL_MAX_ROWS_MIN = 1
 PGSQL_MAX_ROWS_MAX = 100000
+PGSQL_DEFAULT_MAX_ROWS = 5000
+# The connector's access policy. read_only (the default when absent) makes
+# the pgsql CLI refuse every command and statement that changes data or
+# server state before it connects; read_write leaves that to the database
+# role. It is the assistant's tool refusing, not the database: a read-only
+# role or a replica is still what makes a database safe from any client.
+PGSQL_ACCESS_READ_ONLY = "read_only"
+PGSQL_ACCESS_READ_WRITE = "read_write"
+PGSQL_ACCESS_MODES = (PGSQL_ACCESS_READ_ONLY, PGSQL_ACCESS_READ_WRITE)
+PGSQL_DEFAULT_ACCESS = PGSQL_ACCESS_READ_ONLY
+# The settings the section carries for every instance. A row saved before
+# they existed may still carry them; the sanitizer lifts the row's values to
+# the section once and drops them from the rows.
+PGSQL_SHARED_FIELDS = ("sslmode", "statement_timeout_seconds", "max_rows")
+_PGSQL_ACCESS_SPELLINGS = {
+    "read_only": PGSQL_ACCESS_READ_ONLY, "readonly": PGSQL_ACCESS_READ_ONLY, "ro": PGSQL_ACCESS_READ_ONLY,
+    "read_write": PGSQL_ACCESS_READ_WRITE, "readwrite": PGSQL_ACCESS_READ_WRITE, "rw": PGSQL_ACCESS_READ_WRITE,
+}
+
+
+def sanitize_runtime_profile_pgsql_access(value) -> str | None:
+    """The canonical access policy for what a person or a form may spell
+    (read-only, readonly, ro; read-write, readwrite, rw), or None."""
+    if not isinstance(value, str):
+        return None
+    return _PGSQL_ACCESS_SPELLINGS.get(value.strip().lower().replace("-", "_"))
 PORT_MIN = 1
 PORT_MAX = 65535
 
@@ -429,9 +462,6 @@ def sanitize_runtime_profile_splunk(value) -> dict:
     return sanitize_runtime_profile_named_instance_section(value, kind="splunk")
 
 
-PGSQL_PROXY_NONE = "none"
-PGSQL_PROXY_SCHEMES = ("http", "https")
-
 # The Proxy connector: a list of named proxies, the one the pod environment
 # gets (``default``) and which proxy each connector uses (``assignments``:
 # connector type -> proxy name, ``none`` for a direct connection, or absent to
@@ -443,8 +473,8 @@ PROXY_ASSIGNABLE_CONNECTORS = ("llm", "jira", "confluence", "github", "jenkins",
 PROXY_DEFAULT_ONLY_CONNECTORS = ("aws", "github")
 PROXY_ASSIGNMENT_NONE = "none"
 PROXY_URL_SCHEMES = ("http", "https")
-# A proxy name is what the dropdowns show and the rows refer to. No dot, so a
-# bare host typed into a pgsql row's proxy field still reads as a host.
+# A proxy name is what the dropdowns show and the assignments refer to. No
+# dot, so a name can never be mistaken for a host.
 PROXY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 # What the flat pre-list shape (url/username/password/no_proxy) becomes.
 PROXY_LEGACY_ENTRY_NAME = "default"
@@ -491,50 +521,19 @@ def sanitize_runtime_profile_proxy_url(value) -> str | None:
     return f"{parsed.scheme}://{userinfo}{host}" + (f":{port}" if port is not None else "")
 
 
-def sanitize_runtime_profile_pgsql_proxy(value) -> str | None:
-    """Normalize a PostgreSQL row's proxy setting, or None when unusable.
-
-    The pgsql CLI reaches the database the way an HTTP request would: through
-    the proxy the Proxy connector names unless NO_PROXY exempts the host. This
-    per-row setting overrides that: ``none`` (also ``direct``/``off``) forces a
-    direct connection, the name of one of the Proxy connector's proxies picks
-    that proxy, an ``http://`` or ``https://`` URL names a proxy for this
-    database alone. A bare ``host:port`` is an http proxy. Credentials are
-    refused in a URL here because the row is stored in the clear; they belong
-    in the Proxy connector, which the runtime passes to the CLI. Anything else
-    is dropped so the CLI follows the environment rather than failing on a
-    value it cannot parse.
-    """
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    if text.lower() in _PROXY_NONE_WORDS:
-        return PGSQL_PROXY_NONE
-    if PROXY_NAME_PATTERN.match(text) and "://" not in text:
-        return text
-    raw = text if "://" in text else f"http://{text}"
-    try:
-        parsed = urlparse(raw)
-    except ValueError:
-        return None
-    if parsed.scheme not in PGSQL_PROXY_SCHEMES or not parsed.hostname:
-        return None
-    if parsed.username is not None or parsed.password is not None:
-        return None
-    try:
-        port = parsed.port
-    except ValueError:
-        return None
-    if port is not None and not (PORT_MIN <= port <= PORT_MAX):
-        return None
-    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
-        return None
-    host = parsed.hostname
-    if ":" in host:
-        host = f"[{host}]"
-    return f"{parsed.scheme}://{host}" + (f":{port}" if port is not None else "")
+def sanitize_runtime_profile_pgsql_shared(field: str, value):
+    """One shared setting in the shape the pgsql CLI reads, or None when
+    unusable: an sslmode the CLI accepts, a timeout or row cap inside the
+    Portal's bounds. Out of range means the CLI default applies, not an
+    unusable budget being stored."""
+    if field == "sslmode":
+        text = str(value or "").strip().lower()
+        return text if text in PGSQL_SSL_MODES else None
+    if field == "statement_timeout_seconds":
+        return sanitize_runtime_profile_bounded_int(value, PGSQL_STATEMENT_TIMEOUT_MIN, PGSQL_STATEMENT_TIMEOUT_MAX)
+    if field == "max_rows":
+        return sanitize_runtime_profile_bounded_int(value, PGSQL_MAX_ROWS_MIN, PGSQL_MAX_ROWS_MAX)
+    return None
 
 
 def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
@@ -542,10 +541,12 @@ def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
 
     A row needs a name, a host, a database and a username; the pgsql CLI cannot
     open a connection without them, so a row missing one is dropped rather than
-    stored half-formed. The port is kept only when it is a real TCP port, and
-    sslmode only when the pgsql CLI would accept it. The statement timeout and
-    row cap are optional and bounded; out-of-range values are left out so the
-    CLI's own defaults apply rather than an unusable budget being stored.
+    stored half-formed. The port is kept only when it is a real TCP port. The
+    TLS mode, the query budget and the proxy are not a row's any more: the
+    section carries the first three for every instance, and the runtime fills
+    the row's ``proxy`` from the Proxy connector's assignment, so whatever a
+    row still carries from before is dropped here (the section sanitizer lifts
+    the budget first).
     """
     if not isinstance(value, list):
         return []
@@ -568,31 +569,40 @@ def sanitize_runtime_profile_pgsql_instances(value) -> list[dict]:
         password = str(item.get("password") or "").strip()
         if password:
             instance["password"] = password
-        sslmode = str(item.get("sslmode") or "").strip().lower()
-        if sslmode in PGSQL_SSL_MODES:
-            instance["sslmode"] = sslmode
-        statement_timeout = sanitize_runtime_profile_bounded_int(
-            item.get("statement_timeout_seconds"),
-            PGSQL_STATEMENT_TIMEOUT_MIN,
-            PGSQL_STATEMENT_TIMEOUT_MAX,
-        )
-        if statement_timeout is not None:
-            instance["statement_timeout_seconds"] = statement_timeout
-        max_rows = sanitize_runtime_profile_bounded_int(
-            item.get("max_rows"), PGSQL_MAX_ROWS_MIN, PGSQL_MAX_ROWS_MAX
-        )
-        if max_rows is not None:
-            instance["max_rows"] = max_rows
-        proxy = sanitize_runtime_profile_pgsql_proxy(item.get("proxy"))
-        if proxy is not None:
-            instance["proxy"] = proxy
         if "enabled" in item:
             instance["enabled"] = _runtime_profile_bool(item.get("enabled"))
         instances.append(instance)
     return dedupe_runtime_profile_instances_by_name(instances)
 
 
+def _lift_pgsql_shared_from_rows(field: str, rows, default_instance: str):
+    """The value a section saved before the shared settings existed should
+    start from: the default instance's row, else the first row that has a
+    usable one."""
+    if not isinstance(rows, list):
+        return None
+    ordered = [row for row in rows if isinstance(row, dict)]
+    if default_instance:
+        ordered.sort(key=lambda row: 0 if str(row.get("name") or "").strip() == default_instance else 1)
+    for row in ordered:
+        if field not in row:
+            continue
+        lifted = sanitize_runtime_profile_pgsql_shared(field, row.get(field))
+        if lifted is not None:
+            return lifted
+    return None
+
+
 def sanitize_runtime_profile_pgsql(value) -> dict:
+    """The PostgreSQL section: the switch, the default instance, the settings
+    every instance shares (``access``, ``sslmode``, ``statement_timeout_seconds``,
+    ``max_rows``) and the rows.
+
+    A shared setting the section does not mention is lifted once from the rows
+    of a profile saved before it existed; a key the section carries, even as
+    ``None`` (a blank field on the form), is the section's own answer. The rows
+    then lose the per-row copies, so no hidden override survives.
+    """
     if not isinstance(value, dict):
         return {}
     out: dict = {}
@@ -601,6 +611,16 @@ def sanitize_runtime_profile_pgsql(value) -> dict:
     default_instance = str(value.get("default_instance") or "").strip()
     if default_instance:
         out["default_instance"] = default_instance
+    access = sanitize_runtime_profile_pgsql_access(value.get("access"))
+    if access is not None:
+        out["access"] = access
+    for field in PGSQL_SHARED_FIELDS:
+        if field in value:
+            shared = sanitize_runtime_profile_pgsql_shared(field, value.get(field))
+        else:
+            shared = _lift_pgsql_shared_from_rows(field, value.get("instances"), default_instance)
+        if shared is not None:
+            out[field] = shared
     if "instances" in value:
         out["instances"] = sanitize_runtime_profile_pgsql_instances(value.get("instances"))
     return out

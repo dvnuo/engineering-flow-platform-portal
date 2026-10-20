@@ -14,7 +14,6 @@ from app.services.proxy_plan import (
     KIND_PROXY,
     SOURCE_ASSIGNMENT,
     SOURCE_DEFAULT,
-    SOURCE_INSTANCE,
     SOURCE_NO_PROXY,
     ProxyChoice,
     ProxyPlan,
@@ -134,19 +133,15 @@ class RuntimeProfileTestService:
             if entry is None:
                 parsed = urlparse(choice.url)
                 port = parsed.port or (443 if parsed.scheme == "https" else 80)
-                return f" through the proxy at {parsed.hostname}:{port} (the instance proxy)"
+                return f" through the proxy at {parsed.hostname}:{port}"
             if choice.source == SOURCE_DEFAULT:
                 origin = "the Proxy connector"
-            elif choice.source == SOURCE_INSTANCE:
-                origin = f"the Proxy connector's {entry.name}, named on the instance"
             else:
                 origin = f"the Proxy connector's {entry.name}"
             return f" through the proxy at {entry.address()} ({origin})"
         if choice.kind == KIND_NONE:
             if choice.source == SOURCE_NO_PROXY:
                 return " (direct: NO_PROXY of the Proxy connector exempts this host)"
-            if choice.source == SOURCE_INSTANCE:
-                return " (direct: the instance proxy is none)"
             if choice.source == SOURCE_ASSIGNMENT:
                 return f" (direct: the Proxy connector assigns none to {connector_label})"
         return ""
@@ -250,8 +245,8 @@ class RuntimeProfileTestService:
 
     async def _test_pgsql(self, config: dict) -> tuple[bool, str]:
         """Reachability only, along the path the pgsql CLI takes inside the
-        runtime: a CONNECT tunnel through the Proxy connector's proxy unless
-        its NO_PROXY, or the row's own proxy setting, says direct. The Portal
+        runtime: a CONNECT tunnel through the proxy the Proxy connector
+        assigns to PostgreSQL unless its NO_PROXY says direct. The Portal
         often cannot resolve the database itself (that is what the proxy is
         for), so a direct probe would say nothing about the runtime. The
         credentials are exercised where they are used, by `pgsql auth test`."""
@@ -267,7 +262,7 @@ class RuntimeProfileTestService:
         except (TypeError, ValueError):
             port = PGSQL_DEFAULT_PORT
         name = self._instance_label(instance, host)
-        choice, _plan = self._egress(config, "pgsql", host, instance.get("proxy"))
+        choice, _plan = self._egress(config, "pgsql", host)
         path = self._path_text(choice, "PostgreSQL")
         try:
             if choice.kind == KIND_PROXY:

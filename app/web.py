@@ -48,8 +48,13 @@ from app.schemas.runtime_profile import (
     AWS_SESSION_DURATION_MAX_SECONDS,
     AWS_SESSION_DURATION_MIN_SECONDS,
     JENKINS_DEFAULT_INSTANCE_NAME,
+    PGSQL_DEFAULT_ACCESS,
+    PGSQL_DEFAULT_MAX_ROWS,
+    PGSQL_DEFAULT_SSL_MODE,
+    PGSQL_DEFAULT_STATEMENT_TIMEOUT,
     PGSQL_MAX_ROWS_MAX,
     PGSQL_MAX_ROWS_MIN,
+    PGSQL_SHARED_FIELDS,
     PGSQL_SSL_MODES,
     PGSQL_STATEMENT_TIMEOUT_MAX,
     PGSQL_STATEMENT_TIMEOUT_MIN,
@@ -63,7 +68,8 @@ from app.schemas.runtime_profile import (
     normalize_jenkins_section_instances,
     parse_runtime_profile_config_json,
     sanitize_runtime_profile_bounded_int,
-    sanitize_runtime_profile_pgsql_proxy,
+    sanitize_runtime_profile_pgsql_access,
+    sanitize_runtime_profile_pgsql_shared,
     PROXY_ASSIGNMENT_NONE,
     PROXY_LEGACY_ENTRY_NAME,
     sanitize_runtime_profile_proxy,
@@ -1037,6 +1043,7 @@ def _settings_view_payload(raw_config_data: dict, effective_config_data: dict | 
         "raw_jenkins": raw_jenkins,
         **troubleshooting_view,
         "troubleshooting_cards": TROUBLESHOOTING_CARD_LAYOUT,
+        "pgsql_settings_options": PGSQL_SETTINGS_OPTIONS,
         "git": effective_config.get("git") if isinstance(effective_config.get("git"), dict) else {},
         "raw_git": raw_git,
         "proxy": effective_config.get("proxy") if isinstance(effective_config.get("proxy"), dict) else {},
@@ -1252,10 +1259,10 @@ TROUBLESHOOTING_INSTANCE_FIELDS = {
         "enabled", "name", "url", "username", "password", "token",
         "default_index", "default_earliest", "max_results", "app", "owner",
     ],
-    "pgsql": [
-        "enabled", "name", "host", "port", "database", "username", "password", "sslmode",
-        "statement_timeout_seconds", "max_rows", "proxy",
-    ],
+    # The TLS mode, the query budget and the proxy are not a row's: the
+    # section's shared settings (PGSQL_SETTINGS_OPTIONS) and the Proxy
+    # connector's assignment cover every instance.
+    "pgsql": ["enabled", "name", "host", "port", "database", "username", "password"],
 }
 TROUBLESHOOTING_SECTION_LABELS = {
     "nexus": "Nexus",
@@ -1280,24 +1287,36 @@ TROUBLESHOOTING_CARD_ROWS = {
         ["name", "url"], ["username", "password"], ["token", "default_index"],
         ["default_earliest", "max_results"], ["app", "owner"],
     ],
-    "pgsql": [
-        ["name", "host"], ["port", "database"], ["username", "password"],
-        ["sslmode", "statement_timeout_seconds"], ["max_rows", "proxy"],
-    ],
+    "pgsql": [["name", "host"], ["port", "database"], ["username", "password"]],
 }
 TROUBLESHOOTING_CARD_FIELD_SPECS = {
     "password": {"type": "password"},
     "token": {"type": "password"},
     "port": {"type": "number", "min": PORT_MIN, "max": PORT_MAX},
     "max_results": {"type": "number", "min": SPLUNK_MAX_RESULTS_MIN, "max": SPLUNK_MAX_RESULTS_MAX},
-    "sslmode": {"type": "select", "options": [[mode, mode] for mode in PGSQL_SSL_MODES]},
+}
+# The PostgreSQL section's shared settings, rendered above the instance cards
+# on the member panel and the admin Default connectors panel: the access
+# policy, the TLS mode and the query budget every instance uses. A blank
+# budget field means the runtime's default.
+PGSQL_SETTINGS_OPTIONS = {
+    "access": [
+        {"value": "read_only", "label": "Read-only: the assistant's pgsql tool refuses anything that writes"},
+        {"value": "read_write", "label": "Read-write: the database role decides what the assistant may change"},
+    ],
+    "default_access": PGSQL_DEFAULT_ACCESS,
+    "sslmode": [{"value": mode, "label": mode} for mode in PGSQL_SSL_MODES],
+    "default_sslmode": PGSQL_DEFAULT_SSL_MODE,
     "statement_timeout_seconds": {
-        "type": "number",
         "min": PGSQL_STATEMENT_TIMEOUT_MIN,
         "max": PGSQL_STATEMENT_TIMEOUT_MAX,
+        "default": PGSQL_DEFAULT_STATEMENT_TIMEOUT,
     },
-    "max_rows": {"type": "number", "min": PGSQL_MAX_ROWS_MIN, "max": PGSQL_MAX_ROWS_MAX},
+    "max_rows": {"min": PGSQL_MAX_ROWS_MIN, "max": PGSQL_MAX_ROWS_MAX, "default": PGSQL_DEFAULT_MAX_ROWS},
 }
+# What the two forms post for the shared settings, section-level like
+# pgsql_default_instance.
+PGSQL_SETTINGS_FORM_FIELDS = ("access", *PGSQL_SHARED_FIELDS)
 TROUBLESHOOTING_CARD_PLACEHOLDERS = {
     "nexus": {
         "name": "Name",
@@ -1325,9 +1344,6 @@ TROUBLESHOOTING_CARD_PLACEHOLDERS = {
         "database": "Database",
         "username": "Username (read-only role)",
         "password": "Password",
-        "statement_timeout_seconds": "Statement timeout in seconds (default 30)",
-        "max_rows": "Max rows per query (default 5000)",
-        "proxy": "Proxy: blank follows the Proxy connector, none, or http://proxy.example.com:3128",
     },
 }
 TROUBLESHOOTING_CARD_LAYOUT = {
@@ -1612,10 +1628,22 @@ def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
     for section in TROUBLESHOOTING_INSTANCE_SECTIONS:
         instances = _seed_parse_instances(form, section, TROUBLESHOOTING_INSTANCE_FIELDS[section])
         default_instance = text(f"{section}_default_instance")
-        if flag(f"{section}_enabled") or instances or default_instance:
+        shared: dict = {}
+        if section == "pgsql":
+            # The shared settings are seeded like the rows: a blank field is
+            # left out (the member's panel then shows the default), a bad
+            # value is reported the way the member's own save reports it.
+            shared_error = _pgsql_shared_settings_from_form(form, shared)
+            if shared_error:
+                if errors is None:
+                    raise ValueError(shared_error)
+                errors.append(shared_error)
+                shared = {}
+        if flag(f"{section}_enabled") or instances or default_instance or shared:
             seed[section] = {"enabled": flag(f"{section}_enabled"), "instances": instances}
             if default_instance:
                 seed[section]["default_instance"] = default_instance
+            seed[section].update(shared)
 
     proxy, proxy_error = _proxy_section_from_form(form, {}, member=False)
     if proxy_error:
@@ -1947,34 +1975,6 @@ def _settings_parse_troubleshooting_instances(
             port_text = str(row.get("port") or "").strip()
             if port_text and sanitize_runtime_profile_bounded_int(port_text, PORT_MIN, PORT_MAX) is None:
                 return [], f"{label} instance {name} needs a port between {PORT_MIN} and {PORT_MAX}."
-            sslmode = str(row.get("sslmode") or "").strip().lower()
-            if sslmode and sslmode not in PGSQL_SSL_MODES:
-                return [], f"{label} instance {name} needs an SSL mode of {', '.join(PGSQL_SSL_MODES)}."
-            timeout_text = str(row.get("statement_timeout_seconds") or "").strip()
-            if timeout_text and (
-                sanitize_runtime_profile_bounded_int(
-                    timeout_text, PGSQL_STATEMENT_TIMEOUT_MIN, PGSQL_STATEMENT_TIMEOUT_MAX
-                )
-                is None
-            ):
-                return [], (
-                    f"{label} instance {name} needs a statement timeout between "
-                    f"{PGSQL_STATEMENT_TIMEOUT_MIN} and {PGSQL_STATEMENT_TIMEOUT_MAX} seconds."
-                )
-            max_rows_text = str(row.get("max_rows") or "").strip()
-            if max_rows_text and (
-                sanitize_runtime_profile_bounded_int(max_rows_text, PGSQL_MAX_ROWS_MIN, PGSQL_MAX_ROWS_MAX) is None
-            ):
-                return [], (
-                    f"{label} instance {name} needs a max rows value between "
-                    f"{PGSQL_MAX_ROWS_MIN} and {PGSQL_MAX_ROWS_MAX}."
-                )
-            proxy_text = str(row.get("proxy") or "").strip()
-            if proxy_text and sanitize_runtime_profile_pgsql_proxy(proxy_text) is None:
-                return [], (
-                    f"{label} instance {name} needs a proxy of none or an http(s)://host:port URL "
-                    "without credentials; proxy credentials belong in the Proxy connector."
-                )
         if section == "splunk":
             max_results_text = str(row.get("max_results") or "").strip()
             if max_results_text and (
@@ -1985,6 +1985,64 @@ def _settings_parse_troubleshooting_instances(
                     f"{SPLUNK_MAX_RESULTS_MIN} and {SPLUNK_MAX_RESULTS_MAX}."
                 )
     return rows, None
+
+
+def _pgsql_shared_settings_from_form(form, section_cfg: dict) -> Optional[str]:
+    """Apply the PostgreSQL section's shared settings a form posts.
+
+    Each of ``pgsql_access``, ``pgsql_sslmode``, ``pgsql_statement_timeout_seconds``
+    and ``pgsql_max_rows`` is read only when the form carries it (an older
+    panel keeps the stored value). A blank budget or TLS field means the
+    runtime's default and clears the key; a blank access means the default
+    policy, read-only. A value outside what the pgsql CLI accepts is an error
+    naming the field, and nothing is changed. When the form carries the
+    settings at all, the rows lose any per-row copies left from before the
+    settings existed, so the section's answer is the only one.
+    """
+    posted = {field: f"pgsql_{field}" in form for field in PGSQL_SETTINGS_FORM_FIELDS}
+    if not any(posted.values()):
+        return None
+    updates: dict = {}
+    if posted["access"]:
+        text = (form.get("pgsql_access") or "").strip()
+        access = sanitize_runtime_profile_pgsql_access(text) if text else None
+        if text and access is None:
+            return "PostgreSQL access must be read_only or read_write."
+        updates["access"] = access
+    if posted["sslmode"]:
+        text = (form.get("pgsql_sslmode") or "").strip()
+        if text and sanitize_runtime_profile_pgsql_shared("sslmode", text) is None:
+            return f"PostgreSQL SSL mode must be one of {', '.join(PGSQL_SSL_MODES)}."
+        updates["sslmode"] = sanitize_runtime_profile_pgsql_shared("sslmode", text) if text else None
+    if posted["statement_timeout_seconds"]:
+        text = (form.get("pgsql_statement_timeout_seconds") or "").strip()
+        if text and sanitize_runtime_profile_pgsql_shared("statement_timeout_seconds", text) is None:
+            return (
+                "PostgreSQL statement timeout must be between "
+                f"{PGSQL_STATEMENT_TIMEOUT_MIN} and {PGSQL_STATEMENT_TIMEOUT_MAX} seconds."
+            )
+        updates["statement_timeout_seconds"] = (
+            sanitize_runtime_profile_pgsql_shared("statement_timeout_seconds", text) if text else None
+        )
+    if posted["max_rows"]:
+        text = (form.get("pgsql_max_rows") or "").strip()
+        if text and sanitize_runtime_profile_pgsql_shared("max_rows", text) is None:
+            return f"PostgreSQL max rows must be between {PGSQL_MAX_ROWS_MIN} and {PGSQL_MAX_ROWS_MAX}."
+        updates["max_rows"] = sanitize_runtime_profile_pgsql_shared("max_rows", text) if text else None
+    for field, value in updates.items():
+        if value is None:
+            section_cfg.pop(field, None)
+        else:
+            section_cfg[field] = value
+    rows = section_cfg.get("instances")
+    if isinstance(rows, list):
+        section_cfg["instances"] = [
+            {key: value for key, value in row.items() if key not in PGSQL_SHARED_FIELDS and key != "proxy"}
+            if isinstance(row, dict)
+            else row
+            for row in rows
+        ]
+    return None
 
 
 def _settings_troubleshooting_default_instance_error(section: str, section_cfg: dict) -> Optional[str]:
@@ -2446,6 +2504,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             if rows_error:
                 return config_payload, rows_error
             section_cfg["instances"] = rows
+        if section == "pgsql":
+            shared_error = _pgsql_shared_settings_from_form(form, section_cfg)
+            if shared_error:
+                return config_payload, shared_error
         default_error = _settings_troubleshooting_default_instance_error(section, section_cfg)
         if default_error:
             return config_payload, default_error
@@ -2946,6 +3008,7 @@ def _default_connections_context(
         "seed_summary": service.seed_summary(),
         # The Proxy connector's cards and table (connectors/_macros.html).
         **_proxy_view(seed.get("proxy"), as_posted=seed_override is not None),
+        "pgsql_settings_options": PGSQL_SETTINGS_OPTIONS,
         "guidance": all_guidance(),
         # What a blank BrowserStack Network means (connectors/_macros.html).
         "mobile_default_network": get_settings().mobile_default_network,
