@@ -511,30 +511,15 @@ def test_pgsql_no_proxy_of_the_connector_keeps_the_probe_direct(monkeypatch):
         )
 
 
-def test_pgsql_instance_proxy_none_forces_a_direct_probe(monkeypatch):
-    seen = _record_direct_connects(monkeypatch)
-    ok, message = _run(
-        RuntimeProfileTestService()._test_pgsql(
-            _pgsql_config(connector=_connector("http://proxy.unreachable.test:3128"), proxy="none")
-        )
-    )
-    assert ok is True, message
-    assert seen == [("orders-uat.internal.test", 5432)]
-    assert "(direct: the instance proxy is none)" in message
-
-
-def test_pgsql_instance_proxy_url_is_used_instead_of_the_connector(connect_proxy):
-    config = _pgsql_config(connector=_connector("http://proxy.unreachable.test:3128"), proxy=connect_proxy.url)
+def test_pgsql_ignores_a_proxy_left_on_a_row_from_before_the_assignment(connect_proxy):
+    # A row saved before the Proxy connector's assignment covered PostgreSQL
+    # may still carry a proxy of its own in a stored profile; the probe, like
+    # the runtime after the sanitizer runs, takes the connector's path.
+    config = _pgsql_config(connector=_connector(connect_proxy.url), proxy="none")
     ok, message = _run(RuntimeProfileTestService()._test_pgsql(config))
     assert ok is True, message
-    assert f"through the proxy at 127.0.0.1:{connect_proxy.port} (the instance proxy)" in message
-    # The connector's credentials are for the connector's proxy, not this one.
-    assert "Proxy-Authorization" not in connect_proxy.requests[0]
-
-    # A bare host:port is an http proxy, as the CLI reads it.
-    ok, message = _run(RuntimeProfileTestService()._test_pgsql(_pgsql_config(proxy=f"127.0.0.1:{connect_proxy.port}")))
-    assert ok is True, message
-    assert len(connect_proxy.requests) == 2
+    assert f"through the proxy at 127.0.0.1:{connect_proxy.port} (the Proxy connector)" in message
+    assert len(connect_proxy.requests) == 1
 
 
 def test_pgsql_reports_a_proxy_that_refuses_the_tunnel(refusing_proxy):
@@ -560,9 +545,10 @@ def test_pgsql_reports_a_proxy_that_is_not_there():
 
 
 def test_pgsql_refuses_a_proxy_it_cannot_tunnel_through():
-    ok, message = _run(RuntimeProfileTestService()._test_pgsql(_pgsql_config(proxy="socks5://proxy.example.test:1080")))
-    assert ok is False
-    assert "http:// or https://" in message
+    # The Proxy connector stores http(s) URLs only, so this is the probe's own
+    # guard: a proxy of another scheme is refused before anything is dialled.
+    with pytest.raises(OSError, match="http:// or https://"):
+        RuntimeProfileTestService._tcp_connect_via_proxy("socks5://proxy.example.test:1080", "orders-uat.internal.test", 5432)
 
 
 @pytest.mark.parametrize(

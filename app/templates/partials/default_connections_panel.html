@@ -306,20 +306,34 @@
         <span>Offer PostgreSQL to members</span>
       </div>
       <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="pgsql_default_instance" value="{{ seed.get('pgsql', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
-      <p class="portal-panel-note">One row per database. Seed a read-only role; every query the assistant runs is wrapped in a read-only transaction.</p>
+      {% set seed_pgsql = seed.get('pgsql', {}) %}
+      <p class="portal-panel-note">Applies to every instance. Read-only means the assistant's pgsql tool refuses every statement that changes data or server state; the role is still what protects the database from any client.</p>
+      <div class="grid grid-cols-2 gap-2" data-pgsql-settings>
+        <label class="portal-form-label"><span class="portal-form-label">Access</span>
+          <select name="pgsql_access" class="portal-form-select">
+            {% for option in pgsql_settings_options.access %}
+            <option value="{{ option.value }}" {% if (seed_pgsql.get('access') or pgsql_settings_options.default_access) == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="portal-form-label"><span class="portal-form-label">SSL mode</span>
+          <select name="pgsql_sslmode" class="portal-form-select">
+            {% for option in pgsql_settings_options.sslmode %}
+            <option value="{{ option.value }}" {% if (seed_pgsql.get('sslmode') or pgsql_settings_options.default_sslmode) == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="portal-form-label"><span class="portal-form-label">Statement timeout (seconds)</span><input type="number" name="pgsql_statement_timeout_seconds" value="{{ seed_pgsql.get('statement_timeout_seconds', '') }}" placeholder="Default {{ pgsql_settings_options.statement_timeout_seconds.default }}" min="{{ pgsql_settings_options.statement_timeout_seconds.min }}" max="{{ pgsql_settings_options.statement_timeout_seconds.max }}" step="1" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">Max rows per query</span><input type="number" name="pgsql_max_rows" value="{{ seed_pgsql.get('max_rows', '') }}" placeholder="Default {{ pgsql_settings_options.max_rows.default }}" min="{{ pgsql_settings_options.max_rows.min }}" max="{{ pgsql_settings_options.max_rows.max }}" step="1" class="portal-form-input" /></label>
+      </div>
+      <p class="portal-panel-note">One row per database. The connection leaves the runtime the way the Proxy connector routes PostgreSQL.</p>
       {{ instance_group('pgsql', 'PostgreSQL', [
           {'key': 'name', 'label': 'Name', 'placeholder': 'orders-uat'},
           {'key': 'host', 'label': 'Host', 'placeholder': 'orders-uat.example.com'},
           {'key': 'port', 'label': 'Port', 'type': 'number', 'placeholder': '5432'},
           {'key': 'database', 'label': 'Database', 'placeholder': 'orders'},
           {'key': 'username', 'label': 'Shared username (read-only role)', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'sslmode', 'label': 'SSL mode', 'type': 'select', 'options': [
-              {'value': 'require', 'label': 'require'}, {'value': 'verify-ca', 'label': 'verify-ca'},
-              {'value': 'verify-full', 'label': 'verify-full'}, {'value': 'prefer', 'label': 'prefer'}]},
-          {'key': 'statement_timeout_seconds', 'label': 'Statement timeout (seconds)', 'type': 'number', 'placeholder': '30'},
-          {'key': 'max_rows', 'label': 'Max rows per query', 'type': 'number', 'placeholder': '5000'},
-          {'key': 'proxy', 'label': 'Proxy', 'placeholder': 'Blank follows the Proxy connector; none; or http://proxy.example.com:3128'}
+          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'}
       ]) }}
     </section>
 

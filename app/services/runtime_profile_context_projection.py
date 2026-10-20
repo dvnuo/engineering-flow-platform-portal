@@ -61,7 +61,7 @@ RUNTIME_PROFILE_CLI_TOOL_INSTRUCTIONS = (
     "--earliest -1h --count 100 --json`; always give a time range and a count), "
     "and pgsql for PostgreSQL (`pgsql schema tables --json`, "
     "`pgsql query --sql \"select ...\" --limit 200 --json`; "
-    "`pgsql exec` applies statements that change data, and whether that succeeds is decided by the database role and endpoint the PostgreSQL connector configures, not by the CLI). "
+    "`pgsql exec` applies statements that change data when the PostgreSQL connector's access is read-write; with the default read-only access the CLI refuses every write with read_only_mode, which is a final answer to report, and with read-write access whether a write succeeds is decided by the database role and endpoint the connector configures, not by the CLI). "
     "For every nexus, splunk, and pgsql command add --json and use --instance when several instances are configured. "
     "Run write operations with --dry-run before executing them. Use --yes only for destructive "
     "operations after the user explicitly confirms. Credentials come from the user's Portal connectors and are applied in "
