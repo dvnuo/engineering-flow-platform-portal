@@ -24,7 +24,15 @@ SUPPORTED_PROVIDERS: tuple[str, ...] = (COPILOT_PROVIDER, AI_PLATFORM_PROVIDER)
 # DEFAULT_COPILOT_MODEL by coerce_to_provider_model. GPT-6 and GPT-6.1 all
 # publish a 1,050,000-token window (922k input + 128k output), so the 1M
 # preset below still fits.
+#
+# "auto" is Copilot's auto model selection, not a model id: the runtimes open
+# an auto session per run and send one of the GPT-6 ids below with the
+# session token (native: efp_runtime/llm/models.py AUTO_MODEL_ID; opencode:
+# the adapter's Copilot proxy). It is Copilot-only, and its context budget is
+# the GPT-6 window, so the presets apply to it unchanged.
+COPILOT_AUTO_MODEL = "auto"
 COPILOT_MODELS: tuple[str, ...] = (
+    COPILOT_AUTO_MODEL,
     "gpt-6-astra",
     "gpt-6-luna",
     "gpt-6-sol",
