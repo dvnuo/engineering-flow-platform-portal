@@ -35,6 +35,13 @@ def test_model_attribution_helpers_read_runtime_fields_and_render_a_badge():
     assert 'class="message-model' in helpers
     assert "message-model-fallback" in helpers
     assert "inferenceModelLabel(attribution.model)" in helpers
+    # "auto" is what was requested, never what answered: an explicit resolution
+    # wins, an auto id only marks the request, and no concrete id means no badge.
+    assert "function isAutoModelId(" in helpers
+    assert 'for (const key of ["resolved_model", "model", "modelID", "model_id"])' in helpers
+    assert "const sawAuto = candidates.some(isAutoModelId);" in helpers
+    assert "candidates.find((value) => !isAutoModelId(value))" in helpers
+    assert 'if (!requestedModel && sawAuto) requestedModel = "auto";' in helpers
 
 
 def test_history_and_live_rows_apply_the_badge():

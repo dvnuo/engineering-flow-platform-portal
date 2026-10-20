@@ -2518,7 +2518,16 @@ function getAssistantGroupDisplayBlocks(group) {
 // for Copilot auto the GPT-6 id the session picked), `requested_model`
 // ("auto") and `model_fallback_reason` on assistant messages, on the final
 // chat payload and on usage.updated events; history and live rows read
-// them the same way.
+// them the same way. "auto" itself is never the model that answered: it
+// is only what was requested (OpenCode's own record of an auto run says
+// "auto", a runtime image that predates the attribution reports nothing
+// better), so without a concrete id there is no badge rather than a
+// misleading one.
+function isAutoModelId(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return text === "auto" || text.endsWith("/auto");
+}
+
 function assistantModelAttribution(source = {}) {
   if (!source || typeof source !== "object") return null;
   const layers = [source, source.metadata, source.payload, source.data, source.info].filter((v) => v && typeof v === "object");
@@ -2531,11 +2540,23 @@ function assistantModelAttribution(source = {}) {
     }
     return "";
   };
-  const model = pick("model", "resolved_model", "modelID", "model_id");
+  let requestedModel = pick("requested_model", "requestedModel");
+  // An explicit resolution beats a plain model id (key order), and an auto id
+  // anywhere only says that auto was requested.
+  const candidates = [];
+  for (const key of ["resolved_model", "model", "modelID", "model_id"]) {
+    for (const layer of layers) {
+      const value = layer[key];
+      if (typeof value === "string" && value.trim()) candidates.push(value.trim());
+    }
+  }
+  const sawAuto = candidates.some(isAutoModelId);
+  const model = candidates.find((value) => !isAutoModelId(value)) || "";
   if (!model) return null;
+  if (!requestedModel && sawAuto) requestedModel = "auto";
   return {
     model,
-    requestedModel: pick("requested_model", "requestedModel"),
+    requestedModel,
     fallbackReason: pick("model_fallback_reason", "modelFallbackReason", "resolved_model_fallback"),
   };
 }
