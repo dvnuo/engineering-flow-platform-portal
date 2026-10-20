@@ -59,7 +59,7 @@ def test_history_and_live_rows_apply_the_badge():
     assert "applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null)" in update
 
     stream = _extract_js_function(src, "handleChatStreamEvent")
-    assert 'if (embeddedType === "usage.updated")' in stream
+    assert 'if (embeddedType === "usage.updated" && typeof assistantModelAttribution === "function"' in stream
     assert "requestCtx.modelAttribution = modelAttribution" in stream
     assert "applyAssistantModelBadge(findPendingAssistantArticle(" in stream
 

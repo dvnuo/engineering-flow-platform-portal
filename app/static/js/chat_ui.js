@@ -2174,7 +2174,7 @@ function getCanonicalMessagesFromSessionPayload(payload = {}) {
       const messageId = String(message.message_id || info.id || "");
       const role = String(message.role || info.role || "").toLowerCase();
 
-      const attribution = assistantModelAttribution(message);
+      const attribution = typeof assistantModelAttribution === "function" ? assistantModelAttribution(message) : null;
       return {
         info,
         parts,
@@ -2598,7 +2598,7 @@ function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
   const primaryMessageId = messageIds[messageIds.length - 1] || "";
   const markdown = getAssistantGroupMarkdown(group);
   const displayBlocks = getAssistantGroupDisplayBlocks(group);
-  const attribution = latestAssistantModelAttribution(group?.messages || []);
+  const attribution = typeof latestAssistantModelAttribution === "function" ? latestAssistantModelAttribution(group?.messages || []) : null;
   return buildAssistantMessageArticle(markdown, displayBlocks, authorName, primaryMessageId, {
     messageIds,
     primaryMessageId,
@@ -2666,7 +2666,9 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
   const copyTextAttr = typeof options.copyText === "string" ? ` data-copy-text="${escapeHtmlAttr(options.copyText)}"` : "";
   const streamingClass = options.isStreaming ? " is-streaming" : "";
   const hasVisibleContent = String(content || "").trim() || (displayBlocks || []).length ? ` data-has-visible-content="1"` : "";
-  const modelBadgeHtml = buildAssistantModelBadgeHtml(assistantModelAttribution(options));
+  const modelBadgeHtml = (typeof buildAssistantModelBadgeHtml === "function" && typeof assistantModelAttribution === "function")
+    ? buildAssistantModelBadgeHtml(assistantModelAttribution(options))
+    : "";
   return `<div class="message-row message-row-assistant"${hasVisibleContent}><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span>${modelBadgeHtml}</div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}${hasVisibleContent}><div class="message-markdown md-render" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
 
@@ -8598,7 +8600,9 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
   if (!article) return null;
 
   const row = article.closest(".message-row");
-  applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
+  if (typeof applyAssistantModelBadge === "function" && typeof assistantModelAttribution === "function") {
+    applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
+  }
   const markdownEl = article.querySelector(".message-markdown") || (() => {
     const created = document.createElement("div");
     created.className = "message-markdown md-render";
@@ -8771,7 +8775,9 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   md.dataset.displayBlocks = JSON.stringify(payload?.display_blocks || []);
   article.querySelector('.assistant-stream-cursor')?.remove();
   article.querySelector('.assistant-waiting-indicator')?.remove();
-  applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
+  if (typeof applyAssistantModelBadge === "function" && typeof assistantModelAttribution === "function") {
+    applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
+  }
   renderMarkdown(article); decorateToolMessages(article); renderIcons();
   return true;
 }
@@ -9226,7 +9232,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     };
     handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
     rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType);
-    if (embeddedType === "usage.updated") {
+    if (embeddedType === "usage.updated" && typeof assistantModelAttribution === "function" && typeof applyAssistantModelBadge === "function") {
       const modelAttribution = assistantModelAttribution(eventData);
       if (modelAttribution) {
         requestCtx.modelAttribution = modelAttribution;
@@ -11476,7 +11482,9 @@ function renderChatHistory(messages, metadata = {}) {
       let timeStr = "";
       if (last?.timestamp || last?.created_at || first?.timestamp || first?.created_at) { try { timeStr = new Date(last.timestamp || last.created_at || first.timestamp || first.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
       if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
-      const modelBadgeHtml = buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages));
+      const modelBadgeHtml = (typeof buildAssistantModelBadgeHtml === "function" && typeof latestAssistantModelAttribution === "function")
+        ? buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages))
+        : "";
       if (modelBadgeHtml) header.insertAdjacentHTML("beforeend", modelBadgeHtml);
       row.appendChild(header);
       const article = document.createElement("article"); article.className = "message-surface message-surface-assistant assistant-message";
