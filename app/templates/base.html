@@ -24,6 +24,7 @@
 
     <link rel="stylesheet" href="{{ static_url('lib/typography.min.css') }}" />
     <link rel="stylesheet" href="{{ static_url('css/app.css') }}" />
+    {% block head %}{% endblock %}
     <!-- mermaid.min.js is 3 MB and only needed once a reply carries a diagram,
          so chat_ui.js fetches it on demand from this versioned URL instead of a
          <script> tag here (see renderMermaidDiagrams). -->
@@ -37,6 +38,7 @@
          because chat_ui.js constructs its renderer at top level, and
          chat_ui.js itself must stay non-deferred so chatApp() is defined
          before the deferred Alpine bootstraps. -->
+    {% block head_scripts %}
     <script defer src="{{ static_url('lib/htmx.min.js') }}"></script>
     <script src="{{ static_url('js/dialogs.js') }}"></script>
     <script defer src="{{ static_url('js/tooltips.js') }}"></script>
@@ -44,6 +46,7 @@
     <script src="{{ static_url('lib/markdown-it.min.js') }}"></script>
     <script defer src="{{ static_url('lib/highlight.min.js') }}"></script>
     <script defer src="{{ static_url('lib/lucide.min.js') }}"></script>
+    {% endblock %}
 
     <script>
       // Runs before first paint so the resolved theme is already on <html>.

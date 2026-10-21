@@ -257,6 +257,10 @@ class Settings(BaseSettings):
     # window whenever the bridge opens or reopens it: an absolute http(s) URL,
     # or a path resolved against this Portal's origin; empty opens the origin.
     connectors_enabled: bool = Field(default=True, validation_alias="CONNECTORS_ENABLED")
+    # Whether a member may share a session with "anyone with the link" (no
+    # sign-in). Off, the share dialog offers members only and existing
+    # anyone-shares are served as members-only.
+    session_share_anyone_enabled: bool = Field(default=True, validation_alias="SESSION_SHARE_ANYONE_ENABLED")
     local_bridge_download_url: str = Field(default="", validation_alias="LOCAL_BRIDGE_DOWNLOAD_URL")
     local_bridge_version: str = Field(default="", validation_alias="LOCAL_BRIDGE_VERSION")
     local_bridge_browser_start_url: str = Field(default="", validation_alias="LOCAL_BRIDGE_BROWSER_START_URL")

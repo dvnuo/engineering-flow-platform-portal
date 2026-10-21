@@ -66,8 +66,25 @@ function initAuthForm(options) {
 
     // Leave the button disabled through the navigation so a double submit
     // can't race the redirect.
-    window.location.href = "/app";
+    window.location.href = postLoginDestination(options.nextPath);
   });
+}
+
+// A member sent to sign in by a shared session link goes back to that
+// session afterwards; everyone else lands in the app. Only a relative
+// /share/... path is honoured, so the login page can never bounce someone to
+// another site.
+function postLoginDestination(nextPath) {
+  var candidate = typeof nextPath === "string" ? nextPath : "";
+  if (!candidate) {
+    try {
+      candidate = new URLSearchParams(window.location.search).get("next") || "";
+    } catch (e) {
+      candidate = "";
+    }
+  }
+  if (/^\/share\/[A-Za-z0-9_-]+\/?$/.test(candidate)) return candidate;
+  return "/app";
 }
 
 // Password reveal, so people can check what they typed before submitting.

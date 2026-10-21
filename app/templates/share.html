@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block head %}
+<link rel="stylesheet" href="{{ static_url('css/share.css') }}" />
+{% endblock %}
+{# A page without the app shell: no htmx, Alpine, dialogs or tooltips, only
+   what share_view.js renders with (markdown-it, highlight.js, lucide). #}
+{% block head_scripts %}
+<script src="{{ static_url('lib/markdown-it.min.js') }}"></script>
+<script defer src="{{ static_url('lib/highlight.min.js') }}"></script>
+<script defer src="{{ static_url('lib/lucide.min.js') }}"></script>
+{% endblock %}
+{% block content %}
+<div id="share-page" class="share-page" data-share-token="{{ token }}" data-share-data-url="{{ data_url }}" data-share-missing="{{ 'true' if missing else 'false' }}">
+  <header class="share-header">
+    <div class="share-eyebrow">
+      <i data-lucide="eye" class="w-4 h-4" aria-hidden="true"></i>
+      <span>Shared session &middot; read only</span>
+    </div>
+    <h1 id="share-title" class="share-title">{{ title }}</h1>
+    {% if missing %}
+    <p class="share-copy">The session behind this link is no longer shared, or it was deleted. Ask whoever sent it for a new link.</p>
+    <div class="share-actions">
+      <a class="portal-btn is-primary" href="/app">Open the Portal</a>
+    </div>
+    {% else %}
+    <p class="share-meta" id="share-meta">
+      Shared by <strong>{{ owner_display_name }}</strong>
+      &middot; Assistant <strong>{{ assistant_name }}</strong>
+      &middot; <span id="share-loaded-at">loading&hellip;</span>
+    </p>
+    <div class="share-actions">
+      <button type="button" id="share-refresh" class="portal-btn">
+        <i data-lucide="refresh-cw" class="w-4 h-4" aria-hidden="true"></i>
+        <span>Refresh</span>
+      </button>
+      <button type="button" id="share-copy-markdown" class="portal-btn">
+        <i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>
+        <span>Copy as Markdown</span>
+      </button>
+      <label class="share-toggle">
+        <input type="checkbox" id="share-show-tools" />
+        <span>Show tool steps</span>
+      </label>
+      <a id="share-open-portal" class="portal-btn is-primary hidden" href="/app">
+        <i data-lucide="external-link" class="w-4 h-4" aria-hidden="true"></i>
+        <span>Open in Portal</span>
+      </a>
+    </div>
+    {% endif %}
+  </header>
+  {% if not missing %}
+  <div class="share-body">
+    <nav id="share-toc" class="share-toc" aria-label="Questions in this session"></nav>
+    <main id="share-transcript" class="share-transcript" aria-live="polite">
+      <div class="share-state">Loading the conversation&hellip;</div>
+    </main>
+  </div>
+  {% endif %}
+</div>
+<script src="{{ static_url('js/efp_cards.js') }}"></script>
+<script src="{{ static_url('js/share_view.js') }}"></script>
+{% endblock %}

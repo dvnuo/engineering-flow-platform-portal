@@ -2,6 +2,7 @@ import markupsafe
 import app.logger  # Ensure logging is configured (intentional side-effect import)  # noqa: F401
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -38,6 +39,7 @@ from app.repositories.audit_repo import AuditRepository
 from app.repositories.assistant_type_repo import AssistantTypeRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
+from app.repositories.session_share_repo import SessionShareRepository
 from app.repositories.runtime_capability_catalog_snapshot_repo import RuntimeCapabilityCatalogSnapshotRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
@@ -118,6 +120,7 @@ from app.services.work_overview import WorkOverviewService
 from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.utils.chat_upload_policy import get_chat_upload_policy
+from app.utils.task_sessions import is_task_session_id as _session_id_is_task_session
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 from app.utils.sso_auth import login_user_by_code, sso_authorize_url, sso_enabled, sso_redirect_uri
@@ -272,23 +275,6 @@ def _can_access(agent, user) -> bool:
 
 def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
-
-
-TASK_SESSION_ID_PREFIXES = (
-    "agent-task:",
-    "agent-task-",
-    "generic-task:",
-    "generic-task-",
-    "delegation:",
-    "delegation-",
-    "task-",
-)
-
-
-def _session_id_is_task_session(session_id) -> bool:
-    if not isinstance(session_id, str):
-        return False
-    return session_id.strip().startswith(TASK_SESSION_ID_PREFIXES)
 
 
 def _metadata_value_is_present(value) -> bool:
@@ -2573,11 +2559,27 @@ def _login_page_context(*, password_form: bool = False) -> dict:
     }
 
 
+# Where to go after signing in, when a shared session link sent the member to
+# the login page. Only a relative /share/{token} path is ever honoured, so the
+# login flow cannot be turned into a redirect to another site.
+POST_LOGIN_NEXT_COOKIE = "portal_next"
+_SAFE_NEXT_PATH = re.compile(r"^/share/[A-Za-z0-9_-]{8,128}/?$")
+
+
+def _safe_next_path(value) -> str:
+    candidate = str(value or "").strip()
+    return candidate if _SAFE_NEXT_PATH.match(candidate) else ""
+
+
+def _requested_next_path(request: Request) -> str:
+    return _safe_next_path(request.query_params.get("next"))
+
+
 def _anonymous_login_gate(request: Request):
     """Redirect an already signed-in (or allowlist-blocked) visitor away from the login pages."""
     user, access_reason = _session_user_access(request)
     if user and access_reason is None:
-        return RedirectResponse(url="/app", status_code=302)
+        return RedirectResponse(url=_requested_next_path(request) or "/app", status_code=302)
     if access_reason in ACCESS_DENIED_REASONS:
         return _redirect_to_unauthorized()
     return None
@@ -2589,7 +2591,13 @@ def admin_login_page(request: Request):
     gate = _anonymous_login_gate(request)
     if gate is not None:
         return gate
-    return _anonymous_auth_page(request, "login.html", "Portal Login", **_login_page_context(password_form=True))
+    return _anonymous_auth_page(
+        request,
+        "login.html",
+        "Portal Login",
+        next_path=_requested_next_path(request),
+        **_login_page_context(password_form=True),
+    )
 
 
 @router.get("/login")
@@ -2598,7 +2606,13 @@ def login_page(request: Request):
     gate = _anonymous_login_gate(request)
     if gate is not None:
         return gate
-    return _anonymous_auth_page(request, "login.html", "Portal Login", **_login_page_context())
+    return _anonymous_auth_page(
+        request,
+        "login.html",
+        "Portal Login",
+        next_path=_requested_next_path(request),
+        **_login_page_context(),
+    )
 
 
 @router.get("/login/sso")
@@ -2611,6 +2625,14 @@ def login_via_sso(request: Request):
     response = RedirectResponse(url=sso_authorize_url(), status_code=302)
     if request.cookies.get(settings.session_cookie_name):
         _clear_session_cookie(response)
+    next_path = _requested_next_path(request)
+    if next_path:
+        # Survives the round trip through the identity provider; /auth reads it.
+        response.set_cookie(POST_LOGIN_NEXT_COOKIE, next_path, max_age=600, path="/", httponly=True, samesite="lax")
+    elif request.cookies.get(POST_LOGIN_NEXT_COOKIE):
+        # A share link from an earlier sign-in that never completed must not
+        # send this one to that session.
+        response.delete_cookie(POST_LOGIN_NEXT_COOKIE, path="/")
     return response
 
 
@@ -2624,7 +2646,10 @@ async def auth_page(request: Request, db: Session = Depends(get_db)):
         return _redirect_to_login()
     token = await login_user_by_code(db, redirect_uri=sso_redirect_uri(), code=code)
 
-    response = RedirectResponse(url="/app", status_code=302)
+    next_path = _safe_next_path(request.cookies.get(POST_LOGIN_NEXT_COOKIE))
+    response = RedirectResponse(url=next_path or "/app", status_code=302)
+    if request.cookies.get(POST_LOGIN_NEXT_COOKIE):
+        response.delete_cookie(POST_LOGIN_NEXT_COOKIE, path="/")
     set_session_cookie(response, token)
     return response
 
@@ -2707,6 +2732,8 @@ def app_page(request: Request):
             # so it renders with the page rather than on first open.
             "help_groups": help_topics_by_group(),
             "connectors_enabled": bool(get_settings().connectors_enabled),
+            # Whether the share dialog may offer "anyone with the link".
+            "share_anyone_enabled": bool(get_settings().session_share_anyone_enabled),
             "create_runtime_type_options": _create_runtime_type_options(),
             # What the composer may attach (EFP_CHAT_UPLOAD_EXTENSIONS /
             # EFP_MAX_UPLOAD_MB): the file picker's accept list and the JSON
@@ -3222,9 +3249,27 @@ async def app_agent_delete_session(request: Request, agent_id: str, session_id: 
                 runtime_deleted = True
 
         record, already_deleted = AgentSessionMetadataRepository(db).mark_deleted(agent_id=agent_id, session_id=session_id)
+        # A deleted session's share link must stop working with it.
+        try:
+            SessionShareRepository(db).delete_for_session(agent_id, session_id)
+        except Exception:  # noqa: BLE001 - the delete itself already happened
+            logger.warning("Share cleanup failed for session %s of agent %s", session_id, agent_id, exc_info=True)
         return {"success": True, "agent_id": agent_id, "session_id": session_id, "runtime_deleted": runtime_deleted, "runtime_missing": runtime_missing, "runtime_skipped": runtime_skipped, "runtime_status": runtime_status, "runtime_response_json": runtime_response_json, "metadata_deleted": bool(record.deleted_at), "already_deleted": already_deleted}
     finally:
         db.close()
+
+
+def _mark_shared_sessions(db, agent_id: str, sessions: list[dict]) -> None:
+    """Flag the rows that have a share link; a lookup failure only loses the flag."""
+
+    try:
+        shared = SessionShareRepository(db).shared_session_ids(agent_id)
+    except Exception:  # noqa: BLE001 - decoration on the panel, never its reason to fail
+        logger.debug("Shared session lookup failed for agent %s", agent_id, exc_info=True)
+        return
+    for session in sessions:
+        if isinstance(session, dict):
+            session["is_shared"] = session.get("session_id") in shared
 
 
 @router.get("/app/agents/{agent_id}/sessions/panel")
@@ -3262,6 +3307,7 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
                 recent_metadata_records,
                 include_metadata_only=True,
             )
+            _mark_shared_sessions(db, agent_id, sessions)
             return templates.TemplateResponse(
                 "partials/sessions_panel.html",
                 {
@@ -3316,6 +3362,7 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
             all_metadata_records,
             include_metadata_only=True,
         )
+        _mark_shared_sessions(db, agent_id, sessions)
         return templates.TemplateResponse(
             "partials/sessions_panel.html",
             {

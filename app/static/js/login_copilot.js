@@ -211,7 +211,11 @@
         setStep("done");
         card.classList.add("is-signed-in");
         setTimeout(function () {
-          window.location.href = result.redirect || "/app";
+          // The shared session that sent the member here wins over the
+          // server's generic landing page (auth_form.js postLoginDestination
+          // only ever returns a /share/... path or /app).
+          var shared = typeof postLoginDestination === "function" ? postLoginDestination("") : "/app";
+          window.location.href = shared !== "/app" ? shared : (result.redirect || "/app");
         }, 500);
         return;
       }

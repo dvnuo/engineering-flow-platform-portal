@@ -22,6 +22,13 @@ const dom = {
   messageList: document.getElementById("message-list"),
   messageScroll: document.getElementById("message-scroll"),
   jumpToLatestBtn: document.getElementById("jump-to-latest-btn"),
+  sessionHeader: document.getElementById("session-header"),
+  sessionHeaderTitle: document.getElementById("session-header-title"),
+  sessionHeaderSource: document.getElementById("session-header-source"),
+  sessionHeaderShared: document.getElementById("session-header-shared"),
+  sessionRenameBtn: document.getElementById("session-rename-btn"),
+  sessionRegenerateBtn: document.getElementById("session-regenerate-title-btn"),
+  sessionShareBtn: document.getElementById("session-share-btn"),
   chatInput: document.getElementById("chat-input"),
   chatSuggest: document.getElementById("chat-suggest"),
   chatAgentId: document.getElementById("chat-agent-id"),
@@ -6474,6 +6481,7 @@ function clearMessageListToWelcome() {
 function showFreshConversationForSelectedAgent() {
   beginTranscript(state.selectedAgentId, "");
   clearMessageListToWelcome();
+  if (typeof renderSessionHeader === "function") renderSessionHeader();
 }
 
 
@@ -6529,6 +6537,7 @@ function updateAgentSession(agentId, sessionId) {
   if (agentId === state.selectedAgentId) {
     syncHiddenSessionInputFromState();
     ensureEventSocketForSelectedAgent();
+    if (typeof renderSessionHeader === "function") renderSessionHeader();
   }
 }
 
@@ -7295,6 +7304,9 @@ async function performAgentSelection(agentId, { updateRoute = true } = {}) {
   closeSessionsDrawer();
 
   updateOwnerOnlyButtons(agentId);
+  // The header belongs to the assistant now selected: a switch to one with
+  // no open session must not keep showing the previous one's name.
+  if (typeof renderSessionHeader === "function") renderSessionHeader();
 
   window.selectedAgentId = agentId;
   if (agentId) localStorage.setItem(LAST_AGENT_STORAGE_KEY, agentId);
@@ -9696,6 +9708,11 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   const localNormalizePayloadStreamEvents = (typeof normalizePayloadStreamEvents === "function")
     ? normalizePayloadStreamEvents
     : (events) => Array.isArray(events) ? events : [];
+  // The runtime may still be naming a new session when its first answer
+  // lands; ask for the name shortly after.
+  if (typeof scheduleSessionTitleRefresh === "function") {
+    scheduleSessionTitleRefresh(agentIdAtSend, String(payload?.session_id || requestCtx?.sessionIdAtSend || ""));
+  }
   const chatState = ensureChatState(agentIdAtSend);
   const activeMatches = Boolean(
     chatState?.currentRequest
@@ -12029,6 +12046,14 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   };
   const statusPayload = null;
   const shouldApplyRecoveryNotice = canApplyRecoveryNotice();
+  if (typeof setSessionName === "function") setSessionName(agentId, normalized, data?.name, data?.name_source);
+  // A runtime from before name_source does not say where the name came from;
+  // its name endpoint is asked once (a runtime without that too answers 404
+  // and is not asked again).
+  if (render && data && data.name_source === undefined && typeof refreshSessionName === "function") {
+    void refreshSessionName(agentId, normalized);
+  }
+  if (render && typeof refreshSessionShareBadge === "function") void refreshSessionShareBadge(agentId, normalized);
   const canonicalMessages = getCanonicalMessagesFromSessionPayload(data);
   const messagesForRender = canonicalMessages.length
     ? canonicalMessagesToLegacyDisplayMessages(canonicalMessages)
@@ -12103,11 +12128,392 @@ async function renameSessionForAgent(agentId, sessionId, currentName) {
     });
     if (!resp.ok) throw new Error(await handleErrorResponse(resp));
     showToast("Session renamed");
-    await openSessionsPanel();
+    if (typeof setSessionName === "function") setSessionName(agentId, normalizedSessionId, nextName, "custom");
+    if (typeof updateSessionsPanelRowName === "function") updateSessionsPanelRowName(normalizedSessionId, nextName, "custom");
+    // The header's Rename arrives with the panel closed; only a panel that is
+    // open is redrawn.
+    if (state.activeUtilityPanel === "sessions" && state.toolPanelOpen) await openSessionsPanel();
     renderIcons();
   } catch (error) {
     showToast(`Rename failed: ${safe(error.message)}`, { variant: 'error' });
   }
+}
+
+// ===== session name, generated titles and sharing ============================
+// The runtime names a session from its first answered turn with a background
+// model call that usually finishes after the stream closed, so the header
+// reads the name with the transcript (loadSessionForAgent) and asks again a
+// few times after a turn completes until the runtime reports a generated or
+// manual name. A share is a read-only link to the live session
+// (/share/{token}); its state is read when a session opens and after every
+// change in the dialog.
+
+const SESSION_NAME_REFRESH_DELAYS_MS = [2500, 8000, 20000];
+const sessionNameRefreshTimers = new Map();
+const sessionShareState = new Map();
+
+function sessionNameStateFor(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return null;
+  if (!chatState.sessionNames) chatState.sessionNames = {};
+  return chatState.sessionNames;
+}
+
+function setSessionName(agentId, sessionId, name, source) {
+  const names = sessionNameStateFor(agentId);
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (names && normalizedSessionId) {
+    names[normalizedSessionId] = { name: String(name || "").trim(), source: String(source || "").trim() };
+  }
+  if (agentId === state.selectedAgentId) renderSessionHeader();
+}
+
+function currentSessionNameInfo(agentId = state.selectedAgentId) {
+  const sessionId = currentSessionIdForAgent(agentId);
+  if (!sessionId) return { sessionId: "", name: "", source: "" };
+  const names = sessionNameStateFor(agentId);
+  const entry = names ? names[sessionId] : null;
+  return { sessionId, name: entry?.name || "", source: entry?.source || "" };
+}
+
+function sessionShareKey(agentId, sessionId) {
+  return `${agentId}:${sessionId}`;
+}
+
+function renderSessionHeader() {
+  const header = dom.sessionHeader;
+  if (!header) return;
+  const agent = typeof getSelectedAgent === "function" ? getSelectedAgent() : null;
+  if (!agent) {
+    header.classList.add("hidden");
+    return;
+  }
+  const info = currentSessionNameInfo(agent.id);
+  const writable = typeof canWriteAgent === "function" ? canWriteAgent(agent) : false;
+  header.classList.remove("hidden");
+  if (dom.sessionHeaderTitle) {
+    dom.sessionHeaderTitle.textContent = info.sessionId ? (info.name || "Untitled session") : "New chat";
+    dom.sessionHeaderTitle.title = dom.sessionHeaderTitle.textContent;
+  }
+  if (dom.sessionHeaderSource) dom.sessionHeaderSource.classList.toggle("hidden", info.source !== "generated");
+  const shared = Boolean(info.sessionId && sessionShareState.get(sessionShareKey(agent.id, info.sessionId)));
+  if (dom.sessionHeaderShared) dom.sessionHeaderShared.classList.toggle("hidden", !shared);
+  const actionable = Boolean(info.sessionId) && writable;
+  [dom.sessionRenameBtn, dom.sessionRegenerateBtn, dom.sessionShareBtn].forEach((button) => {
+    if (!button) return;
+    button.disabled = !actionable;
+    button.classList.toggle("hidden", !writable);
+  });
+  if (dom.sessionRegenerateBtn) {
+    const manual = info.source === "custom";
+    dom.sessionRegenerateBtn.disabled = !actionable || manual;
+    dom.sessionRegenerateBtn.title = manual ? "This session has a name you chose; rename it to change it" : "Regenerate the title";
+  }
+  if (dom.sessionShareBtn) dom.sessionShareBtn.title = shared ? "Shared: manage the link" : "Share session (read only)";
+  if (typeof renderIcons === "function") renderIcons(header);
+}
+
+function sessionShareApiUrl(agentId, sessionId) {
+  return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/share`;
+}
+
+function shareAnyoneEnabled() {
+  const root = document.getElementById("app-root");
+  return !root || root.dataset.shareAnyoneEnabled !== "false";
+}
+
+async function fetchSessionShare(agentId, sessionId) {
+  const resp = await fetch(sessionShareApiUrl(agentId, sessionId), { headers: { Accept: "application/json" } });
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+  return resp.json();
+}
+
+async function refreshSessionShareBadge(agentId, sessionId) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!agentId || !normalizedSessionId) return;
+  const agent = (state.mineAgents || []).find((item) => item.id === agentId);
+  if (!agent || typeof canWriteAgent !== "function" || !canWriteAgent(agent)) return;
+  try {
+    sessionShareState.set(sessionShareKey(agentId, normalizedSessionId), await fetchSessionShare(agentId, normalizedSessionId));
+  } catch (_error) {
+    return;
+  }
+  if (agentId === state.selectedAgentId) renderSessionHeader();
+}
+
+function sessionRowSelector(sessionId) {
+  return `[data-session-id="${cssEscapeForSelector(String(sessionId))}"]`;
+}
+
+// The sessions panel is rendered by the server; after a share changes, the
+// one row that changed is updated here instead of fetching the panel again.
+function updateSessionsPanelRowShare(sessionId, shared) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!normalizedSessionId) return;
+  document.querySelectorAll(`[data-session-action="share"]${sessionRowSelector(normalizedSessionId)}`).forEach((button) => {
+    button.classList.toggle("is-shared", shared);
+    button.setAttribute("aria-label", shared ? "Manage the share link" : "Share session");
+    button.title = shared ? "Shared: manage the link" : "Share session (read only)";
+  });
+  document.querySelectorAll(`.sessions-item-main${sessionRowSelector(normalizedSessionId)}`).forEach((row) => {
+    const existing = row.querySelector("[data-session-shared-badge]");
+    if (shared && !existing) {
+      let meta = row.querySelector(".sessions-item-meta");
+      if (!meta) {
+        meta = document.createElement("div");
+        meta.className = "sessions-item-meta";
+        const title = row.querySelector(".sessions-item-title");
+        if (title) title.insertAdjacentElement("afterend", meta);
+        else row.querySelector(".sessions-item-copy")?.prepend(meta);
+      }
+      const badge = document.createElement("span");
+      badge.className = "badge badge--info";
+      badge.dataset.sessionSharedBadge = "1";
+      badge.title = "This session has a read-only share link";
+      badge.textContent = "Shared";
+      meta.appendChild(badge);
+    } else if (!shared && existing) {
+      const meta = existing.parentElement;
+      existing.remove();
+      if (meta && !meta.children.length) meta.remove();
+    }
+  });
+}
+
+function updateSessionsPanelRowName(sessionId, name, source) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!normalizedSessionId) return;
+  const displayName = String(name || "").trim() || "New Chat";
+  document.querySelectorAll(`.sessions-item-main${sessionRowSelector(normalizedSessionId)}`).forEach((row) => {
+    const title = row.querySelector(".sessions-item-title");
+    if (title) title.textContent = displayName;
+    row.dataset.sessionName = displayName;
+    row.dataset.sessionNameSource = String(source || "");
+    row.title = displayName;
+  });
+  document.querySelectorAll(`[data-session-action]${sessionRowSelector(normalizedSessionId)}`).forEach((button) => {
+    button.dataset.sessionName = displayName;
+  });
+}
+
+// Assistants whose runtime predates the name endpoint: it answers 404 to
+// every session, so after the first such answer it is not asked again.
+const sessionNameEndpointMissing = new Set();
+
+async function refreshSessionName(agentId, sessionId) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!agentId || !normalizedSessionId || sessionNameEndpointMissing.has(agentId)) return null;
+  let data;
+  try {
+    const resp = await fetch(`/a/${encodeURIComponent(agentId)}/api/sessions/${encodeURIComponent(normalizedSessionId)}/name`, {
+      headers: { Accept: "application/json" },
+    });
+    if (resp.status === 404) {
+      // A runtime with the endpoint answers a missing session with a JSON
+      // error; a runtime without it answers with aiohttp's plain 404 page.
+      let payload = null;
+      try { payload = JSON.parse(await resp.text()); } catch (_error) { payload = null; }
+      if (!payload || typeof payload !== "object") sessionNameEndpointMissing.add(agentId);
+      return null;
+    }
+    if (!resp.ok) return null;
+    data = await resp.json();
+  } catch (_error) {
+    return null;
+  }
+  if (!data || typeof data !== "object") return null;
+  setSessionName(agentId, normalizedSessionId, data.name, data.name_source);
+  updateSessionsPanelRowName(normalizedSessionId, data.name, data.name_source);
+  return data;
+}
+
+function clearSessionTitleRefresh(key) {
+  (sessionNameRefreshTimers.get(key) || []).forEach((timer) => window.clearTimeout(timer));
+  sessionNameRefreshTimers.delete(key);
+}
+
+function scheduleSessionTitleRefresh(agentId, sessionId) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!agentId || !normalizedSessionId || sessionNameEndpointMissing.has(agentId)) return;
+  const names = sessionNameStateFor(agentId);
+  const known = names ? names[normalizedSessionId] : null;
+  // Only a session the runtime has not named yet is worth asking about.
+  if (known && (known.source === "custom" || known.source === "generated")) return;
+  const key = sessionShareKey(agentId, normalizedSessionId);
+  clearSessionTitleRefresh(key);
+  const timers = SESSION_NAME_REFRESH_DELAYS_MS.map((delay) => window.setTimeout(async () => {
+    const data = await refreshSessionName(agentId, normalizedSessionId);
+    const source = String(data?.name_source || "");
+    if (source === "custom" || source === "generated") clearSessionTitleRefresh(key);
+  }, delay));
+  sessionNameRefreshTimers.set(key, timers);
+}
+
+async function regenerateSessionTitleForAgent(agentId, sessionId) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!agentId || !normalizedSessionId) return;
+  if (dom.sessionRegenerateBtn) dom.sessionRegenerateBtn.disabled = true;
+  try {
+    const resp = await fetch(`/a/${encodeURIComponent(agentId)}/api/sessions/${encodeURIComponent(normalizedSessionId)}/title/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: true }),
+    });
+    if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+    const data = await resp.json();
+    setSessionName(agentId, normalizedSessionId, data.name, data.name_source);
+    updateSessionsPanelRowName(normalizedSessionId, data.name, data.name_source);
+    showToast(data.generated ? "Title regenerated" : "This session keeps the name you gave it");
+  } catch (error) {
+    showToast(`Could not regenerate the title: ${safe(error.message)}`, { variant: "error" });
+  } finally {
+    renderSessionHeader();
+  }
+}
+
+// The share dialog: audience (members / anyone with the link), the link with
+// Copy once shared, Update for an audience change, Stop sharing.
+async function openSessionShareDialog(agentId, sessionId, sessionName) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!agentId || !normalizedSessionId) return;
+  let share = null;
+  try {
+    share = await fetchSessionShare(agentId, normalizedSessionId);
+  } catch (error) {
+    showToast(`Could not read the share: ${safe(error.message)}`, { variant: "error" });
+    return;
+  }
+  sessionShareState.set(sessionShareKey(agentId, normalizedSessionId), share);
+  renderSessionHeader();
+
+  const anyoneAllowed = shareAnyoneEnabled();
+  const displayName = String(sessionName || "").trim() || "this session";
+  const previouslyFocused = document.activeElement;
+  const root = document.createElement("div");
+  root.className = "modal portal-dialog portal-share-dialog-root";
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-labelledby", "session-share-dialog-title");
+  root.innerHTML = `
+    <div class="modal-card panel portal-dialog-card portal-share-dialog" data-dialog-card>
+      <div class="portal-modal-titlebar"><h3 id="session-share-dialog-title">Share session</h3></div>
+      <p class="portal-modal-copy">${escapeHtml(displayName)}</p>
+      <div class="portal-share-options" role="radiogroup" aria-label="Who can open the link">
+        <label class="portal-share-option">
+          <input type="radio" name="session-share-scope" value="members" />
+          <span><strong>Members</strong><small>Anyone signed in to this Portal who has the link.</small></span>
+        </label>
+        <label class="portal-share-option${anyoneAllowed ? "" : " hidden"}">
+          <input type="radio" name="session-share-scope" value="anyone" />
+          <span><strong>Anyone with the link</strong><small>No sign-in: anyone who can reach this Portal and has the link.</small></span>
+        </label>
+      </div>
+      <div class="portal-share-link hidden" data-share-link-row>
+        <input type="text" class="portal-form-input" readonly data-share-link-input aria-label="Share link" />
+        <button type="button" class="portal-btn" data-share-copy>Copy</button>
+      </div>
+      <p class="portal-share-note">Viewers see the conversation as it is now, including later turns, and cannot send messages. It may contain data from connected systems.</p>
+      <div class="portal-modal-actions">
+        <button type="button" class="portal-btn portal-dialog-danger hidden" data-share-revoke>Stop sharing</button>
+        <button type="button" class="portal-btn" data-dialog-cancel>Close</button>
+        <button type="button" class="portal-btn is-primary" data-share-submit>Share</button>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  // Force reflow so the enter transition runs, like dialogs.js.
+  root.offsetWidth; // eslint-disable-line no-unused-expressions
+  root.classList.add("portal-dialog--in");
+
+  const linkRow = root.querySelector("[data-share-link-row]");
+  const linkInput = root.querySelector("[data-share-link-input]");
+  const copyBtn = root.querySelector("[data-share-copy]");
+  const revokeBtn = root.querySelector("[data-share-revoke]");
+  const submitBtn = root.querySelector("[data-share-submit]");
+  const cancelBtn = root.querySelector("[data-dialog-cancel]");
+  const scopeInputs = Array.from(root.querySelectorAll('input[name="session-share-scope"]'));
+
+  const selectedScope = () => (scopeInputs.find((input) => input.checked)?.value) || "members";
+  const paint = () => {
+    const scope = share?.scope === "anyone" && anyoneAllowed ? "anyone" : "members";
+    scopeInputs.forEach((input) => { input.checked = input.value === scope; });
+    if (linkRow) linkRow.classList.toggle("hidden", !share);
+    if (linkInput) linkInput.value = share?.url || "";
+    if (revokeBtn) revokeBtn.classList.toggle("hidden", !share);
+    if (submitBtn) submitBtn.textContent = share ? "Update" : "Share";
+  };
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", onKeydown, true);
+    root.classList.remove("portal-dialog--in");
+    window.setTimeout(() => {
+      root.remove();
+      // Back to the Share button (or the sessions row) that opened this.
+      if (previouslyFocused && typeof previouslyFocused.focus === "function" && document.contains(previouslyFocused)) {
+        try { previouslyFocused.focus(); } catch (_error) { /* noop */ }
+      }
+    }, 200);
+  };
+  const onKeydown = (event) => {
+    if (event.key !== "Escape") return;
+    // The Stop sharing confirm stacks on top of this dialog and takes Escape
+    // itself; closing both at once would drop the member out of the share.
+    if (document.querySelector(".portal-dialog.portal-dialog--in:not(.portal-share-dialog-root)")) return;
+    event.preventDefault();
+    close();
+  };
+  const afterChange = () => {
+    sessionShareState.set(sessionShareKey(agentId, normalizedSessionId), share);
+    renderSessionHeader();
+    updateSessionsPanelRowShare(normalizedSessionId, Boolean(share));
+  };
+
+  paint();
+  document.addEventListener("keydown", onKeydown, true);
+  root.addEventListener("mousedown", (event) => { if (event.target === root) close(); });
+  cancelBtn?.addEventListener("click", close);
+  copyBtn?.addEventListener("click", async () => {
+    if (!linkInput?.value) return;
+    const copied = typeof copyText === "function" ? await copyText(linkInput.value) : false;
+    showToast(copied ? "Link copied" : "Copy the link from the box");
+  });
+  submitBtn?.addEventListener("click", async () => {
+    submitBtn.disabled = true;
+    try {
+      const resp = await fetch(sessionShareApiUrl(agentId, normalizedSessionId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: selectedScope(), title: String(sessionName || "").trim() || null }),
+      });
+      if (!resp.ok) throw new Error(await handleErrorResponse(resp));
+      const wasShared = Boolean(share);
+      share = await resp.json();
+      paint();
+      afterChange();
+      showToast(wasShared ? "Share updated" : "Session shared");
+      linkInput?.select?.();
+    } catch (error) {
+      showToast(`Share failed: ${safe(error.message)}`, { variant: "error" });
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+  revokeBtn?.addEventListener("click", async () => {
+    if (!(await showConfirm({ title: "Stop sharing", message: "The link stops working for everyone.", confirmText: "Stop sharing", danger: true }))) return;
+    try {
+      const resp = await fetch(sessionShareApiUrl(agentId, normalizedSessionId), { method: "DELETE" });
+      if (!resp.ok && resp.status !== 404) throw new Error(await handleErrorResponse(resp));
+      share = null;
+      afterChange();
+      showToast("Sharing stopped");
+      close();
+    } catch (error) {
+      showToast(`Could not stop sharing: ${safe(error.message)}`, { variant: "error" });
+    }
+  });
+  window.requestAnimationFrame(() => (share && linkInput ? linkInput : submitBtn)?.focus?.());
 }
 
 async function deleteSessionForAgent(agentId, sessionId) {
@@ -13902,6 +14308,7 @@ async function startNewChatForSelectedAgent() {
   // the reader into the new chat.
   disconnectEventSocket();
   clearMessageListToWelcome();
+  if (typeof renderSessionHeader === "function") renderSessionHeader();
   setChatSubmitting(false);
   resetChatInputHeight();
   setChatStatus("New chat started");
@@ -17576,6 +17983,25 @@ function bindEvents() {
   dom.messageScroll?.addEventListener("scroll", handleMessageScroll, { passive: true });
   dom.jumpToLatestBtn?.addEventListener("click", () => scrollToBottom({ force: true }));
 
+  // The session header sits above the transcript, outside the tool panel
+  // whose click handler serves the sessions list, so it listens on its own.
+  dom.sessionHeader?.addEventListener("click", async (event) => {
+    const headerActionBtn = event.target.closest("[data-session-header-action]");
+    if (!headerActionBtn || headerActionBtn.disabled) return;
+    event.preventDefault();
+    const action = headerActionBtn.dataset.sessionHeaderAction || "";
+    const agentId = state.selectedAgentId;
+    const info = currentSessionNameInfo(agentId);
+    if (!agentId || !info.sessionId) return;
+    if (action === "rename") {
+      await renameSessionForAgent(agentId, info.sessionId, info.name);
+    } else if (action === "regenerate") {
+      await regenerateSessionTitleForAgent(agentId, info.sessionId);
+    } else if (action === "share") {
+      await openSessionShareDialog(agentId, info.sessionId, info.name);
+    }
+  });
+
   // A minimal shortcut set for a tool people keep open all day. Everything here
   // previously required the mouse.
   document.addEventListener("keydown", (event) => {
@@ -17662,6 +18088,8 @@ function bindEvents() {
         await renameSessionForAgent(agentId, sessionId, sessionName);
       } else if (action === "delete") {
         await deleteSessionForAgent(agentId, sessionId);
+      } else if (action === "share") {
+        await openSessionShareDialog(agentId, sessionId, sessionName);
       }
       return;
     }

@@ -542,6 +542,9 @@ def extract_context_preview(record) -> dict:
     preview = {
         "latest_event_state": _normalize_preview_value(getattr(record, "latest_event_state", None)),
         "snapshot_version": snapshot_version_text,
+        # The manual or generated session name the runtime published; what the
+        # Portal shows for the session while its pod is stopped.
+        "session_title": _normalize_preview_value(metadata.get("session_title")),
         **merged_preview,
         **budget_preview,
         **source_preview,
@@ -590,7 +593,7 @@ def merge_runtime_sessions_with_metadata(
         merged_sessions.append(
             {
                 "session_id": record.session_id,
-                "name": record.session_id,
+                "name": preview.get("session_title") or record.session_id,
                 "last_message": None,
                 "is_metadata_only": True,
                 **preview,
