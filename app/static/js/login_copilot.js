@@ -211,7 +211,8 @@
         setStep("done");
         card.classList.add("is-signed-in");
         setTimeout(function () {
-          window.location.href = result.redirect || "/app";
+          window.location.href = result.redirect
+            || (typeof postLoginDestination === "function" ? postLoginDestination("") : "/app");
         }, 500);
         return;
       }

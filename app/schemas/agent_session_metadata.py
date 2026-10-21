@@ -15,6 +15,10 @@ class AgentSessionMetadataUpsertRequest(BaseModel):
     metadata_json: Optional[str] = None
 
 
+class SessionTitleUpdateRequest(BaseModel):
+    title: str
+
+
 class AgentSessionMetadataResponse(BaseModel):
     id: str
     session_id: str

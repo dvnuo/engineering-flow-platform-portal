@@ -1,0 +1,68 @@
+/* The read-only share page (templates/share.html, js/share_view.js).
+   Message surfaces, code blocks, tables, callouts and cards come from app.css;
+   this file is the reading layout around them: one column, a table of
+   contents on wide screens, larger type and line height than the chat. */
+
+body { background: var(--portal-app-bg); color: var(--portal-text); margin: 0; }
+
+.share-page {
+  --portal-chat-width: 860px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 16px 72px;
+  font-family: inherit;
+}
+
+.share-header { max-width: 860px; margin: 0 auto 28px; }
+.share-eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--portal-text-muted); }
+.share-title { margin: 10px 0 8px; font-size: 1.75rem; line-height: 1.25; font-weight: 700; overflow-wrap: anywhere; }
+.share-meta, .share-copy { margin: 0 0 16px; color: var(--portal-text-secondary); font-size: 14px; line-height: 1.6; }
+.share-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.share-actions .portal-btn { display: inline-flex; align-items: center; gap: 6px; }
+.share-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--portal-text-secondary); cursor: pointer; }
+
+.share-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
+.share-transcript { max-width: 860px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.share-toc { display: none; }
+
+@media (min-width: 1040px) {
+  .share-body { grid-template-columns: 220px minmax(0, 1fr); }
+  .share-toc { display: block; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding-right: 8px; }
+  .share-toc.hidden { display: none; }
+  .share-transcript { margin: 0; }
+}
+
+.share-toc-title { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--portal-text-muted); margin-bottom: 8px; }
+.share-toc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: share-toc; }
+.share-toc-list li { counter-increment: share-toc; }
+.share-toc-list a { display: block; padding: 6px 8px; border-radius: var(--portal-radius-sm); font-size: 13px; line-height: 1.4; color: var(--portal-text-secondary); text-decoration: none; }
+.share-toc-list a::before { content: counter(share-toc) ". "; color: var(--portal-text-muted); }
+.share-toc-list a:hover { background: var(--portal-surface-soft); color: var(--portal-text); }
+
+/* Reading comfort: the chat renders at 14px/1.7 for density; a page read top
+   to bottom gets a touch more. */
+.share-transcript .message-markdown { font-size: 15px; line-height: 1.75; }
+.share-transcript .message-body { font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.share-transcript .message-row { animation: none; }
+.share-transcript .message-row-assistant .message-meta,
+.share-transcript .message-surface-assistant { width: 100%; }
+.share-transcript .message-model { font-size: 11px; color: var(--portal-text-muted); opacity: 1; }
+.share-question { scroll-margin-top: 16px; }
+.share-tool-row .message-surface { opacity: .85; }
+.share-tool-result > summary { cursor: pointer; list-style: revert; }
+.share-diagram { margin: 12px 0; overflow-x: auto; }
+.share-diagram svg { max-width: 100%; height: auto; }
+.share-attachment-image { display: inline-block; max-width: 100%; }
+.share-attachment-image img { max-width: min(100%, 520px); border-radius: var(--portal-radius-sm); border: 1px solid var(--portal-border); }
+
+.share-state { padding: 20px 22px; border: 1px dashed var(--portal-border-strong); border-radius: var(--portal-radius-md); background: var(--portal-surface); color: var(--portal-text-secondary); line-height: 1.6; }
+
+@media print {
+  body { background: #fff; }
+  .share-actions, .share-toc, .share-eyebrow { display: none !important; }
+  .share-page { padding: 0; max-width: none; }
+  .share-body { grid-template-columns: minmax(0, 1fr); }
+  .share-transcript .message-surface { border-color: #ccc; break-inside: avoid; }
+  .share-tool-result[open] > summary { font-weight: 600; }
+  details.share-tool-result { display: block; }
+}

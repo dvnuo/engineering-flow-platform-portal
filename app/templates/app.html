@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-nickname="{{ nickname }}" data-role="{{ role }}" class="portal-app-root">
+<div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-nickname="{{ nickname }}" data-role="{{ role }}" data-share-anyone-enabled="{{ 'true' if share_anyone_enabled else 'false' }}" class="portal-app-root">
   <div class="portal-shell">
     <nav class="portal-rail" aria-label="Workspace navigation">
       <div class="portal-rail-top">
@@ -355,6 +355,29 @@
       </section>
 
       <section id="agent-chat-app" class="portal-conversation hidden" aria-label="Assistant chat workspace">
+        {# The open session's name, above the transcript. The runtime names a
+           session from its first answered turn (chat_ui.js refreshSessionName);
+           Rename, Regenerate and Share act on that session. Hidden until a
+           session exists. #}
+        <div id="session-header" class="portal-session-header hidden" aria-label="Current session">
+          <div class="portal-session-header-main">
+            <i data-lucide="message-square-text" class="w-4 h-4 portal-session-header-icon" aria-hidden="true"></i>
+            <span id="session-header-title" class="portal-session-header-title">New chat</span>
+            <span id="session-header-source" class="portal-session-header-badge hidden" title="Named by the assistant">auto</span>
+            <span id="session-header-shared" class="portal-session-header-badge is-shared hidden" title="This session has a read-only share link">shared</span>
+          </div>
+          <div class="portal-session-header-actions">
+            <button type="button" id="session-rename-btn" class="toolbar-icon-btn" data-session-header-action="rename" title="Rename session" aria-label="Rename session">
+              <i data-lucide="pencil" class="w-4 h-4"></i>
+            </button>
+            <button type="button" id="session-regenerate-title-btn" class="toolbar-icon-btn" data-session-header-action="regenerate" title="Regenerate the title" aria-label="Regenerate the title">
+              <i data-lucide="sparkles" class="w-4 h-4"></i>
+            </button>
+            <button type="button" id="session-share-btn" class="toolbar-icon-btn" data-session-header-action="share" title="Share session (read only)" aria-label="Share session">
+              <i data-lucide="share-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
         <div class="portal-conversation-main">
           <button id="jump-to-latest-btn" class="portal-jump-latest" type="button" aria-hidden="true" tabindex="-1">
             <i data-lucide="arrow-down" class="w-4 h-4"></i>

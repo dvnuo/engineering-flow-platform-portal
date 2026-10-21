@@ -54,7 +54,7 @@
       </button>
       {% endif %}
       {% if sso_enabled %}
-      <a class="portal-auth-method" href="/login/sso" data-sso-choice data-auth-method="sso">
+      <a class="portal-auth-method" href="/login/sso{% if next_path %}?next={{ next_path | urlencode }}{% endif %}" data-sso-choice data-auth-method="sso">
         <span class="portal-auth-method-icon portal-auth-method-icon--sso" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path fill-rule="evenodd" d="M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3zm6 4.25a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 0 0 0-6.2zM6.6 18.2c.5-2.6 2.8-4 5.4-4s4.9 1.4 5.4 4H6.6z"/><rect x="9.5" y="1.5" width="5" height="3" rx="1.5"/></svg>
         </span>
@@ -137,6 +137,9 @@ initAuthForm({
   submitText: "Sign In",
   fallbackError: "Sign-in failed. Please verify your username and password.",
   buildPayload: (data) => ({ username: data.username, password: data.password }),
+  // Where to go after signing in: the shared session that sent the member
+  // here, when there is one (see postLoginDestination in auth_form.js).
+  nextPath: {{ (next_path or "") | tojson }},
 });
 </script>
 {% else %}

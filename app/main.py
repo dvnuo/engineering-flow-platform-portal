@@ -12,6 +12,8 @@ from app.api.proxy import router as proxy_router
 from app.api.runtime_profiles import router as runtime_profiles_router
 from app.api.agent_tasks import router as agent_tasks_router
 from app.api.internal_session_metadata import router as internal_session_metadata_router
+from app.api.session_shares import router as session_shares_router
+from app.share_pages import router as share_pages_router
 from app.api.delegation_rules import router as delegation_rules_router
 from app.api.runtime_capability_catalog import router as runtime_capability_catalog_router
 from app.api.agents import router as agents_router
@@ -174,3 +176,5 @@ app.include_router(agent_tasks_router)
 app.include_router(delegation_rules_router)
 app.include_router(runtime_capability_catalog_router)
 app.include_router(internal_session_metadata_router)
+app.include_router(session_shares_router)
+app.include_router(share_pages_router)
