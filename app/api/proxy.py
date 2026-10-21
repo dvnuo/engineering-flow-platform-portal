@@ -48,6 +48,7 @@ from app.services.inference_settings_service import (
 from app.redaction import sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.runtime_profile_service import RuntimeProfileService
+from app.services.session_run_settings_service import apply_session_run_settings
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
@@ -490,6 +491,10 @@ async def proxy_agent(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
             chat_session_id = _loggable_id(parsed_payload.get("session_id"), fallback=chat_session_id)
             chat_request_id = _loggable_id(parsed_payload.get("request_id"), fallback=chat_request_id)
+            # Run settings saved for the session stand in when the request names
+            # none of its own (another tab, another device, a resumed run);
+            # anything the request says wins.
+            parsed_payload = apply_session_run_settings(db, agent, parsed_payload)
             parsed_payload, inference_overrides = _normalize_and_validate_inference_overrides_for_agent(
                 parsed_payload,
                 agent=agent,

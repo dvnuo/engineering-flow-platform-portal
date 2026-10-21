@@ -34,12 +34,14 @@ from app.schemas.agent import (
     AgentStatusResponse,
     AgentUpdateRequest,
 )
+from app.schemas.agent import SessionRunSettingsRequest, SessionRunSettingsResponse
 from app.schemas.assistant_type import SimpleAgentCreateRequest
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.agent_busy import profile_restart_pending
 from app.services.agent_startup_status import startup_view
 from app.services.k8s_service import K8sService
 from app.services.inference_settings_service import resolve_agent_inference_profile
+from app.services.session_run_settings_service import load_session_run_settings, save_session_run_settings
 from app.services.proxy_service import ProxyService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_status_cache import runtime_status_cache
@@ -664,6 +666,49 @@ def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), 
         supports_reasoning_effort=profile.supports_reasoning_effort,
         supports_context_size=profile.supports_context_size,
     )
+
+
+@router.get("/{agent_id}/sessions/{session_id}/run-settings", response_model=SessionRunSettingsResponse)
+def get_session_run_settings(agent_id: str, session_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """The Run settings saved for one chat session (None = the assistant's default)."""
+
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not _can_read(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    stored = load_session_run_settings(db, agent_id, session_id)
+    return SessionRunSettingsResponse(agent_id=agent_id, session_id=session_id, **stored)
+
+
+@router.put("/{agent_id}/sessions/{session_id}/run-settings", response_model=SessionRunSettingsResponse)
+def put_session_run_settings(
+    agent_id: str,
+    session_id: str,
+    payload: SessionRunSettingsRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save the Run settings for one chat session.
+
+    Anyone who may chat with the agent (its reader) may set them, since they
+    are the same values a chat request carries; they are validated against
+    the agent's current profile the same way.
+    """
+
+    agent = AgentRepository(db).get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if not _can_read(agent, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id or len(normalized_session_id) > 255:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="session_id is invalid")
+    try:
+        stored = save_session_run_settings(db, agent, normalized_session_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return SessionRunSettingsResponse(agent_id=agent_id, session_id=normalized_session_id, **stored)
 
 
 @router.post("/{agent_id}/start", response_model=AgentResponse)
