@@ -148,6 +148,22 @@ class AgentChatModelProfileResponse(BaseModel):
     supports_context_size: bool = False
 
 
+class SessionRunSettingsRequest(BaseModel):
+    """Run settings for one chat session; None (or empty) clears that setting."""
+
+    model_override: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    max_context_tokens: Optional[int] = None
+
+
+class SessionRunSettingsResponse(BaseModel):
+    agent_id: str
+    session_id: str
+    model_override: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    max_context_tokens: Optional[int] = None
+
+
 class AgentResponse(BaseModel):
     id: str
     name: str

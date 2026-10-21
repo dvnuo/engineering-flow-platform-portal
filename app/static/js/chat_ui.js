@@ -9765,8 +9765,14 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       }
       return null;
     };
+  const createdSessionId = !requestCtx.sessionIdAtSend && payload.session_id ? String(payload.session_id) : "";
   updateAgentSession(agentIdAtSend, payload.session_id || requestCtx.sessionIdAtSend || "");
   const finalSessionId = payload.session_id || requestCtx.sessionIdAtSend || "";
+  // A new chat inherits the composer's Run settings; now that the runtime has
+  // named the session they are saved for it, before anything reloads it.
+  if (createdSessionId && composerHasRunSettings(ensureChatState(agentIdAtSend))) {
+    await persistSessionRunSettings(agentIdAtSend, createdSessionId);
+  }
   clearPersistedInflightChatRun(agentIdAtSend, requestCtx.clientRequestId);
   const payloadContextState = payload?.context_state;
   const mergedEventContextState = contextFromEvents(mergedStreamEvents);
@@ -12008,6 +12014,9 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
   updateAgentSession(agentId, normalized);
   const latestChatState = ensureChatState(agentId);
   if (latestChatState) latestChatState.needsReload = false;
+  // The composer follows the conversation: its Run settings are the ones
+  // saved for this session, not whatever the previous one used.
+  if (render) void restoreSessionRunSettings(agentId, normalized);
   let recoveryNotice = null;
   const canApplyRecoveryNotice = () => (
     agentId === state.selectedAgentId
@@ -12906,6 +12915,63 @@ async function refreshComposerModelProfile(agentId) {
     if (dom.chatModelSelect) dom.chatModelSelect.innerHTML = "";
     dom.chatInferenceSettings?.classList.add("hidden");
   }
+}
+
+// Run settings follow the session. They are saved with it on the server
+// (PUT /api/agents/{id}/sessions/{sid}/run-settings) and restored when the
+// session is opened, so a refresh, another tab or another device shows the
+// same choice; a new chat inherits what the composer shows and saves it once
+// the runtime has named the session. The chat proxy fills the saved values
+// into a request that names none, so the two never disagree for long.
+function composerRunSettingsPayload(chatState) {
+  return {
+    model_override: chatState?.modelOverride || null,
+    reasoning_effort: chatState?.reasoningEffortOverride || null,
+    max_context_tokens: chatState?.maxContextTokensOverride || null,
+  };
+}
+
+function composerHasRunSettings(chatState) {
+  const payload = composerRunSettingsPayload(chatState);
+  return Boolean(payload.model_override || payload.reasoning_effort || payload.max_context_tokens);
+}
+
+function sessionRunSettingsPath(agentId, sessionId) {
+  return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/run-settings`;
+}
+
+async function persistSessionRunSettings(agentId, sessionId = "") {
+  const chatState = ensureChatState(agentId);
+  const sid = String(sessionId || chatState?.sessionId || "").trim();
+  if (!chatState || !agentId || !sid) return;
+  try {
+    await api(sessionRunSettingsPath(agentId, sid), {
+      method: "PUT",
+      body: JSON.stringify(composerRunSettingsPayload(chatState)),
+    });
+  } catch (error) {
+    console.warn("Failed to save the run settings for this session", error);
+  }
+}
+
+async function restoreSessionRunSettings(agentId, sessionId) {
+  const chatState = ensureChatState(agentId);
+  const sid = String(sessionId || "").trim();
+  if (!chatState || !agentId || !sid) return;
+  let stored = null;
+  try {
+    stored = await api(sessionRunSettingsPath(agentId, sid));
+  } catch (error) {
+    console.warn("Failed to load the run settings for this session", error);
+    return;
+  }
+  // The member may have moved on while the answer was in flight.
+  if (chatState.sessionId !== sid) return;
+  chatState.modelOverride = String(stored?.model_override || "").trim();
+  chatState.reasoningEffortOverride = String(stored?.reasoning_effort || "").trim();
+  const tokens = Number(stored?.max_context_tokens || 0);
+  chatState.maxContextTokensOverride = Number.isFinite(tokens) && tokens > 0 ? tokens : null;
+  if (agentId === state.selectedAgentId) renderComposerModelSelectorForAgent(agentId);
 }
 
 const managedSettingsActionSelector = "[data-settings-action]";
@@ -17425,6 +17491,7 @@ function bindEvents() {
     if (!chatState) return;
     chatState.modelOverride = (dom.chatModelSelect?.value || "").trim();
     renderComposerModelSelectorForAgent(selectedAgentId);
+    void persistSessionRunSettings(selectedAgentId);
   });
   dom.chatReasoningSelect?.addEventListener("change", () => {
     const chatState = ensureChatState(state.selectedAgentId);
@@ -17432,6 +17499,7 @@ function bindEvents() {
     const selected = String(dom.chatReasoningSelect?.value || "").trim();
     chatState.reasoningEffortOverride = selected === chatState.profileDefaultReasoningEffort ? "" : selected;
     updateComposerInferenceSummary(chatState);
+    void persistSessionRunSettings(state.selectedAgentId);
   });
   dom.chatContextSelect?.addEventListener("change", () => {
     const chatState = ensureChatState(state.selectedAgentId);
@@ -17439,6 +17507,7 @@ function bindEvents() {
     const selected = Number(dom.chatContextSelect?.value || 0);
     chatState.maxContextTokensOverride = Number.isFinite(selected) && selected > 0 ? selected : null;
     updateComposerInferenceSummary(chatState);
+    void persistSessionRunSettings(state.selectedAgentId);
   });
   document.addEventListener("mousedown", (event) => {
     if (!dom.chatInferenceSettings?.open || dom.chatInferenceSettings.contains(event.target)) return;

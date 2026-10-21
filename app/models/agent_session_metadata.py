@@ -28,6 +28,11 @@ class AgentSessionMetadata(Base):
     snapshot_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     runtime_events_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Run settings the member chose in the chat composer for this session
+    # (JSON: model_override, reasoning_effort, max_context_tokens); written
+    # by the member, not by the runtime's publishes. See
+    # app/services/session_run_settings_service.py.
+    run_settings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
