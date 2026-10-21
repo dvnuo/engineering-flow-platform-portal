@@ -355,10 +355,12 @@
       </section>
 
       <section id="agent-chat-app" class="portal-conversation hidden" aria-label="Assistant chat workspace">
-        {# The open session's name, above the transcript. The runtime names a
-           session from its first answered turn (chat_ui.js refreshSessionName);
-           Rename, Regenerate and Share act on that session. Hidden until a
-           session exists. #}
+        {# The open session's name, above the transcript. The name arrives with
+           the transcript (loadSession) and, for a session the runtime is still
+           naming after its first answered turn, with the polls
+           scheduleSessionTitleRefresh runs. Rename, Regenerate and Share act
+           on that session; the row shows "New chat" with the actions disabled
+           until a session exists, and hides with the chat section. #}
         <div id="session-header" class="portal-session-header hidden" aria-label="Current session">
           <div class="portal-session-header-main">
             <i data-lucide="message-square-text" class="w-4 h-4 portal-session-header-icon" aria-hidden="true"></i>

@@ -26,7 +26,6 @@ def test_create_lookup_update_and_revoke():
         share = repo.create(agent_id="a1", session_id="s1", owner_user_id=7, scope="members", title="First turn")
         assert share.id and share.token
         assert share.scope == "members"
-        assert share.view_count == 0
 
         assert repo.get_by_token(share.token).id == share.id
         assert repo.get_by_token("  ") is None
@@ -42,13 +41,9 @@ def test_create_lookup_update_and_revoke():
         repo.update(share, scope="members")
         assert repo.get_by_token(share.token).title == "Renamed"
 
-        repo.record_view(share)
-        repo.record_view(share)
-        assert repo.get_by_token(share.token).view_count == 2
-        assert repo.get_by_token(share.token).last_viewed_at is not None
-
-        assert repo.delete_for_session("a1", "s1") is True
-        assert repo.delete_for_session("a1", "s1") is False
+        # The revoked token comes back so the caller can drop its cached transcript.
+        assert repo.delete_for_session("a1", "s1") == share.token
+        assert repo.delete_for_session("a1", "s1") is None
         assert repo.get_by_token(share.token) is None
     finally:
         db.close()
@@ -57,10 +52,11 @@ def test_create_lookup_update_and_revoke():
 def test_delete_for_agent_drops_every_share_of_that_assistant():
     repo, db = _repo()
     try:
-        repo.create(agent_id="a1", session_id="s1", owner_user_id=1, scope="members")
-        repo.create(agent_id="a1", session_id="s2", owner_user_id=1, scope="anyone")
+        first = repo.create(agent_id="a1", session_id="s1", owner_user_id=1, scope="members")
+        second = repo.create(agent_id="a1", session_id="s2", owner_user_id=1, scope="anyone")
         keep = repo.create(agent_id="a2", session_id="s1", owner_user_id=1, scope="members")
-        assert repo.delete_for_agent("a1") == 2
+        assert sorted(repo.delete_for_agent("a1")) == sorted([first.token, second.token])
+        assert repo.delete_for_agent("a1") == []
         assert repo.list_by_agent("a1") == []
         assert [share.id for share in repo.list_by_agent("a2")] == [keep.id]
     finally:

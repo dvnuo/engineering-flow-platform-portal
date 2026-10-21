@@ -33,11 +33,7 @@ class SessionShareRepository:
         ).first()
 
     def list_by_agent(self, agent_id: str) -> list[SessionShare]:
-        return list(
-            self.db.scalars(
-                select(SessionShare).where(SessionShare.agent_id == agent_id).order_by(SessionShare.created_at.desc())
-            ).all()
-        )
+        return list(self.db.scalars(select(SessionShare).where(SessionShare.agent_id == agent_id)).all())
 
     def shared_session_ids(self, agent_id: str) -> set[str]:
         return {share.session_id for share in self.list_by_agent(agent_id)}
@@ -75,27 +71,27 @@ class SessionShareRepository:
         self.db.refresh(share)
         return share
 
-    def record_view(self, share: SessionShare) -> None:
-        share.view_count = int(share.view_count or 0) + 1
-        share.last_viewed_at = datetime.utcnow()
-        self.db.add(share)
-        self.db.commit()
-
     def delete(self, share: SessionShare) -> None:
         self.db.delete(share)
         self.db.commit()
 
-    def delete_for_session(self, agent_id: str, session_id: str) -> bool:
+    def delete_for_session(self, agent_id: str, session_id: str) -> Optional[str]:
+        """Drop the session's share; the revoked token, or None when there was none."""
+
         share = self.get_by_agent_and_session(agent_id, session_id)
         if share is None:
-            return False
+            return None
+        token = share.token
         self.delete(share)
-        return True
+        return token
 
-    def delete_for_agent(self, agent_id: str) -> int:
+    def delete_for_agent(self, agent_id: str) -> list[str]:
+        """Drop every share of an assistant (it is being deleted); the revoked tokens."""
+
         shares = self.list_by_agent(agent_id)
+        tokens = [share.token for share in shares]
         for share in shares:
             self.db.delete(share)
         if shares:
             self.db.commit()
-        return len(shares)
+        return tokens

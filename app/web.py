@@ -120,6 +120,7 @@ from app.services.work_overview import WorkOverviewService
 from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.utils.chat_upload_policy import get_chat_upload_policy
+from app.utils.task_sessions import is_task_session_id as _session_id_is_task_session
 from app.log_context import get_log_context
 from app.chat_payloads import normalize_assistant_chat_payload
 from app.utils.sso_auth import login_user_by_code, sso_authorize_url, sso_enabled, sso_redirect_uri
@@ -274,23 +275,6 @@ def _can_access(agent, user) -> bool:
 
 def _can_write(agent, user) -> bool:
     return user.role == "admin" or agent.owner_user_id == user.id
-
-
-TASK_SESSION_ID_PREFIXES = (
-    "agent-task:",
-    "agent-task-",
-    "generic-task:",
-    "generic-task-",
-    "delegation:",
-    "delegation-",
-    "task-",
-)
-
-
-def _session_id_is_task_session(session_id) -> bool:
-    if not isinstance(session_id, str):
-        return False
-    return session_id.strip().startswith(TASK_SESSION_ID_PREFIXES)
 
 
 def _metadata_value_is_present(value) -> bool:
@@ -2645,6 +2629,10 @@ def login_via_sso(request: Request):
     if next_path:
         # Survives the round trip through the identity provider; /auth reads it.
         response.set_cookie(POST_LOGIN_NEXT_COOKIE, next_path, max_age=600, path="/", httponly=True, samesite="lax")
+    elif request.cookies.get(POST_LOGIN_NEXT_COOKIE):
+        # A share link from an earlier sign-in that never completed must not
+        # send this one to that session.
+        response.delete_cookie(POST_LOGIN_NEXT_COOKIE, path="/")
     return response
 
 

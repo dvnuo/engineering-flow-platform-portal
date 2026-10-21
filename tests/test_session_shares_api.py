@@ -143,10 +143,27 @@ def test_bad_scope_is_400(harness, payload, detail):
     assert detail in response.json()["detail"]
 
 
-def test_task_sessions_cannot_be_shared(harness):
-    response = harness.client.post(_url(harness.private_agent.id, "task-123"), json={"scope": "members"})
+@pytest.mark.parametrize("session_id", ["task-123", "agent-task:abc", "agent-task-abc", "generic-task:1", "delegation:9", "delegation-9"])
+def test_task_sessions_cannot_be_shared(harness, session_id):
+    response = harness.client.post(_url(harness.private_agent.id, session_id), json={"scope": "members"})
     assert response.status_code == 400
     assert "Task sessions" in response.json()["detail"]
+
+
+def test_a_long_session_name_is_cut_to_the_column_not_refused(harness):
+    response = harness.client.post(_url(harness.private_agent.id), json={"scope": "members", "title": "  x" + "y" * 400})
+    assert response.status_code == 200, response.text
+    assert len(response.json()["title"]) == 255
+    assert response.json()["title"].startswith("xy")
+
+
+def test_revoking_forgets_the_cached_transcript(harness, monkeypatch):
+    forgotten = []
+    monkeypatch.setattr(harness.api_module, "invalidate_share_transcript", forgotten.append)
+    url = _url(harness.private_agent.id)
+    token = harness.client.post(url, json={"scope": "members"}).json()["token"]
+    assert harness.client.delete(url).status_code == 204
+    assert forgotten == [token]
 
 
 def test_anyone_can_be_turned_off_per_deployment(harness, monkeypatch):

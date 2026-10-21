@@ -15,12 +15,39 @@ from app.services.session_context_preview import parse_metadata_json, serialize_
 
 router = APIRouter(tags=["internal-session-metadata"])
 
+def _metadata_json_keeping_the_title(repo: AgentSessionMetadataRepository, agent_id: str, session_id: str, metadata_json: str | None) -> str | None:
+    """The metadata a full publish stores, with the session's published name carried over.
+
+    A publish replaces the whole ``metadata_json`` column. The runtime sends
+    ``session_title`` with it once the session is named, but the name can
+    also arrive on its own (the title PATCH below) between two publishes, and
+    a publish without the key means "unchanged", not "unnamed": the stored
+    name stays until a publish carries another.
+    """
+
+    incoming = parse_metadata_json(metadata_json) if metadata_json else {}
+    if not isinstance(incoming, dict):
+        incoming = {}
+    if isinstance(incoming.get("session_title"), str) and incoming["session_title"].strip():
+        return metadata_json
+    record = repo.get_by_agent_and_session(agent_id=agent_id, session_id=session_id, include_deleted=True)
+    stored = parse_metadata_json(getattr(record, "metadata_json", None)) if record else {}
+    title = stored.get("session_title") if isinstance(stored, dict) else None
+    if not (isinstance(title, str) and title.strip()):
+        return metadata_json
+    incoming["session_title"] = title
+    return json.dumps(incoming, ensure_ascii=False)
+
+
 @router.put("/api/internal/agents/{agent_id}/sessions/{session_id}/metadata", response_model=AgentSessionMetadataResponse)
 def upsert_session_metadata(agent_id: str, session_id: str, payload: AgentSessionMetadataUpsertRequest, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    record = AgentSessionMetadataRepository(db).upsert(agent_id=agent_id, session_id=session_id, **payload.model_dump())
+    repo = AgentSessionMetadataRepository(db)
+    fields = payload.model_dump()
+    fields["metadata_json"] = _metadata_json_keeping_the_title(repo, agent_id, session_id, fields.get("metadata_json"))
+    record = repo.upsert(agent_id=agent_id, session_id=session_id, **fields)
     return AgentSessionMetadataResponse.model_validate(serialize_agent_session_metadata_with_preview(record))
 
 

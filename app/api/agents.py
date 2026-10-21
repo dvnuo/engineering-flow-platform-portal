@@ -46,6 +46,8 @@ from app.services.proxy_service import ProxyService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_status_cache import runtime_status_cache
 from app.services.runtime_profile_service import RuntimeProfileService
+from app.repositories.session_share_repo import SessionShareRepository
+from app.services.share_transcripts import invalidate_share_transcript
 from app.utils.git_urls import normalize_git_repo_url
 from app.utils.agent_responses import build_agent_response
 from app.utils.naming import runtime_names
@@ -138,6 +140,10 @@ def _delete_agent(repo: AgentRepository, agent, user, db: Session):
         repo.save(agent)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=runtime.message or "Delete failed")
 
+    # Share links die with the assistant (the row references it), and a viewer
+    # who refreshes must not get the cached transcript back.
+    for token in SessionShareRepository(db).delete_for_agent(agent.id):
+        invalidate_share_transcript(token)
     repo.delete(agent)
     AuditRepository(db).create(
         action="delete_agent",

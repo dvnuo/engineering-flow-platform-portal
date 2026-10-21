@@ -83,6 +83,52 @@ def test_patch_rejects_an_empty_title_and_an_unknown_agent(harness):
     assert harness.client.patch(_url("missing"), json={"title": "x"}).status_code == 404
 
 
+def _metadata_url(agent_id, session_id="chat-1"):
+    return f"/api/internal/agents/{agent_id}/sessions/{session_id}/metadata"
+
+
+def _row(harness, session_id="chat-1"):
+    harness.db.expire_all()
+    return harness.db.query(AgentSessionMetadata).filter_by(agent_id=harness.agent.id, session_id=session_id).one()
+
+
+def test_full_publish_keeps_a_title_it_does_not_carry(harness):
+    assert harness.client.patch(_url(harness.agent.id), json={"title": "Named"}).status_code == 200
+    # chat.started / chat.failed publish without session_title: the name
+    # the runtime sent on its own must survive them.
+    response = harness.client.put(
+        _metadata_url(harness.agent.id),
+        json={"latest_event_state": "running", "metadata_json": json.dumps({"context_state": {"objective": "o"}})},
+    )
+    assert response.status_code == 200
+    row = _row(harness)
+    assert json.loads(row.metadata_json) == {"context_state": {"objective": "o"}, "session_title": "Named"}
+    assert row.latest_event_state == "running"
+
+
+def test_full_publish_with_its_own_title_replaces_the_stored_one(harness):
+    assert harness.client.patch(_url(harness.agent.id), json={"title": "Old"}).status_code == 200
+    response = harness.client.put(_metadata_url(harness.agent.id), json={"metadata_json": json.dumps({"session_title": "New"})})
+    assert response.status_code == 200
+    assert json.loads(_row(harness).metadata_json) == {"session_title": "New"}
+
+
+def test_full_publish_without_metadata_keeps_the_title(harness):
+    assert harness.client.patch(_url(harness.agent.id), json={"title": "Named"}).status_code == 200
+    response = harness.client.put(_metadata_url(harness.agent.id), json={"latest_event_state": "success"})
+    assert response.status_code == 200
+    assert json.loads(_row(harness).metadata_json) == {"session_title": "Named"}
+
+
+def test_full_publish_of_an_unnamed_session_stores_what_it_carries(harness):
+    response = harness.client.put(_metadata_url(harness.agent.id), json={"metadata_json": json.dumps({"context_state": {}})})
+    assert response.status_code == 200
+    assert json.loads(_row(harness).metadata_json) == {"context_state": {}}
+    response = harness.client.put(_metadata_url(harness.agent.id, "chat-2"), json={"latest_event_state": "success"})
+    assert response.status_code == 200
+    assert _row(harness, "chat-2").metadata_json is None
+
+
 def test_preview_and_metadata_only_rows_carry_the_title():
     record = SimpleNamespace(
         session_id="chat-9", metadata_json=json.dumps({"session_title": " Title from runtime "}),

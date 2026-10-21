@@ -35,7 +35,7 @@
                     </span>
                   {% endif %}
                   {% if session.is_shared %}
-                    <span class="badge badge--info" title="This session has a read-only share link">Shared</span>
+                    <span class="badge badge--info" data-session-shared-badge="1" title="This session has a read-only share link">Shared</span>
                   {% endif %}
                   {% if session.is_metadata_only %}
                     <span class="badge badge--muted">metadata only</span>

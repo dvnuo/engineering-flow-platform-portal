@@ -49,8 +49,18 @@ def test_sso_start_remembers_next_in_a_cookie(harness):
     assert f'{harness.web.POST_LOGIN_NEXT_COOKIE}="{SAFE_NEXT}"' in cookie
     assert "HttpOnly" in cookie
 
+    harness.client.cookies.clear()
     plain = harness.client.get("/login/sso", follow_redirects=False)
     assert harness.web.POST_LOGIN_NEXT_COOKIE not in plain.headers.get("set-cookie", "")
+
+
+def test_sso_start_without_next_clears_a_stale_cookie(harness):
+    # A share link from a sign-in that never completed must not send this
+    # plain sign-in to that session.
+    harness.client.cookies.set(harness.web.POST_LOGIN_NEXT_COOKIE, SAFE_NEXT)
+    response = harness.client.get("/login/sso", follow_redirects=False)
+    assert response.status_code == 302
+    assert f'{harness.web.POST_LOGIN_NEXT_COOKIE}=""' in response.headers.get("set-cookie", "")
 
 
 def test_sso_callback_returns_to_the_shared_session(harness):

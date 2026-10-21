@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -16,8 +16,8 @@ class SessionShare(Base):
     open it: ``scope`` is ``members`` (any signed-in, allowlisted member) or
     ``anyone`` (whoever has the link, no sign-in). One share per session;
     revoking deletes the row. ``title`` is the session's name when it was
-    shared, shown only while the assistant's pod is stopped and the live name
-    cannot be read.
+    shared, shown only while the assistant's pod is stopped and the runtime
+    has not published a name.
     """
 
     __tablename__ = "session_shares"
@@ -33,7 +33,5 @@ class SessionShare(Base):
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     scope: Mapped[str] = mapped_column(String(16), nullable=False, default="members")
     title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_viewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

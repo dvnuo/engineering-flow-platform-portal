@@ -49,6 +49,14 @@ body { background: var(--portal-app-bg); color: var(--portal-text); margin: 0; }
 .share-transcript .message-model { font-size: 11px; color: var(--portal-text-muted); opacity: 1; }
 .share-question { scroll-margin-top: 16px; }
 .share-tool-row .message-surface { opacity: .85; }
+/* Tool steps are always in the DOM; the toggle flips this class instead of
+   rebuilding the transcript (which would lose scroll position and diagrams). */
+.share-transcript.is-tools-hidden .share-tool-row { display: none; }
+/* A member's answers to the assistant's question card. */
+.share-answer-pairs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.share-answer-pairs dt { color: var(--portal-text-muted); font-size: 12px; }
+.share-answer-pairs dd { margin: 0; }
+.share-answer-note { font-size: 12px; color: var(--portal-text-muted); margin-bottom: 6px; }
 .share-tool-result > summary { cursor: pointer; list-style: revert; }
 .share-diagram { margin: 12px 0; overflow-x: auto; }
 .share-diagram svg { max-width: 100%; height: auto; }
@@ -58,7 +66,9 @@ body { background: var(--portal-app-bg); color: var(--portal-text); margin: 0; }
 .share-state { padding: 20px 22px; border: 1px dashed var(--portal-border-strong); border-radius: var(--portal-radius-md); background: var(--portal-surface); color: var(--portal-text-secondary); line-height: 1.6; }
 
 @media print {
-  body { background: #fff; }
+  /* Paper is white whatever the theme; the dark theme's light text must not
+     print white on white. */
+  body, .share-page, .share-transcript .message-surface { background: #fff; color: #111; }
   .share-actions, .share-toc, .share-eyebrow { display: none !important; }
   .share-page { padding: 0; max-width: none; }
   .share-body { grid-template-columns: minmax(0, 1fr); }

@@ -4,12 +4,15 @@
  * Fetches /share/{token}/data.json, draws the user and assistant turns with
  * the chat's own message classes (app.css) and renders markdown the way the
  * chat does: the same markdown-it options, highlight.js for code, Mermaid on
- * demand from <meta name="portal-mermaid-src">, EFP cards from efp_cards.js.
- * It deliberately does not load chat_ui.js, which binds the app shell at load;
- * the small renderer here is the price of a page that works on its own.
+ * demand from <meta name="portal-mermaid-src">, EFP cards from efp_cards.js
+ * in their read-only form. It deliberately does not load chat_ui.js, which
+ * binds the app shell at load; the small renderer here is the price of a
+ * page that works on its own.
  *
  * The page is live: Refresh reloads the transcript, and while the session
- * reports a run in progress it refreshes itself every 30 s while visible.
+ * reports a run in progress it refreshes itself every 30 s while visible. A
+ * refresh that brings the same transcript back leaves the DOM alone, so the
+ * reader's scroll position and open diagrams survive it.
  */
 (function () {
   "use strict";
@@ -28,9 +31,16 @@
     toc: document.getElementById("share-toc"),
     transcript: document.getElementById("share-transcript"),
   };
-  var state = { data: null, loading: false, timer: null, mermaidSeq: 0 };
+  var state = { data: null, loading: false, timer: null, mermaidSeq: 0, mermaidTheme: "", fingerprint: "", scrolledToHash: false };
   var AUTO_REFRESH_MS = 30000;
   var TOOL_ROW_PREFIXES = ["[Tool", "Tool "];
+  // chat_ui.js getLastSessionKey: the session the Portal opens for an assistant.
+  var LAST_SESSION_KEY_PREFIX = "portal-last-session-";
+  // Typography the page needs, as code points: the source stays ASCII.
+  var ELLIPSIS = String.fromCharCode(0x2026);
+  var MIDDLE_DOT = String.fromCharCode(0xB7);
+  var EM_DASH = String.fromCharCode(0x2014);
+  var FILE_ICON = String.fromCodePoint(0x1F4C4);
 
   // ----- text helpers --------------------------------------------------------
 
@@ -64,6 +74,14 @@
     return String(text || "").replace(/\r\n/g, "\n");
   }
 
+  // Links a viewer may follow from a shared page: the web, and anchors in
+  // the page. The chat also accepts workspace: links, which only the Portal
+  // can serve; here they stay plain text.
+  function safeLink(url) {
+    var value = String(url || "").trim().toLowerCase();
+    return value.indexOf("https://") === 0 || value.indexOf("http://") === 0 || value.charAt(0) === "#";
+  }
+
   // The chat's markdown-it configuration: html off, links and typography on,
   // fences for diagrams and cards kept as escaped code for the enhancers.
   var md = window.markdownit
@@ -88,12 +106,19 @@
       },
     })
     : null;
+  if (md) md.validateLink = safeLink;
 
   function renderMarkdown(text) {
     var normalized = normalizeMarkdownText(text);
     if (!normalized.trim()) return "";
     if (md) return md.render(normalized);
     return "<pre>" + escapeHtml(normalized) + "</pre>";
+  }
+
+  function renderIcons() {
+    if (window.lucide && typeof window.lucide.createIcons === "function") {
+      try { window.lucide.createIcons(); } catch (e) { /* icons are decoration */ }
+    }
   }
 
   // ----- display blocks -------------------------------------------------------
@@ -106,13 +131,23 @@
     return "";
   }
 
+  function blockCode(block) {
+    var keys = ["code", "content", "text", "message", "output", "result", "value"];
+    for (var i = 0; i < keys.length; i += 1) {
+      if (typeof block[keys[i]] === "string" && block[keys[i]].trim()) return block[keys[i]];
+    }
+    return "";
+  }
+
+  function tableParts(block) {
+    var headers = Array.isArray(block.headers) ? block.headers : (Array.isArray(block.columns) ? block.columns : []);
+    var rows = Array.isArray(block.rows) ? block.rows : [];
+    return { headers: headers, rows: rows.map(function (row) { return Array.isArray(row) ? row : [row]; }) };
+  }
+
   function renderCodeBlock(block) {
     var language = String(block.lang || block.language || "").trim().toLowerCase();
-    var keys = ["code", "content", "text", "message", "output", "result", "value"];
-    var code = "";
-    for (var i = 0; i < keys.length; i += 1) {
-      if (typeof block[keys[i]] === "string" && block[keys[i]].trim()) { code = block[keys[i]]; break; }
-    }
+    var code = blockCode(block);
     if (isMermaidLanguage(language)) {
       return "<section class=\"message-block message-block-code\"><pre><code class=\"language-mermaid\">" + escapeHtml(code) + "</code></pre></section>";
     }
@@ -122,29 +157,31 @@
   }
 
   function renderTableBlock(block) {
-    var headers = Array.isArray(block.headers) ? block.headers : (Array.isArray(block.columns) ? block.columns : []);
-    var rows = Array.isArray(block.rows) ? block.rows : [];
-    if (!headers.length && !rows.length) return "<section class=\"message-block message-block-markdown\">" + renderMarkdown(blockText(block)) + "</section>";
-    var head = headers.length
-      ? "<thead><tr>" + headers.map(function (h) { return "<th>" + escapeHtml(h) + "</th>"; }).join("") + "</tr></thead>"
+    var table = tableParts(block);
+    if (!table.headers.length && !table.rows.length) return "<section class=\"message-block message-block-markdown\">" + renderMarkdown(blockText(block)) + "</section>";
+    var head = table.headers.length
+      ? "<thead><tr>" + table.headers.map(function (h) { return "<th>" + escapeHtml(h) + "</th>"; }).join("") + "</tr></thead>"
       : "";
-    var body = rows.length
-      ? "<tbody>" + rows.map(function (row) {
-        var cells = Array.isArray(row) ? row : [];
-        return "<tr>" + cells.map(function (cell) { return "<td>" + escapeHtml(cell) + "</td>"; }).join("") + "</tr>";
+    var body = table.rows.length
+      ? "<tbody>" + table.rows.map(function (row) {
+        return "<tr>" + row.map(function (cell) { return "<td>" + escapeHtml(cell) + "</td>"; }).join("") + "</tr>";
       }).join("") + "</tbody>"
       : "";
     return "<section class=\"message-block message-block-table\"><div class=\"message-table-wrap\"><table>" + head + body + "</table></div></section>";
   }
 
-  function renderFileBlock(block) {
+  function fileBlockName(block) {
     var path = String(block.path || block.file_path || block.workspace_path || "");
-    var name = String(block.name || block.filename || path.split("/").filter(Boolean).pop() || "file");
+    return { path: path, name: String(block.name || block.filename || path.split("/").filter(Boolean).pop() || "file") };
+  }
+
+  function renderFileBlock(block) {
+    var file = fileBlockName(block);
     var description = blockText(block);
     return "<section class=\"message-block message-block-file\"><div class=\"message-file-card\">"
-      + "<div class=\"message-file-icon\" aria-hidden=\"true\">📄</div>"
-      + "<div class=\"message-file-body\"><div class=\"message-file-name\">" + escapeHtml(name) + "</div>"
-      + (path ? "<div class=\"message-file-meta\">" + escapeHtml(path) + "</div>" : "")
+      + "<div class=\"message-file-icon\" aria-hidden=\"true\">" + FILE_ICON + "</div>"
+      + "<div class=\"message-file-body\"><div class=\"message-file-name\">" + escapeHtml(file.name) + "</div>"
+      + (file.path ? "<div class=\"message-file-meta\">" + escapeHtml(file.path) + "</div>" : "")
       + (description ? "<div class=\"message-file-description\">" + escapeHtml(description) + "</div>" : "")
       + "</div></div></section>";
   }
@@ -189,18 +226,25 @@
 
   function isToolRow(message) {
     if (message.kind === "tool") return true;
+    if (message.kind === "answer") return false;
     var text = String(message.markdown || "").replace(/^\s+/, "");
     return TOOL_ROW_PREFIXES.some(function (prefix) { return text.indexOf(prefix) === 0; });
   }
 
   // Consecutive assistant answers form one row, like the chat; tool rows stay
-  // apart so the toggle can hide them.
+  // apart so the toggle can hide them; a member's answers to a question card
+  // are their own row.
   function groupMessages(messages) {
     var entries = [];
     var current = null;
     var questionIndex = 0;
     (messages || []).forEach(function (message) {
       if (!message || typeof message !== "object") return;
+      if (message.kind === "answer") {
+        current = null;
+        entries.push({ type: "answer", message: message });
+        return;
+      }
       if (message.role === "user") {
         current = null;
         questionIndex += 1;
@@ -236,34 +280,46 @@
     return "<div class=\"message-attachments\">" + items.join("") + "</div>";
   }
 
-  function renderEntries(entries, showTools) {
+  function metaHtml(author, when, extra) {
+    return "<div class=\"message-meta" + (extra && extra.user ? " message-meta-user" : "") + "\">"
+      + "<span class=\"message-author\">" + escapeHtml(author) + "</span>"
+      + (when ? "<span class=\"message-timestamp\">" + escapeHtml(when) + "</span>" : "")
+      + (extra && extra.model ? "<span class=\"message-model\" title=\"Model that answered\">" + escapeHtml(extra.model) + "</span>" : "")
+      + "</div>";
+  }
+
+  function renderEntries(entries) {
     return entries.map(function (entry) {
       if (entry.type === "user") {
         var user = entry.message;
-        var when = formatTime(user.timestamp);
         return "<div class=\"message-row message-row-user share-question\" id=\"q-" + entry.index + "\">"
-          + "<div class=\"message-meta message-meta-user\"><span class=\"message-author\">" + escapeHtml(user.author || "User") + "</span>"
-          + (when ? "<span class=\"message-timestamp\">" + escapeHtml(when) + "</span>" : "") + "</div>"
+          + metaHtml(user.author || "User", formatTime(user.timestamp), { user: true })
           + "<article class=\"message-surface message-surface-user\"><div class=\"message-body\">" + escapeHtml(user.markdown || "") + "</div>"
           + attachmentsHtml(user.attachments) + "</article></div>";
       }
+      if (entry.type === "answer") {
+        var answer = entry.message;
+        var pairs = Array.isArray(answer.pairs) ? answer.pairs : [];
+        return "<div class=\"message-row message-row-user share-answer\">"
+          + metaHtml(answer.author || "User", formatTime(answer.timestamp), { user: true })
+          + "<article class=\"message-surface message-surface-user\"><div class=\"message-body\">"
+          + "<div class=\"share-answer-note\">Answered the assistant's question</div>"
+          + "<dl class=\"share-answer-pairs\">" + pairs.map(function (pair) {
+            return "<dt>" + escapeHtml(pair.label || "Answer") + "</dt><dd>" + escapeHtml(pair.value || "") + "</dd>";
+          }).join("") + "</dl></div></article></div>";
+      }
       if (entry.type === "tool") {
-        if (!showTools) return "";
         var tool = entry.message;
         return "<div class=\"message-row message-row-assistant share-tool-row\">"
-          + "<div class=\"message-meta\"><span class=\"message-author\">" + escapeHtml(tool.author || "Assistant") + "</span><span class=\"message-timestamp\">tool step</span></div>"
+          + metaHtml(tool.author || "Assistant", "tool step")
           + "<article class=\"message-surface message-surface-assistant assistant-message tool-message\"><div class=\"message-markdown\">" + renderMarkdown(tool.markdown) + "</div></article></div>";
       }
       var first = entry.messages[0] || {};
       var last = entry.messages[entry.messages.length - 1] || first;
       var markdown = entry.messages.map(function (m) { return String(m.markdown || ""); }).filter(function (t) { return t.trim(); }).join("\n\n");
       var blocks = entry.messages.reduce(function (all, m) { return all.concat(Array.isArray(m.display_blocks) ? m.display_blocks : []); }, []);
-      var answeredAt = formatTime(last.timestamp || first.timestamp);
-      var model = String(last.model || first.model || "").trim();
       return "<div class=\"message-row message-row-assistant\">"
-        + "<div class=\"message-meta\"><span class=\"message-author\">" + escapeHtml(first.author || "Assistant") + "</span>"
-        + (answeredAt ? "<span class=\"message-timestamp\">" + escapeHtml(answeredAt) + "</span>" : "")
-        + (model ? "<span class=\"message-model\" title=\"Model that answered\">" + escapeHtml(model) + "</span>" : "") + "</div>"
+        + metaHtml(first.author || "Assistant", formatTime(last.timestamp || first.timestamp), { model: String(last.model || first.model || "").trim() })
         + "<article class=\"message-surface message-surface-assistant assistant-message\"><div class=\"message-markdown\">" + renderAssistantBody(markdown, blocks) + "</div></article></div>";
     }).join("");
   }
@@ -280,7 +336,7 @@
     dom.toc.innerHTML = "<div class=\"share-toc-title\">Questions</div><ol class=\"share-toc-list\">"
       + questions.map(function (entry) {
         var text = String(entry.message.markdown || "").replace(/\s+/g, " ").trim();
-        if (text.length > 80) text = text.slice(0, 77).trim() + "…";
+        if (text.length > 80) text = text.slice(0, 77).trim() + ELLIPSIS;
         return "<li><a href=\"#q-" + entry.index + "\">" + escapeHtml(text || "(attachment)") + "</a></li>";
       }).join("") + "</ol>";
   }
@@ -288,6 +344,7 @@
   function enhance(root) {
     root.querySelectorAll("a").forEach(function (anchor) {
       anchor.classList.add("message-link");
+      if ((anchor.getAttribute("href") || "").charAt(0) === "#") return;
       anchor.target = "_blank";
       anchor.rel = "noopener noreferrer";
     });
@@ -302,7 +359,9 @@
       if (code.closest(".message-codeblock") || code.closest(".share-diagram")) return;
       var language = languageOf(code);
       if (isMermaidLanguage(language)) return; // drawn below
-      if (isEfpCardLanguage(language) && window.EfpCards && window.EfpCards.buildFromCode(code)) return;
+      // Cards in their read-only form: no Fix/Replay buttons, nothing that
+      // talks to an assistant.
+      if (isEfpCardLanguage(language) && window.EfpCards && window.EfpCards.buildFromCode(code, { readonly: true, surface: "share" })) return;
       if (window.hljs && !code.classList.contains("hljs") && language && window.hljs.getLanguage(language)) {
         try { window.hljs.highlightElement(code); } catch (e) { /* keep plain */ }
       }
@@ -333,9 +392,6 @@
       wrapper.appendChild(pre);
     });
     renderDiagrams(root);
-    if (window.lucide && typeof window.lucide.createIcons === "function") {
-      try { window.lucide.createIcons(); } catch (e) { /* icons are decoration */ }
-    }
   }
 
   // ----- Mermaid ----------------------------------------------------------------
@@ -359,14 +415,22 @@
     return mermaidLoad;
   }
 
+  // The chat's Mermaid configuration (chat_ui.js mermaidBaseConfig): strict
+  // sandboxing, no error bombs painted into the page, the page's own font.
+  function initializeMermaid(mermaid) {
+    var theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "default";
+    if (state.mermaidTheme === theme) return;
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, theme: theme, fontFamily: "inherit" });
+    state.mermaidTheme = theme;
+  }
+
   function renderDiagrams(root) {
     var blocks = Array.prototype.filter.call(root.querySelectorAll("pre > code"), function (code) {
       return isMermaidLanguage(languageOf(code)) && !code.closest(".share-diagram");
     });
     if (!blocks.length) return;
     ensureMermaid().then(function (mermaid) {
-      var dark = document.documentElement.getAttribute("data-theme") === "dark";
-      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });
+      initializeMermaid(mermaid);
       blocks.forEach(function (code) {
         var source = code.textContent || "";
         state.mermaidSeq += 1;
@@ -405,21 +469,52 @@
     return ok;
   }
 
+  function markdownCell(value) {
+    return String(value == null ? "" : value).replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+  }
+
+  function blockAsMarkdown(block) {
+    if (!block || typeof block !== "object") return "";
+    var type = String(block.type || "").toLowerCase();
+    if (type === "code") {
+      return "```" + String(block.lang || block.language || "") + "\n" + blockCode(block) + "\n```";
+    }
+    if (type === "table") {
+      var table = tableParts(block);
+      if (!table.headers.length && !table.rows.length) return blockText(block).trim();
+      var head = table.headers.length ? table.headers : table.rows[0];
+      var body = table.headers.length ? table.rows : table.rows.slice(1);
+      var line = function (cells) { return "| " + cells.map(markdownCell).join(" | ") + " |"; };
+      return [line(head), "| " + head.map(function () { return "---"; }).join(" | ") + " |"]
+        .concat(body.map(line)).join("\n");
+    }
+    if (type === "file") {
+      var file = fileBlockName(block);
+      var description = blockText(block).trim();
+      return "File: " + file.name + (file.path && file.path !== file.name ? " (" + file.path + ")" : "") + (description ? " " + EM_DASH + " " + description : "");
+    }
+    return blockText(block).trim();
+  }
+
   function transcriptAsMarkdown(data, includeTools) {
     var lines = ["# " + String(data.title || "Shared session"), ""];
     (data.messages || []).forEach(function (message) {
       if (isToolRow(message) && !includeTools) return;
-      lines.push("**" + String(message.author || (message.role === "user" ? "User" : "Assistant")) + "**", "");
+      var author = String(message.author || (message.role === "user" ? "User" : "Assistant"));
+      if (message.kind === "answer") {
+        lines.push("**" + author + "** answered:", "");
+        (message.pairs || []).forEach(function (pair) {
+          lines.push("- " + String(pair.label || "Answer") + ": " + String(pair.value || ""));
+        });
+        lines.push("");
+        return;
+      }
+      lines.push("**" + author + "**", "");
       var text = String(message.markdown || "").trim();
       if (text) lines.push(text);
       (message.display_blocks || []).forEach(function (block) {
-        if (!block || typeof block !== "object") return;
-        if (block.type === "code") {
-          lines.push("", "```" + String(block.lang || block.language || ""), String(block.code || block.content || block.text || ""), "```");
-        } else {
-          var body = blockText(block);
-          if (body.trim()) lines.push("", body.trim());
-        }
+        var body = blockAsMarkdown(block);
+        if (body) lines.push("", body);
       });
       var names = (message.attachments || []).map(function (a) { return a.name; }).filter(Boolean);
       if (names.length) lines.push("", "Attachments: " + names.join(", "));
@@ -440,7 +535,7 @@
       return "<div class=\"share-state\"><strong>This session is gone.</strong><br />It was deleted on the assistant, or it expired.</div>";
     }
     if (data.status === "runtime_unreachable") {
-      return "<div class=\"share-state\"><strong>The assistant did not answer.</strong><br />" + escapeHtml(data.error || "") + " Try Refresh in a moment.</div>";
+      return "<div class=\"share-state\"><strong>" + escapeHtml(data.error || "The assistant did not answer.") + "</strong><br />Try Refresh in a moment.</div>";
     }
     if (!data.messages || !data.messages.length) {
       return "<div class=\"share-state\">This session has no messages yet.</div>";
@@ -448,32 +543,61 @@
     return "";
   }
 
+  function transcriptFingerprint(data) {
+    try {
+      return JSON.stringify([data.title, data.messages]);
+    } catch (e) {
+      return String(Date.now());
+    }
+  }
+
+  function applyToolVisibility() {
+    if (!dom.transcript) return;
+    dom.transcript.classList.toggle("is-tools-hidden", !(dom.showTools && dom.showTools.checked));
+  }
+
+  function scrollToHashOnce() {
+    if (state.scrolledToHash || !window.location.hash) return;
+    state.scrolledToHash = true;
+    var target = document.getElementById(window.location.hash.slice(1));
+    if (target) target.scrollIntoView({ block: "start" });
+  }
+
   function render() {
     var data = state.data;
     if (!data || !dom.transcript) return;
     var title = String(data.title || "Shared session");
     if (dom.title) dom.title.textContent = title;
-    document.title = title + " · Shared session";
-    if (dom.loadedAt) dom.loadedAt.textContent = "as of " + formatTime(data.loaded_at) + (data.running ? " · the assistant is still working" : "");
+    document.title = title + " " + MIDDLE_DOT + " Shared session";
+    if (dom.loadedAt) dom.loadedAt.textContent = "as of " + formatTime(data.loaded_at) + (data.running ? " " + MIDDLE_DOT + " the assistant is still working" : "");
     if (dom.openPortal) {
-      dom.openPortal.classList.toggle("hidden", !data.can_open_in_portal);
-      if (data.can_open_in_portal && data.portal_url) dom.openPortal.href = data.portal_url;
+      var canOpen = Boolean(data.can_open_in_portal && data.portal_url);
+      dom.openPortal.classList.toggle("hidden", !canOpen);
+      if (canOpen) {
+        dom.openPortal.href = data.portal_url;
+        dom.openPortal.dataset.agentId = String(data.agent_id || "");
+        dom.openPortal.dataset.sessionId = String(data.session_id || "");
+      }
     }
     var notice = stateHtml(data);
     if (notice) {
       dom.transcript.innerHTML = notice;
       if (dom.toc) { dom.toc.innerHTML = ""; dom.toc.classList.add("hidden"); }
+      state.fingerprint = "";
+      renderIcons();
       return;
     }
-    var entries = groupMessages(data.messages);
-    var showTools = Boolean(dom.showTools && dom.showTools.checked);
-    dom.transcript.innerHTML = renderEntries(entries, showTools);
-    renderToc(entries);
-    enhance(dom.transcript);
-    if (window.location.hash) {
-      var target = document.getElementById(window.location.hash.slice(1));
-      if (target) target.scrollIntoView({ block: "start" });
+    applyToolVisibility();
+    var fingerprint = transcriptFingerprint(data);
+    if (fingerprint !== state.fingerprint) {
+      state.fingerprint = fingerprint;
+      var entries = groupMessages(data.messages);
+      dom.transcript.innerHTML = renderEntries(entries);
+      renderToc(entries);
+      enhance(dom.transcript);
     }
+    renderIcons();
+    scrollToHashOnce();
   }
 
   function scheduleAutoRefresh() {
@@ -523,7 +647,7 @@
   }
 
   if (dom.refresh) dom.refresh.addEventListener("click", function () { load({ fresh: true }); });
-  if (dom.showTools) dom.showTools.addEventListener("change", render);
+  if (dom.showTools) dom.showTools.addEventListener("change", applyToolVisibility);
   if (dom.copyMarkdown) {
     dom.copyMarkdown.addEventListener("click", function () {
       if (!state.data) return;
@@ -535,9 +659,21 @@
       });
     });
   }
+  if (dom.openPortal) {
+    // The Portal opens an assistant on its last session; make it this one.
+    dom.openPortal.addEventListener("click", function () {
+      var agentId = dom.openPortal.dataset.agentId || "";
+      var sessionId = dom.openPortal.dataset.sessionId || "";
+      if (!agentId || !sessionId) return;
+      try { localStorage.setItem(LAST_SESSION_KEY_PREFIX + agentId, sessionId); } catch (e) { /* the assistant opens on its own last session */ }
+    });
+  }
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "visible" && state.data && state.data.running && !state.timer) load({ fresh: false });
   });
+  // lucide is deferred: the header icons are drawn once it is here, and again
+  // with every render.
+  window.addEventListener("load", renderIcons);
 
   load({ fresh: false });
 })();

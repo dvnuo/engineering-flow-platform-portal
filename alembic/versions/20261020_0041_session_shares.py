@@ -7,9 +7,8 @@ Create Date: 2026-10-20
 A member can share one session read-only at ``/share/{token}``. The page
 reads the session live from the runtime, so the row holds only the access
 rule (``scope``: ``members`` for signed-in allowlisted members, ``anyone``
-for whoever has the link), the owner, the name at share time (shown while
-the pod is stopped) and view counters. One share per session; revoking
-deletes the row.
+for whoever has the link), the owner and the name at share time (shown
+while the pod is stopped). One share per session; revoking deletes the row.
 """
 
 from alembic import op
@@ -32,8 +31,6 @@ def upgrade() -> None:
         sa.Column("owner_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("scope", sa.String(length=16), nullable=False, server_default="members"),
         sa.Column("title", sa.String(length=255), nullable=True),
-        sa.Column("view_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("last_viewed_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),

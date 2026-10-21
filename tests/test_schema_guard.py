@@ -19,6 +19,7 @@ REQUIRED_PORTAL_TABLES = (
     "assistant_types",
     "platform_settings",
     "user_connectors",
+    "session_shares",
 )
 
 
@@ -122,3 +123,12 @@ def test_portal_schema_guard_does_not_require_retired_sync_jobs_table():
     from app.services.schema_guard import REQUIRED_PORTAL_TABLES as GUARD_TABLES
 
     assert "runtime_profile_sync_jobs" not in GUARD_TABLES
+
+
+def test_portal_schema_guard_requires_the_session_shares_table():
+    # A Portal started against a database without migration 0041 must stop
+    # before its first /share/{token} request raises in the middle of a page.
+    from app.services.schema_guard import REQUIRED_PORTAL_TABLES as GUARD_TABLES
+
+    assert "session_shares" in GUARD_TABLES
+    assert set(REQUIRED_PORTAL_TABLES) == set(GUARD_TABLES)
