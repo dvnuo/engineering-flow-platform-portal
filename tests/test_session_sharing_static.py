@@ -1,4 +1,4 @@
-"""Static wiring of the session header, the share dialog and the share page."""
+"""Static wiring of session names, the share dialog and the share page."""
 
 from pathlib import Path
 
@@ -7,43 +7,60 @@ def _read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
-def test_app_shell_has_the_session_header_and_the_share_switch():
-    html = _read("app/templates/app.html")
-    assert 'id="session-header"' in html
-    assert 'id="session-header-title"' in html
-    assert 'data-session-header-action="rename"' in html
-    assert 'data-session-header-action="regenerate"' in html
-    assert 'data-session-header-action="share"' in html
-    assert "data-share-anyone-enabled=" in html
-    # The header sits inside the chat section so it hides with it.
-    assert html.index('id="session-header"') > html.index('id="agent-chat-app"')
-    assert html.index('id="session-header"') < html.index('id="message-scroll"')
-
-
-def test_chat_ui_reads_the_name_with_the_transcript_and_asks_again_after_a_turn():
+def _share_dialog_source() -> str:
     js = _read("app/static/js/chat_ui.js")
+    start = js.index("async function openSessionShareDialog(")
+    return js[start:js.index("async function deleteSessionForAgent(", start)]
+
+
+def test_app_shell_has_no_session_header_and_keeps_the_share_switch():
+    html = _read("app/templates/app.html")
+    # The bar above the transcript is gone: the sessions panel shows, renames
+    # and shares sessions.
+    for marker in ('id="session-header"', "data-session-header-action", "portal-session-header"):
+        assert marker not in html
+    assert "portal-session-header" not in _read("app/static/css/app.css")
+    assert "data-share-anyone-enabled=" in html
+
+
+def test_chat_ui_keeps_session_names_current_in_the_sessions_panel():
+    js = _read("app/static/js/chat_ui.js")
+    for removed in ("renderSessionHeader", "sessionHeader", "regenerateSessionTitleForAgent", "refreshSessionShareBadge", "data-session-header-action"):
+        assert removed not in js
     assert "function setSessionName(" in js
-    assert "function renderSessionHeader(" in js
     assert "function scheduleSessionTitleRefresh(" in js
     assert "function refreshSessionName(" in js
     assert "/api/sessions/${encodeURIComponent(normalizedSessionId)}/name" in js
-    assert "/title/generate" in js
-    assert "function openSessionShareDialog(" in js
-    assert 'action === "share"' in js
-    assert 'closest("[data-session-header-action]")' in js
     assert "setSessionName(agentId, normalized, data?.name, data?.name_source)" in js
     assert "scheduleSessionTitleRefresh(agentIdAtSend" in js
-    assert "sessionHeader: document.getElementById(\"session-header\")" in js
-    # Helpers reached from other paths are guarded, as the node harnesses stub them.
-    assert 'typeof renderSessionHeader === "function"' in js
-    assert "sessions/${encodeURIComponent(sessionId)}/share" in js
+    assert "updateSessionsPanelRowName(normalizedSessionId, data.name, data.name_source)" in js
     # A runtime without the name endpoint is asked once, not after every turn.
     assert "sessionNameEndpointMissing" in js
-    # A share change updates the one sessions row in place.
+    # The sessions panel opens the share dialog; a change updates its row in place.
+    assert 'action === "share"' in js
+    assert "function openSessionShareDialog(" in js
+    assert "sessions/${encodeURIComponent(sessionId)}/share" in js
     assert "function updateSessionsPanelRowShare(" in js
     assert "cssEscapeForSelector(String(sessionId))" in js
+
+
+def test_share_dialog_offers_anyone_first_and_saves_an_audience_change_at_once():
+    dialog = _share_dialog_source()
+    # A new link offers the widest audience the Portal allows: anyone with the
+    # link while SESSION_SHARE_ANYONE_ENABLED is on.
+    assert 'let selectedScope = share ? scopeOf(share.scope) : scopeOf("anyone");' in dialog
+    assert dialog.index('value="anyone"') < dialog.index('value="members"')
+    # Once the link exists, picking the other audience saves it; there is no
+    # Update step that a member could skip by closing the dialog.
+    assert 'input.addEventListener("change"' in dialog
+    assert "saveShare(selectedScope, { create: false })" in dialog
+    assert 'submitBtn.classList.toggle("hidden", Boolean(share))' in dialog
+    assert "Update" not in dialog
+    # Who can open the link right now, under the link.
+    assert "data-share-status" in dialog
+    assert "SHARE_SCOPE_COPY[scopeOf(share.scope)]" in dialog
     # The Stop sharing confirm takes Escape itself.
-    assert ':not(.portal-share-dialog-root)' in js
+    assert ':not(.portal-share-dialog-root)' in dialog
 
 
 def test_sessions_panel_offers_share_beside_rename_and_delete():
@@ -100,10 +117,19 @@ def test_share_view_renders_like_the_chat():
     assert "`portal-last-session-${agentId}`" in _read("app/static/js/chat_ui.js")
     # Code and tests stay ASCII; the page's typography is written as escapes.
     assert all(ord(ch) < 128 for ch in js)
+    # The member's turns are bubbles on the right, the assistant's answers plain text.
+    assert "share-msg--user" in js
+    assert "share-msg--assistant" in js
     css = _read("app/static/css/share.css")
     assert "@media print" in css
-    assert "--portal-chat-width: 860px" in css
+    assert 'html[data-theme="dark"]' in css
+    # One centred column with the contents in the margin, both placed
+    # explicitly: a hidden table of contents (a one-question session) must not
+    # pull the conversation into the narrow margin column.
+    assert ".share-aside { grid-column: 1;" in css
+    assert ".share-column { grid-column: 2;" in css
     assert ".share-transcript.is-tools-hidden .share-tool-row { display: none; }" in css
+    assert all(ord(ch) < 128 for ch in css)
 
 
 def test_login_scripts_only_return_to_a_share_path():

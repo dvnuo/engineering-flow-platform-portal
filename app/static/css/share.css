@@ -1,78 +1,239 @@
 /* The read-only share page (templates/share.html, js/share_view.js).
-   Message surfaces, code blocks, tables, callouts and cards come from app.css;
-   this file is the reading layout around them: one column, a table of
-   contents on wide screens, larger type and line height than the chat. */
 
-body { background: var(--portal-app-bg); color: var(--portal-text); margin: 0; }
+   A reading page, not the chat: one centred column for the title and the
+   conversation, the member's turns as bubbles on the right, the assistant's
+   answers as plain text on the left, and a table of contents in the left
+   margin of wide screens that never moves the column. Markdown, code blocks,
+   tables, callouts and cards keep their app.css rules; this file sets the
+   page's own palette (light and dark) and retunes the shared tokens they read
+   so both sit on the same neutral background. */
 
-.share-page {
-  --portal-chat-width: 860px;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 28px 16px 72px;
-  font-family: inherit;
+:root {
+  --share-bg: #ffffff;
+  --share-bg-soft: #f7f8fa;
+  --share-text: #111827;
+  --share-text-soft: #374151;
+  --share-muted: #6b7280;
+  --share-line: #eceef2;
+  --share-line-strong: #d6d9e0;
+  --share-accent: #4f7cff;
+  --share-accent-text: #ffffff;
+  --share-accent-soft: #eef3ff;
+  --share-user-bg: #eef3ff;
+  --share-user-border: #dce6ff;
+  --share-user-text: #13203f;
+  --share-chip-bg: #f3f4f6;
+  --share-tool-bg: #f8f9fb;
+  --share-focus: rgba(79, 124, 255, 0.35);
+  --share-avatar-bg: linear-gradient(135deg, #5b8cff 0%, #8b5cf6 100%);
+  --share-success: #16a34a;
+
+  /* What the shared message styles read from app.css, on this page's background. */
+  --portal-surface: #ffffff;
+  --portal-surface-muted: #f8f9fb;
+  --portal-surface-soft: #f3f4f6;
+  --portal-border: #e7e9ee;
+  --portal-border-strong: #d6d9e0;
+  --portal-codeblock-bg: #f8f9fb;
+  --portal-codeblock-border: #e7e9ee;
+  --portal-codeblock-toolbar-bg: #f1f3f6;
 }
 
-.share-header { max-width: 860px; margin: 0 auto 28px; }
-.share-eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--portal-text-muted); }
-.share-title { margin: 10px 0 8px; font-size: 1.75rem; line-height: 1.25; font-weight: 700; overflow-wrap: anywhere; }
-.share-meta, .share-copy { margin: 0 0 16px; color: var(--portal-text-secondary); font-size: 14px; line-height: 1.6; }
-.share-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.share-actions .portal-btn { display: inline-flex; align-items: center; gap: 6px; }
-.share-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--portal-text-secondary); cursor: pointer; }
+html[data-theme="dark"] {
+  --share-bg: #0e1015;
+  --share-bg-soft: #141720;
+  --share-text: #e7e9ee;
+  --share-text-soft: #c9ced8;
+  --share-muted: #8b93a3;
+  --share-line: #222631;
+  --share-line-strong: #343a48;
+  --share-accent: #86a6ff;
+  --share-accent-text: #0b1020;
+  --share-accent-soft: rgba(134, 166, 255, 0.14);
+  --share-user-bg: #1a2133;
+  --share-user-border: #2a3550;
+  --share-user-text: #e8edfb;
+  --share-chip-bg: #1a1e28;
+  --share-tool-bg: #141822;
+  --share-focus: rgba(134, 166, 255, 0.45);
+  --share-success: #22c55e;
 
-.share-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
-.share-transcript { max-width: 860px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
-.share-toc { display: none; }
-
-@media (min-width: 1040px) {
-  .share-body { grid-template-columns: 220px minmax(0, 1fr); }
-  .share-toc { display: block; position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; padding-right: 8px; }
-  .share-toc.hidden { display: none; }
-  .share-transcript { margin: 0; }
+  --portal-surface: #141720;
+  --portal-surface-muted: #161a23;
+  --portal-surface-soft: #1a1e28;
+  --portal-border: #252a36;
+  --portal-border-strong: #313746;
+  --portal-codeblock-bg: #12151c;
+  --portal-codeblock-border: #252a36;
+  --portal-codeblock-toolbar-bg: #171a22;
+  --portal-code-inline-bg: #1c2029;
+  --portal-code-inline-border: #2b3040;
 }
 
-.share-toc-title { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--portal-text-muted); margin-bottom: 8px; }
-.share-toc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: share-toc; }
-.share-toc-list li { counter-increment: share-toc; }
-.share-toc-list a { display: block; padding: 6px 8px; border-radius: var(--portal-radius-sm); font-size: 13px; line-height: 1.4; color: var(--portal-text-secondary); text-decoration: none; }
-.share-toc-list a::before { content: counter(share-toc) ". "; color: var(--portal-text-muted); }
-.share-toc-list a:hover { background: var(--portal-surface-soft); color: var(--portal-text); }
+html, body { background: var(--share-bg); }
+body { margin: 0; color: var(--share-text); -webkit-font-smoothing: antialiased; }
+.share-page .hidden { display: none !important; }
+.share-icon { width: 16px; height: 16px; flex: 0 0 auto; }
 
-/* Reading comfort: the chat renders at 14px/1.7 for density; a page read top
-   to bottom gets a touch more. */
-.share-transcript .message-markdown { font-size: 15px; line-height: 1.75; }
-.share-transcript .message-body { font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.share-transcript .message-row { animation: none; }
-.share-transcript .message-row-assistant .message-meta,
-.share-transcript .message-surface-assistant { width: 100%; }
-.share-transcript .message-model { font-size: 11px; color: var(--portal-text-muted); opacity: 1; }
-.share-question { scroll-margin-top: 16px; }
-.share-tool-row .message-surface { opacity: .85; }
-/* Tool steps are always in the DOM; the toggle flips this class instead of
+.share-page { min-height: 100vh; display: flex; flex-direction: column; font-family: inherit; }
+
+/* ----- top bar ------------------------------------------------------------ */
+
+.share-topbar { border-bottom: 1px solid var(--share-line); background: var(--share-bg); }
+.share-topbar-inner { max-width: 1280px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.share-brand { display: inline-flex; align-items: center; gap: 10px; min-width: 0; color: var(--share-text); text-decoration: none; font-size: 14px; font-weight: 600; }
+.share-brand-mark { width: 28px; height: 28px; border-radius: 8px; display: inline-grid; place-items: center; background: var(--share-avatar-bg); color: #ffffff; flex: 0 0 auto; }
+.share-brand-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-pill { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--share-line); color: var(--share-muted); font-size: 12px; font-weight: 500; }
+.share-pill .share-icon { width: 14px; height: 14px; }
+
+/* ----- layout: one centred column, the contents in the left margin -------- */
+
+.share-shell {
+  --share-column: 760px;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--share-column)) minmax(0, 1fr);
+  column-gap: 40px;
+  padding: 44px 20px 64px;
+}
+/* Placed explicitly: a hidden table of contents must not pull the
+   conversation into the margin column. */
+.share-aside { grid-column: 1; grid-row: 1; justify-self: end; width: 220px; min-width: 0; }
+.share-column { grid-column: 2; grid-row: 1; min-width: 0; }
+
+@media (max-width: 1319px) {
+  .share-shell { grid-template-columns: minmax(0, 1fr); padding: 32px 16px 56px; }
+  .share-aside { display: none; }
+  .share-column { grid-column: 1; width: 100%; max-width: var(--share-column); margin: 0 auto; }
+}
+
+.share-toc { position: sticky; top: 32px; max-height: calc(100vh - 64px); overflow-y: auto; padding-right: 4px; }
+.share-toc-title { margin: 0 0 10px 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--share-muted); }
+.share-toc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.share-toc-list a { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 4px; padding: 6px 8px; border-radius: 8px; font-size: 13px; line-height: 1.45; color: var(--share-muted); text-decoration: none; }
+.share-toc-list a:hover { background: var(--share-chip-bg); color: var(--share-text); }
+.share-toc-num { font-variant-numeric: tabular-nums; color: var(--share-line-strong); font-weight: 600; }
+.share-toc-list a:hover .share-toc-num { color: var(--share-accent); }
+
+/* ----- title and actions ---------------------------------------------------- */
+
+.share-hero { margin-bottom: 36px; padding-bottom: 24px; border-bottom: 1px solid var(--share-line); }
+.share-title { margin: 0 0 14px; font-size: clamp(1.5rem, 1.15rem + 1.1vw, 2.05rem); line-height: 1.22; font-weight: 700; letter-spacing: -0.015em; color: var(--share-text); overflow-wrap: anywhere; }
+.share-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; margin-bottom: 18px; font-size: 13.5px; color: var(--share-muted); }
+.share-meta strong { color: var(--share-text-soft); font-weight: 600; }
+.share-meta-item { display: inline-flex; align-items: center; gap: 8px; }
+.share-meta-item:not(:first-child)::before { content: ""; width: 3px; height: 3px; margin: 0 10px; border-radius: 999px; background: var(--share-line-strong); }
+.share-running { color: var(--share-accent); font-weight: 500; }
+.share-running::after { content: ""; width: 7px; height: 7px; border-radius: 999px; background: currentColor; animation: share-pulse 1.4s ease-in-out infinite; }
+
+.share-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.share-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--share-line-strong); background: var(--share-bg); color: var(--share-text-soft); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+.share-btn:hover { background: var(--share-chip-bg); color: var(--share-text); }
+.share-btn:disabled { opacity: .55; cursor: default; }
+.share-btn--primary { background: var(--share-accent); border-color: var(--share-accent); color: var(--share-accent-text); }
+.share-btn--primary:hover { background: var(--share-accent); color: var(--share-accent-text); filter: brightness(1.06); }
+.share-btn:focus-visible { outline: 2px solid var(--share-focus); outline-offset: 2px; }
+
+.share-switch { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px; font-size: 13px; color: var(--share-text-soft); cursor: pointer; user-select: none; }
+.share-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.share-switch-track { position: relative; width: 30px; height: 18px; border-radius: 999px; background: var(--share-line-strong); transition: background-color .15s ease; }
+.share-switch-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 999px; background: #ffffff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: transform .15s ease; }
+.share-switch input:checked + .share-switch-track { background: var(--share-accent); }
+.share-switch input:checked + .share-switch-track::after { transform: translateX(12px); }
+.share-switch input:focus-visible + .share-switch-track { outline: 2px solid var(--share-focus); outline-offset: 2px; }
+
+/* ----- the conversation ------------------------------------------------------ */
+
+.share-transcript { display: flex; flex-direction: column; gap: 30px; min-width: 0; }
+.share-msg { display: flex; flex-direction: column; gap: 8px; min-width: 0; scroll-margin-top: 24px; }
+.share-msg-meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--share-muted); }
+.share-msg-author { font-weight: 600; color: var(--share-text-soft); }
+.share-msg-meta time { font-variant-numeric: tabular-nums; }
+.share-avatar { width: 24px; height: 24px; border-radius: 8px; display: inline-grid; place-items: center; background: var(--share-avatar-bg); color: #ffffff; font-size: 12px; font-weight: 700; line-height: 1; flex: 0 0 auto; }
+.share-model { margin-left: auto; padding: 2px 8px; border-radius: 999px; background: var(--share-chip-bg); color: var(--share-muted); font-size: 11.5px; white-space: nowrap; }
+
+/* The member's turns: a bubble on the right. */
+.share-msg--user { align-items: flex-end; }
+.share-msg--user .share-msg-meta { justify-content: flex-end; }
+.share-bubble { max-width: min(88%, 620px); padding: 12px 16px; border-radius: 18px 18px 6px 18px; background: var(--share-user-bg); border: 1px solid var(--share-user-border); color: var(--share-user-text); font-size: 15px; line-height: 1.65; }
+.share-bubble-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.share-bubble .message-attachments { margin-top: 10px; }
+.share-bubble-text:empty + .message-attachments { margin-top: 0; }
+
+/* The assistant's answers: plain text on the page, like a document. */
+.share-msg-body.message-markdown { font-size: 15.5px; line-height: 1.78; color: var(--share-text); overflow-wrap: anywhere; }
+.share-msg-body .message-codeblock,
+.share-msg-body .message-table-wrap,
+.share-msg-body .message-callout,
+.share-msg-body .message-file-card { margin: 14px 0; }
+
+/* Tool steps, when the switch shows them: quiet notes between the turns. */
+.share-tool { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--share-tool-bg); border: 1px dashed var(--share-line-strong); color: var(--share-muted); }
+.share-tool .message-markdown { font-size: 13px; line-height: 1.6; color: var(--share-muted); min-width: 0; }
+.share-tool .share-icon { margin-top: 3px; }
+/* Tool steps are always in the DOM; the switch flips this class instead of
    rebuilding the transcript (which would lose scroll position and diagrams). */
 .share-transcript.is-tools-hidden .share-tool-row { display: none; }
+
 /* A member's answers to the assistant's question card. */
-.share-answer-pairs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
-.share-answer-pairs dt { color: var(--portal-text-muted); font-size: 12px; }
-.share-answer-pairs dd { margin: 0; }
-.share-answer-note { font-size: 12px; color: var(--portal-text-muted); margin-bottom: 6px; }
+.share-bubble--answer { padding: 12px 16px 14px; }
+.share-answer-note { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 12px; color: var(--share-muted); }
+.share-answer-pairs { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
+.share-answer-pairs dt { color: var(--share-muted); font-size: 13px; }
+.share-answer-pairs dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+
 .share-tool-result > summary { cursor: pointer; list-style: revert; }
-.share-diagram { margin: 12px 0; overflow-x: auto; }
+.share-diagram { margin: 14px 0; padding: 12px; overflow-x: auto; border: 1px solid var(--share-line); border-radius: 12px; background: var(--share-bg); }
 .share-diagram svg { max-width: 100%; height: auto; }
 .share-attachment-image { display: inline-block; max-width: 100%; }
-.share-attachment-image img { max-width: min(100%, 520px); border-radius: var(--portal-radius-sm); border: 1px solid var(--portal-border); }
+.share-attachment-image img { display: block; max-width: min(100%, 420px); border-radius: 12px; border: 1px solid var(--share-user-border); }
 
-.share-state { padding: 20px 22px; border: 1px dashed var(--portal-border-strong); border-radius: var(--portal-radius-md); background: var(--portal-surface); color: var(--portal-text-secondary); line-height: 1.6; }
+/* ----- page states ------------------------------------------------------------ */
+
+.share-state { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px; border-radius: 14px; border: 1px solid var(--share-line); background: var(--share-bg-soft); color: var(--share-text-soft); font-size: 14px; line-height: 1.6; }
+.share-state strong { display: block; margin-bottom: 2px; color: var(--share-text); }
+.share-state .share-icon { width: 18px; height: 18px; margin-top: 2px; color: var(--share-muted); }
+.share-state-spinner { width: 16px; height: 16px; margin-top: 3px; flex: 0 0 auto; border-radius: 999px; border: 2px solid var(--share-line-strong); border-top-color: var(--share-accent); animation: share-spin .8s linear infinite; }
+
+.share-footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--share-line); color: var(--share-muted); font-size: 12.5px; line-height: 1.6; }
+
+.share-missing { flex: 1; display: grid; place-items: center; padding: 48px 16px; }
+.share-missing-card { max-width: 440px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.share-missing-icon { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--share-chip-bg); color: var(--share-muted); }
+.share-missing-icon .share-icon { width: 22px; height: 22px; }
+.share-missing-title { margin: 6px 0 0; font-size: 1.4rem; line-height: 1.3; font-weight: 700; color: var(--share-text); }
+.share-missing-copy { margin: 0 0 8px; color: var(--share-muted); line-height: 1.6; }
+
+@keyframes share-spin { to { transform: rotate(360deg); } }
+@keyframes share-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+@media (max-width: 640px) {
+  .share-topbar-inner { padding: 10px 16px; }
+  .share-brand-name { font-size: 13px; }
+  .share-shell { padding: 24px 16px 48px; }
+  .share-hero { margin-bottom: 28px; padding-bottom: 20px; }
+  /* The items wrap here; a separator dot would start the second line. */
+  .share-meta { gap: 6px 16px; }
+  .share-meta-item:not(:first-child)::before { display: none; }
+  .share-transcript { gap: 26px; }
+  .share-bubble { max-width: 92%; }
+  .share-msg-body.message-markdown { font-size: 15px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .share-state-spinner, .share-running::after { animation: none; }
+}
 
 @media print {
   /* Paper is white whatever the theme; the dark theme's light text must not
      print white on white. */
-  body, .share-page, .share-transcript .message-surface { background: #fff; color: #111; }
-  .share-actions, .share-toc, .share-eyebrow { display: none !important; }
-  .share-page { padding: 0; max-width: none; }
-  .share-body { grid-template-columns: minmax(0, 1fr); }
-  .share-transcript .message-surface { border-color: #ccc; break-inside: avoid; }
+  html, body, .share-page { background: #ffffff; color: #111111; }
+  .share-topbar, .share-toolbar, .share-aside, .share-footer { display: none !important; }
+  .share-shell { display: block; padding: 0; }
+  .share-column { max-width: none; }
+  .share-msg-body.message-markdown, .share-title { color: #111111; }
+  .share-bubble { background: #f3f4f6; border-color: #d1d5db; color: #111111; break-inside: avoid; }
   .share-tool-result[open] > summary { font-weight: 600; }
   details.share-tool-result { display: block; }
 }
