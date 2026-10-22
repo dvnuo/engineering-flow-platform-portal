@@ -88,7 +88,7 @@ def test_share_page_is_standalone():
     # behind the block it overrides.
     assert "{% block head_scripts %}" in base
     assert "{% block head_scripts %}" in html
-    for script in ("lib/markdown-it.min.js", "lib/highlight.min.js", "lib/lucide.min.js"):
+    for script in ("lib/markdown-it.min.js", "js/markdown_cjk_friendly.js", "lib/highlight.min.js", "lib/lucide.min.js"):
         assert script in html
     for script in ("lib/alpine.min.js", "lib/htmx.min.js", "js/dialogs.js", "js/tooltips.js", "js/chat_ui.js"):
         assert script not in html

@@ -1014,6 +1014,14 @@ const md = window.markdownit({
   },
 });
 
+// Bold and italics beside CJK punctuation (static/js/markdown_cjk_friendly.js):
+// CommonMark alone leaves a bold label that ends in a full-width colon and
+// runs straight into its text as literal asterisks. The node tests load
+// pieces of this file without the plugin, hence the guard.
+if (typeof window !== "undefined" && typeof window.markdownItCjkFriendly === "function") {
+  md.use(window.markdownItCjkFriendly);
+}
+
 // Only http/https URLs and workspace: file links may become links. A
 // workspace: link names a file the assistant wrote in this assistant's
 // workspace (e.g. workspace:output/deck.pptx); the renderer below turns it

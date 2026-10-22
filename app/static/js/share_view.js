@@ -114,6 +114,8 @@
     })
     : null;
   if (md) md.validateLink = safeLink;
+  // Same CJK-friendly emphasis as the chat (static/js/markdown_cjk_friendly.js).
+  if (md && typeof window.markdownItCjkFriendly === "function") md.use(window.markdownItCjkFriendly);
 
   function renderMarkdown(text) {
     var normalized = normalizeMarkdownText(text);
