@@ -3747,6 +3747,27 @@ function reduceAgentTimelinePermissionEvent(timeline, event, type) {
   return true;
 }
 
+// What a browser connector row says besides its action: how many workspace
+// files a page.upload carries, which playbook a workflow.run runs. The request
+// event has the prepared params (file entries), the response event only the
+// model's arguments (paths, or a var-to-path map), so both shapes count.
+function connectorRequestDetail(action, data) {
+  const params = (data.connector_request && data.connector_request.params)
+    || (data.arguments && data.arguments.params)
+    || null;
+  if (!params || typeof params !== "object") return "";
+  const files = params.files;
+  const count = Array.isArray(files) ? files.length : (files && typeof files === "object" ? Object.keys(files).length : 0);
+  const filesText = count ? `${count} file${count === 1 ? "" : "s"}` : "";
+  if (action === "page.upload") return filesText ? ` (${filesText})` : "";
+  if (action === "workflow.run") {
+    const workflow = params.workflow ? String(params.workflow).split("/").slice(-2).join("/") : "";
+    const parts = [workflow, filesText].filter(Boolean);
+    return parts.length ? ` (${parts.join(", ")})` : "";
+  }
+  return "";
+}
+
 function reduceAgentTimelineGenericEvent(timeline, event, type) {
   const data = getAgentTimelineEventData(event);
   const itemId = `${type}:${getAgentTimelineEventKey(event, timeline)}`;
@@ -3772,19 +3793,20 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
     if (connectorRequestId) {
       const action = data.action || (data.connector_request && data.connector_request.action) || "";
       const label = data.connector_type === "local_bridge" ? "Browser" : (data.connector_type || "Connector");
+      const title = `${label}: ${action || "request"}${connectorRequestDetail(action, data)}`;
       const pendingId = `connector:${connectorRequestId}`;
       const responded = type === "connector.responded";
       const ok = data.ok !== false;
       upsertAgentTimelineItem(timeline, pendingId, {
         kind: "tool",
         status: responded ? (ok ? "completed" : "failed") : "pending",
-        title: `${label}: ${action || "request"}`,
+        title,
         icon: "globe",
         createdAt: event.created_at,
       }, {
         kind: "tool",
         status: responded ? (ok ? "completed" : "failed") : "pending",
-        title: `${label}: ${action || "request"}`,
+        title,
         summary: responded
           ? truncateAgentTimelineText(ok ? `done in ${data.duration_ms || 0} ms` : (data.error_code || "failed"))
           : "waiting for your browser",
