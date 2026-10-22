@@ -22,7 +22,11 @@
   const LOCAL_BRIDGE_TYPE = "local_bridge";
   const PORT_RANGE = [8765, 8766, 8767, 8768, 8769, 8770];
   const PING_TIMEOUT_MS = 1500;
+  // A /run call is given the request's own timeout plus this grace, so a
+  // playbook the runtime waits 120 s for is not cut off by the page first.
+  const RUN_TIMEOUT_GRACE_MS = 5000;
   const RUN_TIMEOUT_MS = 65000;
+  const STAGE_TIMEOUT_MS = 120000;
   const PROBE_CACHE_MS = 10000;
   // While the composer says the bridge is offline, it looks again this often:
   // a bridge started from the Mobile testing panel or a terminal, after the
@@ -227,6 +231,13 @@
       lb.protocolVersion = found ? Number(found.data.protocol_version || 0) : 0;
       lb.tabCount = found && found.data.session ? Number(found.data.session.tab_count || 0) : 0;
       lb.mobile = mobileState(found ? found.data : null);
+      // browser_files and workflow: the bridge stages workspace files for
+      // page.upload and runs playbooks; an older bridge has neither and the
+      // assistant is told so instead of the page trying.
+      lb.capabilities = found && Array.isArray(found.data.capabilities) ? found.data.capabilities.slice() : [];
+      lb.browserFiles = lb.capabilities.indexOf("browser_files") >= 0;
+      lb.workflow = lb.capabilities.indexOf("workflow") >= 0;
+      lb.maxFileBytes = found && found.data.browser && typeof found.data.browser === "object" ? Number(found.data.browser.max_file_bytes || 0) : 0;
       lb.probing = null;
       return { alive: lb.alive, port: lb.port, sessionAlive: lb.sessionAlive, version: lb.version, tabCount: lb.tabCount, mobile: lb.mobile };
     })();
@@ -251,11 +262,12 @@
         return { ok: false, error: { code: "bridge_unreachable", message: "The local bridge is not running.", hint: "Open Connectors → Local bridge and start it." } };
       }
     }
+    const seconds = Math.max(5, Math.min(120, Number(timeoutSeconds) || 30));
     const body = JSON.stringify({
       command,
       params: params && typeof params === "object" ? params : {},
       session: "default",
-      timeout_seconds: Math.max(5, Math.min(120, Number(timeoutSeconds) || 30)),
+      timeout_seconds: seconds,
     });
     try {
       const response = await fetchWithTimeout(`http://127.0.0.1:${lb.port}/run`, {
@@ -263,7 +275,7 @@
         mode: "cors",
         headers: { "Content-Type": "application/json" },
         body,
-      }, RUN_TIMEOUT_MS);
+      }, Math.max(RUN_TIMEOUT_MS, seconds * 1000 + RUN_TIMEOUT_GRACE_MS));
       let payload = null;
       try {
         payload = await response.json();
@@ -276,7 +288,10 @@
       if (payload.ok === true) {
         return { ok: true, result: payload.data !== undefined ? payload.data : payload };
       }
-      const error = payload.error && typeof payload.error === "object" ? payload.error : { code: "bridge_error", message: `Bridge returned HTTP ${response.status}.` };
+      const error = payload.error && typeof payload.error === "object" ? { ...payload.error } : { code: "bridge_error", message: `Bridge returned HTTP ${response.status}.` };
+      // A failed playbook answers workflow_failed with the steps so far as
+      // data; it travels with the error so the assistant sees which step.
+      if (payload.data && typeof payload.data === "object" && error.data === undefined) error.data = payload.data;
       return { ok: false, error };
     } catch (error) {
       lb.alive = false;
@@ -367,12 +382,125 @@
     return probe;
   }
 
+  // ---- workspace files for page.upload and playbooks -------------------------
+  //
+  // Chrome attaches only files on the member's computer, and the bridge holds
+  // no Portal credentials, so this page is the carrier: it pulls each file the
+  // runtime named through the Server files download (the request carries
+  // paths, names, and sizes, never bytes), POSTs it to the bridge's staging
+  // route, and runs the command with the staged ids in place of the paths.
+
+  function workspaceFileUrl(agentId, path) {
+    return `/a/${encodeURIComponent(agentId)}/api/server-files/download?paths=${encodeURIComponent(String(path))}`;
+  }
+
+  function bridgeFailure(code, message, hint) {
+    const error = new Error(message);
+    error.bridgeError = { code, message };
+    if (hint) error.bridgeError.hint = hint;
+    return error;
+  }
+
+  async function fetchWorkspaceFile(agentId, file) {
+    let response;
+    try {
+      response = await fetchWithTimeout(workspaceFileUrl(agentId, file.path), { method: "GET", credentials: "same-origin" }, STAGE_TIMEOUT_MS);
+    } catch (error) {
+      throw bridgeFailure("file_fetch_failed", `Could not read ${file.path} from the workspace: ${error && error.name === "AbortError" ? "timed out" : String(error && error.message ? error.message : error)}.`);
+    }
+    if (!response.ok) {
+      throw bridgeFailure("file_fetch_failed", `Could not read ${file.path} from the workspace (HTTP ${response.status}).`, "Check that the file still exists in the workspace.");
+    }
+    return response.blob();
+  }
+
+  async function stageFile(port, file, blob) {
+    const form = new FormData();
+    form.append("file", blob, String(file.name || "file"));
+    let response;
+    try {
+      response = await fetchWithTimeout(`http://127.0.0.1:${port}/browser/files`, { method: "POST", mode: "cors", body: form }, STAGE_TIMEOUT_MS);
+    } catch (error) {
+      throw bridgeFailure(error && error.name === "AbortError" ? "bridge_timeout" : "bridge_unreachable", `The local bridge did not take ${file.name || file.path}.`);
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      payload = null;
+    }
+    const staged = payload && payload.ok === true && payload.data && payload.data.file;
+    if (!staged || !staged.id) {
+      const error = payload && payload.error && typeof payload.error === "object" ? payload.error : {};
+      throw bridgeFailure(error.code || "staging_failed", error.message || `Bridge returned HTTP ${response.status} while staging ${file.name || file.path}.`, error.hint);
+    }
+    return staged;
+  }
+
+  function withoutFiles(params) {
+    const next = {};
+    Object.keys(params || {}).forEach((key) => { if (key !== "files") next[key] = params[key]; });
+    return next;
+  }
+
+  // Stages every file a page.upload or workflow.run request names and
+  // returns the params to run: file_ids for page.upload, the staged ids
+  // merged into vars for workflow.run. Resolves to {ok:false, error} when a
+  // file cannot be fetched or staged, so nothing partial reaches the page.
+  async function stageRequestFiles(agentId, action, params) {
+    const files = Array.isArray(params.files) ? params.files : [];
+    const lb = state.localBridge;
+    if (!lb.alive || !lb.port) {
+      const probe = await probeLocalBridge({ force: true, quick: true });
+      if (!probe.alive) {
+        return { ok: false, error: { code: "bridge_unreachable", message: "The local bridge is not running.", hint: "Open Connectors → Local bridge and start it." } };
+      }
+    }
+    if ((files.length && !lb.browserFiles) || (action === "workflow.run" && !lb.workflow)) {
+      return { ok: false, error: { code: "bridge_outdated", message: "The local bridge on this computer is too old to upload workspace files or run playbooks.", hint: "Ask the member to download the current bridge from Connectors → Local bridge, install it, and start it again." } };
+    }
+    const staged = [];
+    for (const file of files) {
+      if (!file || typeof file !== "object" || !file.path) {
+        return { ok: false, error: { code: "invalid_args", message: "A file entry has no workspace path." } };
+      }
+      if (lb.maxFileBytes && Number(file.bytes) > lb.maxFileBytes) {
+        return { ok: false, error: { code: "payload_too_large", message: `${file.name || file.path} is larger than the bridge accepts (${Math.round(lb.maxFileBytes / (1024 * 1024))} MB).` } };
+      }
+      try {
+        const blob = await fetchWorkspaceFile(agentId, file);
+        const entry = await stageFile(lb.port, file, blob);
+        staged.push({ ...file, id: entry.id });
+      } catch (error) {
+        return { ok: false, error: error && error.bridgeError ? error.bridgeError : { code: "file_fetch_failed", message: String(error && error.message ? error.message : error) } };
+      }
+    }
+    const next = withoutFiles(params);
+    if (action === "page.upload") {
+      next.file_ids = staged.map((file) => file.id);
+    } else if (action === "workflow.run" && staged.length) {
+      next.vars = { ...(params.vars && typeof params.vars === "object" ? params.vars : {}) };
+      staged.forEach((file) => { if (file.var) next.vars[String(file.var)] = file.id; });
+    }
+    return { ok: true, params: next, staged };
+  }
+
   const localBridgeModule = {
     type: LOCAL_BRIDGE_TYPE,
     probe: probeLocalBridge,
-    async execute(request) {
+    async execute(request, context) {
       const action = String(request.action || "");
-      return runLocalBridge(action, request.params, request.timeout_seconds);
+      const params = request.params && typeof request.params === "object" ? request.params : {};
+      if (action === "page.upload" || action === "workflow.run") {
+        const agentId = String((context && context.agentId) || currentAgentId() || "");
+        if (!agentId && Array.isArray(params.files) && params.files.length) {
+          return { ok: false, error: { code: "file_fetch_failed", message: "No assistant is selected on this page, so its workspace files cannot be read." } };
+        }
+        const staged = await stageRequestFiles(agentId, action, params);
+        if (!staged.ok) return staged;
+        return runLocalBridge(action, staged.params, request.timeout_seconds);
+      }
+      return runLocalBridge(action, params, request.timeout_seconds);
     },
   };
 
@@ -433,7 +561,7 @@
     }
     let outcome;
     try {
-      outcome = await module.execute(request);
+      outcome = await module.execute(request, { agentId, sessionId });
     } catch (error) {
       outcome = { ok: false, error: { code: "bridge_exception", message: String(error && error.message ? error.message : error) } };
     }
@@ -841,6 +969,8 @@
       loadConnectors,
       probeLocalBridge,
       runLocalBridge,
+      stageRequestFiles,
+      workspaceFileUrl,
       launchBridge,
       ensureBrowserSession,
       chatRequestConnectors,

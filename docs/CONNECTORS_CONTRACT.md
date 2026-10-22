@@ -93,7 +93,9 @@ Arguments
 | `page.select` | `ref` or `selector`, `value` | |
 | `page.check` / `page.uncheck` | `ref` or `selector` | |
 | `page.press` | `key`, optional `ref` or `selector` | |
+| `page.upload` | `ref` or `selector`, `files: ["output/report.pdf"]` (workspace-relative, at most 10, each within `EFP_MAX_UPLOAD_MB`), `clear?` | the runtime checks each file against the workspace and sends `files: [{path, name, bytes}]` to the page, which stages the bytes on the bridge (section 6) and runs the command with `file_ids`; returns `{file_count, files: [{id, name, bytes}], selector, title, url}`; tool errors `file_not_found`, `file_outside_workspace`, `file_too_large`, `too_many_files`, `no_workspace`; page errors `bridge_outdated`, `file_fetch_failed`; bridge errors `file_not_staged`, `payload_too_large` |
 | `page.screenshot` | `target_id?, full_page?` | returns `{mime:"image/jpeg", base64, width, height}`; longest side ≤ 1280 |
+| `workflow.run` | `workflow: "<skill>/workflow.yaml"` (read from the workspace, else from a discovered skill directory) or `workflow_yaml`, `vars?: {name: value}`, `files?: {var: "workspace/path"}`, `yes?`, `dry_run?`, `continue_on_error?`, `target_id?` | the runtime sends `{workflow_yaml, vars, files: [{var, path, name, bytes}], yes, dry_run, continue_on_error, workflow?, target_id?}`; the page stages the files and merges their ids into `vars` before running; returns the bridge's workflow result (`pass, status, steps[], failed_step, duration_ms`); a failed playbook is `workflow_failed` with the result as `error.data`, which the tool renders step by step; default `timeout_seconds` 90; tool errors `workflow_not_found`, `workflow_too_large`, plus the file errors above |
 | `bookmark.list` | – | |
 | `session.status` | – | |
 
@@ -145,6 +147,13 @@ the runtime WebSocket `/api/events`, proxied to the page as `/a/{agent_id}/api/e
 After the bridge answers, runtime emits `tool.connector_responded` → `connector.responded`
 with `{ id, ok, duration_ms, error? }` for the timeline.
 
+For `page.upload` and `workflow.run`, `connector_request.params.files` carries
+`{path, name, bytes}` entries (`{var, path, name, bytes}` for a playbook), never file
+contents: the page fetches each file itself through
+`GET /a/{agent_id}/api/server-files/download?paths=<path>` (the Server files download,
+with the member's own session) and stages it on the bridge before running the command.
+The timeline row shows the file count and, for a playbook, its path.
+
 ## 5. Respond endpoint (page → Portal proxy → runtime)
 
 `POST /a/{agent_id}/api/sessions/{session_id}/connectors/respond`
@@ -172,16 +181,29 @@ Default port 8765; if busy the service tries 8766–8770. The page probes the me
 | Method | Path | Body / Response |
 |---|---|---|
 | OPTIONS | `*` | `204` with `Access-Control-Allow-Origin: <origin>`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`, `Access-Control-Allow-Headers: Content-Type`, `Access-Control-Allow-Private-Network: true`, `Access-Control-Max-Age: 600`, `Vary: Origin` |
-| GET | `/ping` | `{ "ok": true, "data": { "version": "0.1.0", "protocol_version": 1, "session": { "name": "default", "alive": true, "debug_port": 57848, "tab_count": 3 } } }` |
+| GET | `/ping` | `{ "ok": true, "data": { "version": "0.1.0", "protocol_version": 1, "capabilities": ["browser", "mobile", "browser_files", "workflow"], "browser": { "files": true, "workflow": true, "max_file_bytes": 104857600, "workflow_actions": [...] }, "session": { "name": "default", "alive": true, "debug_port": 57848, "tab_count": 3 } } }` |
 | GET | `/commands` | `{ "ok": true, "data": { "commands": ["tab.list", "page.snapshot", …] } }` |
 | POST | `/run` | request `{ "command": "page.snapshot", "params": {…}, "session": "default", "timeout_seconds": 30 }` → the CLI JSON envelope `{ ok, data }` or `{ ok, error }`; HTTP status = `error.status` when present, else 200 |
+| POST | `/browser/files` | `multipart/form-data` with one part named `file` (its filename is the name the page will see) → `{ "ok": true, "data": { "file": { "id", "name", "bytes", "expires_at" } } }`; `413 payload_too_large` over `max_file_bytes`, `429 too_many_files` past 50 staged files. A staged file lives on the member's computer for 15 minutes after it was staged or last used and goes when the bridge stops |
 
 Rules
 - The response headers above support cross-origin loopback calls and Private Network Access preflight. Browser policy can also require Local network access permission. `Access-Control-Allow-Origin` echoes the configured `--origin` (a single
   origin; `*` is accepted by the CLI but not recommended).
 - Requests whose `Origin` header does not match the configured origin get `403`.
-- Only tab/page/bookmark.list/session.status/session.ensure commands are exposed; session
-  lifecycle beyond `session.ensure` is not. `session.ensure` reopens the managed Chrome window
+- Only tab/page/bookmark.list/session.status/session.ensure commands plus `page.upload` and
+  `workflow.run` are exposed; session lifecycle beyond `session.ensure`, `page.eval`,
+  `page.fetch`, `workflow.record`, and downloads are not. `page.upload{ref|selector, file_ids,
+  clear?}` attaches staged files by id only (`404 file_not_staged` for anything else, a path on
+  the member's computer included). `workflow.run{workflow_yaml, vars?, yes?, dry_run?,
+  continue_on_error?, target_id?}` runs a playbook on the bridge's session and answers the
+  browser CLI's workflow result, `412 workflow_failed` with that result as `data` when a step
+  fails; through the bridge a playbook uses only the actions `/ping` lists as
+  `browser.workflow_actions` (`400 workflow_step_not_allowed` otherwise), `page.extract_schema`
+  declares its `fields` inline, and a `page.upload` step's file values are staged ids (the page
+  fills them in through `vars`). A bridge whose `/ping` lacks `browser_files` or `workflow` is
+  reported to the assistant as `bridge_outdated` by the page. The page gives a `/run` call the
+  request's `timeout_seconds` plus five seconds, never less than 65 seconds, so a long playbook
+  is not cut off by the page before the bridge answers. `session.ensure` reopens the managed Chrome window
   after the member closed it (the bridge outlives the window, so `/ping` keeps answering with
   `session.alive: false`) and brings a tab at the Portal origin to the front without adding
   tabs; it returns `{ session, reused, target, tab_opened }`. The page calls it (timeout 60)
