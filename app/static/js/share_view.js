@@ -1,13 +1,14 @@
 /*
- * The read-only share page (templates/share.html).
+ * The read-only share page (templates/share.html, css/share.css).
  *
- * Fetches /share/{token}/data.json, draws the user and assistant turns with
- * the chat's own message classes (app.css) and renders markdown the way the
- * chat does: the same markdown-it options, highlight.js for code, Mermaid on
- * demand from <meta name="portal-mermaid-src">, EFP cards from efp_cards.js
- * in their read-only form. It deliberately does not load chat_ui.js, which
- * binds the app shell at load; the small renderer here is the price of a
- * page that works on its own.
+ * Fetches /share/{token}/data.json and draws a reading page: the member's
+ * turns as bubbles on the right, the assistant's answers as plain text under
+ * its name on the left, rendered the way the chat renders them (the same
+ * markdown-it options, highlight.js for code, Mermaid on demand from
+ * <meta name="portal-mermaid-src">, EFP cards from efp_cards.js in their
+ * read-only form, the chat's code block, table and callout classes). It
+ * deliberately does not load chat_ui.js, which binds the app shell at load;
+ * the small renderer here is the price of a page that works on its own.
  *
  * The page is live: Refresh reloads the transcript, and while the session
  * reports a run in progress it refreshes itself every 30 s while visible. A
@@ -18,12 +19,18 @@
   "use strict";
 
   var page = document.getElementById("share-page");
-  if (!page || page.dataset.shareMissing === "true") return;
+  if (!page) return;
+  if (page.dataset.shareMissing === "true") {
+    // The "no longer available" page has icons and nothing else to draw.
+    window.addEventListener("load", renderIcons);
+    return;
+  }
 
   var dataUrl = page.dataset.shareDataUrl || "";
   var dom = {
     title: document.getElementById("share-title"),
     loadedAt: document.getElementById("share-loaded-at"),
+    running: document.getElementById("share-running"),
     refresh: document.getElementById("share-refresh"),
     copyMarkdown: document.getElementById("share-copy-markdown"),
     showTools: document.getElementById("share-show-tools"),
@@ -280,47 +287,55 @@
     return "<div class=\"message-attachments\">" + items.join("") + "</div>";
   }
 
+  function initialOf(name) {
+    var text = String(name || "").trim();
+    return text ? text.charAt(0).toUpperCase() : "A";
+  }
+
+  // author, time and (for the assistant) its initial and the model that answered
   function metaHtml(author, when, extra) {
-    return "<div class=\"message-meta" + (extra && extra.user ? " message-meta-user" : "") + "\">"
-      + "<span class=\"message-author\">" + escapeHtml(author) + "</span>"
-      + (when ? "<span class=\"message-timestamp\">" + escapeHtml(when) + "</span>" : "")
-      + (extra && extra.model ? "<span class=\"message-model\" title=\"Model that answered\">" + escapeHtml(extra.model) + "</span>" : "")
+    var avatar = extra && extra.avatar ? "<span class=\"share-avatar\" aria-hidden=\"true\">" + escapeHtml(initialOf(author)) + "</span>" : "";
+    return "<div class=\"share-msg-meta\">" + avatar
+      + "<span class=\"share-msg-author\">" + escapeHtml(author) + "</span>"
+      + (when ? "<time>" + escapeHtml(when) + "</time>" : "")
+      + (extra && extra.model ? "<span class=\"share-model\" title=\"Model that answered\">" + escapeHtml(extra.model) + "</span>" : "")
       + "</div>";
   }
 
   function renderEntries(entries) {
+    var assistantName = page.dataset.assistantName || "Assistant";
     return entries.map(function (entry) {
       if (entry.type === "user") {
         var user = entry.message;
-        return "<div class=\"message-row message-row-user share-question\" id=\"q-" + entry.index + "\">"
-          + metaHtml(user.author || "User", formatTime(user.timestamp), { user: true })
-          + "<article class=\"message-surface message-surface-user\"><div class=\"message-body\">" + escapeHtml(user.markdown || "") + "</div>"
-          + attachmentsHtml(user.attachments) + "</article></div>";
+        return "<section class=\"share-msg share-msg--user share-question\" id=\"q-" + entry.index + "\">"
+          + metaHtml(user.author || "User", formatTime(user.timestamp))
+          + "<div class=\"share-bubble\"><div class=\"share-bubble-text\">" + escapeHtml(user.markdown || "") + "</div>"
+          + attachmentsHtml(user.attachments) + "</div></section>";
       }
       if (entry.type === "answer") {
         var answer = entry.message;
         var pairs = Array.isArray(answer.pairs) ? answer.pairs : [];
-        return "<div class=\"message-row message-row-user share-answer\">"
-          + metaHtml(answer.author || "User", formatTime(answer.timestamp), { user: true })
-          + "<article class=\"message-surface message-surface-user\"><div class=\"message-body\">"
-          + "<div class=\"share-answer-note\">Answered the assistant's question</div>"
+        return "<section class=\"share-msg share-msg--user share-answer\">"
+          + metaHtml(answer.author || "User", formatTime(answer.timestamp))
+          + "<div class=\"share-bubble share-bubble--answer\">"
+          + "<div class=\"share-answer-note\"><i data-lucide=\"circle-check\" class=\"share-icon\" aria-hidden=\"true\"></i>Answered the assistant's question</div>"
           + "<dl class=\"share-answer-pairs\">" + pairs.map(function (pair) {
             return "<dt>" + escapeHtml(pair.label || "Answer") + "</dt><dd>" + escapeHtml(pair.value || "") + "</dd>";
-          }).join("") + "</dl></div></article></div>";
+          }).join("") + "</dl></div></section>";
       }
       if (entry.type === "tool") {
         var tool = entry.message;
-        return "<div class=\"message-row message-row-assistant share-tool-row\">"
-          + metaHtml(tool.author || "Assistant", "tool step")
-          + "<article class=\"message-surface message-surface-assistant assistant-message tool-message\"><div class=\"message-markdown\">" + renderMarkdown(tool.markdown) + "</div></article></div>";
+        return "<section class=\"share-msg share-tool-row\">"
+          + "<div class=\"share-tool\"><i data-lucide=\"wrench\" class=\"share-icon\" aria-hidden=\"true\"></i>"
+          + "<div class=\"message-markdown\">" + renderMarkdown(tool.markdown) + "</div></div></section>";
       }
       var first = entry.messages[0] || {};
       var last = entry.messages[entry.messages.length - 1] || first;
       var markdown = entry.messages.map(function (m) { return String(m.markdown || ""); }).filter(function (t) { return t.trim(); }).join("\n\n");
       var blocks = entry.messages.reduce(function (all, m) { return all.concat(Array.isArray(m.display_blocks) ? m.display_blocks : []); }, []);
-      return "<div class=\"message-row message-row-assistant\">"
-        + metaHtml(first.author || "Assistant", formatTime(last.timestamp || first.timestamp), { model: String(last.model || first.model || "").trim() })
-        + "<article class=\"message-surface message-surface-assistant assistant-message\"><div class=\"message-markdown\">" + renderAssistantBody(markdown, blocks) + "</div></article></div>";
+      return "<section class=\"share-msg share-msg--assistant\">"
+        + metaHtml(first.author || assistantName, formatTime(last.timestamp || first.timestamp), { avatar: true, model: String(last.model || first.model || "").trim() })
+        + "<div class=\"share-msg-body message-markdown\">" + renderAssistantBody(markdown, blocks) + "</div></section>";
     }).join("");
   }
 
@@ -333,11 +348,11 @@
       return;
     }
     dom.toc.classList.remove("hidden");
-    dom.toc.innerHTML = "<div class=\"share-toc-title\">Questions</div><ol class=\"share-toc-list\">"
+    dom.toc.innerHTML = "<div class=\"share-toc-title\">In this conversation</div><ol class=\"share-toc-list\">"
       + questions.map(function (entry) {
         var text = String(entry.message.markdown || "").replace(/\s+/g, " ").trim();
         if (text.length > 80) text = text.slice(0, 77).trim() + ELLIPSIS;
-        return "<li><a href=\"#q-" + entry.index + "\">" + escapeHtml(text || "(attachment)") + "</a></li>";
+        return "<li><a href=\"#q-" + entry.index + "\"><span class=\"share-toc-num\">" + entry.index + "</span><span>" + escapeHtml(text || "(attachment)") + "</span></a></li>";
       }).join("") + "</ol>";
   }
 
@@ -525,20 +540,24 @@
 
   // ----- states and loading -----------------------------------------------------
 
+  function stateCard(icon, title, body) {
+    return "<div class=\"share-state\"><i data-lucide=\"" + icon + "\" class=\"share-icon\" aria-hidden=\"true\"></i>"
+      + "<div><strong>" + escapeHtml(title) + "</strong>" + escapeHtml(body) + "</div></div>";
+  }
+
   function stateHtml(data) {
-    var owner = escapeHtml(data.owner_display_name || "the owner");
+    var owner = data.owner_display_name || "the owner";
     if (data.status === "assistant_stopped") {
-      return "<div class=\"share-state\"><strong>The assistant that owns this session is not running.</strong><br />"
-        + "Ask " + owner + " to start it, then use Refresh. Nothing here starts it.</div>";
+      return stateCard("moon", "The assistant that owns this session is not running.", "Ask " + owner + " to start it, then use Refresh. Nothing here starts it.");
     }
     if (data.status === "session_missing") {
-      return "<div class=\"share-state\"><strong>This session is gone.</strong><br />It was deleted on the assistant, or it expired.</div>";
+      return stateCard("file-x", "This session is gone.", "It was deleted on the assistant, or it expired.");
     }
     if (data.status === "runtime_unreachable") {
-      return "<div class=\"share-state\"><strong>" + escapeHtml(data.error || "The assistant did not answer.") + "</strong><br />Try Refresh in a moment.</div>";
+      return stateCard("cloud-off", data.error || "The assistant did not answer.", "Try Refresh in a moment.");
     }
     if (!data.messages || !data.messages.length) {
-      return "<div class=\"share-state\">This session has no messages yet.</div>";
+      return stateCard("message-square", "No messages yet.", "The conversation shows up here once it starts.");
     }
     return "";
   }
@@ -569,7 +588,8 @@
     var title = String(data.title || "Shared session");
     if (dom.title) dom.title.textContent = title;
     document.title = title + " " + MIDDLE_DOT + " Shared session";
-    if (dom.loadedAt) dom.loadedAt.textContent = "as of " + formatTime(data.loaded_at) + (data.running ? " " + MIDDLE_DOT + " the assistant is still working" : "");
+    if (dom.loadedAt) dom.loadedAt.textContent = "Updated " + formatTime(data.loaded_at);
+    if (dom.running) dom.running.classList.toggle("hidden", !data.running);
     if (dom.openPortal) {
       var canOpen = Boolean(data.can_open_in_portal && data.portal_url);
       dom.openPortal.classList.toggle("hidden", !canOpen);
@@ -624,7 +644,10 @@
           });
         }
         if (response.status === 404) {
-          if (dom.transcript) dom.transcript.innerHTML = "<div class=\"share-state\"><strong>This link is no longer available.</strong></div>";
+          if (dom.transcript) {
+            dom.transcript.innerHTML = stateCard("link-2-off", "This link is no longer available.", "It was turned off, or the session was deleted.");
+            renderIcons();
+          }
           return null;
         }
         return response.json();
@@ -637,7 +660,8 @@
       })
       .catch(function () {
         if (dom.transcript && !state.data) {
-          dom.transcript.innerHTML = "<div class=\"share-state\"><strong>The conversation could not be loaded.</strong><br />Check your connection and use Refresh.</div>";
+          dom.transcript.innerHTML = stateCard("wifi-off", "The conversation could not be loaded.", "Check your connection and use Refresh.");
+          renderIcons();
         }
       })
       .then(function () {

@@ -10,50 +10,70 @@
 <script defer src="{{ static_url('lib/lucide.min.js') }}"></script>
 {% endblock %}
 {% block content %}
-<div id="share-page" class="share-page" data-share-token="{{ token }}" data-share-data-url="{{ data_url }}" data-share-missing="{{ 'true' if missing else 'false' }}">
-  <header class="share-header">
-    <div class="share-eyebrow">
-      <i data-lucide="eye" class="w-4 h-4" aria-hidden="true"></i>
-      <span>Shared session &middot; read only</span>
-    </div>
-    <h1 id="share-title" class="share-title">{{ title }}</h1>
-    {% if missing %}
-    <p class="share-copy">The session behind this link is no longer shared, or it was deleted. Ask whoever sent it for a new link.</p>
-    <div class="share-actions">
-      <a class="portal-btn is-primary" href="/app">Open the Portal</a>
-    </div>
-    {% else %}
-    <p class="share-meta" id="share-meta">
-      Shared by <strong>{{ owner_display_name }}</strong>
-      &middot; Assistant <strong>{{ assistant_name }}</strong>
-      &middot; <span id="share-loaded-at">loading&hellip;</span>
-    </p>
-    <div class="share-actions">
-      <button type="button" id="share-refresh" class="portal-btn">
-        <i data-lucide="refresh-cw" class="w-4 h-4" aria-hidden="true"></i>
-        <span>Refresh</span>
-      </button>
-      <button type="button" id="share-copy-markdown" class="portal-btn">
-        <i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>
-        <span>Copy as Markdown</span>
-      </button>
-      <label class="share-toggle">
-        <input type="checkbox" id="share-show-tools" />
-        <span>Show tool steps</span>
-      </label>
-      <a id="share-open-portal" class="portal-btn is-primary hidden" href="/app">
-        <i data-lucide="external-link" class="w-4 h-4" aria-hidden="true"></i>
-        <span>Open in Portal</span>
+<div id="share-page" class="share-page" data-share-token="{{ token }}" data-share-data-url="{{ data_url }}" data-share-missing="{{ 'true' if missing else 'false' }}" data-assistant-name="{{ assistant_name }}">
+  <header class="share-topbar">
+    <div class="share-topbar-inner">
+      <a class="share-brand" href="/app">
+        <span class="share-brand-mark" aria-hidden="true"><i data-lucide="sparkles" class="share-icon"></i></span>
+        <span class="share-brand-name">Engineering Flow Platform</span>
       </a>
+      <span class="share-pill"><i data-lucide="eye" class="share-icon" aria-hidden="true"></i>Read only</span>
     </div>
-    {% endif %}
   </header>
-  {% if not missing %}
-  <div class="share-body">
-    <nav id="share-toc" class="share-toc" aria-label="Questions in this session"></nav>
-    <main id="share-transcript" class="share-transcript" aria-live="polite">
-      <div class="share-state">Loading the conversation&hellip;</div>
-    </main>
+
+  {% if missing %}
+  <main class="share-missing">
+    <div class="share-missing-card">
+      <span class="share-missing-icon" aria-hidden="true"><i data-lucide="link-2-off" class="share-icon"></i></span>
+      <h1 id="share-title" class="share-missing-title">{{ title }}</h1>
+      <p class="share-missing-copy">The session behind this link is no longer shared, or it was deleted. Ask whoever sent it for a new link.</p>
+      <a class="share-btn share-btn--primary" href="/app">Open the Portal</a>
+    </div>
+  </main>
+  {% else %}
+  <div class="share-shell">
+    <aside class="share-aside" aria-label="Questions in this session">
+      <nav id="share-toc" class="share-toc hidden"></nav>
+    </aside>
+    <div class="share-column">
+      <section class="share-hero">
+        <h1 id="share-title" class="share-title">{{ title }}</h1>
+        <div class="share-meta" id="share-meta">
+          <span class="share-meta-item share-meta-assistant">
+            <span class="share-avatar" aria-hidden="true">{{ (assistant_name or "A")[:1] | upper }}</span>
+            <strong>{{ assistant_name }}</strong>
+          </span>
+          <span class="share-meta-item">Shared by <strong>{{ owner_display_name }}</strong></span>
+          <span class="share-meta-item" id="share-loaded-at">Loading&hellip;</span>
+          <span class="share-meta-item share-running hidden" id="share-running">The assistant is still working</span>
+        </div>
+        <div class="share-toolbar">
+          <button type="button" id="share-refresh" class="share-btn">
+            <i data-lucide="refresh-cw" class="share-icon" aria-hidden="true"></i>
+            <span>Refresh</span>
+          </button>
+          <button type="button" id="share-copy-markdown" class="share-btn">
+            <i data-lucide="copy" class="share-icon" aria-hidden="true"></i>
+            <span>Copy as Markdown</span>
+          </button>
+          <label class="share-switch">
+            <input type="checkbox" id="share-show-tools" />
+            <span class="share-switch-track" aria-hidden="true"></span>
+            <span>Tool steps</span>
+          </label>
+          <a id="share-open-portal" class="share-btn share-btn--primary hidden" href="/app">
+            <i data-lucide="external-link" class="share-icon" aria-hidden="true"></i>
+            <span>Open in Portal</span>
+          </a>
+        </div>
+      </section>
+      <main id="share-transcript" class="share-transcript is-tools-hidden" aria-live="polite">
+        <div class="share-state"><span class="share-state-spinner" aria-hidden="true"></span>Loading the conversation&hellip;</div>
+      </main>
+      <footer class="share-footer">
+        A read-only view of a conversation with an assistant on Engineering Flow Platform. It shows the session as it is now; nobody can send messages from here.
+      </footer>
+    </div>
   </div>
   {% endif %}
 </div>

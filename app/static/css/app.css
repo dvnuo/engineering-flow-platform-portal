@@ -492,14 +492,6 @@ html[data-theme="dark"] .portal-agent-row.is-active { background: rgba(126,162,2
 .portal-conversation { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 /* The open session's name above the transcript (app.html #session-header):
    a slim bar, since the transcript below is the point. */
-.portal-session-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 24px; min-height: 44px; border-bottom: 1px solid var(--portal-border); background: var(--portal-workspace-main); }
-.portal-session-header-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.portal-session-header-icon { flex: 0 0 auto; color: var(--portal-text-muted); }
-.portal-session-header-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--portal-text); }
-.portal-session-header-badge { flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--portal-border); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--portal-text-muted); background: var(--portal-surface); }
-.portal-session-header-badge.is-shared { color: var(--portal-accent-strong); border-color: var(--portal-accent-soft); background: var(--portal-accent-soft); }
-.portal-session-header-actions { display: inline-flex; align-items: center; gap: 6px; }
-.portal-session-header-actions .toolbar-icon-btn { width: 32px; height: 32px; border-radius: 10px; }
 /* The conversation is a query container so the chat column is sized from the
    pane it sits in (sidebar collapsed, tool panel pinned) rather than from the
    viewport. --portal-chat-width is the width of the message list; the composer
@@ -4810,8 +4802,15 @@ a.message-attachment-file { color: var(--portal-text); }
 .portal-share-option input { margin-top: 3px; }
 .portal-share-option strong { display: block; font-size: 14px; }
 .portal-share-option small { display: block; color: var(--portal-text-muted); font-size: 12px; line-height: 1.4; }
+.portal-share-option:has(input:disabled) { cursor: progress; opacity: .7; }
+.portal-share-session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .portal-share-link { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
 .portal-share-link input { flex: 1; min-width: 0; }
+/* Who can open the link right now, under the link: the audience a viewer gets,
+   not the radio a member last touched. */
+.portal-share-status { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: 13px; color: var(--portal-text-secondary); }
+.portal-share-status::before { content: ""; flex: 0 0 auto; width: 8px; height: 8px; border-radius: 999px; background: var(--portal-text-muted); }
+.portal-share-status.is-public::before { background: var(--portal-success); }
 .portal-share-note { font-size: 12px; color: var(--portal-text-muted); margin: 8px 0 0; line-height: 1.5; }
 .sessions-item-title { font-size: 14px; font-weight: 500; color: var(--portal-text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .sessions-item-preview { font-size: 12px; color: var(--portal-text-muted); margin-top: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
