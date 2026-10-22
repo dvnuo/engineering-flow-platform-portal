@@ -2908,7 +2908,9 @@ function isTrackableStreamEvent(type) {
     "runtime.status.validated",
     "assistant.message.started", "assistant.message.updated", "assistant.message.completed",
     "portal.waiting_for_runtime_events", "portal.stream_disconnected",
-    "skill.loaded", "task.started", "task.completed", "usage.updated"
+    "skill.loaded", "task.started", "task.completed",
+    // usage.updated feeds the live model badge; the timeline draws no row for it.
+    "usage.updated"
   ].includes(normalizedType);
 }
 
@@ -3748,11 +3750,6 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
     kind = "provider";
     title = type === "provider.retry" || type === "model.retry" ? "Provider retry" : "Provider status";
     icon = type.includes("retry") ? "refresh-cw" : "activity";
-  } else if (type === "usage.updated") {
-    kind = "usage";
-    title = "Usage updated";
-    icon = "gauge";
-    status = "completed";
   } else if (type === "question.requested") {
     kind = "permission";
     title = "Question requested";
@@ -3837,9 +3834,14 @@ function reduceAgentTimelineEvent(chatState, event) {
     changed = reduceAgentTimelineCompactionEvent(timeline, event, type);
   } else if (["permission.requested", "permission.resolved", "permission_request", "permission_resolved", "permission.denied", "permission.allowed"].includes(type)) {
     changed = reduceAgentTimelinePermissionEvent(timeline, event, type);
-  } else if (type.startsWith("provider.") || type === "model.retry" || type === "usage.updated" || type === "question.requested") {
+  } else if (type.startsWith("provider.") || type === "model.retry" || type === "question.requested") {
     changed = reduceAgentTimelineGenericEvent(timeline, event, type);
   }
+  // usage.updated falls through on purpose. The native runtime sends one per
+  // LLM call (token counts plus the model that answered); it stays a trackable
+  // event so the live model badge and the stream snapshot still see it, but a
+  // "Usage updated / completed" row per step told the reader nothing and
+  // pushed the tool and reasoning rows out of the timeline.
 
   if (timeline.items.length > 80) timeline.items = timeline.items.slice(-80);
   const pacedTotal = getAgentTimelineRenderableItems(timeline).filter(isAgentTimelinePacedItem).length;

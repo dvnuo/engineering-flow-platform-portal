@@ -1351,8 +1351,7 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .agent-timeline-chip.is-completed { border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%); color: var(--portal-success); }
 .agent-timeline-chip.is-failed { border-color: color-mix(in srgb, var(--portal-danger), var(--portal-border) 45%); color: var(--portal-danger); }
 .agent-timeline-row.is-tool .agent-timeline-icon { color: var(--portal-accent); }
-.agent-timeline-row.is-compaction .agent-timeline-icon,
-.agent-timeline-row.is-usage .agent-timeline-icon { color: var(--portal-warning); }
+.agent-timeline-row.is-compaction .agent-timeline-icon { color: var(--portal-warning); }
 .agent-timeline-row.is-permission .agent-timeline-icon { color: var(--portal-warning); }
 .agent-timeline-row.is-failed .agent-timeline-icon { color: var(--portal-danger); }
 
