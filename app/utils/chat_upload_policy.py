@@ -20,22 +20,39 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
-# Non-visual by design: the default model has no vision, so images are not
-# offered unless a deployment adds them (jpg, jpeg, png, webp, gif) to
-# EFP_CHAT_UPLOAD_EXTENSIONS for a model that can see.
+# The chat model reads the parsed documents and text formats itself. Images
+# and the office formats the runtime does not parse (doc, dot, xls) are
+# "forwarded": stored in the workspace and listed to the assistant, which
+# analyzes them through Productivity Suite in the member's browser (the
+# attached-files skill; it needs the Local bridge). The default list is
+# therefore what Productivity Suite accepts plus the text formats; a
+# deployment trims it through EFP_CHAT_UPLOAD_EXTENSIONS.
 DEFAULT_CHAT_UPLOAD_EXTENSIONS: Tuple[str, ...] = (
     "pdf", "docx", "xlsx", "csv", "txt", "log", "pptx", "zip", "md", "yaml", "yml", "json", "xml",
+    "doc", "dot", "xls", "png", "jpg", "jpeg", "jpe", "jfif", "tiff", "webp", "bmp",
 )
 DEFAULT_MAX_UPLOAD_MB = 25
 
-# Extensions the runtime hands to the model as images (everything else on the
-# allowlist is projected to text).
+# Image extensions: stored and listed to the assistant, never parsed (the
+# chat model cannot see images).
 IMAGE_EXTENSION_MIME_TYPES = {
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
+    "jpe": "image/jpeg",
+    "jfif": "image/jpeg",
     "png": "image/png",
     "webp": "image/webp",
     "gif": "image/gif",
+    "tiff": "image/tiff",
+    "bmp": "image/bmp",
+}
+
+# Office formats the runtime cannot parse but Productivity Suite reads: stored
+# and listed to the assistant like images.
+FORWARDED_EXTENSION_MIME_TYPES = {
+    "doc": "application/msword",
+    "dot": "application/msword",
+    "xls": "application/vnd.ms-excel",
 }
 
 # MIME types for the document formats the runtime parses; listed so the file
@@ -105,8 +122,17 @@ class ChatUploadPolicy:
         return tuple(ext for ext in self.extensions if ext in IMAGE_EXTENSION_MIME_TYPES)
 
     @property
+    def forwarded_extensions(self) -> Tuple[str, ...]:
+        """Formats stored for the assistant's analysis skill, never parsed."""
+        return tuple(ext for ext in self.extensions if ext in FORWARDED_EXTENSION_MIME_TYPES)
+
+    @property
     def document_extensions(self) -> Tuple[str, ...]:
-        return tuple(ext for ext in self.extensions if ext not in IMAGE_EXTENSION_MIME_TYPES)
+        """Formats the runtime parses into the model's context."""
+        return tuple(
+            ext for ext in self.extensions
+            if ext not in IMAGE_EXTENSION_MIME_TYPES and ext not in FORWARDED_EXTENSION_MIME_TYPES
+        )
 
     @property
     def mime_types(self) -> Tuple[str, ...]:
@@ -114,7 +140,11 @@ class ChatUploadPolicy:
         seen = set()
         result: List[str] = []
         for ext in self.extensions:
-            mime = IMAGE_EXTENSION_MIME_TYPES.get(ext) or DOCUMENT_EXTENSION_MIME_TYPES.get(ext)
+            mime = (
+                IMAGE_EXTENSION_MIME_TYPES.get(ext)
+                or FORWARDED_EXTENSION_MIME_TYPES.get(ext)
+                or DOCUMENT_EXTENSION_MIME_TYPES.get(ext)
+            )
             if mime and mime not in seen:
                 seen.add(mime)
                 result.append(mime)
@@ -197,6 +227,7 @@ __all__ = [
     "DEFAULT_CHAT_UPLOAD_EXTENSIONS",
     "DEFAULT_MAX_UPLOAD_MB",
     "DOCUMENT_EXTENSION_MIME_TYPES",
+    "FORWARDED_EXTENSION_MIME_TYPES",
     "IMAGE_EXTENSION_MIME_TYPES",
     "ChatUploadPolicy",
     "build_chat_upload_policy",

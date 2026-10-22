@@ -84,8 +84,7 @@ def materialize_ai_platform_llm_config(
 ) -> dict[str, Any]:
     """Inject fixed Portal settings while retaining only profile credentials."""
     materialized = deepcopy(llm) if isinstance(llm, dict) else {}
-    # The endpoints are needed for AI Platform chat and for image analysis
-    # (inspect-image runs on AI Platform whatever the chat provider is).
+    # The endpoints are needed only for AI Platform chat.
     if not uses_ai_platform_credentials(materialized):
         materialized.pop("ai_platform", None)
         return materialized

@@ -479,8 +479,16 @@
     if (action === "page.upload") {
       next.file_ids = staged.map((file) => file.id);
     } else if (action === "workflow.run" && staged.length) {
+      // Several files for one playbook variable become one comma-separated
+      // value: the bridge splits it and attaches every staged file.
       next.vars = { ...(params.vars && typeof params.vars === "object" ? params.vars : {}) };
-      staged.forEach((file) => { if (file.var) next.vars[String(file.var)] = file.id; });
+      const idsByVar = new Map();
+      staged.forEach((file) => {
+        if (!file.var) return;
+        const key = String(file.var);
+        idsByVar.set(key, [...(idsByVar.get(key) || []), file.id]);
+      });
+      idsByVar.forEach((ids, key) => { next.vars[key] = ids.join(","); });
     }
     return { ok: true, params: next, staged };
   }

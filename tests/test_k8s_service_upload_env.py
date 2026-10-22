@@ -42,7 +42,10 @@ class K8sServiceUploadEnvTest(unittest.TestCase):
         self.service.settings.max_upload_mb = 0
         env = self._env_map("opencode")
         self.assertEqual(env["EFP_MAX_UPLOAD_MB"], "25")
-        self.assertEqual(env["EFP_CHAT_UPLOAD_EXTENSIONS"], "pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml")
+        self.assertEqual(
+            env["EFP_CHAT_UPLOAD_EXTENSIONS"],
+            "pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml,doc,dot,xls,png,jpg,jpeg,jpe,jfif,tiff,webp,bmp",
+        )
 
 
 if __name__ == "__main__":

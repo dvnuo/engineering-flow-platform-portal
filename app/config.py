@@ -209,15 +209,17 @@ class Settings(BaseSettings):
     # file picker and client-side check, is enforced by the upload proxy, and
     # is handed to every agent pod as EFP_CHAT_UPLOAD_EXTENSIONS together with
     # EFP_MAX_UPLOAD_MB so the runtime accepts the same set. The default is
-    # non-visual on purpose: the default model has no vision, so images
-    # (jpg/jpeg/png/webp/gif) are only offered when a deployment adds them for
-    # a model that can see. pdf/docx/xlsx/pptx/csv go through their parsers, a
-    # zip is projected as its listing plus the text files inside, and any
-    # UTF-8 text format (txt, md, log, json, yaml, xml, source files, ...) is
-    # projected as text. A listed binary format the runtime cannot parse is
-    # still rejected at upload time. See app/utils/chat_upload_policy.py.
+    # what Productivity Suite accepts plus the text formats: pdf/docx/xlsx/
+    # pptx/csv go through their parsers, a zip is projected as its listing
+    # plus the text files inside, any UTF-8 text format (txt, md, log, json,
+    # yaml, xml, source files, ...) is projected as text, and images plus the
+    # office formats the runtime cannot parse (doc, dot, xls) are forwarded:
+    # stored and listed to the assistant, which analyzes them through
+    # Productivity Suite in the member's browser (the chat model cannot see
+    # images). A deployment without Productivity Suite trims the list. See
+    # app/utils/chat_upload_policy.py.
     chat_upload_extensions: str = Field(
-        default="pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml",
+        default="pdf,docx,xlsx,csv,txt,log,pptx,zip,md,yaml,yml,json,xml,doc,dot,xls,png,jpg,jpeg,jpe,jfif,tiff,webp,bmp",
         validation_alias="EFP_CHAT_UPLOAD_EXTENSIONS",
     )
     # Directory holding the Appium Inspector web build (the dist-browser
