@@ -204,3 +204,19 @@ console.log(JSON.stringify({{ afterWide, afterJunk, restored, fresh }}));
     assert result["afterJunk"] == {"attr": "default", "stored": "default"}
     assert result["restored"] == "full"
     assert result["fresh"] == "default"
+
+
+# -------------------------------------------------------------- long tokens
+
+
+def test_long_tokens_wrap_inside_the_bubbles():
+    # A URL has no break opportunity. Without overflow-wrap a long one ran out
+    # of the bubble on one line: 1527px of text in a 764px user bubble, and
+    # the linkified copy 240px past the assistant surface. `anywhere` rather
+    # than `break-word` so the user bubble's fit-content width stops at the
+    # column cap instead of growing to the token.
+    assert "overflow-wrap: anywhere" in _rule(".message-body")
+    assert "overflow-wrap: anywhere" in _rule(".message-markdown")
+    # Code blocks keep scrolling sideways: wrapping a long line of code would
+    # change what it says.
+    assert "overflow-x: auto" in _rule(".message-codeblock pre")

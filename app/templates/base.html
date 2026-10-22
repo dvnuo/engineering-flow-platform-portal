@@ -44,6 +44,9 @@
     <script defer src="{{ static_url('js/tooltips.js') }}"></script>
     <script defer src="{{ static_url('lib/alpine.min.js') }}"></script>
     <script src="{{ static_url('lib/markdown-it.min.js') }}"></script>
+    <!-- Bold and italics beside CJK punctuation. chat_ui.js registers it on
+         its renderer at top level, so it stays blocking like markdown-it. -->
+    <script src="{{ static_url('js/markdown_cjk_friendly.js') }}"></script>
     <script defer src="{{ static_url('lib/highlight.min.js') }}"></script>
     <script defer src="{{ static_url('lib/lucide.min.js') }}"></script>
     {% endblock %}
