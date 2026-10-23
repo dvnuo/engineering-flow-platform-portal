@@ -166,14 +166,6 @@ def copilot_auto_tier(model: str | None) -> str | None:
     return COPILOT_AUTO_TIERS.get(text)
 
 
-# Image analysis ("vision"). GitHub Copilot's models no longer accept image
-# input, so images are read by the inspect-image CLI through AI Platform
-# whatever the chat provider is. The block lives at llm.vision and reuses the
-# AI Platform credentials stored at llm.ai_platform.auth.
-VISION_PROVIDER = AI_PLATFORM_PROVIDER
-VISION_MODELS = AI_PLATFORM_MODELS
-DEFAULT_VISION_MODEL = DEFAULT_AI_PLATFORM_MODEL
-LLM_VISION_SUBTREE = {"enabled": True, "model": True}
 _TRUE_FLAGS = frozenset({"1", "true", "on", "yes"})
 
 
@@ -186,29 +178,13 @@ def flag_enabled(value: object) -> bool:
     return str(value or "").strip().lower() in _TRUE_FLAGS
 
 
-def coerce_to_vision_model(model: str | None) -> str:
-    """Return a valid image-analysis model id, falling back to the AI Platform default."""
-    return coerce_to_provider_model(VISION_PROVIDER, model)
-
-
-def vision_enabled(llm: dict | None) -> bool:
-    vision = llm.get("vision") if isinstance(llm, dict) else None
-    return isinstance(vision, dict) and flag_enabled(vision.get("enabled"))
-
-
 def uses_ai_platform_credentials(llm: dict | None) -> bool:
-    """Whether llm.ai_platform.auth is needed: AI Platform chat or image analysis."""
+    """Whether llm.ai_platform.auth is needed: only when AI Platform is the chat provider.
+
+    Image analysis no longer runs on AI Platform (the inspect-image path was
+    retired): attached images and documents go to Productivity Suite through
+    the member's browser, which needs no credential here.
+    """
     if not isinstance(llm, dict):
         return False
-    return normalize_provider(llm.get("provider")) == AI_PLATFORM_PROVIDER or vision_enabled(llm)
-
-
-def vision_model_for(llm: dict | None) -> str:
-    """The inspect-image model: vision.model, else the AI Platform chat model, else the default."""
-    if not isinstance(llm, dict):
-        return DEFAULT_VISION_MODEL
-    vision = llm.get("vision") if isinstance(llm.get("vision"), dict) else {}
-    model = str(vision.get("model") or "").strip()
-    if not model and normalize_provider(llm.get("provider")) == AI_PLATFORM_PROVIDER:
-        model = str(llm.get("model") or "").strip()
-    return coerce_to_vision_model(model)
+    return normalize_provider(llm.get("provider")) == AI_PLATFORM_PROVIDER

@@ -36,9 +36,11 @@ def _node_bin() -> str:
 def _policy_js(src: str) -> str:
     defaults = sorted(_extract_js_set_values(src, "DEFAULT_UPLOAD_EXTENSIONS"))
     images = sorted(_extract_js_set_values(src, "IMAGE_UPLOAD_EXTENSIONS"))
+    forwarded = sorted(_extract_js_set_values(src, "FORWARDED_UPLOAD_EXTENSIONS"))
     prelude = (
         f"const DEFAULT_UPLOAD_EXTENSIONS = new Set({json.dumps(defaults)});\n"
         f"const IMAGE_UPLOAD_EXTENSIONS = new Set({json.dumps(images)});\n"
+        f"const FORWARDED_UPLOAD_EXTENSIONS = new Set({json.dumps(forwarded)});\n"
         "let cachedChatUploadPolicy = null;\n"
     )
     return prelude + "\n".join(_extract_js_function(src, name) for name in POLICY_FUNCTIONS)
@@ -53,19 +55,25 @@ def test_upload_policy_comes_from_the_dom_with_a_default_fallback():
             r"""
             const assert = require("node:assert/strict");
 
-            // 1) No policy on the page: the default (non-visual) allowlist applies, by extension only.
+            // 1) No policy on the page: the default allowlist applies, by extension only. It is
+            //    what Productivity Suite accepts plus the text formats, so images and the office
+            //    formats the runtime only forwards are in; unknown binaries are out.
             globalThis.document = { getElementById: () => null };
             assert.equal(isRuntimeSupportedUpload({ name: "report.PDF", type: "" }), true);
             assert.equal(isRuntimeSupportedUpload({ name: "deck.pptx", type: "" }), true);
             assert.equal(isRuntimeSupportedUpload({ name: "bundle.zip", type: "application/zip" }), true);
             assert.equal(isRuntimeSupportedUpload({ name: "notes.md", type: "text/markdown" }), true);
-            assert.equal(isRuntimeSupportedUpload({ name: "shot.png", type: "image/png" }), false);
+            assert.equal(isRuntimeSupportedUpload({ name: "shot.png", type: "image/png" }), true);
+            assert.equal(isRuntimeSupportedUpload({ name: "scan.TIFF", type: "" }), true);
+            assert.equal(isRuntimeSupportedUpload({ name: "old.doc", type: "application/msword" }), true);
+            assert.equal(isRuntimeSupportedUpload({ name: "clip.gif", type: "image/gif" }), false);
+            assert.equal(isRuntimeSupportedUpload({ name: "tool.exe", type: "" }), false);
             assert.equal(isRuntimeSupportedUpload({ name: "README", type: "text/plain" }), false);
             assert.equal(isRuntimeSupportedUpload(null), false);
             assert.ok(describeChatUploadPolicy().split(", ").includes("pdf"));
             assert.equal(uploadTooLargeMessage({ name: "huge.pdf", size: 10 ** 9 }), "");
 
-            // 2) The server-rendered policy wins over the fallback (here it adds png for a vision model).
+            // 2) The server-rendered policy wins over the fallback (here a trimmed list that keeps png).
             cachedChatUploadPolicy = null;
             const rendered = { extensions: [".MD", "txt", "Json", "png"], accept: ".md,.txt,.json,.png,image/png", max_upload_mb: 2 };
             globalThis.document = {
@@ -87,12 +95,17 @@ def test_upload_policy_comes_from_the_dom_with_a_default_fallback():
               cachedChatUploadPolicy = null;
               globalThis.document = { getElementById: () => ({ dataset: { chatUploadPolicy: raw } }) };
               assert.equal(isRuntimeSupportedUpload({ name: "sheet.xlsx" }), true, raw);
-              assert.equal(isRuntimeSupportedUpload({ name: "shot.png" }), false, raw);
+              assert.equal(isRuntimeSupportedUpload({ name: "shot.png" }), true, raw);
+              assert.equal(isRuntimeSupportedUpload({ name: "tool.exe" }), false, raw);
             }
 
-            // 4) Auto-parse: never images, every other accepted file.
+            // 4) Auto-parse: never images or the forwarded office formats (the runtime
+            //    only stores those for the assistant), every other accepted file.
             assert.equal(shouldAutoParseUploadedFile({ file: { type: "image/png", name: "a.png" } }, { content_type: "image/png" }), false);
             assert.equal(shouldAutoParseUploadedFile({ file: { type: "", name: "a.png" }, name: "a.png" }, {}), false);
+            assert.equal(shouldAutoParseUploadedFile({ file: { type: "", name: "scan.tiff" }, name: "scan.tiff" }, {}), false);
+            assert.equal(shouldAutoParseUploadedFile({ file: { type: "application/msword", name: "old.doc" } }, { content_type: "application/msword" }), false);
+            assert.equal(shouldAutoParseUploadedFile({ file: { type: "", name: "book.xls" }, name: "book.xls" }, {}), false);
             assert.equal(shouldAutoParseUploadedFile({ file: { type: "text/markdown", name: "a.md" } }, { content_type: "text/markdown", filename: "a.md" }), true);
             assert.equal(shouldAutoParseUploadedFile({ file: { type: "", name: "a.pdf" } }, { content_type: "application/pdf" }), true);
             assert.equal(shouldAutoParseUploadedFile({ file: { type: "", name: "a.log" }, name: "a.log" }, {}), true);

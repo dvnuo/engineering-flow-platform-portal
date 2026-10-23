@@ -1171,11 +1171,15 @@ function ensureChatSessionId(agentId = state.selectedAgentId) {
 const DEFAULT_UPLOAD_EXTENSIONS = new Set([
   "pdf", "docx", "xlsx", "csv", "txt", "log", "pptx", "zip",
   "md", "yaml", "yml", "json", "xml",
+  "doc", "dot", "xls", "png", "jpg", "jpeg", "jpe", "jfif", "tiff", "webp", "bmp",
 ]);
 
-// Sent to the model as images when a deployment allows them (the default
-// list is non-visual); every other allowed extension is text.
-const IMAGE_UPLOAD_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
+// Images and the office formats the runtime only stores (it cannot parse
+// them): never auto-parsed, the assistant analyzes them through Productivity
+// Suite in the member's browser. Every other allowed extension is parsed to
+// text before the message is sent.
+const IMAGE_UPLOAD_EXTENSIONS = new Set(["jpg", "jpeg", "jpe", "jfif", "png", "webp", "gif", "tiff", "bmp"]);
+const FORWARDED_UPLOAD_EXTENSIONS = new Set(["doc", "dot", "xls"]);
 
 // ===== Attachment chips =====
 // One look for every file a member attaches: the composer's pending cards,
@@ -1345,14 +1349,16 @@ function uploadTooLargeMessage(file) {
 }
 
 function shouldAutoParseUploadedFile(pf, uploadedData) {
-  // Auto-parse is intentionally document-only (never image/*): every non-image
-  // the runtime accepted is projected to text before the message is sent.
+  // Auto-parse is document-only: never image/* and never the office formats
+  // the runtime only forwards (doc, dot, xls); every other file the runtime
+  // accepted is projected to text before the message is sent.
   const fromData = String(uploadedData?.content_type || "").toLowerCase();
   const fromPf = String(pf?.file?.type || "").toLowerCase();
   const mime = fromData || fromPf;
   if (mime.startsWith("image/")) return false;
+  if (mime === "application/msword" || mime === "application/vnd.ms-excel") return false;
   const ext = fileExtensionFromName(uploadedData?.filename || pf?.name || pf?.file?.name || "");
-  if (!mime && IMAGE_UPLOAD_EXTENSIONS.has(ext)) return false;
+  if (IMAGE_UPLOAD_EXTENSIONS.has(ext) || FORWARDED_UPLOAD_EXTENSIONS.has(ext)) return false;
   return true;
 }
 
@@ -13828,42 +13834,6 @@ function updateCopilotAuthCardsVisibility(root, isCopilot) {
   }
 }
 
-// Image analysis runs on AI Platform through inspect-image whatever the chat
-// provider is (Copilot models no longer accept images), so its model list is
-// always the AI Platform catalog and the AI Platform credentials show while
-// the toggle is on.
-function visionAnalysisEnabled(root) {
-  const toggle = root.querySelector("#llm_vision_enabled");
-  return !!(toggle && toggle.checked);
-}
-
-function updateVisionModelOptions(root) {
-  const select = root.querySelector("#llm_vision_model");
-  if (!select) return;
-  const current = select.value || select.dataset.currentValue || "";
-  const models = managedProviderModels.ai_platform || [];
-  select.innerHTML = "";
-  const defaultOption = document.createElement("option");
-  defaultOption.value = "";
-  defaultOption.textContent = "Default (GPT-5.4)";
-  select.appendChild(defaultOption);
-  models.forEach((model) => {
-    const option = document.createElement("option");
-    option.value = model.value;
-    option.textContent = model.label;
-    select.appendChild(option);
-  });
-  if (current && !models.some((model) => model.value === current)) {
-    const extra = document.createElement("option");
-    extra.value = current;
-    extra.textContent = `${current} (Current)`;
-    select.appendChild(extra);
-  }
-  select.value = current;
-  if (!select.value) select.value = "";
-  select.dataset.currentValue = select.value || "";
-}
-
 function updateModelOptions(root) {
   const providerSelect = root.querySelector("#llm_provider");
   const modelSelect = root.querySelector("#llm_model");
@@ -13911,17 +13881,10 @@ function updateModelOptions(root) {
   if (!isCopilot) {
     if (typeof stopCopilotPolling === "function") stopCopilotPolling(root);
   }
-  const visionEnabled = visionAnalysisEnabled(root);
-  updateVisionModelOptions(root);
-  root.querySelectorAll("[data-vision-fields]").forEach((el) => {
-    el.classList.toggle("hidden", !visionEnabled);
-  });
-  // Show the selected provider's rich-config fields; the AI Platform block also
-  // serves image analysis, so it stays while that is on.
+  // Show the selected provider's rich-config fields.
   root.querySelectorAll("[data-provider-fields]").forEach((el) => {
     const owner = el.getAttribute("data-provider-fields");
-    const visible = owner === provider || (owner === "ai_platform" && visionEnabled);
-    el.classList.toggle("hidden", !visible);
+    el.classList.toggle("hidden", owner !== provider);
   });
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
 }
@@ -14135,7 +14098,7 @@ function initializeManagedSettingsRoot(root) {
   if (root.dataset.actionsBound === "1") return;
   root.dataset.actionsBound = "1";
   root.addEventListener("change", (event) => {
-    if (event.target?.id === "llm_provider" || event.target?.id === "llm_vision_enabled") updateModelOptions(root);
+    if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
     if (event.target?.dataset?.field === "enabled") {
       syncInstanceEnabledState(event.target.closest("[data-instance-item]"));

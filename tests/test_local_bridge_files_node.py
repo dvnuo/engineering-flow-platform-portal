@@ -117,6 +117,19 @@ def test_page_upload_and_playbook_requests_stage_files_then_run():
               assert.deepEqual(out.params, { workflow_yaml: "steps: []", vars: { instruction: "Summarize", file: "id-3" }, yes: true });
               assert.equal("files" in out.params, false);
 
+              // Several files for one variable: their ids are joined with commas,
+              // which the bridge splits; another variable keeps its own id.
+              calls.length = 0;
+              out = await stageRequestFiles("agent-A", "workflow.run", {
+                workflow_yaml: "steps: []",
+                files: [
+                  { var: "files", path: "uploads/a.pdf", name: "a.pdf", bytes: 1 },
+                  { var: "files", path: "uploads/b.png", name: "b.png", bytes: 1 },
+                  { var: "cover", path: "uploads/c.jpg", name: "c.jpg", bytes: 1 },
+                ],
+              });
+              assert.deepEqual(out.params.vars, { files: "id-4,id-5", cover: "id-6" });
+
               // No files: nothing is fetched, the params pass through.
               calls.length = 0;
               out = await stageRequestFiles("agent-A", "workflow.run", { workflow_yaml: "steps: []", files: [] });
