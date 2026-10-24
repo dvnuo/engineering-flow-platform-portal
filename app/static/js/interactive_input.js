@@ -61,6 +61,29 @@
     return typeof window.currentPortalSessionId === "function" ? window.currentPortalSessionId() : null;
   }
 
+  // Which tab may relay browser requests for the run an answer resumes. The
+  // composer sends this hint with every chat post (chatRequestConnectors in
+  // connectors/local_bridge.js) and the proxy turns it into trusted metadata;
+  // an answer resumes that same turn from this tab, so it names the tab too,
+  // or the resumed run has no browser tool.
+  function connectorsHint(agent) {
+    const connectors = window.portalConnectors;
+    if (!connectors || typeof connectors.chatRequestConnectors !== "function") return null;
+    try {
+      const hint = connectors.chatRequestConnectors(agent);
+      return hint && typeof hint === "object" && Object.keys(hint).length ? hint : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function answerBody(agent, fields) {
+    const body = Object.assign({}, fields);
+    const hint = connectorsHint(agent);
+    if (hint) body.connectors = hint;
+    return JSON.stringify(body);
+  }
+
   function renderIcons() {
     if (window.lucide && typeof window.lucide.createIcons === "function") {
       try {
@@ -572,7 +595,7 @@
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ request_id: form.dataset.requestId, answers: collected.answers }),
+          body: answerBody(agent, { request_id: form.dataset.requestId, answers: collected.answers }),
         }
       );
       // Show it before clearing, or the member watches their reply vanish and
@@ -602,7 +625,7 @@
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ request_id: form.dataset.requestId, decision, always }),
+          body: answerBody(agent, { request_id: form.dataset.requestId, decision, always }),
         }
       );
       markResolved(state.pending);

@@ -39,6 +39,9 @@ Rules
 - The current Local bridge page also requires a Chromium browser, the chat's **Browser on** toggle, and a reachable bridge. Keep the originating Portal tab open while a request is running.
 - `client_id`: 1–64 chars, `[A-Za-z0-9_-]`.
 - Absent or invalid `connectors` means "no connectors for this turn".
+- The same top-level object rides on `POST /a/{agent_id}/api/sessions/{session_id}/question/respond` and
+  `.../permission/respond` (sent by `interactive_input.js`): an answer to a card resumes the parked turn on a
+  request of its own, and the resumed run can reach the member's browser only if the answering tab is named again.
 
 ## 2. Runtime metadata injected by Portal (Portal → runtime)
 
@@ -62,6 +65,12 @@ server-trusted form into the runtime execution metadata:
 - A type that is not enabled for the user is **omitted** (not `enabled:false`).
 - `enable_browser_tool` is set only when `connectors.local_bridge` is present and the
   request is interactive chat. Runtime treats it like `enable_question_tool`.
+- The proxy gives the two respond posts of §1 the same treatment as a chat post: client `metadata` is
+  dropped, the server-owned runtime metadata, identity, and the session's run settings go in, then the
+  connectors are injected. The runtime also keeps the parked turn's connectors (`pending_input_context` in
+  session metadata, written when a run stops on a card) and falls back to them when an answer names none,
+  so a Portal that predates this still resumes the turn with the browser tool; an answer that names
+  connectors wins, since it says which tab is answering.
 - `config` comes from the member's saved server-side settings, not from the submitted hint. A non-integer or missing `protocol_version` defaults to 1; Portal does not otherwise negotiate the version here.
 
 ## 3. Runtime tool `browser`
@@ -110,7 +119,10 @@ Failure
 ```
 
 Tool-level error codes: `connector_disabled` (no `connectors.local_bridge` in metadata),
-`connector_timeout` (no response within `timeout_seconds`, default 60, max 120),
+`connector_timeout` (no answer from the page within `timeout_seconds` plus the runtime's grace: 30 s, plus one
+second per MiB of files the page stages first; `timeout_seconds` itself, default 60, 90 for `workflow.run`, max
+120, is the bridge's budget for the command, so a wait that runs out on the bridge comes back as the bridge's
+own `timeout` or `workflow_failed`, and `connector_timeout` means the page did not answer at all),
 `connector_cancelled` (run cancelled while waiting), `connector_error` (bridge returned
 `ok:false`; `error` carries the bridge's code/message/hint verbatim, e.g. `session_busy`,
 `devtools_unavailable`, `target_not_found`, `command_not_allowed`).

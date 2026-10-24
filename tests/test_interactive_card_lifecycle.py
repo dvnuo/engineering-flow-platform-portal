@@ -278,6 +278,60 @@ console.log(JSON.stringify({ shown: shown(), requests: fetchCount - before }));
     assert result == {"shown": False, "requests": 0}
 
 
+def test_an_answer_names_the_tab_that_may_relay_browser_requests():
+    # The answer resumes the parked turn on a request of its own. Without the
+    # same connectors hint the composer sends, the proxy injects nothing and
+    # the resumed run has no browser tool: "this session has no browser tool"
+    # right after the member agreed to an upload.
+    result = _run_node("""
+const posts = [];
+globalThis.fetch = (url, options) => {
+  if (options && options.method === "POST") {
+    posts.push({ url, body: JSON.parse(options.body) });
+    return Promise.resolve({ ok: true, status: 202, text: () => Promise.resolve(JSON.stringify({ request_id: "resume-1" })) });
+  }
+  return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(pending)) });
+};
+window.portalConnectors = {
+  chatRequestConnectors: (agent) => (agent === "a1" ? { local_bridge: { client_id: "tab-1", protocol_version: 1 } } : null),
+};
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+answerTheCard();
+for (let i = 0; i < 5; i += 1) await settle();
+console.log(JSON.stringify(posts));
+""")
+
+    assert len(result) == 1
+    assert result[0]["url"].endswith("/api/sessions/s1/question/respond")
+    assert result[0]["body"] == {
+        "request_id": "q-1",
+        "answers": ["yes"],
+        "connectors": {"local_bridge": {"client_id": "tab-1", "protocol_version": 1}},
+    }
+
+
+def test_an_answer_without_a_connectors_module_still_goes_out():
+    result = _run_node("""
+const posts = [];
+globalThis.fetch = (url, options) => {
+  if (options && options.method === "POST") {
+    posts.push({ url, body: JSON.parse(options.body) });
+    return Promise.resolve({ ok: true, status: 202, text: () => Promise.resolve(JSON.stringify({ request_id: "resume-1" })) });
+  }
+  return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(pending)) });
+};
+setPending({ question_request: QUESTION });
+runtimeEvent("question.requested", { question_request: QUESTION });
+answerTheCard();
+for (let i = 0; i < 5; i += 1) await settle();
+console.log(JSON.stringify(posts));
+""")
+
+    assert len(result) == 1
+    assert result[0]["body"] == {"request_id": "q-1", "answers": ["yes"]}
+
+
 def test_a_half_typed_answer_is_kept_across_a_rebuild():
     """Wiring only -- the behaviour needs a layout engine and `CSS.escape`.
 

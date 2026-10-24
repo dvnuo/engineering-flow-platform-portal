@@ -166,6 +166,23 @@ def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:
     return method.upper() == "POST" and normalized in {"api/chat", "api/chat/stream"}
 
 
+_USER_INPUT_RESPOND_RE = re.compile(r"^api/sessions/([^/]+)/(?:question|permission)/respond$", re.IGNORECASE)
+
+
+def _user_input_respond_session_id(method: str, subpath: str) -> str | None:
+    """The session an answer to a question or permission card belongs to.
+
+    Such an answer resumes the parked chat turn, so its body gets the same
+    server-owned metadata as a chat post (identity, runtime metadata, run
+    settings, the connectors this tab may relay). The id keeps the case the
+    URL had: session ids are not lower-cased like the path comparison.
+    """
+    if method.upper() != "POST":
+        return None
+    match = _USER_INPUT_RESPOND_RE.match((subpath or "").strip("/"))
+    return match.group(1) if match else None
+
+
 def _is_streaming_runtime_path(method: str, subpath: str) -> bool:
     normalized = (subpath or "").strip("/").lower()
     method_upper = method.upper()
@@ -469,6 +486,13 @@ async def proxy_agent(
 
         request_body = (await request.body()) or None
         is_direct_chat_execution = _is_direct_chat_execution_path(request.method, subpath)
+        # An answer to a question or permission card resumes the parked chat
+        # turn on a request of its own. It used to pass through untouched, so
+        # the resumed run had none of the chat post's server-owned metadata --
+        # in particular no `connectors`, hence no browser tool right after the
+        # member agreed to an upload -- while any client `metadata` in the
+        # body reached the runtime as if Portal had vouched for it.
+        respond_session_id = _user_input_respond_session_id(request.method, subpath)
         extra_headers = {
             **build_runtime_trace_headers(get_log_context()),
             **build_portal_agent_headers(user, agent),
@@ -477,7 +501,7 @@ async def proxy_agent(
         chat_execution_id = None
         chat_session_id = _loggable_id(request.query_params.get("session_id"))
         chat_request_id = _loggable_id(request.query_params.get("request_id"))
-        if is_direct_chat_execution and request_body:
+        if (is_direct_chat_execution or respond_session_id) and request_body:
             if not _content_type_is_json(content_type):
                 raise HTTPException(
                     status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -489,6 +513,10 @@ async def proxy_agent(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
             if not isinstance(parsed_payload, dict):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
+            if respond_session_id and not parsed_payload.get("session_id"):
+                # The runtime reads the session from the path; the id is here
+                # for the session's run settings and the request log.
+                parsed_payload["session_id"] = respond_session_id
             chat_session_id = _loggable_id(parsed_payload.get("session_id"), fallback=chat_session_id)
             chat_request_id = _loggable_id(parsed_payload.get("request_id"), fallback=chat_request_id)
             # Run settings saved for the session stand in when the request names
@@ -509,14 +537,15 @@ async def proxy_agent(
                 inference_overrides=inference_overrides,
             )
             parsed_payload = _inject_connectors_metadata(parsed_payload, db, user)
-            chat_execution = record_chat_started_best_effort(
-                db,
-                agent=agent,
-                user=user,
-                payload=parsed_payload,
-                execution_path=f"/{subpath.strip('/')}" if subpath else "/",
-            )
-            chat_execution_id = getattr(chat_execution, "id", None)
+            if is_direct_chat_execution:
+                chat_execution = record_chat_started_best_effort(
+                    db,
+                    agent=agent,
+                    user=user,
+                    payload=parsed_payload,
+                    execution_path=f"/{subpath.strip('/')}" if subpath else "/",
+                )
+                chat_execution_id = getattr(chat_execution, "id", None)
             request_body = json.dumps(parsed_payload).encode("utf-8")
 
         if _is_streaming_runtime_path(request.method, subpath):
