@@ -80,7 +80,10 @@ def test_non_execution_proxy_path_contract_does_not_enrich_payload():
 
     assert "def _is_direct_chat_execution_path(method: str, subpath: str) -> bool:" in proxy_source
     assert 'normalized in {"api/chat", "api/chat/stream"}' in proxy_source
-    assert "if is_direct_chat_execution and request_body:" in proxy_source
+    # Chat posts and the two card answers (question/permission respond) are
+    # the only bodies the proxy rewrites; everything else passes through.
+    assert "def _user_input_respond_session_id(method: str, subpath: str) -> str | None:" in proxy_source
+    assert "if (is_direct_chat_execution or respond_session_id) and request_body:" in proxy_source
     assert "parsed_payload = _enrich_chat_payload_with_runtime_metadata" in proxy_source
     assert "filtered_query_items = _filter_proxy_query_items(request.query_params.multi_items())" in proxy_source
 
