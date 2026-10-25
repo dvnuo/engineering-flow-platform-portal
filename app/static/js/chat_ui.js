@@ -3235,6 +3235,32 @@ function mergeRuntimeStreamEvents(primaryEvents, secondaryEvents) {
   return merged;
 }
 
+// How many events a live stream keeps. The final snapshot keeps the last 100
+// (mergeFinalStreamSnapshot), the context state is read from the newest event
+// that carries one, and duplicates are caught by key, so nothing reads older
+// events back; a long run used to keep every one of its tens of thousands.
+const RUNTIME_STREAM_EVENT_LIMIT = 200;
+
+// Deltas (every streamed token of text, reasoning or tool arguments, plus
+// progress and heartbeats) are reduced into the timeline and the assistant
+// text as they arrive and then let go; no reader needs them afterwards.
+function isRuntimeStreamDeltaEvent(type) {
+  const normalized = String(type || "");
+  return normalized.endsWith(".delta")
+    || normalized === "message.delta"
+    || normalized === "assistant_delta"
+    || normalized === "session.next.tool.progress"
+    || normalized === "heartbeat";
+}
+
+function pushRuntimeStreamEvent(stream, event) {
+  if (!stream || !event || typeof event !== "object") return;
+  if (!Array.isArray(stream.events)) stream.events = [];
+  stream.events.push(event);
+  const excess = stream.events.length - RUNTIME_STREAM_EVENT_LIMIT;
+  if (excess > 0) stream.events.splice(0, excess);
+}
+
 function normalizeRuntimeStreamEvents(events) {
   if (!Array.isArray(events)) return [];
   return events
@@ -4161,15 +4187,25 @@ function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatc
 function markStreamTerminalFromEvent(chatState, entry = {}) {
   if (!chatState) return false;
 
+  const eventLimit = (typeof RUNTIME_STREAM_EVENT_LIMIT === "number") ? RUNTIME_STREAM_EVENT_LIMIT : 200;
   if (chatState.inflightEventStream) {
-    chatState.inflightEventStream.completed = true;
-    chatState.inflightEventStream.status = chatState.inflightEventStream.status || "completed";
-    chatState.inflightEventStream.completedAt = chatState.inflightEventStream.completedAt || Date.now();
+    const stream = chatState.inflightEventStream;
+    stream.completed = true;
+    stream.status = stream.status || "completed";
+    stream.completedAt = stream.completedAt || Date.now();
+    // The caller stored the entry before calling (duplicates are caught by
+    // key), so the snapshot shares the live array; re-keying and copying every
+    // stored event here ran at each step end of a run.
+    if (!Array.isArray(stream.events)) stream.events = [];
+    if (!stream.events.includes(entry)) {
+      if (typeof pushRuntimeStreamEvent === "function") pushRuntimeStreamEvent(stream, entry);
+      else stream.events.push(entry);
+    }
     chatState.lastEventStreamSnapshot = {
-      ...chatState.inflightEventStream,
-      events: mergeRuntimeStreamEvents(chatState.inflightEventStream.events || [], [entry]),
+      ...stream,
+      events: stream.events,
       completed: true,
-      completedAt: chatState.inflightEventStream.completedAt,
+      completedAt: stream.completedAt,
     };
     return true;
   }
@@ -4177,7 +4213,7 @@ function markStreamTerminalFromEvent(chatState, entry = {}) {
   if (chatState.lastEventStreamSnapshot) {
     chatState.lastEventStreamSnapshot = {
       ...chatState.lastEventStreamSnapshot,
-      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]),
+      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]).slice(-eventLimit),
       completed: true,
       completedAt: chatState.lastEventStreamSnapshot.completedAt || Date.now(),
     };
@@ -4272,9 +4308,10 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   );
 
   if (isLateEventForCompletedRequest) {
+    const lateLimit = (typeof RUNTIME_STREAM_EVENT_LIMIT === "number") ? RUNTIME_STREAM_EVENT_LIMIT : 200;
     chatState.lastEventStreamSnapshot = {
       ...chatState.lastEventStreamSnapshot,
-      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]),
+      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]).slice(-lateLimit),
       completed: true,
     };
     return;
@@ -4343,9 +4380,15 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
     return;
   }
   eventStream.seenEventKeys.add(entryDedupKey);
+  const pushStreamEvent = (typeof pushRuntimeStreamEvent === "function")
+    ? pushRuntimeStreamEvent
+    : (stream, event) => { stream.events.push(event); };
+  const isDeltaEvent = (typeof isRuntimeStreamDeltaEvent === "function")
+    ? isRuntimeStreamDeltaEvent
+    : () => false;
 
-  if (!chatState.inflightEventStream.started && type !== "execution.started") {
-    chatState.inflightEventStream.events.push({
+  if (!eventStream.started && type !== "execution.started") {
+    pushStreamEvent(eventStream, {
       type: "execution.started",
       raw_type: "execution.started",
       lifecycle_type: "execution.started",
@@ -4353,17 +4396,19 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       ts: entry.ts,
       state: "started",
     });
-    chatState.inflightEventStream.started = true;
+    eventStream.started = true;
   }
 
-  chatState.inflightEventStream.events.push(entry);
-  if (type === "execution.started") chatState.inflightEventStream.started = true;
+  // A delta is reduced below and not kept: the array only has to hold what
+  // the final snapshot and the context state read back, and it is capped.
+  if (!isDeltaEvent(type)) pushStreamEvent(eventStream, entry);
+  if (type === "execution.started") eventStream.started = true;
 
   if (lifecycleType && lifecycleType !== type) {
     const terminalDetail = lifecycleType === "execution.failed"
       ? (entry?.data?.error || entry?.data?.message || "Execution failed")
       : (entry?.data?.message || "Execution complete");
-    chatState.inflightEventStream.events.push({
+    pushStreamEvent(eventStream, {
       type: lifecycleType,
       raw_type: lifecycleType,
       lifecycle_type: lifecycleType,
@@ -9860,6 +9905,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     chatState.inflightEventStream?.events || [],
     payloadStreamEvents,
   );
+  const storedEventLimit = (typeof RUNTIME_STREAM_EVENT_LIMIT === "number") ? RUNTIME_STREAM_EVENT_LIMIT : 200;
   const hasMeaningfulContext = (typeof hasMeaningfulContextState === "function")
     ? hasMeaningfulContextState
     : (value) => !!(value && typeof value === "object" && Object.keys(value).length);
@@ -9922,7 +9968,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     id: payload.request_id || requestCtx.clientRequestId,
     requestId: payload.request_id || requestCtx.clientRequestId,
     sessionId: finalSessionId,
-    events: mergedStreamEvents,
+    events: mergedStreamEvents.slice(-storedEventLimit),
     completed: true,
     contextState: finalContextState,
     contextSource,
@@ -11681,12 +11727,38 @@ function renderChatHistory(messages, metadata = {}) {
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
   scrollToBottom({ force: true });
+  if (typeof settleMessageRows === "function") settleMessageRows();
   // The rebuild takes anything not born of history with it, including a card
   // the session is still blocked on. Say so; interactive_input.js re-asks the
   // runtime whether one belongs here.
   document.dispatchEvent(new CustomEvent("portal:history-rendered", {
     detail: { agentId: state.selectedAgentId },
   }));
+}
+
+// Rows get content-visibility: auto only after the browser has laid them out
+// once. contain-intrinsic-size: auto then remembers each row's real height, so
+// skipping the rows above the fold does not move the scrollbar when they are
+// scrolled back into view; the 160px placeholder is only for rows never shown.
+// Two frames: the first lays the rows out and records their sizes with it, so
+// the second runs after that. A hidden tab paints no frame, so a timer settles
+// the rows anyway.
+let messageRowsSettleToken = 0;
+
+function settleMessageRows() {
+  const list = dom.messageList;
+  if (!list || !list.dataset) return;
+  delete list.dataset.rowsSettled;
+  messageRowsSettleToken += 1;
+  const token = messageRowsSettleToken;
+  const settle = () => {
+    if (token !== messageRowsSettleToken || list.isConnected === false) return;
+    list.dataset.rowsSettled = "1";
+  };
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => requestAnimationFrame(settle));
+  }
+  setTimeout(settle, 500);
 }
 
 function deriveSessionRecoveryNotice(metadata = {}) {
