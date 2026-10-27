@@ -2673,7 +2673,9 @@ function assistantUsageObject(source) {
   // metadata, in an event's data, or as OpenCode's own info.tokens record
   // (input/output/reasoning plus cache.read/write) next to info.cost.
   if (!source || typeof source !== "object") return null;
-  const layers = [source.usage, source.metadata?.usage, source.data?.usage, source.payload?.usage];
+  // A stored native assistant message keeps the whole run's totals under
+  // metadata.run_usage; its own usage is only the last model step's.
+  const layers = [source.metadata?.run_usage, source.usage, source.metadata?.usage, source.data?.usage, source.payload?.usage];
   for (const layer of layers) {
     if (!layer || typeof layer !== "object") continue;
     if (usageNumber(layer, "input_tokens", "prompt_tokens") != null || usageNumber(layer, "output_tokens", "completion_tokens") != null) return layer;
