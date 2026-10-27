@@ -860,7 +860,7 @@ function createDefaultChatState() {
     unreadCount: 0,
     profileProvider: "",
     profileDefaultModel: "",
-    profileDefaultReasoningEffort: "high",
+    profileDefaultReasoningEffort: "medium",
     profileDefaultMaxContextTokens: null,
     profileAvailableModels: [],
     profileReasoningEfforts: [],
@@ -2241,6 +2241,9 @@ function canonicalMessageToLegacyDisplayMessage(message = {}, index = 0) {
     requested_model: String(message.requested_model || ""),
     auto_tier: String(message.auto_tier || ""),
     model_fallback_reason: String(message.model_fallback_reason || ""),
+    // What the turn cost, for the line under the bubble: the adapter's usage
+    // object when it stamped one, else OpenCode's own info.tokens.
+    usage: (typeof assistantUsageObject === "function" ? assistantUsageObject(message) : null) || undefined,
     metadata: {
       source_of_truth: "runtime",
       runtime_message_id: id,
@@ -2641,6 +2644,354 @@ function latestAssistantModelAttribution(messages = []) {
 }
 // RUNTIME_EVENT_HELPER_END: assistantModelAttribution
 
+// RUNTIME_EVENT_HELPER_START: assistantUsageCost
+// What an answer cost. Copilot bills per token (GitHub AI Credits, 1 credit =
+// $0.01), so a turn's price is its input, cached-input, output and reasoning
+// tokens times the model's rate, times every model call the tool loop made.
+// Both runtimes stamp a `usage` object on the final chat payload and on the
+// stored assistant message (input_tokens, cached_input_tokens, output_tokens,
+// reasoning_tokens, `iterations`, `estimated_credits`, `cache_hit_ratio`,
+// `pricing` {model, tier, threshold_tokens}); the native runner's usage.updated
+// events carry the running total while the turn works. One quiet line under
+// the bubble says what the turn took. The estimate follows GitHub's published
+// prices and is never the bill itself: the tooltip says so.
+const COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS = 272000;
+
+function usageNumber(source, ...keys) {
+  if (!source || typeof source !== "object") return null;
+  for (const key of keys) {
+    const raw = source[key];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const value = Number(raw);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+function assistantUsageObject(source) {
+  // Where a usage object lives: on the payload or message itself, in its
+  // metadata, in an event's data, or as OpenCode's own info.tokens record
+  // (input/output/reasoning plus cache.read/write) next to info.cost.
+  if (!source || typeof source !== "object") return null;
+  const layers = [source.usage, source.metadata?.usage, source.data?.usage, source.payload?.usage];
+  for (const layer of layers) {
+    if (!layer || typeof layer !== "object") continue;
+    if (usageNumber(layer, "input_tokens", "prompt_tokens") != null || usageNumber(layer, "output_tokens", "completion_tokens") != null) return layer;
+  }
+  const info = source.info && typeof source.info === "object" ? source.info : null;
+  const tokens = (info && info.tokens && typeof info.tokens === "object") ? info.tokens : ((source.tokens && typeof source.tokens === "object") ? source.tokens : null);
+  if (tokens) {
+    const cache = tokens.cache && typeof tokens.cache === "object" ? tokens.cache : {};
+    const input = usageNumber(tokens, "input");
+    const output = usageNumber(tokens, "output");
+    if (input == null && output == null) return null;
+    return {
+      input_tokens: input,
+      output_tokens: output,
+      reasoning_tokens: usageNumber(tokens, "reasoning"),
+      cached_input_tokens: usageNumber(cache, "read"),
+      estimated_credits: usageNumber(info || source, "estimated_credits"),
+      pricing: (info && info.pricing && typeof info.pricing === "object") ? info.pricing : undefined,
+      iterations: usageNumber(info || source, "iterations"),
+    };
+  }
+  return null;
+}
+
+function assistantUsageSummary(source) {
+  const usage = assistantUsageObject(source);
+  if (!usage) return null;
+  const inputTokens = usageNumber(usage, "input_tokens", "prompt_tokens");
+  const outputTokens = usageNumber(usage, "output_tokens", "completion_tokens");
+  if (inputTokens == null && outputTokens == null) return null;
+  const outer = source && typeof source === "object" ? source : {};
+  const pricing = usage.pricing && typeof usage.pricing === "object" ? usage.pricing : {};
+  const cachedInputTokens = usageNumber(usage, "cached_input_tokens", "cached_tokens");
+  let cacheHitRatio = usageNumber(usage, "cache_hit_ratio");
+  if (cacheHitRatio == null && inputTokens && cachedInputTokens != null) cacheHitRatio = Math.min(1, cachedInputTokens / inputTokens);
+  if (cacheHitRatio != null) cacheHitRatio = Math.max(0, Math.min(1, cacheHitRatio));
+  const iterations = usageNumber(usage, "iterations") ?? usageNumber(outer, "iterations", "iteration") ?? usageNumber(outer.data, "iterations", "iteration");
+  return {
+    inputTokens: inputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
+    cachedInputTokens,
+    reasoningTokens: usageNumber(usage, "reasoning_tokens"),
+    estimatedCredits: usageNumber(usage, "estimated_credits"),
+    iterations: iterations != null && iterations > 0 ? Math.round(iterations) : null,
+    cacheHitRatio,
+    tier: String(pricing.tier || usage.billing_tier || "").trim().toLowerCase(),
+    model: String(pricing.model || usage.model || outer.resolved_model || outer.model || "").trim(),
+    thresholdTokens: usageNumber(pricing, "threshold_tokens"),
+    pricingSource: String(pricing.source || "").trim(),
+  };
+}
+
+function latestAssistantUsageSummary(messages = []) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const summary = assistantUsageSummary(list[index]);
+    if (summary) return summary;
+  }
+  return null;
+}
+
+function formatCompactTokens(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return "";
+  if (number >= 1000000) return `${(number / 1000000).toFixed(number >= 10000000 ? 0 : 1).replace(/\.0$/, "")}M`;
+  if (number >= 1000) return `${(number / 1000).toFixed(number >= 100000 ? 0 : 1).replace(/\.0$/, "")}K`;
+  return String(Math.round(number));
+}
+
+function formatCredits(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return "";
+  if (number >= 100) return String(Math.round(number));
+  if (number >= 10) return number.toFixed(1).replace(/\.0$/, "");
+  const text = number.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return text || "0";
+}
+
+function assistantUsageTierLabel(tier) {
+  const normalized = String(tier || "").trim().toLowerCase();
+  if (normalized === "long_context") return "Long context \u6863\uff0c\u5355\u4ef7 2\u00d7";
+  if (normalized === "default") return "Default \u6863";
+  return "";
+}
+
+function assistantUsageCostText(summary) {
+  if (!summary) return "";
+  const parts = [];
+  if (summary.iterations) parts.push(`${summary.iterations} \u8f6e`);
+  const input = formatCompactTokens(summary.inputTokens);
+  if (input) {
+    const cache = summary.cacheHitRatio != null ? `\uff08cache ${Math.round(summary.cacheHitRatio * 100)}%\uff09` : "";
+    parts.push(`\u8f93\u5165 ${input}${cache}`);
+  }
+  const output = formatCompactTokens(summary.outputTokens);
+  if (output) {
+    const reasoning = summary.reasoningTokens ? `\uff08\u63a8\u7406 ${formatCompactTokens(summary.reasoningTokens)}\uff09` : "";
+    parts.push(`\u8f93\u51fa ${output}${reasoning}`);
+  }
+  const credits = formatCredits(summary.estimatedCredits);
+  if (credits) parts.push(`\u2248 ${credits} credits`);
+  return parts.join(" \u00b7 ");
+}
+
+function assistantUsageCostTitle(summary) {
+  if (!summary) return "";
+  const lines = [];
+  const tier = assistantUsageTierLabel(summary.tier);
+  if (tier) lines.push(`\u8ba1\u8d39\u6863\u4f4d\uff1a${tier}`);
+  if (summary.model) lines.push(`\u6a21\u578b\uff1a${summary.model}`);
+  if (summary.cachedInputTokens != null) lines.push(`cache \u547d\u4e2d\uff1a${formatCompactTokens(summary.cachedInputTokens) || "0"} tokens`);
+  lines.push("credits \u662f\u6309 GitHub \u516c\u5f00\u4ef7\u8868\u7684\u4f30\u7b97\uff081 credit = $0.01\uff09\uff0c\u4e0d\u662f\u8d26\u5355\u3002");
+  return lines.join("\n");
+}
+
+function buildAssistantCostLineHtml(summary, options = {}) {
+  const text = assistantUsageCostText(summary);
+  if (!text) return "";
+  const credits = Number(summary.estimatedCredits);
+  const creditsAttr = Number.isFinite(credits) && credits >= 0 ? ` data-credits="${escapeHtmlAttr(String(credits))}"` : "";
+  const liveClass = options.live ? " is-live" : "";
+  const tierHtml = summary.tier === "long_context" ? `<span class="message-cost-tier-long">Long context 2\u00d7</span>` : "";
+  return `<div class="message-cost${liveClass}" title="${escapeHtmlAttr(assistantUsageCostTitle(summary))}"${creditsAttr} data-tier="${escapeHtmlAttr(summary.tier || "")}"><span>${escapeHtml(text)}</span>${tierHtml}</div>`;
+}
+
+function applyAssistantCostLine(target, summary, options = {}) {
+  if (typeof document === "undefined" || !target) return null;
+  const row = target.classList?.contains("message-row") ? target : target.closest?.(".message-row");
+  if (!row) return null;
+  const html = buildAssistantCostLineHtml(summary, options);
+  const existing = row.querySelector(":scope > .message-cost");
+  if (!html) return existing || null;
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    const article = row.querySelector(":scope > article");
+    if (article) article.insertAdjacentHTML("afterend", html);
+    else row.insertAdjacentHTML("beforeend", html);
+  }
+  return row.querySelector(":scope > .message-cost");
+}
+
+function sumVisibleAssistantCredits(root) {
+  if (typeof document === "undefined") return null;
+  const scope = root || document;
+  let total = 0;
+  let seen = false;
+  scope.querySelectorAll(".message-cost[data-credits]").forEach((element) => {
+    const value = Number(element.dataset.credits);
+    if (Number.isFinite(value)) {
+      total += value;
+      seen = true;
+    }
+  });
+  return seen ? total : null;
+}
+
+// Budget pause. The native runner stops a turn that crossed its credits guard
+// or iteration cap and says so: `terminal_reason: "budget_paused"` on the
+// final payload (with a `budget_pause` object) and a run_budget_paused event
+// while running. The answer already summarizes progress; the notice says why
+// it stopped and offers to go on, which is an ordinary "continue" message.
+function budgetPauseInfo(source) {
+  if (!source || typeof source !== "object") return null;
+  const nested = [source.budget_pause, source.data?.budget_pause, source.payload?.budget_pause]
+    .find((value) => value && typeof value === "object") || null;
+  const layers = [nested, source, source.data, source.payload].filter((value) => value && typeof value === "object");
+  const pick = (...keys) => {
+    for (const layer of layers) {
+      for (const key of keys) {
+        const value = layer[key];
+        if (value !== undefined && value !== null && value !== "") return value;
+      }
+    }
+    return null;
+  };
+  const type = String(pick("type", "event_type") || "").trim().toLowerCase();
+  const terminalReason = String(pick("terminal_reason") || "").trim().toLowerCase();
+  if (!nested && type !== "run_budget_paused" && terminalReason !== "budget_paused") return null;
+  const reason = String(pick("reason", "pause_reason") || "").trim().toLowerCase();
+  return {
+    reason: reason === "iteration_cap" ? "iteration_cap" : "credits_guard",
+    estimatedCredits: usageNumber({ value: pick("estimated_credits") }, "value"),
+    creditsLimit: usageNumber({ value: pick("credits_limit") }, "value"),
+    iterations: usageNumber({ value: pick("iterations") }, "value"),
+    iterationLimit: usageNumber({ value: pick("iteration_limit") }, "value"),
+    message: String(pick("message") || "").trim(),
+  };
+}
+
+function budgetPauseNoticeText(info) {
+  if (!info) return "";
+  if (info.reason === "iteration_cap") {
+    const rounds = info.iterations != null ? `${Math.round(info.iterations)} ` : "";
+    const cap = info.iterationLimit != null ? `\uff08\u4e0a\u9650 ${Math.round(info.iterationLimit)}\uff09` : "";
+    return `\u672c\u6761\u6d88\u606f\u5df2\u8dd1 ${rounds}\u8f6e${cap}\uff0c\u5df2\u6682\u505c\u3002`;
+  }
+  const credits = formatCredits(info.estimatedCredits) || "?";
+  const limit = formatCredits(info.creditsLimit);
+  return `\u672c\u6761\u6d88\u606f\u5df2\u7528\u7ea6 ${credits} credits${limit ? `\uff08\u4e0a\u9650 ${limit}\uff09` : ""}\uff0c\u5df2\u6682\u505c\u3002`;
+}
+
+function buildBudgetPauseNoticeHtml(info) {
+  const text = budgetPauseNoticeText(info);
+  if (!text) return "";
+  const hint = "\u56de\u590d\u201c\u7ee7\u7eed\u201d\u53ef\u4ee5\u63a5\u7740\u8dd1\u3002";
+  return `<div class="message-cost-notice" data-budget-pause="${escapeHtmlAttr(info.reason || "")}"><span>${escapeHtml(`${text} ${hint}`)}</span><button type="button" class="message-cost-notice-btn" data-budget-pause-continue>${escapeHtml("\u7ee7\u7eed")}</button></div>`;
+}
+
+function applyBudgetPauseNotice(target, info) {
+  if (typeof document === "undefined" || !target || !info) return null;
+  const row = target.classList?.contains("message-row") ? target : target.closest?.(".message-row");
+  if (!row) return null;
+  const html = buildBudgetPauseNoticeHtml(info);
+  if (!html) return null;
+  const existing = row.querySelector(":scope > .message-cost-notice");
+  if (existing) existing.outerHTML = html;
+  else row.insertAdjacentHTML("beforeend", html);
+  const notice = row.querySelector(":scope > .message-cost-notice");
+  notice?.querySelector("[data-budget-pause-continue]")?.addEventListener("click", () => {
+    if (typeof sendBudgetPauseContinue === "function") void sendBudgetPauseContinue();
+  });
+  return notice;
+}
+
+async function sendBudgetPauseContinue() {
+  // "Continue" is a plain chat message: the history already holds everything
+  // the run did, so the next turn picks up where the pause left it.
+  if (typeof dom === "undefined" || !dom.chatInput || typeof submitChatForSelectedAgent !== "function") return false;
+  dom.chatInput.value = "\u7ee7\u7eed";
+  dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+  await submitChatForSelectedAgent();
+  return true;
+}
+// RUNTIME_EVENT_HELPER_END: assistantUsageCost
+
+// RUNTIME_EVENT_HELPER_START: copilotQuota
+// The member's Copilot AI-credit balance this month, from the runtime's
+// GET /api/copilot/quota (GitHub's internal quota endpoint behind the member's
+// own credential). None of its fields is a contract: whatever arrives is
+// shown, and anything else reads as unavailable.
+function copilotQuotaSummary(quota) {
+  if (!quota || typeof quota !== "object" || quota.available !== true) {
+    return { available: false, error: String(quota?.error || "").trim() };
+  }
+  const credits = quota.credits && typeof quota.credits === "object" ? quota.credits : null;
+  let used = usageNumber(credits, "used");
+  let included = usageNumber(credits, "included", "entitlement");
+  let remaining = usageNumber(credits, "remaining");
+  let unit = "credits";
+  let percentRemaining = null;
+  if (used == null && remaining == null) {
+    const snapshots = Array.isArray(quota.snapshots) ? quota.snapshots : [];
+    const snapshot = snapshots.find((item) => item && typeof item === "object" && item.unlimited !== true
+      && (usageNumber(item, "used") != null || usageNumber(item, "remaining") != null || usageNumber(item, "percent_remaining") != null)) || null;
+    if (snapshot) {
+      used = usageNumber(snapshot, "used");
+      included = usageNumber(snapshot, "entitlement", "included");
+      remaining = usageNumber(snapshot, "remaining");
+      percentRemaining = usageNumber(snapshot, "percent_remaining");
+      unit = String(snapshot.label || snapshot.id || "").trim() || unit;
+    }
+  }
+  if (used == null && included != null && remaining != null) used = Math.max(0, included - remaining);
+  if (remaining == null && included != null && used != null) remaining = Math.max(0, included - used);
+  let percentUsed = null;
+  if (used != null && included) percentUsed = Math.max(0, Math.min(100, (used / included) * 100));
+  else if (percentRemaining != null) percentUsed = Math.max(0, Math.min(100, 100 - percentRemaining));
+  return {
+    available: true,
+    used,
+    included,
+    remaining,
+    percentUsed,
+    unit,
+    plan: String(quota.plan || "").trim(),
+    resetDate: String(quota.reset_date || "").trim(),
+    warning: percentUsed != null && percentUsed >= 80,
+    hasNumbers: used != null || remaining != null || percentUsed != null,
+  };
+}
+
+function copilotQuotaChipHtml(summary) {
+  const label = "\u672c\u6708 Copilot \u989d\u5ea6";
+  if (!summary || summary.available !== true) {
+    const detail = summary?.error ? `\u4e0d\u53ef\u7528\uff1a${summary.error}` : "\u8fd0\u884c\u65f6\u672a\u8fd4\u56de\u989d\u5ea6\u4fe1\u606f\uff0c\u53ef\u5728 GitHub \u7684 Billing \u9875\u9762\u67e5\u770b\u3002";
+    return `<div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="unavailable"><div class="portal-quota-chip-head"><span>${label}</span><span>\u4e0d\u53ef\u7528</span></div><div>${escapeHtml(detail)}</div></div>`;
+  }
+  if (!summary.hasNumbers) {
+    const plan = summary.plan ? `\u8ba1\u5212\uff1a${summary.plan}` : "\u989d\u5ea6\u63a5\u53e3\u672a\u8fd4\u56de\u53ef\u7528\u6570\u5b57\u3002";
+    return `<div id="context-quota-chip" class="portal-quota-chip" data-copilot-quota="no-numbers"><div class="portal-quota-chip-head"><span>${label}</span></div><div>${escapeHtml(plan)}</div></div>`;
+  }
+  const unit = escapeHtml(summary.unit || "credits");
+  const usedText = summary.used != null ? `\u5df2\u7528 ${escapeHtml(formatCredits(summary.used) || String(Math.round(summary.used)))} ${unit}` : (summary.percentUsed != null ? `\u5df2\u7528 ${Math.round(summary.percentUsed)}%` : "");
+  const rightText = summary.remaining != null
+    ? `\u5269\u4f59 ${escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining)))}`
+    : (summary.included != null ? `\u5171 ${escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included)))}` : "");
+  const meter = summary.percentUsed != null ? `<div class="portal-quota-meter"><span style="width:${Math.round(summary.percentUsed * 10) / 10}%"></span></div>` : "";
+  const reset = summary.resetDate ? `<div>\u91cd\u7f6e\u65e5\u671f\uff1a${escapeHtml(summary.resetDate)}</div>` : "";
+  const warning = summary.warning ? `<div>\u5df2\u7528\u8d85\u8fc7 80%\uff0c\u6ce8\u610f\u63a7\u5236\u672c\u6708\u7528\u91cf\u3002</div>` : "";
+  return `<div id="context-quota-chip" class="portal-quota-chip${summary.warning ? " is-warning" : ""}" data-copilot-quota="${summary.warning ? "warning" : "ok"}"><div class="portal-quota-chip-head"><span>${label}</span><span>${usedText}${usedText && rightText ? " \u00b7 " : ""}${rightText}</span></div>${meter}${reset}${warning}</div>`;
+}
+// RUNTIME_EVENT_HELPER_END: copilotQuota
+
+async function renderCopilotQuotaChip(agentId) {
+  if (typeof document === "undefined" || !agentId || !document.getElementById("context-quota-chip")) return null;
+  let quota = null;
+  try {
+    quota = await agentApiFor(agentId, "/api/copilot/quota");
+  } catch (error) {
+    quota = { available: false, error: String(error?.message || error || "") };
+  }
+  const host = document.getElementById("context-quota-chip");
+  if (!host) return quota;
+  host.outerHTML = copilotQuotaChipHtml(copilotQuotaSummary(quota));
+  return quota;
+}
+
 function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
   const messageIds = getAssistantGroupMessageIds(group);
   const primaryMessageId = messageIds[messageIds.length - 1] || "";
@@ -2923,8 +3274,11 @@ function isTrackableStreamEvent(type) {
     "assistant.message.started", "assistant.message.updated", "assistant.message.completed",
     "portal.waiting_for_runtime_events", "portal.stream_disconnected",
     "skill.loaded", "task.started", "task.completed",
-    // usage.updated feeds the live model badge; the timeline draws no row for it.
-    "usage.updated"
+    // usage.updated feeds the live model badge and the cost line; the timeline draws no row for it.
+    "usage.updated",
+    // The run stopped at its credits guard or iteration cap; the notice under
+    // the answer offers to continue.
+    "run_budget_paused"
   ].includes(normalizedType);
 }
 
@@ -3816,6 +4170,11 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
     title = "Question requested";
     icon = "circle-help";
     status = "pending";
+  } else if (type === "run_budget_paused") {
+    kind = "event";
+    title = "Budget pause";
+    icon = "pause-circle";
+    status = "completed";
   } else if (type === "connector.request" || type === "connector.responded") {
     // One row per connector request: the response event carries the same
     // request id, so it updates the pending row instead of adding a second.
@@ -3896,7 +4255,7 @@ function reduceAgentTimelineEvent(chatState, event) {
     changed = reduceAgentTimelineCompactionEvent(timeline, event, type);
   } else if (["permission.requested", "permission.resolved", "permission_request", "permission_resolved", "permission.denied", "permission.allowed"].includes(type)) {
     changed = reduceAgentTimelinePermissionEvent(timeline, event, type);
-  } else if (type.startsWith("provider.") || type === "model.retry" || type === "question.requested") {
+  } else if (type.startsWith("provider.") || type === "model.retry" || type === "question.requested" || type === "run_budget_paused") {
     changed = reduceAgentTimelineGenericEvent(timeline, event, type);
   }
   // usage.updated falls through on purpose. The native runtime sends one per
@@ -7322,9 +7681,20 @@ async function fetchUsageForAgent(agentId) {
     }
     const global = data.global || {};
     const reqCount = global.request_count || 0;
-    const cost = global.total_cost_usd || global.total_cost || 0;
-    const inputTokens = global.total_input_tokens || global.total_input || 0;
-    const outputTokens = global.total_output_tokens || global.total_output || 0;
+    const cost = Number(global.total_cost_usd || global.total_cost || 0);
+    const inputTokens = Number(global.total_input_tokens || global.total_input || 0);
+    const outputTokens = Number(global.total_output_tokens || global.total_output || 0);
+    // A runtime that estimates GitHub AI Credits reports them next to the
+    // tokens; cached and reasoning tokens are what the credits mostly hinge on.
+    const credits = Number(global.total_estimated_credits);
+    const hasCredits = global.total_estimated_credits !== undefined && global.total_estimated_credits !== null && Number.isFinite(credits);
+    const cachedTokens = Number(global.total_cached_input_tokens);
+    const hasCached = global.total_cached_input_tokens !== undefined && global.total_cached_input_tokens !== null && Number.isFinite(cachedTokens);
+    const reasoningTokens = Number(global.total_reasoning_tokens);
+    const hasReasoning = global.total_reasoning_tokens !== undefined && global.total_reasoning_tokens !== null && Number.isFinite(reasoningTokens);
+    const costCard = hasCredits
+      ? `<div class="portal-usage-card"><span class="portal-usage-k">Est. credits</span><strong class="portal-usage-v">${(typeof formatCredits === "function" ? formatCredits(credits) : credits.toFixed(1)) || "0"}</strong></div>`
+      : `<div class="portal-usage-card"><span class="portal-usage-k">Cost</span><strong class="portal-usage-v">$${cost.toFixed(4)}</strong></div>`;
     usageEl.innerHTML = `
       <div class="portal-detail-label">Usage (30 days)</div>
       <div class="portal-usage-grid">
@@ -7332,10 +7702,7 @@ async function fetchUsageForAgent(agentId) {
           <span class="portal-usage-k">Requests</span>
           <strong class="portal-usage-v">${reqCount}</strong>
         </div>
-        <div class="portal-usage-card">
-          <span class="portal-usage-k">Cost</span>
-          <strong class="portal-usage-v">$${cost.toFixed(4)}</strong>
-        </div>
+        ${costCard}
         <div class="portal-usage-card">
           <span class="portal-usage-k">Input</span>
           <strong class="portal-usage-v">${inputTokens.toLocaleString()}</strong>
@@ -7344,6 +7711,8 @@ async function fetchUsageForAgent(agentId) {
           <span class="portal-usage-k">Output</span>
           <strong class="portal-usage-v">${outputTokens.toLocaleString()}</strong>
         </div>
+        ${hasCached ? `<div class="portal-usage-card"><span class="portal-usage-k">Cached input</span><strong class="portal-usage-v">${cachedTokens.toLocaleString()}</strong></div>` : ""}
+        ${hasReasoning ? `<div class="portal-usage-card"><span class="portal-usage-k">Reasoning</span><strong class="portal-usage-v">${reasoningTokens.toLocaleString()}</strong></div>` : ""}
       </div>
     `;
   } catch (e) {
@@ -7993,7 +8362,7 @@ async function submitChatForSelectedAgent() {
   const modelOverride = (chatState.modelOverride || dom.chatModelSelect?.value || "").trim();
   const defaultModel = (chatState.profileDefaultModel || "").trim();
   const reasoningEffort = (chatState.reasoningEffortOverride || dom.chatReasoningSelect?.value || "").trim();
-  const defaultReasoningEffort = (chatState.profileDefaultReasoningEffort || "high").trim();
+  const defaultReasoningEffort = (chatState.profileDefaultReasoningEffort || "medium").trim();
   const contextValue = Number(chatState.maxContextTokensOverride || dom.chatContextSelect?.value || 0);
   const defaultContextValue = Number(chatState.profileDefaultMaxContextTokens || 0);
   const requestBody = {
@@ -8771,6 +9140,16 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
   if (typeof applyAssistantModelBadge === "function" && typeof assistantModelAttribution === "function") {
     applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
   }
+  if (typeof applyAssistantCostLine === "function" && typeof assistantUsageSummary === "function") {
+    // A partial payload carries no usage; the final one (and the stored
+    // message) does, so the line appears once the turn has a cost.
+    const usageSummary = assistantUsageSummary(payload);
+    if (usageSummary) applyAssistantCostLine(article, usageSummary);
+  }
+  if (typeof applyBudgetPauseNotice === "function" && typeof budgetPauseInfo === "function") {
+    const budgetPause = budgetPauseInfo(payload);
+    if (budgetPause) applyBudgetPauseNotice(article, budgetPause);
+  }
   const markdownEl = article.querySelector(".message-markdown") || (() => {
     const created = document.createElement("div");
     created.className = "message-markdown md-render";
@@ -8945,6 +9324,13 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   article.querySelector('.assistant-waiting-indicator')?.remove();
   if (typeof applyAssistantModelBadge === "function" && typeof assistantModelAttribution === "function") {
     applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
+  }
+  if (typeof applyAssistantCostLine === "function" && typeof assistantUsageSummary === "function") {
+    applyAssistantCostLine(article, assistantUsageSummary(payload) || requestCtx?.usageSummary || null);
+  }
+  if (typeof applyBudgetPauseNotice === "function" && typeof budgetPauseInfo === "function") {
+    const budgetPause = budgetPauseInfo(payload) || requestCtx?.budgetPause || null;
+    if (budgetPause) applyBudgetPauseNotice(article, budgetPause);
   }
   renderMarkdown(article); decorateToolMessages(article); renderIcons(row || article);
   return true;
@@ -9405,6 +9791,25 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       if (modelAttribution) {
         requestCtx.modelAttribution = modelAttribution;
         applyAssistantModelBadge(findPendingAssistantArticle(requestCtx.clientRequestId || requestCtx.requestId || ""), modelAttribution);
+      }
+    }
+    if (embeddedType === "usage.updated" && typeof assistantUsageSummary === "function" && typeof applyAssistantCostLine === "function") {
+      // The running total after every model call: the cost line under the
+      // pending bubble counts up while the turn works, and the final payload
+      // replaces it with the stored figures.
+      const liveUsage = assistantUsageSummary(eventData);
+      if (liveUsage) {
+        requestCtx.usageSummary = liveUsage;
+        applyAssistantCostLine(findPendingAssistantArticle(requestCtx.clientRequestId || requestCtx.requestId || ""), liveUsage, { live: true });
+      }
+    }
+    if (embeddedType === "run_budget_paused" && typeof budgetPauseInfo === "function") {
+      const budgetPause = budgetPauseInfo({ ...eventData, type: "run_budget_paused" });
+      if (budgetPause) {
+        requestCtx.budgetPause = budgetPause;
+        if (typeof applyBudgetPauseNotice === "function") {
+          applyBudgetPauseNotice(findPendingAssistantArticle(requestCtx.clientRequestId || requestCtx.requestId || ""), budgetPause);
+        }
       }
     }
     const wrapperDeltaText = getChatStreamTextPayload(eventData);
@@ -10757,6 +11162,9 @@ function renderContextUsagePanel(snapshot) {
     : compact?.reason || (compact.supported === false ? "Manual Compact is not supported by this runtime." : "");
   const modelLabel = [snapshot?.model?.provider_id, snapshot?.model?.model_id].filter(Boolean).join(" / ") || "—";
   const scopeLabel = snapshot?.scope === "last_request" ? "last model request" : "current session estimate";
+  const billing = contextBillingView(snapshot);
+  const sessionCredits = (typeof sumVisibleAssistantCredits === "function") ? sumVisibleAssistantCredits(dom.messageList) : null;
+  const costGuideHtml = (typeof buildCostGuideHtml === "function") ? buildCostGuideHtml() : "";
 
   setToolPanel("Context", `
     <div class="portal-context-panel">
@@ -10768,8 +11176,13 @@ function renderContextUsagePanel(snapshot) {
           </div>
           <div class="portal-context-token-total">${usedTokens} / ${windowTokens} tokens</div>
         </div>
-        <div class="portal-context-meter"><div class="portal-context-meter-fill" style="width:${meterPercent}%"></div></div>
+        <div class="portal-context-meter"><div class="portal-context-meter-fill${billing.fillClass}" style="width:${meterPercent}%"></div>${billing.markerHtml}</div>
+        ${billing.rowHtml}
+        ${billing.calibrationHtml}
         <div class="portal-panel-note">Model: ${safe(modelLabel)} · ${safe(scopeLabel)}</div>
+        ${sessionCredits != null ? `<div class="portal-context-credits"><span>\u672c\u4f1a\u8bdd\u7d2f\u8ba1</span><strong>\u2248 ${safe(formatCredits(sessionCredits) || "0")} credits</strong></div>` : ""}
+        <div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="loading"><div class="portal-quota-chip-head"><span>\u672c\u6708 Copilot \u989d\u5ea6</span><span>\u52a0\u8f7d\u4e2d\u2026</span></div></div>
+        ${costGuideHtml}
       </div>
       <div class="portal-panel-section">
         <div class="portal-panel-title">Coarse breakdown</div>
@@ -10788,7 +11201,68 @@ function renderContextUsagePanel(snapshot) {
   `, "context");
   document.getElementById("context-compact-btn")?.addEventListener("click", compactCurrentConversation);
   renderIcons();
+  // The balance is fetched when the panel opens, never per message.
+  if (typeof renderCopilotQuotaChip === "function") void renderCopilotQuotaChip(state.selectedAgentId);
 }
+
+// RUNTIME_EVENT_HELPER_START: contextBillingView
+// The 272K line on the context meter. Above that many input tokens in one
+// request the GPT-6 line bills on its "long context" tier at twice the price,
+// and the window alone (256K or 1M) says nothing about it. The runtime reports
+// `billing_threshold_tokens`, `billing_tier`, its real prompt `budget_tokens`
+// and, once it has seen a real token count, `calibrated_used_tokens`; an older
+// runtime reports none of these and the meter draws as before.
+function contextBillingView(snapshot) {
+  const view = { fillClass: "", markerHtml: "", rowHtml: "", calibrationHtml: "", tier: "", overThreshold: false, overBudget: false };
+  if (!snapshot || typeof snapshot !== "object") return view;
+  const windowTokens = Number(snapshot.context_window_tokens || snapshot.model?.context_window_tokens || 0) || 0;
+  const threshold = Number(snapshot.billing_threshold_tokens || 0) || 0;
+  const budget = Number(snapshot.budget_tokens || 0) || 0;
+  const estimated = Number(snapshot.used_tokens || 0) || 0;
+  const calibrated = Number(snapshot.calibrated_used_tokens || 0) || 0;
+  const used = calibrated || estimated;
+  const reportedTier = String(snapshot.billing_tier || "").trim().toLowerCase();
+  const tier = reportedTier || (threshold ? (used > threshold ? "long_context" : "default") : "");
+  view.tier = tier;
+  view.overThreshold = Boolean(threshold && used > threshold);
+  view.overBudget = Boolean(budget && used > budget);
+  view.fillClass = view.overBudget ? " is-over-budget" : (view.overThreshold ? " is-over-threshold" : "");
+  if (threshold && windowTokens > threshold) {
+    const left = Math.max(0, Math.min(100, (threshold / windowTokens) * 100));
+    view.markerHtml = `<div class="portal-context-meter-marker" style="left:${left.toFixed(1)}%" title="${escapeHtmlAttr(`${formatCompactTokens(threshold)}: Long context \u6863\u8d77\u70b9\uff0c\u5355\u4ef7 2\u00d7`)}"></div>`;
+  }
+  const pieces = [];
+  if (tier) {
+    const tierText = tier === "long_context"
+      ? `Long context\uff08> ${formatCompactTokens(threshold || 272000)}\uff0c\u5355\u4ef7 2\u00d7\uff09`
+      : `Default\uff08\u2264 ${formatCompactTokens(threshold || 272000)}\uff0c\u6b63\u5e38\u5355\u4ef7\uff09`;
+    pieces.push(`<span>\u8ba1\u8d39\u6863\uff1a<span class="${tier === "long_context" ? "is-long-context" : ""}">${escapeHtml(tierText)}</span></span>`);
+  }
+  if (budget) pieces.push(`<span>\u8fd0\u884c\u65f6\u9884\u7b97 ${escapeHtml(formatCompactTokens(budget))} tokens${view.overBudget ? "\uff08\u5df2\u8d85\u51fa\uff0c\u8f83\u65e7\u7684\u5185\u5bb9\u4f1a\u88ab\u538b\u7f29\uff09" : ""}</span>`);
+  if (pieces.length) view.rowHtml = `<div class="portal-context-billing">${pieces.join("")}</div>`;
+  const calibration = snapshot.calibration && typeof snapshot.calibration === "object" ? snapshot.calibration : null;
+  if (calibrated) {
+    const ratio = Number(calibration?.ratio);
+    const ratioText = Number.isFinite(ratio) && ratio > 0 ? `\uff08\u5b9e\u6d4b/\u4f30\u7b97 ${ratio.toFixed(2)}\uff09` : "";
+    view.calibrationHtml = `<div class="portal-panel-note">\u6309\u5b9e\u6d4b token \u6821\u51c6 \u2248 ${escapeHtml(formatContextTokens(calibrated))} tokens${escapeHtml(ratioText)}</div>`;
+  }
+  return view;
+}
+
+const COPILOT_COST_GUIDE_LINES = [
+  "Copilot \u6309 token \u8ba1 AI Credits\uff081 credit = $0.01\uff09\uff0c\u4e0d\u6309\u6d88\u606f\u6761\u6570\u3002",
+  "\u6bcf\u4e00\u8f6e\u5de5\u5177\u8c03\u7528\u90fd\u4f1a\u91cd\u53d1\u6574\u6bb5\u4e0a\u4e0b\u6587\uff0c\u4f1a\u8bdd\u8d8a\u957f\u3001\u6bcf\u6761\u6d88\u606f\u8d8a\u8d35\u3002",
+  "\u5355\u6b21\u8bf7\u6c42\u8d85\u8fc7 272K input tokens \u8fdb\u5165 Long context \u6863\uff0c\u5355\u4ef7\u7ffb\u500d\u3002",
+  "\u7701\u94b1\uff1a\u65b0\u8bdd\u9898\u5f00\u65b0\u4f1a\u8bdd\u3001\u5c11\u8d34\u5927\u6587\u4ef6\u3001\u63a8\u7406\u5f3a\u5ea6\u7528 Medium\u3001\u6a21\u578b\u7528 Auto\u3002",
+];
+const COPILOT_PRICING_DOCS_URL = "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing";
+
+function buildCostGuideHtml() {
+  const items = COPILOT_COST_GUIDE_LINES.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+  const links = `<li><a href="${COPILOT_PRICING_DOCS_URL}" target="_blank" rel="noopener noreferrer">GitHub \u4ef7\u76ee\u8868</a> \u00b7 <a href="#/help/copilot-costs">\u5b8c\u6574\u8d39\u7528\u8bf4\u660e</a></li>`;
+  return `<details class="portal-cost-guide" data-cost-guide><summary>\u8d39\u7528\u8bf4\u660e</summary><ul>${items}${links}</ul></details>`;
+}
+// RUNTIME_EVENT_HELPER_END: contextBillingView
 
 async function refreshContextUsageForAgent(agentId, sessionId, { renderPanel = false, silent = true } = {}) {
   const normalizedSessionId = String(sessionId || "").trim();
@@ -11652,6 +12126,9 @@ function renderChatHistory(messages, metadata = {}) {
   if (!messages.length) { clearMessageListToWelcome(); return; }
   dom.messageList.innerHTML = "";
   const displayEntries = groupSessionMessagesForDisplay(messages);
+  // A budget-pause notice (with its Continue button) belongs to the turn the
+  // member can still continue: the last one. Earlier pauses were moved past.
+  const lastAssistantEntry = [...displayEntries].reverse().find((entry) => entry.type === "assistant_group") || null;
   displayEntries.forEach((entry) => {
     if (entry.type === "message") {
       const message = entry.message;
@@ -11721,6 +12198,14 @@ function renderChatHistory(messages, metadata = {}) {
       content.dataset.displayBlocks = JSON.stringify(getAssistantGroupDisplayBlocks(entry));
       article.appendChild(content);
       row.appendChild(article);
+      if (typeof latestAssistantUsageSummary === "function" && typeof buildAssistantCostLineHtml === "function") {
+        const usageSummary = latestAssistantUsageSummary(entry.messages);
+        if (usageSummary) row.insertAdjacentHTML("beforeend", buildAssistantCostLineHtml(usageSummary));
+      }
+      if (entry === lastAssistantEntry && typeof budgetPauseInfo === "function" && typeof applyBudgetPauseNotice === "function") {
+        const budgetPause = budgetPauseInfo(last) || budgetPauseInfo(last?.metadata);
+        if (budgetPause) applyBudgetPauseNotice(row, budgetPause);
+      }
       dom.messageList.appendChild(row);
     }
   });
@@ -13290,7 +13775,11 @@ const managedProviderModels = {
 };
 
 const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
-const managedContextSizes = [64000, 256000, 1000000];
+// Mirrors CONTEXT_SIZE_PRESETS in app/contracts/llm_catalog.py. Above
+// COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS (272K input tokens per request) the
+// GPT-6 line bills on its "long context" tier at twice the price, so the one
+// preset past it says so in its label.
+const managedContextSizes = [64000, 128000, 256000, 1000000];
 
 function inferenceModelLabel(value) {
   const normalized = String(value || "").trim();
@@ -13309,7 +13798,9 @@ function inferenceReasoningLabel(value) {
 function inferenceContextLabel(value, fallback = "Auto") {
   const tokens = Number(value || 0);
   if (!Number.isFinite(tokens) || tokens <= 0) return fallback;
-  return tokens === 1000000 ? "1M" : `${Math.round(tokens / 1000)}K`;
+  const base = tokens >= 1000000 ? "1M" : `${Math.round(tokens / 1000)}K`;
+  const threshold = (typeof COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS === "number") ? COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS : 272000;
+  return tokens > threshold ? `${base} \u00b7 Long context 2\u00d7` : base;
 }
 
 function contextSizeOptionsForModel(model, fallback = []) {
@@ -13398,7 +13889,7 @@ function renderComposerModelSelectorForAgent(agentId) {
       option.textContent = inferenceReasoningLabel(effort);
       dom.chatReasoningSelect.appendChild(option);
     });
-    const selectedReasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort || "high";
+    const selectedReasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort || "medium";
     dom.chatReasoningSelect.value = reasoningEfforts.includes(selectedReasoning) ? selectedReasoning : (reasoningEfforts[0] || "");
     dom.chatReasoningField?.classList.toggle("hidden", !chatState.supportsReasoningEffort);
   }
@@ -13443,7 +13934,7 @@ async function refreshComposerModelProfile(agentId) {
     const payload = await api(`/api/agents/${agentId}/chat-model-profile`);
     chatState.profileProvider = (payload?.provider || "").trim();
     chatState.profileDefaultModel = (payload?.current_model || "").trim();
-    chatState.profileDefaultReasoningEffort = (payload?.current_reasoning_effort || "high").trim();
+    chatState.profileDefaultReasoningEffort = (payload?.current_reasoning_effort || "medium").trim();
     chatState.profileDefaultMaxContextTokens = Number(payload?.current_max_context_tokens || 0) || null;
     chatState.profileAvailableModels = Array.isArray(payload?.available_models) ? payload.available_models : [];
     chatState.profileReasoningEfforts = Array.isArray(payload?.reasoning_efforts) ? payload.reasoning_efforts : [];
@@ -17768,7 +18259,7 @@ function bindEvents() {
     const defaultModel = String(chatState?.profileDefaultModel || "").trim();
     if (modelOverride && modelOverride !== defaultModel) editBody.model = modelOverride;
     const reasoningEffort = String(chatState?.reasoningEffortOverride || dom.chatReasoningSelect?.value || "").trim();
-    const defaultReasoningEffort = String(chatState?.profileDefaultReasoningEffort || "high").trim();
+    const defaultReasoningEffort = String(chatState?.profileDefaultReasoningEffort || "medium").trim();
     if (reasoningEffort && reasoningEffort !== defaultReasoningEffort) editBody.reasoning_effort = reasoningEffort;
     const maxContextTokens = Number(chatState?.maxContextTokensOverride || dom.chatContextSelect?.value || 0);
     if (maxContextTokens > 0) editBody.max_context_tokens = maxContextTokens;

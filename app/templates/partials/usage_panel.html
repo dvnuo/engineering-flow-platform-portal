@@ -17,15 +17,62 @@
   {% set has_provider = by_provider|length > 0 %}
   {% set has_model = by_model|length > 0 %}
   {% set has_recent = recent_rows|length > 0 %}
+  {# GitHub AI Credits (1 credit = $0.01), when the runtime estimates them. #}
+  {% set credits = global.get('total_estimated_credits') %}
+  {% set cached_tokens = global.get('total_cached_input_tokens') %}
+  {% set reasoning_tokens = global.get('total_reasoning_tokens') %}
+  {% set quota = quota if quota is mapping else {} %}
+
+  {% if quota %}
+    {# The member's Copilot balance this month, from the runtime's quota lookup. #}
+    {% set quota_credits = quota.credits if quota.credits is mapping else {} %}
+    {% set quota_snapshots = quota.snapshots if quota.snapshots is sequence else [] %}
+    <div class="portal-panel-section portal-quota-section" data-copilot-quota>
+      <div class="portal-detail-label">本月 Copilot 额度</div>
+      {% if quota.available %}
+        {% if quota_credits %}
+          {% set used = (quota_credits.used or 0)|float %}
+          {% set included = (quota_credits.included or 0)|float %}
+          {% set percent_used = (used / included * 100) if included > 0 else none %}
+          <div class="portal-quota-chip {% if percent_used is not none and percent_used >= 80 %}is-warning{% endif %}">
+            <div class="portal-quota-chip-head"><span>已用 {{ '%.0f'|format(used) }} credits</span><span>{% if quota_credits.remaining is not none %}剩余 {{ '%.0f'|format((quota_credits.remaining or 0)|float) }}{% elif included > 0 %}共 {{ '%.0f'|format(included) }}{% endif %}</span></div>
+            {% if percent_used is not none %}<div class="portal-quota-meter"><span style="width:{{ [percent_used, 100]|min|round(1) }}%"></span></div>{% endif %}
+            {% if quota.reset_date %}<div class="portal-panel-note">重置日期：{{ quota.reset_date }}</div>{% endif %}
+          </div>
+        {% endif %}
+        {% for snapshot in quota_snapshots %}
+          {% if snapshot is mapping and not snapshot.unlimited %}
+            {% set percent_remaining = snapshot.percent_remaining %}
+            <div class="portal-panel-note">{{ snapshot.label or snapshot.id }}{% if snapshot.used is not none %} · 已用 {{ snapshot.used }}{% endif %}{% if snapshot.remaining is not none %} · 剩余 {{ snapshot.remaining }}{% endif %}{% if snapshot.entitlement %} / {{ snapshot.entitlement }}{% endif %}{% if percent_remaining is not none %} · 剩 {{ percent_remaining }}%{% endif %}</div>
+          {% endif %}
+        {% endfor %}
+        {% if not quota_credits and not quota_snapshots %}
+          <div class="portal-panel-note">额度接口未返回可用数字。{% if quota.plan %}计划：{{ quota.plan }}{% endif %}</div>
+        {% endif %}
+      {% else %}
+        <div class="portal-panel-note">不可用{% if quota.error %}：{{ quota.error }}{% endif %}。可在 GitHub 的 Billing 页面查看。</div>
+      {% endif %}
+    </div>
+  {% endif %}
 
   {% if not has_global and not has_provider and not has_model and not has_recent %}
     <div class="portal-panel-empty">No usage data yet.</div>
   {% else %}
     <div class="portal-usage-grid">
       <div class="portal-usage-card"><span class="portal-usage-k">Requests</span><strong class="portal-usage-v">{{ global.request_count or 0 }}</strong></div>
+      {% if credits is not none %}
+      <div class="portal-usage-card"><span class="portal-usage-k">Est. credits</span><strong class="portal-usage-v">{{ '%.1f'|format(credits|float) }}</strong></div>
+      {% else %}
       <div class="portal-usage-card"><span class="portal-usage-k">Total Cost</span><strong class="portal-usage-v">${{ '%.4f'|format((global.total_cost_usd or global.total_cost or 0)|float) }}</strong></div>
+      {% endif %}
       <div class="portal-usage-card"><span class="portal-usage-k">Input Tokens</span><strong class="portal-usage-v">{{ global.total_input_tokens or global.total_input or 0 }}</strong></div>
       <div class="portal-usage-card"><span class="portal-usage-k">Output Tokens</span><strong class="portal-usage-v">{{ global.total_output_tokens or global.total_output or 0 }}</strong></div>
+      {% if cached_tokens is not none %}
+      <div class="portal-usage-card"><span class="portal-usage-k">Cached Input</span><strong class="portal-usage-v">{{ cached_tokens or 0 }}</strong></div>
+      {% endif %}
+      {% if reasoning_tokens is not none %}
+      <div class="portal-usage-card"><span class="portal-usage-k">Reasoning Tokens</span><strong class="portal-usage-v">{{ reasoning_tokens or 0 }}</strong></div>
+      {% endif %}
     </div>
 
     <div class="portal-panel-stack">

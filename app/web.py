@@ -24,6 +24,8 @@ from app.contracts.llm_catalog import (
     DEFAULT_REASONING_EFFORT,
     PROVIDER_MODELS,
     SUPPORTED_REASONING_EFFORTS,
+    context_size_choices,
+    context_size_label,
 )
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
@@ -1133,6 +1135,9 @@ def _connector_settings_panel_context(
         "local_bridge_proxy": local_bridge_mobile_proxy(db, getattr(runtime_profile, "owner_user_id", None)),
         "form_sections": list(spec.form_sections),
         "connection_guidance": all_guidance(),
+        # The Model provider form lists the same presets as the admin defaults,
+        # long-context warning included (connectors/llm.html).
+        "context_sizes": context_size_choices(),
         "status_type": status_type,
         "status_message": status_message,
         "pending_restart_agents": _pending_restart_agents(db, runtime_profile),
@@ -2188,7 +2193,8 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             except (TypeError, ValueError):
                 return config_payload, "Context size must be a supported value."
             if max_context_tokens not in CONTEXT_SIZE_PRESETS:
-                return config_payload, "Context size must be 64K, 256K, or 1M."
+                supported = ", ".join(context_size_label(size) for size in CONTEXT_SIZE_PRESETS)
+                return config_payload, f"Context size must be one of: {supported}."
             llm["max_context_tokens"] = max_context_tokens
         if api_key_value:
             llm["api_key"] = api_key_value
@@ -3020,7 +3026,7 @@ def _default_connections_context(
         "mobile_default_network": get_settings().mobile_default_network,
         "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
         "reasoning_efforts": list(SUPPORTED_REASONING_EFFORTS),
-        "context_sizes": [(size, f"{size // 1000}K" if size < 1_000_000 else "1M") for size in CONTEXT_SIZE_PRESETS],
+        "context_sizes": context_size_choices(),
         # Neither field offers "leave it to the runtime" any more, because a
         # member's own panel rejects a blank one and would overwrite it on their
         # first save. Something has to be selected when nothing is stored, and
@@ -3567,10 +3573,37 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
             {
                 "request": request,
                 "usage": payload if isinstance(payload, dict) else {},
+                "quota": await _copilot_quota_for_panel(user=user, agent=agent),
             },
         )
     finally:
         db.close()
+
+
+async def _copilot_quota_for_panel(*, user, agent) -> dict:
+    """The member's Copilot AI-credit balance for the usage panel, best effort.
+
+    GET /api/copilot/quota on the runtime reads GitHub's internal quota
+    endpoint with the member's own credential; an older runtime image has no
+    such route and GitHub's fields are not a contract, so anything but a clean
+    answer renders as "unavailable" rather than failing the panel.
+    """
+    try:
+        status_code, content, _ = await _forward_runtime(
+            user=user,
+            agent=agent,
+            method="GET",
+            subpath="api/copilot/quota",
+            query_items=[],
+            body=None,
+        )
+        if status_code >= 400:
+            return {"available": False, "error": f"runtime answered {status_code}"}
+        payload = json.loads(content.decode("utf-8"))
+        return payload if isinstance(payload, dict) else {"available": False, "error": "unexpected payload"}
+    except Exception as exc:  # noqa: BLE001 - the balance is a courtesy, never the panel
+        logger.warning("Copilot quota lookup failed for agent %s: %s", getattr(agent, "id", "?"), exc)
+        return {"available": False, "error": str(exc)}
 
 def _max_upload_bytes() -> int:
     """User-facing per-file upload cap in bytes, from settings (EFP_MAX_UPLOAD_MB)."""

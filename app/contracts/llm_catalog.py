@@ -79,11 +79,39 @@ PROVIDER_DEFAULT_MODEL: dict[str, str] = {
 # Request-level inference controls. Context-size controls are currently
 # supported by the native runtime; the OpenCode adapter exposes reasoning as a
 # model variant but owns its context window internally.
+#
+# Copilot bills per token (GitHub AI Credits, since 2026-06-01): reasoning
+# tokens are output tokens, so "high" as the default made every agentic turn
+# pay for thinking it rarely needed. Medium is the default; a session or a
+# profile picks high (or more) on purpose.
 SUPPORTED_REASONING_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
-DEFAULT_REASONING_EFFORT = "high"
-CONTEXT_SIZE_PRESETS: tuple[int, ...] = (64_000, 256_000, 1_000_000)
+DEFAULT_REASONING_EFFORT = "medium"
+# A request whose prompt exceeds this many input tokens is billed on the GPT-6
+# line's "long context" tier, at twice the default price (GitHub Docs, Models
+# and pricing for GitHub Copilot). The 1M preset is above it, so the picker
+# says so; the runtimes report the threshold on context_usage snapshots.
+COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
+CONTEXT_SIZE_PRESETS: tuple[int, ...] = (64_000, 128_000, 256_000, 1_000_000)
 DEFAULT_CONTEXT_SIZE = 256_000
 MAX_CONTEXT_SIZE = CONTEXT_SIZE_PRESETS[-1]
+
+
+def context_size_label(size: int) -> str:
+    """The picker label for a context preset: ``64K``, ``1M \u00b7 Long context 2\u00d7``.
+
+    Shared by every form that lists the presets (admin defaults, a member's
+    Model provider connector, the composer mirrors it in chat_ui.js) so the
+    long-context warning cannot be present in one place and missing in another.
+    """
+    value = int(size)
+    base = "1M" if value >= 1_000_000 else f"{value // 1000}K"
+    if value > COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS:
+        return f"{base} \u00b7 Long context 2\u00d7"
+    return base
+
+
+def context_size_choices() -> list[tuple[int, str]]:
+    return [(size, context_size_label(size)) for size in CONTEXT_SIZE_PRESETS]
 
 # Runtime Profiles persist only the user-specific AI Platform credentials.
 # Endpoints and transport headers are deployment-managed in app/config.py and
