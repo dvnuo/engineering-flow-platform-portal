@@ -2694,7 +2694,7 @@ function renderRecoveredPendingAssistantArticle(agentId, requestId, pendingText 
   if (!transcriptAcceptsLiveWrite(agentId) || !requestId) return false;
   if (findPendingAssistantArticle(requestId)) return false;
   dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestId, pendingText));
-  renderIcons();
+  renderIcons(dom.messageList.lastElementChild || dom.messageList);
   scrollToBottom();
   return true;
 }
@@ -3233,6 +3233,32 @@ function mergeRuntimeStreamEvents(primaryEvents, secondaryEvents) {
   first.forEach(add);
   second.forEach(add);
   return merged;
+}
+
+// How many events a live stream keeps. The final snapshot keeps the last 100
+// (mergeFinalStreamSnapshot), the context state is read from the newest event
+// that carries one, and duplicates are caught by key, so nothing reads older
+// events back; a long run used to keep every one of its tens of thousands.
+const RUNTIME_STREAM_EVENT_LIMIT = 200;
+
+// Deltas (every streamed token of text, reasoning or tool arguments, plus
+// progress and heartbeats) are reduced into the timeline and the assistant
+// text as they arrive and then let go; no reader needs them afterwards.
+function isRuntimeStreamDeltaEvent(type) {
+  const normalized = String(type || "");
+  return normalized.endsWith(".delta")
+    || normalized === "message.delta"
+    || normalized === "assistant_delta"
+    || normalized === "session.next.tool.progress"
+    || normalized === "heartbeat";
+}
+
+function pushRuntimeStreamEvent(stream, event) {
+  if (!stream || !event || typeof event !== "object") return;
+  if (!Array.isArray(stream.events)) stream.events = [];
+  stream.events.push(event);
+  const excess = stream.events.length - RUNTIME_STREAM_EVENT_LIMIT;
+  if (excess > 0) stream.events.splice(0, excess);
 }
 
 function normalizeRuntimeStreamEvents(events) {
@@ -3940,7 +3966,49 @@ function findPendingAssistantArticleForTimeline(requestCtx = {}, timeline = null
   return dom.messageList.querySelector('article[data-pending-assistant="1"]');
 }
 
+// Timeline renders are coalesced. Every runtime event (each streamed token of
+// text, reasoning or tool arguments is one) reduces into the timeline state as
+// it arrives, but the DOM is rebuilt at most every 50 ms, on a timer like the
+// streamed text: an animation frame never comes while the tab is hidden or the
+// window occluded, and a timeline does not need sixty updates a second.
+// Rendering on every event rebuilt the rows, re-created every icon on the page
+// and forced a layout of the whole transcript each time; at 80 events/s that
+// cost 9 ms per event on an empty conversation and 80 ms on a 60-turn one, so
+// the page fell behind the stream and froze for the rest of the run.
+const AGENT_TIMELINE_RENDER_INTERVAL_MS = 50;
+const agentTimelineRenderQueue = new Map();
+let agentTimelineRenderedAt = 0;
+
 function renderAgentTimelineForCurrentRequest(agentId, chatState, options = {}) {
+  const timelineSession = (options.requestCtx || chatState?.currentRequest || {}).sessionIdAtSend;
+  if (!transcriptAcceptsLiveWrite(agentId, timelineSession) || !chatState?.inflightAgentTimeline) return;
+  const key = String(agentId || "");
+  const pending = agentTimelineRenderQueue.get(key);
+  if (pending) {
+    pending.chatState = chatState;
+    if (options.requestCtx) pending.requestCtx = options.requestCtx;
+    // A caller that updates the assistant text itself does not stop another
+    // coalesced into the same render from asking the render to do it.
+    pending.updateAssistantText = pending.updateAssistantText || options.updateAssistantText !== false;
+    return;
+  }
+  const entry = {
+    chatState,
+    requestCtx: options.requestCtx || null,
+    updateAssistantText: options.updateAssistantText !== false,
+  };
+  agentTimelineRenderQueue.set(key, entry);
+  const wait = Math.max(0, AGENT_TIMELINE_RENDER_INTERVAL_MS - (Date.now() - agentTimelineRenderedAt));
+  setTimeout(() => {
+    agentTimelineRenderQueue.delete(key);
+    agentTimelineRenderedAt = Date.now();
+    const renderOptions = { updateAssistantText: entry.updateAssistantText };
+    if (entry.requestCtx) renderOptions.requestCtx = entry.requestCtx;
+    renderAgentTimelineForCurrentRequestNow(agentId, entry.chatState, renderOptions);
+  }, wait);
+}
+
+function renderAgentTimelineForCurrentRequestNow(agentId, chatState, options = {}) {
   const timelineSession = (options.requestCtx || chatState?.currentRequest || {}).sessionIdAtSend;
   if (!transcriptAcceptsLiveWrite(agentId, timelineSession) || !chatState?.inflightAgentTimeline) return;
   const timeline = chatState.inflightAgentTimeline;
@@ -3979,7 +4047,9 @@ function renderAgentTimelineForCurrentRequest(agentId, chatState, options = {}) 
     const rows = renderAgentTimelineRowsHtml(timeline);
     listNode.innerHTML = rows || `<div class="agent-timeline-empty">Waiting for runtime events...</div>`;
   }
-  renderIcons();
+  // Only the timeline's own icons changed; an unscoped pass re-creates every
+  // icon in the document (a few hundred on a long conversation).
+  renderIcons(timelineEl);
   scrollToBottom();
 }
 
@@ -4117,15 +4187,25 @@ function handleAssistantMessageRuntimeEvent(agentId, chatState, entry, eventMatc
 function markStreamTerminalFromEvent(chatState, entry = {}) {
   if (!chatState) return false;
 
+  const eventLimit = (typeof RUNTIME_STREAM_EVENT_LIMIT === "number") ? RUNTIME_STREAM_EVENT_LIMIT : 200;
   if (chatState.inflightEventStream) {
-    chatState.inflightEventStream.completed = true;
-    chatState.inflightEventStream.status = chatState.inflightEventStream.status || "completed";
-    chatState.inflightEventStream.completedAt = chatState.inflightEventStream.completedAt || Date.now();
+    const stream = chatState.inflightEventStream;
+    stream.completed = true;
+    stream.status = stream.status || "completed";
+    stream.completedAt = stream.completedAt || Date.now();
+    // The caller stored the entry before calling (duplicates are caught by
+    // key), so the snapshot shares the live array; re-keying and copying every
+    // stored event here ran at each step end of a run.
+    if (!Array.isArray(stream.events)) stream.events = [];
+    if (!stream.events.includes(entry)) {
+      if (typeof pushRuntimeStreamEvent === "function") pushRuntimeStreamEvent(stream, entry);
+      else stream.events.push(entry);
+    }
     chatState.lastEventStreamSnapshot = {
-      ...chatState.inflightEventStream,
-      events: mergeRuntimeStreamEvents(chatState.inflightEventStream.events || [], [entry]),
+      ...stream,
+      events: stream.events,
       completed: true,
-      completedAt: chatState.inflightEventStream.completedAt,
+      completedAt: stream.completedAt,
     };
     return true;
   }
@@ -4133,7 +4213,7 @@ function markStreamTerminalFromEvent(chatState, entry = {}) {
   if (chatState.lastEventStreamSnapshot) {
     chatState.lastEventStreamSnapshot = {
       ...chatState.lastEventStreamSnapshot,
-      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]),
+      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]).slice(-eventLimit),
       completed: true,
       completedAt: chatState.lastEventStreamSnapshot.completedAt || Date.now(),
     };
@@ -4228,9 +4308,10 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   );
 
   if (isLateEventForCompletedRequest) {
+    const lateLimit = (typeof RUNTIME_STREAM_EVENT_LIMIT === "number") ? RUNTIME_STREAM_EVENT_LIMIT : 200;
     chatState.lastEventStreamSnapshot = {
       ...chatState.lastEventStreamSnapshot,
-      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]),
+      events: mergeRuntimeStreamEvents(chatState.lastEventStreamSnapshot.events || [], [entry]).slice(-lateLimit),
       completed: true,
     };
     return;
@@ -4286,16 +4367,28 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       return `${eventType}|${createdAt}|${summary}`;
     };
   const entryDedupKey = runtimeEventDedupKey(entry);
-  const alreadySeen = (chatState.inflightEventStream.events || []).some((event) => {
-    const key = runtimeEventDedupKey(event);
-    return key === entryDedupKey;
-  });
-  if (alreadySeen) {
+  // Every event arrives twice (the chat stream wraps it, the event socket
+  // carries it again), so the second copy stops here. The keys live in a Set:
+  // scanning the whole events array for each copy was O(n) per event and the
+  // array grows with every delta of a long run. Streams created elsewhere
+  // (send, recovery) get their Set on first use.
+  const eventStream = chatState.inflightEventStream;
+  if (!(eventStream.seenEventKeys instanceof Set)) {
+    eventStream.seenEventKeys = new Set((eventStream.events || []).map((event) => runtimeEventDedupKey(event)));
+  }
+  if (eventStream.seenEventKeys.has(entryDedupKey)) {
     return;
   }
+  eventStream.seenEventKeys.add(entryDedupKey);
+  const pushStreamEvent = (typeof pushRuntimeStreamEvent === "function")
+    ? pushRuntimeStreamEvent
+    : (stream, event) => { stream.events.push(event); };
+  const isDeltaEvent = (typeof isRuntimeStreamDeltaEvent === "function")
+    ? isRuntimeStreamDeltaEvent
+    : () => false;
 
-  if (!chatState.inflightEventStream.started && type !== "execution.started") {
-    chatState.inflightEventStream.events.push({
+  if (!eventStream.started && type !== "execution.started") {
+    pushStreamEvent(eventStream, {
       type: "execution.started",
       raw_type: "execution.started",
       lifecycle_type: "execution.started",
@@ -4303,17 +4396,19 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       ts: entry.ts,
       state: "started",
     });
-    chatState.inflightEventStream.started = true;
+    eventStream.started = true;
   }
 
-  chatState.inflightEventStream.events.push(entry);
-  if (type === "execution.started") chatState.inflightEventStream.started = true;
+  // A delta is reduced below and not kept: the array only has to hold what
+  // the final snapshot and the context state read back, and it is capped.
+  if (!isDeltaEvent(type)) pushStreamEvent(eventStream, entry);
+  if (type === "execution.started") eventStream.started = true;
 
   if (lifecycleType && lifecycleType !== type) {
     const terminalDetail = lifecycleType === "execution.failed"
       ? (entry?.data?.error || entry?.data?.message || "Execution failed")
       : (entry?.data?.message || "Execution complete");
-    chatState.inflightEventStream.events.push({
+    pushStreamEvent(eventStream, {
       type: lifecycleType,
       raw_type: lifecycleType,
       lifecycle_type: lifecycleType,
@@ -8732,7 +8827,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
 
   renderMarkdown(article);
   decorateToolMessages(article);
-  renderIcons();
+  renderIcons(row || article);
   addEditButtonsToMessages();
   scrollToBottom();
   return article;
@@ -8851,7 +8946,7 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   if (typeof applyAssistantModelBadge === "function" && typeof assistantModelAttribution === "function") {
     applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
   }
-  renderMarkdown(article); decorateToolMessages(article); renderIcons();
+  renderMarkdown(article); decorateToolMessages(article); renderIcons(row || article);
   return true;
 }
 function renderCompletionStateWarning(payload = {}) {
@@ -9604,14 +9699,41 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
     };
   const reader = resp.body.getReader(); const decoder = new TextDecoder();
   let buffer=''; let sawEvent=false; let sawFinal=false; let sawError=false;
+  // A chunk that arrives after the page fell behind holds hundreds of events,
+  // and every await below settles as a microtask, so a whole chunk used to run
+  // as one task with no paint and no input handling in between (single tasks
+  // of a minute were measured on a long conversation). Hand the event loop
+  // back after a few milliseconds of work; order is preserved.
+  const streamTaskBudgetMs = 8;
+  const now = () => ((typeof performance !== "undefined" && typeof performance.now === "function") ? performance.now() : Date.now());
+  // A posted message rather than a timer: a hidden tab holds timers back for
+  // up to a second each, which would delay the final answer of a run the
+  // reader has tabbed away from; a message task is not throttled that way.
+  const yieldToEventLoop = () => new Promise((resolve) => {
+    if (typeof MessageChannel !== "function") {
+      setTimeout(resolve, 0);
+      return;
+    }
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(0);
+  });
   const flushChunk = async (chunkText) => {
     const parsedBatch = parseSseEventsFromChunk(buffer, chunkText);
     buffer = parsedBatch.buffer;
+    let taskStartedAt = now();
     for (const parsed of parsedBatch.events) {
       sawEvent = true;
       const r = await handleChatStreamEvent(agentIdAtSend, requestCtx, parsed.eventName, parsed.data);
       if (r === "final") sawFinal = true;
       if (r === "error" || r === "final_non_success" || r === "final_incomplete") sawError = true;
+      if (now() - taskStartedAt >= streamTaskBudgetMs) {
+        await yieldToEventLoop();
+        taskStartedAt = now();
+      }
     }
   };
   try {
@@ -9783,6 +9905,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     chatState.inflightEventStream?.events || [],
     payloadStreamEvents,
   );
+  const storedEventLimit = (typeof RUNTIME_STREAM_EVENT_LIMIT === "number") ? RUNTIME_STREAM_EVENT_LIMIT : 200;
   const hasMeaningfulContext = (typeof hasMeaningfulContextState === "function")
     ? hasMeaningfulContextState
     : (value) => !!(value && typeof value === "object" && Object.keys(value).length);
@@ -9845,7 +9968,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     id: payload.request_id || requestCtx.clientRequestId,
     requestId: payload.request_id || requestCtx.clientRequestId,
     sessionId: finalSessionId,
-    events: mergedStreamEvents,
+    events: mergedStreamEvents.slice(-storedEventLimit),
     completed: true,
     contextState: finalContextState,
     contextSource,
@@ -9934,9 +10057,16 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   }
   setChatStatus("Ready");
-  renderMarkdown(dom.messageList);
-  decorateToolMessages(dom.messageList);
-  renderIcons();
+  // Only the article this request wrote needs drawing: history rows were drawn
+  // when the session loaded, and re-rendering every message's markdown (code
+  // highlighting, diagrams) plus every icon grew with the conversation.
+  const completedArticle = (typeof findAssistantArticleForRequest === "function" ? findAssistantArticleForRequest(requestCtx, payload) : null)
+    || Array.from(dom.messageList?.querySelectorAll?.("article.assistant-message") || []).pop()
+    || null;
+  const completedScope = completedArticle?.closest?.(".message-row") || completedArticle || dom.messageList;
+  renderMarkdown(completedScope);
+  decorateToolMessages(completedScope);
+  renderIcons(completedScope);
   addEditButtonsToMessages();
   scrollToBottom();
   if (document.hidden) {
@@ -11597,12 +11727,38 @@ function renderChatHistory(messages, metadata = {}) {
   renderMarkdown(dom.messageList);
   decorateToolMessages(dom.messageList);
   scrollToBottom({ force: true });
+  if (typeof settleMessageRows === "function") settleMessageRows();
   // The rebuild takes anything not born of history with it, including a card
   // the session is still blocked on. Say so; interactive_input.js re-asks the
   // runtime whether one belongs here.
   document.dispatchEvent(new CustomEvent("portal:history-rendered", {
     detail: { agentId: state.selectedAgentId },
   }));
+}
+
+// Rows get content-visibility: auto only after the browser has laid them out
+// once. contain-intrinsic-size: auto then remembers each row's real height, so
+// skipping the rows above the fold does not move the scrollbar when they are
+// scrolled back into view; the 160px placeholder is only for rows never shown.
+// Two frames: the first lays the rows out and records their sizes with it, so
+// the second runs after that. A hidden tab paints no frame, so a timer settles
+// the rows anyway.
+let messageRowsSettleToken = 0;
+
+function settleMessageRows() {
+  const list = dom.messageList;
+  if (!list || !list.dataset) return;
+  delete list.dataset.rowsSettled;
+  messageRowsSettleToken += 1;
+  const token = messageRowsSettleToken;
+  const settle = () => {
+    if (token !== messageRowsSettleToken || list.isConnected === false) return;
+    list.dataset.rowsSettled = "1";
+  };
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => requestAnimationFrame(settle));
+  }
+  setTimeout(settle, 500);
 }
 
 function deriveSessionRecoveryNotice(metadata = {}) {
@@ -17328,6 +17484,7 @@ function addUserEditButtonsToMessages() {
 function addAssistantActionsToMessages() {
   if (!dom.messageList) return;
   const rows = dom.messageList.querySelectorAll(".message-row-assistant");
+  const added = [];
   rows.forEach((row) => {
     if (row.dataset.welcome === "1") return;
     if (row.dataset.temporaryAssistant === "1") return;
@@ -17368,8 +17525,11 @@ function addAssistantActionsToMessages() {
     row.appendChild(actions);
     row.tabIndex = 0;
     row.setAttribute("aria-label", "Assistant message actions");
+    added.push(actions);
   });
-  renderIcons();
+  // This runs after every streamed delta of some runtimes; only the action
+  // bars added this pass carry new icons, so draw those and leave the rest.
+  added.forEach((actions) => renderIcons(actions));
 }
 
 function addEditButtonsToMessages() {

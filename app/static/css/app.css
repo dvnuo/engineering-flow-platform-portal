@@ -964,7 +964,17 @@ html[data-chat-width="full"] .portal-conversation-main { --portal-chat-width: ma
 }
 
 
-.message-row { width: 100%; display: flex; flex-direction: column; gap: 6px; animation: portal-message-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+/* Rows off screen are not laid out once the list has settled (see
+   settleMessageRows in chat_ui.js): a streaming run appends to the last row
+   many times a second, and each append relaid out every row of the
+   conversation (the chat-width container query re-resolves per row), which
+   measured ~30 ms per event on a 60-turn transcript against ~1 ms with the
+   rows above the fold skipped. The rows are laid out once before they are
+   skipped, so contain-intrinsic-size: auto remembers each real height and the
+   scrollbar does not move when they come back into view; 160px stands in
+   only for a row that has never been shown. */
+.message-row { width: 100%; display: flex; flex-direction: column; gap: 6px; animation: portal-message-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both; contain-intrinsic-size: auto 160px; }
+.portal-message-list[data-rows-settled="1"] .message-row { content-visibility: auto; }
 .message-row-user { align-items: flex-end; }
 .message-row-assistant { align-items: flex-start; }
 .message-meta { display: flex; align-items: center; gap: 8px; color: var(--portal-text-muted); font-size: 12px; }
