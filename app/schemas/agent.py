@@ -139,7 +139,7 @@ class AgentChatModelProfileResponse(BaseModel):
     runtime_type: str = "native"
     provider: str = ""
     current_model: str = ""
-    current_reasoning_effort: str = "high"
+    current_reasoning_effort: str = "medium"
     current_max_context_tokens: Optional[int] = None
     available_models: list[str] = Field(default_factory=list)
     reasoning_efforts: list[str] = Field(default_factory=list)

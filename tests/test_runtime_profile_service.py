@@ -43,7 +43,8 @@ def test_default_profile_config_has_safe_managed_defaults():
     cfg = RuntimeProfileService.default_profile_config()
     assert cfg["llm"]["model"] == "auto"
     assert cfg["llm"]["max_tokens"] == 64000
-    assert cfg["llm"]["reasoning_effort"] == "high"
+    # Medium since the credits work: reasoning tokens are billed as output.
+    assert cfg["llm"]["reasoning_effort"] == "medium"
     assert cfg["llm"]["max_context_tokens"] == 256000
     assert "temperature" not in cfg["llm"]
     assert "max_retries" not in cfg["llm"]

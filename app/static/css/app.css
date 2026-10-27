@@ -987,6 +987,14 @@ html[data-chat-width="full"] .portal-conversation-main { --portal-chat-width: ma
 .message-row:hover .message-model,
 .message-row:focus-within .message-model { opacity: 1; }
 @media (hover: none) { .message-model { opacity: 1; } }
+/* What the answer cost: one quiet line under the bubble (tokens, cache hits,
+   estimated AI credits), from the runtime's usage on the message. */
+.message-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); color: var(--portal-text-muted); font-size: 11px; line-height: 1.4; }
+.message-cost.is-live { opacity: .75; }
+.message-cost .message-cost-tier-long { color: var(--portal-warning); font-weight: 600; }
+.message-cost-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); padding: 8px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--portal-warning), var(--portal-border) 45%); background: color-mix(in srgb, var(--portal-warning), var(--portal-surface) 90%); color: var(--portal-text-secondary); font-size: 12px; }
+.message-cost-notice-btn { border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text); border-radius: 999px; height: 26px; padding: 0 12px; font-size: 12px; cursor: pointer; }
+.message-cost-notice-btn:hover { background: var(--portal-surface-soft); }
 .message-author { font-weight: 600; color: var(--portal-text-secondary); }
 .message-surface { padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
 .message-surface-user { background: rgba(91,140,255,.12); border-color: rgba(91,140,255,.28); color: var(--portal-text); }
@@ -4778,8 +4786,25 @@ a.message-attachment-file { color: var(--portal-text); }
   transform: none !important;
 }
 
-.portal-context-meter { width: 100%; height: 10px; border-radius: 999px; background: var(--portal-surface-muted); border: 1px solid var(--portal-border); overflow: hidden; }
+.portal-context-meter { position: relative; width: 100%; height: 10px; border-radius: 999px; background: var(--portal-surface-muted); border: 1px solid var(--portal-border); overflow: hidden; }
 .portal-context-meter-fill { height: 100%; background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 25%); transition: width var(--portal-transition); }
+/* The 272K billing line: past it every GPT-6 request costs twice as much. */
+.portal-context-meter-marker { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--portal-warning); }
+.portal-context-meter-fill.is-over-threshold { background: color-mix(in srgb, var(--portal-warning), var(--portal-surface) 15%); }
+.portal-context-meter-fill.is-over-budget { background: color-mix(in srgb, var(--portal-danger), var(--portal-surface) 15%); }
+.portal-context-billing { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; color: var(--portal-text-muted); font-size: 12px; }
+.portal-context-billing .is-long-context { color: var(--portal-warning); font-weight: 600; }
+.portal-context-credits { display: flex; justify-content: space-between; gap: 12px; color: var(--portal-text-secondary); font-size: 12px; }
+.portal-quota-chip { display: grid; gap: 5px; padding: 10px 12px; border: 1px solid var(--portal-border); border-radius: 14px; background: var(--portal-surface-soft); font-size: 12px; color: var(--portal-text-secondary); }
+.portal-quota-chip.is-warning { border-color: color-mix(in srgb, var(--portal-warning), var(--portal-border) 45%); }
+.portal-quota-chip.is-unavailable { color: var(--portal-text-muted); }
+.portal-quota-chip-head { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; color: var(--portal-text); }
+.portal-quota-meter { height: 6px; border-radius: 999px; overflow: hidden; background: var(--portal-surface-muted); }
+.portal-quota-meter > span { display: block; height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--portal-accent), var(--portal-surface) 30%); }
+.portal-quota-chip.is-warning .portal-quota-meter > span { background: var(--portal-warning); }
+.portal-cost-guide summary { cursor: pointer; color: var(--portal-text-secondary); font-size: 12px; list-style: none; }
+.portal-cost-guide summary::-webkit-details-marker { display: none; }
+.portal-cost-guide ul { margin: 6px 0 0 16px; padding: 0; display: grid; gap: 4px; color: var(--portal-text-muted); font-size: 12px; }
 .portal-context-panel { display: grid; align-content: start; gap: 14px; }
 .portal-context-summary { display: grid; gap: 10px; }
 .portal-context-total-row { display: flex; justify-content: space-between; align-items: end; gap: 12px; }

@@ -47,7 +47,7 @@ def test_resolve_agent_inference_profile_exposes_capabilities(monkeypatch):
     assert resolved.current_max_context_tokens == 256_000
     assert resolved.supports_reasoning_effort is True
     assert resolved.supports_context_size is True
-    assert resolved.context_sizes == (64_000, 256_000, 1_000_000)
+    assert resolved.context_sizes == (64_000, 128_000, 256_000, 1_000_000)
 
 
 def test_normalize_and_project_native_request_overrides(monkeypatch):

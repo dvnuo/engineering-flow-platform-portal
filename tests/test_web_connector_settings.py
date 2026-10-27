@@ -243,9 +243,12 @@ def test_panels_render_view_defaults_for_sparse_settings(monkeypatch):
         assert llm.status_code == 200
         assert '<option value="github_copilot" selected>GitHub Copilot</option>' in llm.text
         assert 'name="llm_reasoning_effort"' in llm.text
-        assert '<option value="high" selected>High</option>' in llm.text
+        assert '<option value="medium" selected>Medium</option>' in llm.text
         assert 'name="llm_max_context_tokens"' in llm.text
         assert '<option value="256000" selected>256K</option>' in llm.text
+        # Every preset from the catalog, the long-context one labelled as such.
+        assert 'value="128000"' in llm.text
+        assert "1M \u00b7 Long context 2\u00d7" in llm.text
 
         jira = env.client.get("/app/connectors/jira/panel")
         assert 'name="jira_instance_count" value="0"' in jira.text

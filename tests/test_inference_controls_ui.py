@@ -37,4 +37,4 @@ def test_model_provider_connector_exposes_compact_default_inference_controls():
     assert 'name="llm_max_context_tokens"' in template
     assert '<option value="max"' in template
     assert 'const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"]' in script
-    assert "const managedContextSizes = [64000, 256000, 1000000]" in script
+    assert "const managedContextSizes = [64000, 128000, 256000, 1000000]" in script

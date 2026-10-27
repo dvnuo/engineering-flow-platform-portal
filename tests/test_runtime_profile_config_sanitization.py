@@ -46,8 +46,9 @@ def test_llm_default_inference_controls_are_sanitized_to_supported_values():
         "max_context_tokens": 1_000_000,
     }
 
+    # 128K is a preset since the credits work; 300K is not one.
     unsupported = sanitize_runtime_profile_config_dict(
-        {"llm": {"reasoning_effort": "extreme", "max_context_tokens": 128_000}}
+        {"llm": {"reasoning_effort": "extreme", "max_context_tokens": 300_000}}
     )
     assert "llm" not in unsupported
 
