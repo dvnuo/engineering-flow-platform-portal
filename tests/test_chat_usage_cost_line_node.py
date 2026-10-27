@@ -39,8 +39,8 @@ def _run_node(script: str) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         script_path = Path(tmp) / "cost_line_case.js"
         script_path.write_text(script, encoding="utf-8")
-        # The helpers print Chinese; Windows would otherwise decode node's
-        # UTF-8 stdout as cp1252.
+        # The helpers print non-ASCII (the middle dot, the approximately-equal
+        # sign); Windows would otherwise decode node's UTF-8 stdout as cp1252.
         result = subprocess.run([node_bin, str(script_path)], check=False, capture_output=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise AssertionError(f"node failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
@@ -106,10 +106,10 @@ console.log(JSON.stringify({{
     result = _run_node(script)
 
     assert result["text"] == (
-        "15 \u8f6e \u00b7 \u8f93\u5165 1.9M\uff08cache 91%\uff09 \u00b7 "
-        "\u8f93\u51fa 45K\uff08\u63a8\u7406 30K\uff09 \u00b7 \u2248 104 credits"
+        "15 steps \u00b7 input 1.9M (cache 91%) \u00b7 "
+        "output 45K (reasoning 30K) \u00b7 \u2248 104 credits"
     )
-    assert "Default \u6863" in result["title"]
+    assert "Default tier" in result["title"]
     assert "gpt-6.1-sol" in result["title"]
     assert "1 credit = $0.01" in result["title"]
     assert 'class="message-cost"' in result["html"]
@@ -117,7 +117,7 @@ console.log(JSON.stringify({{
     assert 'data-tier="default"' in result["html"]
     # The running total while the turn works: the iteration count comes from
     # the event, the cache ratio from the token counts.
-    assert result["liveText"].startswith("7 \u8f6e \u00b7 \u8f93\u5165 500K\uff08cache 80%\uff09")
+    assert result["liveText"].startswith("7 steps \u00b7 input 500K (cache 80%)")
     assert result["liveText"].endswith("\u2248 31.2 credits")
     # OpenCode's own record: input/output/reasoning plus cache.read.
     assert result["opencode"]["inputTokens"] == 1000
@@ -151,10 +151,11 @@ console.log(JSON.stringify({{
     assert result["credits"]["reason"] == "credits_guard"
     assert result["credits"]["estimatedCredits"] == 212.4
     assert result["credits"]["creditsLimit"] == 200
-    assert result["creditsText"] == "\u672c\u6761\u6d88\u606f\u5df2\u7528\u7ea6 212 credits\uff08\u4e0a\u9650 200\uff09\uff0c\u5df2\u6682\u505c\u3002"
-    assert result["iterationText"] == "\u672c\u6761\u6d88\u606f\u5df2\u8dd1 30 \u8f6e\uff08\u4e0a\u9650 30\uff09\uff0c\u5df2\u6682\u505c\u3002"
+    assert result["creditsText"] == "Paused at about 212 credits for this message (limit 200)."
+    assert result["iterationText"] == "Paused after 30 steps (limit 30)."
     assert "data-budget-pause-continue" in result["html"]
-    assert ">\u7ee7\u7eed</button>" in result["html"]
+    assert ">Continue</button>" in result["html"]
+    assert "to carry on." in result["html"]
     assert result["plain"] is None
 
 
@@ -183,14 +184,14 @@ console.log(JSON.stringify({{
     assert result["credits"]["percentUsed"] == 80
     assert result["credits"]["warning"] is True
     assert "is-warning" in result["creditsHtml"]
-    assert "\u5df2\u7528 1520 credits" in result["creditsHtml"]
-    assert "\u5269\u4f59 380" in result["creditsHtml"]
+    assert "1520 credits used" in result["creditsHtml"]
+    assert "380 left" in result["creditsHtml"]
     assert "2026-11-01" in result["creditsHtml"]
     # A limited snapshot stands in when there is no credits block.
     assert result["snapshot"]["used"] == 1600
     assert result["snapshot"]["unit"] == "Premium"
     assert result["snapshot"]["warning"] is True
-    assert "\u4e0d\u53ef\u7528" in result["unavailableHtml"]
+    assert "Unavailable" in result["unavailableHtml"]
     assert "runtime answered 404" in result["unavailableHtml"]
     assert result["bare"]["hasNumbers"] is False
     assert "business" in result["bareHtml"]

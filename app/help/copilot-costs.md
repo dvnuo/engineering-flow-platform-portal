@@ -1,45 +1,45 @@
 ---
-title: Copilot 费用说明
-summary: 一条消息为什么会花上百 credits，以及怎样省。
+title: Copilot costs
+summary: Why one message can cost a hundred credits, and how to spend less.
 group: Working
 icon: coins
 order: 25
 ---
-## Copilot 现在怎么计费
+## How Copilot bills now
 
-GitHub Copilot 从 2026 年 6 月起按 **token** 计费，单位是 GitHub AI Credits（1 credit = $0.01）。
-Business 计划每人每月含 $19 的额度，在组织层面汇总；用完后按同样单价计费。
-以前"每条消息算一次"的 premium request 已经不存在了。
+Since June 2026 GitHub Copilot bills per **token**, in GitHub AI Credits (1 credit = $0.01).
+The Business plan includes $19 per member per month, pooled at the organization level; past that, the same per-token prices apply.
+The old "one premium request per message" model is gone.
 
-每次模型调用的费用 = 输入 token × 单价 + cached 输入 token × 折扣单价 + 输出 token（含推理）× 单价。
-GPT-6.1 Sol 的默认档单价：输入 $2 / 百万 token，cached 输入 $0.10，输出 $10。
+The cost of one model call = input tokens × price + cached input tokens × discounted price + output tokens (reasoning included) × price.
+GPT-6.1 Sol's default-tier prices: input $2 per million tokens, cached input $0.10, output $10.
 
-## 一条消息为什么会花上百 credits
+## Why one message can cost a hundred credits
 
-- 助手回答一条消息往往要跑十几轮：读文件、跑命令、再看结果。**每一轮都会把整段上下文重新发一遍**（系统提示、工具定义、历史、工具输出）。
-- 15 轮、每轮 10 万 token 的上下文，就是 150 万输入 token；cache 命中时约 1 元，命中不了就是 4 元以上。
-- 推理（thinking）算输出 token，单价是输入的 5 倍。High 强度会多出不少推理 token。
+- Answering one message often takes a dozen or more steps: read a file, run a command, look at the result. **Every step resends the whole context** (system prompt, tool definitions, history, tool output).
+- 15 steps with a 100K-token context each is 1.5 million input tokens: about 100 credits when the cache hits, 400 or more when it does not.
+- Reasoning ("thinking") counts as output, priced at five times the input rate. High reasoning effort adds a lot of reasoning tokens.
 
-每条回答下方的一行会告诉你这次花了什么：轮数、输入 / 输出 token、cache 命中率、估算的 credits。
-把鼠标放上去可以看到计费档位和模型。估算按 GitHub 公开价目表计算，不是账单本身。
+The line under every answer tells you what that answer cost: steps, input / output tokens, cache hit rate, estimated credits.
+Hover over it to see the billing tier and the model. The estimate uses GitHub's published price list; it is not the bill itself.
 
-## 272K 这条线
+## The 272K line
 
-单次请求的输入超过 **272K token**，GPT-6 系列进入 Long context 档，**所有单价翻倍**。
-Context 面板的表盘上标出了这条线；越过它之后，表盘变成警告色，面板里显示"Long context 档"。
+When one request's input exceeds **272K tokens**, the GPT-6 line moves to the long context tier and **every price doubles**.
+The Context panel marks that line on its meter; past it, the meter turns to the warning colour and the panel says "Long context".
 
-上下文大小预设里，1M 标注了"Long context 2×"，选它要知道这意味着什么。
+In the context size presets, 1M is labelled "Long context 2×". Pick it knowing what it means.
 
-## 怎样省
+## How to spend less
 
-1. **新话题开新会话。** 上下文越长，每条消息越贵；旧会话里的工具输出会一直跟着。
-2. **少贴大文件。** 贴进来的内容每一轮都会重发；让助手自己读需要的部分更省。
-3. **推理强度用 Medium。** 日常任务够用；需要时再在 Run settings 里按会话调成 High。
-4. **模型用 Auto。** Copilot 会给简单的请求选便宜的模型，并有 10% 折扣。
-5. **注意"已暂停"提示。** 一条消息超过 credits 上限或轮数上限时，助手会停下来说明；确认还要继续再点"继续"。
+1. **Start a new session for a new topic.** The longer the context, the more every message costs, and tool output from an old session stays in it.
+2. **Paste fewer large files.** Pasted content is resent on every step; letting the assistant read the parts it needs is cheaper.
+3. **Keep reasoning effort at Medium.** It is enough for everyday work; raise it to High per session in Run settings when a task needs it.
+4. **Keep the model on Auto.** Copilot picks a cheaper model for simple requests and takes 10% off.
+5. **Watch for the "Paused" notice.** When one message exceeds the credits limit or the step limit, the assistant stops and explains; click "Continue" only if you want it to carry on.
 
-## 查看额度
+## Checking your balance
 
-- Context 面板里的"本月 Copilot 额度"显示已用 / 剩余与重置日期（来自 GitHub 的额度接口，不保证总是可用）。
-- 助手详情里的 Usage (30 days) 显示近 30 天的请求数、token 与估算 credits。
-- 权威数字在 GitHub 的 Billing 页面：[Models and pricing for GitHub Copilot](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing)。
+- "Copilot balance this month" in the Context panel shows used / remaining credits and the reset date (from GitHub's quota endpoint, which is not guaranteed to be available).
+- Usage (30 days) in the assistant details shows the last 30 days' requests, tokens and estimated credits.
+- The authoritative numbers are on GitHub's Billing page: [Models and pricing for GitHub Copilot](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing).

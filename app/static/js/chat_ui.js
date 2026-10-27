@@ -2756,24 +2756,24 @@ function formatCredits(value) {
 
 function assistantUsageTierLabel(tier) {
   const normalized = String(tier || "").trim().toLowerCase();
-  if (normalized === "long_context") return "Long context \u6863\uff0c\u5355\u4ef7 2\u00d7";
-  if (normalized === "default") return "Default \u6863";
+  if (normalized === "long_context") return "Long context tier, 2\u00d7 price";
+  if (normalized === "default") return "Default tier";
   return "";
 }
 
 function assistantUsageCostText(summary) {
   if (!summary) return "";
   const parts = [];
-  if (summary.iterations) parts.push(`${summary.iterations} \u8f6e`);
+  if (summary.iterations) parts.push(`${summary.iterations} steps`);
   const input = formatCompactTokens(summary.inputTokens);
   if (input) {
-    const cache = summary.cacheHitRatio != null ? `\uff08cache ${Math.round(summary.cacheHitRatio * 100)}%\uff09` : "";
-    parts.push(`\u8f93\u5165 ${input}${cache}`);
+    const cache = summary.cacheHitRatio != null ? ` (cache ${Math.round(summary.cacheHitRatio * 100)}%)` : "";
+    parts.push(`input ${input}${cache}`);
   }
   const output = formatCompactTokens(summary.outputTokens);
   if (output) {
-    const reasoning = summary.reasoningTokens ? `\uff08\u63a8\u7406 ${formatCompactTokens(summary.reasoningTokens)}\uff09` : "";
-    parts.push(`\u8f93\u51fa ${output}${reasoning}`);
+    const reasoning = summary.reasoningTokens ? ` (reasoning ${formatCompactTokens(summary.reasoningTokens)})` : "";
+    parts.push(`output ${output}${reasoning}`);
   }
   const credits = formatCredits(summary.estimatedCredits);
   if (credits) parts.push(`\u2248 ${credits} credits`);
@@ -2784,10 +2784,10 @@ function assistantUsageCostTitle(summary) {
   if (!summary) return "";
   const lines = [];
   const tier = assistantUsageTierLabel(summary.tier);
-  if (tier) lines.push(`\u8ba1\u8d39\u6863\u4f4d\uff1a${tier}`);
-  if (summary.model) lines.push(`\u6a21\u578b\uff1a${summary.model}`);
-  if (summary.cachedInputTokens != null) lines.push(`cache \u547d\u4e2d\uff1a${formatCompactTokens(summary.cachedInputTokens) || "0"} tokens`);
-  lines.push("credits \u662f\u6309 GitHub \u516c\u5f00\u4ef7\u8868\u7684\u4f30\u7b97\uff081 credit = $0.01\uff09\uff0c\u4e0d\u662f\u8d26\u5355\u3002");
+  if (tier) lines.push(`Billing tier: ${tier}`);
+  if (summary.model) lines.push(`Model: ${summary.model}`);
+  if (summary.cachedInputTokens != null) lines.push(`Cache hits: ${formatCompactTokens(summary.cachedInputTokens) || "0"} tokens`);
+  lines.push("Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill.");
   return lines.join("\n");
 }
 
@@ -2869,20 +2869,20 @@ function budgetPauseInfo(source) {
 function budgetPauseNoticeText(info) {
   if (!info) return "";
   if (info.reason === "iteration_cap") {
-    const rounds = info.iterations != null ? `${Math.round(info.iterations)} ` : "";
-    const cap = info.iterationLimit != null ? `\uff08\u4e0a\u9650 ${Math.round(info.iterationLimit)}\uff09` : "";
-    return `\u672c\u6761\u6d88\u606f\u5df2\u8dd1 ${rounds}\u8f6e${cap}\uff0c\u5df2\u6682\u505c\u3002`;
+    const steps = info.iterations != null ? `after ${Math.round(info.iterations)} steps` : "at the step limit";
+    const cap = info.iterationLimit != null ? ` (limit ${Math.round(info.iterationLimit)})` : "";
+    return `Paused ${steps}${cap}.`;
   }
   const credits = formatCredits(info.estimatedCredits) || "?";
   const limit = formatCredits(info.creditsLimit);
-  return `\u672c\u6761\u6d88\u606f\u5df2\u7528\u7ea6 ${credits} credits${limit ? `\uff08\u4e0a\u9650 ${limit}\uff09` : ""}\uff0c\u5df2\u6682\u505c\u3002`;
+  return `Paused at about ${credits} credits for this message${limit ? ` (limit ${limit})` : ""}.`;
 }
 
 function buildBudgetPauseNoticeHtml(info) {
   const text = budgetPauseNoticeText(info);
   if (!text) return "";
-  const hint = "\u56de\u590d\u201c\u7ee7\u7eed\u201d\u53ef\u4ee5\u63a5\u7740\u8dd1\u3002";
-  return `<div class="message-cost-notice" data-budget-pause="${escapeHtmlAttr(info.reason || "")}"><span>${escapeHtml(`${text} ${hint}`)}</span><button type="button" class="message-cost-notice-btn" data-budget-pause-continue>${escapeHtml("\u7ee7\u7eed")}</button></div>`;
+  const hint = 'Reply "Continue" to carry on.';
+  return `<div class="message-cost-notice" data-budget-pause="${escapeHtmlAttr(info.reason || "")}"><span>${escapeHtml(`${text} ${hint}`)}</span><button type="button" class="message-cost-notice-btn" data-budget-pause-continue>Continue</button></div>`;
 }
 
 function applyBudgetPauseNotice(target, info) {
@@ -2905,7 +2905,7 @@ async function sendBudgetPauseContinue() {
   // "Continue" is a plain chat message: the history already holds everything
   // the run did, so the next turn picks up where the pause left it.
   if (typeof dom === "undefined" || !dom.chatInput || typeof submitChatForSelectedAgent !== "function") return false;
-  dom.chatInput.value = "\u7ee7\u7eed";
+  dom.chatInput.value = "Continue";
   dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
   await submitChatForSelectedAgent();
   return true;
@@ -2959,23 +2959,23 @@ function copilotQuotaSummary(quota) {
 }
 
 function copilotQuotaChipHtml(summary) {
-  const label = "\u672c\u6708 Copilot \u989d\u5ea6";
+  const label = "Copilot balance this month";
   if (!summary || summary.available !== true) {
-    const detail = summary?.error ? `\u4e0d\u53ef\u7528\uff1a${summary.error}` : "\u8fd0\u884c\u65f6\u672a\u8fd4\u56de\u989d\u5ea6\u4fe1\u606f\uff0c\u53ef\u5728 GitHub \u7684 Billing \u9875\u9762\u67e5\u770b\u3002";
-    return `<div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="unavailable"><div class="portal-quota-chip-head"><span>${label}</span><span>\u4e0d\u53ef\u7528</span></div><div>${escapeHtml(detail)}</div></div>`;
+    const detail = summary?.error ? `Unavailable: ${summary.error}` : "The runtime did not report a balance; check GitHub's Billing page.";
+    return `<div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="unavailable"><div class="portal-quota-chip-head"><span>${label}</span><span>Unavailable</span></div><div>${escapeHtml(detail)}</div></div>`;
   }
   if (!summary.hasNumbers) {
-    const plan = summary.plan ? `\u8ba1\u5212\uff1a${summary.plan}` : "\u989d\u5ea6\u63a5\u53e3\u672a\u8fd4\u56de\u53ef\u7528\u6570\u5b57\u3002";
+    const plan = summary.plan ? `Plan: ${summary.plan}` : "The quota endpoint returned no usable numbers.";
     return `<div id="context-quota-chip" class="portal-quota-chip" data-copilot-quota="no-numbers"><div class="portal-quota-chip-head"><span>${label}</span></div><div>${escapeHtml(plan)}</div></div>`;
   }
   const unit = escapeHtml(summary.unit || "credits");
-  const usedText = summary.used != null ? `\u5df2\u7528 ${escapeHtml(formatCredits(summary.used) || String(Math.round(summary.used)))} ${unit}` : (summary.percentUsed != null ? `\u5df2\u7528 ${Math.round(summary.percentUsed)}%` : "");
+  const usedText = summary.used != null ? `${escapeHtml(formatCredits(summary.used) || String(Math.round(summary.used)))} ${unit} used` : (summary.percentUsed != null ? `${Math.round(summary.percentUsed)}% used` : "");
   const rightText = summary.remaining != null
-    ? `\u5269\u4f59 ${escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining)))}`
-    : (summary.included != null ? `\u5171 ${escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included)))}` : "");
+    ? `${escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining)))} left`
+    : (summary.included != null ? `${escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included)))} included` : "");
   const meter = summary.percentUsed != null ? `<div class="portal-quota-meter"><span style="width:${Math.round(summary.percentUsed * 10) / 10}%"></span></div>` : "";
-  const reset = summary.resetDate ? `<div>\u91cd\u7f6e\u65e5\u671f\uff1a${escapeHtml(summary.resetDate)}</div>` : "";
-  const warning = summary.warning ? `<div>\u5df2\u7528\u8d85\u8fc7 80%\uff0c\u6ce8\u610f\u63a7\u5236\u672c\u6708\u7528\u91cf\u3002</div>` : "";
+  const reset = summary.resetDate ? `<div>Resets on ${escapeHtml(summary.resetDate)}</div>` : "";
+  const warning = summary.warning ? `<div>More than 80% used; watch this month's usage.</div>` : "";
   return `<div id="context-quota-chip" class="portal-quota-chip${summary.warning ? " is-warning" : ""}" data-copilot-quota="${summary.warning ? "warning" : "ok"}"><div class="portal-quota-chip-head"><span>${label}</span><span>${usedText}${usedText && rightText ? " \u00b7 " : ""}${rightText}</span></div>${meter}${reset}${warning}</div>`;
 }
 // RUNTIME_EVENT_HELPER_END: copilotQuota
@@ -11182,8 +11182,8 @@ function renderContextUsagePanel(snapshot) {
         ${billing.rowHtml}
         ${billing.calibrationHtml}
         <div class="portal-panel-note">Model: ${safe(modelLabel)} · ${safe(scopeLabel)}</div>
-        ${sessionCredits != null ? `<div class="portal-context-credits"><span>\u672c\u4f1a\u8bdd\u7d2f\u8ba1</span><strong>\u2248 ${safe(formatCredits(sessionCredits) || "0")} credits</strong></div>` : ""}
-        <div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="loading"><div class="portal-quota-chip-head"><span>\u672c\u6708 Copilot \u989d\u5ea6</span><span>\u52a0\u8f7d\u4e2d\u2026</span></div></div>
+        ${sessionCredits != null ? `<div class="portal-context-credits"><span>This session so far</span><strong>\u2248 ${safe(formatCredits(sessionCredits) || "0")} credits</strong></div>` : ""}
+        <div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="loading"><div class="portal-quota-chip-head"><span>Copilot balance this month</span><span>Loading\u2026</span></div></div>
         ${costGuideHtml}
       </div>
       <div class="portal-panel-section">
@@ -11231,38 +11231,38 @@ function contextBillingView(snapshot) {
   view.fillClass = view.overBudget ? " is-over-budget" : (view.overThreshold ? " is-over-threshold" : "");
   if (threshold && windowTokens > threshold) {
     const left = Math.max(0, Math.min(100, (threshold / windowTokens) * 100));
-    view.markerHtml = `<div class="portal-context-meter-marker" style="left:${left.toFixed(1)}%" title="${escapeHtmlAttr(`${formatCompactTokens(threshold)}: Long context \u6863\u8d77\u70b9\uff0c\u5355\u4ef7 2\u00d7`)}"></div>`;
+    view.markerHtml = `<div class="portal-context-meter-marker" style="left:${left.toFixed(1)}%" title="${escapeHtmlAttr(`${formatCompactTokens(threshold)}: the long context tier starts here (2\u00d7 price)`)}"></div>`;
   }
   const pieces = [];
   if (tier) {
     const tierText = tier === "long_context"
-      ? `Long context\uff08> ${formatCompactTokens(threshold || 272000)}\uff0c\u5355\u4ef7 2\u00d7\uff09`
-      : `Default\uff08\u2264 ${formatCompactTokens(threshold || 272000)}\uff0c\u6b63\u5e38\u5355\u4ef7\uff09`;
-    pieces.push(`<span>\u8ba1\u8d39\u6863\uff1a<span class="${tier === "long_context" ? "is-long-context" : ""}">${escapeHtml(tierText)}</span></span>`);
+      ? `Long context (> ${formatCompactTokens(threshold || 272000)}, 2\u00d7 price)`
+      : `Default (\u2264 ${formatCompactTokens(threshold || 272000)}, standard price)`;
+    pieces.push(`<span>Billing tier: <span class="${tier === "long_context" ? "is-long-context" : ""}">${escapeHtml(tierText)}</span></span>`);
   }
-  if (budget) pieces.push(`<span>\u8fd0\u884c\u65f6\u9884\u7b97 ${escapeHtml(formatCompactTokens(budget))} tokens${view.overBudget ? "\uff08\u5df2\u8d85\u51fa\uff0c\u8f83\u65e7\u7684\u5185\u5bb9\u4f1a\u88ab\u538b\u7f29\uff09" : ""}</span>`);
+  if (budget) pieces.push(`<span>Runtime budget ${escapeHtml(formatCompactTokens(budget))} tokens${view.overBudget ? " (exceeded; older content gets compacted)" : ""}</span>`);
   if (pieces.length) view.rowHtml = `<div class="portal-context-billing">${pieces.join("")}</div>`;
   const calibration = snapshot.calibration && typeof snapshot.calibration === "object" ? snapshot.calibration : null;
   if (calibrated) {
     const ratio = Number(calibration?.ratio);
-    const ratioText = Number.isFinite(ratio) && ratio > 0 ? `\uff08\u5b9e\u6d4b/\u4f30\u7b97 ${ratio.toFixed(2)}\uff09` : "";
-    view.calibrationHtml = `<div class="portal-panel-note">\u6309\u5b9e\u6d4b token \u6821\u51c6 \u2248 ${escapeHtml(formatContextTokens(calibrated))} tokens${escapeHtml(ratioText)}</div>`;
+    const ratioText = Number.isFinite(ratio) && ratio > 0 ? ` (measured / estimated ${ratio.toFixed(2)})` : "";
+    view.calibrationHtml = `<div class="portal-panel-note">Calibrated from measured tokens \u2248 ${escapeHtml(formatContextTokens(calibrated))} tokens${escapeHtml(ratioText)}</div>`;
   }
   return view;
 }
 
 const COPILOT_COST_GUIDE_LINES = [
-  "Copilot \u6309 token \u8ba1 AI Credits\uff081 credit = $0.01\uff09\uff0c\u4e0d\u6309\u6d88\u606f\u6761\u6570\u3002",
-  "\u6bcf\u4e00\u8f6e\u5de5\u5177\u8c03\u7528\u90fd\u4f1a\u91cd\u53d1\u6574\u6bb5\u4e0a\u4e0b\u6587\uff0c\u4f1a\u8bdd\u8d8a\u957f\u3001\u6bcf\u6761\u6d88\u606f\u8d8a\u8d35\u3002",
-  "\u5355\u6b21\u8bf7\u6c42\u8d85\u8fc7 272K input tokens \u8fdb\u5165 Long context \u6863\uff0c\u5355\u4ef7\u7ffb\u500d\u3002",
-  "\u7701\u94b1\uff1a\u65b0\u8bdd\u9898\u5f00\u65b0\u4f1a\u8bdd\u3001\u5c11\u8d34\u5927\u6587\u4ef6\u3001\u63a8\u7406\u5f3a\u5ea6\u7528 Medium\u3001\u6a21\u578b\u7528 Auto\u3002",
+  "Copilot bills AI Credits per token (1 credit = $0.01), not per message.",
+  "Every tool-call step resends the whole context, so the longer the session, the more each message costs.",
+  "A single request above 272K input tokens moves to the long context tier, where every price doubles.",
+  "To spend less: start a new session for a new topic, paste fewer large files, keep reasoning at Medium and the model on Auto.",
 ];
 const COPILOT_PRICING_DOCS_URL = "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing";
 
 function buildCostGuideHtml() {
   const items = COPILOT_COST_GUIDE_LINES.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
-  const links = `<li><a href="${COPILOT_PRICING_DOCS_URL}" target="_blank" rel="noopener noreferrer">GitHub \u4ef7\u76ee\u8868</a> \u00b7 <a href="#/help/copilot-costs">\u5b8c\u6574\u8d39\u7528\u8bf4\u660e</a></li>`;
-  return `<details class="portal-cost-guide" data-cost-guide><summary>\u8d39\u7528\u8bf4\u660e</summary><ul>${items}${links}</ul></details>`;
+  const links = `<li><a href="${COPILOT_PRICING_DOCS_URL}" target="_blank" rel="noopener noreferrer">GitHub price list</a> \u00b7 <a href="#/help/copilot-costs">Full cost guide</a></li>`;
+  return `<details class="portal-cost-guide" data-cost-guide><summary>Cost guide</summary><ul>${items}${links}</ul></details>`;
 }
 // RUNTIME_EVENT_HELPER_END: contextBillingView
 

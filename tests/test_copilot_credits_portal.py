@@ -158,9 +158,9 @@ def test_usage_panel_shows_credits_cached_and_reasoning_when_the_runtime_reports
     assert "Reasoning Tokens" in html and "30000" in html
     # The monthly balance: used, remaining, the reset date, and the warning
     # colour once more than 80% is gone.
-    assert "\u672c\u6708 Copilot \u989d\u5ea6" in html
-    assert "\u5df2\u7528 1600 credits" in html
-    assert "\u5269\u4f59 300" in html
+    assert "Copilot balance this month" in html
+    assert "1600 credits used" in html
+    assert "300 left" in html
     assert "2026-11-01" in html
     assert "is-warning" in html
 
@@ -174,13 +174,13 @@ def test_usage_panel_keeps_the_old_cost_card_and_says_when_the_balance_is_unavai
     assert "Total Cost" in html and "$0.5000" in html
     assert "Est. credits" not in html
     assert "Cached Input" not in html
-    assert "\u4e0d\u53ef\u7528" in html and "runtime answered 404" in html
+    assert "Unavailable: runtime answered 404" in html
 
 
 def test_usage_panel_without_a_quota_lookup_renders_as_before():
     html = _render_usage_panel(usage={"period_days": 30, "global": {"request_count": 1, "total_input_tokens": 1, "total_output_tokens": 1}})
 
-    assert "\u672c\u6708 Copilot \u989d\u5ea6" not in html
+    assert "Copilot balance this month" not in html
     assert "Requests" in html
 
 
@@ -212,10 +212,32 @@ def test_the_cost_guide_is_a_help_topic_and_a_doc():
     topic = get_topic("copilot-costs")
     assert topic is not None
     assert topic.group == "Working"
-    assert "Copilot" in topic.title
+    assert topic.title == "Copilot costs"
     assert "272K" in topic.body
     assert "models-and-pricing" in topic.body
 
     guide = (ROOT / "docs/COPILOT_COST_GUIDE.md").read_text(encoding="utf-8")
     assert "272K" in guide
     assert "models-and-pricing" in guide
+
+
+def test_the_cost_ui_help_and_guide_are_english_only():
+    # The whole Portal is English; the cost UI shipped once with Chinese
+    # strings, so the strings, the template, the help topic and the guide are
+    # pinned to contain no CJK text or CJK escape sequences.
+    import re
+
+    cjk = re.compile("[　-〿぀-ヿ一-鿿＀-￯]")
+    cjk_escape = re.compile(r"\\u(3[0-9a-f]{3}|[4-9][0-9a-f]{3}|ff[0-9a-f]{2})", re.IGNORECASE)
+    for relative in (
+        "app/static/js/chat_ui.js",
+        "app/templates/partials/usage_panel.html",
+        "app/help/copilot-costs.md",
+        "docs/COPILOT_COST_GUIDE.md",
+    ):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        offenders = [
+            number for number, line in enumerate(text.splitlines(), start=1)
+            if cjk.search(line) or cjk_escape.search(line)
+        ]
+        assert offenders == [], f"{relative} has CJK text on lines {offenders[:10]}"

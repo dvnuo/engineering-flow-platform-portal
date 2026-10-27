@@ -28,29 +28,29 @@
     {% set quota_credits = quota.credits if quota.credits is mapping else {} %}
     {% set quota_snapshots = quota.snapshots if quota.snapshots is sequence else [] %}
     <div class="portal-panel-section portal-quota-section" data-copilot-quota>
-      <div class="portal-detail-label">本月 Copilot 额度</div>
+      <div class="portal-detail-label">Copilot balance this month</div>
       {% if quota.available %}
         {% if quota_credits %}
           {% set used = (quota_credits.used or 0)|float %}
           {% set included = (quota_credits.included or 0)|float %}
           {% set percent_used = (used / included * 100) if included > 0 else none %}
           <div class="portal-quota-chip {% if percent_used is not none and percent_used >= 80 %}is-warning{% endif %}">
-            <div class="portal-quota-chip-head"><span>已用 {{ '%.0f'|format(used) }} credits</span><span>{% if quota_credits.remaining is not none %}剩余 {{ '%.0f'|format((quota_credits.remaining or 0)|float) }}{% elif included > 0 %}共 {{ '%.0f'|format(included) }}{% endif %}</span></div>
+            <div class="portal-quota-chip-head"><span>{{ '%.0f'|format(used) }} credits used</span><span>{% if quota_credits.remaining is not none %}{{ '%.0f'|format((quota_credits.remaining or 0)|float) }} left{% elif included > 0 %}{{ '%.0f'|format(included) }} included{% endif %}</span></div>
             {% if percent_used is not none %}<div class="portal-quota-meter"><span style="width:{{ [percent_used, 100]|min|round(1) }}%"></span></div>{% endif %}
-            {% if quota.reset_date %}<div class="portal-panel-note">重置日期：{{ quota.reset_date }}</div>{% endif %}
+            {% if quota.reset_date %}<div class="portal-panel-note">Resets on {{ quota.reset_date }}</div>{% endif %}
           </div>
         {% endif %}
         {% for snapshot in quota_snapshots %}
           {% if snapshot is mapping and not snapshot.unlimited %}
             {% set percent_remaining = snapshot.percent_remaining %}
-            <div class="portal-panel-note">{{ snapshot.label or snapshot.id }}{% if snapshot.used is not none %} · 已用 {{ snapshot.used }}{% endif %}{% if snapshot.remaining is not none %} · 剩余 {{ snapshot.remaining }}{% endif %}{% if snapshot.entitlement %} / {{ snapshot.entitlement }}{% endif %}{% if percent_remaining is not none %} · 剩 {{ percent_remaining }}%{% endif %}</div>
+            <div class="portal-panel-note">{{ snapshot.label or snapshot.id }}{% if snapshot.used is not none %} · {{ snapshot.used }} used{% endif %}{% if snapshot.remaining is not none %} · {{ snapshot.remaining }} left{% endif %}{% if snapshot.entitlement %} / {{ snapshot.entitlement }}{% endif %}{% if percent_remaining is not none %} · {{ percent_remaining }}% left{% endif %}</div>
           {% endif %}
         {% endfor %}
         {% if not quota_credits and not quota_snapshots %}
-          <div class="portal-panel-note">额度接口未返回可用数字。{% if quota.plan %}计划：{{ quota.plan }}{% endif %}</div>
+          <div class="portal-panel-note">The quota endpoint returned no usable numbers.{% if quota.plan %} Plan: {{ quota.plan }}{% endif %}</div>
         {% endif %}
       {% else %}
-        <div class="portal-panel-note">不可用{% if quota.error %}：{{ quota.error }}{% endif %}。可在 GitHub 的 Billing 页面查看。</div>
+        <div class="portal-panel-note">Unavailable{% if quota.error %}: {{ quota.error }}{% endif %}. Check GitHub's Billing page.</div>
       {% endif %}
     </div>
   {% endif %}
