@@ -7,9 +7,10 @@
 
 Checks:
 
-- the first argument of every ``t("...")`` and the two forms of every
-  ``tn(n, "...", "...")`` in templates, first-party JavaScript and Python
-  are plain string literals, since the keys are extracted from the source;
+- the first argument of every ``t("...")`` / ``N_("...")`` and the two forms
+  of every ``tn(n, "...", "...")`` in templates, first-party JavaScript and
+  Python are plain string literals, since the keys are extracted from the
+  source (``tv(value)`` translates a value at run time and is not a key);
 - every key in use has a non-empty translation in each catalogue (missing
   keys are errors, so a slice is translated in the PR that wraps it);
 - a translation's ``{placeholders}`` are a subset of the English key's;
@@ -35,7 +36,9 @@ EXCLUDED_DIR_NAMES = {"lib", "locale", "__pycache__", "node_modules"}
 EXCLUDED_SOURCE_FILES = {Path("app/i18n.py"), Path("app/static/js/i18n.js")}
 TEXT_SUFFIXES = {".html", ".js", ".py", ".css", ".md", ".json", ".yaml", ".yml", ".txt", ".svg"}
 
-CALL_RE = re.compile(r"(?<![\w.$])(tn|t)\(")
+# t("key"), tn(count, "one", "other"), and N_("key"), which marks a literal in
+# a data table as a key without translating it (shown later through tv()).
+CALL_RE = re.compile(r"(?<![\w.$])(tn|t|N_)\(")
 PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 CJK_RE = re.compile("[　-〿぀-ヿ一-鿿＀-￯]")
 _ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "'": "'", '"': '"'}
@@ -70,6 +73,35 @@ def _skip_ws(text: str, index: int) -> int:
     return index
 
 
+_HEX = "0123456789abcdefABCDEF"
+
+
+def _decode_hex_escape(text: str, index: int):
+    """``(character, end)`` for ``\\uXXXX``, ``\\u{X...}`` or ``\\xXX`` at ``index``, else ``None``.
+
+    The page sees the decoded character, so the key must too: a key written
+    as "Loading\\u2026" is the same key as "Loading…".
+    """
+    kind = text[index + 1] if index + 1 < len(text) else ""
+    if kind == "x":
+        digits = text[index + 2:index + 4]
+        if len(digits) == 2 and all(c in _HEX for c in digits):
+            return chr(int(digits, 16)), index + 4
+        return None
+    if kind != "u":
+        return None
+    if text[index + 2:index + 3] == "{":
+        end = text.find("}", index + 3)
+        digits = text[index + 3:end] if end > 0 else ""
+        if digits and len(digits) <= 6 and all(c in _HEX for c in digits):
+            return chr(int(digits, 16)), end + 1
+        return None
+    digits = text[index + 2:index + 6]
+    if len(digits) == 4 and all(c in _HEX for c in digits):
+        return chr(int(digits, 16)), index + 6
+    return None
+
+
 def _parse_string_literal(text: str, index: int):
     """``(value, end)`` for a quoted literal starting at ``index``, else ``None``."""
     if index >= len(text) or text[index] not in "'\"":
@@ -80,6 +112,11 @@ def _parse_string_literal(text: str, index: int):
     while i < len(text):
         char = text[i]
         if char == "\\" and i + 1 < len(text):
+            decoded = _decode_hex_escape(text, i)
+            if decoded is not None:
+                out.append(decoded[0])
+                i = decoded[1]
+                continue
             out.append(_ESCAPES.get(text[i + 1], text[i + 1]))
             i += 2
             continue
@@ -139,10 +176,10 @@ def extract_keys(repo: Path = REPO):
                 # "t()" with no argument is prose about the helper (a comment,
                 # a docstring), not a call: every real call has a key.
                 continue
-            if name == "t":
+            if name in ("t", "N_"):
                 parsed = _parse_string_literal(text, index)
                 if parsed is None:
-                    errors.append(f"{relative}:{line}: t() needs a plain string literal as its key")
+                    errors.append(f"{relative}:{line}: {name}() needs a plain string literal as its key")
                     continue
                 keys.append(Key(parsed[0], path, line))
                 continue

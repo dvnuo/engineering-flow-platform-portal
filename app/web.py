@@ -108,7 +108,7 @@ from app.services.help_center import (
 )
 from app.services.member_avatar import avatar_initials, avatar_photo_url
 from app.services.locale_service import locale_preferences_for_user, resolve_locale_for_request, resolve_locale_for_user
-from app.i18n import bind_locale, t, template_globals
+from app.i18n import N_, bind_locale, t, template_globals
 from app.services.git_branch_cache import cached_branches_for
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import (
@@ -586,10 +586,10 @@ def _normalize_blockers(value) -> list[str]:
 
 def _task_content_from_input(input_obj: dict) -> tuple[str, str]:
     if isinstance(input_obj.get("followup_task"), str) and input_obj.get("followup_task").strip():
-        return input_obj.get("followup_task").strip(), "Latest Follow-up"
+        return input_obj.get("followup_task").strip(), N_("Latest Follow-up")
     if isinstance(input_obj.get("user_task"), str) and input_obj.get("user_task").strip():
-        return input_obj.get("user_task").strip(), "Original Task"
-    return "", "Task"
+        return input_obj.get("user_task").strip(), N_("Original Task")
+    return "", N_("Task")
 
 
 def _fallback_title_from_content(content: str) -> str:
@@ -618,14 +618,14 @@ def _user_label_for_id(db, user_id) -> str:
     if user_id in {None, ""}:
         return "-"
     if not db:
-        return f"User {user_id}"
+        return t("User {id}", id=user_id)
     try:
         owner = UserRepository(db).get_by_id(int(user_id))
     except Exception:
         owner = None
     if not owner:
-        return f"User {user_id}"
-    return (getattr(owner, "nickname", None) or getattr(owner, "username", None) or f"User {user_id}").strip()
+        return t("User {id}", id=user_id)
+    return (getattr(owner, "nickname", None) or getattr(owner, "username", None) or t("User {id}", id=user_id)).strip()
 
 
 def _execution_context_for_task(db, task) -> tuple[list[tuple[str, object]], str]:
@@ -639,18 +639,18 @@ def _execution_context_for_task(db, task) -> tuple[list[tuple[str, object]], str
         return [], ""
 
     items: list[tuple[str, object]] = [
-        ("Execution Status", getattr(execution, "status", None) or "-"),
-        ("Runtime Type", getattr(execution, "runtime_type", None) or "-"),
-        ("Runtime Task ID", getattr(execution, "runtime_task_id", None) or "-"),
-        ("Request ID", getattr(execution, "request_id", None) or getattr(task, "runtime_request_id", None) or "-"),
-        ("Last Heartbeat", getattr(execution, "heartbeat_at", None) or "-"),
-        ("Last Event", getattr(execution, "last_event_at", None) or "-"),
-        ("Runtime Code", getattr(execution, "runtime_status_code", None) or "-"),
+        (N_("Execution Status"), getattr(execution, "status", None) or "-"),
+        (N_("Runtime Type"), getattr(execution, "runtime_type", None) or "-"),
+        (N_("Runtime Task ID"), getattr(execution, "runtime_task_id", None) or "-"),
+        (N_("Request ID"), getattr(execution, "request_id", None) or getattr(task, "runtime_request_id", None) or "-"),
+        (N_("Last Heartbeat"), getattr(execution, "heartbeat_at", None) or "-"),
+        (N_("Last Event"), getattr(execution, "last_event_at", None) or "-"),
+        (N_("Runtime Code"), getattr(execution, "runtime_status_code", None) or "-"),
     ]
     if getattr(execution, "error_code", None):
-        items.append(("Execution Error", getattr(execution, "error_code", None)))
+        items.append((N_("Execution Error"), getattr(execution, "error_code", None)))
     if getattr(execution, "would_conflict_same_session", False):
-        warning = "Another active execution was detected for the same agent session."
+        warning = t("Another active execution was detected for the same agent session.")
     else:
         warning = ""
     return items, warning
@@ -688,7 +688,7 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
     result_obj = _extract_async_result_payload(result_payload)
     task_content, task_content_label = _task_content_from_input(input_obj)
     original_task = ""
-    if task_content_label == "Latest Follow-up":
+    if task_content_label == N_("Latest Follow-up"):
         original_task = _extract_text_field(input_obj, ("original_task", "user_task"))
     skill_name = (getattr(task, "skill_name", None) or input_obj.get("skill_name") or "").strip().lstrip("/")
     final_response = _extract_text_field(result_obj, ("final_response", "response", "summary", "raw_text", "message"))
@@ -721,7 +721,7 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
     return {
         "is_agent_async": True,
         "display_title": getattr(task, "title", None) or _fallback_title_from_content(task_content),
-        "display_subtitle": "Agent background task",
+        "display_subtitle": t("Agent background task"),
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "is_active": status_label in {"queued", "running"},
@@ -772,30 +772,30 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
 
     status_label = getattr(task, "status", None) or "unknown"
     context_items = [
-        ("Task ID", getattr(task, "id", "-")),
-        ("Task Type", getattr(task, "task_type", None) or "-"),
-        ("Task Family", getattr(task, "task_family", None) or "-"),
-        ("Provider", getattr(task, "provider", None) or "-"),
-        ("Trigger", getattr(task, "trigger", None) or "-"),
-        ("Version Key", getattr(task, "version_key", None) or "-"),
-        ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
-        ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
-        ("Owner", _user_label_for_id(db, getattr(task, "owner_user_id", None))),
-        ("Created By User ID", getattr(task, "created_by_user_id", None) or "-"),
-        ("Updated At", getattr(task, "updated_at", None) or "-"),
+        (N_("Task ID"), getattr(task, "id", "-")),
+        (N_("Task Type"), getattr(task, "task_type", None) or "-"),
+        (N_("Task Family"), getattr(task, "task_family", None) or "-"),
+        (N_("Provider"), getattr(task, "provider", None) or "-"),
+        (N_("Trigger"), getattr(task, "trigger", None) or "-"),
+        (N_("Version Key"), getattr(task, "version_key", None) or "-"),
+        (N_("Dedupe Key"), getattr(task, "dedupe_key", None) or "-"),
+        (N_("Runtime Request ID"), getattr(task, "runtime_request_id", None) or "-"),
+        (N_("Owner"), _user_label_for_id(db, getattr(task, "owner_user_id", None))),
+        (N_("Created By User ID"), getattr(task, "created_by_user_id", None) or "-"),
+        (N_("Updated At"), getattr(task, "updated_at", None) or "-"),
     ]
 
     return {
         "is_agent_async": False,
-        "display_title": getattr(task, "title", None) or "Unsupported Task",
-        "display_subtitle": "Read-only task type",
+        "display_title": getattr(task, "title", None) or t("Unsupported Task"),
+        "display_subtitle": t("Read-only task type"),
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "is_active": False,
         "can_cancel": False,
         "can_rerun": False,
         "show_followup_form": False,
-        "unsupported_message": "This task type is not supported by the background task panel. Raw payloads are available for inspection.",
+        "unsupported_message": t("This task type is not supported by the background task panel. Raw payloads are available for inspection."),
         "timeline": [],
         "summary_text": getattr(task, "summary", None) or "",
         "error_text": getattr(task, "error_message", None) or "",
@@ -1297,11 +1297,12 @@ TROUBLESHOOTING_CARD_FIELD_SPECS = {
 # The PostgreSQL section's shared settings, rendered above the instance cards
 # on the member panel and the admin Default connectors panel: the access
 # policy, the TLS mode and the query budget every instance uses. A blank
-# budget field means the runtime's default.
+# budget field means the runtime's default. The access labels are catalogue
+# keys (N_), shown through tv() by both templates; the SSL modes are names.
 PGSQL_SETTINGS_OPTIONS = {
     "access": [
-        {"value": "read_only", "label": "Read-only: the assistant's pgsql tool refuses anything that writes"},
-        {"value": "read_write", "label": "Read-write: the database role decides what the assistant may change"},
+        {"value": "read_only", "label": N_("Read-only: the assistant's pgsql tool refuses anything that writes")},
+        {"value": "read_write", "label": N_("Read-write: the database role decides what the assistant may change")},
     ],
     "default_access": PGSQL_DEFAULT_ACCESS,
     "sslmode": [{"value": mode, "label": mode} for mode in PGSQL_SSL_MODES],
@@ -1316,33 +1317,35 @@ PGSQL_SETTINGS_OPTIONS = {
 # What the two forms post for the shared settings, section-level like
 # pgsql_default_instance.
 PGSQL_SETTINGS_FORM_FIELDS = ("access", *PGSQL_SHARED_FIELDS)
+# The prose placeholders are catalogue keys (N_ keeps the English, so the JS
+# copy still equals this table); both card builders show them through tv().
 TROUBLESHOOTING_CARD_PLACEHOLDERS = {
     "nexus": {
-        "name": "Name",
-        "url": "URL (e.g. https://nexus.example.com)",
-        "username": "Username",
-        "password": "Password",
-        "token": "User token",
+        "name": N_("Name"),
+        "url": N_("URL (e.g. https://nexus.example.com)"),
+        "username": N_("Username"),
+        "password": N_("Password"),
+        "token": N_("User token"),
     },
     "splunk": {
-        "name": "Name",
-        "url": "Management API URL (e.g. https://splunk.example.com:8089)",
-        "username": "Username",
-        "password": "Password",
-        "token": "Authentication token",
-        "default_index": "Default index, e.g. app_prod",
-        "default_earliest": "Default earliest, e.g. -1h",
-        "max_results": "Max results (1-10000)",
-        "app": "App the saved searches live in, e.g. search",
-        "owner": "Namespace owner; blank means any",
+        "name": N_("Name"),
+        "url": N_("Management API URL (e.g. https://splunk.example.com:8089)"),
+        "username": N_("Username"),
+        "password": N_("Password"),
+        "token": N_("Authentication token"),
+        "default_index": N_("Default index, e.g. app_prod"),
+        "default_earliest": N_("Default earliest, e.g. -1h"),
+        "max_results": N_("Max results (1-10000)"),
+        "app": N_("App the saved searches live in, e.g. search"),
+        "owner": N_("Namespace owner; blank means any"),
     },
     "pgsql": {
-        "name": "Name",
-        "host": "Host, e.g. orders-uat.example.com",
+        "name": N_("Name"),
+        "host": N_("Host, e.g. orders-uat.example.com"),
         "port": "5432",
-        "database": "Database",
-        "username": "Username (read-only role)",
-        "password": "Password",
+        "database": N_("Database"),
+        "username": N_("Username (read-only role)"),
+        "password": N_("Password"),
     },
 }
 TROUBLESHOOTING_CARD_LAYOUT = {
@@ -2587,7 +2590,7 @@ def admin_login_page(request: Request):
     return _anonymous_auth_page(
         request,
         "login.html",
-        "Portal Login",
+        t("Portal Login"),
         next_path=_requested_next_path(request),
         **_login_page_context(password_form=True),
     )
@@ -2602,7 +2605,7 @@ def login_page(request: Request):
     return _anonymous_auth_page(
         request,
         "login.html",
-        "Portal Login",
+        t("Portal Login"),
         next_path=_requested_next_path(request),
         **_login_page_context(),
     )
@@ -2665,12 +2668,12 @@ def unauthorized_page(request: Request):
         "unauthorized.html",
         {
             "request": request,
-            "title": "Authorization Required",
+            "title": t("Authorization Required"),
             "username": user.nickname or user.username,
             # The exact string an administrator has to allowlist, which is not
             # necessarily the display name above.
             "allowlist_username": user.username,
-            "access_message": "Your account is not on the allowlist. Contact an administrator to request access.",
+            "access_message": t("Your account is not on the allowlist. Contact an administrator to request access."),
             "support_contact": settings.portal_support_contact,
         },
         status_code=403,
@@ -3837,7 +3840,7 @@ async def app_connector_panel(request: Request, connector_type: str):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
     from app.services import connector_service
-    from app.services.connection_guidance import CONNECTOR_GUIDANCE
+    from app.services.connection_guidance import connector_guidance_for
     from app.services.connector_registry import (
         LOCAL_BRIDGE_DEFAULT_PORT,
         detect_local_bridge_platform,
@@ -3872,7 +3875,8 @@ async def app_connector_panel(request: Request, connector_type: str):
         {
             "request": request,
             "connector": connector,
-            "guide": CONNECTOR_GUIDANCE.get(spec.guidance_key),
+            # In the request's language, like the settings connectors' guidance.
+            "guide": connector_guidance_for(spec.guidance_key),
             "download_url": connector_service.local_bridge_download_url(resolved_settings, primary_platform),
             "download_links": connector_service.local_bridge_download_links(resolved_settings),
             "primary_platform": primary_platform,

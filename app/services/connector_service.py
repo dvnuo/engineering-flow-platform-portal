@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.i18n import N_
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_connector_repo import UserConnectorRepository
 from app.services.connector_defaults_service import connector_mode
@@ -83,7 +84,7 @@ def _local_entry(spec: ConnectorSpec, row) -> dict[str, Any]:
         "icon": spec.icon,
         "enabled": enabled,
         "state": state,
-        "status_label": "Enabled" if enabled else "Not enabled",
+        "status_label": N_("Enabled") if enabled else N_("Not enabled"),
         "config": _safe_config(spec, row.config_json if row is not None else None),
         "settings": spec.server_settings(),
         "last_verified_at": _iso(row.last_verified_at) if row is not None else None,

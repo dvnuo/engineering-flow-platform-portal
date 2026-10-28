@@ -22,6 +22,7 @@ from tests.test_default_connections_form import _panel_html as _default_connecti
 from tests.test_jenkins_multi_instance_settings import (
     _bind_profile,
     _build_client,
+    _english_literal,
     _initialized_instance_groups,
     _instance_groups_in_template,
     _js_object_literal,
@@ -1100,12 +1101,13 @@ def _js_troubleshooting_card_html(section):
 
     has_url = any("url" in row for row in rows)
     body = "".join(f'<div class="grid grid-cols-2 gap-2">{"".join(field_html(f) for f in row)}</div>' for row in rows)
-    rendered = (
+    rendered = _english_literal(
         literal_match.group(1)
         .replace("${originalUrlHtml}", '<input type="hidden" data-original-field="url" value="" />' if has_url else "")
         .replace("${bodyHtml}", body)
         .replace("${label}", label)
-        .replace("${group}", section)
+        .replace("${group}", section),
+        label=label,
     )
     assert "${" not in rendered, "unresolved template slot in troubleshootingCardHtml literal"
     # normalizeInstanceInputs renumbers the freshly appended card.

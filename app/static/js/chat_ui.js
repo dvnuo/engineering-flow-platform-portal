@@ -14146,6 +14146,11 @@ async function restoreSessionRunSettings(agentId, sessionId) {
 const managedSettingsActionSelector = "[data-settings-action]";
 // keep regression guard text for static test:
 
+// The label tables below stay plain English (tests read them as JSON and
+// compare them with the server's copies); the words are catalogue keys
+// because the connector templates wrap the same text with t() (web.py marks
+// TROUBLESHOOTING_CARD_PLACEHOLDERS with N_), so every place that shows one
+// translates it with tv().
 const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "aws_eks_clusters": "EKS cluster", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL", "proxy": "Proxy" };
 
 // The regions a profile may name, offered in every region dropdown (account
@@ -14153,7 +14158,8 @@ const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jen
 // AWS_REGIONS in app/schemas/runtime_profile.py; a test holds the two equal.
 const AWS_REGIONS = ["ap-east-1", "eu-west-1", "us-east-1"];
 
-// The <option>s of a region dropdown; blankLabel adds a "none" choice first.
+// The <option>s of a region dropdown; blankLabel (display text, already
+// translated) adds a "none" choice first.
 function regionOptionsHtml(blankLabel) {
   const options = blankLabel ? [`<option value="">${blankLabel}</option>`] : [];
   AWS_REGIONS.forEach((region) => options.push(`<option value="${region}">${region}</option>`));
@@ -14182,9 +14188,9 @@ function refreshEksAccountOptions(root) {
       option.selected = selected;
       select.append(option);
     };
-    add("", "Choose an account", current === "");
+    add("", t("Choose an account"), current === "");
     names.forEach((name) => add(name, name, name === current));
-    if (current && !names.includes(current)) add(current, `${current} (not listed above)`, true);
+    if (current && !names.includes(current)) add(current, t("{name} (not listed above)", { name: current }), true);
   });
 }
 
@@ -14193,6 +14199,7 @@ function refreshEksAccountOptions(root) {
 // server-rendered cards in the connector form templates (partials/connectors/).
 // The nexus/splunk/pgsql entries are copies of TROUBLESHOOTING_CARD_PLACEHOLDERS
 // in app/web.py, which renders the saved cards; a test holds the two equal.
+// Shown through tv(); example values (a URL, a port) pass through unchanged.
 const INSTANCE_GROUP_PLACEHOLDERS = {
   "jira": { "url": "URL (e.g. https://yourcompany.atlassian.net)", "username": "Email" },
   "confluence": { "url": "URL (e.g. https://yourcompany.atlassian.net/wiki)", "username": "Email" },
@@ -14262,9 +14269,9 @@ const INSTANCE_GROUP_ITEM_TITLES = { "aws_accounts": "Account", "aws_eks_cluster
 // where there is a test endpoint (a member's connector page).
 function proxyCardHtml(withTest) {
   const testHtml = withTest
-    ? `<div class="flex items-end gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy" data-test-card="proxy">Test this proxy</button></div>`
+    ? `<div class="flex items-end gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy" data-test-card="proxy">${t("Test this proxy")}</button></div>`
     : `<div></div>`;
-  return `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Proxy</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="proxy">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">Name</span><input type="text" data-field="name" value="" placeholder="corp-a" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Proxy URL</span><input type="text" data-field="url" value="" placeholder="http://proxy.example.com:3128" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" data-field="username" value="" placeholder="Optional" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" data-field="password" value="" placeholder="Optional" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">No proxy for</span><input type="text" data-field="no_proxy" value="" placeholder="localhost,.svc.cluster.local" class="portal-form-input" /></label>${testHtml}</div></div>`;
+  return `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Proxy")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="proxy">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">${t("Name")}</span><input type="text" data-field="name" value="" placeholder="corp-a" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">${t("Proxy URL")}</span><input type="text" data-field="url" value="" placeholder="http://proxy.example.com:3128" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">${t("Username")}</span><input type="text" data-field="username" value="" placeholder="${t("Optional")}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">${t("Password")}</span><input type="password" data-field="password" value="" placeholder="${t("Optional")}" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">${t("No proxy for")}</span><input type="text" data-field="no_proxy" value="" placeholder="localhost,.svc.cluster.local" class="portal-form-input" /></label>${testHtml}</div></div>`;
 }
 
 // The Proxy connector's dropdowns (the default proxy, one per connector in
@@ -14298,19 +14305,20 @@ function refreshProxyOptions(root) {
     };
     fixed.forEach(([value, label]) => add(value, label, current === value));
     names.forEach((name) => add(name, name, name === current));
-    if (current && !names.includes(current) && !fixed.some(([value]) => value === current)) add(current, `${current} (not listed above)`, true);
-    if (!fixed.length && !names.length) add("", "No proxies yet", true);
+    if (current && !names.includes(current) && !fixed.some(([value]) => value === current)) add(current, t("{name} (not listed above)", { name: current }), true);
+    if (!fixed.length && !names.length) add("", t("No proxies yet"), true);
   };
   root.querySelectorAll("select[data-proxy-default]").forEach((select) => rebuild(select, []));
-  root.querySelectorAll("select[data-proxy-assign]").forEach((select) => rebuild(select, [["", "Default"], ["none", "None (direct)"]]));
+  root.querySelectorAll("select[data-proxy-assign]").forEach((select) => rebuild(select, [["", t("Default")], ["none", t("None (direct)")]]));
 }
 
+// Both return display text in the page's language.
 function instanceGroupLabel(group) {
-  return INSTANCE_GROUP_LABELS[group] || String(group || "");
+  return INSTANCE_GROUP_LABELS[group] ? tv(INSTANCE_GROUP_LABELS[group]) : String(group || "");
 }
 
 function instanceGroupItemTitle(group) {
-  return INSTANCE_GROUP_ITEM_TITLES[group] || "Instance";
+  return INSTANCE_GROUP_ITEM_TITLES[group] ? tv(INSTANCE_GROUP_ITEM_TITLES[group]) : t("Instance");
 }
 
 // The AWS account card: no URL/credentials, one row per account the aws-auth
@@ -14318,7 +14326,7 @@ function instanceGroupItemTitle(group) {
 // rendered card in partials/connectors/aws.html.
 function awsAccountCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_accounts;
-  return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${placeholders.name}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${placeholders.account_id}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${placeholders.role}" class="portal-form-input" /><select multiple size="${AWS_REGIONS.length}" data-field="regions" class="portal-form-select">${regionOptionsHtml()}</select></div></div>`;
+  return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Account")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${tv(placeholders.name)}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${tv(placeholders.account_id)}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${tv(placeholders.role)}" class="portal-form-input" /><select multiple size="${AWS_REGIONS.length}" data-field="regions" class="portal-form-select">${regionOptionsHtml()}</select></div></div>`;
 }
 
 // The EKS private-endpoint card: one cluster reached through PrivateLink,
@@ -14326,18 +14334,20 @@ function awsAccountCardHtml(label) {
 // the server-rendered card in partials/connectors/aws.html.
 function awsEksClusterCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_eks_clusters;
-  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">EKS cluster</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><select data-field="account" class="portal-form-select"><option value="">Choose an account</option></select><input type="text" data-field="cluster" value="" placeholder="${placeholders.cluster}" class="portal-form-input" /><select data-field="region" class="portal-form-select">${regionOptionsHtml("Any region")}</select></div><div class="grid grid-cols-3 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${placeholders.private_endpoint}" class="portal-form-input" /><select data-field="server_ca" class="portal-form-select"><option value="cluster" selected>Cluster CA (endpoint passes TLS through)</option><option value="system">System trust store (endpoint has its own certificate)</option></select><input type="text" data-field="tls_server_name" value="" placeholder="${placeholders.tls_server_name}" class="portal-form-input" /></div></div>`;
+  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("EKS cluster")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><select data-field="account" class="portal-form-select"><option value="">${t("Choose an account")}</option></select><input type="text" data-field="cluster" value="" placeholder="${tv(placeholders.cluster)}" class="portal-form-input" /><select data-field="region" class="portal-form-select">${regionOptionsHtml(t("Any region"))}</select></div><div class="grid grid-cols-3 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${tv(placeholders.private_endpoint)}" class="portal-form-input" /><select data-field="server_ca" class="portal-form-select"><option value="cluster" selected>${t("Cluster CA (endpoint passes TLS through)")}</option><option value="system">${t("System trust store (endpoint has its own certificate)")}</option></select><input type="text" data-field="tls_server_name" value="" placeholder="${tv(placeholders.tls_server_name)}" class="portal-form-input" /></div></div>`;
 }
 
 // One field of a troubleshooting-CLI card, from the layout tables above. Must
 // render exactly what the card_field macro in
-// partials/runtime_profile_instance_cards.html renders for an empty value.
+// partials/runtime_profile_instance_cards.html renders for an empty value,
+// placeholder and option labels translated with tv() on both sides.
 function troubleshootingFieldHtml(group, field) {
   if (!field) return `<div></div>`;
   const spec = INSTANCE_GROUP_FIELD_SPECS[field] || {};
-  const placeholder = (INSTANCE_GROUP_PLACEHOLDERS[group] || {})[field] || "";
+  const placeholder = tv((INSTANCE_GROUP_PLACEHOLDERS[group] || {})[field] || "");
   if (spec.type === "select") {
     const options = (spec.options || [])
+      .map(([value, label]) => [value, tv(label)])
       .map(([value, text], index) => `<option value="${value}"${index === 0 ? " selected" : ""}>${text}</option>`)
       .join("");
     return `<select data-field="${field}" class="portal-form-select">${options}</select>`;
@@ -14358,7 +14368,7 @@ function troubleshootingCardHtml(group, label) {
   const bodyHtml = rows
     .map((row) => `<div class="grid grid-cols-2 gap-2">${row.map((field) => troubleshootingFieldHtml(group, field)).join("")}</div>`)
     .join("");
-  return `<input type="hidden" data-original-field="name" value="" />${originalUrlHtml}<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body">${bodyHtml}</div>`;
+  return `<input type="hidden" data-original-field="name" value="" />${originalUrlHtml}<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Instance")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">${t("Remove")}</button></div><div class="portal-settings-instance-body">${bodyHtml}</div>`;
 }
 
 // Keeps the "disabled" affordance in sync with the per-instance toggle: the
@@ -14371,7 +14381,7 @@ function syncInstanceEnabledState(item) {
   const enabled = !!input.checked;
   item.classList.toggle("is-instance-disabled", !enabled);
   const state = item.querySelector("[data-instance-state]");
-  if (state) state.textContent = enabled ? "Enabled" : "Disabled";
+  if (state) state.textContent = enabled ? t("Enabled") : t("Disabled");
 }
 
 function normalizeInstanceInputs(root, group) {
@@ -14386,7 +14396,7 @@ function normalizeInstanceInputs(root, group) {
     const title = item.querySelector(".portal-settings-instance-title");
     if (title) title.textContent = `${itemTitle} ${idx + 1}`;
     const enabledInput = item.querySelector('input[data-field="enabled"]');
-    if (enabledInput) enabledInput.setAttribute("aria-label", `Enable ${label} instance ${idx + 1}`);
+    if (enabledInput) enabledInput.setAttribute("aria-label", t("Enable {label} instance {n}", { label, n: idx + 1 }));
     syncInstanceEnabledState(item);
     item.querySelectorAll("[data-field]").forEach((fieldEl) => {
       const field = fieldEl.dataset.field;
@@ -14448,20 +14458,20 @@ function addInstanceRow(root, group) {
   // partials/connectors/ (jira.html, confluence.html, jenkins.html),
   // otherwise a freshly added row looks different from the saved ones.
   const scopedFieldHtml = group === "jira"
-    ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
+    ? `<input type="text" data-field="project" value="" placeholder="${t("Project")}" class="portal-form-input" />`
     : group === "confluence"
-      ? `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`
+      ? `<input type="text" data-field="space" value="" placeholder="${t("Space Key")}" class="portal-form-input" />`
       : `<div></div>`;
   const apiVersionHtml = group === "jira"
-    ? `<div class="grid grid-cols-2 gap-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>Auto API Version</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
+    ? `<div class="grid grid-cols-2 gap-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>${t("Auto API Version")}</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
     : "";
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS[group] || INSTANCE_GROUP_PLACEHOLDERS.jira;
-  const urlPlaceholder = placeholders.url;
-  const usernamePlaceholder = placeholders.username;
+  const urlPlaceholder = tv(placeholders.url);
+  const usernamePlaceholder = tv(placeholders.username);
   const label = instanceGroupLabel(group);
-  const credentialFieldsHtml = `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>`;
+  const credentialFieldsHtml = `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="${t("Password")}" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="${t("API token")}" class="portal-form-input" />${scopedFieldHtml}</div>`;
 
-  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>${credentialFieldsHtml}${apiVersionHtml}</div>`;
+  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Instance")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${t("Name")}" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>${credentialFieldsHtml}${apiVersionHtml}</div>`;
   container.append(div);
   normalizeInstanceInputs(root, group);
 
@@ -14641,7 +14651,7 @@ function updateModelOptions(root) {
     if (preferred && !hasModel(preferred)) {
       const extra = document.createElement("option");
       extra.value = preferred;
-      extra.textContent = `${preferred} (Current)`;
+      extra.textContent = t("{model} (Current)", { model: preferred });
       modelSelect.appendChild(extra);
     }
   } else if (provider !== lastProvider) {
@@ -15821,11 +15831,13 @@ function renderConnectorList(errorMessage = "") {
   dom.connectorNavList.innerHTML = "";
   let currentCategory = null;
   state.connectors.forEach((connector) => {
+    // Category, label and status arrive in English from /api/connectors (the
+    // registry marks them with N_()); the page's catalogue translates them.
     if (connector.category && connector.category !== currentCategory) {
       currentCategory = connector.category;
       const heading = document.createElement("div");
       heading.className = "portal-list-group-label";
-      heading.textContent = connector.category;
+      heading.textContent = tv(connector.category);
       dom.connectorNavList.append(heading);
     }
     const row = document.createElement("button");
@@ -15833,13 +15845,13 @@ function renderConnectorList(errorMessage = "") {
     row.className = `portal-list-row portal-connector-row${state.selectedConnectorType === connector.type ? " is-active" : ""}`;
     row.dataset.connectorType = connector.type;
     const connectorState = String(connector.state || (connector.enabled ? "connected" : "not_set_up"));
-    const status = connector.status_label || (connector.enabled ? t("Enabled") : t("Not enabled"));
+    const status = connector.status_label ? tv(connector.status_label) : (connector.enabled ? t("Enabled") : t("Not enabled"));
     // A settings connector that follows the administrator's Default connectors says so.
     const modeNote = connector.mode === "system" ? `<span class="portal-connector-row-mode"> \u00b7 ${t("System default")}</span>` : "";
     row.innerHTML = `
       <span class="portal-connector-row-icon" aria-hidden="true"><i data-lucide="${escapeHtmlAttr(connector.icon || "plug")}" class="w-4 h-4"></i></span>
       <span class="portal-connector-row-text">
-        <span class="portal-list-title">${safe(connector.label || connector.type)}</span>
+        <span class="portal-list-title">${safe(tv(connector.label || connector.type))}</span>
         <span class="portal-list-meta portal-connector-row-state is-${escapeHtmlAttr(connectorState)}">${safe(status)}${modeNote}</span>
       </span>
     `;

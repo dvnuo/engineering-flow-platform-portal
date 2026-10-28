@@ -3,14 +3,14 @@
 <section class="portal-panel-section" data-instance-group="nexus" id="profile-section-nexus" data-managed-section="nexus">
       {{ setup_guide('nexus') }}
       <div class="portal-checkbox-row">
-          <label class="toggle-switch" aria-label="Enable Nexus">
+          <label class="toggle-switch" aria-label="{{ t('Enable {name}', name='Nexus') }}">
               <input type="checkbox" name="nexus_enabled" {% if nexus.get('enabled') %}checked{% endif %} />
               <span class="toggle-slider"></span>
           </label>
-          <span>Enabled</span>
+          <span>{{ t("Enabled") }}</span>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="nexus_default_instance" value="{{ nexus.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">{{ t("Default instance") }}</span><input type="text" name="nexus_default_instance" value="{{ nexus.get('default_instance', '') }}" placeholder="{{ t('Name of the instance used when a command names none') }}" class="portal-form-input" /></label>
       {{ troubleshooting_instance_cards('nexus', 'Nexus', nexus_instances, troubleshooting_cards) }}
-      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="nexus">+ Add Nexus Instance</button>
-      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="nexus">Test Nexus</button><div class="portal-inline-state" data-test-result="nexus"></div></div>
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="nexus">{{ t("+ Add {name} Instance", name="Nexus") }}</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="nexus">{{ t("Test {name}", name="Nexus") }}</button><div class="portal-inline-state" data-test-result="nexus"></div></div>
     </section>

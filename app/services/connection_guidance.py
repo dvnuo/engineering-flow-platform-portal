@@ -8,156 +8,164 @@ Guidance is static content, not deployment config: it changes when a vendor
 changes its token page, not per install, so it lives in code and stays
 reviewable. `user_fields` lists only what the member supplies themselves — the
 rest of a section arrives prefilled from the seed.
+
+The tables are built at import time, when no request (and so no language) is
+known: every string a member reads is marked with N_(), which keeps the English
+as it is and makes it a catalogue key. Readers that show guidance take a copy
+in the request's language from guidance_for(), all_guidance() and
+connector_guidance_for() (localized() runs tv() over the marked fields).
 """
 from __future__ import annotations
 
 from typing import Any
 
+from app.i18n import N_, tv
+
 
 CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
     "llm": {
-        "title": "Connect your model provider",
-        "summary": "The assistant needs a model provider before it can answer anything.",
+        "title": N_("Connect your model provider"),
+        "summary": N_("The assistant needs a model provider before it can answer anything."),
         "steps": [
-            "Choose GitHub Copilot unless your administrator told you otherwise.",
-            "Click Authorize GitHub Copilot and follow the three steps it shows.",
-            "Come back here and click Save Settings to store the token.",
-            "Screenshots and documents you attach are analyzed through Productivity Suite in your own browser: switch on the Local bridge connector for that. The chat model itself cannot see images.",
+            N_("Choose GitHub Copilot unless your administrator told you otherwise."),
+            N_("Click Authorize GitHub Copilot and follow the three steps it shows."),
+            N_("Come back here and click Save Settings to store the token."),
+            N_("Screenshots and documents you attach are analyzed through Productivity Suite in your own browser: switch on the Local bridge connector for that. The chat model itself cannot see images."),
         ],
         "help_url": "https://github.com/settings/copilot",
-        "help_label": "GitHub Copilot settings",
+        "help_label": N_("GitHub Copilot settings"),
         "user_fields": ["api_key"],
     },
     "jira": {
-        "title": "Connect Jira",
-        "summary": "Lets the assistant read tickets, comment, and create issues as you.",
+        "title": N_("Connect Jira"),
+        "summary": N_("Lets the assistant read tickets, comment, and create issues as you."),
         "steps": [
-            "Open your Atlassian account security page and create an API token.",
-            "Name the token EFP so you can recognize it later.",
-            "Paste your Atlassian account email as the username and the token below.",
+            N_("Open your Atlassian account security page and create an API token."),
+            N_("Name the token EFP so you can recognize it later."),
+            N_("Paste your Atlassian account email as the username and the token below."),
         ],
         "help_url": "https://id.atlassian.com/manage-profile/security/api-tokens",
-        "help_label": "Create an Atlassian API token",
+        "help_label": N_("Create an Atlassian API token"),
         "user_fields": ["username", "token"],
     },
     "confluence": {
-        "title": "Connect Confluence",
-        "summary": "Lets the assistant read and publish pages in your spaces.",
+        "title": N_("Connect Confluence"),
+        "summary": N_("Lets the assistant read and publish pages in your spaces."),
         "steps": [
-            "Confluence uses the same Atlassian API token as Jira.",
-            "If you already created one for Jira, paste the same token here.",
-            "Use your Atlassian account email as the username.",
+            N_("Confluence uses the same Atlassian API token as Jira."),
+            N_("If you already created one for Jira, paste the same token here."),
+            N_("Use your Atlassian account email as the username."),
         ],
         "help_url": "https://id.atlassian.com/manage-profile/security/api-tokens",
-        "help_label": "Create an Atlassian API token",
+        "help_label": N_("Create an Atlassian API token"),
         "user_fields": ["username", "token"],
     },
     "github": {
-        "title": "Connect GitHub",
-        "summary": "Lets the assistant read repositories, open pull requests, and review code.",
+        "title": N_("Connect GitHub"),
+        "summary": N_("Lets the assistant read repositories, open pull requests, and review code."),
         "steps": [
-            "Create a personal access token with repo scope.",
-            "For GitHub Enterprise, create it on your company's GitHub host instead.",
-            "Paste the token below and leave the base URL as your administrator set it.",
+            N_("Create a personal access token with repo scope."),
+            N_("For GitHub Enterprise, create it on your company's GitHub host instead."),
+            N_("Paste the token below and leave the base URL as your administrator set it."),
         ],
         "help_url": "https://github.com/settings/tokens",
-        "help_label": "Create a GitHub token",
+        "help_label": N_("Create a GitHub token"),
         "user_fields": ["api_token"],
     },
     "jenkins": {
-        "title": "Connect Jenkins",
-        "summary": "Lets the assistant read build results and diagnose failing jobs.",
+        "title": N_("Connect Jenkins"),
+        "summary": N_("Lets the assistant read build results and diagnose failing jobs."),
         "steps": [
-            "Open your Jenkins user page and go to Configure.",
-            "Add an API token and copy the generated value.",
-            "Paste your Jenkins username and the token below.",
+            N_("Open your Jenkins user page and go to Configure."),
+            N_("Add an API token and copy the generated value."),
+            N_("Paste your Jenkins username and the token below."),
         ],
         "help_url": None,
         "help_label": None,
         "user_fields": ["username", "token"],
     },
     "nexus": {
-        "title": "Connect Nexus Repository",
-        "summary": "Lets the assistant look up artifacts and their versions in Nexus. Read-only.",
+        "title": N_("Connect Nexus Repository"),
+        "summary": N_("Lets the assistant look up artifacts and their versions in Nexus. Read-only."),
         "steps": [
-            "Enter the Nexus base URL, for example https://nexus.example.com.",
-            "Add a read-only account: its username with either a user token or the password. Leave both blank for anonymous read access.",
-            "Name each instance; with several, name the one assistants should use by default.",
+            N_("Enter the Nexus base URL, for example https://nexus.example.com."),
+            N_("Add a read-only account: its username with either a user token or the password. Leave both blank for anonymous read access."),
+            N_("Name each instance; with several, name the one assistants should use by default."),
         ],
         "help_url": None,
         "help_label": None,
         "user_fields": ["username", "token"],
     },
     "splunk": {
-        "title": "Connect Splunk",
-        "summary": "Lets the assistant run searches over your logs when it troubleshoots. Read-only.",
+        "title": N_("Connect Splunk"),
+        "summary": N_("Lets the assistant run searches over your logs when it troubleshoots. Read-only."),
         "steps": [
-            "Enter the Splunk management API URL with its port, usually https://splunk.example.com:8089 (not the web UI port).",
-            "Create an authentication token in Splunk (Settings, Tokens) and paste it; a username and password work too.",
-            "Optionally set the default index, the default earliest time (for example -1h) and the largest result count a search may return.",
+            N_("Enter the Splunk management API URL with its port, usually https://splunk.example.com:8089 (not the web UI port)."),
+            N_("Create an authentication token in Splunk (Settings, Tokens) and paste it; a username and password work too."),
+            N_("Optionally set the default index, the default earliest time (for example -1h) and the largest result count a search may return."),
         ],
         "help_url": None,
         "help_label": None,
         "user_fields": ["token"],
     },
     "pgsql": {
-        "title": "Connect PostgreSQL",
-        "summary": "Lets the assistant inspect a database's schema and query it. Access decides whether its pgsql tool may change anything at all; the role and endpoint you enter decide what the database itself allows.",
+        "title": N_("Connect PostgreSQL"),
+        "summary": N_("Lets the assistant inspect a database's schema and query it. Access decides whether its pgsql tool may change anything at all; the role and endpoint you enter decide what the database itself allows."),
         "steps": [
-            "Enter the host, port (5432 unless your DBA says otherwise) and database name, one row per database.",
-            "Access applies to every row: Read-only makes the assistant's pgsql tool refuse every statement that changes data or server state before it connects; Read-write leaves that to the database role.",
-            "On the database side the role is the control: a login with SELECT and nothing else keeps the instance read-only for any client, whatever the assistant is asked to do.",
-            "Keep SSL mode on require unless the servers offer a CA the runtime can verify; the statement timeout and max rows bound every query.",
-            "The connection leaves the runtime the way the Proxy connector routes PostgreSQL; a database the runtime reaches directly goes on that proxy's No proxy list.",
+            N_("Enter the host, port (5432 unless your DBA says otherwise) and database name, one row per database."),
+            N_("Access applies to every row: Read-only makes the assistant's pgsql tool refuse every statement that changes data or server state before it connects; Read-write leaves that to the database role."),
+            N_("On the database side the role is the control: a login with SELECT and nothing else keeps the instance read-only for any client, whatever the assistant is asked to do."),
+            N_("Keep SSL mode on require unless the servers offer a CA the runtime can verify; the statement timeout and max rows bound every query."),
+            N_("The connection leaves the runtime the way the Proxy connector routes PostgreSQL; a database the runtime reaches directly goes on that proxy's No proxy list."),
         ],
         "help_url": None,
         "help_label": None,
         "user_fields": ["username", "password"],
     },
     "mobile": {
-        "title": "Connect BrowserStack",
-        "summary": "Lets you record mobile test steps on a BrowserStack real device from this computer, through the local bridge. Test runs go through your team's Jenkins pipeline.",
+        "title": N_("Connect BrowserStack"),
+        "summary": N_("Lets you record mobile test steps on a BrowserStack real device from this computer, through the local bridge. Test runs go through your team's Jenkins pipeline."),
         "steps": [
-            "Open your BrowserStack account settings.",
-            "Copy your username and access key.",
-            "Paste both below, turn the connector on, and save.",
-            "Start the local bridge (Connectors > Local bridge), then use Test BrowserStack to check the sign-in from this computer.",
+            N_("Open your BrowserStack account settings."),
+            N_("Copy your username and access key."),
+            N_("Paste both below, turn the connector on, and save."),
+            N_("Start the local bridge (Connectors > Local bridge), then use Test BrowserStack to check the sign-in from this computer."),
         ],
         "help_url": "https://www.browserstack.com/accounts/profile/details",
-        "help_label": "BrowserStack account settings",
+        "help_label": N_("BrowserStack account settings"),
         "user_fields": ["username", "access_key"],
     },
     "aws": {
-        "title": "Connect AWS",
-        "summary": "Lets the assistant inspect AWS accounts and EKS clusters through the read-only roles you list here.",
+        "title": N_("Connect AWS"),
+        "summary": N_("Lets the assistant inspect AWS accounts and EKS clusters through the read-only roles you list here."),
         "steps": [
-            "Enter the directory account aws-auth signs in with: the domain, username and password your team uses for AWS.",
-            "Choose the provider your organisation uses. adfs-assume is the default; only saml2aws needs the IdP URL, and only assume-role needs a source profile.",
-            "Add one row per AWS account with its 12-digit account id, a read-only role and the regions it uses, then name one of them as the default account.",
+            N_("Enter the directory account aws-auth signs in with: the domain, username and password your team uses for AWS."),
+            N_("Choose the provider your organisation uses. adfs-assume is the default; only saml2aws needs the IdP URL, and only assume-role needs a source profile."),
+            N_("Add one row per AWS account with its 12-digit account id, a read-only role and the regions it uses, then name one of them as the default account."),
         ],
         "help_url": None,
         "help_label": None,
         "user_fields": ["username", "password"],
     },
     "proxy": {
-        "title": "Network proxy",
-        "summary": "Only needed if your network requires a proxy to reach the internet. Add each proxy your assistants may need, pick the default, and choose which proxy each connector uses.",
+        "title": N_("Network proxy"),
+        "summary": N_("Only needed if your network requires a proxy to reach the internet. Add each proxy your assistants may need, pick the default, and choose which proxy each connector uses."),
         "steps": [
-            "Leave this off unless your administrator told you to turn it on.",
-            "Add a proxy per route your network offers: a name, the URL exactly as your network team provided it, and a login if the proxy asks for one.",
-            "Pick the default proxy: it is what the assistant's environment gets, and what every connector left on Default uses.",
-            "In the table below, choose the proxy each connector goes through, or None for a service the assistant reaches directly. AWS and GitHub always use the default.",
+            N_("Leave this off unless your administrator told you to turn it on."),
+            N_("Add a proxy per route your network offers: a name, the URL exactly as your network team provided it, and a login if the proxy asks for one."),
+            N_("Pick the default proxy: it is what the assistant's environment gets, and what every connector left on Default uses."),
+            N_("In the table below, choose the proxy each connector goes through, or None for a service the assistant reaches directly. AWS and GitHub always use the default."),
         ],
         "help_url": None,
         "help_label": None,
         "user_fields": [],
     },
     "git": {
-        "title": "Git identity",
-        "summary": "The name and email that appear on commits the assistant makes for you.",
+        "title": N_("Git identity"),
+        "summary": N_("The name and email that appear on commits the assistant makes for you."),
         "steps": [
-            "Use the same name and email you use for your own commits.",
-            "This is not a credential — it only labels authorship.",
+            N_("Use the same name and email you use for your own commits."),
+            N_("This is not a credential — it only labels authorship."),
         ],
         "help_url": None,
         "help_label": None,
@@ -166,12 +174,32 @@ CONNECTION_GUIDANCE: dict[str, dict[str, Any]] = {
 }
 
 
+# The fields of an entry a member reads; everything else (help_url,
+# user_fields) is data and stays as it is.
+_TEXT_FIELDS = ("title", "summary", "help_label")
+_TEXT_LIST_FIELDS = ("steps", "troubleshooting")
+
+
+def localized(entry: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A copy of one guidance entry in the current request's language."""
+    if not entry:
+        return entry
+    copy = dict(entry)
+    for field in _TEXT_FIELDS:
+        if copy.get(field):
+            copy[field] = tv(copy[field])
+    for field in _TEXT_LIST_FIELDS:
+        if copy.get(field):
+            copy[field] = [tv(item) for item in copy[field]]
+    return copy
+
+
 def guidance_for(section: str) -> dict[str, Any] | None:
-    return CONNECTION_GUIDANCE.get(section)
+    return localized(CONNECTION_GUIDANCE.get(section))
 
 
 def all_guidance() -> dict[str, dict[str, Any]]:
-    return CONNECTION_GUIDANCE
+    return {section: localized(entry) for section, entry in CONNECTION_GUIDANCE.items()}
 
 
 # Local connectors run on the member's own PC and never enter a pod, so they
@@ -179,26 +207,31 @@ def all_guidance() -> dict[str, dict[str, Any]]:
 # same entry, which is why the steps and the troubleshooting lines live here.
 CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
     "local_bridge": {
-        "title": "Local bridge",
-        "summary": "The EFP local bridge on your own PC: assistants read and operate pages in a Chrome window with your logins, and the Mobile testing panel records mobile tests on BrowserStack devices from this computer.",
+        "title": N_("Local bridge"),
+        "summary": N_("The EFP local bridge on your own PC: assistants read and operate pages in a Chrome window with your logins, and the Mobile testing panel records mobile tests on BrowserStack devices from this computer."),
         "steps": [
-            "Download the EFP local bridge package for your system from Connectors → Local bridge (Windows, macOS, or Linux; it holds the efp-bridge program, mobile-auto for mobile recordings, the installer, and a README) and unzip it into the bin folder of your home directory (%USERPROFILE%\\bin on Windows, ~/bin on macOS or Linux), overwriting any files already there.",
-            "Run the installer in the unzipped folder (double-click install-bridge.cmd on Windows and enter the Portal address when it asks; ./install-bridge.sh <portal origin> on macOS or Linux), then click Start bridge on the panel and allow the efp-bridge link when Chrome asks. A Chrome window titled EFP opens with the Portal as its only tab.",
-            "Browser automation: click Test connection. It lists the tabs of the EFP browser window; sign in to your work sites in that window once. Switch Enabled on and save; new chats show a Browser toggle in the composer.",
-            "Mobile recording: nothing more to install. Add your BrowserStack username and access key under Connectors → BrowserStack, then choose Recording in an assistant's chat.",
+            N_("Download the EFP local bridge package for your system from Connectors → Local bridge (Windows, macOS, or Linux; it holds the efp-bridge program, mobile-auto for mobile recordings, the installer, and a README) and unzip it into the bin folder of your home directory (%USERPROFILE%\\bin on Windows, ~/bin on macOS or Linux), overwriting any files already there."),
+            N_("Run the installer in the unzipped folder (double-click install-bridge.cmd on Windows and enter the Portal address when it asks; ./install-bridge.sh <portal origin> on macOS or Linux), then click Start bridge on the panel and allow the efp-bridge link when Chrome asks. A Chrome window titled EFP opens with the Portal as its only tab."),
+            N_("Browser automation: click Test connection. It lists the tabs of the EFP browser window; sign in to your work sites in that window once. Switch Enabled on and save; new chats show a Browser toggle in the composer."),
+            N_("Mobile recording: nothing more to install. Add your BrowserStack username and access key under Connectors → BrowserStack, then choose Recording in an assistant's chat."),
         ],
         "troubleshooting": [
-            "Bridge not detected: it is not running. Repeat step 2; if the efp-bridge link does nothing, run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) again.",
-            "Start bridge seems to do nothing: the launcher runs without a window on purpose and writes each attempt to .efp/bridge/logs/bridge.log in your home folder. Read the last lines there.",
-            "The EFP browser window is closed but the bridge shows as running: the bridge outlives the window. Click Start bridge to reopen it, or send a message; the next browser action reopens the window.",
-            "Bridge stays undetected after a Portal address change: a bridge started for the old address is still holding the port and rejects this page. Stop it (end the efp-bridge process in Task Manager, or close the terminal it runs in) and click Start bridge again.",
-            "devtools_unavailable: Chrome refused its DevTools port. Check chrome://policy for RemoteDebuggingAllowed.",
-            "origin_denied or a CORS error: the bridge was started for another Portal address. Restart it with --origin set to this Portal's address.",
-            "Mobile recording says mobile-auto is missing: unzip the whole package again into the same folder; the bridge starts mobile-auto from its own folder.",
-            "Windows SmartScreen may warn the first time efp-bridge.exe runs. Choose More info, then Run anyway.",
-            "The EFP browser window keeps its own logins; sites protected by device-based sign-in may ask you to sign in there once.",
+            N_("Bridge not detected: it is not running. Repeat step 2; if the efp-bridge link does nothing, run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) again."),
+            N_("Start bridge seems to do nothing: the launcher runs without a window on purpose and writes each attempt to .efp/bridge/logs/bridge.log in your home folder. Read the last lines there."),
+            N_("The EFP browser window is closed but the bridge shows as running: the bridge outlives the window. Click Start bridge to reopen it, or send a message; the next browser action reopens the window."),
+            N_("Bridge stays undetected after a Portal address change: a bridge started for the old address is still holding the port and rejects this page. Stop it (end the efp-bridge process in Task Manager, or close the terminal it runs in) and click Start bridge again."),
+            N_("devtools_unavailable: Chrome refused its DevTools port. Check chrome://policy for RemoteDebuggingAllowed."),
+            N_("origin_denied or a CORS error: the bridge was started for another Portal address. Restart it with --origin set to this Portal's address."),
+            N_("Mobile recording says mobile-auto is missing: unzip the whole package again into the same folder; the bridge starts mobile-auto from its own folder."),
+            N_("Windows SmartScreen may warn the first time efp-bridge.exe runs. Choose More info, then Run anyway."),
+            N_("The EFP browser window keeps its own logins; sites protected by device-based sign-in may ask you to sign in there once."),
         ],
         "help_url": None,
         "help_label": None,
     },
 }
+
+
+def connector_guidance_for(key: str | None) -> dict[str, Any] | None:
+    """The entry of a local connector (the Local bridge panel) in the request's language."""
+    return localized(CONNECTOR_GUIDANCE.get(key)) if key else None

@@ -89,6 +89,24 @@ def test_t_reads_the_bound_locale(pseudo_catalogues):
         i18n.reset_locale(token)
 
 
+def test_marked_keys_are_translated_when_shown(pseudo_catalogues):
+    # A table built at import time marks its strings with N_(), which changes
+    # nothing; the code that shows them translates with tv() in the request.
+    table = {"title": i18n.N_("Sign out"), "id": "logout"}
+    assert table == {"title": "Sign out", "id": "logout"}
+    token = i18n.bind_locale("zh-Hans")
+    try:
+        assert i18n.tv(table["title"]) == "[hans] Sign out"
+        assert i18n.tv("Updated {time}", time="now") == "[hans] Updated now"
+        # Ids, URLs and names are not keys: they pass through unchanged.
+        assert i18n.tv(table["id"]) == "logout"
+        assert i18n.tv(None) == ""
+        assert i18n.tv(42) == "42"
+    finally:
+        i18n.reset_locale(token)
+    assert i18n.tv(table["title"]) == "Sign out"
+
+
 def test_bootstrap_json_is_safe_inside_a_script_element(monkeypatch):
     monkeypatch.setattr(i18n, "_catalogues", {"zh-Hans": {"</script>": "</script> [hans]", "Sign out": "[hans] Sign out"}})
     try:
@@ -215,6 +233,39 @@ def test_the_check_script_reads_keys_and_reports_what_is_wrong(tmp_path):
     assert hans["Gone"] == "x" and hans["Member"] == ""
 
 
+def test_the_check_script_decodes_escapes_like_the_page_does(tmp_path):
+    check = _load_check_script()
+    js_dir = tmp_path / "app" / "static" / "js"
+    js_dir.mkdir(parents=True)
+    (js_dir / "escapes.js").write_text(
+        'a = t("Loading\\u2026");\nb = t("Size \\u00d7 2");\nc = t("Smile \\u{1F600}");\nd = t("Tab\\there");\ne = t("x\\x41y");\n',
+        encoding="utf-8",
+    )
+    keys, errors = check.extract_keys(tmp_path)
+    assert errors == []
+    assert [key.text for key in keys] == ["Loading\u2026", "Size \u00d7 2", "Smile \U0001F600", "Tab\there", "xAy"]
+
+
+def test_the_check_script_reads_marked_keys_and_leaves_tv_alone(tmp_path):
+    check = _load_check_script()
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "tables.py").write_text(
+        'LABELS = {"aws": N_("AWS accounts"), "id": "aws"}\n'
+        'shown = tv(LABELS["aws"])\n'
+        "bad = N_(name)\n",
+        encoding="utf-8",
+    )
+    js_dir = tmp_path / "app" / "static" / "js"
+    js_dir.mkdir(parents=True)
+    (js_dir / "tables.js").write_text(
+        'const GROUPS = { proxy: N_("Proxies") };\nnode.textContent = tv(GROUPS[kind]);\n',
+        encoding="utf-8",
+    )
+    keys, errors = check.extract_keys(tmp_path)
+    assert sorted(key.text for key in keys) == ["AWS accounts", "Proxies"]
+    assert [error.split(": ", 1)[1] for error in errors] == ["N_() needs a plain string literal as its key"]
+
+
 # --- the browser helpers -----------------------------------------------------------
 
 def _node():
@@ -265,6 +316,29 @@ def test_i18n_js_translates_from_the_inlined_catalogue():
     }
 
 
+def test_i18n_js_marks_keys_and_translates_values():
+    i18n_js = (REPO / "app" / "static" / "js" / "i18n.js").as_posix()
+    out = _run_node(
+        "global.window = { EFP_I18N: { locale: 'zh-Hant-HK', messages: { 'Proxies': '[hk] Proxies', 'Updated {time}': '[hk] Updated {time}' } } };\n"
+        f"require({json.dumps(i18n_js)});\n"
+        "const GROUPS = { proxy: N_('Proxies'), raw: 'proxy-1' };\n"
+        "console.log(JSON.stringify({\n"
+        "  marked: GROUPS.proxy,\n"
+        "  shown: tv(GROUPS.proxy),\n"
+        "  params: tv('Updated {time}', { time: 'now' }),\n"
+        "  passthrough: tv(GROUPS.raw),\n"
+        "  nullish: tv(null),\n"
+        "}));\n"
+    )
+    assert out == {
+        "marked": "Proxies",
+        "shown": "[hk] Proxies",
+        "params": "[hk] Updated now",
+        "passthrough": "proxy-1",
+        "nullish": "",
+    }
+
+
 def test_i18n_js_without_a_catalogue_is_english():
     i18n_js = (REPO / "app" / "static" / "js" / "i18n.js").as_posix()
     out = _run_node(
@@ -287,8 +361,8 @@ def test_extracted_functions_carry_an_idempotent_stub():
                 "const THEME_ORDER = ['system', 'light', 'dark'];",
                 extracted,
                 _extract_js_function(CHAT_JS, "localeChangeNeedsReload"),
-                "console.log(JSON.stringify({ theme: normalizeThemePreference('dark'), text: t('Updated {time}', { time: 'now' }), plural: tn(2, 'one file', '{n} files') }));",
+                "console.log(JSON.stringify({ theme: normalizeThemePreference('dark'), text: t('Updated {time}', { time: 'now' }), plural: tn(2, 'one file', '{n} files'), marked: tv(N_('Proxies')), nullish: tv(undefined) }));",
             ]
         )
     )
-    assert out == {"theme": "dark", "text": "Updated now", "plural": "2 files"}
+    assert out == {"theme": "dark", "text": "Updated now", "plural": "2 files", "marked": "Proxies", "nullish": ""}

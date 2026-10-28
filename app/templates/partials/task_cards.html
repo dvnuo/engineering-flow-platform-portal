@@ -5,36 +5,36 @@
     <div class="portal-task-card-copy">
       <h3>{{ task_title }}</h3>
       <div class="portal-task-meta-line">
-        <span>Owner {{ task_owner_labels.get(task.id, task.owner_user_id or "-") }}</span>
+        <span>{{ t("Owner {owner}", owner=task_owner_labels.get(task.id, task.owner_user_id or "-")) }}</span>
         <span>{{ task.created_at }}</span>
       </div>
       {% set progress = (task_progress or {}).get(task.id) %}
       {% if progress %}
-      <div class="portal-task-progress" title="Scenario runs">
+      <div class="portal-task-progress" title="{{ t('Scenario runs') }}">
         <div class="efp-matrix-bar" aria-hidden="true">
           <i class="is-success" style="width: {{ (progress.passed * 100 / progress.total)|round(1) }}%"></i><i class="is-error" style="width: {{ (progress.failed * 100 / progress.total)|round(1) }}%"></i><i class="is-warning" style="width: {{ ((progress.running + progress.queued) * 100 / progress.total)|round(1) }}%"></i>
         </div>
-        <span>{{ progress.passed }}/{{ progress.total }} scenarios passed{% if progress.failed %}, {{ progress.failed }} failed{% endif %}</span>
+        <span>{% if progress.failed %}{{ t("{passed}/{total} scenarios passed, {failed} failed", passed=progress.passed, total=progress.total, failed=progress.failed) }}{% else %}{{ t("{passed}/{total} scenarios passed", passed=progress.passed, total=progress.total) }}{% endif %}</span>
       </div>
       {% endif %}
     </div>
   </div>
   <div class="portal-task-card-actions">
     {% if content_target == "#workspace-detail-content" %}
-    <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ task.id }}"><i data-lucide="panel-right" class="w-4 h-4"></i>Open</button>
+    <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ task.id }}"><i data-lucide="panel-right" class="w-4 h-4"></i>{{ t("Open") }}</button>
     {% else %}
     <button
       class="portal-btn is-secondary"
       hx-get="/app/tasks/{{ task.id }}/panel"
       hx-target="{{ content_target }}"
       hx-swap="innerHTML"
-    ><i data-lucide="panel-right" class="w-4 h-4"></i>Open</button>
+    ><i data-lucide="panel-right" class="w-4 h-4"></i>{{ t("Open") }}</button>
     {% endif %}
   </div>
 </article>
 {% else %}
 {% if task_offset == 0 %}
-<div class="portal-panel-empty">No background tasks yet.</div>
+<div class="portal-panel-empty">{{ t("No background tasks yet.") }}</div>
 {% endif %}
 {% endfor %}
 {% if has_more_tasks %}
@@ -43,5 +43,5 @@
   hx-get="/app/tasks/list?offset={{ next_offset }}&limit={{ task_page_size }}&owner={{ task_scope|default('all') }}&content_target={{ content_target|urlencode }}"
   hx-trigger="revealed"
   hx-swap="outerHTML"
->Loading more tasks...</div>
+>{{ t("Loading more tasks...") }}</div>
 {% endif %}

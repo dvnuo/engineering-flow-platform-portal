@@ -744,20 +744,23 @@ def _js_card_html(group):
         f'{scoped_field}</div>'
     )
 
-    # Guard the substitutions against the JS drifting away from them.
-    assert scoped_field in _branch("scopedFieldHtml")
+    # Guard the substitutions against the JS drifting away from them (in
+    # English, the way the page renders them without a catalogue).
+    assert scoped_field in _english_literal(_branch("scopedFieldHtml"))
     if group == "jira":
-        assert 'data-field="api_version"' in _branch("apiVersionHtml")
-    assert 'data-field="token"' in _branch("credentialFieldsHtml")
+        assert api_version in _english_literal(_branch("apiVersionHtml"))
+    credential_branch = _english_literal(_branch("credentialFieldsHtml")).strip("`")
+    assert credential_branch.replace("${usernamePlaceholder}", placeholders["username"]).replace("${scopedFieldHtml}", scoped_field) == credential_fields
 
-    rendered = (
+    rendered = _english_literal(
         literal.replace("${credentialFieldsHtml}", credential_fields)
         .replace("${scopedFieldHtml}", scoped_field)
         .replace("${apiVersionHtml}", api_version)
         .replace("${urlPlaceholder}", placeholders["url"])
         .replace("${usernamePlaceholder}", placeholders["username"])
         .replace("${label}", labels[group])
-        .replace("${group}", group)
+        .replace("${group}", group),
+        label=labels[group],
     )
     assert "${" not in rendered, "unresolved template slot in addInstanceRow literal"
     # normalizeInstanceInputs stamps the index onto the freshly appended card.
@@ -782,6 +785,22 @@ def _js_object_literal(js, const_name):
             if depth == 0:
                 return json.loads(js[start:end + 1])
     raise AssertionError(f"unterminated {const_name} literal in chat_ui.js")
+
+
+def _english_literal(text, **params):
+    """Resolve the ``${t("...")}`` slots of a chat_ui.js template literal as an English page does.
+
+    i18n.js (and I18N_STUB in tests/_js_extract_helpers.py) returns the English
+    key with its ``{placeholders}`` filled, so ``${t("Remove")}`` renders
+    ``Remove`` and ``${t("Enable {label} instance", { label })}`` renders the key
+    with ``label`` taken from ``params``.
+    """
+    import re
+
+    def _fill(match):
+        return re.sub(r"\{(\w+)\}", lambda slot: str(params.get(slot.group(1), slot.group(0))), match.group(1))
+
+    return re.sub(r'\$\{t\("((?:[^"\\]|\\.)*)"(?:, \{[^{}]*\})?\)\}', _fill, text)
 
 
 def _instance_groups_in_template(path):

@@ -162,15 +162,15 @@
    * answerable. Falls back to the native prompt only if dialogs.js is missing.
    */
   async function askForCardInput(card) {
-    const label = (card.input && card.input.label) || "Details";
+    const label = (card.input && card.input.label) || t("Details");
     const placeholder = (card.input && card.input.placeholder) || "";
 
     if (typeof window.showPrompt === "function") {
       const answer = await window.showPrompt({
-        title: card.title || "Start this",
+        title: card.title || t("Start this"),
         message: label,
         placeholder,
-        confirmText: "Continue",
+        confirmText: t("Continue"),
         // The prompt is only shown for cards that need the value, so an empty
         // answer would compose a prompt with a hole in it.
         required: true,
@@ -178,7 +178,7 @@
       return answer === null ? null : String(answer).trim();
     }
 
-    const answer = window.prompt(placeholder ? `${label} (e.g. ${placeholder})` : label, "");
+    const answer = window.prompt(placeholder ? t("{label} (e.g. {placeholder})", { label, placeholder }) : label, "");
     // Blank is a cancel, not an answer. showPrompt refuses to close on an empty
     // required field, but the native prompt has no such notion -- and since the
     // click now sends, a blank here would fire a prompt with a hole in it

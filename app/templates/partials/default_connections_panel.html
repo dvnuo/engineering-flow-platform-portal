@@ -1,6 +1,8 @@
 {% from "partials/connectors/_macros.html" import browserstack_advanced, proxy_cards, proxy_default_select, proxy_assignment_table %}
 {% macro instance_group(group, label, fields, items=none) -%}
-{# items: the rows to render when they do not live at seed[group].instances (the AWS account matrix). #}
+{# items: the rows to render when they do not live at seed[group].instances (the AWS account matrix).
+   label and the fields' label/placeholder/option texts arrive as display text: the callers below wrap
+   them with t() (product names and example values stay as they are). #}
 {% set rows = items if items is not none else (seed.get(group, {}).get('instances') or []) %}
 <input type="hidden" name="{{ group }}_instance_count" value="{{ rows|length }}" data-instance-count="{{ group }}" />
 <div class="space-y-2" data-instance-container="{{ group }}">
@@ -8,14 +10,14 @@
   <div class="portal-settings-instance-card{% if not inst.get('enabled', True) %} is-instance-disabled{% endif %}" data-instance-item="{{ group }}">
     <div class="portal-settings-instance-head">
       <div class="portal-settings-instance-head-main">
-        <span class="portal-settings-instance-title">Instance {{ loop.index }}</span>
+        <span class="portal-settings-instance-title">{{ t("Instance") }} {{ loop.index }}</span>
         <label class="toggle-switch">
-          <input type="checkbox" data-field="enabled" value="1" aria-label="Enable {{ label }} instance {{ loop.index }}" {% if inst.get('enabled', True) %}checked{% endif %} />
+          <input type="checkbox" data-field="enabled" value="1" aria-label="{{ t('Enable {label} instance {n}', label=label, n=loop.index) }}" {% if inst.get('enabled', True) %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span class="portal-instance-state" data-instance-state>{{ "Enabled" if inst.get('enabled', True) else "Disabled" }}</span>
+        <span class="portal-instance-state" data-instance-state>{{ t("Enabled") if inst.get('enabled', True) else t("Disabled") }}</span>
       </div>
-      <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="{{ group }}">Remove</button>
+      <button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="{{ group }}">{{ t("Remove") }}</button>
     </div>
     <div class="portal-settings-instance-body">
       <div class="grid grid-cols-2 gap-2">
@@ -42,17 +44,16 @@
   </div>
   {% endfor %}
 </div>
-<button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="{{ group }}">+ Add {{ label }} instance</button>
+<button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="{{ group }}">{{ t("+ Add {label} instance", label=label) }}</button>
 {%- endmacro %}
 
 <div id="default-connections-panel-root" class="portal-panel-stack" data-default-connections-panel
      data-copilot-auth-base="/api/copilot/auth">
   <div class="portal-panel-header">
     <div>
-      <h5 class="portal-panel-title">Default connectors</h5>
+      <h5 class="portal-panel-title">{{ t("Default connectors") }}</h5>
       <p class="portal-panel-note">
-        What every new member's connectors start from. They open Connectors to find these already
-        filled in, and change or complete whatever they need.
+        {{ t("What every new member's connectors start from. They open Connectors to find these already filled in, and change or complete whatever they need.") }}
       </p>
     </div>
   </div>
@@ -63,10 +64,8 @@
   {% endif %}
 
   <div class="portal-callout is-warning">
-    <strong>Credentials here are shared with every new member.</strong>
-    Fill one in only for an account meant to be shared &mdash; a service or team account. Leave it
-    blank and the field arrives empty, for the member to fill in with their own. A seeded credential
-    is copied into each new member's connectors, where they can see it and change it.
+    <strong>{{ t("Credentials here are shared with every new member.") }}</strong>
+    {{ t("Fill one in only for an account meant to be shared — a service or team account. Leave it blank and the field arrives empty, for the member to fill in with their own. A seeded credential is copied into each new member's connectors, where they can see it and change it.") }}
   </div>
 
   <form id="default-connections-form" class="portal-panel-stack"
@@ -75,23 +74,23 @@
         hx-swap="innerHTML">
 
     <section class="portal-panel-section">
-      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>LLM model</h6></div>
-      <p class="portal-panel-note">Which provider and model a new member starts on.</p>
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("LLM model") }}</h6></div>
+      <p class="portal-panel-note">{{ t("Which provider and model a new member starts on.") }}</p>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
-          <span class="portal-form-label">Provider</span>
+          <span class="portal-form-label">{{ t("Provider") }}</span>
           <select name="llm_provider" id="llm_provider" class="portal-form-select">
             {# "members choose" was a promise the code cannot keep: normalize_provider
                maps blank to github_copilot everywhere, and a member's own panel
                offers no blank option for them to choose from. #}
-            <option value="">Leave unset &mdash; assistants use GitHub Copilot</option>
+            <option value="">{{ t("Leave unset — assistants use GitHub Copilot") }}</option>
             {% for value, label in llm_providers %}
             <option value="{{ value }}" {% if seed.get('llm', {}).get('provider') == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </label>
         <label class="portal-form-label">
-          <span class="portal-form-label">Model</span>
+          <span class="portal-form-label">{{ t("Model") }}</span>
           <select name="llm_model" id="llm_model" class="portal-form-select"
                   data-current-value="{{ seed.get('llm', {}).get('model', '') }}"
                   data-initial-value="{{ seed.get('llm', {}).get('model', '') }}"></select>
@@ -99,16 +98,18 @@
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
-          <span class="portal-form-label">Default thinking level</span>
+          <span class="portal-form-label">{{ t("Default thinking level") }}</span>
           <select name="llm_reasoning_effort" class="portal-form-select">
             {% set current_effort = seed.get('llm', {}).get('reasoning_effort') or default_reasoning_effort %}
+            {# The capitalized value is the English label; an effort this table does not know shows as that. #}
+            {% set effort_labels = {"low": t("Low"), "medium": t("Medium"), "high": t("High"), "xhigh": t("Xhigh"), "max": t("Max")} %}
             {% for value in reasoning_efforts %}
-            <option value="{{ value }}" {% if current_effort == value %}selected{% endif %}>{{ value|capitalize }}</option>
+            <option value="{{ value }}" {% if current_effort == value %}selected{% endif %}>{{ effort_labels.get(value) or value|capitalize }}</option>
             {% endfor %}
           </select>
         </label>
         <label class="portal-form-label">
-          <span class="portal-form-label">Default context size</span>
+          <span class="portal-form-label">{{ t("Default context size") }}</span>
           <select name="llm_max_context_tokens" class="portal-form-select">
             {% set current_context = seed.get('llm', {}).get('max_context_tokens') or default_context_size %}
             {% for value, label in context_sizes %}
@@ -123,11 +124,11 @@
          there is nothing for a member to be signed in to yet. #}
       <div class="space-y-2 hidden" data-provider-fields="github_copilot">
         <label class="portal-form-label">
-          <span class="portal-form-label">Shared API key</span>
-          <input type="password" name="llm_api_key" value="{{ seed.get('llm', {}).get('api_key', '') }}" placeholder="Leave blank so members authorize their own" class="portal-form-input" />
+          <span class="portal-form-label">{{ t("Shared API key") }}</span>
+          <input type="password" name="llm_api_key" value="{{ seed.get('llm', {}).get('api_key', '') }}" placeholder="{{ t('Leave blank so members authorize their own') }}" class="portal-form-input" />
         </label>
         {% set copilot_auth_help = [
-          "The token belongs to whoever completes the GitHub step, so sign in as the shared account first. Portal fills the key above; click Save defaults to keep it.",
+          t("The token belongs to whoever completes the GitHub step, so sign in as the shared account first. Portal fills the key above; click Save defaults to keep it."),
         ] %}
         {% include "partials/copilot_auth_card.html" %}
       </div>
@@ -135,11 +136,11 @@
       {% set ap_auth = seed.get('llm', {}).get('ai_platform', {}).get('auth', {}) %}
       <div class="space-y-2 hidden" data-provider-fields="ai_platform">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="llm_ai_platform_username" value="{{ ap_auth.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="llm_ai_platform_password" value="{{ ap_auth.get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Usercase</span><input type="text" name="llm_ai_platform_usercase" value="{{ ap_auth.get('usercase', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared username") }}</span><input type="text" name="llm_ai_platform_username" value="{{ ap_auth.get('username', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared password") }}</span><input type="password" name="llm_ai_platform_password" value="{{ ap_auth.get('password', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">{{ t("Usercase") }}</span><input type="text" name="llm_ai_platform_usercase" value="{{ ap_auth.get('usercase', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
         </div>
-        <div class="portal-inline-note">AI Platform needs all three to sign in, so seed the whole set or none of it. Connection endpoints are managed centrally by the Portal configuration.</div>
+        <div class="portal-inline-note">{{ t("AI Platform needs all three to sign in, so seed the whole set or none of it. Connection endpoints are managed centrally by the Portal configuration.") }}</div>
       </div>
     </section>
 
@@ -148,21 +149,21 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Jira</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer Jira">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='Jira') }}">
           <input type="checkbox" name="jira_enabled" {% if seed.get('jira', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer Jira to members</span>
+        <span>{{ t("Offer {name} to members", name="Jira") }}</span>
       </div>
       {{ instance_group('jira', 'Jira', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'Production'},
-          {'key': 'url', 'label': 'URL', 'placeholder': 'https://yourcompany.atlassian.net'},
-          {'key': 'username', 'label': 'Shared account email', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'token', 'label': 'Shared API token', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'project', 'label': 'Default project', 'placeholder': 'ABC'},
-          {'key': 'api_version', 'label': 'API version', 'type': 'select', 'options': [
-              {'value': '', 'label': 'Auto'}, {'value': '2', 'label': 'REST API v2'}, {'value': '3', 'label': 'REST API v3'}]}
+          {'key': 'name', 'label': t('Name'), 'placeholder': 'Production'},
+          {'key': 'url', 'label': t('URL'), 'placeholder': 'https://yourcompany.atlassian.net'},
+          {'key': 'username', 'label': t('Shared account email'), 'placeholder': t('Optional')},
+          {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'token', 'label': t('Shared API token'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'project', 'label': t('Default project'), 'placeholder': 'ABC'},
+          {'key': 'api_version', 'label': t('API version'), 'type': 'select', 'options': [
+              {'value': '', 'label': t('Auto')}, {'value': '2', 'label': 'REST API v2'}, {'value': '3', 'label': 'REST API v3'}]}
       ]) }}
     </section>
 
@@ -171,19 +172,19 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Confluence</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer Confluence">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='Confluence') }}">
           <input type="checkbox" name="confluence_enabled" {% if seed.get('confluence', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer Confluence to members</span>
+        <span>{{ t("Offer {name} to members", name="Confluence") }}</span>
       </div>
       {{ instance_group('confluence', 'Confluence', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'Wiki'},
-          {'key': 'url', 'label': 'URL', 'placeholder': 'https://yourcompany.atlassian.net/wiki'},
-          {'key': 'username', 'label': 'Shared account email', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'token', 'label': 'Shared API token', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'space', 'label': 'Default space key', 'placeholder': 'ENG'}
+          {'key': 'name', 'label': t('Name'), 'placeholder': 'Wiki'},
+          {'key': 'url', 'label': t('URL'), 'placeholder': 'https://yourcompany.atlassian.net/wiki'},
+          {'key': 'username', 'label': t('Shared account email'), 'placeholder': t('Optional')},
+          {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'token', 'label': t('Shared API token'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'space', 'label': t('Default space key'), 'placeholder': 'ENG'}
       ]) }}
     </section>
 
@@ -192,24 +193,24 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>GitHub</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer GitHub">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='GitHub') }}">
           <input type="checkbox" name="github_enabled" {% if seed.get('github', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer GitHub to members</span>
+        <span>{{ t("Offer {name} to members", name="GitHub") }}</span>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
-          <span class="portal-form-label">API base URL</span>
+          <span class="portal-form-label">{{ t("API base URL") }}</span>
           <input type="text" name="github_base_url" value="{{ seed.get('github', {}).get('base_url', '') }}"
                  placeholder="https://api.github.com" class="portal-form-input" />
-          <span class="portal-form-hint">Set this for GitHub Enterprise. Leave blank for public GitHub.</span>
+          <span class="portal-form-hint">{{ t("Set this for GitHub Enterprise. Leave blank for public GitHub.") }}</span>
         </label>
         <label class="portal-form-label">
-          <span class="portal-form-label">Shared API token</span>
+          <span class="portal-form-label">{{ t("Shared API token") }}</span>
           <input type="password" name="github_api_token" value="{{ seed.get('github', {}).get('api_token', '') }}"
-                 placeholder="Optional" class="portal-form-input" />
-          <span class="portal-form-hint">A machine account's token every new member starts with. Blank means each brings their own.</span>
+                 placeholder="{{ t('Optional') }}" class="portal-form-input" />
+          <span class="portal-form-hint">{{ t("A machine account's token every new member starts with. Blank means each brings their own.") }}</span>
         </label>
       </div>
     </section>
@@ -219,18 +220,18 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Jenkins</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer Jenkins">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='Jenkins') }}">
           <input type="checkbox" name="jenkins_enabled" {% if seed.get('jenkins', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer Jenkins to members</span>
+        <span>{{ t("Offer {name} to members", name="Jenkins") }}</span>
       </div>
       {{ instance_group('jenkins', 'Jenkins', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'CI'},
-          {'key': 'url', 'label': 'URL', 'placeholder': 'https://jenkins.example.com'},
-          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'token', 'label': 'Shared API token', 'type': 'password', 'placeholder': 'Optional'}
+          {'key': 'name', 'label': t('Name'), 'placeholder': 'CI'},
+          {'key': 'url', 'label': t('URL'), 'placeholder': 'https://jenkins.example.com'},
+          {'key': 'username', 'label': t('Shared account username'), 'placeholder': t('Optional')},
+          {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'token', 'label': t('Shared API token'), 'type': 'password', 'placeholder': t('Optional')}
       ]) }}
     </section>
 
@@ -239,19 +240,19 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Nexus Repository</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer Nexus">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='Nexus') }}">
           <input type="checkbox" name="nexus_enabled" {% if seed.get('nexus', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer Nexus Repository to members</span>
+        <span>{{ t("Offer {name} to members", name="Nexus Repository") }}</span>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="nexus_default_instance" value="{{ seed.get('nexus', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">{{ t("Default instance") }}</span><input type="text" name="nexus_default_instance" value="{{ seed.get('nexus', {}).get('default_instance', '') }}" placeholder="{{ t('Optional; the instance used when a command names none') }}" class="portal-form-input" /></label>
       {{ instance_group('nexus', 'Nexus', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'main'},
-          {'key': 'url', 'label': 'URL', 'placeholder': 'https://nexus.example.com'},
-          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'token', 'label': 'Shared user token', 'type': 'password', 'placeholder': 'Optional'}
+          {'key': 'name', 'label': t('Name'), 'placeholder': 'main'},
+          {'key': 'url', 'label': t('URL'), 'placeholder': 'https://nexus.example.com'},
+          {'key': 'username', 'label': t('Shared account username'), 'placeholder': t('Optional')},
+          {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'token', 'label': t('Shared user token'), 'type': 'password', 'placeholder': t('Optional')}
       ]) }}
     </section>
 
@@ -260,22 +261,22 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Splunk</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer Splunk">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='Splunk') }}">
           <input type="checkbox" name="splunk_enabled" {% if seed.get('splunk', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer Splunk to members</span>
+        <span>{{ t("Offer {name} to members", name="Splunk") }}</span>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="splunk_default_instance" value="{{ seed.get('splunk', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">{{ t("Default instance") }}</span><input type="text" name="splunk_default_instance" value="{{ seed.get('splunk', {}).get('default_instance', '') }}" placeholder="{{ t('Optional; the instance used when a command names none') }}" class="portal-form-input" /></label>
       {{ instance_group('splunk', 'Splunk', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'prod'},
-          {'key': 'url', 'label': 'Management API URL', 'placeholder': 'https://splunk-api.example.com:8089'},
-          {'key': 'username', 'label': 'Shared account username', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'token', 'label': 'Shared authentication token', 'type': 'password', 'placeholder': 'Optional'},
-          {'key': 'default_index', 'label': 'Default index', 'placeholder': 'app_prod'},
-          {'key': 'default_earliest', 'label': 'Default earliest', 'placeholder': '-1h'},
-          {'key': 'max_results', 'label': 'Max results', 'type': 'number', 'placeholder': '1000'}
+          {'key': 'name', 'label': t('Name'), 'placeholder': 'prod'},
+          {'key': 'url', 'label': t('Management API URL'), 'placeholder': 'https://splunk-api.example.com:8089'},
+          {'key': 'username', 'label': t('Shared account username'), 'placeholder': t('Optional')},
+          {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'token', 'label': t('Shared authentication token'), 'type': 'password', 'placeholder': t('Optional')},
+          {'key': 'default_index', 'label': t('Default index'), 'placeholder': 'app_prod'},
+          {'key': 'default_earliest', 'label': t('Default earliest'), 'placeholder': '-1h'},
+          {'key': 'max_results', 'label': t('Max results'), 'type': 'number', 'placeholder': '1000'}
       ]) }}
     </section>
 
@@ -284,62 +285,62 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>PostgreSQL</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer PostgreSQL">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='PostgreSQL') }}">
           <input type="checkbox" name="pgsql_enabled" {% if seed.get('pgsql', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer PostgreSQL to members</span>
+        <span>{{ t("Offer {name} to members", name="PostgreSQL") }}</span>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="pgsql_default_instance" value="{{ seed.get('pgsql', {}).get('default_instance', '') }}" placeholder="Optional; the instance used when a command names none" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">{{ t("Default instance") }}</span><input type="text" name="pgsql_default_instance" value="{{ seed.get('pgsql', {}).get('default_instance', '') }}" placeholder="{{ t('Optional; the instance used when a command names none') }}" class="portal-form-input" /></label>
       {% set seed_pgsql = seed.get('pgsql', {}) %}
-      <p class="portal-panel-note">Applies to every instance. Read-only means the assistant's pgsql tool refuses every statement that changes data or server state; the role is still what protects the database from any client.</p>
+      <p class="portal-panel-note">{{ t("Applies to every instance. Read-only means the assistant's pgsql tool refuses every statement that changes data or server state; the role is still what protects the database from any client.") }}</p>
       <div class="grid grid-cols-2 gap-2" data-pgsql-settings>
-        <label class="portal-form-label"><span class="portal-form-label">Access</span>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Access") }}</span>
           <select name="pgsql_access" class="portal-form-select">
             {% for option in pgsql_settings_options.access %}
-            <option value="{{ option.value }}" {% if (seed_pgsql.get('access') or pgsql_settings_options.default_access) == option.value %}selected{% endif %}>{{ option.label }}</option>
+            <option value="{{ option.value }}" {% if (seed_pgsql.get('access') or pgsql_settings_options.default_access) == option.value %}selected{% endif %}>{{ tv(option.label) }}</option>
             {% endfor %}
           </select>
         </label>
-        <label class="portal-form-label"><span class="portal-form-label">SSL mode</span>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("SSL mode") }}</span>
           <select name="pgsql_sslmode" class="portal-form-select">
             {% for option in pgsql_settings_options.sslmode %}
             <option value="{{ option.value }}" {% if (seed_pgsql.get('sslmode') or pgsql_settings_options.default_sslmode) == option.value %}selected{% endif %}>{{ option.label }}</option>
             {% endfor %}
           </select>
         </label>
-        <label class="portal-form-label"><span class="portal-form-label">Statement timeout (seconds)</span><input type="number" name="pgsql_statement_timeout_seconds" value="{{ seed_pgsql.get('statement_timeout_seconds', '') }}" placeholder="Default {{ pgsql_settings_options.statement_timeout_seconds.default }}" min="{{ pgsql_settings_options.statement_timeout_seconds.min }}" max="{{ pgsql_settings_options.statement_timeout_seconds.max }}" step="1" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Max rows per query</span><input type="number" name="pgsql_max_rows" value="{{ seed_pgsql.get('max_rows', '') }}" placeholder="Default {{ pgsql_settings_options.max_rows.default }}" min="{{ pgsql_settings_options.max_rows.min }}" max="{{ pgsql_settings_options.max_rows.max }}" step="1" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Statement timeout (seconds)") }}</span><input type="number" name="pgsql_statement_timeout_seconds" value="{{ seed_pgsql.get('statement_timeout_seconds', '') }}" placeholder="{{ t('Default {value}', value=pgsql_settings_options.statement_timeout_seconds.default) }}" min="{{ pgsql_settings_options.statement_timeout_seconds.min }}" max="{{ pgsql_settings_options.statement_timeout_seconds.max }}" step="1" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Max rows per query") }}</span><input type="number" name="pgsql_max_rows" value="{{ seed_pgsql.get('max_rows', '') }}" placeholder="{{ t('Default {value}', value=pgsql_settings_options.max_rows.default) }}" min="{{ pgsql_settings_options.max_rows.min }}" max="{{ pgsql_settings_options.max_rows.max }}" step="1" class="portal-form-input" /></label>
       </div>
-      <p class="portal-panel-note">One row per database. The connection leaves the runtime the way the Proxy connector routes PostgreSQL.</p>
+      <p class="portal-panel-note">{{ t("One row per database. The connection leaves the runtime the way the Proxy connector routes PostgreSQL.") }}</p>
       {{ instance_group('pgsql', 'PostgreSQL', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'orders-uat'},
-          {'key': 'host', 'label': 'Host', 'placeholder': 'orders-uat.example.com'},
-          {'key': 'port', 'label': 'Port', 'type': 'number', 'placeholder': '5432'},
-          {'key': 'database', 'label': 'Database', 'placeholder': 'orders'},
-          {'key': 'username', 'label': 'Shared username (read-only role)', 'placeholder': 'Optional'},
-          {'key': 'password', 'label': 'Shared password', 'type': 'password', 'placeholder': 'Optional'}
+          {'key': 'name', 'label': t('Name'), 'placeholder': 'orders-uat'},
+          {'key': 'host', 'label': t('Host'), 'placeholder': 'orders-uat.example.com'},
+          {'key': 'port', 'label': t('Port'), 'type': 'number', 'placeholder': '5432'},
+          {'key': 'database', 'label': t('Database'), 'placeholder': 'orders'},
+          {'key': 'username', 'label': t('Shared username (read-only role)'), 'placeholder': t('Optional')},
+          {'key': 'password', 'label': t('Shared password'), 'type': 'password', 'placeholder': t('Optional')}
       ]) }}
     </section>
 
     <section class="portal-panel-section">
       <div class="portal-settings-section-head portal-settings-section-head--leading-toggle">
-        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Network proxy</h6></div>
+        <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("Network proxy") }}</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Enable proxy by default">
+        <label class="toggle-switch" aria-label="{{ t('Enable proxy by default') }}">
           <input type="checkbox" name="proxy_enabled" {% if seed.get('proxy', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Route member traffic through a proxy</span>
+        <span>{{ t("Route member traffic through a proxy") }}</span>
       </div>
-      <p class="portal-panel-note">One card per proxy the members' assistants may need. The default proxy is what their environment gets; the table says which proxy each connector goes through. Members who follow the system default get exactly this.</p>
+      <p class="portal-panel-note">{{ t("One card per proxy the members' assistants may need. The default proxy is what their environment gets; the table says which proxy each connector goes through. Members who follow the system default get exactly this.") }}</p>
       <div data-instance-group="proxy">
         {{ proxy_cards(proxy_entries, with_test=False) }}
       </div>
       {{ proxy_default_select(proxy_entries, proxy_default) }}
-      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Which proxy each connector uses</h6></div>
-      <p class="portal-panel-note">Default is the proxy above. None reaches the service directly. AWS and GitHub always use the default: their tools only read the environment.</p>
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("Which proxy each connector uses") }}</h6></div>
+      <p class="portal-panel-note">{{ t("Default is the proxy above. None reaches the service directly. AWS and GitHub always use the default: their tools only read the environment.") }}</p>
       {{ proxy_assignment_table(proxy_connectors, proxy_entries) }}
     </section>
 
@@ -348,58 +349,58 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>AWS</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer AWS">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='AWS') }}">
           <input type="checkbox" name="aws_enabled" {% if seed.get('aws', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer AWS to members</span>
+        <span>{{ t("Offer {name} to members", name="AWS") }}</span>
       </div>
       {% set seed_aws = seed.get('aws', {}) %}
       {% set aws_region_options = [] %}{% for region in aws_regions %}{% set _ = aws_region_options.append({'value': region, 'label': region}) %}{% endfor %}
-      {% set aws_region_options_optional = [{'value': '', 'label': 'Any region'}] + aws_region_options %}
+      {% set aws_region_options_optional = [{'value': '', 'label': t('Any region')}] + aws_region_options %}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Domain</span><input type="text" name="aws_domain" value="{{ seed_aws.get('domain', '') }}" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="aws_username" value="{{ seed_aws.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Shared password</span><input type="password" name="aws_password" value="{{ seed_aws.get('password', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Domain") }}</span><input type="text" name="aws_domain" value="{{ seed_aws.get('domain', '') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared username") }}</span><input type="text" name="aws_username" value="{{ seed_aws.get('username', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared password") }}</span><input type="password" name="aws_password" value="{{ seed_aws.get('password', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <label class="portal-form-label">
-          <span class="portal-form-label">Provider</span>
+          <span class="portal-form-label">{{ t("Provider") }}</span>
           <select name="aws_provider" class="portal-form-select">
             {# Blank leaves the member's AWS connector on the runtime default (adfs-assume) without seeding a value. #}
-            <option value="">Leave unset &mdash; adfs-assume</option>
+            <option value="">{{ t("Leave unset — adfs-assume") }}</option>
             {% for option in aws_auth_providers %}
             <option value="{{ option }}" {% if seed_aws.get('provider') == option %}selected{% endif %}>{{ option }}</option>
             {% endfor %}
           </select>
         </label>
-        <label class="portal-form-label"><span class="portal-form-label">ADFS IdP URL (saml2aws)</span><input type="text" name="aws_idp_url" value="{{ seed_aws.get('idp_url', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Source profile (assume-role)</span><input type="text" name="aws_source_profile" value="{{ seed_aws.get('source_profile', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("ADFS IdP URL (saml2aws)") }}</span><input type="text" name="aws_idp_url" value="{{ seed_aws.get('idp_url', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Source profile (assume-role)") }}</span><input type="text" name="aws_source_profile" value="{{ seed_aws.get('source_profile', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Default account</span><input type="text" name="aws_default_account" value="{{ seed_aws.get('default_account', '') }}" placeholder="Account name or id" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Default region</span><select name="aws_default_region" class="portal-form-select"><option value="">Leave unset</option>{% for region in aws_regions %}<option value="{{ region }}" {% if seed_aws.get('default_region', '') == region %}selected{% endif %}>{{ region }}</option>{% endfor %}</select></label>
-        <label class="portal-form-label"><span class="portal-form-label">Session duration (seconds)</span><input type="number" name="aws_session_duration_seconds" value="{{ seed_aws.get('session_duration_seconds', '') }}" min="900" max="43200" step="1" placeholder="3600" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Default account") }}</span><input type="text" name="aws_default_account" value="{{ seed_aws.get('default_account', '') }}" placeholder="{{ t('Account name or id') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Default region") }}</span><select name="aws_default_region" class="portal-form-select"><option value="">{{ t("Leave unset") }}</option>{% for region in aws_regions %}<option value="{{ region }}" {% if seed_aws.get('default_region', '') == region %}selected{% endif %}>{{ region }}</option>{% endfor %}</select></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Session duration (seconds)") }}</span><input type="number" name="aws_session_duration_seconds" value="{{ seed_aws.get('session_duration_seconds', '') }}" min="900" max="43200" step="1" placeholder="3600" class="portal-form-input" /></label>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Kubeconfig path</span><input type="text" name="aws_kubeconfig_path" value="{{ seed_aws.get('kubeconfig_path', '') }}" placeholder="~/.efp/kube/config" class="portal-form-input" /></label>
-      <p class="portal-panel-note">One row per AWS account members may sign in to; the name becomes the AWS CLI profile the assistant uses.</p>
-      {{ instance_group('aws_accounts', 'AWS account', [
-          {'key': 'name', 'label': 'Name', 'placeholder': 'cps-dev'},
-          {'key': 'account_id', 'label': 'Account id', 'placeholder': '12 digits'},
-          {'key': 'role', 'label': 'Role', 'placeholder': 'ADFS-ReadOnly'},
-          {'key': 'regions', 'label': 'Regions', 'type': 'select', 'multiple': True, 'list_key': 'region_list', 'options': aws_region_options}
+      <label class="portal-form-label"><span class="portal-form-label">{{ t("Kubeconfig path") }}</span><input type="text" name="aws_kubeconfig_path" value="{{ seed_aws.get('kubeconfig_path', '') }}" placeholder="~/.efp/kube/config" class="portal-form-input" /></label>
+      <p class="portal-panel-note">{{ t("One row per AWS account members may sign in to; the name becomes the AWS CLI profile the assistant uses.") }}</p>
+      {{ instance_group('aws_accounts', t('AWS account'), [
+          {'key': 'name', 'label': t('Name'), 'placeholder': 'cps-dev'},
+          {'key': 'account_id', 'label': t('Account id'), 'placeholder': t('12 digits')},
+          {'key': 'role', 'label': t('Role'), 'placeholder': 'ADFS-ReadOnly'},
+          {'key': 'regions', 'label': t('Regions'), 'type': 'select', 'multiple': True, 'list_key': 'region_list', 'options': aws_region_options}
       ], seed_aws_accounts) }}
-      <p class="portal-panel-note">Clusters reached through a private endpoint (AWS PrivateLink) instead of the address AWS reports; the account is the name or id of one of the rows above.</p>
-      {{ instance_group('aws_eks_clusters', 'EKS cluster', [
-          {'key': 'account', 'label': 'Account', 'type': 'select', 'options': seed_aws_account_options},
-          {'key': 'cluster', 'label': 'Cluster', 'placeholder': 'cps-dev-eks'},
-          {'key': 'region', 'label': 'Region (optional)', 'type': 'select', 'options': aws_region_options_optional},
-          {'key': 'private_endpoint', 'label': 'Private endpoint', 'placeholder': 'https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com'},
-          {'key': 'server_ca', 'label': 'Certificate authority', 'type': 'select', 'options': [
-              {'value': 'cluster', 'label': 'Cluster CA (endpoint passes TLS through)'},
-              {'value': 'system', 'label': 'System trust store (endpoint has its own certificate)'}
+      <p class="portal-panel-note">{{ t("Clusters reached through a private endpoint (AWS PrivateLink) instead of the address AWS reports; the account is the name or id of one of the rows above.") }}</p>
+      {{ instance_group('aws_eks_clusters', t('EKS cluster'), [
+          {'key': 'account', 'label': t('Account'), 'type': 'select', 'options': seed_aws_account_options},
+          {'key': 'cluster', 'label': t('Cluster'), 'placeholder': 'cps-dev-eks'},
+          {'key': 'region', 'label': t('Region (optional)'), 'type': 'select', 'options': aws_region_options_optional},
+          {'key': 'private_endpoint', 'label': t('Private endpoint'), 'placeholder': 'https://vpce-0ab12cd.vpce-svc-0123.eu-west-1.vpce.amazonaws.com'},
+          {'key': 'server_ca', 'label': t('Certificate authority'), 'type': 'select', 'options': [
+              {'value': 'cluster', 'label': t('Cluster CA (endpoint passes TLS through)')},
+              {'value': 'system', 'label': t('System trust store (endpoint has its own certificate)')}
           ]},
-          {'key': 'tls_server_name', 'label': 'TLS server name (optional)', 'placeholder': 'Normally empty'}
+          {'key': 'tls_server_name', 'label': t('TLS server name (optional)'), 'placeholder': t('Normally empty')}
       ], seed_aws_eks_clusters) }}
     </section>
 
@@ -408,30 +409,31 @@
         <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>BrowserStack</h6></div>
       </div>
       <div class="portal-checkbox-row">
-        <label class="toggle-switch" aria-label="Offer BrowserStack">
+        <label class="toggle-switch" aria-label="{{ t('Offer {name}', name='BrowserStack') }}">
           <input type="checkbox" name="mobile_enabled" {% if seed.get('mobile-auto', {}).get('enabled') %}checked{% endif %} />
           <span class="toggle-slider"></span>
         </label>
-        <span>Offer BrowserStack to members</span>
+        <span>{{ t("Offer {name} to members", name="BrowserStack") }}</span>
       </div>
       {% set browserstack = seed.get('mobile-auto', {}).get('browserstack', {}) %}
       <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Shared username</span><input type="text" name="mobile_browserstack_username" value="{{ browserstack.get('username', '') }}" placeholder="Optional" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Shared access key</span><input type="password" name="mobile_browserstack_access_key" value="{{ browserstack.get('access_key', '') }}" placeholder="Optional" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared username") }}</span><input type="text" name="mobile_browserstack_username" value="{{ browserstack.get('username', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Shared access key") }}</span><input type="password" name="mobile_browserstack_access_key" value="{{ browserstack.get('access_key', '') }}" placeholder="{{ t('Optional') }}" class="portal-form-input" /></label>
       </div>
       {# Network, platform, idle timeout, Appium version, addresses: what members following the system default record with. #}
       {{ browserstack_advanced(seed.get('mobile-auto', {}).get('defaults', {}), browserstack, mobile_default_network, 'admin') }}
     </section>
 
     <div class="flex items-center gap-2">
-      <button type="submit" class="portal-btn is-primary">Save defaults</button>
-      <span class="portal-panel-note">Members whose connectors follow the system default get these automatically: saving updates their assistants in the background (idle ones restart, busy ones show Restart to apply). Members who customized a connector keep their own values. Model provider is the exception: it is always the member's own, so a changed shared key or password reaches only new members.</span>
+      <button type="submit" class="portal-btn is-primary">{{ t("Save defaults") }}</button>
+      <span class="portal-panel-note">{{ t("Members whose connectors follow the system default get these automatically: saving updates their assistants in the background (idle ones restart, busy ones show Restart to apply). Members who customized a connector keep their own values. Model provider is the exception: it is always the member's own, so a changed shared key or password reaches only new members.") }}</span>
     </div>
   </form>
 
   <details class="portal-collapsible">
-    <summary class="portal-collapsible-summary"><strong>Stored value</strong></summary>
-    <p class="portal-panel-note">Credentials read <code>[REDACTED]</code> here; reveal one in its own field above.</p>
+    <summary class="portal-collapsible-summary"><strong>{{ t("Stored value") }}</strong></summary>
+    {% set redacted_marker %}<code>[REDACTED]</code>{% endset %}
+    <p class="portal-panel-note">{{ t("Credentials read {redacted} here; reveal one in its own field above.", redacted=redacted_marker)|safe }}</p>
     <pre class="portal-panel-pre">{{ seed_json }}</pre>
   </details>
 </div>

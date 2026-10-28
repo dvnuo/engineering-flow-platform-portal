@@ -327,11 +327,13 @@ def _panel_html_as_posted(seed: dict) -> str:
     """The Default connectors panel the way a rejected save re-renders it: from the posted seed."""
     from jinja2 import Environment, FileSystemLoader
 
+    from app.i18n import template_globals
     from app.web import _default_connections_context
     from tests.test_default_connections_form import _database
 
     context = _default_connections_context(None, _database(), status_type="error", status_message="x", seed_override=seed)
     env = Environment(loader=FileSystemLoader("app/templates"))
+    env.globals.update(template_globals())
     env.globals["copilot_enterprise_sso_url"] = lambda: ""
     return env.get_template("partials/default_connections_panel.html").render(**context)
 

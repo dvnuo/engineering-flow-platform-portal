@@ -125,6 +125,28 @@ def tn(count: Any, one: str, other: str, **params: Any) -> str:
     return translate_plural(current_locale(), count, one, other, **params)
 
 
+def N_(text: str) -> str:
+    """Mark ``text`` as a catalogue key without translating it.
+
+    For strings that live in data (module-level tables, dicts built at import
+    time) where no request locale exists yet: the check script extracts the
+    literal like a ``t()`` key, and the code that shows the value translates
+    it at request time with ``tv()``.
+    """
+    return text
+
+
+def tv(value: Any, **params: Any) -> str:
+    """Translate a value holding a key declared elsewhere (``N_()`` or ``t()``).
+
+    The value comes from data, so the check script cannot see it; values the
+    catalogues do not know (ids, URLs, names) come back unchanged.
+    """
+    if value is None:
+        return ""
+    return translate(current_locale(), str(value), **params)
+
+
 def bootstrap_payload(locale: Optional[str] = None) -> dict[str, Any]:
     resolved = locale if locale in SUPPORTED_LOCALES else (current_locale() if locale is None else DEFAULT_LOCALE)
     return {"locale": resolved, "messages": dict(catalogue(resolved))}
@@ -137,12 +159,13 @@ def i18n_bootstrap(locale: Optional[str] = None) -> str:
 
 
 def template_globals() -> dict[str, Any]:
-    """What the Jinja environment exposes: ``t``, ``tn``, the locale and the inline catalogue."""
-    return {"t": t, "tn": tn, "current_locale": current_locale, "i18n_bootstrap": i18n_bootstrap}
+    """What the Jinja environment exposes: ``t``, ``tn``, ``tv``, the locale and the inline catalogue."""
+    return {"t": t, "tn": tn, "tv": tv, "current_locale": current_locale, "i18n_bootstrap": i18n_bootstrap}
 
 
 __all__ = [
     "LOCALE_DIR",
+    "N_",
     "PLURAL_SEPARATOR",
     "bind_locale",
     "bootstrap_payload",
@@ -159,4 +182,5 @@ __all__ = [
     "tn",
     "translate",
     "translate_plural",
+    "tv",
 ]

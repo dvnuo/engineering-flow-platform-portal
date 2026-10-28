@@ -47,7 +47,7 @@ def test_network_failure_is_reported_instead_of_failing_silently():
 def test_submitting_disables_the_button_and_shows_progress():
     assert "function setPending(pending)" in AUTH_JS
     assert "submitButton.disabled = pending;" in AUTH_JS
-    assert 'pendingText: "Signing in…"' in Path("app/templates/login.html").read_text(encoding="utf-8")
+    assert 'pendingText: t("Signing in…")' in Path("app/templates/login.html").read_text(encoding="utf-8")
 
 
 def test_server_side_validation_errors_are_surfaced_verbatim():

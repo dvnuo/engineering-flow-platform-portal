@@ -65,8 +65,8 @@
   function elapsedLabel() {
     if (!startedAt) return "";
     const seconds = Math.round((Date.now() - startedAt) / 1000);
-    if (seconds < 60) return `${seconds}s so far`;
-    return `${Math.floor(seconds / 60)}m ${seconds % 60}s so far`;
+    if (seconds < 60) return t("{seconds}s so far", { seconds });
+    return t("{minutes}m {seconds}s so far", { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
   }
 
   function phasesMarkup(startup) {
@@ -94,7 +94,7 @@
     if (WRITE_ACTIONS.has(startup.action) && !canWrite) return "";
     return `<div class="portal-startup-actions">
       <button type="button" class="portal-btn is-primary" data-startup-action="${esc(startup.action)}">
-        ${esc(startup.action_label || "Continue")}
+        ${esc(startup.action_label || t("Continue"))}
       </button>
     </div>`;
   }
@@ -119,12 +119,12 @@
     const view = {
       ...startup,
       is_slow: true,
-      headline: "Startup is taking longer than usual",
-      detail: "Still waiting for the runtime. The platform marks a start that never finishes as failed, and you can retry from there.",
+      headline: t("Startup is taking longer than usual"),
+      detail: t("Still waiting for the runtime. The platform marks a start that never finishes as failed, and you can retry from there."),
     };
     if (elapsed >= SUPPORT_AFTER_SECONDS) {
-      view.detail = "This has been going on for a while. Retrying later usually works; if it keeps happening, your administrator needs to look at it.";
-      view.action_label = "Contact support";
+      view.detail = t("This has been going on for a while. Retrying later usually works; if it keeps happening, your administrator needs to look at it.");
+      view.action_label = t("Contact support");
       view.action = "contact_support";
     }
     return view;
@@ -149,7 +149,7 @@
       ${
         startup.technical_detail
           ? `<details class="portal-collapsible">
-               <summary class="portal-collapsible-summary">Technical details</summary>
+               <summary class="portal-collapsible-summary">${esc(t("Technical details"))}</summary>
                <pre class="portal-panel-pre">${esc(startup.technical_detail)}</pre>
              </details>`
           : ""

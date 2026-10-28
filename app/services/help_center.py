@@ -23,7 +23,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.services.connection_guidance import CONNECTION_GUIDANCE, CONNECTOR_GUIDANCE
+from app.i18n import t, tv
+from app.services.connection_guidance import CONNECTION_GUIDANCE, CONNECTOR_GUIDANCE, localized
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,11 @@ def _connection_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
     from app.services.connector_registry import settings_connector_for_section
 
     topics = []
-    for section, guidance in CONNECTION_GUIDANCE.items():
+    # The topics are built per request, so the shared guidance is read in the
+    # request's language (localized() translates the N_()-marked strings).
+    # The group stays the English key: app.html translates the group names.
+    for section, raw_guidance in CONNECTION_GUIDANCE.items():
+        guidance = localized(raw_guidance)
         document = documents.pop(topic_id_for_connection(section), None)
         meta = document.meta if document else {}
         connector = settings_connector_for_section(section)
@@ -154,7 +159,7 @@ def _connection_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
                 help_label=guidance.get("help_label"),
                 connection_section=section,
                 connector_type=connector.type if connector else None,
-                connector_label=connector.label if connector else None,
+                connector_label=tv(connector.label) if connector else None,
                 order=_order_of(meta),
             )
         )
@@ -165,7 +170,8 @@ def _connector_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
     """Connectors (Local bridge, ...) get one guide each, derived like connections."""
 
     topics = []
-    for key, guidance in CONNECTOR_GUIDANCE.items():
+    for key, raw_guidance in CONNECTOR_GUIDANCE.items():
+        guidance = localized(raw_guidance)
         document = documents.pop(topic_id_for_connector(key), None)
         meta = document.meta if document else {}
         topics.append(
@@ -254,8 +260,8 @@ def default_topic() -> HelpTopic:
             return topics[0]
     return HelpTopic(
         id="help",
-        title="Help",
-        summary="No help topics are installed.",
+        title=t("Help"),
+        summary=t("No help topics are installed."),
         group=GROUP_ORDER[0],
-        body="Add a markdown file to app/help to publish a topic here.",
+        body=t("Add a markdown file to app/help to publish a topic here."),
     )

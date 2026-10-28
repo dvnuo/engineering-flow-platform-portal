@@ -43,7 +43,10 @@ def _panel_html(**overrides) -> str:
     if overrides.get("seed"):
         RuntimeProfileSeedService(db).save_seed(overrides["seed"])
     context = _default_connections_context(None, db)
+    from app.i18n import template_globals
+
     env = Environment(loader=FileSystemLoader("app/templates"))
+    env.globals.update(template_globals())
     env.globals["copilot_enterprise_sso_url"] = lambda: overrides.get("enterprise_sso_url", "")
     return env.get_template("partials/default_connections_panel.html").render(**context)
 

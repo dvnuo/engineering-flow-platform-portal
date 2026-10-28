@@ -56,7 +56,7 @@
     }
     if (!response.ok) {
       const detail = payload && (payload.detail || payload.message || payload.error);
-      throw new Error(typeof detail === "string" ? detail : `Request failed (${response.status})`);
+      throw new Error(typeof detail === "string" ? detail : t("Request failed ({status})", { status: response.status }));
     }
     return payload;
   }
@@ -80,9 +80,9 @@
   function renderTypeChoices(container, types) {
     if (!container) return;
     if (!types.length) {
-      container.innerHTML =
-        '<div class="portal-inline-state is-warning">No assistant types are configured yet. ' +
-        "Ask an administrator to add one, or use advanced setup.</div>";
+      container.innerHTML = `<div class="portal-inline-state is-warning">${esc(
+        t("No assistant types are configured yet. Ask an administrator to add one, or use advanced setup.")
+      )}</div>`;
       return;
     }
     container.innerHTML = types
@@ -210,17 +210,17 @@
       const msg = document.getElementById("create-simple-msg");
       const name = (form.querySelector('input[name="name"]').value || "").trim();
       const typeId = selectedTypeId(form);
-      if (!name) return setFeedback(msg, "error", "Give your assistant a name.");
-      if (!typeId) return setFeedback(msg, "error", "Choose an assistant type.");
+      if (!name) return setFeedback(msg, "error", t("Give your assistant a name."));
+      if (!typeId) return setFeedback(msg, "error", t("Choose an assistant type."));
 
       const submitButton = form.querySelector('button[type="submit"]');
       if (submitButton) submitButton.disabled = true;
-      setFeedback(msg, "", "Creating…");
+      setFeedback(msg, "", t("Creating…"));
       try {
         const agent = await createAssistant(name, typeId);
-        setFeedback(msg, "success", "Assistant created.");
+        setFeedback(msg, "success", t("Assistant created."));
         closeSimpleModal();
-        toast("Assistant created. Starting it now…");
+        toast(t("Assistant created. Starting it now…"));
         await afterCreate(agent);
       } catch (error) {
         setFeedback(msg, "error", error.message);
@@ -315,19 +315,19 @@
       const msg = overlay.querySelector("[data-onboarding-msg]");
       const name = (form.querySelector('input[name="name"]').value || "").trim();
       const typeId = selectedTypeId(form);
-      if (!name) return setFeedback(msg, "error", "Give your assistant a name.");
+      if (!name) return setFeedback(msg, "error", t("Give your assistant a name."));
       if (!typeId) {
-        setFeedback(msg, "error", "No assistant types are available. Ask an administrator to add one.");
+        setFeedback(msg, "error", t("No assistant types are available. Ask an administrator to add one."));
         return;
       }
 
       const createButton = overlay.querySelector("[data-onboarding-create]");
       if (createButton) createButton.disabled = true;
-      setFeedback(msg, "", "Creating…");
+      setFeedback(msg, "", t("Creating…"));
       try {
         const agent = await createAssistant(name, typeId);
         await finishOnboarding({ silent: true });
-        toast("Assistant created. Starting it now…");
+        toast(t("Assistant created. Starting it now…"));
         await afterCreate(agent);
       } catch (error) {
         setFeedback(msg, "error", error.message);
@@ -357,7 +357,7 @@
       window.setPortalAdminPanel(button.dataset.adminPanel);
     }
 
-    target.innerHTML = '<div class="portal-inline-state">Loading…</div>';
+    target.innerHTML = `<div class="portal-inline-state">${esc(t("Loading…"))}</div>`;
     try {
       await window.htmx.ajax("GET", url, { target: "#workspace-detail-content", swap: "innerHTML" });
       target.dataset.workspaceState = `admin-${button.dataset.adminPanel}`;
@@ -475,9 +475,9 @@
   async function submitAssistantTypeCreate(form) {
     const msg = form.querySelector("[data-assistant-type-create-msg]");
     const body = { ...assistantTypeFormPayload(form), is_active: true };
-    if (!body.name) return setFeedback(msg, "error", "Give the type a name.");
+    if (!body.name) return setFeedback(msg, "error", t("Give the type a name."));
 
-    setFeedback(msg, "", "Saving…");
+    setFeedback(msg, "", t("Saving…"));
     try {
       await requestJson("/api/assistant-types", {
         method: "POST",
@@ -486,7 +486,7 @@
       });
       state.assistantTypes = null;
       setAssistantTypeModalOpen(false);
-      toast("Assistant type added.");
+      toast(t("Assistant type added."));
       await reloadAdminPanel("assistant-types");
     } catch (error) {
       setFeedback(msg, "error", error.message);
@@ -504,7 +504,7 @@
       state.assistantTypes = null;
       row.classList.toggle("is-instance-disabled", !isActive);
       const label = row.querySelector(".portal-instance-state");
-      if (label) label.textContent = isActive ? "Offered" : "Hidden";
+      if (label) label.textContent = isActive ? t("Offered") : t("Hidden");
     } catch (error) {
       toast(error.message, "error");
     }
@@ -512,9 +512,9 @@
 
   async function deleteAssistantType(row) {
     if (!row) return;
-    const name = row.querySelector(".portal-settings-instance-title")?.textContent || "this type";
+    const name = row.querySelector(".portal-settings-instance-title")?.textContent || t("this type");
     const confirmed = window.confirm(
-      `Delete ${name}? Assistants already created from it keep working — creation copies these values onto the assistant.`
+      t("Delete {name}? Assistants already created from it keep working — creation copies these values onto the assistant.", { name })
     );
     if (!confirmed) return;
     try {
@@ -522,7 +522,7 @@
         method: "DELETE",
       });
       state.assistantTypes = null;
-      toast("Assistant type deleted.");
+      toast(t("Assistant type deleted."));
       await reloadAdminPanel("assistant-types");
     } catch (error) {
       toast(error.message, "error");
@@ -544,7 +544,7 @@
     form.classList.toggle("hidden", !shouldOpen);
     summary?.classList.toggle("hidden", shouldOpen);
     if (button) {
-      button.textContent = shouldOpen ? "Close" : "Edit";
+      button.textContent = shouldOpen ? t("Close") : t("Edit");
       button.setAttribute("aria-expanded", String(shouldOpen));
     }
     if (shouldOpen) form.querySelector('input[name="name"]')?.focus();
@@ -595,9 +595,9 @@
     const row = form.closest("[data-assistant-type-row]");
     const msg = form.querySelector("[data-assistant-type-edit-msg]");
     const body = assistantTypeFormPayload(form);
-    if (!body.name) return setFeedback(msg, "error", "Give the type a name.");
+    if (!body.name) return setFeedback(msg, "error", t("Give the type a name."));
 
-    setFeedback(msg, "", "Saving…");
+    setFeedback(msg, "", t("Saving…"));
     try {
       await requestJson(`/api/assistant-types/${encodeURIComponent(row.dataset.assistantTypeRow)}`, {
         method: "PATCH",
@@ -605,7 +605,7 @@
         body: JSON.stringify(body),
       });
       state.assistantTypes = null;
-      toast("Assistant type updated.");
+      toast(t("Assistant type updated."));
       await reloadAdminPanel("assistant-types");
     } catch (error) {
       setFeedback(msg, "error", error.message);

@@ -9,7 +9,8 @@ import re
 # short: some bundles go to `node -e` on the command line, which Windows caps.
 I18N_STUB = (
     "globalThis.t??=(k,p)=>String(k).replace(/\\{(\\w+)\\}/g,(m,n)=>(p&&n in p)?String(p[n]):m);"
-    "globalThis.tn??=(c,o,r,p)=>globalThis.t(c===1?o:r,{n:c,...p});\n"
+    "globalThis.tn??=(c,o,r,p)=>globalThis.t(c===1?o:r,{n:c,...p});"
+    "globalThis.tv??=(k,p)=>k==null?'':globalThis.t(String(k),p);globalThis.N_??=k=>k;\n"
 )
 
 

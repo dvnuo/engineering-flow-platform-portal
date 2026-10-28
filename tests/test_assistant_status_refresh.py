@@ -262,7 +262,7 @@ def test_sending_to_a_paused_assistant_wakes_it_first():
 def test_slow_start_changes_the_card_without_promising_a_restart():
     assert "const SLOW_START_FACTOR = 2.5;" in STARTUP_JS
     assert "const SUPPORT_AFTER_SECONDS = 600;" in STARTUP_JS
-    assert 'headline: "Startup is taking longer than usual"' in STARTUP_JS
+    assert 'headline: t("Startup is taking longer than usual")' in STARTUP_JS
     assert 'view.action = "contact_support";' in STARTUP_JS
     assert "const startup = escalate(rawStartup);" in STARTUP_JS
     assert ".portal-startup-progress.is-slow" in CSS

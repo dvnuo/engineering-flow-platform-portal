@@ -20,6 +20,7 @@ from tests.test_default_connections_form import _panel_html as _default_connecti
 from tests.test_jenkins_multi_instance_settings import (
     _bind_profile,
     _build_client,
+    _english_literal,
     _initialized_instance_groups,
     _js_object_literal,
     _js_source,
@@ -579,7 +580,7 @@ def _expand_region_slots(js, rendered):
     regions = _js_array_literal(js, "AWS_REGIONS")
     options = "".join(f'<option value="{region}">{region}</option>' for region in regions)
     rendered = rendered.replace("${AWS_REGIONS.length}", str(len(regions)))
-    rendered = rendered.replace('${regionOptionsHtml("Any region")}', '<option value="">Any region</option>' + options)
+    rendered = rendered.replace('${regionOptionsHtml(t("Any region"))}', '<option value="">Any region</option>' + options)
     return rendered.replace("${regionOptionsHtml()}", options)
 
 
@@ -655,8 +656,8 @@ def _js_account_card_html():
     rendered = literal_match.group(1)
     placeholders = _js_object_literal(js, "INSTANCE_GROUP_PLACEHOLDERS")["aws_accounts"]
     for key, copy in placeholders.items():
-        rendered = rendered.replace("${placeholders." + key + "}", copy)
-    rendered = rendered.replace("${label}", _js_object_literal(js, "INSTANCE_GROUP_LABELS")["aws_accounts"])
+        rendered = rendered.replace("${tv(placeholders." + key + ")}", copy)
+    rendered = _english_literal(rendered, label=_js_object_literal(js, "INSTANCE_GROUP_LABELS")["aws_accounts"])
     rendered = _expand_region_slots(js, rendered)
     assert "${" not in rendered, "unresolved template slot in awsAccountCardHtml literal"
     # normalizeInstanceInputs renumbers the freshly appended card.

@@ -3,61 +3,65 @@
   happen, and the one setting that is this computer's: the proxy the local
   bridge uses to reach BrowserStack, saved into the member's Local bridge
   connector by static/js/mobile_testing.js, which also fills in the bridge's
-  status.
+  status. The markup inside a sentence (a link, a menu path, a file name) is
+  built here and handed to t() as a placeholder, so the sentence stays one
+  catalogue key.
 #}
+{% set local_bridge_path %}<strong>{{ t("Connectors") }} &gt; {{ t("Local bridge") }}</strong>{% endset %}
 <section class="portal-panel-section" data-mobile-overview>
   <div class="portal-settings-section-title">
     <span class="portal-section-accent" aria-hidden="true"></span>
-    <h6>Recording on your computer</h6>
+    <h6>{{ t("Recording on your computer") }}</h6>
   </div>
+  {% set mobile_testing_name %}<strong>{{ t("Mobile testing") }}</strong>{% endset %}
   <p class="portal-panel-note">
-    Portal and the assistants do not connect to BrowserStack. Recording runs on this computer through the local bridge,
-    the program of <strong>Connectors &gt; Local bridge</strong>: it starts a BrowserStack device with the settings above,
-    holds it while you record, and passes Appium Inspector's commands to it. Open a chat with your assistant and choose
-    <strong>Mobile testing</strong> in the tool bar.
+    {{ t("Portal and the assistants do not connect to BrowserStack. Recording runs on this computer through the local bridge, the program of {local_bridge}: it starts a BrowserStack device with the settings above, holds it while you record, and passes Appium Inspector's commands to it. Open a chat with your assistant and choose {mobile_testing} in the tool bar.", local_bridge=local_bridge_path, mobile_testing=mobile_testing_name)|safe }}
   </p>
   <div class="flex items-center gap-2">
-    <div class="portal-inline-state is-visible" data-mobile-bridge-status role="status">Looking for the local bridge…</div>
-    <button type="button" class="portal-btn is-secondary hidden" data-mobile-bridge-action="start">Start bridge</button>
+    <div class="portal-inline-state is-visible" data-mobile-bridge-status role="status">{{ t("Looking for the local bridge…") }}</div>
+    <button type="button" class="portal-btn is-secondary hidden" data-mobile-bridge-action="start">{{ t("Start bridge") }}</button>
   </div>
   {% set bridge_proxy = local_bridge_proxy if local_bridge_proxy is mapping else {} %}
-  <label class="portal-form-label"><span class="portal-form-label">Proxy to BrowserStack from this computer (optional)</span>
+  <label class="portal-form-label"><span class="portal-form-label">{{ t("Proxy to BrowserStack from this computer (optional)") }}</span>
     <input class="portal-form-input" data-bridge-proxy="url" value="{{ bridge_proxy.get('url', '') }}" placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck="false" />
   </label>
   <div class="grid grid-cols-2 gap-3">
-    <label class="portal-form-label"><span class="portal-form-label">Proxy user name</span>
-      <input class="portal-form-input" data-bridge-proxy="username" value="{{ bridge_proxy.get('username', '') }}" placeholder="Optional" autocomplete="off" spellcheck="false" />
+    <label class="portal-form-label"><span class="portal-form-label">{{ t("Proxy user name") }}</span>
+      <input class="portal-form-input" data-bridge-proxy="username" value="{{ bridge_proxy.get('username', '') }}" placeholder="{{ t('Optional') }}" autocomplete="off" spellcheck="false" />
     </label>
-    <label class="portal-form-label"><span class="portal-form-label">Proxy password</span>
-      <input type="password" class="portal-form-input" data-bridge-proxy="password" value="{{ bridge_proxy.get('password', '') }}" placeholder="Optional" autocomplete="new-password" />
+    <label class="portal-form-label"><span class="portal-form-label">{{ t("Proxy password") }}</span>
+      <input type="password" class="portal-form-input" data-bridge-proxy="password" value="{{ bridge_proxy.get('password', '') }}" placeholder="{{ t('Optional') }}" autocomplete="new-password" />
     </label>
   </div>
-  <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary flex-none" data-bridge-proxy-save>Save proxy</button><div class="portal-inline-state" data-bridge-proxy-result role="status"></div></div>
-  <p class="portal-inline-note">Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Saved with your Local bridge connector and handed only to the bridge on this computer; the assistants never get it. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\user.</p>
+  <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary flex-none" data-bridge-proxy-save>{{ t("Save proxy") }}</button><div class="portal-inline-state" data-bridge-proxy-result role="status"></div></div>
+  <p class="portal-inline-note">{{ t("Empty uses this computer's own proxy settings, including a PAC script, the way the browser does. Set one when the test or a recording is answered by a web filter's block page although the browser reaches BrowserStack. Saved with your Local bridge connector and handed only to the bridge on this computer; the assistants never get it. A proxy that asks for a login takes it in the two fields, a domain user as DOMAIN\\user.") }}</p>
   <ul class="portal-setup-guide-steps">
-    <li>Install the local bridge once from <strong>Connectors &gt; Local bridge</strong>; its package includes mobile-auto for recordings.</li>
+    <li>{{ t("Install the local bridge once from {local_bridge}; its package includes mobile-auto for recordings.", local_bridge=local_bridge_path)|safe }}</li>
     {% if appium_inspector_available %}
-    <li>Portal hosts Appium Inspector: the Mobile testing panel opens it already attached to the device. Nothing else to install.</li>
+    <li>{{ t("Portal hosts Appium Inspector: the Mobile testing panel opens it already attached to the device. Nothing else to install.") }}</li>
     {% else %}
-    <li>Install <a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a> 2026.5.1 or later; the Mobile testing panel shows how to attach it to the device.</li>
+    {% set appium_inspector_link %}<a class="portal-link-inline" href="https://github.com/appium/appium-inspector/releases" target="_blank" rel="noopener noreferrer">Appium Inspector</a>{% endset %}
+    <li>{{ t("Install {appium_inspector} 2026.5.1 or later; the Mobile testing panel shows how to attach it to the device.", appium_inspector=appium_inspector_link)|safe }}</li>
     {% endif %}
-    <li>Upload the build to record in the Mobile testing panel, or pick one your pipeline already uploaded.</li>
-    <li>An app on the private network needs <strong>BrowserStack Local</strong> on this computer. mobile-auto downloads it by itself; when your network blocks that download, get it from BrowserStack yourself:
-      <a class="portal-link-inline" href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-win32.zip" target="_blank" rel="noopener noreferrer">Windows</a> or
-      <a class="portal-link-inline" href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip" target="_blank" rel="noopener noreferrer">macOS</a> (Intel and Apple silicon),
-      unzip it, and put <code>BrowserStackLocal.exe</code> (Windows) or <code>BrowserStackLocal</code> (macOS) in <code>~/bin</code>, the local bridge's folder, or anywhere on your PATH.</li>
-    <li>Type real values while recording. Password fields are never stored; they become names such as <code>MOBILE_SECRET_PASSWORD</code>.</li>
+    <li>{{ t("Upload the build to record in the Mobile testing panel, or pick one your pipeline already uploaded.") }}</li>
+    {% set browserstack_local_name %}<strong>BrowserStack Local</strong>{% endset %}
+    {% set windows_download %}<a class="portal-link-inline" href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-win32.zip" target="_blank" rel="noopener noreferrer">Windows</a>{% endset %}
+    {% set macos_download %}<a class="portal-link-inline" href="https://www.browserstack.com/browserstack-local/BrowserStackLocal-darwin-x64.zip" target="_blank" rel="noopener noreferrer">macOS</a>{% endset %}
+    {% set windows_program %}<code>BrowserStackLocal.exe</code>{% endset %}
+    {% set macos_program %}<code>BrowserStackLocal</code>{% endset %}
+    {% set bin_folder %}<code>~/bin</code>{% endset %}
+    <li>{{ t("An app on the private network needs {browserstack_local} on this computer. mobile-auto downloads it by itself; when your network blocks that download, get it from BrowserStack yourself: {windows} or {macos} (Intel and Apple silicon), unzip it, and put {windows_program} (Windows) or {macos_program} (macOS) in {bin_folder}, the local bridge's folder, or anywhere on your PATH.", browserstack_local=browserstack_local_name, windows=windows_download, macos=macos_download, windows_program=windows_program, macos_program=macos_program, bin_folder=bin_folder)|safe }}</li>
+    {% set secret_example %}<code>MOBILE_SECRET_PASSWORD</code>{% endset %}
+    <li>{{ t("Type real values while recording. Password fields are never stored; they become names such as {example}.", example=secret_example)|safe }}</li>
   </ul>
 </section>
 
 <section class="portal-panel-section">
   <div class="portal-settings-section-title">
     <span class="portal-section-accent" aria-hidden="true"></span>
-    <h6>Test runs in Jenkins</h6>
+    <h6>{{ t("Test runs in Jenkins") }}</h6>
   </div>
   <p class="portal-panel-note">
-    Dry runs, full runs, and reruns go through your team's mobile scenario pipeline in Jenkins, which has its own BrowserStack
-    account and keeps the test accounts' passwords as Jenkins credentials under the names the recordings use. The assistant
-    starts the pipeline and brings back each scenario's result, screenshots, and video.
+    {{ t("Dry runs, full runs, and reruns go through your team's mobile scenario pipeline in Jenkins, which has its own BrowserStack account and keeps the test accounts' passwords as Jenkins credentials under the names the recordings use. The assistant starts the pipeline and brings back each scenario's result, screenshots, and video.") }}
   </p>
 </section>

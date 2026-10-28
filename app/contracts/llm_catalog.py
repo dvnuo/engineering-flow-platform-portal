@@ -106,7 +106,11 @@ def context_size_label(size: int) -> str:
     value = int(size)
     base = "1M" if value >= 1_000_000 else f"{value // 1000}K"
     if value > COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS:
-        return f"{base} \u00b7 Long context 2\u00d7"
+        # The same key chat_ui.js uses; called while a page renders, so t()
+        # sees the member's language.
+        from app.i18n import t
+
+        return t("{size} \u00b7 Long context 2\u00d7", size=base)
     return base
 
 

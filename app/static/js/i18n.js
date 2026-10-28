@@ -41,12 +41,27 @@
     return interpolate(count === 1 ? one : other, merged);
   }
 
-  const api = { locale, messages, t, tn, interpolate };
+  // Marks a literal as a catalogue key without translating it, for tables
+  // built at parse time; scripts/i18n_check.py extracts it like a t() key and
+  // the code that shows the value translates it with tv().
+  function N_(key) {
+    return key;
+  }
+
+  // Translates a value holding a key declared elsewhere (N_() or t()); values
+  // the catalogue does not know (ids, URLs, names) come back unchanged.
+  function tv(value, params) {
+    return value == null ? "" : t(String(value), params);
+  }
+
+  const api = { locale, messages, t, tn, tv, N_, interpolate };
   if (typeof window !== "undefined") window.EFP_I18N = api;
   // In a browser window is globalThis; in Node (the test harness) it is a
   // plain object, so the bare names go on the real global as well.
   const root = typeof globalThis !== "undefined" ? globalThis : window;
   root.t = t;
   root.tn = tn;
+  root.tv = tv;
+  root.N_ = N_;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

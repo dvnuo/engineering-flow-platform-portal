@@ -39,4 +39,14 @@ freely, but these terms always render as below.
 | copy / paste | 复制 / 粘贴 | 複製 / 貼上 | |
 | save / cancel / delete / rename | 保存 / 取消 / 删除 / 重命名 | 儲存 / 取消 / 刪除 | 重新命名 | |
 | retry | 重试 | 重試 | |
+| review (a wizard step, or asking the assistant to review) | 审阅 | 審閱 | one word for both uses of "Review" |
+| local bridge / the bridge | 本地桥接程序 / 桥接程序 | 本機橋接程式 / 橋接程式 | also the connector's name, so menu paths read 连接器 → 本地桥接程序 |
+| model provider / proxy (connector names) | 模型提供方 / 代理 | 模型提供者 / 代理 | product-named connectors (Jira, GitHub, AWS, ...) keep their names |
+| customize / system default (connector mode) | 自定义 / 系统默认 | 自訂 / 系統預設 | |
+| build (an uploaded .apk/.aab/.ipa) | 安装包 | 安裝檔 | not 构建: it is the app binary |
+| recording / replay | 录制 / 回放 | 錄製 / 重播 | |
+| scenario / script / segment | 场景 / 脚本 / 片段 | 情境 / 腳本 / 片段 | |
+| device (hold, release) | 设备（占用、释放） | 裝置（佔用、釋放） | |
+| compile | 编译 | 編譯 | |
+| Library (mobile testing tab) | 资料库 | 資料庫 | |
 | Copilot, GitHub, Jira, Confluence, Jenkins, BrowserStack, Mermaid, Markdown, Productivity Suite | unchanged | unchanged | product names |

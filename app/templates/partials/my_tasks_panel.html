@@ -2,41 +2,41 @@
   data-overview-headline="{{ overview.health.headline }}"
   data-overview-generated-at="{{ overview.generated_at.strftime('%Y-%m-%dT%H:%M:%SZ') if overview.generated_at else '' }}">
 
-  <section class="portal-overview-overview-grid" aria-label="Task overview">
+  <section class="portal-overview-overview-grid" aria-label="{{ t('Task overview') }}">
     <article class="portal-overview-health-card is-{{ overview.health.tone }}">
       <div class="portal-overview-health-main">
         <div class="portal-overview-health-icon"><i data-lucide="activity" class="w-5 h-5"></i></div>
-        <div><span>Task Health</span><strong>{{ overview.health.label }}</strong></div>
+        <div><span>{{ t("Task Health") }}</span><strong>{{ overview.health.label }}</strong></div>
       </div>
       <div class="portal-overview-health-score">
         <span>{% if overview.health.empty %}&mdash;{% else %}{{ overview.health.score }}{% endif %}</span>
         <div class="portal-overview-score-bar" aria-hidden="true"><i style="width: {% if overview.health.empty %}0{% else %}{{ overview.health.score }}{% endif %}%"></i></div>
       </div>
       <div class="portal-overview-health-foot">
-        <span>{{ overview.health.critical }} critical</span>
-        <span>{{ overview.health.warning }} warnings</span>
+        <span>{{ t("{n} critical", n=overview.health.critical) }}</span>
+        <span>{{ tn(overview.health.warning, "{n} warning", "{n} warnings") }}</span>
       </div>
     </article>
     <article class="portal-overview-metric-card">
-      <div class="portal-overview-metric-head"><i data-lucide="list-checks" class="w-4 h-4"></i><span>Active</span></div>
+      <div class="portal-overview-metric-head"><i data-lucide="list-checks" class="w-4 h-4"></i><span>{{ t("Active") }}</span></div>
       <strong>{{ overview.active }}</strong>
-      <div>{{ overview.total }} total · {{ overview.attention }} attention</div>
+      <div>{{ t("{total} total · {attention} attention", total=overview.total, attention=overview.attention) }}</div>
     </article>
     <article class="portal-overview-metric-card">
-      <div class="portal-overview-metric-head"><i data-lucide="circle-check" class="w-4 h-4"></i><span>Completed</span></div>
+      <div class="portal-overview-metric-head"><i data-lucide="circle-check" class="w-4 h-4"></i><span>{{ t("Completed") }}</span></div>
       <strong>{{ overview.done_24h }}</strong>
-      <div>Done in the last 24 hours</div>
+      <div>{{ t("Done in the last 24 hours") }}</div>
     </article>
     <article class="portal-overview-metric-card">
-      <div class="portal-overview-metric-head"><i data-lucide="triangle-alert" class="w-4 h-4"></i><span>Failed</span></div>
+      <div class="portal-overview-metric-head"><i data-lucide="triangle-alert" class="w-4 h-4"></i><span>{{ t("Failed") }}</span></div>
       <strong>{{ overview.failed_24h }}</strong>
-      <div>Failed in the last 24 hours</div>
+      <div>{{ t("Failed in the last 24 hours") }}</div>
     </article>
   </section>
 
-  <section class="portal-overview-distribution-grid is-two-column" aria-label="Task operations">
+  <section class="portal-overview-distribution-grid is-two-column" aria-label="{{ t('Task operations') }}">
     <article class="portal-overview-distribution-card">
-      <div class="portal-overview-panel-head"><h3>Task Mix</h3><span>{{ overview.total }} total</span></div>
+      <div class="portal-overview-panel-head"><h3>{{ t("Task Mix") }}</h3><span>{{ t("{n} total", n=overview.total) }}</span></div>
       <div class="portal-overview-segment-stack">
         {% for segment in overview.segments %}
         <div class="portal-overview-segment-row">
@@ -45,13 +45,13 @@
           <strong>{{ segment.count }}</strong>
         </div>
         {% else %}
-        <div class="portal-panel-empty">No task activity.</div>
+        <div class="portal-panel-empty">{{ t("No task activity.") }}</div>
         {% endfor %}
       </div>
     </article>
 
     <article class="portal-overview-panel portal-overview-attention">
-      <div class="portal-overview-panel-head"><h3>Needs Attention</h3><span>{{ overview.priority_items|length }} items</span></div>
+      <div class="portal-overview-panel-head"><h3>{{ t("Needs Attention") }}</h3><span>{{ tn(overview.priority_items|length, "{n} item", "{n} items") }}</span></div>
       <div class="portal-overview-list">
         {% for item in overview.priority_items %}
         <button class="portal-overview-row is-{{ item.tone }}" type="button" data-open-task-main="{{ item.target_id }}">
@@ -59,7 +59,7 @@
           <span><strong>{{ item.title }}</strong><small>{{ item.meta }}</small></span>
         </button>
         {% else %}
-        <div class="portal-panel-empty">No tasks need attention right now.</div>
+        <div class="portal-panel-empty">{{ t("No tasks need attention right now.") }}</div>
         {% endfor %}
       </div>
     </article>
@@ -67,28 +67,28 @@
 
   <section class="portal-overview-grid">
     <article class="portal-overview-panel">
-      <div class="portal-overview-panel-head"><h3>Assistant Workload</h3><span>{{ overview.workload|length }} assistants</span></div>
+      <div class="portal-overview-panel-head"><h3>{{ t("Assistant Workload") }}</h3><span>{{ tn(overview.workload|length, "{n} assistant", "{n} assistants") }}</span></div>
       <div class="portal-overview-table">
         {% for row in overview.workload %}
         <button class="portal-overview-workload-row" type="button" data-open-overview-agent="{{ row.agent_id }}">
           <span class="portal-row-status-dot is-{{ row.status_tone }}" aria-hidden="true"></span>
           <span class="portal-overview-workload-name">{{ row.agent_name }}</span>
-          <span>{{ row.running_tasks }} running</span>
-          <span>{{ row.queued_tasks }} queued</span>
-          <span>{{ row.attention_tasks }} attention</span>
+          <span>{{ t("{n} running", n=row.running_tasks) }}</span>
+          <span>{{ t("{n} queued", n=row.queued_tasks) }}</span>
+          <span>{{ t("{n} attention", n=row.attention_tasks) }}</span>
           <div class="portal-overview-workload-meter" aria-hidden="true">
             <i class="is-success" style="width: {{ row.active_percent }}%"></i>
             <i class="is-error" style="width: {{ row.attention_percent }}%"></i>
           </div>
         </button>
         {% else %}
-        <div class="portal-panel-empty">No assistants available.</div>
+        <div class="portal-panel-empty">{{ t("No assistants available.") }}</div>
         {% endfor %}
       </div>
     </article>
 
     <article class="portal-overview-panel portal-overview-activity">
-      <div class="portal-overview-panel-head"><h3>Recent Task Activity</h3><span>{{ overview.recent_activity|length }} events</span></div>
+      <div class="portal-overview-panel-head"><h3>{{ t("Recent Task Activity") }}</h3><span>{{ tn(overview.recent_activity|length, "{n} event", "{n} events") }}</span></div>
       <div class="portal-overview-timeline">
         {% for item in overview.recent_activity %}
         <button class="portal-overview-timeline-row is-{{ item.tone }}" type="button" data-open-task-main="{{ item.target_id }}">
@@ -96,21 +96,21 @@
           <span><strong>{{ item.title }}</strong><small>{{ item.meta }}</small></span>
         </button>
         {% else %}
-        <div class="portal-panel-empty">No recent task activity.</div>
+        <div class="portal-panel-empty">{{ t("No recent task activity.") }}</div>
         {% endfor %}
       </div>
     </article>
   </section>
 
   <section class="portal-task-history-section">
-    <div class="portal-overview-panel-head"><h3>Recent Tasks</h3><span>{{ tasks|length }} shown</span></div>
-    <div class="portal-task-summary-strip" aria-label="Task status summary">
-      <div class="portal-task-summary-item"><span>Queued</span><strong>{{ summary.queued }}</strong></div>
-      <div class="portal-task-summary-item"><span>Running</span><strong>{{ summary.running }}</strong></div>
-      <div class="portal-task-summary-item"><span>Done</span><strong>{{ summary.done }}</strong></div>
-      <div class="portal-task-summary-item"><span>Blocked</span><strong>{{ summary.blocked }}</strong></div>
-      <div class="portal-task-summary-item"><span>Failed</span><strong>{{ summary.failed }}</strong></div>
-      <div class="portal-task-summary-item"><span>Cancelled</span><strong>{{ summary.cancelled }}</strong></div>
+    <div class="portal-overview-panel-head"><h3>{{ t("Recent Tasks") }}</h3><span>{{ t("{n} shown", n=tasks|length) }}</span></div>
+    <div class="portal-task-summary-strip" aria-label="{{ t('Task status summary') }}">
+      <div class="portal-task-summary-item"><span>{{ t("Queued") }}</span><strong>{{ summary.queued }}</strong></div>
+      <div class="portal-task-summary-item"><span>{{ t("Running") }}</span><strong>{{ summary.running }}</strong></div>
+      <div class="portal-task-summary-item"><span>{{ t("Done") }}</span><strong>{{ summary.done }}</strong></div>
+      <div class="portal-task-summary-item"><span>{{ t("Blocked") }}</span><strong>{{ summary.blocked }}</strong></div>
+      <div class="portal-task-summary-item"><span>{{ t("Failed") }}</span><strong>{{ summary.failed }}</strong></div>
+      <div class="portal-task-summary-item"><span>{{ t("Cancelled") }}</span><strong>{{ summary.cancelled }}</strong></div>
     </div>
     <div class="portal-task-card-list">{% include "partials/task_cards.html" %}</div>
   </section>

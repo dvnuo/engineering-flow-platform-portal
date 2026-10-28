@@ -24,6 +24,13 @@ back to it, so a new string ships in English until it is translated.
   stores one entry under the key `one file|{n} files`, which Chinese fills with a single form.
 - The first argument of `t()`/`tn()` is always a plain string literal: `scripts/i18n_check.py`
   extracts the keys from the source and cannot follow variables or template literals.
+- Data tables (a module-level dict in Python, a label table built at parse time in JavaScript):
+  mark each English string with `N_("AWS accounts")`, which returns it unchanged and only tells
+  the check script it is a key, and translate where the value is shown with `tv(value)`
+  (`{{ tv(value) }}` in a template). `tv()` passes values the catalogue does not know (ids,
+  URLs, names) through unchanged. A table that tests parse as JSON can stay plain English
+  when the same strings are wrapped with `t()` somewhere else (the server template it
+  mirrors): the keys exist, and the display code uses `tv()`.
 - Text the Portal sends to the model ("Continue", the attachment placeholder, task
   instructions) stays in English and is not wrapped.
 - The catalogues and `app/help/<locale>/` are the only places where Chinese may appear in
