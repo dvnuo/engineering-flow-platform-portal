@@ -22,7 +22,7 @@ def _hint_patterns() -> list[tuple[str, str]]:
     js = _chat_ui()
     block = js[js.index("const COMPLETION_FAILURE_HINTS = ["):]
     block = block[: block.index("\n];")]
-    return re.findall(r"match:\s*/(.+?)/i,\s*\n\s*headline:\s*\"(.+?)\"", block)
+    return re.findall(r"match:\s*/(.+?)/i,\s*\n\s*headline:\s*t\(\"(.+?)\"\)", block)
 
 
 def _matches(reason: str) -> list[str]:
@@ -100,8 +100,8 @@ def test_every_hint_has_both_a_headline_and_an_action():
     block = js[js.index("const COMPLETION_FAILURE_HINTS = ["):]
     block = block[: block.index("\n];")]
 
-    headlines = re.findall(r"headline:\s*\"", block)
-    details = re.findall(r"detail:\s*\"", block)
+    headlines = re.findall(r"headline:\s*t\(\"", block)
+    details = re.findall(r"detail:\s*t\(\"", block)
     assert len(headlines) == len(details) >= 5
     # A headline without a next step leaves the reader exactly where they were.
     assert "detail:" in block

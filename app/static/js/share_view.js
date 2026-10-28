@@ -10,6 +10,10 @@
  * deliberately does not load chat_ui.js, which binds the app shell at load;
  * the small renderer here is the price of a page that works on its own.
  *
+ * Its labels are English keys through t() (app/static/js/i18n.js, which
+ * base.html loads ahead of this script with the viewer's catalogue); the
+ * transcript itself stays in whatever language the session was in.
+ *
  * The page is live: Refresh reloads the transcript, and while the session
  * reports a run in progress it refreshes itself every 30 s while visible. A
  * refresh that brings the same transcript back leaves the DOM alone, so the
@@ -181,7 +185,7 @@
 
   function fileBlockName(block) {
     var path = String(block.path || block.file_path || block.workspace_path || "");
-    return { path: path, name: String(block.name || block.filename || path.split("/").filter(Boolean).pop() || "file") };
+    return { path: path, name: String(block.name || block.filename || path.split("/").filter(Boolean).pop() || t("file")) };
   }
 
   function renderFileBlock(block) {
@@ -209,7 +213,7 @@
         + "<div class=\"message-callout-content\">" + renderMarkdown(blockText(block)) + "</div></div></section>";
     }
     if (type === "tool_result") {
-      var resultTitle = String(block.title || "Tool result");
+      var resultTitle = String(block.title || t("Tool result"));
       var status = String(block.status || "").toLowerCase().replace(/[^a-z_]/g, "");
       return "<section class=\"message-block\"><details class=\"message-tool-result share-tool-result" + (status ? " is-" + status : "") + "\">"
         + "<summary class=\"message-tool-result-title\">" + escapeHtml(resultTitle) + "</summary>"
@@ -279,7 +283,7 @@
     if (!Array.isArray(attachments) || !attachments.length) return "";
     var token = page.dataset.shareToken;
     var items = attachments.map(function (attachment) {
-      var name = String(attachment.name || attachment.file_id || "attachment");
+      var name = String(attachment.name || attachment.file_id || t("attachment"));
       if (attachment.type === "image" && attachment.file_id) {
         var src = "/share/" + encodeURIComponent(token) + "/files/" + encodeURIComponent(attachment.file_id);
         return "<a class=\"share-attachment-image\" href=\"" + escapeHtml(src) + "\" target=\"_blank\" rel=\"noopener\"><img class=\"message-attachment-thumb\" src=\"" + escapeHtml(src) + "\" alt=\"" + escapeHtml(name) + "\" loading=\"lazy\" /></a>";
@@ -300,17 +304,17 @@
     return "<div class=\"share-msg-meta\">" + avatar
       + "<span class=\"share-msg-author\">" + escapeHtml(author) + "</span>"
       + (when ? "<time>" + escapeHtml(when) + "</time>" : "")
-      + (extra && extra.model ? "<span class=\"share-model\" title=\"Model that answered\">" + escapeHtml(extra.model) + "</span>" : "")
+      + (extra && extra.model ? "<span class=\"share-model\" title=\"" + escapeHtml(t("Model that answered")) + "\">" + escapeHtml(extra.model) + "</span>" : "")
       + "</div>";
   }
 
   function renderEntries(entries) {
-    var assistantName = page.dataset.assistantName || "Assistant";
+    var assistantName = page.dataset.assistantName || t("Assistant");
     return entries.map(function (entry) {
       if (entry.type === "user") {
         var user = entry.message;
         return "<section class=\"share-msg share-msg--user share-question\" id=\"q-" + entry.index + "\">"
-          + metaHtml(user.author || "User", formatTime(user.timestamp))
+          + metaHtml(user.author || t("User"), formatTime(user.timestamp))
           + "<div class=\"share-bubble\"><div class=\"share-bubble-text\">" + escapeHtml(user.markdown || "") + "</div>"
           + attachmentsHtml(user.attachments) + "</div></section>";
       }
@@ -318,11 +322,11 @@
         var answer = entry.message;
         var pairs = Array.isArray(answer.pairs) ? answer.pairs : [];
         return "<section class=\"share-msg share-msg--user share-answer\">"
-          + metaHtml(answer.author || "User", formatTime(answer.timestamp))
+          + metaHtml(answer.author || t("User"), formatTime(answer.timestamp))
           + "<div class=\"share-bubble share-bubble--answer\">"
-          + "<div class=\"share-answer-note\"><i data-lucide=\"circle-check\" class=\"share-icon\" aria-hidden=\"true\"></i>Answered the assistant's question</div>"
+          + "<div class=\"share-answer-note\"><i data-lucide=\"circle-check\" class=\"share-icon\" aria-hidden=\"true\"></i>" + escapeHtml(t("Answered the assistant's question")) + "</div>"
           + "<dl class=\"share-answer-pairs\">" + pairs.map(function (pair) {
-            return "<dt>" + escapeHtml(pair.label || "Answer") + "</dt><dd>" + escapeHtml(pair.value || "") + "</dd>";
+            return "<dt>" + escapeHtml(pair.label || t("Answer")) + "</dt><dd>" + escapeHtml(pair.value || "") + "</dd>";
           }).join("") + "</dl></div></section>";
       }
       if (entry.type === "tool") {
@@ -333,7 +337,7 @@
       }
       var first = entry.messages[0] || {};
       var last = entry.messages[entry.messages.length - 1] || first;
-      var markdown = entry.messages.map(function (m) { return String(m.markdown || ""); }).filter(function (t) { return t.trim(); }).join("\n\n");
+      var markdown = entry.messages.map(function (m) { return String(m.markdown || ""); }).filter(function (text) { return text.trim(); }).join("\n\n");
       var blocks = entry.messages.reduce(function (all, m) { return all.concat(Array.isArray(m.display_blocks) ? m.display_blocks : []); }, []);
       return "<section class=\"share-msg share-msg--assistant\">"
         + metaHtml(first.author || assistantName, formatTime(last.timestamp || first.timestamp), { avatar: true, model: String(last.model || first.model || "").trim() })
@@ -350,11 +354,11 @@
       return;
     }
     dom.toc.classList.remove("hidden");
-    dom.toc.innerHTML = "<div class=\"share-toc-title\">In this conversation</div><ol class=\"share-toc-list\">"
+    dom.toc.innerHTML = "<div class=\"share-toc-title\">" + escapeHtml(t("In this conversation")) + "</div><ol class=\"share-toc-list\">"
       + questions.map(function (entry) {
         var text = String(entry.message.markdown || "").replace(/\s+/g, " ").trim();
         if (text.length > 80) text = text.slice(0, 77).trim() + ELLIPSIS;
-        return "<li><a href=\"#q-" + entry.index + "\"><span class=\"share-toc-num\">" + entry.index + "</span><span>" + escapeHtml(text || "(attachment)") + "</span></a></li>";
+        return "<li><a href=\"#q-" + entry.index + "\"><span class=\"share-toc-num\">" + entry.index + "</span><span>" + escapeHtml(text || t("(attachment)")) + "</span></a></li>";
       }).join("") + "</ol>";
   }
 
@@ -394,12 +398,12 @@
       var copy = document.createElement("button");
       copy.type = "button";
       copy.className = "message-codeblock-copy";
-      copy.textContent = "Copy";
+      copy.textContent = t("Copy");
       copy.addEventListener("click", function () {
         copyToClipboard(code.textContent || "").then(function (ok) {
           if (!ok) return;
-          copy.textContent = "Copied";
-          setTimeout(function () { copy.textContent = "Copy"; }, 1400);
+          copy.textContent = t("Copied");
+          setTimeout(function () { copy.textContent = t("Copy"); }, 1400);
         });
       });
       toolbar.appendChild(lang);
@@ -508,20 +512,20 @@
     if (type === "file") {
       var file = fileBlockName(block);
       var description = blockText(block).trim();
-      return "File: " + file.name + (file.path && file.path !== file.name ? " (" + file.path + ")" : "") + (description ? " " + EM_DASH + " " + description : "");
+      return t("File: {name}", { name: file.name }) + (file.path && file.path !== file.name ? " (" + file.path + ")" : "") + (description ? " " + EM_DASH + " " + description : "");
     }
     return blockText(block).trim();
   }
 
   function transcriptAsMarkdown(data, includeTools) {
-    var lines = ["# " + String(data.title || "Shared session"), ""];
+    var lines = ["# " + String(data.title || t("Shared session")), ""];
     (data.messages || []).forEach(function (message) {
       if (isToolRow(message) && !includeTools) return;
-      var author = String(message.author || (message.role === "user" ? "User" : "Assistant"));
+      var author = String(message.author || (message.role === "user" ? t("User") : t("Assistant")));
       if (message.kind === "answer") {
-        lines.push("**" + author + "** answered:", "");
+        lines.push(t("{author} answered:", { author: "**" + author + "**" }), "");
         (message.pairs || []).forEach(function (pair) {
-          lines.push("- " + String(pair.label || "Answer") + ": " + String(pair.value || ""));
+          lines.push("- " + String(pair.label || t("Answer")) + ": " + String(pair.value || ""));
         });
         lines.push("");
         return;
@@ -534,7 +538,7 @@
         if (body) lines.push("", body);
       });
       var names = (message.attachments || []).map(function (a) { return a.name; }).filter(Boolean);
-      if (names.length) lines.push("", "Attachments: " + names.join(", "));
+      if (names.length) lines.push("", t("Attachments: {names}", { names: names.join(", ") }));
       lines.push("");
     });
     return lines.join("\n").replace(/\s+$/, "") + "\n";
@@ -548,18 +552,18 @@
   }
 
   function stateHtml(data) {
-    var owner = data.owner_display_name || "the owner";
+    var owner = data.owner_display_name || t("the owner");
     if (data.status === "assistant_stopped") {
-      return stateCard("moon", "The assistant that owns this session is not running.", "Ask " + owner + " to start it, then use Refresh. Nothing here starts it.");
+      return stateCard("moon", t("The assistant that owns this session is not running."), t("Ask {owner} to start it, then use Refresh. Nothing here starts it.", { owner: owner }));
     }
     if (data.status === "session_missing") {
-      return stateCard("file-x", "This session is gone.", "It was deleted on the assistant, or it expired.");
+      return stateCard("file-x", t("This session is gone."), t("It was deleted on the assistant, or it expired."));
     }
     if (data.status === "runtime_unreachable") {
-      return stateCard("cloud-off", data.error || "The assistant did not answer.", "Try Refresh in a moment.");
+      return stateCard("cloud-off", data.error || t("The assistant did not answer."), t("Try Refresh in a moment."));
     }
     if (!data.messages || !data.messages.length) {
-      return stateCard("message-square", "No messages yet.", "The conversation shows up here once it starts.");
+      return stateCard("message-square", t("No messages yet."), t("The conversation shows up here once it starts."));
     }
     return "";
   }
@@ -587,10 +591,10 @@
   function render() {
     var data = state.data;
     if (!data || !dom.transcript) return;
-    var title = String(data.title || "Shared session");
+    var title = String(data.title || t("Shared session"));
     if (dom.title) dom.title.textContent = title;
-    document.title = title + " " + MIDDLE_DOT + " Shared session";
-    if (dom.loadedAt) dom.loadedAt.textContent = "Updated " + formatTime(data.loaded_at);
+    document.title = title + " " + MIDDLE_DOT + " " + t("Shared session");
+    if (dom.loadedAt) dom.loadedAt.textContent = t("Updated {time}", { time: formatTime(data.loaded_at) });
     if (dom.running) dom.running.classList.toggle("hidden", !data.running);
     if (dom.openPortal) {
       var canOpen = Boolean(data.can_open_in_portal && data.portal_url);
@@ -647,7 +651,7 @@
         }
         if (response.status === 404) {
           if (dom.transcript) {
-            dom.transcript.innerHTML = stateCard("link-2-off", "This link is no longer available.", "It was turned off, or the session was deleted.");
+            dom.transcript.innerHTML = stateCard("link-2-off", t("This link is no longer available."), t("It was turned off, or the session was deleted."));
             renderIcons();
           }
           return null;
@@ -662,7 +666,7 @@
       })
       .catch(function () {
         if (dom.transcript && !state.data) {
-          dom.transcript.innerHTML = stateCard("wifi-off", "The conversation could not be loaded.", "Check your connection and use Refresh.");
+          dom.transcript.innerHTML = stateCard("wifi-off", t("The conversation could not be loaded."), t("Check your connection and use Refresh."));
           renderIcons();
         }
       })
@@ -680,8 +684,8 @@
       copyToClipboard(transcriptAsMarkdown(state.data, Boolean(dom.showTools && dom.showTools.checked))).then(function (ok) {
         var label = dom.copyMarkdown.querySelector("span");
         if (!label) return;
-        label.textContent = ok ? "Copied" : "Copy failed";
-        setTimeout(function () { label.textContent = "Copy as Markdown"; }, 1600);
+        label.textContent = ok ? t("Copied") : t("Copy failed");
+        setTimeout(function () { label.textContent = t("Copy as Markdown"); }, 1600);
       });
     });
   }

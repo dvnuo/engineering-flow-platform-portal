@@ -3,7 +3,8 @@
 <link rel="stylesheet" href="{{ static_url('css/share.css') }}" />
 {% endblock %}
 {# A page without the app shell: no htmx, Alpine, dialogs or tooltips, only
-   what share_view.js renders with (markdown-it, highlight.js, lucide). #}
+   what share_view.js renders with (markdown-it, highlight.js, lucide). The
+   viewer's catalogue and t() come from base.html (i18n.js) ahead of these. #}
 {% block head_scripts %}
 <script src="{{ static_url('lib/markdown-it.min.js') }}"></script>
 <script src="{{ static_url('js/markdown_cjk_friendly.js') }}"></script>
@@ -18,7 +19,7 @@
         <span class="share-brand-mark" aria-hidden="true"><i data-lucide="sparkles" class="share-icon"></i></span>
         <span class="share-brand-name">Engineering Flow Platform</span>
       </a>
-      <span class="share-pill"><i data-lucide="eye" class="share-icon" aria-hidden="true"></i>Read only</span>
+      <span class="share-pill"><i data-lucide="eye" class="share-icon" aria-hidden="true"></i>{{ t("Read only") }}</span>
     </div>
   </header>
 
@@ -27,13 +28,13 @@
     <div class="share-missing-card">
       <span class="share-missing-icon" aria-hidden="true"><i data-lucide="link-2-off" class="share-icon"></i></span>
       <h1 id="share-title" class="share-missing-title">{{ title }}</h1>
-      <p class="share-missing-copy">The session behind this link is no longer shared, or it was deleted. Ask whoever sent it for a new link.</p>
-      <a class="share-btn share-btn--primary" href="/app">Open the Portal</a>
+      <p class="share-missing-copy">{{ t("The session behind this link is no longer shared, or it was deleted. Ask whoever sent it for a new link.") }}</p>
+      <a class="share-btn share-btn--primary" href="/app">{{ t("Open the Portal") }}</a>
     </div>
   </main>
   {% else %}
   <div class="share-shell">
-    <aside class="share-aside" aria-label="Questions in this session">
+    <aside class="share-aside" aria-label="{{ t('Questions in this session') }}">
       <nav id="share-toc" class="share-toc hidden"></nav>
     </aside>
     <div class="share-column">
@@ -44,35 +45,38 @@
             <span class="share-avatar" aria-hidden="true">{{ (assistant_name or "A")[:1] | upper }}</span>
             <strong>{{ assistant_name }}</strong>
           </span>
-          <span class="share-meta-item">Shared by <strong>{{ owner_display_name }}</strong></span>
-          <span class="share-meta-item" id="share-loaded-at">Loading&hellip;</span>
-          <span class="share-meta-item share-running hidden" id="share-running">The assistant is still working</span>
+          {#- The owner's name keeps its emphasis inside the translated sentence:
+              the block escapes the name, so the filled sentence is safe to output. -#}
+          {% set owner_html %}<strong>{{ owner_display_name }}</strong>{% endset %}
+          <span class="share-meta-item">{{ t("Shared by {name}", name=owner_html)|safe }}</span>
+          <span class="share-meta-item" id="share-loaded-at">{{ t("Loading…") }}</span>
+          <span class="share-meta-item share-running hidden" id="share-running">{{ t("The assistant is still working") }}</span>
         </div>
         <div class="share-toolbar">
           <button type="button" id="share-refresh" class="share-btn">
             <i data-lucide="refresh-cw" class="share-icon" aria-hidden="true"></i>
-            <span>Refresh</span>
+            <span>{{ t("Refresh") }}</span>
           </button>
           <button type="button" id="share-copy-markdown" class="share-btn">
             <i data-lucide="copy" class="share-icon" aria-hidden="true"></i>
-            <span>Copy as Markdown</span>
+            <span>{{ t("Copy as Markdown") }}</span>
           </button>
           <label class="share-switch">
             <input type="checkbox" id="share-show-tools" />
             <span class="share-switch-track" aria-hidden="true"></span>
-            <span>Tool steps</span>
+            <span>{{ t("Tool steps") }}</span>
           </label>
           <a id="share-open-portal" class="share-btn share-btn--primary hidden" href="/app">
             <i data-lucide="external-link" class="share-icon" aria-hidden="true"></i>
-            <span>Open in Portal</span>
+            <span>{{ t("Open in Portal") }}</span>
           </a>
         </div>
       </section>
       <main id="share-transcript" class="share-transcript is-tools-hidden" aria-live="polite">
-        <div class="share-state"><span class="share-state-spinner" aria-hidden="true"></span>Loading the conversation&hellip;</div>
+        <div class="share-state"><span class="share-state-spinner" aria-hidden="true"></span>{{ t("Loading the conversation…") }}</div>
       </main>
       <footer class="share-footer">
-        A read-only view of a conversation with an assistant on Engineering Flow Platform. It shows the session as it is now; nobody can send messages from here.
+        {{ t("A read-only view of a conversation with an assistant on Engineering Flow Platform. It shows the session as it is now; nobody can send messages from here.") }}
       </footer>
     </div>
   </div>

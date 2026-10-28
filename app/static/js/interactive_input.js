@@ -107,7 +107,7 @@
     }
     if (!response.ok) {
       const detail = payload && (payload.error || payload.detail || payload.message);
-      throw new Error(typeof detail === "string" ? detail : `Request failed (${response.status})`);
+      throw new Error(typeof detail === "string" ? detail : t("Request failed ({status})", { status: response.status }));
     }
     return payload;
   }
@@ -207,7 +207,7 @@
           ? `
       <div class="portal-question-custom${customAlways ? "" : " hidden"}" data-question-custom>
         <textarea class="portal-form-input portal-question-textarea" data-question-custom-input
-                  rows="1" placeholder="Type your answer"
+                  rows="1" placeholder="${t("Type your answer")}"
                   aria-labelledby="${questionId(index)}"
                   ${!optionsAreTheAnswer && loneOptionHint(question, index) ? `aria-describedby="${hintId(index)}"` : ""}
                   ${customAlways ? "" : "disabled"}></textarea>
@@ -215,7 +215,7 @@
       ${
         customAlways
           ? ""
-          : `<button type="button" class="portal-question-other-btn" data-question-other-toggle>Something else…</button>`
+          : `<button type="button" class="portal-question-other-btn" data-question-other-toggle>${t("Something else…")}</button>`
       }`
           : ""
       }
@@ -230,14 +230,14 @@
           data-request-id="${esc(questionRequestId(request))}">
       <div class="portal-interactive-head">
         <i data-lucide="message-circle-question" class="w-4 h-4"></i>
-        <span>${questions.length > 1 ? "The assistant needs a few details" : "The assistant needs a detail"}</span>
+        <span>${questions.length > 1 ? t("The assistant needs a few details") : t("The assistant needs a detail")}</span>
       </div>
       <div class="portal-interactive-body">
         ${questions.map(questionMarkup).join("")}
       </div>
       <div class="portal-interactive-actions">
-        <span class="portal-interactive-hint">Your answer continues the run.</span>
-        <button type="submit" class="portal-btn is-primary" data-interactive-submit>Send answer</button>
+        <span class="portal-interactive-hint">${t("Your answer continues the run.")}</span>
+        <button type="submit" class="portal-btn is-primary" data-interactive-submit>${t("Send answer")}</button>
       </div>
       <p class="portal-interactive-msg" data-interactive-msg></p>
     </form>`;
@@ -254,26 +254,27 @@
         preview = String(args);
       }
     }
+    const tool = `<strong>${esc(toolName || t("a tool"))}</strong>`;
     return `
     <form class="portal-interactive-card is-permission" data-interactive-kind="permission"
           data-request-id="${esc(questionRequestId(request))}">
       <div class="portal-interactive-head">
         <i data-lucide="shield-question" class="w-4 h-4"></i>
-        <span>Approval needed</span>
+        <span>${t("Approval needed")}</span>
       </div>
       <div class="portal-interactive-body">
         <p class="portal-question-text">
-          The assistant wants to run <strong>${esc(toolName || "a tool")}</strong>.
+          ${t("The assistant wants to run {tool}.", { tool })}
         </p>
         ${preview ? `<pre class="portal-panel-pre portal-interactive-preview">${esc(preview.slice(0, 2000))}</pre>` : ""}
         <label class="portal-checkbox-row">
           <input type="checkbox" data-permission-always />
-          <span>Don't ask again for this tool in this assistant</span>
+          <span>${t("Don't ask again for this tool in this assistant")}</span>
         </label>
       </div>
       <div class="portal-interactive-actions">
-        <button type="button" class="portal-btn" data-permission-decision="deny">Reject</button>
-        <button type="button" class="portal-btn is-primary" data-permission-decision="approve">Approve</button>
+        <button type="button" class="portal-btn" data-permission-decision="deny">${t("Reject")}</button>
+        <button type="button" class="portal-btn is-primary" data-permission-decision="approve">${t("Approve")}</button>
       </div>
       <p class="portal-interactive-msg" data-interactive-msg></p>
     </form>`;
@@ -517,7 +518,7 @@
         answers.push(checked.value);
         continue;
       }
-      return { error: "Answer every question before sending." };
+      return { error: t("Answer every question before sending.") };
     }
     return { answers };
   }
@@ -579,7 +580,7 @@
   async function submitQuestion(form, override = null) {
     const agent = agentId();
     const session = sessionId();
-    if (!agent || !session) return setMessage(form, "error", "No active conversation to answer.");
+    if (!agent || !session) return setMessage(form, "error", t("No active conversation to answer."));
 
     // The composer supplies its own answer: it is one line for a card that may
     // have several fields, or none it could have typed into.
@@ -588,7 +589,7 @@
     const questions = normalizeQuestions(state.pending);
 
     setBusy(form, true);
-    setMessage(form, "", "Sending…");
+    setMessage(form, "", t("Sending…"));
     try {
       const result = await requestJson(
         `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/question/respond`,
@@ -604,7 +605,7 @@
       markResolved(state.pending);
       clearCard();
       followResumedRun(result);
-      if (typeof window.showToast === "function") window.showToast("Answer sent. Continuing…");
+      if (typeof window.showToast === "function") window.showToast(t("Answer sent. Continuing…"));
     } catch (error) {
       setBusy(form, false);
       setMessage(form, "error", error.message);
@@ -614,11 +615,11 @@
   async function submitPermission(form, decision) {
     const agent = agentId();
     const session = sessionId();
-    if (!agent || !session) return setMessage(form, "error", "No active conversation to answer.");
+    if (!agent || !session) return setMessage(form, "error", t("No active conversation to answer."));
 
     const always = Boolean(form.querySelector("[data-permission-always]")?.checked);
     setBusy(form, true);
-    setMessage(form, "", decision === "approve" ? "Approving…" : "Rejecting…");
+    setMessage(form, "", decision === "approve" ? t("Approving…") : t("Rejecting…"));
     try {
       const result = await requestJson(
         `/a/${encodeURIComponent(agent)}/api/sessions/${encodeURIComponent(session)}/permission/respond`,
@@ -632,7 +633,7 @@
       clearCard();
       followResumedRun(result);
       if (typeof window.showToast === "function") {
-        window.showToast(decision === "approve" ? "Approved. Continuing…" : "Rejected.");
+        window.showToast(decision === "approve" ? t("Approved. Continuing…") : t("Rejected."));
       }
     } catch (error) {
       setBusy(form, false);
@@ -776,7 +777,7 @@
     // wants approve or deny, and reading either out of prose is a guess nobody
     // should be making on the member's behalf.
     if (state.kind === "permission") {
-      return { acceptsText: false, reason: "Approve or reject the tool above to continue." };
+      return { acceptsText: false, reason: t("Approve or reject the tool above to continue.") };
     }
     // Every question can be answered in words. The runtime takes a shorter
     // answers array than there are questions and reports the rest as
@@ -787,12 +788,12 @@
     // answer box with the question out of sight is a guessing game.
     const asked = questions.length ? (questions[0].question || questions[0].header) : "";
     if (questions.length > 1) {
-      return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”. The other ${questions.length - 1} stay open.` };
+      return { acceptsText: true, reason: "", asked, note: t("Answering “{asked}”. The other {count} stay open.", { asked, count: questions.length - 1 }) };
     }
     if (questions.length === 1 && !questions[0].custom) {
-      return { acceptsText: true, reason: "", asked, note: `Answering “${asked}” in your own words.` };
+      return { acceptsText: true, reason: "", asked, note: t("Answering “{asked}” in your own words.", { asked }) };
     }
-    return { acceptsText: true, reason: "", asked, note: `Answering “${asked}”.` };
+    return { acceptsText: true, reason: "", asked, note: t("Answering “{asked}”.", { asked }) };
   };
 
   /**

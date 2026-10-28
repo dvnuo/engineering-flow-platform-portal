@@ -1636,7 +1636,7 @@ def test_history_user_author_fallback_is_not_current_viewer():
     source = _chat_ui_js_source()
     helper = _extract_js_function(source, "getHistoryMessageDisplayName")
 
-    assert 'if (isUser) return "User";' in helper
+    assert 'if (isUser) return t("User");' in helper
     assert "if (isUser) return getCurrentUserDisplayName();" not in helper
 
 

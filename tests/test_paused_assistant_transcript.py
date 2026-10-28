@@ -39,7 +39,7 @@ def test_the_generic_greeting_is_defined_once():
     js = _chat_ui()
 
     assert js.count("Welcome! Ask me anything.") == 1
-    assert 'const DEFAULT_WELCOME_MARKDOWN = "' in js
+    assert 'const DEFAULT_WELCOME_MARKDOWN = t("' in js
     assert "escapeHtmlAttr(DEFAULT_WELCOME_MARKDOWN)" in _extract_js_function(js, "defaultWelcomeMessage")
 
 
