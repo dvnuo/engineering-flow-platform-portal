@@ -2,6 +2,20 @@
 
 import re
 
+# Every first-party script may call the page's t()/tn() (app/static/js/i18n.js).
+# Extracted code runs in Node without the page, so each extraction is led by
+# an idempotent stand-in that returns the English key with its placeholders
+# filled, which is also what the page does on an English Portal. It is kept
+# short: some bundles go to `node -e` on the command line, which Windows caps.
+I18N_STUB = (
+    "globalThis.t??=(k,p)=>String(k).replace(/\\{(\\w+)\\}/g,(m,n)=>(p&&n in p)?String(p[n]):m);"
+    "globalThis.tn??=(c,o,r,p)=>globalThis.t(c===1?o:r,{n:c,...p});\n"
+)
+
+
+def _with_i18n_stub(code: str) -> str:
+    return I18N_STUB + code
+
 
 def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
     start_marker = f"// RUNTIME_EVENT_HELPER_START: {helper_name}"
@@ -12,7 +26,7 @@ def _extract_js_helper_block(js_text: str, helper_name: str) -> str:
     end = js_text.find(end_marker, start)
     if end < 0:
         raise AssertionError(f"Unable to find end marker for {helper_name} in chat_ui.js")
-    return js_text[start + len(start_marker):end].strip()
+    return _with_i18n_stub(js_text[start + len(start_marker):end].strip())
 
 
 def _extract_js_function(js_text: str, function_name: str) -> str:
@@ -106,7 +120,7 @@ def _extract_js_function(js_text: str, function_name: str) -> str:
         raise AssertionError(f"Unable to parse function {function_name} body start")
 
     body_end = _scan_to_matching(js_text, body_start, "{", "}")
-    return js_text[start:body_end + 1]
+    return _with_i18n_stub(js_text[start:body_end + 1])
 
 
 def _extract_render_chat_history_dependencies(js_text: str) -> str:

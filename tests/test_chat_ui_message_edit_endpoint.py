@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from _js_extract_helpers import _extract_js_function
+from _js_extract_helpers import I18N_STUB, _extract_js_function
 
 
 SRC = Path("app/static/js/chat_ui.js")
@@ -19,7 +19,7 @@ def _run_node(script: str) -> dict:
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed")
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin, "-e", I18N_STUB + script], capture_output=True, text=True, check=True)
     return json.loads(completed.stdout)
 
 

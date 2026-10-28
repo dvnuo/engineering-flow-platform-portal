@@ -1,11 +1,11 @@
 <!doctype html>
 {#- The page language: the member's resolved locale when the route passes one
-    (app.html, the share page), else what the browser asks for. <html lang> is
-    what makes browsers pick Simplified or Traditional glyph forms and the
-    matching CJK fonts (app.css), so it is set even before any string is
-    translated; data-locale and data-reply-language are what chat_ui.js reads
-    after a preference is saved. -#}
-{%- set page_locale = locale if (locale is defined and locale) else browser_locale(request) -%}
+    (app.html, the share page), else the request's (the member's preference
+    or the browser's, bound by app.main / app.web). <html lang> is what makes
+    browsers pick Simplified or Traditional glyph forms and the matching CJK
+    fonts (app.css); data-locale and data-reply-language are what chat_ui.js
+    reads after a preference is saved. -#}
+{%- set page_locale = locale if (locale is defined and locale) else current_locale() -%}
 <html lang="{{ page_locale }}" data-locale="{{ page_locale }}"{% if reply_language is defined and reply_language %} data-reply-language="{{ reply_language }}" data-reply-language-strict="{{ 'true' if reply_language_strict else 'false' }}"{% endif %}>
   <head>
     <meta charset="UTF-8" />
@@ -37,6 +37,12 @@
          <script> tag here (see renderMermaidDiagrams). -->
     <meta name="portal-mermaid-src" content="{{ static_url('lib/mermaid.min.js') }}" />
 
+
+    <!-- The page's catalogue (English pages carry none) and the t()/tn()
+         every first-party script calls (app/static/js/i18n.js): blocking,
+         and ahead of dialogs.js and chat_ui.js, which call t() at parse time. -->
+    <script>window.EFP_I18N = {{ i18n_bootstrap(page_locale)|safe }};</script>
+    <script src="{{ static_url('js/i18n.js') }}"></script>
 
     <!-- htmx, highlight.js and lucide are ~570KB together and were all
          render-blocking, but nothing needs them while the document parses:

@@ -140,7 +140,7 @@ def test_the_fallback_title_uses_the_renamed_term():
 
     assert '"Runtime Profiles"' not in body
     assert '"Connections"' not in body
-    assert 'dom.embedTitle.textContent = "Connectors"' in body
+    assert 'dom.embedTitle.textContent = t("Connectors")' in body
 
 
 # -------------------------------------------------------------- create modal

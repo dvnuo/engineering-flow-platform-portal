@@ -111,8 +111,8 @@ def test_status_line_localises_the_overview_timestamp():
     assert "function applyOverviewStatusLine()" in CHAT_JS
     assert "toLocaleString(" in CHAT_JS.split("function applyOverviewStatusLine()", 1)[1].split("\n}", 1)[0]
     # Falls back until the panel carrying the numbers has swapped in.
-    assert 'if (!applyOverviewStatusLine()) setChatStatus("Task health, workload, and recent activity");' in CHAT_JS
-    assert 'if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");' in CHAT_JS
+    assert 'if (!applyOverviewStatusLine()) setChatStatus(t("Task health, workload, and recent activity"));' in CHAT_JS
+    assert 'if (!applyOverviewStatusLine()) setChatStatus(t("Manage delegations"));' in CHAT_JS
 
 
 def test_long_titles_cannot_push_the_toolbar_out_of_the_header():

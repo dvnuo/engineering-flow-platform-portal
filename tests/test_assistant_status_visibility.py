@@ -100,9 +100,9 @@ def test_sidebar_row_has_a_status_label_and_pulses_while_in_transition():
     assert '${health.busy ? " is-pulsing" : ""}' in render
 
     health = _extract_js_function(CHAT_JS, "agentHealth")
-    assert 'label: "Restarting"' in health
-    assert 'label: "Starting"' in health
-    assert 'label: "Deleting"' in health
+    assert 'label: t("Restarting")' in health
+    assert 'label: t("Starting")' in health
+    assert 'label: t("Deleting")' in health
     # A locally noted "Restart requested" must not paint the row red while the
     # restart is in progress.
     assert "(lastError && !inTransition)" in health

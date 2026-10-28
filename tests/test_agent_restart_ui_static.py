@@ -18,7 +18,7 @@ def test_agent_restart_ui_waits_for_status_endpoint_before_completed_message():
     assert "Restarting assistant" in action_fn
     assert "`/api/agents/${encodeURIComponent(agentId)}/status`" in poll_fn
     assert 'if (status === "running")' in poll_fn
-    assert 'setChatStatus("Assistant restart completed.")' in poll_fn
+    assert 'setChatStatus(t("Assistant restart completed."))' in poll_fn
     assert "loadSessionForAgent(lifecycle.agentId" not in action_fn
     assert "loadSessionForAgent(agentId, chatState.sessionId" in poll_fn
     restart_surface = "\n".join([action_fn, poll_fn])

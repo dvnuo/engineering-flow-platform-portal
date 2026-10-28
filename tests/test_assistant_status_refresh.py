@@ -207,7 +207,7 @@ def test_lifecycle_actions_show_their_transition_immediately_and_revert_on_failu
     assert 'if (lifecycleAction === "stop") applyLocalAgentStatus(lifecycleAgentId, result?.status || "stopped"' in action_fn
 
     health = _extract_js_function(CHAT_JS, "agentHealth")
-    assert 'label: "Stopping"' in health
+    assert 'label: t("Stopping")' in health
     assert ".portal-agent-status-dot.status-stopping" in CSS
 
 

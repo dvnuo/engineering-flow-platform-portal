@@ -107,7 +107,8 @@ from app.services.help_center import (
     topics_by_group as help_topics_by_group,
 )
 from app.services.member_avatar import avatar_initials, avatar_photo_url
-from app.services.locale_service import locale_preferences_for_user, resolve_locale_for_request
+from app.services.locale_service import locale_preferences_for_user, resolve_locale_for_request, resolve_locale_for_user
+from app.i18n import bind_locale, t, template_globals
 from app.services.git_branch_cache import cached_branches_for
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import (
@@ -203,18 +204,9 @@ def copilot_enterprise_sso_url() -> str:
 
 
 templates.env.globals['copilot_enterprise_sso_url'] = copilot_enterprise_sso_url
-
-
-def browser_locale(request: Request) -> str:
-    """The page language for a request with no member behind it (login, share links).
-
-    Pages a signed-in member sees pass their resolved ``locale`` explicitly;
-    base.html falls back to this, which reads only ``Accept-Language``.
-    """
-    return resolve_locale_for_request(request).ui_locale
-
-
-templates.env.globals['browser_locale'] = browser_locale
+# t(), tn(), current_locale() and i18n_bootstrap(): the request's language,
+# bound by the middleware in app.main and by _session_user_access below.
+templates.env.globals.update(template_globals())
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
 k8s_service = K8sService()
@@ -237,6 +229,9 @@ def _session_user_access(request: Request):
         user = UserRepository(db).get_by_id(user_id)
         if not user:
             return None, "invalid_session"
+        # The member is known from here on: what this request renders follows
+        # their saved language rather than the browser's (app/i18n.py).
+        bind_locale(resolve_locale_for_user(user, request.headers.get("accept-language")).ui_locale)
         if not UserAllowlistRepository(db).get_active_by_username(user.username):
             return user, "not_allowlisted"
         return user, None
@@ -2686,6 +2681,29 @@ def _enabled_runtime_types() -> tuple[str, ...]:
     return normalize_enabled_runtime_types(get_settings().enabled_runtime_types)
 
 
+def runtime_type_label(runtime_type: str) -> str:
+    """RUNTIME_TYPE_LABELS[runtime_type] in the request's language.
+
+    The keys are spelled out per marker because scripts/i18n_check.py reads
+    them from the source; tests pin them to the English constants, which
+    /api/agents/defaults keeps serving untranslated.
+    """
+    if runtime_type == "native":
+        return t("EFP Native Runtime")
+    if runtime_type == "opencode":
+        return t("OpenCode Runtime")
+    return RUNTIME_TYPE_LABELS.get(runtime_type, runtime_type)
+
+
+def runtime_type_description(runtime_type: str) -> str:
+    """RUNTIME_TYPE_DESCRIPTIONS[runtime_type] in the request's language (see runtime_type_label)."""
+    if runtime_type == "native":
+        return t("Use the native EFP Python runtime.")
+    if runtime_type == "opencode":
+        return t("Use the opencode runtime adapter.")
+    return RUNTIME_TYPE_DESCRIPTIONS.get(runtime_type, "")
+
+
 def _create_runtime_type_options() -> list[dict]:
     """Engine cards for the create-assistant wizard as first rendered, before
     /api/agents/defaults answers: only the markers this Portal offers, with the
@@ -2696,8 +2714,8 @@ def _create_runtime_type_options() -> list[dict]:
     return [
         {
             "value": marker,
-            "label": RUNTIME_TYPE_LABELS.get(marker, marker),
-            "description": RUNTIME_TYPE_DESCRIPTIONS.get(marker, ""),
+            "label": runtime_type_label(marker),
+            "description": runtime_type_description(marker),
             "checked": marker == preselected,
         }
         for marker in enabled
@@ -2717,7 +2735,7 @@ def app_page(request: Request):
         "app.html",
         {
             "request": request,
-            "title": "Engineering Portal",
+            "title": t("Engineering Portal"),
             "username": user.username,
             "nickname": user.nickname or user.username,
             "user_id": user.id,
@@ -2734,7 +2752,7 @@ def app_page(request: Request):
             # The account button at the bottom of the rail: the directory photo
             # when AVATAR_PHOTO_HOST is set, initials otherwise (and in the
             # browser when the photo request fails).
-            "role_label": "Administrator" if user.role == "admin" else "Member",
+            "role_label": t("Administrator") if user.role == "admin" else t("Member"),
             "avatar_url": avatar_photo_url(user.username, get_settings().avatar_photo_host),
             "avatar_initials": avatar_initials(user.nickname, user.username),
             # The help sub-menu is part of the shell, like the other nav lists,

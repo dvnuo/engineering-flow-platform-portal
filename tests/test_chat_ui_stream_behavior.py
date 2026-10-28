@@ -16,7 +16,8 @@ def _run_node(script: str) -> dict:
     if not node_bin:
         import pytest
         pytest.skip("node is not installed")
-    completed = subprocess.run([node_bin, "-e", script], check=True, capture_output=True, text=True)
+    # The script goes through stdin: with -e it exceeds the Windows command-line limit.
+    completed = subprocess.run([node_bin], input=script, check=True, capture_output=True, text=True)
     return json.loads(completed.stdout)
 
 

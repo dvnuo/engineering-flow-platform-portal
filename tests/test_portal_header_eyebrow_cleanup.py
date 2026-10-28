@@ -23,7 +23,7 @@ def test_js_no_longer_updates_removed_main_header_eyebrow():
 def test_my_space_section_renders_without_inner_eyebrow_title():
     js_source = _chat_ui_js_source()
 
-    assert 'renderSection("My Space", mine);' not in js_source
-    assert 'renderSection("My Space", mine, { showTitle: false });' in js_source
-    assert 'renderSection("Shared", shared);' in js_source
-    assert 'renderSection("Public", publicAgents);' in js_source
+    assert 'renderSection(t("My Space"), mine);' not in js_source
+    assert 'renderSection(t("My Space"), mine, { showTitle: false });' in js_source
+    assert 'renderSection(t("Shared"), shared);' in js_source
+    assert 'renderSection(t("Public"), publicAgents);' in js_source

@@ -444,7 +444,7 @@ def test_the_connector_page_links_the_browserstack_local_downloads():
 def test_recording_button_is_wired_into_the_tool_panel():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert 'id="btn-recording"' in html
-    assert '<span class="portal-header-action-label">Mobile testing</span>' in html
+    assert '<span class="portal-header-action-label">{{ t("Mobile testing") }}</span>' in html
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert '"recording",' in js[js.index("const ALLOWED_UTILITY_PANEL_KEYS"): js.index("]);", js.index("const ALLOWED_UTILITY_PANEL_KEYS"))]
     assert "window.EfpMobileTesting.openRecordingPanel" in js

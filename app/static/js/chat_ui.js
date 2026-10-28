@@ -126,7 +126,7 @@ if (dom.chatInput) {
     e.preventDefault();
 
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
 
@@ -189,28 +189,28 @@ function initialPortalRouteSectionFromHash(hash = window.location.hash) {
 const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
 
 function initialPortalSectionTitle(section) {
-  if (section === "tasks") return "Tasks";
-  if (section === "connectors") return "Connectors";
-  if (section === "delegations") return "Delegations";
-  if (section === "users") return "Administration";
-  if (section === "help") return "Help";
-  return "Assistants";
+  if (section === "tasks") return t("Tasks");
+  if (section === "connectors") return t("Connectors");
+  if (section === "delegations") return t("Delegations");
+  if (section === "users") return t("Administration");
+  if (section === "help") return t("Help");
+  return t("Assistants");
 }
 
 function initialPortalStatusText(section) {
-  if (section === "tasks") return "Task health, workload, and recent activity";
-  if (section === "connectors") return "Everything your assistants can connect to";
-  if (section === "delegations") return "Manage delegations";
-  if (section === "users") return "Manage members, roles, access, and usage";
-  if (section === "help") return "Guides for setting up and working with assistants";
-  return "Ready";
+  if (section === "tasks") return t("Task health, workload, and recent activity");
+  if (section === "connectors") return t("Everything your assistants can connect to");
+  if (section === "delegations") return t("Manage delegations");
+  if (section === "users") return t("Manage members, roles, access, and usage");
+  if (section === "help") return t("Guides for setting up and working with assistants");
+  return t("Ready");
 }
 
 // The eyebrow above the side pane's title: whose things the pane lists.
 function portalSectionEyebrow(section) {
-  if (section === "users" || section === "help") return "Portal";
-  if (section === "tasks" || section === "delegations") return "Workspace";
-  return "My Space";
+  if (section === "users" || section === "help") return t("Portal");
+  if (section === "tasks" || section === "delegations") return t("Workspace");
+  return t("My Space");
 }
 
 function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
@@ -278,7 +278,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   dom.workspaceDetailView?.classList.remove("hidden");
   if (dom.workspaceDetailContent) {
     dom.workspaceDetailContent.dataset.workspaceState = `${normalized}-initial-loading`;
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">Loading ${title.toLowerCase()}...</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading {section}...", { section: title.toLowerCase() })}</div>`;
   }
   if (dom.embedTitle) dom.embedTitle.textContent = title;
   if (dom.chatStatus) dom.chatStatus.textContent = initialPortalStatusText(normalized);
@@ -912,7 +912,7 @@ function shouldShowAbortChatRunButton(agentId) {
 
 function activeChatRequestMessage(agentId, actionLabel = "perform this action") {
   if (!hasActiveChatRequestForAgent(agentId)) return "";
-  return "This assistant is responding. Please wait for the current response to finish.";
+  return t("This assistant is responding. Please wait for the current response to finish.");
 }
 
 function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this action") {
@@ -928,13 +928,13 @@ function syncSelectedAgentChatActionControls() {
   const sessionsBtn = document.getElementById("btn-sessions");
   const contextBtn = dom.contextUsageBtn;
   if (!agentId) {
-    setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
-    setButtonDisabled(sessionsBtn, true, "Select an assistant first");
-    setButtonDisabled(contextBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.headerNewChatBtn, true, t("Select an assistant first"));
+    setButtonDisabled(sessionsBtn, true, t("Select an assistant first"));
+    setButtonDisabled(contextBtn, true, t("Select an assistant first"));
     // Details was the one header control left enabled with nothing to show.
-    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
-    if (dom.contextUsageLabel) dom.contextUsageLabel.textContent = "Context —";
-    setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.detailToggle, true, t("Select an assistant first"));
+    if (dom.contextUsageLabel) dom.contextUsageLabel.textContent = t("Context —");
+    setButtonDisabled(dom.homeStartChatBtn, true, t("Select an assistant first"));
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
     if (dom.abortChatRunBtn) {
       dom.abortChatRunBtn.classList.add("hidden");
@@ -959,8 +959,8 @@ function syncSelectedAgentChatActionControls() {
   const needsStart = status !== "running";
   const disabled = busy || needsStart;
   const title = busy
-    ? "This assistant is still working in the current session."
-    : "Start the assistant first";
+    ? t("This assistant is still working in the current session.")
+    : t("Start the assistant first");
 
   setButtonDisabled(dom.headerNewChatBtn, disabled, disabled ? title : "");
   setButtonDisabled(sessionsBtn, disabled, disabled ? title : "");
@@ -971,18 +971,18 @@ function syncSelectedAgentChatActionControls() {
   const contextTitle = busy
     ? title
     : !hasSession
-      ? "Start a conversation to inspect context usage"
+      ? t("Start a conversation to inspect context usage")
       : chatState?.compactingContext
-        ? "Compacting conversation…"
+        ? t("Compacting conversation…")
         : chatState?.contextUsageLoading
-          ? "Loading context usage…"
-          : "Context usage";
+          ? t("Loading context usage…")
+          : t("Context usage");
   setButtonDisabled(contextBtn, contextDisabled, contextTitle);
   syncContextUsageToolbar(chatState?.contextUsage);
   // A paused assistant can still be chatted with: New chat and Send start it
   // first (see prepareSelectedAssistantForSend).
   setButtonDisabled(dom.homeStartChatBtn, disabled && !wakeable, disabled && !wakeable ? title : "");
-  if (dom.homeStartChatBtn) dom.homeStartChatBtn.textContent = needsStart && wakeable ? "Start & chat" : "New Chat";
+  if (dom.homeStartChatBtn) dom.homeStartChatBtn.textContent = needsStart && wakeable ? t("Start & chat") : t("New Chat");
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = busy || (needsStart && !wakeable);
 }
 
@@ -1347,7 +1347,7 @@ function uploadTooLargeMessage(file) {
   if (!policy.maxUploadMb || !file || typeof file.size !== "number") return "";
   if (file.size <= policy.maxUploadMb * 1024 * 1024) return "";
   const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-  return `File too large: ${file.name} (${sizeMb} MB). Maximum size is ${policy.maxUploadMb}MB.`;
+  return t("File too large: {name} ({size} MB). Maximum size is {max}MB.", { name: file.name, size: sizeMb, max: policy.maxUploadMb });
 }
 
 function shouldAutoParseUploadedFile(pf, uploadedData) {
@@ -1367,7 +1367,7 @@ function shouldAutoParseUploadedFile(pf, uploadedData) {
 function uploadErrorMessageFromXhr(xhr) {
   // The Portal proxy answers with FastAPI {"detail"}; the runtime with
   // {"success": false, "error"}. Surface the words, not just the status.
-  const fallback = "HTTP " + xhr.status;
+  const fallback = t("HTTP {status}", { status: xhr.status });
   const raw = String(xhr.responseText || "").trim();
   if (!raw) return fallback;
   try {
@@ -1402,7 +1402,7 @@ async function parseUploadedPendingFile(pf, agentId, sessionId) {
   }
   const data = await response.json();
   if (data && typeof data === "object" && data.success === false) {
-    throw new Error(data.error || "Parse failed");
+    throw new Error(data.error || t("Parse failed"));
   }
   return data;
 }
@@ -1411,7 +1411,7 @@ function filterRuntimeSupportedUploads(files) {
   const accepted = [];
   for (const file of Array.from(files || [])) {
     if (!isRuntimeSupportedUpload(file)) {
-      showToast(`Unsupported file type: ${file?.name || "file"}. Supported: ${describeChatUploadPolicy()}.`, { variant: "error" });
+      showToast(t("Unsupported file type: {name}. Supported: {policy}.", { name: file?.name || t("file"), policy: describeChatUploadPolicy() }), { variant: "error" });
       continue;
     }
     const tooLarge = uploadTooLargeMessage(file);
@@ -1500,7 +1500,7 @@ async function addPendingFilesAndUpload(files) {
       const data = await uploadPendingFile(pf, agentId);
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
-      let uploadToastMessage = "File uploaded: " + file.name;
+      let uploadToastMessage = t("File uploaded: {name}", { name: file.name });
 
       // Store blob URL to file ID mapping
       if (pf.previewUrl && pf.file_id) {
@@ -1521,10 +1521,10 @@ async function addPendingFilesAndUpload(files) {
           renderInputPreview();
         } catch (parseError) {
           pf.status = "uploaded";
-          pf.parseError = parseError?.message || "Parse failed";
+          pf.parseError = parseError?.message || t("Parse failed");
           pf.error = "";
           pf.parseData = null;
-          uploadToastMessage = "File uploaded; text extraction unavailable: " + pf.parseError;
+          uploadToastMessage = t("File uploaded; text extraction unavailable: {error}", { error: pf.parseError });
           renderInputPreview();
         }
       } else {
@@ -1543,11 +1543,11 @@ async function addPendingFilesAndUpload(files) {
       ensureEventSocketForSelectedAgent();
     } catch (error) {
       pf.status = 'failed';
-      pf.error = error?.message || "Upload failed";
+      pf.error = error?.message || t("Upload failed");
       pf.parseError = "";
       pf.parseData = null;
       renderInputPreview();
-      showToast('Upload failed: ' + error.message, { variant: 'error' });
+      showToast(t("Upload failed: {error}", { error: error.message }), { variant: 'error' });
     }
   }
 }
@@ -1582,26 +1582,25 @@ function renderInputPreview() {
     if (pf.status === 'uploading') {
       const hasPct = typeof pf.uploadProgress === 'number';
       const pct = hasPct ? Math.max(0, Math.min(100, Math.round(pf.uploadProgress))) : 0;
-      const pctLabel = hasPct ? ` ${pct}%` : '';
-      statusBadge = `<span class="input-preview-badge is-uploading" title="Uploading${pctLabel}" aria-hidden="true">⏳</span>`;
+      statusBadge = `<span class="input-preview-badge is-uploading" title="${hasPct ? t("Uploading {pct}%", { pct }) : t("Uploading")}" aria-hidden="true">⏳</span>`;
       progressBar = `<div class="input-preview-progress" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(148,163,184,0.35);border-bottom-left-radius:inherit;border-bottom-right-radius:inherit;overflow:hidden;"><div style="height:100%;width:${pct}%;background:#3b82f6;transition:width .15s ease;"></div></div>`;
-      metaText = `Uploading…${pctLabel}`;
+      metaText = hasPct ? t("Uploading… {pct}%", { pct }) : t("Uploading…");
       cardState = 'is-uploading';
     } else if (pf.status === 'parsing') {
-      statusBadge = '<span class="input-preview-badge is-uploading" aria-hidden="true" title="Extracting text">🧠</span>';
-      metaText = 'Extracting text…';
+      statusBadge = `<span class="input-preview-badge is-uploading" aria-hidden="true" title="${t("Extracting text")}">🧠</span>`;
+      metaText = t("Extracting text…");
       cardState = 'is-parsing';
     } else if (pf.status === 'uploaded') {
       statusBadge = '<span class="input-preview-badge is-success" aria-hidden="true">✓</span>';
       metaText = [kind.label, sizeText].filter(Boolean).join(' · ');
       if (pf.parseError) {
-        metaText = `${metaText} · text not extracted`;
+        metaText = t("{meta} · text not extracted", { meta: metaText });
         tooltip = pf.parseError;
       }
       cardState = 'is-uploaded';
     } else if (pf.status === 'failed') {
       statusBadge = '<span class="input-preview-badge is-error" aria-hidden="true">✗</span>';
-      metaText = pf.error ? `Failed: ${pf.error}` : 'Upload failed';
+      metaText = pf.error ? t("Failed: {error}", { error: pf.error }) : t("Upload failed");
       tooltip = pf.error || '';
       cardState = 'is-failed';
     }
@@ -1615,7 +1614,7 @@ function renderInputPreview() {
     const safePreviewName = escapeHtmlAttr(name);
     const titleAttr = ` title="${escapeHtmlAttr(tooltip || name)}"`;
     const cardClass = `input-preview-card ${cardState}${hasThumb ? ' is-image' : ''}`;
-    return `<div class="${cardClass}" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}"${titleAttr}><span class="input-preview-visual">${visual}${statusBadge}</span><span class="input-preview-body"><span class="input-preview-name">${escapeHtml(name)}</span><span class="input-preview-meta">${escapeHtml(metaText)}</span></span><button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button>${progressBar}</div>`;
+    return `<div class="${cardClass}" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}"${titleAttr}><span class="input-preview-visual">${visual}${statusBadge}</span><span class="input-preview-body"><span class="input-preview-name">${escapeHtml(name)}</span><span class="input-preview-meta">${escapeHtml(metaText)}</span></span><button type="button" class="remove-btn" aria-label="${t("Remove attachment")}" data-remove-id="${safeId}">×</button>${progressBar}</div>`;
   }).join('');
   renderIcons(container);
 }
@@ -1624,7 +1623,7 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
   return new Promise((resolve, reject) => {
     // Check if already cancelled
     if (pf.cancelled) {
-      reject(new Error('Upload cancelled'));
+      reject(new Error(t("Upload cancelled")));
       return;
     }
 
@@ -1646,7 +1645,7 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
     xhr.addEventListener('load', () => {
       // Check if cancelled during upload
       if (pf.cancelled) {
-        reject(new Error('Upload cancelled'));
+        reject(new Error(t("Upload cancelled")));
         return;
       }
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -1659,11 +1658,11 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
             setBlobUrlMapping(pf.previewUrl, fileId);
           }
           resolve(data);
-        } catch { reject(new Error('Invalid response')); }
+        } catch { reject(new Error(t("Invalid response"))); }
       } else { reject(new Error(uploadErrorMessageFromXhr(xhr))); }
     });
-    xhr.addEventListener('error', () => { reject(new Error('Network error')); });
-    xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });
+    xhr.addEventListener('error', () => { reject(new Error(t("Network error"))); });
+    xhr.addEventListener('abort', () => { reject(new Error(t("Upload cancelled"))); });
     const sessionId = ensureChatSessionId(agentId);
     const url = `/a/${agentId}/api/files/upload?session_id=${encodeURIComponent(sessionId)}`;
     xhr.open('POST', url);
@@ -1829,12 +1828,12 @@ function getSelectedAgentStatus() {
 function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
   const agent = getSelectedAgent();
   if (!agent) {
-    showToast("Please select an assistant first");
+    showToast(t("Please select an assistant first"));
     return false;
   }
   const status = getSelectedAgentStatus();
   if (status !== "running") {
-    showToast(`${agent.name} is ${status}. Start it first.`);
+    showToast(t("{name} is {status}. Start it first.", { name: agent.name, status }));
     return false;
   }
   return true;
@@ -1869,7 +1868,7 @@ async function wakeSelectedAssistant(agentId = state.selectedAgentId) {
     const status = agentRuntimeStatus(agent);
     if (status === "running") return true;
     if (!canWakeSelectedAssistant(agent, status)) return false;
-    if (state.selectedAgentId === agentId) setChatStatus("Starting the assistant… your message will be sent when it is ready.");
+    if (state.selectedAgentId === agentId) setChatStatus(t("Starting the assistant… your message will be sent when it is ready."));
     if (status === "stopped") {
       await action(`/api/agents/${encodeURIComponent(agentId)}/start`);
     }
@@ -1882,7 +1881,7 @@ async function wakeSelectedAssistant(agentId = state.selectedAgentId) {
     return true;
   })()
     .catch((error) => {
-      const message = `Could not start the assistant: ${error?.message || "unknown error"}`;
+      const message = t("Could not start the assistant: {error}", { error: error?.message || t("unknown error") });
       showToast(message, { variant: "error" });
       if (state.selectedAgentId === agentId) setChatStatus(message, true);
       return false;
@@ -2058,7 +2057,7 @@ function updateChatInputPlaceholder() {
     : null;
   if (pendingIntent) {
     dom.chatInput.placeholder = pendingIntent.acceptsText
-      ? "Type your answer, or use the card above"
+      ? t("Type your answer, or use the card above")
       : pendingIntent.reason;
     return;
   }
@@ -2066,20 +2065,20 @@ function updateChatInputPlaceholder() {
   const maxPlaceholderAgentLength = 24;
   const assistantName = String(state.selectedAgentName || "").trim();
   if (!assistantName) {
-    dom.chatInput.placeholder = "Ask anything...";
+    dom.chatInput.placeholder = t("Ask anything...");
     return;
   }
   const status = getSelectedAgentStatus();
   if (status !== "running" && canWakeSelectedAssistant(getSelectedAgent(), status)) {
     dom.chatInput.placeholder = status === "stopped"
-      ? `Paused. Sending a message starts it first (about ${typicalStartSeconds()} seconds).`
-      : "Starting up. Your message is sent once it is ready.";
+      ? t("Paused. Sending a message starts it first (about {seconds} seconds).", { seconds: typicalStartSeconds() })
+      : t("Starting up. Your message is sent once it is ready.");
     return;
   }
   const displayName = assistantName.length > maxPlaceholderAgentLength
     ? `${assistantName.slice(0, maxPlaceholderAgentLength - 1)}…`
     : assistantName;
-  dom.chatInput.placeholder = `Ask ${displayName}`;
+  dom.chatInput.placeholder = t("Ask {name}", { name: displayName });
 }
 
 function syncChatInputHeight() {
@@ -2896,20 +2895,24 @@ function budgetPauseInfo(source) {
 function budgetPauseNoticeText(info) {
   if (!info) return "";
   if (info.reason === "iteration_cap") {
-    const steps = info.iterations != null ? `after ${Math.round(info.iterations)} steps` : "at the step limit";
-    const cap = info.iterationLimit != null ? ` (limit ${Math.round(info.iterationLimit)})` : "";
-    return `Paused ${steps}${cap}.`;
+    const steps = info.iterations != null ? Math.round(info.iterations) : null;
+    const stepLimit = info.iterationLimit != null ? Math.round(info.iterationLimit) : null;
+    if (steps != null && stepLimit != null) return t("Paused after {steps} steps (limit {limit}).", { steps, limit: stepLimit });
+    if (steps != null) return t("Paused after {steps} steps.", { steps });
+    if (stepLimit != null) return t("Paused at the step limit (limit {limit}).", { limit: stepLimit });
+    return t("Paused at the step limit.");
   }
   const credits = formatCredits(info.estimatedCredits) || "?";
   const limit = formatCredits(info.creditsLimit);
-  return `Paused at about ${credits} credits for this message${limit ? ` (limit ${limit})` : ""}.`;
+  if (limit) return t("Paused at about {credits} credits for this message (limit {limit}).", { credits, limit });
+  return t("Paused at about {credits} credits for this message.", { credits });
 }
 
 function buildBudgetPauseNoticeHtml(info) {
   const text = budgetPauseNoticeText(info);
   if (!text) return "";
-  const hint = 'Reply "Continue" to carry on.';
-  return `<div class="message-cost-notice" data-budget-pause="${escapeHtmlAttr(info.reason || "")}"><span>${escapeHtml(`${text} ${hint}`)}</span><button type="button" class="message-cost-notice-btn" data-budget-pause-continue>Continue</button></div>`;
+  const hint = t('Reply "Continue" to carry on.');
+  return `<div class="message-cost-notice" data-budget-pause="${escapeHtmlAttr(info.reason || "")}"><span>${escapeHtml(`${text} ${hint}`)}</span><button type="button" class="message-cost-notice-btn" data-budget-pause-continue>${t("Continue")}</button></div>`;
 }
 
 function applyBudgetPauseNotice(target, info) {
@@ -4974,7 +4977,7 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
       console.error("Portal chat event handler failed", error);
       const latestChatState = ensureChatState(agentId);
       if (latestChatState?.currentRequest) {
-        setChatStatus("Live event update failed. Waiting for the final response...", true);
+        setChatStatus(t("Live event update failed. Waiting for the final response..."), true);
       }
 
       syncSelectedAgentChatActionControls();
@@ -5036,17 +5039,17 @@ function computeRuntimeUiState(agent = {}, chatState = {}) {
 function runtimeUiStatusText(uiState = {}) {
   const runtimeHealth = uiState.normalizedRuntimeHealth || normalizeRuntimeHealthStatus(uiState.runtimeHealth);
   const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
-  if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
-  if (sessionStatus === "idle") return "Assistant online. Ready.";
-  if (sessionStatus === "busy") return "Assistant online. Response in progress.";
-  return "Assistant online. Session status unknown.";
+  if (runtimeHealth === "offline") return t("Runtime offline. Session status unknown.");
+  if (sessionStatus === "idle") return t("Assistant online. Ready.");
+  if (sessionStatus === "busy") return t("Assistant online. Response in progress.");
+  return t("Assistant online. Session status unknown.");
 }
 
 function renderRuntimeStateNotes(uiState = {}) {
   return `
-    <div class="portal-panel-note">Runtime: ${safe(uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown")}</div>
-    <div class="portal-panel-note">Session: ${safe(uiState.sessionStatus || "unknown")}</div>
-    <div class="portal-panel-note">Message: ${safe(uiState.messageProgress || "idle")}</div>
+    <div class="portal-panel-note">${safe(t("Runtime: {status}", { status: uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown" }))}</div>
+    <div class="portal-panel-note">${safe(t("Session: {status}", { status: uiState.sessionStatus || "unknown" }))}</div>
+    <div class="portal-panel-note">${safe(t("Message: {status}", { status: uiState.messageProgress || "idle" }))}</div>
   `;
 }
 
@@ -5151,7 +5154,7 @@ async function applyUiLocalePreference(preference) {
   } catch (error) {
     console.warn("Failed to save the language preference", error);
     markUiLocaleOption(previous);
-    showToast("Could not save the language preference", { variant: "error" });
+    showToast(t("Could not save the language preference"), { variant: "error" });
   }
 }
 
@@ -5166,7 +5169,7 @@ async function applyReplyLanguagePreference(preference) {
   } catch (error) {
     console.warn("Failed to save the reply language preference", error);
     select.value = previous;
-    showToast("Could not save the reply language preference", { variant: "error" });
+    showToast(t("Could not save the reply language preference"), { variant: "error" });
   }
 }
 
@@ -5215,9 +5218,9 @@ function setChatStatus(text, isError = false) {
   dom.chatStatus.dataset.messageProgress = uiState.messageProgress || "idle";
   const statusDetail = [
     runtimeSummary,
-    `Runtime: ${uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown"}`,
-    `Session: ${uiState.sessionStatus || "unknown"}`,
-    `Message: ${uiState.messageProgress || "idle"}`,
+    t("Runtime: {status}", { status: uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown" }),
+    t("Session: {status}", { status: uiState.sessionStatus || "unknown" }),
+    t("Message: {status}", { status: uiState.messageProgress || "idle" }),
   ];
   dom.chatStatus.title = statusDetail.join("\n");
   dom.chatStatus.setAttribute("aria-label", `${visibleStatusText}. ${statusDetail.join(". ")}`);
@@ -5574,7 +5577,7 @@ document.addEventListener("click", async (event) => {
   const text = source?.textContent || "";
 
   if (!text.trim()) {
-    showToast("Nothing to copy");
+    showToast(t("Nothing to copy"));
     return;
   }
 
@@ -5583,12 +5586,12 @@ document.addEventListener("click", async (event) => {
     const copied = await copyText(text);
     if (copied) {
       setDebugCopyButtonCopied(button);
-      showToast("Copied to clipboard");
+      showToast(t("Copied to clipboard"));
     } else {
-      showToast("Copy failed", { variant: 'error' });
+      showToast(t("Copy failed"), { variant: 'error' });
     }
   } catch (error) {
-    showToast("Copy failed", { variant: 'error' });
+    showToast(t("Copy failed"), { variant: 'error' });
   } finally {
     button.disabled = false;
   }
@@ -6382,7 +6385,7 @@ function toggleDiagramFullscreen() {
   }
   const request = box.requestFullscreen || box.webkitRequestFullscreen;
   if (typeof request !== "function") {
-    showToast("Full screen is not available in this browser");
+    showToast(t("Full screen is not available in this browser"));
     return;
   }
   // Browsers report a refusal either as a rejected promise or, in embedded
@@ -6393,7 +6396,7 @@ function toggleDiagramFullscreen() {
   } catch (error) {
     outcome = Promise.reject(error);
   }
-  outcome.catch(() => showToast("The browser blocked full screen", { variant: "error" }));
+  outcome.catch(() => showToast(t("The browser blocked full screen"), { variant: "error" }));
 }
 
 function portalSurfaceColor(theme) {
@@ -6465,11 +6468,11 @@ async function openDiagramInTab() {
     const { text } = await exportableDiagramSvg();
     const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml;charset=utf-8" }));
     const opened = window.open(url, "_blank", "noopener");
-    if (!opened) showToast("The browser blocked the new tab; allow pop-ups for Portal", { variant: "error" });
+    if (!opened) showToast(t("The browser blocked the new tab; allow pop-ups for Portal"), { variant: "error" });
     // The tab has loaded long before this; a later reload of it would need a fresh copy.
     window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
   } catch (error) {
-    showToast(`Could not open the diagram: ${diagramErrorSummary(error)}`, { variant: "error" });
+    showToast(t("Could not open the diagram: {error}", { error: diagramErrorSummary(error) }), { variant: "error" });
   }
 }
 
@@ -6520,18 +6523,18 @@ async function downloadDiagram(format) {
     if (format === "png") {
       // Some diagram types keep HTML labels, which taint the canvas; the SVG
       // still carries everything.
-      showToast(`PNG export failed (${diagramErrorSummary(error)}); downloading the SVG instead`, { variant: "error" });
+      showToast(t("PNG export failed ({error}); downloading the SVG instead", { error: diagramErrorSummary(error) }), { variant: "error" });
       downloadDiagram("svg");
       return;
     }
-    showToast(`Could not export the diagram: ${diagramErrorSummary(error)}`, { variant: "error" });
+    showToast(t("Could not export the diagram: {error}", { error: diagramErrorSummary(error) }), { variant: "error" });
   }
 }
 
 async function copyDiagramPng(button) {
   if (!diagramLightboxState) return;
   if (typeof ClipboardItem !== "function" || !navigator.clipboard?.write) {
-    showToast("This browser cannot copy images; download the PNG instead");
+    showToast(t("This browser cannot copy images; download the PNG instead"));
     return;
   }
   try {
@@ -6539,7 +6542,7 @@ async function copyDiagramPng(button) {
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
     if (button) flashCopied(button, "Copy PNG");
   } catch (error) {
-    showToast(`Could not copy the image: ${diagramErrorSummary(error)}`, { variant: "error" });
+    showToast(t("Could not copy the image: {error}", { error: diagramErrorSummary(error) }), { variant: "error" });
   }
 }
 
@@ -6755,7 +6758,7 @@ function toggleToolPanelPinned() {
   const wantsToPin = !state.toolPanelPinned;
   if (wantsToPin) {
     if (!isWideEnoughToPinToolPanel()) {
-      showToast("Pinning is available on wider screens.");
+      showToast(t("Pinning is available on wider screens."));
       return;
     }
     clampToolPanelWidthForPinned();
@@ -6783,7 +6786,7 @@ async function api(path, options = {}) {
 }
 
 async function handleErrorResponse(resp) {
-  const fallbackMessage = `Request failed (HTTP ${resp.status})`;
+  const fallbackMessage = t("Request failed (HTTP {status})", { status: resp.status });
   const contentType = resp.headers.get("content-type") || "";
   try {
     const rawText = await resp.text();
@@ -7275,8 +7278,8 @@ function agentHealth(agent) {
     return {
       key: "attention",
       tone: "error",
-      label: "Needs attention",
-      detail: lastError ? compactText(lastError, 120) : "The runtime reported an error.",
+      label: t("Needs attention"),
+      detail: lastError ? compactText(lastError, 120) : t("The runtime reported an error."),
       action: writable ? (status === "running" ? "Restart" : "Start") : "",
     };
   }
@@ -7284,8 +7287,8 @@ function agentHealth(agent) {
     return {
       key: "starting",
       tone: "warning",
-      label: "Restarting",
-      detail: "Runtime is restarting. Chat will be available soon.",
+      label: t("Restarting"),
+      detail: t("Runtime is restarting. Chat will be available soon."),
       action: "",
       busy: true,
     };
@@ -7294,8 +7297,8 @@ function agentHealth(agent) {
     return {
       key: "starting",
       tone: "warning",
-      label: "Starting",
-      detail: "Runtime is preparing. Chat will be available soon.",
+      label: t("Starting"),
+      detail: t("Runtime is preparing. Chat will be available soon."),
       action: "",
       busy: true,
     };
@@ -7304,8 +7307,8 @@ function agentHealth(agent) {
     return {
       key: "deleting",
       tone: "neutral",
-      label: "Deleting",
-      detail: "This assistant is being removed.",
+      label: t("Deleting"),
+      detail: t("This assistant is being removed."),
       action: "",
       busy: true,
     };
@@ -7314,8 +7317,8 @@ function agentHealth(agent) {
     return {
       key: "stopping",
       tone: "neutral",
-      label: "Stopping",
-      detail: "Pausing the runtime.",
+      label: t("Stopping"),
+      detail: t("Pausing the runtime."),
       action: "",
       busy: true,
     };
@@ -7326,8 +7329,8 @@ function agentHealth(agent) {
     return {
       key: "ready",
       tone: "warning",
-      label: "Restart to apply",
-      detail: "Your connector settings changed since this assistant started. Restart it when it is free to use them.",
+      label: t("Restart to apply"),
+      detail: t("Your connector settings changed since this assistant started. Restart it when it is free to use them."),
       action: writable ? "Restart" : "",
     };
   }
@@ -7335,25 +7338,25 @@ function agentHealth(agent) {
     return {
       key: "ready",
       tone: "success",
-      label: "Ready",
-      detail: "Ready to chat.",
+      label: t("Ready"),
+      detail: t("Ready to chat."),
       action: "",
     };
   }
   return {
     key: "stopped",
     tone: "neutral",
-    label: "Stopped",
-    detail: writable ? "Start this assistant when you need it." : "This assistant is not running.",
+    label: t("Stopped"),
+    detail: writable ? t("Start this assistant when you need it.") : t("This assistant is not running."),
     action: writable ? "Start" : "",
   };
 }
 
 function agentScopeLabel(agent) {
   const scope = agentScope(agent);
-  if (scope === "mine") return "Mine";
-  if (scope === "public") return "Public";
-  return `Shared by User ${agent?.owner_user_id ?? "-"}`;
+  if (scope === "mine") return t("Mine");
+  if (scope === "public") return t("Public");
+  return t("Shared by User {id}", { id: agent?.owner_user_id ?? "-" });
 }
 
 function agentMatchesFilters(agent) {
@@ -7393,7 +7396,7 @@ function syncAgentFilterControls(visibleCount = null) {
     const shown = visibleCount === null ? visibleAgents().length : visibleCount;
     const parts = [];
     if (filters.query) parts.push(`"${filters.query}"`);
-    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "assistant")}`;
+    dom.agentFilterSummary.textContent = parts.length ? t("{shown} of {total} shown · {filters}", { shown, total, filters: parts.join(", ") }) : tn(total, "{n} assistant", "{n} assistants");
   }
 }
 
@@ -7404,13 +7407,13 @@ function renderAgentList() {
   dom.mineList.innerHTML = "";
   syncAgentFilterControls();
   if (!state.mineAgents.length) {
-    dom.mineList.innerHTML = '<div class="portal-empty-note">No assistants</div>';
+    dom.mineList.innerHTML = `<div class="portal-empty-note">${t("No assistants")}</div>`;
     return;
   }
   const filteredAgents = visibleAgents();
   syncAgentFilterControls(filteredAgents.length);
   if (!filteredAgents.length) {
-    dom.mineList.innerHTML = `<div class="portal-empty-note">${hasActiveAgentFilters() ? "No assistants match these filters." : "No assistants"}</div>`;
+    dom.mineList.innerHTML = `<div class="portal-empty-note">${hasActiveAgentFilters() ? t("No assistants match these filters.") : t("No assistants")}</div>`;
     return;
   }
 
@@ -7439,16 +7442,16 @@ function renderAgentList() {
       row.dataset.agentId = agent.id;
       row.className = `portal-agent-row is-${safe(health.tone)}${isActive ? " is-active" : ""}`;
       if (isActive) row.setAttribute("aria-current", "true");
-      row.title = `${agent.name || "Assistant"}\nStatus: ${status}\n${health.detail}`;
-      row.setAttribute("aria-label", `${agent.name || "Assistant"}. Status ${status}. ${health.detail}`);
-      const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent))}</span>`;
+      row.title = `${agent.name || t("Assistant")}\n${t("Status: {status}", { status })}\n${health.detail}`;
+      row.setAttribute("aria-label", `${agent.name || t("Assistant")}. ${t("Status {status}", { status })}. ${health.detail}`);
+      const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent) === "public" ? t("public") : t("shared"))}</span>`;
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
-      if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
+      if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = `<span class="portal-agent-chat-badge is-running">${t("running")}</span>`;
       const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
       const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       const rowBadges = `${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}`;
-      const statusLabel = `Status: ${status}`;
+      const statusLabel = t("Status: {status}", { status });
       const dotClass = `portal-agent-status-dot status-${safe(status)}${health.busy ? " is-pulsing" : ""}`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
@@ -7465,9 +7468,9 @@ function renderAgentList() {
     dom.mineList.append(section);
   };
 
-  renderSection("My Space", mine, { showTitle: false });
-  renderSection("Shared", shared);
-  renderSection("Public", publicAgents);
+  renderSection(t("My Space"), mine, { showTitle: false });
+  renderSection(t("Shared"), shared);
+  renderSection(t("Public"), publicAgents);
   renderIcons();
 }
 
@@ -7526,13 +7529,13 @@ function syncAgentListStatus(agentIds = null) {
 
     TONES.forEach((tone) => row.classList.remove(tone));
     row.classList.add(`is-${health.tone}`);
-    row.title = `${agent.name || "Assistant"}\nStatus: ${status}\n${health.detail}`;
-    row.setAttribute("aria-label", `${agent.name || "Assistant"}. Status ${status}. ${health.detail}`);
+    row.title = `${agent.name || t("Assistant")}\n${t("Status: {status}", { status })}\n${health.detail}`;
+    row.setAttribute("aria-label", `${agent.name || t("Assistant")}. ${t("Status {status}", { status })}. ${health.detail}`);
 
     const dot = row.querySelector(".portal-agent-status-dot");
     if (dot) {
       dot.className = `portal-agent-status-dot status-${status}${health.busy ? " is-pulsing" : ""}`;
-      dot.title = `Status: ${status}`;
+      dot.title = t("Status: {status}", { status });
     }
     const label = row.querySelector(".portal-agent-status-label");
     if (label) {
@@ -7722,7 +7725,7 @@ function renderAgentMeta(agent) {
     try {
       await handleAgentHealthAction(agent, event.currentTarget.dataset.agentHealthAction);
     } catch (error) {
-      showToast(`Action failed: ${error.message}`, { variant: 'error' });
+      showToast(t("Action failed: {error}", { error: error.message }), { variant: 'error' });
     }
   });
 
@@ -7969,8 +7972,8 @@ function setSelectedStatusText(status = "idle") {
   const health = agentHealth(agent);
   dom.selectedStatus.textContent = health.label;
   dom.selectedStatus.className = `portal-status-badge portal-header-status-badge is-${health.tone}${health.busy ? " is-pulsing" : ""}`;
-  dom.selectedStatus.title = `${health.detail}\nRuntime status: ${normalized}`;
-  dom.selectedStatus.setAttribute("aria-label", `Assistant status: ${health.label}. ${health.detail}`);
+  dom.selectedStatus.title = `${health.detail}\n${t("Runtime status: {status}", { status: normalized })}`;
+  dom.selectedStatus.setAttribute("aria-label", t("Assistant status: {label}. {detail}", { label: health.label, detail: health.detail }));
 }
 
 // Tells assistant_startup.js which assistant to watch. Selection can change
@@ -8095,15 +8098,15 @@ function applyHomeEmptyState() {
   const hasAnyAgent = Array.isArray(state.mineAgents) && state.mineAgents.length > 0;
 
   if (dom.homeTitle) {
-    dom.homeTitle.textContent = hasAnyAgent ? "Select an assistant" : "Create your first assistant";
+    dom.homeTitle.textContent = hasAnyAgent ? t("Select an assistant") : t("Create your first assistant");
   }
   if (dom.homeSubtitle) {
     dom.homeSubtitle.textContent = hasAnyAgent
-      ? "Choose an assistant from the left to start chatting."
-      : "An assistant is a running workspace you chat with. A set of connections is already set up for you, so you can create one now.";
+      ? t("Choose an assistant from the left to start chatting.")
+      : t("An assistant is a running workspace you chat with. A set of connections is already set up for you, so you can create one now.");
   }
   if (dom.homeAgentSummary) {
-    dom.homeAgentSummary.textContent = hasAnyAgent ? "No assistant selected." : "No assistants yet.";
+    dom.homeAgentSummary.textContent = hasAnyAgent ? t("No assistant selected.") : t("No assistants yet.");
   }
   if (dom.homeCreateAgentBtn) {
     dom.homeCreateAgentBtn.classList.toggle("hidden", hasAnyAgent);
@@ -8120,15 +8123,15 @@ async function syncSelectedAgentState() {
 
   if (!agent) {
     announceStartupWatch(null);
-    dom.embedTitle.textContent = "Select an assistant";
+    dom.embedTitle.textContent = t("Select an assistant");
     setSelectedStatusText("idle");
-    setChatStatus("Ready");
-    setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
-    setButtonDisabled(sessionsBtn, true, "Select an assistant first");
-    setButtonDisabled(dom.contextUsageBtn, true, "Select an assistant first");
-    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
+    setChatStatus(t("Ready"));
+    setButtonDisabled(dom.headerNewChatBtn, true, t("Select an assistant first"));
+    setButtonDisabled(sessionsBtn, true, t("Select an assistant first"));
+    setButtonDisabled(dom.contextUsageBtn, true, t("Select an assistant first"));
+    setButtonDisabled(dom.detailToggle, true, t("Select an assistant first"));
     syncContextUsageToolbar(null);
-    setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.homeStartChatBtn, true, t("Select an assistant first"));
     applyHomeEmptyState();
     if (state.activeNavSection === "assistants") {
       setMainView("home");
@@ -8147,12 +8150,12 @@ async function syncSelectedAgentState() {
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
   setSelectedStatusText(status);
-  setChatStatus("Ready");
+  setChatStatus(t("Ready"));
   syncSelectedAgentChatActionControls();
   dom.homeCreateAgentBtn?.classList.add("hidden");
   dom.homeStartChatBtn?.classList.remove("hidden");
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
-  dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
+  dom.homeSubtitle && (dom.homeSubtitle.textContent = t("Choose an assistant from the left to start chatting."));
   if (dom.homeAgentSummary) {
     const health = agentHealth(agent);
     const startable = canWriteAgent(agent) && ["stopped", "failed"].includes(status);
@@ -8160,9 +8163,9 @@ async function syncSelectedAgentState() {
     // card that told the member to go and find it.
     dom.homeAgentSummary.innerHTML = `
       <p class="portal-home-agent-summary-copy">${safe(status === "running"
-        ? `${agent.name} is running. Open a session or start a new chat.`
-        : `${agent.name}: ${health.label}. ${health.detail}`)}</p>
-      ${startable ? `<button type="button" class="toolbar-primary-btn portal-home-start-agent-btn" data-home-start-agent="${escapeHtmlAttr(agent.id)}"><i data-lucide="play" class="w-4 h-4"></i>Start</button>` : ""}
+        ? t("{name} is running. Open a session or start a new chat.", { name: agent.name })
+        : t("{name}: {label}. {detail}", { name: agent.name, label: health.label, detail: health.detail }))}</p>
+      ${startable ? `<button type="button" class="toolbar-primary-btn portal-home-start-agent-btn" data-home-start-agent="${escapeHtmlAttr(agent.id)}"><i data-lucide="play" class="w-4 h-4"></i>${t("Start")}</button>` : ""}
     `;
     renderIcons();
   }
@@ -8306,7 +8309,9 @@ function maybeRequestNotificationPermission() {
 }
 
 function notifyAgentCompletion(agentId, agentName, status, summary = "") {
-  const text = `${agentName || agentId}: ${status}${summary ? ` - ${summary}` : ""}`;
+  const name = agentName || agentId;
+  const statusText = status === "completed" ? t("completed") : (status === "failed" ? t("failed") : status);
+  const text = summary ? t("{name}: {status} - {summary}", { name, status: statusText, summary }) : t("{name}: {status}", { name, status: statusText });
   if (document.hidden && "Notification" in window && Notification.permission === "granted") {
     try {
       new Notification(text);
@@ -8382,7 +8387,7 @@ async function submitChatForSelectedAgent() {
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   if (chatState.wakeInFlight) {
-    showToast("Starting the assistant… your message will be sent when it is ready.");
+    showToast(t("Starting the assistant… your message will be sent when it is ready."));
     return;
   }
   // Paused assistants used to disable Send and point at a hidden panel; now the
@@ -8438,11 +8443,11 @@ async function submitChatForSelectedAgent() {
   const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
   const parsingFiles = chatState.pendingFiles.filter((pf) => pf.status === "parsing");
   if (uploadingFiles.length) {
-    showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
+    showToast(tn(uploadingFiles.length, "Waiting for {n} file to upload...", "Waiting for {n} files to upload..."));
     return;
   }
   if (parsingFiles.length) {
-    showToast(`Waiting for ${parsingFiles.length} file(s) to finish processing...`);
+    showToast(tn(parsingFiles.length, "Waiting for {n} file to finish processing...", "Waiting for {n} files to finish processing..."));
     return;
   }
   const rawMessageAtSend = dom.chatInput?.value || "";
@@ -8504,8 +8509,8 @@ async function submitChatForSelectedAgent() {
   const slashInvocation = parseSkillSlashInput(messageAtSend);
   const matchedSkill = findCachedSkillForSlash(slashInvocation, agentIdAtSend);
   if (slashInvocation && matchedSkill && matchedSkill.callable === false) {
-    showToast(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.");
-    setChatStatus(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.", true);
+    showToast(matchedSkill.blocked_reason || t("This skill is not callable in the current runtime/profile."));
+    setChatStatus(matchedSkill.blocked_reason || t("This skill is not callable in the current runtime/profile."), true);
     chatState.currentRequest = null;
     cancelAssistantTypewriter(requestCtx);
   setChatSubmittingForAgent(agentIdAtSend, false);
@@ -8587,7 +8592,7 @@ async function submitChatForSelectedAgent() {
   resetChatInputHeight();
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
-  setChatStatus("Sending...");
+  setChatStatus(t("Sending..."));
   chatState.currentRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
   persistInflightChatRun(agentIdAtSend, {
@@ -9661,12 +9666,11 @@ function finalizeTerminalStreamState(agentId, requestCtx, finalPayload = {}) {
 function setTerminalCompletionStatus(finalPayload = {}) {
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "unknown");
   const reason = String(finalPayload?.incomplete_reason || finalPayload?.error || finalPayload?.detail || "").trim();
-  const suffix = reason ? `: ${reason}` : "";
-  if (completionState === "blocked") setChatStatus(`Blocked${suffix}`, true);
-  else if (completionState === "incomplete") setChatStatus(`Incomplete${suffix}`, true);
-  else if (completionState === "error" || completionState === "failed") setChatStatus(`Error${suffix}`, true);
-  else if (completionState === "empty_final") setChatStatus("Empty final response", true);
-  else setChatStatus(`Finished with non-success state: ${completionState}`, true);
+  if (completionState === "blocked") setChatStatus(reason ? t("Blocked: {reason}", { reason }) : t("Blocked"), true);
+  else if (completionState === "incomplete") setChatStatus(reason ? t("Incomplete: {reason}", { reason }) : t("Incomplete"), true);
+  else if (completionState === "error" || completionState === "failed") setChatStatus(reason ? t("Error: {reason}", { reason }) : t("Error"), true);
+  else if (completionState === "empty_final") setChatStatus(t("Empty final response"), true);
+  else setChatStatus(t("Finished with non-success state: {state}", { state: completionState }), true);
 }
 /**
  * Whether the run ended because it is waiting on the member.
@@ -9728,7 +9732,7 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
     }
     mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload);
     finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
-    if (state.selectedAgentId === agentId) setChatStatus("Waiting for your answer.");
+    if (state.selectedAgentId === agentId) setChatStatus(t("Waiting for your answer."));
     cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
     // The card is raised by a question.requested event, which a run this
     // client joined rather than sent may never deliver. This is the moment
@@ -9765,7 +9769,7 @@ function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = fals
   }
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (chatState?.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
-  if (!keepStatus && state.selectedAgentId === agentIdAtSend && !requestCtx?.streamIncomplete && !requestCtx?.streamFailed) setChatStatus("Ready");
+  if (!keepStatus && state.selectedAgentId === agentIdAtSend && !requestCtx?.streamIncomplete && !requestCtx?.streamFailed) setChatStatus(t("Ready"));
 }
 function startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx) {
   clearWaitingForRuntimeEventsTimer(requestCtx);
@@ -9818,8 +9822,8 @@ async function abortActiveChatRequestForSelectedAgent() {
   if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
   else chatState.inflightAgentTimeline = null;
   setChatSubmittingForAgent(agentId, false);
-  setChatStatus("Stopped current response.");
-  showToast("Stopped current response.");
+  setChatStatus(t("Stopped current response."));
+  showToast(t("Stopped current response."));
   syncSelectedAgentChatActionControls();
 }
 
@@ -10124,7 +10128,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "",
       requestId: requestCtx.requestId || requestCtx.clientRequestId,
     });
-    if (state.selectedAgentId === agentIdAtSend) setChatStatus("Thinking…");
+    if (state.selectedAgentId === agentIdAtSend) setChatStatus(t("Thinking…"));
     return "heartbeat";
   }
 
@@ -10166,7 +10170,7 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
     // The toast reports a problem, and it sits outside the call above, so a
     // parked run recognised only by the card still raised one.
     if (reason !== WAITING_FOR_USER_INPUT_REASON && !chatRunIsWaitingForUserInput(finalPayload)) {
-      showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
+      showToast(String(finalPayload.incomplete_reason || t("Assistant response stream ended in an incomplete state.")));
     }
     addEditButtonsToMessages();
     renderIcons();
@@ -10404,7 +10408,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     else chatState.inflightAgentTimeline = null;
     chatState.needsReload = true;
     setChatSubmittingForAgent(agentIdAtSend, false);
-    setChatStatus("Completed without a visible assistant response. Reloading session...");
+    setChatStatus(t("Completed without a visible assistant response. Reloading session..."));
     if (finalSessionId) {
       await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
@@ -10533,7 +10537,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
     addEditButtonsToMessages();
-    setChatStatus("Ready");
+    setChatStatus(t("Ready"));
     if (document.hidden) {
       const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
       notifyAgentCompletion(agentIdAtSend, agentName, "completed", (payload.response || "").slice(0, 80));
@@ -10570,7 +10574,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     );
     dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   }
-  setChatStatus("Ready");
+  setChatStatus(t("Ready"));
   // Only the article this request wrote needs drawing: history rows were drawn
   // when the session loaded, and re-rendering every message's markdown (code
   // highlighting, diagrams) plus every icon grew with the conversation.
@@ -10623,7 +10627,7 @@ async function tryRecoverBrokenChatStream(agentIdAtSend, requestCtx) {
   });
   chatState.currentRequest = null;
   if (state.selectedAgentId === agentIdAtSend) {
-    setChatStatus("Connection lost. Reconnecting to running response...");
+    setChatStatus(t("Connection lost. Reconnecting to running response..."));
   }
   const recovered = await recoverInflightChatRunForAgent(
     agentIdAtSend,
@@ -10649,7 +10653,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId) return;
   }
   const restoredMessage = requestCtx.backupMessage || "";
-  const errorMsg = error?.message || "Send failed";
+  const errorMsg = error?.message || t("Send failed");
   const finalPayload = {
     completion_state: "error",
     incomplete_reason: errorMsg,
@@ -10700,7 +10704,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   if (dom.chatInput) dom.chatInput.value = restoredMessage;
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
-  showToast("Send failed. Please re-attach files before retrying.", { variant: 'error' });
+  showToast(t("Send failed. Please re-attach files before retrying."), { variant: 'error' });
   renderInputPreview();
   syncChatInputHeight();
   if (typeof setTerminalCompletionStatus === "function") setTerminalCompletionStatus(finalPayload);
@@ -10891,7 +10895,7 @@ function openAssistantDetailsPanel() {
   if (!state.selectedAgentId) return false;
   const agent = state.mineAgents.find((candidate) => candidate.id === state.selectedAgentId);
   if (!agent) return false;
-  setToolPanel("Assistant details", `
+  setToolPanel(t("Assistant details"), `
     <div id="agent-meta" class="portal-detail-card"></div>
     <div id="agent-actions" class="portal-detail-actions"></div>
   `, "details");
@@ -10904,7 +10908,7 @@ function openAssistantDetailsPanel() {
 
 function toggleAssistantDetailsPanel() {
   if (!state.selectedAgentId) {
-    showToast("Please select an assistant first");
+    showToast(t("Please select an assistant first"));
     return;
   }
   if (state.activeUtilityPanel === "details" && state.toolPanelOpen) {
@@ -10927,7 +10931,7 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
   dom.userManagementNavItem?.setAttribute("aria-current", "page");
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "users-loading";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading users…</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading users…")}</div>`;
   syncMainHeader();
 
   if (updateRoute && !isApplyingPortalRoute) {
@@ -10943,12 +10947,12 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
     renderIcons();
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "users-error";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load users: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${safe(t("Failed to load users: {error}", { error: error.message }))}</div>`;
   }
 }
 
-function showPinnedPanelRestorePlaceholder(message = "Select a utility from top toolbar.") {
-  setToolPanel("Panel", `<div class="portal-inline-state">${safe(message)}</div>`, null, {
+function showPinnedPanelRestorePlaceholder(message = t("Select a utility from top toolbar.")) {
+  setToolPanel(t("Panel"), `<div class="portal-inline-state">${safe(message)}</div>`, null, {
     persistPreference: false,
   });
   state.toolPanelOpen = true;
@@ -11003,7 +11007,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       if (getSelectedAgentStatus() === "running") {
         await openSessionsPanel();
       } else {
-        setToolPanel("Sessions", "<div class='portal-inline-state'>Start the assistant first to browse sessions.</div>", "sessions", {
+        setToolPanel(t("Sessions"), "<div class='portal-inline-state'>Start the assistant first to browse sessions.</div>", "sessions", {
           persistPreference: false,
         });
       }
@@ -11066,7 +11070,7 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
 
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "help-loading";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading…</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading…")}</div>`;
   syncMainHeader();
 
   if (updateRoute && !isApplyingPortalRoute) {
@@ -11094,7 +11098,7 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
     renderIcons();
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "help-error";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load help: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${safe(t("Failed to load help: {error}", { error: error.message }))}</div>`;
   }
 }
 
@@ -11147,7 +11151,7 @@ function renderHelpMarkdown(scope) {
 
 function currentHelpTopicTitle() {
   const active = document.querySelector(`[data-help-topic-nav="${CSS.escape(activeHelpTopicId)}"]`);
-  return active?.querySelector("strong")?.textContent?.trim() || "Help";
+  return active?.querySelector("strong")?.textContent?.trim() || t("Help");
 }
 
 
@@ -11183,7 +11187,7 @@ function closeToolPanel() {
 async function openSessionsPanel() {
   if (!ensureRunningSelectedAssistant("browse sessions")) return;
 
-  setToolPanel("Sessions", '<div class="portal-inline-state">Loading sessions…</div>', "sessions");
+  setToolPanel(t("Sessions"), '<div class="portal-inline-state">Loading sessions…</div>', "sessions");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
@@ -11191,8 +11195,8 @@ async function openSessionsPanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Sessions", `Failed: ${safe(error.message)}`, "sessions");
-    setChatStatus("Failed to load sessions", true);
+    setToolPanel(t("Sessions"), `Failed: ${safe(error.message)}`, "sessions");
+    setChatStatus(t("Failed to load sessions"), true);
   }
 }
 
@@ -11232,12 +11236,12 @@ function syncContextUsageToolbar(snapshot = null) {
   if (!dom.contextUsageLabel) return;
   const percent = contextUsagePercent(snapshot);
   dom.contextUsageLabel.textContent = percent == null
-    ? "Context —"
-    : `Context ≈${Math.round(percent)}%`;
+    ? t("Context —")
+    : t("Context ≈{percent}%", { percent: Math.round(percent) });
   if (dom.contextUsageBtn && !dom.contextUsageBtn.disabled) {
     const detail = percent == null
-      ? "Context usage is not available yet"
-      : `Context usage: approximately ${percent}%`;
+      ? t("Context usage is not available yet")
+      : t("Context usage: approximately {percent}%", { percent });
     dom.contextUsageBtn.title = detail;
     dom.contextUsageBtn.setAttribute("aria-label", detail);
   }
@@ -11275,7 +11279,7 @@ function renderContextUsagePanel(snapshot) {
   const sessionCredits = (typeof sumVisibleAssistantCredits === "function") ? sumVisibleAssistantCredits(dom.messageList) : null;
   const costGuideHtml = (typeof buildCostGuideHtml === "function") ? buildCostGuideHtml() : "";
 
-  setToolPanel("Context", `
+  setToolPanel(t("Context"), `
     <div class="portal-context-panel">
       <div class="portal-context-summary">
         <div class="portal-context-total-row">
@@ -11391,9 +11395,9 @@ async function refreshContextUsageForAgent(agentId, sessionId, { renderPanel = f
     return snapshot;
   } catch (error) {
     if (renderPanel && agentId === state.selectedAgentId) {
-      setToolPanel("Context", `<div class="portal-inline-state is-error">Failed to load context usage: ${safe(error?.message || error)}</div>`, "context");
+      setToolPanel(t("Context"), `<div class="portal-inline-state is-error">Failed to load context usage: ${safe(error?.message || error)}</div>`, "context");
     } else if (!silent) {
-      showToast("Failed to load context usage");
+      showToast(t("Failed to load context usage"));
     }
     return null;
   } finally {
@@ -11407,10 +11411,10 @@ async function openContextUsagePanel() {
   const agentId = state.selectedAgentId;
   const sessionId = currentSessionIdForSelectedAgent();
   if (!sessionId) {
-    setToolPanel("Context", '<div class="portal-inline-state is-visible">Start a conversation to inspect context usage.</div>', "context");
+    setToolPanel(t("Context"), '<div class="portal-inline-state is-visible">Start a conversation to inspect context usage.</div>', "context");
     return;
   }
-  setToolPanel("Context", '<div class="portal-inline-state is-visible">Loading context usage…</div>', "context");
+  setToolPanel(t("Context"), '<div class="portal-inline-state is-visible">Loading context usage…</div>', "context");
   await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
 }
 
@@ -11421,16 +11425,16 @@ async function compactCurrentConversation() {
   if (!agentId || !sessionId || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentId, "compact this conversation")) return;
   const confirmed = await showConfirm({
-    title: "Compact conversation",
-    message: "Older visible turns will be replaced by a summary. Native sessions create a recovery checkpoint first.",
-    confirmText: "Compact",
-    cancelText: "Cancel",
+    title: t("Compact conversation"),
+    message: t("Older visible turns will be replaced by a summary. Native sessions create a recovery checkpoint first."),
+    confirmText: t("Compact"),
+    cancelText: t("Cancel"),
   });
   if (!confirmed) return;
 
   chatState.compactingContext = true;
   syncSelectedAgentChatActionControls();
-  setToolPanel("Context", '<div class="portal-inline-state is-visible"><span class="portal-running-spinner" aria-hidden="true"></span> Compacting conversation…</div>', "context");
+  setToolPanel(t("Context"), '<div class="portal-inline-state is-visible"><span class="portal-running-spinner" aria-hidden="true"></span> Compacting conversation…</div>', "context");
   try {
     const result = await agentApiFor(
       agentId,
@@ -11443,13 +11447,12 @@ async function compactCurrentConversation() {
     await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId, force: true });
     const refreshed = await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
     const afterPercent = contextUsagePercent(refreshed || afterSnapshot);
-    const reduction = beforePercent != null && afterPercent != null
-      ? ` (${beforePercent}% → ${afterPercent}%)`
-      : "";
-    showToast(`Conversation compacted${reduction}`);
+    showToast(beforePercent != null && afterPercent != null
+      ? t("Conversation compacted ({before}% → {after}%)", { before: beforePercent, after: afterPercent })
+      : t("Conversation compacted"));
   } catch (error) {
-    setToolPanel("Context", `<div class="portal-inline-state is-error">Compact failed: ${safe(error?.message || error)}</div>`, "context");
-    showToast("Compact failed");
+    setToolPanel(t("Context"), `<div class="portal-inline-state is-error">Compact failed: ${safe(error?.message || error)}</div>`, "context");
+    showToast(t("Compact failed"));
   } finally {
     chatState.compactingContext = false;
     syncSelectedAgentChatActionControls();
@@ -11466,18 +11469,18 @@ function restoreAssistantHeaderState() {
   const agent = getSelectedAgent();
   if (agent) {
     const status = getSelectedAgentStatus();
-    dom.embedTitle.textContent = agent.name || "Select an assistant";
+    dom.embedTitle.textContent = agent.name || t("Select an assistant");
     setSelectedStatusText(status);
-    setChatStatus("Ready");
+    setChatStatus(t("Ready"));
     return;
   }
 
-  dom.embedTitle.textContent = "Select an assistant";
+  dom.embedTitle.textContent = t("Select an assistant");
   setSelectedStatusText("idle");
-  setChatStatus("Ready");
+  setChatStatus(t("Ready"));
 }
 
-function renderWorkspaceDetailPlaceholder(message = "Select a task or delegation from the left sidebar.", workspaceState = "workspace-placeholder") {
+function renderWorkspaceDetailPlaceholder(message = t("Select a task or delegation from the left sidebar."), workspaceState = "workspace-placeholder") {
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = workspaceState;
@@ -11531,11 +11534,11 @@ async function openOverviewAgent(agentId) {
 }
 
 function getSecondaryPaneLabel() {
-  if (state.activeNavSection === "tasks") return "Tasks";
-  if (state.activeNavSection === "connectors") return "Connectors";
-  if (state.activeNavSection === "delegations") return "Delegations";
-  if (state.activeNavSection === "users") return "Administration";
-  return "Assistants";
+  if (state.activeNavSection === "tasks") return t("Tasks");
+  if (state.activeNavSection === "connectors") return t("Connectors");
+  if (state.activeNavSection === "delegations") return t("Delegations");
+  if (state.activeNavSection === "users") return t("Administration");
+  return t("Assistants");
 }
 
 // Below this width the secondary pane is an overlay drawer rather than a column.
@@ -11569,16 +11572,16 @@ function applySecondaryPaneState() {
 
   if (dom.secondaryPaneToggle) {
     dom.secondaryPaneToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    dom.secondaryPaneToggle.setAttribute("title", collapsed ? `Expand ${label} list` : "Collapse sidebar");
-    dom.secondaryPaneToggle.setAttribute("aria-label", collapsed ? `Expand ${label} list` : "Collapse sidebar");
+    dom.secondaryPaneToggle.setAttribute("title", collapsed ? t("Expand {label} list", { label }) : t("Collapse sidebar"));
+    dom.secondaryPaneToggle.setAttribute("aria-label", collapsed ? t("Expand {label} list", { label }) : t("Collapse sidebar"));
     dom.secondaryPaneToggle.innerHTML = `<i data-lucide="${collapsed ? "panel-left-open" : "panel-left-close"}" class="w-5 h-5"></i>`;
   }
 
   if (dom.secondaryPaneRestore) {
     dom.secondaryPaneRestore.classList.toggle("hidden", !collapsed);
     dom.secondaryPaneRestore.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    dom.secondaryPaneRestore.setAttribute("title", `Expand ${label} list`);
-    dom.secondaryPaneRestore.setAttribute("aria-label", `Expand ${label} list`);
+    dom.secondaryPaneRestore.setAttribute("title", t("Expand {label} list", { label }));
+    dom.secondaryPaneRestore.setAttribute("aria-label", t("Expand {label} list", { label }));
   }
 
   if (state.toolPanelOpen && state.toolPanelPinned) {
@@ -11598,26 +11601,26 @@ function renderSecondaryPaneHeader() {
   if (addDelegationBtn) addDelegationBtn.classList.add("hidden");
 
   if (state.activeNavSection === "assistants") {
-    dom.secondaryPaneEyebrow.textContent = "My Space";
-    dom.secondaryPaneTitle.textContent = "Assistants";
+    dom.secondaryPaneEyebrow.textContent = t("My Space");
+    dom.secondaryPaneTitle.textContent = t("Assistants");
     if (addAgentBtn) addAgentBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "tasks") {
-    dom.secondaryPaneEyebrow.textContent = "Workspace";
-    dom.secondaryPaneTitle.textContent = "Tasks";
+    dom.secondaryPaneEyebrow.textContent = t("Workspace");
+    dom.secondaryPaneTitle.textContent = t("Tasks");
     if (addTaskBtn) addTaskBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "delegations") {
-    dom.secondaryPaneEyebrow.textContent = "Workspace";
-    dom.secondaryPaneTitle.textContent = "Delegations";
+    dom.secondaryPaneEyebrow.textContent = t("Workspace");
+    dom.secondaryPaneTitle.textContent = t("Delegations");
     if (addDelegationBtn) addDelegationBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "connectors") {
-    dom.secondaryPaneEyebrow.textContent = "My Space";
-    dom.secondaryPaneTitle.textContent = "Connectors";
+    dom.secondaryPaneEyebrow.textContent = t("My Space");
+    dom.secondaryPaneTitle.textContent = t("Connectors");
   } else if (state.activeNavSection === "help") {
-    dom.secondaryPaneEyebrow.textContent = "Portal";
-    dom.secondaryPaneTitle.textContent = "Help";
+    dom.secondaryPaneEyebrow.textContent = t("Portal");
+    dom.secondaryPaneTitle.textContent = t("Help");
   } else {
-    dom.secondaryPaneEyebrow.textContent = "Portal";
-    dom.secondaryPaneTitle.textContent = "Administration";
+    dom.secondaryPaneEyebrow.textContent = t("Portal");
+    dom.secondaryPaneTitle.textContent = t("Administration");
   }
 }
 
@@ -11670,16 +11673,16 @@ function applyOverviewStatusLine() {
 // nav buttons carry so a new panel cannot be added without a heading.
 const ADMIN_PANEL_HEADINGS = {
   "users": {
-    title: "User Management",
-    status: "Manage members, roles, access, and usage",
+    title: t("User Management"),
+    status: t("Manage members, roles, access, and usage"),
   },
   "assistant-types": {
-    title: "Assistant Types",
-    status: "Presets members choose from when creating an assistant",
+    title: t("Assistant Types"),
+    status: t("Presets members choose from when creating an assistant"),
   },
   "default-connections": {
-    title: "Default connectors",
-    status: "Connector settings every new member starts with",
+    title: t("Default connectors"),
+    status: t("Connector settings every new member starts with"),
   },
 };
 
@@ -11717,22 +11720,22 @@ function syncMainHeader() {
   } else {
     setSelectedStatusText("idle");
     if (state.activeNavSection === "tasks") {
-      dom.embedTitle.textContent = "Tasks";
+      dom.embedTitle.textContent = t("Tasks");
       // Falls back until the panel with the real numbers has swapped in.
-      if (!applyOverviewStatusLine()) setChatStatus("Task health, workload, and recent activity");
+      if (!applyOverviewStatusLine()) setChatStatus(t("Task health, workload, and recent activity"));
     } else if (state.activeNavSection === "delegations") {
-      dom.embedTitle.textContent = "Delegations";
-      if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");
+      dom.embedTitle.textContent = t("Delegations");
+      if (!applyOverviewStatusLine()) setChatStatus(t("Manage delegations"));
     } else if (state.activeNavSection === "help") {
       dom.embedTitle.textContent = currentHelpTopicTitle();
-      setChatStatus("Guides for setting up and working with assistants");
+      setChatStatus(t("Guides for setting up and working with assistants"));
     } else if (state.activeNavSection === "users") {
       const heading = ADMIN_PANEL_HEADINGS[activeAdminPanel] || ADMIN_PANEL_HEADINGS.users;
       dom.embedTitle.textContent = heading.title;
       setChatStatus(heading.status);
     } else if (state.activeNavSection === "connectors") {
-      dom.embedTitle.textContent = "Connectors";
-      setChatStatus("Everything your assistants can connect to");
+      dom.embedTitle.textContent = t("Connectors");
+      setChatStatus(t("Everything your assistants can connect to"));
     }
   }
 }
@@ -11750,7 +11753,7 @@ function showAssistantDefaultMainView() {
 
 function showTasksLoadingMainView() {
   setMainView("detail");
-  renderWorkspaceDetailPlaceholder("Loading tasks…", "tasks-loading");
+  renderWorkspaceDetailPlaceholder(t("Loading tasks…"), "tasks-loading");
   syncMainHeader();
 }
 
@@ -11764,7 +11767,7 @@ function syncDefaultMainViewForSection(section) {
     return;
   }
   if (section === "connectors") {
-    renderWorkspaceDetailPlaceholder("Select a connector from the left sidebar.", "connectors-placeholder");
+    renderWorkspaceDetailPlaceholder(t("Select a connector from the left sidebar."), "connectors-placeholder");
     return;
   }
   if (section === "delegations") {
@@ -11772,7 +11775,7 @@ function syncDefaultMainViewForSection(section) {
     return;
   }
   if (section === "users") {
-    renderWorkspaceDetailPlaceholder("Select User Management from the left sidebar.", "users-placeholder");
+    renderWorkspaceDetailPlaceholder(t("Select User Management from the left sidebar."), "users-placeholder");
   }
 }
 
@@ -11942,7 +11945,7 @@ function taskOwnerLabel(task) {
   const ownerName = String(task?.owner_display_name || "").trim();
   if (ownerName) return ownerName;
   const ownerId = task?.owner_user_id ?? "";
-  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : `User ${ownerId}`;
+  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : t("User {id}", { id: ownerId });
 }
 
 function hasActiveTaskFilters() {
@@ -11959,21 +11962,21 @@ function taskStatusFilterLabel(value) {
 function taskStatusLabel(value) {
   const normalized = String(value || "").trim().toLowerCase();
   const labels = {
-    queued: "Queued",
-    running: "Running",
-    blocked: "Blocked",
-    done: "Done",
-    completed: "Done",
-    success: "Done",
-    failed: "Failed",
-    error: "Failed",
-    stale: "Stale",
-    cancelled: "Cancelled",
-    canceled: "Cancelled",
-    pending_restart: "Pending restart",
-    cancel_failed: "Cancel failed",
+    queued: t("Queued"),
+    running: t("Running"),
+    blocked: t("Blocked"),
+    done: t("Done"),
+    completed: t("Done"),
+    success: t("Done"),
+    failed: t("Failed"),
+    error: t("Failed"),
+    stale: t("Stale"),
+    cancelled: t("Cancelled"),
+    canceled: t("Cancelled"),
+    pending_restart: t("Pending restart"),
+    cancel_failed: t("Cancel failed"),
   };
-  return labels[normalized] || (normalized ? normalized.replace(/_/g, " ") : "Unknown");
+  return labels[normalized] || (normalized ? normalized.replace(/_/g, " ") : t("Unknown"));
 }
 
 function taskStatusTone(value) {
@@ -11986,7 +11989,7 @@ function taskStatusTone(value) {
 }
 
 function portalRowStatusDot(label, tone = "neutral") {
-  const displayLabel = String(label || "Status unknown").trim();
+  const displayLabel = String(label || t("Status unknown")).trim();
   const displayTone = String(tone || "neutral").trim();
   return `<span class="portal-row-status-dot is-${safe(displayTone)}" title="${escapeHtmlAttr(displayLabel)}" aria-label="${escapeHtmlAttr(displayLabel)}"></span>`;
 }
@@ -11998,9 +12001,9 @@ function syncTaskFilterControls() {
   if (dom.taskFilterSummary) {
     const parts = [];
     if (filters.status !== "all") parts.push(taskStatusFilterLabel(filters.status));
-    if (filters.owner === "mine") parts.push("owned by you");
-    const filterLabel = parts.length ? `Filtered by ${parts.join(", ")}` : "All visible tasks";
-    const countLabel = state.taskListHasMore ? `${state.myTasks.length}+ loaded` : `${state.myTasks.length} shown`;
+    if (filters.owner === "mine") parts.push(t("owned by you"));
+    const filterLabel = parts.length ? t("Filtered by {filters}", { filters: parts.join(", ") }) : t("All visible tasks");
+    const countLabel = state.taskListHasMore ? t("{n}+ loaded", { n: state.myTasks.length }) : t("{n} shown", { n: state.myTasks.length });
     dom.taskFilterSummary.textContent = `${filterLabel} · ${countLabel}`;
   }
 }
@@ -12014,18 +12017,18 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
     return;
   }
   if (!state.myTasks.length) {
-    dom.taskNavList.innerHTML = `<div class="portal-list-state">${hasActiveTaskFilters() ? "No tasks match these filters." : "No visible tasks yet."}</div>`;
+    dom.taskNavList.innerHTML = `<div class="portal-list-state">${hasActiveTaskFilters() ? t("No tasks match these filters.") : t("No visible tasks yet.")}</div>`;
     return;
   }
 
   dom.taskNavList.innerHTML = "";
   state.myTasks.forEach((task) => {
-    const title = String(task.display_title || task.title || task.task_type || task.id || "Task").trim();
+    const title = String(task.display_title || task.title || task.task_type || task.id || t("Task")).trim();
     const displayTitle = title.length > 80 ? `${title.slice(0, 77).trim()}...` : title;
     const timeLabel = formatTaskNavTime(task.created_at || task.updated_at);
     const ownerLabel = taskOwnerLabel(task);
     const statusLabel = taskStatusLabel(task.status);
-    const statusDot = portalRowStatusDot(`Task status: ${statusLabel}`, taskStatusTone(task.status));
+    const statusDot = portalRowStatusDot(t("Task status: {status}", { status: statusLabel }), taskStatusTone(task.status));
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
@@ -12035,7 +12038,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
         ${statusDot}
       </div>
       <div class="portal-task-row-meta">
-        <span>Owner ${safe(ownerLabel)}</span>
+        <span>${t("Owner {owner}", { owner: safe(ownerLabel) })}</span>
         ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
       </div>
       ${taskNavScenarioProgressHtml(task.scenario_progress)}
@@ -12048,7 +12051,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
   if (state.taskListLoading || state.taskListHasMore) {
     const sentinel = document.createElement("div");
     sentinel.className = "portal-list-load-state";
-    sentinel.textContent = state.taskListLoading ? "Loading more tasks..." : "Scroll for more";
+    sentinel.textContent = state.taskListLoading ? t("Loading more tasks...") : t("Scroll for more");
     dom.taskNavList.append(sentinel);
   }
   if (preserveScroll) dom.taskNavList.scrollTop = previousScrollTop;
@@ -12063,9 +12066,9 @@ function taskNavScenarioProgressHtml(progress) {
   const failed = Number(progress.failed || 0);
   const pending = Number(progress.running || 0) + Number(progress.queued || 0);
   const pct = (n) => Math.max(0, Math.min(100, (n / total) * 100)).toFixed(1);
-  const label = `${passed}/${total} scenarios passed${failed ? `, ${failed} failed` : ""}`;
+  const label = failed ? t("{passed}/{total} scenarios passed, {failed} failed", { passed, total, failed }) : t("{passed}/{total} scenarios passed", { passed, total });
   return `
-      <div class="portal-task-progress" title="Scenario runs">
+      <div class="portal-task-progress" title="${t("Scenario runs")}">
         <div class="efp-matrix-bar" aria-hidden="true"><i class="is-success" style="width: ${pct(passed)}%"></i><i class="is-error" style="width: ${pct(failed)}%"></i><i class="is-warning" style="width: ${pct(pending)}%"></i></div>
         <span>${safe(label)}</span>
       </div>`;
@@ -12081,7 +12084,7 @@ function formatTaskNavTime(value) {
 async function refreshMyTasks({ reset = true } = {}) {
   if (!dom.taskNavList || state.taskListLoading) return;
   if (reset) {
-    dom.taskNavList.innerHTML = '<div class="portal-list-state">Loading tasks...</div>';
+    dom.taskNavList.innerHTML = `<div class="portal-list-state">${t("Loading tasks...")}</div>`;
   }
   state.taskListLoading = true;
   if (reset) {
@@ -12116,7 +12119,7 @@ async function refreshMyTasks({ reset = true } = {}) {
     renderTaskNavList("", { preserveScroll: !reset });
   } catch (error) {
     loadError = true;
-    renderTaskNavList(`Failed to load tasks: ${error.message}`);
+    renderTaskNavList(t("Failed to load tasks: {error}", { error: error.message }));
   } finally {
     state.taskListLoading = false;
     if (!loadError) renderTaskNavList("", { preserveScroll: !reset });
@@ -12358,14 +12361,14 @@ function deriveSessionRecoveryNotice(metadata = {}) {
   if (latestEventType === "chat.failed" || latestEventState === "error") {
     return {
       level: "error",
-      message: "The previous request failed. You can review the last system error and retry.",
+      message: t("The previous request failed. You can review the last system error and retry."),
     };
   }
 
   if (metadataIndicatesRunningChatRun(metadata)) {
     return {
       level: "warning",
-      message: "Reconnecting to the previous request...",
+      message: t("Reconnecting to the previous request..."),
     };
   }
 
@@ -12496,8 +12499,8 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
     setChatSubmittingForAgent(agentId, false);
     setChatStatus(
       isWaitingForUserInputPayload(statusPayload) || isWaitingForUserInputPayload(statusPayload?.final_payload)
-        ? "Waiting for your answer."
-        : isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready",
+        ? t("Waiting for your answer.")
+        : isTerminalChatRunState(statusPayload?.state) ? t("Recovered latest response.") : t("Ready"),
     );
     await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false, force: true });
   } else if (chatState) {
@@ -12549,7 +12552,7 @@ function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx)
       || (requestCtx.recoveryFallbackFrozenStreak || 0) >= RECOVERED_RUN_POLL_MAX_FALLBACK_FROZEN_STREAK
     ) {
       // Never poll forever: give up, unlock the composer, show latest state.
-      showToast("Stopped waiting for the running response; showing the latest session state.");
+      showToast(t("Stopped waiting for the running response; showing the latest session state."));
       await finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx, { state: "unknown" });
       return;
     }
@@ -12647,7 +12650,7 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   const metadataSaysRunning = metadataIndicatesRunningChatRun(metadata);
   const insertedRecoveryPending = render ? renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText) : false;
   if (insertedRecoveryPending && state.selectedAgentId === agentId) {
-    setChatStatus(pendingText === "Reconnecting" ? "Reconnecting to running response..." : "Working...");
+    setChatStatus(pendingText === "Reconnecting" ? t("Reconnecting to running response...") : t("Working..."));
   }
 
   let statusPayload = null;
@@ -12716,7 +12719,7 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   setChatSubmittingForAgent(agentId, true);
   if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText);
   if (state.selectedAgentId === agentId) {
-    setChatStatus(pendingText === "Reconnecting" ? "Reconnected to running response." : "Working...");
+    setChatStatus(pendingText === "Reconnecting" ? t("Reconnected to running response.") : t("Working..."));
   }
   ensureEventSocketForAgent(agentId, sessionId, candidate.request_id);
   startWaitingForRuntimeEventsTimer(agentId, requestCtx);
@@ -12794,7 +12797,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
         updateAgentSession(agentId, "");
         setLastSessionId(agentId, "");
       }
-      showToast("Session no longer exists");
+      showToast(t("Session no longer exists"));
       await openSessionsPanel();
       return;
     }
@@ -12854,7 +12857,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
     markTranscriptReady(token);
     addEditButtonsToMessages();
-    if (!ensureChatState(agentId)?.currentRequest) setChatStatus(`Loaded session ${normalized}`);
+    if (!ensureChatState(agentId)?.currentRequest) setChatStatus(t("Loaded session {session}", { session: normalized }));
     applyRecoveryNotice();
   }
   if (recoverRunning) {
@@ -12875,12 +12878,12 @@ async function renameSessionForAgent(agentId, sessionId, currentName) {
   if (!agentId || !normalizedSessionId) return;
 
   const defaultName = String(currentName || "").trim();
-  const proposedName = await showPrompt({ title: "Rename session", defaultValue: defaultName, confirmText: "Rename" });
+  const proposedName = await showPrompt({ title: t("Rename session"), defaultValue: defaultName, confirmText: t("Rename") });
   if (proposedName === null) return;
 
   const nextName = proposedName.trim();
   if (!nextName) {
-    showToast("Session name cannot be empty");
+    showToast(t("Session name cannot be empty"));
     return;
   }
   if (nextName === defaultName) return;
@@ -12892,14 +12895,14 @@ async function renameSessionForAgent(agentId, sessionId, currentName) {
       body: JSON.stringify({ name: nextName }),
     });
     if (!resp.ok) throw new Error(await handleErrorResponse(resp));
-    showToast("Session renamed");
+    showToast(t("Session renamed"));
     if (typeof setSessionName === "function") setSessionName(agentId, normalizedSessionId, nextName, "custom");
     if (typeof updateSessionsPanelRowName === "function") updateSessionsPanelRowName(normalizedSessionId, nextName, "custom");
     // Only a panel that is open is redrawn.
     if (state.activeUtilityPanel === "sessions" && state.toolPanelOpen) await openSessionsPanel();
     renderIcons();
   } catch (error) {
-    showToast(`Rename failed: ${safe(error.message)}`, { variant: 'error' });
+    showToast(t("Rename failed: {error}", { error: safe(error.message) }), { variant: 'error' });
   }
 }
 
@@ -12960,8 +12963,8 @@ function updateSessionsPanelRowShare(sessionId, shared) {
   if (!normalizedSessionId) return;
   document.querySelectorAll(`[data-session-action="share"]${sessionRowSelector(normalizedSessionId)}`).forEach((button) => {
     button.classList.toggle("is-shared", shared);
-    button.setAttribute("aria-label", shared ? "Manage the share link" : "Share session");
-    button.title = shared ? "Shared: manage the link" : "Share session (read only)";
+    button.setAttribute("aria-label", shared ? t("Manage the share link") : t("Share session"));
+    button.title = shared ? t("Shared: manage the link") : t("Share session (read only)");
   });
   document.querySelectorAll(`.sessions-item-main${sessionRowSelector(normalizedSessionId)}`).forEach((row) => {
     const existing = row.querySelector("[data-session-shared-badge]");
@@ -12977,8 +12980,8 @@ function updateSessionsPanelRowShare(sessionId, shared) {
       const badge = document.createElement("span");
       badge.className = "badge badge--info";
       badge.dataset.sessionSharedBadge = "1";
-      badge.title = "This session has a read-only share link";
-      badge.textContent = "Shared";
+      badge.title = t("This session has a read-only share link");
+      badge.textContent = t("Shared");
       meta.appendChild(badge);
     } else if (!shared && existing) {
       const meta = existing.parentElement;
@@ -12991,7 +12994,7 @@ function updateSessionsPanelRowShare(sessionId, shared) {
 function updateSessionsPanelRowName(sessionId, name, source) {
   const normalizedSessionId = String(sessionId || "").trim();
   if (!normalizedSessionId) return;
-  const displayName = String(name || "").trim() || "New Chat";
+  const displayName = String(name || "").trim() || t("New Chat");
   document.querySelectorAll(`.sessions-item-main${sessionRowSelector(normalizedSessionId)}`).forEach((row) => {
     const title = row.querySelector(".sessions-item-title");
     if (title) title.textContent = displayName;
@@ -13058,8 +13061,8 @@ function scheduleSessionTitleRefresh(agentId, sessionId) {
 }
 
 const SHARE_SCOPE_COPY = {
-  anyone: "Anyone with the link can open it. No sign-in needed.",
-  members: "Only people who sign in to this Portal can open it.",
+  anyone: t("Anyone with the link can open it. No sign-in needed."),
+  members: t("Only people who sign in to this Portal can open it."),
 };
 
 // The share dialog. Who can open the link is chosen before the link exists
@@ -13074,7 +13077,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
   try {
     share = await fetchSessionShare(agentId, normalizedSessionId);
   } catch (error) {
-    showToast(`Could not read the share: ${safe(error.message)}`, { variant: "error" });
+    showToast(t("Could not read the share: {error}", { error: safe(error.message) }), { variant: "error" });
     return;
   }
 
@@ -13191,7 +13194,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
   copyBtn?.addEventListener("click", async () => {
     if (!linkInput?.value) return;
     const copied = typeof copyText === "function" ? await copyText(linkInput.value) : false;
-    showToast(copied ? "Link copied" : "Copy the link from the box");
+    showToast(copied ? t("Link copied") : t("Copy the link from the box"));
   });
   scopeInputs.forEach((input) => input.addEventListener("change", async () => {
     if (!input.checked || busy) return;
@@ -13206,7 +13209,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
       share = await saveShare(selectedScope, { create: false });
       showToast(SHARE_SCOPE_COPY[scopeOf(share.scope)]);
     } catch (error) {
-      showToast(`Could not change who can open the link: ${safe(error.message)}`, { variant: "error" });
+      showToast(t("Could not change who can open the link: {error}", { error: safe(error.message) }), { variant: "error" });
     } finally {
       busy = false;
       selectedScope = share ? scopeOf(share.scope) : selectedScope;
@@ -13222,9 +13225,9 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
       selectedScope = scopeOf(share.scope);
       updateSessionsPanelRowShare(normalizedSessionId, true);
       const copied = typeof copyText === "function" && share.url ? await copyText(share.url) : false;
-      showToast(copied ? "Link created and copied" : "Link created");
+      showToast(copied ? t("Link created and copied") : t("Link created"));
     } catch (error) {
-      showToast(`Share failed: ${safe(error.message)}`, { variant: "error" });
+      showToast(t("Share failed: {error}", { error: safe(error.message) }), { variant: "error" });
     } finally {
       busy = false;
       paint();
@@ -13232,16 +13235,16 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
     }
   });
   revokeBtn?.addEventListener("click", async () => {
-    if (!(await showConfirm({ title: "Stop sharing", message: "The link stops working for everyone.", confirmText: "Stop sharing", danger: true }))) return;
+    if (!(await showConfirm({ title: t("Stop sharing"), message: t("The link stops working for everyone."), confirmText: t("Stop sharing"), danger: true }))) return;
     try {
       const resp = await fetch(sessionShareApiUrl(agentId, normalizedSessionId), { method: "DELETE" });
       if (!resp.ok && resp.status !== 404) throw new Error(await handleErrorResponse(resp));
       share = null;
       updateSessionsPanelRowShare(normalizedSessionId, false);
-      showToast("Sharing stopped");
+      showToast(t("Sharing stopped"));
       close();
     } catch (error) {
-      showToast(`Could not stop sharing: ${safe(error.message)}`, { variant: "error" });
+      showToast(t("Could not stop sharing: {error}", { error: safe(error.message) }), { variant: "error" });
     }
   });
   window.requestAnimationFrame(() => (share && linkInput ? linkInput : submitBtn)?.focus?.());
@@ -13250,7 +13253,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
 async function deleteSessionForAgent(agentId, sessionId) {
   const normalizedSessionId = (sessionId || "").trim();
   if (!agentId || !normalizedSessionId) return;
-  if (!(await showConfirm({ title: "Delete session", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
+  if (!(await showConfirm({ title: t("Delete session"), message: t("This can't be undone."), confirmText: t("Delete"), danger: true }))) return;
 
   try {
     const resp = await fetch(`/app/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(normalizedSessionId)}`, {
@@ -13286,22 +13289,22 @@ async function deleteSessionForAgent(agentId, sessionId) {
         removeTemporaryAssistantRows({ forceAll: true });
         showFreshConversationForSelectedAgent();
         resetChatInputHeight();
-        setChatStatus("Session deleted");
+        setChatStatus(t("Session deleted"));
       }
     }
 
-    showToast("Session deleted");
+    showToast(t("Session deleted"));
     await openSessionsPanel();
     renderIcons();
   } catch (error) {
-    showToast(`Delete failed: ${safe(error.message)}`, { variant: 'error' });
+    showToast(t("Delete failed: {error}", { error: safe(error.message) }), { variant: 'error' });
   }
 }
 
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
     return;
   }
   state.serverFilesRootPath = null;
@@ -13314,7 +13317,7 @@ async function openServerFiles() {
 async function openServerFilesAt(path) {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
     return;
   }
   await loadServerFiles(path || undefined);
@@ -13397,7 +13400,7 @@ function normalizeServerFileItem(item) {
 }
 
 async function loadServerFiles(path) {
-  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>', "server-files");
+  setToolPanel(t("Server Files"), '<div class="portal-inline-state">Loading files…</div>', "server-files");
 
   try {
     const hasPath = typeof path === 'string' && path.length > 0;
@@ -13540,7 +13543,7 @@ async function loadServerFiles(path) {
       updateDownloadButton(panel);
     }
   } catch (error) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`, "server-files");
   }
 }
 
@@ -13619,7 +13622,7 @@ async function uploadToServerFiles(targetPath) {
     const file = e.target.files[0];
     if (!file) return;
 
-    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`, "server-files");
 
     try {
       const formData = new FormData();
@@ -13633,7 +13636,7 @@ async function uploadToServerFiles(targetPath) {
 
       if (!resp.ok) {
         const errMsg = await parseRuntimeErrorResponse(resp);
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`, "server-files");
+        setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`, "server-files");
         return;
       }
 
@@ -13657,13 +13660,13 @@ async function uploadToServerFiles(targetPath) {
         } else {
           message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
         }
-        setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`, "server-files");
+        setToolPanel(t("Server Files"), `<div class="portal-inline-state is-success">${message}</div>`, "server-files");
         loadServerFiles(targetPath);
       } else {
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`, "server-files");
+        setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`, "server-files");
       }
     } catch (err) {
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`, "server-files");
+      setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`, "server-files");
     }
   };
   input.click();
@@ -13672,10 +13675,10 @@ async function uploadToServerFiles(targetPath) {
 async function deleteSelectedServerFiles(paths, currentPath) {
   if (!Array.isArray(paths) || paths.length === 0) return;
 
-  const confirmed = await showConfirm({ title: "Delete files", message: `Delete ${paths.length} selected item(s)? This can't be undone.`, confirmText: "Delete", danger: true });
+  const confirmed = await showConfirm({ title: t("Delete files"), message: tn(paths.length, "Delete {n} selected item? This can't be undone.", "Delete {n} selected items? This can't be undone."), confirmText: t("Delete"), danger: true });
   if (!confirmed) return;
 
-  setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`, "server-files");
+  setToolPanel(t("Server Files"), `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`, "server-files");
 
   try {
     const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/delete`, {
@@ -13686,14 +13689,14 @@ async function deleteSelectedServerFiles(paths, currentPath) {
 
     if (!resp.ok) {
       const errMsg = await parseRuntimeErrorResponse(resp);
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`, "server-files");
+      setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`, "server-files");
       return;
     }
 
-    setToolPanel("Server Files", `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`, "server-files");
     loadServerFiles(currentPath);
   } catch (err) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`, "server-files");
   }
 }
 
@@ -13730,7 +13733,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
     };
 
     if (binaryPreviewExtensions.image.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`,
         "server-files"
@@ -13738,7 +13741,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
       return;
     }
     if (binaryPreviewExtensions.pdf.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`,
         "server-files"
@@ -13746,7 +13749,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
       return;
     }
     if (binaryPreviewExtensions.audio.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<audio controls src="${contentUrl}" class="w-full"></audio>`,
         "server-files"
@@ -13754,7 +13757,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
       return;
     }
     if (binaryPreviewExtensions.video.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`,
         "server-files"
@@ -13765,13 +13768,13 @@ async function previewServerFile(filePath, currentDir, rootPath) {
     const resp = await agentApi(`/api/server-files/read?path=${encodedPath}`);
     if (resp.error) throw new Error(resp.error);
     const content = resp.content || "(empty file)";
-    setToolPanel("File: " + fileName,
+    setToolPanel(t("File: {name}", { name: fileName }),
       `<div class="portal-file-preview-header">${breadcrumb}</div>` +
       `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`,
       "server-files"
     );
   } catch (error) {
-    setToolPanel("File Preview",
+    setToolPanel(t("File Preview"),
       `<div class="portal-inline-state is-error">Unable to preview this file: ${safe(error.message)}</div>`,
       "server-files"
     );
@@ -13782,7 +13785,7 @@ async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>', "skills");
+  setToolPanel(t("Skills"), '<div class="portal-inline-state">Loading skills…</div>', "skills");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
@@ -13797,7 +13800,7 @@ async function openSkillsPanel() {
       state.cachedSkills = mapped;
     }
   } catch (error) {
-    setToolPanel("Skills", `Failed: ${safe(error.message)}`, "skills");
+    setToolPanel(t("Skills"), `Failed: ${safe(error.message)}`, "skills");
   }
 }
 
@@ -13806,7 +13809,7 @@ async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>', "usage");
+  setToolPanel(t("Usage"), '<div class="portal-inline-state">Loading usage…</div>', "usage");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
@@ -13814,7 +13817,7 @@ async function openUsagePanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Usage", `Failed: ${safe(error.message)}`, "usage");
+    setToolPanel(t("Usage"), `Failed: ${safe(error.message)}`, "usage");
   }
 }
 
@@ -13892,20 +13895,20 @@ function inferenceModelLabel(value) {
     const match = models.find((item) => item.value === normalized);
     if (match) return match.label;
   }
-  return normalized || "Model";
+  return normalized || t("Model");
 }
 
 function inferenceReasoningLabel(value) {
-  const labels = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
-  return labels[String(value || "").trim().toLowerCase()] || "Default";
+  const labels = { low: t("Low"), medium: t("Medium"), high: t("High"), xhigh: t("Extra high"), max: t("Max") };
+  return labels[String(value || "").trim().toLowerCase()] || t("Default");
 }
 
-function inferenceContextLabel(value, fallback = "Auto") {
+function inferenceContextLabel(value, fallback = t("Auto")) {
   const tokens = Number(value || 0);
   if (!Number.isFinite(tokens) || tokens <= 0) return fallback;
   const base = tokens >= 1000000 ? "1M" : `${Math.round(tokens / 1000)}K`;
   const threshold = (typeof COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS === "number") ? COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS : 272000;
-  return tokens > threshold ? `${base} \u00b7 Long context 2\u00d7` : base;
+  return tokens > threshold ? t("{size} · Long context 2×", { size: base }) : base;
 }
 
 function contextSizeOptionsForModel(model, fallback = []) {
@@ -13960,7 +13963,7 @@ function renderComposerModelSelectorForAgent(agentId) {
   if (currentModel && !models.some((model) => model.value === currentModel)) {
     const extra = document.createElement("option");
     extra.value = currentModel;
-    extra.textContent = `${currentModel} (Current)`;
+    extra.textContent = t("{model} (Current)", { model: currentModel });
     dom.chatModelSelect.appendChild(extra);
   }
 
@@ -14005,14 +14008,14 @@ function renderComposerModelSelectorForAgent(agentId) {
     const automatic = document.createElement("option");
     automatic.value = "";
     automatic.textContent = chatState.profileDefaultMaxContextTokens
-      ? `Default (${inferenceContextLabel(chatState.profileDefaultMaxContextTokens)})`
-      : "Automatic";
+      ? t("Default ({size})", { size: inferenceContextLabel(chatState.profileDefaultMaxContextTokens) })
+      : t("Automatic");
     dom.chatContextSelect.appendChild(automatic);
     contextSizes.forEach((tokens, index) => {
       const option = document.createElement("option");
       option.value = String(tokens);
       option.textContent = index === contextSizes.length - 1
-        ? `Maximum (${inferenceContextLabel(tokens)})`
+        ? t("Maximum ({size})", { size: inferenceContextLabel(tokens) })
         : inferenceContextLabel(tokens);
       dom.chatContextSelect.appendChild(option);
     });
@@ -14664,13 +14667,13 @@ async function runManagedSettingsTest(root, target, button) {
       resultEl.className = `portal-inline-state ${ok ? "is-success" : "is-error"}`;
       resultEl.textContent = data.message || "";
     }
-    showToast(data.message || `${target} test completed`);
+    showToast(data.message || t("{target} test completed", { target }));
   } catch (error) {
     if (resultEl) {
       resultEl.className = "portal-inline-state is-error";
       resultEl.textContent = safe(error.message);
     }
-    showToast(`Test failed: ${safe(error.message)}`, { variant: 'error' });
+    showToast(t("Test failed: {error}", { error: safe(error.message) }), { variant: 'error' });
   } finally {
     button.disabled = false;
     button.textContent = original;
@@ -14792,12 +14795,12 @@ async function startCopilotAuth(root) {
             "Authorization completed, but no token was returned. Please try again.",
             "error"
           );
-          showToast("GitHub Copilot authorization completed, but no token was returned.");
+          showToast(t("GitHub Copilot authorization completed, but no token was returned."));
           return;
         }
 
         setCopilotResultSummary(root, "Authorization complete. API Key field has been filled. Click Save to keep it.", "success");
-        showToast("Authorization complete. API Key field has been filled. Click Save to keep it.");
+        showToast(t("Authorization complete. API Key field has been filled. Click Save to keep it."));
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
         const errorMessage = check.message || check.error || "Authorization failed";
         finishCopilotAuthWithMessage(root, errorMessage);
@@ -14809,8 +14812,8 @@ async function startCopilotAuth(root) {
       }
     }, (Number(data.interval) || 5) * 1000);
   } catch (error) {
-    showToast(`Copilot authorization failed: ${safe(error.message)}`, { variant: 'error' });
-    finishCopilotAuthWithMessage(root, `Copilot authorization failed: ${safe(error.message)}`);
+    showToast(t("Copilot authorization failed: {error}", { error: safe(error.message) }), { variant: 'error' });
+    finishCopilotAuthWithMessage(root, t("Copilot authorization failed: {error}", { error: safe(error.message) }));
   }
 }
 
@@ -14914,7 +14917,7 @@ function initializeManagedSettingsRoot(root) {
       const code = authRoot?.querySelector("[data-copilot-user-code]")?.textContent || "";
       if (code && navigator.clipboard) {
         await navigator.clipboard.writeText(code);
-        showToast("Code copied!");
+        showToast(t("Code copied!"));
       }
     }
   });
@@ -14973,9 +14976,9 @@ async function clearChat() {
     removeTemporaryAssistantRows({ forceAll: true });
     showFreshConversationForSelectedAgent();
     resetChatInputHeight();
-    setChatStatus("Chat cleared");
+    setChatStatus(t("Chat cleared"));
   } catch (error) {
-    setChatStatus(`Clear failed: ${safe(error.message)}`);
+    setChatStatus(t("Clear failed: {error}", { error: safe(error.message) }));
   }
 }
 
@@ -15004,7 +15007,7 @@ async function startNewChatForSelectedAgent() {
   clearMessageListToWelcome();
   setChatSubmitting(false);
   resetChatInputHeight();
-  setChatStatus("New chat started");
+  setChatStatus(t("New chat started"));
   syncContextUsageToolbar(null);
   syncSelectedAgentChatActionControls();
   dom.chatInput?.focus();
@@ -15092,7 +15095,7 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
       statusPayload = await api(`/api/agents/${encodeURIComponent(agentId)}/status`);
     } catch (error) {
       if (state.selectedAgentId === agentId) {
-        setChatStatus(`Restart status check failed: ${safe(error.message)}`, true);
+        setChatStatus(t("Restart status check failed: {error}", { error: safe(error.message) }), true);
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
       continue;
@@ -15103,8 +15106,8 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
 
     if (status === "running") {
       if (state.selectedAgentId === agentId) {
-        setChatStatus("Assistant restart completed.");
-        showToast("Assistant restart completed.");
+        setChatStatus(t("Assistant restart completed."));
+        showToast(t("Assistant restart completed."));
         await refreshAll({ preserveLayout: true });
         const chatState = ensureChatState(agentId);
         if (chatState?.sessionId) {
@@ -15120,26 +15123,26 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
     }
 
     if (status === "failed" || status === "stopped") {
-      const message = statusPayload?.last_error || statusPayload?.message || `Assistant restart ended with status ${status}`;
+      const message = statusPayload?.last_error || statusPayload?.message || t("Assistant restart ended with status {status}", { status });
       if (state.selectedAgentId === agentId) setChatStatus(message, true);
       showToast(message);
       return false;
     }
 
     if (state.selectedAgentId === agentId) {
-      setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
+      setChatStatus(t("Restarting assistant… waiting for runtime pod to become ready."));
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
   if (state.selectedAgentId === agentId) {
-    setChatStatus("Restart is still in progress. Check Assistant details or Kubernetes rollout status.", true);
+    setChatStatus(t("Restart is still in progress. Check Assistant details or Kubernetes rollout status."), true);
   }
-  showToast("Restart is still in progress.");
+  showToast(t("Restart is still in progress."));
   return false;
 }
 
-function agentRestartErrorMessage(error, fallback = "Assistant restart failed or timed out.") {
+function agentRestartErrorMessage(error, fallback = t("Assistant restart failed or timed out.")) {
   const raw = String(error?.message || error || "").trim();
   if (!raw) return fallback;
   try {
@@ -15174,24 +15177,24 @@ function resetLocalChatSubmissionForAgent(agentId) {
 function agentActionLabel(path = "") {
   const tail = String(path || "").split("/").filter(Boolean).pop() || "";
   const labels = {
-    start: "Start",
-    stop: "Stop",
-    restart: "Restart",
-    share: "Share",
-    unshare: "Unshare",
-    "delete-runtime": "Delete",
+    start: t("Start"),
+    stop: t("Stop"),
+    restart: t("Restart"),
+    share: t("Share"),
+    unshare: t("Unshare"),
+    "delete-runtime": t("Delete"),
   };
-  return labels[tail] || "Action";
+  return labels[tail] || t("Action");
 }
 
 async function action(path, method = "POST", needsConfirm = false) {
-  if (needsConfirm && !(await showConfirm({ title: "Confirm action", message: "Please confirm this action.", confirmText: "Continue" }))) return;
+  if (needsConfirm && !(await showConfirm({ title: t("Confirm action"), message: t("Please confirm this action."), confirmText: t("Continue") }))) return;
   const lifecycle = parseAgentLifecycleAction(path);
   const normalizedMethod = String(method || "POST").toUpperCase();
   const isRestartAction = Boolean(lifecycle && normalizedMethod === "POST" && lifecycle.action === "restart");
 
   if (isRestartAction && state.selectedAgentId === lifecycle.agentId) {
-    setChatStatus("Restarting assistant…");
+    setChatStatus(t("Restarting assistant…"));
   }
 
   // Show the transition the moment it is asked for, not when the request
@@ -15228,8 +15231,8 @@ async function action(path, method = "POST", needsConfirm = false) {
     }
     // Every other lifecycle action used to rethrow into a discarded promise, so
     // failures were completely invisible. Surface it before propagating.
-    const message = agentRestartErrorMessage(error, "Request failed.");
-    showToast(`${agentActionLabel(path)} failed: ${message}`, { variant: "error" });
+    const message = agentRestartErrorMessage(error, t("Request failed."));
+    showToast(t("{action} failed: {error}", { action: agentActionLabel(path), error: message }), { variant: "error" });
     throw error;
   }
 
@@ -15254,13 +15257,13 @@ async function action(path, method = "POST", needsConfirm = false) {
       applyLocalAgentStatus(
         lifecycle.agentId,
         result?.status || "restarting",
-        result?.last_error || result?.message || "Restart requested"
+        result?.last_error || result?.message || t("Restart requested")
       );
       resetLocalChatSubmissionForAgent(lifecycle.agentId);
       if (state.eventWsAgentId === lifecycle.agentId) disconnectEventSocket();
       if (state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Restart requested.\nWaiting for runtime pod to restart…");
-        showToast("Restart requested.");
+        setChatStatus(t("Restart requested.\nWaiting for runtime pod to restart…"));
+        showToast(t("Restart requested."));
       }
 
       await refreshAll({ preserveLayout: true });
@@ -15271,13 +15274,13 @@ async function action(path, method = "POST", needsConfirm = false) {
         ""
       ).toLowerCase();
       if (!["running", "failed", "stopped", "deleting"].includes(cachedStatus) && state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
+        setChatStatus(t("Restarting assistant… waiting for runtime pod to become ready."));
       }
 
       pollAgentUntilRestartComplete(lifecycle.agentId).catch((error) => {
         console.warn("Restart poll failed", error);
         if (state.selectedAgentId === lifecycle.agentId) {
-          setChatStatus(`Restart polling failed: ${safe(error.message)}`, true);
+          setChatStatus(t("Restart polling failed: {error}", { error: safe(error.message) }), true);
         }
       });
 
@@ -15286,7 +15289,7 @@ async function action(path, method = "POST", needsConfirm = false) {
 
     resetLocalChatSubmissionForAgent(lifecycle.agentId);
     if (state.selectedAgentId === lifecycle.agentId) {
-      setChatStatus("Assistant stopped.");
+      setChatStatus(t("Assistant stopped."));
     }
   }
   await refreshAll();
@@ -15301,12 +15304,12 @@ async function action(path, method = "POST", needsConfirm = false) {
 // the assistant nor the consequence.
 async function removeAgent(agent) {
   if (!agent?.id) return;
-  const name = agent.name || "this assistant";
+  const name = agent.name || t("this assistant");
   const confirmed = await showConfirm({
-    title: `Delete ${name}?`,
-    message: `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept on the cluster. This can't be undone.`,
-    confirmText: "Delete assistant",
-    cancelText: "Cancel",
+    title: t("Delete {name}?", { name }),
+    message: t("{name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept on the cluster. This can't be undone.", { name }),
+    confirmText: t("Delete assistant"),
+    cancelText: t("Cancel"),
     danger: true,
   });
   if (!confirmed) return;
@@ -15315,7 +15318,7 @@ async function removeAgent(agent) {
   // router answered 405.
   try {
     await action(`/api/agents/${agent.id}/delete-runtime`, "POST");
-    showToast(`${name} deleted.`);
+    showToast(t("{name} deleted.", { name }));
   } catch (error) {
     // action() already surfaced the failure toast.
     console.warn("Agent removal failed", error);
@@ -15897,9 +15900,9 @@ function syncDelegationFilterControls(visibleCount = null) {
     const total = Array.isArray(state.delegations) ? state.delegations.length : 0;
     const shown = visibleCount === null ? visibleDelegationRules().length : visibleCount;
     const parts = [];
-    if (filters.owner === "mine") parts.push("owned by you");
+    if (filters.owner === "mine") parts.push(t("owned by you"));
     if (filters.source !== "all") parts.push(delegationSourceLabel(filters.source));
-    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "delegation")}`;
+    dom.delegationFilterSummary.textContent = parts.length ? t("{shown} of {total} shown · {filters}", { shown, total, filters: parts.join(", ") }) : tn(total, "{n} delegation", "{n} delegations");
   }
 }
 
@@ -15908,18 +15911,18 @@ function renderDelegationRuleNavList(rules = null) {
   const items = Array.isArray(rules) ? rules : visibleDelegationRules();
   syncDelegationFilterControls(items.length);
   if (!items.length) {
-    dom.delegationRuleNavList.innerHTML = `<div class="portal-list-state">${hasActiveDelegationFilters() ? "No delegations match these filters." : "No delegations found."}</div>`;
+    dom.delegationRuleNavList.innerHTML = `<div class="portal-list-state">${hasActiveDelegationFilters() ? t("No delegations match these filters.") : t("No delegations found.")}</div>`;
     return;
   }
   dom.delegationRuleNavList.innerHTML = "";
   items.forEach((rule) => {
     const source = rule.source || rule.trigger_type;
     const sourceLabel = delegationSourceLabel(source);
-    const title = String(rule.name || sourceLabel || "Delegation").trim();
+    const title = String(rule.name || sourceLabel || t("Delegation")).trim();
     const timeLabel = delegationDisplayTime(rule.created_at || rule.updated_at || rule.next_run_at || rule.last_run_at);
     const ownerLabel = delegationOwnerLabel(rule);
     const statusLabel = delegationRuleStatusLabel(rule);
-    const statusDot = portalRowStatusDot(`Delegation status: ${statusLabel}`, delegationRuleStatusTone(rule));
+    const statusDot = portalRowStatusDot(t("Delegation status: {status}", { status: statusLabel }), delegationRuleStatusTone(rule));
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row portal-delegation-row${state.selectedDelegationRuleId === rule.id ? " is-active" : ""}`;
@@ -15929,7 +15932,7 @@ function renderDelegationRuleNavList(rules = null) {
         ${statusDot}
       </div>
       <div class="portal-task-row-meta">
-        <span>Owner ${safe(ownerLabel)}</span>
+        <span>${t("Owner {owner}", { owner: safe(ownerLabel) })}</span>
         <span>${safe(timeLabel)}</span>
       </div>
     `;
@@ -15990,8 +15993,8 @@ function delegationRuleSkillLabel(rule) {
 }
 
 function delegationRuleStatusLabel(rule) {
-  if (rule?.target_agent_missing) return "Needs agent";
-  return rule?.enabled ? "Enabled" : "Paused";
+  if (rule?.target_agent_missing) return t("Needs agent");
+  return rule?.enabled ? t("Enabled") : t("Paused");
 }
 
 function delegationRuleStatusTone(rule) {
@@ -16022,7 +16025,7 @@ function delegationOwnerLabel(rule) {
   const ownerName = String(rule?.owner_display_name || "").trim();
   if (ownerName) return ownerName;
   const ownerId = rule?.owner_user_id ?? "";
-  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : `User ${ownerId}`;
+  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : t("User {id}", { id: ownerId });
 }
 
 function delegationCanManage(rule) {
@@ -16726,7 +16729,7 @@ async function openCreateDelegationRuleModal() {
 async function openEditDelegationRuleModal(ruleId) {
   const detail = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`);
   if (!delegationCanManage(detail)) {
-    showToast("Only the owner can edit this delegation.");
+    showToast(t("Only the owner can edit this delegation."));
     return;
   }
   if (!state.mineAgents || !state.mineAgents.length) {
@@ -16912,7 +16915,7 @@ async function submitEditDelegationRule(formEl) {
   if (reasoningEffort !== String(formEl.dataset.originalReasoningEffort || "")) payload.reasoning_effort = reasoningEffort || null;
   if (maxContextTokens !== (Number(formEl.dataset.originalMaxContextTokens || 0) || null)) payload.max_context_tokens = maxContextTokens;
   if (!Object.keys(payload).length) {
-    showToast("No changes to save");
+    showToast(t("No changes to save"));
     await openDelegationRulePanel(ruleId);
     return;
   }
@@ -16926,7 +16929,7 @@ async function submitEditDelegationRule(formEl) {
 
 async function runDelegationRuleOnce(ruleId) {
   const result = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}/run-once`, { method: "POST" });
-  showToast(`Run finished: created ${result.created_task_count} task(s)`);
+  showToast(tn(Number(result.created_task_count || 0), "Run finished: created {n} task", "Run finished: created {n} tasks"));
   await openDelegationRulePanel(ruleId);
 }
 
@@ -16940,7 +16943,7 @@ async function toggleDelegationRuleEnabled(ruleId, enabled) {
 }
 
 async function deleteDelegationRule(ruleId) {
-  if (!(await showConfirm({ title: "Delete delegation", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
+  if (!(await showConfirm({ title: t("Delete delegation"), message: t("This can't be undone."), confirmText: t("Delete"), danger: true }))) return;
   await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
   await loadDelegationRules();
   if (state.delegations.length) {
@@ -17094,7 +17097,7 @@ function validateInlineWizardPanel(formEl, panel) {
   if (!formEl || !panel) return true;
   const disabledRequired = Array.from(panel.querySelectorAll("input[required]:disabled, select[required]:disabled, textarea[required]:disabled"));
   if (disabledRequired.length) {
-    showToast("Complete this step before continuing.");
+    showToast(t("Complete this step before continuing."));
     return false;
   }
   const fields = Array.from(panel.querySelectorAll("input, select, textarea"));
@@ -17703,10 +17706,10 @@ function truncateDomFromUserArticle(userArticle) {
 
 }
 
-function getRuntimeMutationErrorMessage(response, result, fallbackMessage = "Failed to update message") {
+function getRuntimeMutationErrorMessage(response, result, fallbackMessage = t("Failed to update message")) {
   const error = String(result?.detail || result?.error || "").trim();
   if (response?.status === 501 || error === "unsupported_by_opencode_adapter_mvp") {
-    return "This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.";
+    return t("This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.");
   }
   if (error) return error;
   return fallbackMessage;
@@ -17864,7 +17867,7 @@ function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { 
   syncSelectedAgentChatActionControls();
 }
 
-function handleEditedRegenerationFailure(agentId, requestCtx, message = "regeneration failed") {
+function handleEditedRegenerationFailure(agentId, requestCtx, message = t("regeneration failed")) {
   const finalPayload = {
     completion_state: "error",
     incomplete_reason: message,
@@ -17873,7 +17876,7 @@ function handleEditedRegenerationFailure(agentId, requestCtx, message = "regener
     session_id: requestCtx?.sessionIdAtSend || "",
   };
   completeEditedMessageRequest(agentId, requestCtx, finalPayload, { status: "error" });
-  const fullMessage = `Edited message was saved, but regeneration failed: ${message}`;
+  const fullMessage = t("Edited message was saved, but regeneration failed: {error}", { error: message });
   if (state.selectedAgentId === agentId) {
     finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload);
     setChatStatus(fullMessage, true);
@@ -17903,7 +17906,7 @@ function finalizeEditedSessionMessages(agentId, sessionId, requestCtx, data = {}
     addEditButtonsToMessages();
     renderIcons();
     scrollToBottom();
-    setChatStatus("Ready");
+    setChatStatus(t("Ready"));
   } else {
     if (chatState) {
       chatState.needsReload = true;
@@ -17958,7 +17961,7 @@ async function pollEditedSessionUntilComplete(agentId, finalSessionId, requestId
 
   const chatState = ensureChatState(agentId);
   if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestId) return;
-  const message = "Regeneration is still running or timed out; refresh the session to check the latest result.";
+  const message = t("Regeneration is still running or timed out; refresh the session to check the latest result.");
   chatState.needsReload = true;
   const finalPayload = {
     completion_state: "timeout",
@@ -17987,11 +17990,11 @@ async function retryAssistantMessage(row) {
   const chatState = getChatState(agentId);
 
   if (!agentId || !sessionId) {
-    showToast("No active session");
+    showToast(t("No active session"));
     return;
   }
   if (chatState?.isSubmitting) {
-    showToast("Please wait for the current response to finish");
+    showToast(t("Please wait for the current response to finish"));
     return;
   }
 
@@ -17999,18 +18002,18 @@ async function retryAssistantMessage(row) {
   const userArticle = findPrecedingUserArticle(row);
   const userMessageId = rowUserMessageId || userArticle?.dataset?.messageId || "";
   if (!userMessageId || userMessageId.startsWith("local-")) {
-    showToast("Cannot retry this message yet");
+    showToast(t("Cannot retry this message yet"));
     return;
   }
 
   const content = getUserArticleContent(userArticle).trim();
   if (!content) {
-    showToast("Original message is empty");
+    showToast(t("Original message is empty"));
     return;
   }
 
   if (hasFollowingMessageRows(row)) {
-    const shouldContinue = await showConfirm({ title: "Retry response", message: "Retrying will remove this message and all messages after it.", confirmText: "Retry", danger: true });
+    const shouldContinue = await showConfirm({ title: t("Retry response"), message: t("Retrying will remove this message and all messages after it."), confirmText: t("Retry"), danger: true });
     if (!shouldContinue) return;
   }
 
@@ -18027,23 +18030,23 @@ async function retryAssistantMessage(row) {
     try {
       result = await response.json();
     } catch (_error) {
-      showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"), { variant: 'error' });
+      showToast(getRuntimeMutationErrorMessage(response, {}, t("Failed to delete message")), { variant: 'error' });
       return;
     }
 
     if (!response.ok || !result.success) {
-      showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"), { variant: 'error' });
+      showToast(getRuntimeMutationErrorMessage(response, result, t("Failed to delete message")), { variant: 'error' });
       return;
     }
 
     truncateDomFromUserArticle(userArticle);
     if (chatState) chatState.pendingFiles = [];
     if (dom.chatInput) dom.chatInput.value = content;
-    setChatStatus("Retrying...");
+    setChatStatus(t("Retrying..."));
     await submitChatForSelectedAgent();
   } catch (err) {
-    showToast("Retry failed: " + (err?.message || String(err)), { variant: 'error' });
-    setChatStatus("Ready");
+    showToast(t("Retry failed: {error}", { error: err?.message || String(err) }), { variant: 'error' });
+    setChatStatus(t("Ready"));
   } finally {
     if (retryBtn) retryBtn.disabled = false;
   }
@@ -18105,7 +18108,7 @@ function addAssistantActionsToMessages() {
     copyBtn.innerHTML = `<i data-lucide="copy" class="w-4 h-4"></i>`;
     copyBtn.addEventListener("click", async () => {
       const copied = await copyText(getAssistantCopyText(article));
-      showToast(copied ? "Copied" : "Copy failed");
+      showToast(copied ? t("Copied") : t("Copy failed"));
     });
 
     const retryBtn = document.createElement("button");
@@ -18192,13 +18195,13 @@ function showToast(message, opts = {}) {
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.className = 'portal-toast-action';
-    copy.textContent = 'Copy';
+    copy.textContent = t("Copy");
     copy.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(text);
-        copy.textContent = 'Copied';
+        copy.textContent = t("Copied");
       } catch {
-        copy.textContent = 'Copy failed';
+        copy.textContent = t("Copy failed");
       }
     });
     node.append(copy);
@@ -18207,8 +18210,8 @@ function showToast(message, opts = {}) {
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'portal-toast-close';
-  close.title = 'Dismiss';
-  close.setAttribute('aria-label', 'Dismiss notification');
+  close.title = t("Dismiss");
+  close.setAttribute('aria-label', t("Dismiss notification"));
   close.textContent = '✕';
   close.addEventListener('click', () => dismissToast(node));
   node.append(close);
@@ -18339,22 +18342,22 @@ function bindEvents() {
     const sessionId = document.getElementById("chat-session-id")?.value || "";
 
     if (!agentId) {
-      showToast("Please select an assistant first");
+      showToast(t("Please select an assistant first"));
       return;
     }
     if (!sessionId || !messageId) {
-      showToast("Invalid session", { variant: 'error' });
+      showToast(t("Invalid session"), { variant: 'error' });
       return;
     }
     if (!newContent.trim()) {
-      showToast("Message content cannot be empty");
+      showToast(t("Message content cannot be empty"));
       return;
     }
     if (!guardNoActiveChatRequestForAgent(agentId, "edit a message")) return;
     const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
       ? globalThis.crypto.randomUUID()
       : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    if (!beginSingleSubmit(form, { pendingText: "Saving...", closeButton: document.getElementById("close-message-edit-modal") })) return;
+    if (!beginSingleSubmit(form, { pendingText: t("Saving..."), closeButton: document.getElementById("close-message-edit-modal") })) return;
 
     const editBody = {
       content: newContent,
@@ -18368,7 +18371,7 @@ function bindEvents() {
     if (reasoningEffort && reasoningEffort !== defaultReasoningEffort) editBody.reasoning_effort = reasoningEffort;
     const maxContextTokens = Number(chatState?.maxContextTokensOverride || dom.chatContextSelect?.value || 0);
     if (maxContextTokens > 0) editBody.max_context_tokens = maxContextTokens;
-    setChatStatus("Saving edited message...");
+    setChatStatus(t("Saving edited message..."));
     let accepted = false;
 
     try {
@@ -18388,19 +18391,19 @@ function bindEvents() {
 
       if (!response.ok || result.success !== true) {
         const hasRuntimeErrorText = String(result?.detail || result?.error || "").trim().length > 0;
-        let message = getRuntimeMutationErrorMessage(response, result, "Failed to edit message");
+        let message = getRuntimeMutationErrorMessage(response, result, t("Failed to edit message"));
         if (!hasRuntimeErrorText && response.status !== 501 && !response.ok) {
           message = await handleErrorResponse(responseForError);
         }
         showToast(message);
-        setChatStatus(message || "Ready", true);
+        setChatStatus(message || t("Ready"), true);
         return;
       }
 
       if (result.accepted !== true) {
-        const message = getRuntimeMutationErrorMessage(response, result, "Failed to edit message");
+        const message = getRuntimeMutationErrorMessage(response, result, t("Failed to edit message"));
         showToast(message);
-        setChatStatus(message || "Ready", true);
+        setChatStatus(message || t("Ready"), true);
         return;
       }
 
@@ -18473,7 +18476,7 @@ function bindEvents() {
       }
       ensureEventSocketForAgent(agentId, finalSessionId, requestId);
       setChatSubmittingForAgent(agentId, true);
-      setChatStatus("Regenerating response...");
+      setChatStatus(t("Regenerating response..."));
       pollEditedSessionUntilComplete(agentId, finalSessionId, requestId, replacementUserMessageId, { requestCtx });
     } catch (err) {
       const message = err?.message || String(err);
@@ -18485,8 +18488,8 @@ function bindEvents() {
           edit: true,
         }, message);
       } else {
-        showToast("Error editing message: " + message, { variant: 'error' });
-        setChatStatus(message || "Ready", true);
+        showToast(t("Error editing message: {error}", { error: message }), { variant: 'error' });
+        setChatStatus(message || t("Ready"), true);
       }
     } finally {
       if (!accepted) {
@@ -18798,7 +18801,7 @@ function bindEvents() {
       dom.chatInput.setRangeText(`${command} `, skillStart, skillEnd, "end");
       hideSuggest();
       dom.chatInput.focus();
-      setChatStatus(`Inserted ${command}`);
+      setChatStatus(t("Inserted {command}", { command }));
       return;
     }
 
@@ -18811,7 +18814,7 @@ function bindEvents() {
       try {
         await submitCreateDelegationRule(delegationForm);
       } catch (error) {
-        showToast(`Create delegation failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Create delegation failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -18822,7 +18825,7 @@ function bindEvents() {
       try {
         await submitEditDelegationRule(editDelegationForm);
       } catch (error) {
-        showToast(`Update delegation failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Update delegation failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -18833,7 +18836,7 @@ function bindEvents() {
       try {
         await submitCreateAgentAsyncTask(taskForm);
       } catch (error) {
-        showToast(`Create task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Create task failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -18844,7 +18847,7 @@ function bindEvents() {
       try {
         await submitContinueAgentTask(continueTaskForm);
       } catch (error) {
-        showToast(`Continue task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Continue task failed: {error}", { error: error.message }), { variant: 'error' });
       }
     }
   });
@@ -19067,7 +19070,7 @@ function bindEvents() {
       try {
         await cancelAgentTask(taskId);
       } catch (error) {
-        showToast(`Cancel task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Cancel task failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -19080,7 +19083,7 @@ function bindEvents() {
       try {
         await rerunAgentTask(taskId);
       } catch (error) {
-        showToast(`Rerun task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Rerun task failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -19091,9 +19094,9 @@ function bindEvents() {
       const agentId = restartForSettingsBtn.dataset.restartAgentId || "";
       if (!agentId) return;
       if (!(await showConfirm({
-        title: "Restart assistant",
-        message: "Anything it is working on right now is interrupted.",
-        confirmText: "Restart",
+        title: t("Restart assistant"),
+        message: t("Anything it is working on right now is interrupted."),
+        confirmText: t("Restart"),
       }))) return;
       restartForSettingsBtn.disabled = true;
       try {
@@ -19234,7 +19237,7 @@ function bindEvents() {
     try {
       await openTaskCreatePanelInMain();
     } catch (error) {
-      showToast(`Open task create failed: ${error.message}`, { variant: 'error' });
+      showToast(t("Open task create failed: {error}", { error: error.message }), { variant: 'error' });
     }
   });
   dom.connectorsMenuBtn?.addEventListener("click", () => openPortalSection("connectors"));
@@ -19408,7 +19411,7 @@ function bindEvents() {
 // Last-resort net so a rejected promise from a click handler can never leave the
 // user staring at a button that silently did nothing.
 window.addEventListener("unhandledrejection", (event) => {
-  const message = agentRestartErrorMessage(event?.reason, "Something went wrong.");
+  const message = agentRestartErrorMessage(event?.reason, t("Something went wrong."));
   console.error("Unhandled rejection", event?.reason);
   if (typeof showToast === "function") {
     showToast(message, { variant: "error" });
@@ -19580,7 +19583,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Server Files button in header
   document.getElementById('btn-files')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
     openServerFiles();
@@ -19589,7 +19592,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Mobile test recording (mobile_testing.js)
   document.getElementById('btn-recording')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
     window.EfpMobileTesting?.openRecordingPanel?.();
@@ -19598,7 +19601,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Context usage button in header
   document.getElementById('btn-context')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
     openContextUsagePanel();
@@ -19616,14 +19619,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 window.addEventListener("hashchange", () => {
   applyPortalRouteFromHash({ replaceInvalid: true }).catch((error) => {
     console.error("Failed to apply portal route from hash", error);
-    showToast("Failed to open URL route: " + (error?.message || error), { variant: 'error' });
+    showToast(t("Failed to open URL route: {error}", { error: error?.message || error }), { variant: 'error' });
   });
 });
 
 window.addEventListener("popstate", () => {
   applyPortalRouteFromHash({ replaceInvalid: true }).catch((error) => {
     console.error("Failed to apply portal route from history", error);
-    showToast("Failed to open URL route: " + (error?.message || error), { variant: 'error' });
+    showToast(t("Failed to open URL route: {error}", { error: error?.message || error }), { variant: 'error' });
   });
 });
 
@@ -19955,7 +19958,7 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
   payload[section] = { enabled: enabled };
   api('/a/' + agentId + '/api/agent/system-prompt/config', { method: 'PUT', body: JSON.stringify(payload) }).catch(function(e) {
     console.error('Failed to update:', e);
-    showToast('Failed to update: ' + e.message, { variant: 'error' });
+    showToast(t("Failed to update: {error}", { error: e.message }), { variant: 'error' });
     loadSystemPromptConfig(agentId);
   });
 }
@@ -19965,7 +19968,7 @@ function editSystemPromptSection(agentId, section) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled, data || {});
   }).catch(function(e) {
     console.error('Failed to load:', e);
-    showToast('Failed to load: ' + e.message, { variant: 'error' });
+    showToast(t("Failed to load: {error}", { error: e.message }), { variant: 'error' });
   });
 }
 
@@ -20059,7 +20062,7 @@ function saveSystemPromptSection(agentId, section) {
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {
     console.error('Failed to save:', e);
-    showToast('Failed to save: ' + e.message, { variant: 'error' });
+    showToast(t("Failed to save: {error}", { error: e.message }), { variant: 'error' });
     loadSystemPromptConfig(agentId);
   });
 }

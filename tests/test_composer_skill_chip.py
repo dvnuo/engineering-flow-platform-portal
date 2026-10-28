@@ -142,6 +142,8 @@ def test_a_recognised_command_becomes_a_chip_linking_to_its_source():
     assert result["hidden"] is False
     assert 'href="https://github.com/org/skills/blob/dev/create-pull-request/skill.md"' in result["html"]
     assert "/create-pull-request" in result["html"]
+    # The hover names the branch the link opens on (a {branch} placeholder, filled at render).
+    assert "Open the source on dev" in result["html"]
 
 
 def test_the_link_opens_a_new_tab_and_severs_the_opener():

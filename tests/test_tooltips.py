@@ -23,9 +23,17 @@ CHAT_JS = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
 
 def _registry_entries():
-    """(selector, hint) pairs from the HINTS table."""
+    """(selector, hint) pairs from the HINTS table; each hint is wrapped in t() for the catalogues."""
     block = TOOLTIP_JS.split("var HINTS = [", 1)[1].split("\n  ];", 1)[0]
-    return re.findall(r"""\[\s*(['"])(.+?)\1\s*,\s*(['"])(.+?)\3\s*\]""", block)
+    return re.findall(r"""\[\s*(['"])(.+?)\1\s*,\s*t\((['"])(.+?)\3\)\s*\]""", block)
+
+
+def test_every_registry_hint_is_wrapped_for_translation():
+    # An entry whose hint is not t("...") would silently drop out of the pairs
+    # the tests below read, and would never reach the catalogues.
+    block = TOOLTIP_JS.split("var HINTS = [", 1)[1].split("\n  ];", 1)[0]
+    entry_lines = [line for line in block.splitlines() if line.lstrip().startswith("[")]
+    assert entry_lines and len(entry_lines) == len(_registry_entries())
 
 
 def test_engine_is_loaded_on_every_page():

@@ -71,7 +71,7 @@ def test_agent_health_card_is_wired_into_agent_meta():
     # asks for one instead.
     assert "no connection profile" not in agent_health
     assert 'status === "running" && agentSettingsRestartPending(agent)' in agent_health
-    assert 'label: "Restart to apply"' in agent_health
+    assert 'label: t("Restart to apply")' in agent_health
     assert "settings_restart_pending" in _extract_js_function(js, "agentSettingsRestartPending")
     assert "Ready to chat." in agent_health
     assert "openEditDialog(agent)" in health_action

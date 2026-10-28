@@ -2,25 +2,25 @@
 {% block content %}
 <div id="app-root" x-data="chatApp()" data-user-id="{{ user_id }}" data-username="{{ nickname }}" data-nickname="{{ nickname }}" data-role="{{ role }}" data-share-anyone-enabled="{{ 'true' if share_anyone_enabled else 'false' }}" class="portal-app-root">
   <div class="portal-shell">
-    <nav class="portal-rail" aria-label="Workspace navigation">
+    <nav class="portal-rail" aria-label="{{ t('Workspace navigation') }}">
       <div class="portal-rail-top">
-        <button id="rail-assistants-btn" class="portal-rail-btn is-active" type="button" title="Assistants">
+        <button id="rail-assistants-btn" class="portal-rail-btn is-active" type="button" title="{{ t('Assistants') }}">
           <i data-lucide="bot" class="w-5 h-5"></i>
         </button>
-        <button id="tasks-menu-btn" class="portal-rail-btn" type="button" title="Tasks">
+        <button id="tasks-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Tasks') }}">
           <i data-lucide="list-checks" class="w-5 h-5"></i>
         </button>
-        <button id="delegations-menu-btn" class="portal-rail-btn" type="button" title="Delegations">
+        <button id="delegations-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Delegations') }}">
           <i data-lucide="zap" class="w-5 h-5"></i>
         </button>
         {% if role == "admin" %}
-        <button id="users-menu-btn" class="portal-rail-btn" type="button" title="Administration">
+        <button id="users-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Administration') }}">
           <i data-lucide="shield" class="w-5 h-5"></i>
         </button>
         {% endif %}
       </div>
       <div class="portal-rail-bottom">
-        <button id="connectors-menu-btn" class="portal-rail-btn" type="button" title="Connectors">
+        <button id="connectors-menu-btn" class="portal-rail-btn" type="button" title="{{ t('Connectors') }}">
           <i data-lucide="plug-zap" class="w-5 h-5"></i>
         </button>
         {# Help, Theme and Sign out are not sections, so they live behind the
@@ -35,7 +35,7 @@
         {%- endmacro %}
         <div class="portal-account">
           <button id="account-menu-btn" class="portal-rail-btn portal-account-btn" type="button"
-                  aria-label="Account: {{ nickname }}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
+                  aria-label="{{ t('Account: {name}', name=nickname) }}" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
             {{ member_avatar() }}
           </button>
           <div id="account-menu" class="portal-account-menu hidden" role="menu" aria-labelledby="account-menu-btn">
@@ -47,30 +47,30 @@
               </div>
             </div>
             <div class="portal-account-group" role="group" aria-labelledby="account-theme-label">
-              <div id="account-theme-label" class="portal-account-group-label">Theme</div>
+              <div id="account-theme-label" class="portal-account-group-label">{{ t("Theme") }}</div>
               <div class="portal-account-options">
                 <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="false" data-theme-option="system">
-                  <i data-lucide="monitor" class="w-4 h-4"></i>System
+                  <i data-lucide="monitor" class="w-4 h-4"></i>{{ t("System") }}
                 </button>
                 <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="false" data-theme-option="light">
-                  <i data-lucide="sun" class="w-4 h-4"></i>Light
+                  <i data-lucide="sun" class="w-4 h-4"></i>{{ t("Light") }}
                 </button>
                 <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="false" data-theme-option="dark">
-                  <i data-lucide="moon" class="w-4 h-4"></i>Dark
+                  <i data-lucide="moon" class="w-4 h-4"></i>{{ t("Dark") }}
                 </button>
               </div>
             </div>
             <div class="portal-account-group" role="group" aria-labelledby="account-chat-width-label">
-              <div id="account-chat-width-label" class="portal-account-group-label">Chat width</div>
+              <div id="account-chat-width-label" class="portal-account-group-label">{{ t("Chat width") }}</div>
               <div class="portal-account-options">
                 <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="false" data-chat-width-option="default">
-                  <i data-lucide="rectangle-vertical" class="w-4 h-4"></i>Default
+                  <i data-lucide="rectangle-vertical" class="w-4 h-4"></i>{{ t("Default") }}
                 </button>
                 <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="false" data-chat-width-option="wide">
-                  <i data-lucide="rectangle-horizontal" class="w-4 h-4"></i>Wide
+                  <i data-lucide="rectangle-horizontal" class="w-4 h-4"></i>{{ t("Wide") }}
                 </button>
                 <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="false" data-chat-width-option="full">
-                  <i data-lucide="maximize" class="w-4 h-4"></i>Full
+                  <i data-lucide="maximize" class="w-4 h-4"></i>{{ t("Full") }}
                 </button>
               </div>
             </div>
@@ -84,17 +84,17 @@
                language picker shows them: a member who cannot read the current
                UI language still has to find their own. #}
             <div class="portal-account-group" role="group" aria-labelledby="account-language-label" data-locale-source="{{ locale_source }}">
-              <div id="account-language-label" class="portal-account-group-label">Language</div>
+              <div id="account-language-label" class="portal-account-group-label">{{ t("Language") }}</div>
               <div class="portal-account-options is-four">
-                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'auto' else 'false' }}" data-ui-locale-option="auto" title="Follow the browser's language">Auto</button>
-                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'en' else 'false' }}" data-ui-locale-option="en" lang="en" title="English">English</button>
-                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'zh-Hans' else 'false' }}" data-ui-locale-option="zh-Hans" lang="zh-Hans" title="Simplified Chinese">&#x7B80;&#x4F53;</button>
-                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'zh-Hant-HK' else 'false' }}" data-ui-locale-option="zh-Hant-HK" lang="zh-Hant-HK" title="Traditional Chinese (Hong Kong)">&#x7E41;&#x9AD4;</button>
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'auto' else 'false' }}" data-ui-locale-option="auto" title="{{ t('Follow the browser\'s language') }}">{{ t("Auto") }}</button>
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'en' else 'false' }}" data-ui-locale-option="en" lang="en" title="{{ t('English') }}">English</button>
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'zh-Hans' else 'false' }}" data-ui-locale-option="zh-Hans" lang="zh-Hans" title="{{ t('Simplified Chinese') }}">&#x7B80;&#x4F53;</button>
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'zh-Hant-HK' else 'false' }}" data-ui-locale-option="zh-Hant-HK" lang="zh-Hant-HK" title="{{ t('Traditional Chinese (Hong Kong)') }}">&#x7E41;&#x9AD4;</button>
               </div>
               <label class="portal-account-reply-language" for="account-reply-language">
-                <span>Assistant replies in</span>
+                <span>{{ t("Assistant replies in") }}</span>
                 <select id="account-reply-language" class="portal-account-select" data-reply-language-select>
-                  <option value="follow"{% if reply_language_preference == 'follow' %} selected{% endif %}>Same as language</option>
+                  <option value="follow"{% if reply_language_preference == 'follow' %} selected{% endif %}>{{ t("Same as language") }}</option>
                   <option value="en"{% if reply_language_preference == 'en' %} selected{% endif %}>English</option>
                   <option value="zh-Hans" lang="zh-Hans"{% if reply_language_preference == 'zh-Hans' %} selected{% endif %}>&#x7B80;&#x4F53;&#x4E2D;&#x6587;</option>
                   <option value="zh-Hant-HK" lang="zh-Hant-HK"{% if reply_language_preference == 'zh-Hant-HK' %} selected{% endif %}>&#x7E41;&#x9AD4;&#x4E2D;&#x6587;&#xFF08;&#x9999;&#x6E2F;&#xFF09;</option>
@@ -103,14 +103,14 @@
             </div>
             <div class="portal-account-sep" role="separator"></div>
             <button id="help-btn" class="portal-account-item" type="button" role="menuitem">
-              <i data-lucide="circle-help" class="w-4 h-4"></i>Help
+              <i data-lucide="circle-help" class="w-4 h-4"></i>{{ t("Help") }}
             </button>
             <button id="shortcuts-btn" class="portal-account-item" type="button" role="menuitem">
-              <i data-lucide="keyboard" class="w-4 h-4"></i>Keyboard shortcuts
+              <i data-lucide="keyboard" class="w-4 h-4"></i>{{ t("Keyboard shortcuts") }}
             </button>
             <div class="portal-account-sep" role="separator"></div>
             <button id="logout-btn" class="portal-account-item" type="button" role="menuitem">
-              <i data-lucide="log-out" class="w-4 h-4"></i>Sign out
+              <i data-lucide="log-out" class="w-4 h-4"></i>{{ t("Sign out") }}
             </button>
           </div>
         </div>
@@ -122,18 +122,18 @@
     <aside id="portal-secondary-pane" class="portal-secondary-pane">
       <div class="portal-pane-header">
         <div>
-          <div id="secondary-pane-eyebrow" class="portal-eyebrow">My Space</div>
-          <h2 id="secondary-pane-title">Assistants</h2>
+          <div id="secondary-pane-eyebrow" class="portal-eyebrow">{{ t("My Space") }}</div>
+          <h2 id="secondary-pane-title">{{ t("Assistants") }}</h2>
         </div>
         <div class="portal-pane-header-actions">
           <div id="secondary-pane-actions">
-            <button id="add-agent-btn" class="toolbar-icon-btn" type="button" title="Create Assistant">
+            <button id="add-agent-btn" class="toolbar-icon-btn" type="button" title="{{ t('Create Assistant') }}">
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
-            <button id="add-task-btn" class="toolbar-icon-btn hidden" type="button" title="Create Task">
+            <button id="add-task-btn" class="toolbar-icon-btn hidden" type="button" title="{{ t('Create Task') }}">
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
-            <button id="add-delegation-btn" class="toolbar-icon-btn hidden" type="button" title="Create Delegation">
+            <button id="add-delegation-btn" class="toolbar-icon-btn hidden" type="button" title="{{ t('Create Delegation') }}">
               <i data-lucide="plus" class="w-5 h-5"></i>
             </button>
           </div>
@@ -141,33 +141,33 @@
       </div>
       <div class="portal-secondary-list">
         <section id="assistants-nav-section" class="portal-secondary-section">
-          <div class="portal-list-tools" aria-label="Assistant filters">
+          <div class="portal-list-tools" aria-label="{{ t('Assistant filters') }}">
             <div class="portal-search-field">
               <i data-lucide="search" class="w-4 h-4"></i>
-              <input id="agent-search-input" type="search" placeholder="Search assistants" autocomplete="off" />
+              <input id="agent-search-input" type="search" placeholder="{{ t('Search assistants') }}" autocomplete="off" />
             </div>
             <div id="agent-filter-summary" class="portal-filter-summary"></div>
           </div>
           <div id="mine-list" class="portal-agent-list"></div>
         </section>
         <section id="tasks-nav-section" class="portal-secondary-section hidden">
-          <div class="portal-list-tools" aria-label="Task filters">
+          <div class="portal-list-tools" aria-label="{{ t('Task filters') }}">
             <div class="portal-list-tool-row portal-task-filter-row">
-              <select id="task-owner-filter" class="portal-filter-select" aria-label="Task owner">
-                <option value="all">All owners</option>
-                <option value="mine">Mine only</option>
+              <select id="task-owner-filter" class="portal-filter-select" aria-label="{{ t('Task owner') }}">
+                <option value="all">{{ t("All owners") }}</option>
+                <option value="mine">{{ t("Mine only") }}</option>
               </select>
-              <select id="task-status-filter" class="portal-filter-select" aria-label="Task status">
-                <option value="all">All statuses</option>
-                <option value="queued">Queued</option>
-                <option value="running">Running</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-                <option value="failed">Failed</option>
-                <option value="stale">Stale</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="pending_restart">Pending restart</option>
-                <option value="cancel_failed">Cancel failed</option>
+              <select id="task-status-filter" class="portal-filter-select" aria-label="{{ t('Task status') }}">
+                <option value="all">{{ t("All statuses") }}</option>
+                <option value="queued">{{ t("Queued") }}</option>
+                <option value="running">{{ t("Running") }}</option>
+                <option value="blocked">{{ t("Blocked") }}</option>
+                <option value="done">{{ t("Done") }}</option>
+                <option value="failed">{{ t("Failed") }}</option>
+                <option value="stale">{{ t("Stale") }}</option>
+                <option value="cancelled">{{ t("Cancelled") }}</option>
+                <option value="pending_restart">{{ t("Pending restart") }}</option>
+                <option value="cancel_failed">{{ t("Cancel failed") }}</option>
               </select>
             </div>
             <div id="task-filter-summary" class="portal-filter-summary"></div>
@@ -178,20 +178,20 @@
           <div id="connector-nav-list" class="portal-secondary-list-body"></div>
         </section>
         <section id="delegations-nav-section" class="portal-secondary-section hidden">
-          <div class="portal-list-tools" aria-label="Delegation filters">
+          <div class="portal-list-tools" aria-label="{{ t('Delegation filters') }}">
             <div class="portal-list-tool-row">
-              <select id="delegation-owner-filter" class="portal-filter-select" aria-label="Delegation owner">
-                <option value="all">All owners</option>
-                <option value="mine">Mine only</option>
+              <select id="delegation-owner-filter" class="portal-filter-select" aria-label="{{ t('Delegation owner') }}">
+                <option value="all">{{ t("All owners") }}</option>
+                <option value="mine">{{ t("Mine only") }}</option>
               </select>
-              <select id="delegation-source-filter" class="portal-filter-select" aria-label="Delegation source">
-                <option value="all">All sources</option>
-                <option value="github_pr_review">GitHub PR Review</option>
-                <option value="github_pr_mention">GitHub PR Mention</option>
-                <option value="jira_assignee">Jira Assignee</option>
-                <option value="jira_mention">Jira Mention</option>
-                <option value="jira_status">Jira Status Change</option>
-                <option value="timer">Timer</option>
+              <select id="delegation-source-filter" class="portal-filter-select" aria-label="{{ t('Delegation source') }}">
+                <option value="all">{{ t("All sources") }}</option>
+                <option value="github_pr_review">{{ t("GitHub PR Review") }}</option>
+                <option value="github_pr_mention">{{ t("GitHub PR Mention") }}</option>
+                <option value="jira_assignee">{{ t("Jira Assignee") }}</option>
+                <option value="jira_mention">{{ t("Jira Mention") }}</option>
+                <option value="jira_status">{{ t("Jira Status Change") }}</option>
+                <option value="timer">{{ t("Timer") }}</option>
               </select>
             </div>
             <div id="delegation-filter-summary" class="portal-filter-summary"></div>
@@ -200,9 +200,14 @@
         </section>
         <section id="help-nav-section" class="portal-secondary-section hidden">
           <div class="portal-secondary-list-body">
+            {# The group names come from the topics' front matter
+               (help_center.GROUP_ORDER); the literals here are the keys the
+               catalogues translate, so a group a markdown file introduces
+               shows as written until it is added. #}
+            {% set help_group_labels = {"Getting started": t("Getting started"), "Connectors": t("Connectors"), "Working": t("Working")} %}
             {% for group_name, topics in help_groups %}
             <div class="portal-help-nav-group">
-              <h4 class="portal-help-nav-heading">{{ group_name }}</h4>
+              <h4 class="portal-help-nav-heading">{{ help_group_labels.get(group_name, group_name) }}</h4>
               {% for topic in topics %}
               <button class="portal-list-row portal-help-nav-row" type="button"
                       data-help-topic-nav="{{ topic.id }}">
@@ -224,8 +229,8 @@
             <button id="user-management-nav-item" class="portal-list-row portal-admin-nav-row" type="button">
               <i data-lucide="users" class="w-5 h-5"></i>
               <span class="portal-admin-nav-copy">
-                <strong>User Management</strong>
-                <small>Members, roles, access, and usage</small>
+                <strong>{{ t("User Management") }}</strong>
+                <small>{{ t("Members, roles, access, and usage") }}</small>
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
@@ -235,8 +240,8 @@
                     data-admin-panel-title="Assistant types">
               <i data-lucide="layout-grid" class="w-5 h-5"></i>
               <span class="portal-admin-nav-copy">
-                <strong>Assistant Types</strong>
-                <small>Presets members pick from in simple mode</small>
+                <strong>{{ t("Assistant Types") }}</strong>
+                <small>{{ t("Presets members pick from in simple mode") }}</small>
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
@@ -246,8 +251,8 @@
                     data-admin-panel-title="Default connectors">
               <i data-lucide="plug" class="w-5 h-5"></i>
               <span class="portal-admin-nav-copy">
-                <strong>Default connectors</strong>
-                <small>Connector settings new members start with</small>
+                <strong>{{ t("Default connectors") }}</strong>
+                <small>{{ t("Connector settings new members start with") }}</small>
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
@@ -261,45 +266,45 @@
       <header class="portal-main-header">
         <div class="portal-main-header-copy">
           <div class="portal-main-header-title-row">
-            <h1 id="embed-title">Select an assistant</h1>
+            <h1 id="embed-title">{{ t("Select an assistant") }}</h1>
             <span id="selected-status" class="portal-status-badge portal-header-status-badge hidden" role="status" aria-live="polite"></span>
           </div>
-          <div id="chat-status" class="portal-statusline" role="status" aria-live="polite">Ready</div>
+          <div id="chat-status" class="portal-statusline" role="status" aria-live="polite">{{ t("Ready") }}</div>
         </div>
         <div class="portal-main-toolbar">
           {% if role == "admin" %}
-          <button id="header-add-allowlist-btn" class="portal-header-action is-primary hidden" type="button" title="Add to allowlist" aria-label="Add to allowlist" data-open-admin-allowlist-modal>
+          <button id="header-add-allowlist-btn" class="portal-header-action is-primary hidden" type="button" title="{{ t('Add to allowlist') }}" aria-label="{{ t('Add to allowlist') }}" data-open-admin-allowlist-modal>
             <i data-lucide="user-plus" class="w-4 h-4"></i>
-            <span class="portal-header-action-label">Add to allowlist</span>
+            <span class="portal-header-action-label">{{ t("Add to allowlist") }}</span>
           </button>
-          <button id="header-add-assistant-type-btn" class="portal-header-action is-primary hidden" type="button" title="Add assistant type" aria-label="Add assistant type" data-open-assistant-type-modal>
+          <button id="header-add-assistant-type-btn" class="portal-header-action is-primary hidden" type="button" title="{{ t('Add assistant type') }}" aria-label="{{ t('Add assistant type') }}" data-open-assistant-type-modal>
             <i data-lucide="plus" class="w-4 h-4"></i>
-            <span class="portal-header-action-label">Add type</span>
+            <span class="portal-header-action-label">{{ t("Add type") }}</span>
           </button>
           {% endif %}
-          <button id="header-new-chat-btn" class="portal-header-action is-primary" type="button" title="New chat" aria-label="New chat">
+          <button id="header-new-chat-btn" class="portal-header-action is-primary" type="button" title="{{ t('New chat') }}" aria-label="{{ t('New chat') }}">
             <i data-lucide="message-square-plus" class="w-4 h-4"></i>
-            <span class="portal-header-action-label">New chat</span>
+            <span class="portal-header-action-label">{{ t("New chat") }}</span>
           </button>
-          <button id="btn-sessions" class="portal-header-action" type="button" title="Sessions" aria-label="Sessions">
+          <button id="btn-sessions" class="portal-header-action" type="button" title="{{ t('Sessions') }}" aria-label="{{ t('Sessions') }}">
             <i data-lucide="clock" class="w-4 h-4"></i>
-            <span class="portal-header-action-label">Sessions</span>
+            <span class="portal-header-action-label">{{ t("Sessions") }}</span>
           </button>
-          <button id="btn-context" class="portal-header-action toolbar-context-btn" type="button" title="Context usage" aria-label="Context usage">
+          <button id="btn-context" class="portal-header-action toolbar-context-btn" type="button" title="{{ t('Context usage') }}" aria-label="{{ t('Context usage') }}">
             <i data-lucide="gauge" class="w-4 h-4"></i>
-            <span id="context-usage-label" class="portal-header-action-label">Context —</span>
+            <span id="context-usage-label" class="portal-header-action-label">{{ t("Context —") }}</span>
           </button>
-          <button id="btn-files" class="portal-header-action" type="button" title="Server files" aria-label="Server files" data-owner-only="true">
+          <button id="btn-files" class="portal-header-action" type="button" title="{{ t('Server files') }}" aria-label="{{ t('Server files') }}" data-owner-only="true">
             <i data-lucide="folder" class="w-4 h-4"></i>
-            <span class="portal-header-action-label">Files</span>
+            <span class="portal-header-action-label">{{ t("Files") }}</span>
           </button>
-          <button id="btn-recording" class="portal-header-action" type="button" title="Mobile testing: record and replay on a BrowserStack device" aria-label="Mobile testing" data-owner-only="true">
+          <button id="btn-recording" class="portal-header-action" type="button" title="{{ t('Mobile testing: record and replay on a BrowserStack device') }}" aria-label="{{ t('Mobile testing') }}" data-owner-only="true">
             <i data-lucide="smartphone" class="w-4 h-4"></i>
-            <span class="portal-header-action-label">Mobile testing</span>
+            <span class="portal-header-action-label">{{ t("Mobile testing") }}</span>
           </button>
-          <button id="detail-toggle" class="portal-header-action" type="button" title="Assistant details" aria-label="Assistant details">
+          <button id="detail-toggle" class="portal-header-action" type="button" title="{{ t('Assistant details') }}" aria-label="{{ t('Assistant details') }}">
             <i data-lucide="panel-right" class="w-4 h-4"></i>
-            <span class="portal-header-action-label">Details</span>
+            <span class="portal-header-action-label">{{ t("Details") }}</span>
           </button>
 
           <!-- Tasks and Delegations used to keep these inside the panel body,
@@ -307,32 +312,32 @@
                actions. They live in the main toolbar now, like Assistants and
                Administration. -->
           <div id="header-task-actions" class="portal-header-group hidden">
-            <div class="portal-header-scope" role="group" aria-label="Task scope">
-              <button id="header-task-scope-all" class="portal-header-scope-btn" type="button" data-task-overview-scope="all">All</button>
-              <button id="header-task-scope-mine" class="portal-header-scope-btn" type="button" data-task-overview-scope="mine">Mine</button>
+            <div class="portal-header-scope" role="group" aria-label="{{ t('Task scope') }}">
+              <button id="header-task-scope-all" class="portal-header-scope-btn" type="button" data-task-overview-scope="all">{{ t("All") }}</button>
+              <button id="header-task-scope-mine" class="portal-header-scope-btn" type="button" data-task-overview-scope="mine">{{ t("Mine") }}</button>
             </div>
-            <button id="header-task-refresh" class="portal-header-action" type="button" aria-label="Refresh tasks" data-refresh-task-overview>
+            <button id="header-task-refresh" class="portal-header-action" type="button" aria-label="{{ t('Refresh tasks') }}" data-refresh-task-overview>
               <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-              <span class="portal-header-action-label">Refresh</span>
+              <span class="portal-header-action-label">{{ t("Refresh") }}</span>
             </button>
-            <button id="header-create-task" class="portal-header-action is-primary" type="button" aria-label="Create task" data-open-create-task-main="1">
+            <button id="header-create-task" class="portal-header-action is-primary" type="button" aria-label="{{ t('Create task') }}" data-open-create-task-main="1">
               <i data-lucide="plus" class="w-4 h-4"></i>
-              <span class="portal-header-action-label">Create Task</span>
+              <span class="portal-header-action-label">{{ t("Create Task") }}</span>
             </button>
           </div>
 
           <div id="header-delegation-actions" class="portal-header-group hidden">
-            <div class="portal-header-scope" role="group" aria-label="Delegation scope">
-              <button id="header-delegation-scope-all" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="all">All</button>
-              <button id="header-delegation-scope-mine" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="mine">Mine</button>
+            <div class="portal-header-scope" role="group" aria-label="{{ t('Delegation scope') }}">
+              <button id="header-delegation-scope-all" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="all">{{ t("All") }}</button>
+              <button id="header-delegation-scope-mine" class="portal-header-scope-btn" type="button" data-delegation-overview-scope="mine">{{ t("Mine") }}</button>
             </div>
-            <button id="header-delegation-refresh" class="portal-header-action" type="button" aria-label="Refresh delegations" data-refresh-delegation-overview>
+            <button id="header-delegation-refresh" class="portal-header-action" type="button" aria-label="{{ t('Refresh delegations') }}" data-refresh-delegation-overview>
               <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-              <span class="portal-header-action-label">Refresh</span>
+              <span class="portal-header-action-label">{{ t("Refresh") }}</span>
             </button>
-            <button id="header-create-delegation" class="portal-header-action is-primary" type="button" aria-label="Create delegation" data-open-create-delegation-main>
+            <button id="header-create-delegation" class="portal-header-action is-primary" type="button" aria-label="{{ t('Create delegation') }}" data-open-create-delegation-main>
               <i data-lucide="plus" class="w-4 h-4"></i>
-              <span class="portal-header-action-label">Create Delegation</span>
+              <span class="portal-header-action-label">{{ t("Create Delegation") }}</span>
             </button>
           </div>
         </div>
@@ -347,45 +352,45 @@
         <div class="portal-home-hero">
           <div class="portal-home-orb" aria-hidden="true"></div>
           <div>
-            <h3 id="home-title">Select an assistant</h3>
-            <p id="home-subtitle">Choose an assistant from the left to start chatting.</p>
+            <h3 id="home-title">{{ t("Select an assistant") }}</h3>
+            <p id="home-subtitle">{{ t("Choose an assistant from the left to start chatting.") }}</p>
           </div>
         </div>
 
         <div class="portal-home-grid">
           <article class="portal-card">
-            <div class="portal-card-title">Selected Assistant</div>
-            <div id="home-agent-summary">No assistant selected.</div>
+            <div class="portal-card-title">{{ t("Selected Assistant") }}</div>
+            <div id="home-agent-summary">{{ t("No assistant selected.") }}</div>
           </article>
 
           <article class="portal-card">
-            <div class="portal-card-title">Quick Actions</div>
+            <div class="portal-card-title">{{ t("Quick Actions") }}</div>
             <div class="portal-home-actions">
-              <button id="home-create-agent-btn" type="button" class="toolbar-primary-btn hidden">Create Assistant</button>
-              <button id="home-start-chat-btn" type="button" class="toolbar-primary-btn">New Chat</button>
-              <button id="home-open-tasks-btn" type="button" class="toolbar-secondary-btn">Tasks</button>
-              <button id="home-open-delegations-btn" type="button" class="toolbar-secondary-btn">Delegations</button>
+              <button id="home-create-agent-btn" type="button" class="toolbar-primary-btn hidden">{{ t("Create Assistant") }}</button>
+              <button id="home-start-chat-btn" type="button" class="toolbar-primary-btn">{{ t("New Chat") }}</button>
+              <button id="home-open-tasks-btn" type="button" class="toolbar-secondary-btn">{{ t("Tasks") }}</button>
+              <button id="home-open-delegations-btn" type="button" class="toolbar-secondary-btn">{{ t("Delegations") }}</button>
             </div>
           </article>
 
           <article class="portal-card portal-card-workspace">
-            <div class="portal-card-title">Workspace Navigation</div>
-            <p class="portal-panel-note">Use Tasks and Delegations for operational overviews and detailed work.</p>
+            <div class="portal-card-title">{{ t("Workspace Navigation") }}</div>
+            <p class="portal-panel-note">{{ t("Use Tasks and Delegations for operational overviews and detailed work.") }}</p>
           </article>
         </div>
       </section>
 
-      <section id="workspace-detail-view" class="portal-workspace-detail hidden" aria-label="Workspace detail view">
+      <section id="workspace-detail-view" class="portal-workspace-detail hidden" aria-label="{{ t('Workspace detail view') }}">
         <div id="workspace-detail-content" class="portal-workspace-detail-content">
-          <div class="portal-inline-state">Select a task or delegation from the left sidebar.</div>
+          <div class="portal-inline-state">{{ t("Select a task or delegation from the left sidebar.") }}</div>
         </div>
       </section>
 
-      <section id="agent-chat-app" class="portal-conversation hidden" aria-label="Assistant chat workspace">
+      <section id="agent-chat-app" class="portal-conversation hidden" aria-label="{{ t('Assistant chat workspace') }}">
         <div class="portal-conversation-main">
           <button id="jump-to-latest-btn" class="portal-jump-latest" type="button" aria-hidden="true" tabindex="-1">
             <i data-lucide="arrow-down" class="w-4 h-4"></i>
-            <span>Jump to latest</span>
+            <span>{{ t("Jump to latest") }}</span>
           </button>
           <div id="message-scroll" class="portal-message-scroll">
             <div id="message-list" class="portal-message-list">
@@ -416,30 +421,30 @@
                 <textarea id="chat-input"
                           name="message"
                           rows="1"
-                          placeholder="Ask anything..."></textarea>
+                          placeholder="{{ t('Ask anything...') }}"></textarea>
                 <div id="chat-suggest" class="hidden"></div>
               </div>
 
               <div class="portal-composer-toolbar">
                 <div class="portal-composer-toolbar-left">
                   <details id="composer-inference-settings" class="composer-inference-settings hidden">
-                    <summary class="composer-inference-summary" aria-label="Configure model, thinking level, and context size">
+                    <summary class="composer-inference-summary" aria-label="{{ t('Configure model, thinking level, and context size') }}">
                       <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
-                      <span id="composer-inference-summary-text">Run settings</span>
+                      <span id="composer-inference-summary-text">{{ t("Run settings") }}</span>
                     </summary>
                     <div class="composer-inference-popover">
-                      <div class="composer-inference-title">Run settings</div>
+                      <div class="composer-inference-title">{{ t("Run settings") }}</div>
                       <label id="composer-model-wrap" class="composer-inference-field composer-model-wrap">
-                        <span>Model</span>
-                        <select id="composer-model-select" class="composer-model-select" aria-label="Select model for this request"></select>
+                        <span>{{ t("Model") }}</span>
+                        <select id="composer-model-select" class="composer-model-select" aria-label="{{ t('Select model for this request') }}"></select>
                       </label>
                       <label id="composer-reasoning-field" class="composer-inference-field">
-                        <span>Thinking level</span>
-                        <select id="composer-reasoning-select" class="composer-model-select" aria-label="Select thinking level for this request"></select>
+                        <span>{{ t("Thinking level") }}</span>
+                        <select id="composer-reasoning-select" class="composer-model-select" aria-label="{{ t('Select thinking level for this request') }}"></select>
                       </label>
                       <label id="composer-context-field" class="composer-inference-field">
-                        <span>Context size</span>
-                        <select id="composer-context-select" class="composer-model-select" aria-label="Select context size for this request"></select>
+                        <span>{{ t("Context size") }}</span>
+                        <select id="composer-context-select" class="composer-model-select" aria-label="{{ t('Select context size for this request') }}"></select>
                       </label>
                     </div>
                   </details>
@@ -449,9 +454,9 @@
                           class="composer-pill-btn composer-connector-toggle hidden"
                           data-state="hidden"
                           aria-pressed="false"
-                          title="Let the assistant use your local browser">
+                          title="{{ t('Let the assistant use your local browser') }}">
                     <i data-lucide="globe" class="w-4 h-4"></i>
-                    <span id="composer-browser-toggle-text">Browser</span>
+                    <span id="composer-browser-toggle-text">{{ t("Browser") }}</span>
                   </button>
                   {% endif %}
                 </div>
@@ -460,23 +465,23 @@
                   <button type="button"
                           id="abort-chat-run-btn"
                           class="composer-pill-btn hidden"
-                          title="Stop current run"
+                          title="{{ t('Stop current run') }}"
                           aria-hidden="true">
                     <i data-lucide="square" class="w-4 h-4"></i>
-                    <span>Stop run</span>
+                    <span>{{ t("Stop run") }}</span>
                   </button>
 
                   <button type="button"
                           id="composer-attach-btn"
                           class="composer-pill-btn"
-                          title="Attach files">
+                          title="{{ t('Attach files') }}">
                     <i data-lucide="paperclip" class="w-4 h-4"></i>
-                    <span>Attach</span>
+                    <span>{{ t("Attach") }}</span>
                   </button>
 
                   <button id="send-chat-btn" type="submit" class="composer-send-btn">
                     <i data-lucide="arrow-up" class="w-4 h-4"></i>
-                    <span>Send</span>
+                    <span>{{ t("Send") }}</span>
                   </button>
                 </div>
               </div>
@@ -489,17 +494,17 @@
     <aside id="tool-panel" class="portal-tool-panel">
       <div id="tool-panel-resize" class="portal-tool-panel-resize"></div>
       <div class="portal-tool-panel-head">
-        <h4 id="tool-panel-title">Panel</h4>
+        <h4 id="tool-panel-title">{{ t("Panel") }}</h4>
         <div class="portal-tool-panel-actions">
-          <button id="pin-tool-panel" class="toolbar-icon-btn" type="button" title="Pin panel" aria-label="Pin panel" aria-pressed="false">
+          <button id="pin-tool-panel" class="toolbar-icon-btn" type="button" title="{{ t('Pin panel') }}" aria-label="{{ t('Pin panel') }}" aria-pressed="false">
             <i data-lucide="pin" class="w-5 h-5"></i>
           </button>
-          <button id="close-tool-panel" class="toolbar-icon-btn" type="button" title="Close panel" aria-label="Close panel">
+          <button id="close-tool-panel" class="toolbar-icon-btn" type="button" title="{{ t('Close panel') }}" aria-label="{{ t('Close panel') }}">
             <i data-lucide="x" class="w-5 h-5"></i>
           </button>
         </div>
       </div>
-      <div id="tool-panel-body" class="portal-tool-panel-body">Select a utility from top toolbar.</div>
+      <div id="tool-panel-body" class="portal-tool-panel-body">{{ t("Select a utility from top toolbar.") }}</div>
     </aside>
   </div>
 
@@ -512,37 +517,37 @@
 <div id="create-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel create-agent-wizard-card">
     <div class="portal-modal-titlebar">
-      <h3>Create Assistant</h3>
-      <button id="close-create-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
+      <h3>{{ t("Create Assistant") }}</h3>
+      <button id="close-create-modal" class="portal-modal-close" type="button" title="{{ t('Close') }}" aria-label="{{ t('Close') }}">✕</button>
     </div>
 
     <form id="create-form" class="stack">
-      <ol class="create-agent-steps" aria-label="Create assistant steps">
+      <ol class="create-agent-steps" aria-label="{{ t('Create assistant steps') }}">
         <li class="create-agent-step is-active" data-create-step-indicator="runtime">
           <span class="create-agent-step-index">1</span>
-          <span class="create-agent-step-label">Engine</span>
+          <span class="create-agent-step-label">{{ t("Engine") }}</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="instructions">
           <span class="create-agent-step-index">2</span>
-          <span class="create-agent-step-label">Behavior</span>
+          <span class="create-agent-step-label">{{ t("Behavior") }}</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="skills">
           <span class="create-agent-step-index">3</span>
-          <span class="create-agent-step-label">Skills</span>
+          <span class="create-agent-step-label">{{ t("Skills") }}</span>
         </li>
         <li class="create-agent-step" data-create-step-indicator="review">
           <span class="create-agent-step-index">4</span>
-          <span class="create-agent-step-label">Review</span>
+          <span class="create-agent-step-label">{{ t("Review") }}</span>
         </li>
       </ol>
 
       <section class="create-agent-step-panel" data-create-step-panel="runtime">
         <div>
-          <label>Assistant Name</label>
+          <label>{{ t("Assistant Name") }}</label>
           <input name="name" placeholder="MyAgent" value="MyAgent" required />
         </div>
         <fieldset class="runtime-type-fieldset">
-          <legend>Engine</legend>
+          <legend>{{ t("Engine") }}</legend>
           <div
             id="create-runtime-type-select"
             class="runtime-type-radio-group"
@@ -577,34 +582,34 @@
 
       <section class="create-agent-step-panel hidden" data-create-step-panel="instructions">
         <div>
-          <label>Behavior pack repository</label>
+          <label>{{ t("Behavior pack repository") }}</label>
           <input name="agent_settings_repo_url" placeholder="https://github.com/org/engineering-flow-platform-agents" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Behavior pack branch</label>
-            <select name="agent_settings_branch" id="create-agent-settings-branch-select" data-branch-placeholder="Configured default branch">
-              <option value="">Configured default branch</option>
+            <label>{{ t("Behavior pack branch") }}</label>
+            <select name="agent_settings_branch" id="create-agent-settings-branch-select" data-branch-placeholder="{{ t('Configured default branch') }}">
+              <option value="">{{ t("Configured default branch") }}</option>
             </select>
           </div>
-          <button type="button" class="portal-btn is-secondary" data-load-branches="agent-settings">Load Branches</button>
+          <button type="button" class="portal-btn is-secondary" data-load-branches="agent-settings">{{ t("Load Branches") }}</button>
         </div>
         <p id="create-agent-settings-msg" class="portal-modal-feedback"></p>
       </section>
 
       <section class="create-agent-step-panel hidden" data-create-step-panel="skills">
         <div>
-          <label>Skill pack repository</label>
+          <label>{{ t("Skill pack repository") }}</label>
           <input name="skill_repo_url" placeholder="https://github.com/org/engineering-flow-platform-skills" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Skill pack branch</label>
-            <select name="skill_branch" id="create-skill-branch-select" data-branch-placeholder="Configured default branch">
-              <option value="">Configured default branch</option>
+            <label>{{ t("Skill pack branch") }}</label>
+            <select name="skill_branch" id="create-skill-branch-select" data-branch-placeholder="{{ t('Configured default branch') }}">
+              <option value="">{{ t("Configured default branch") }}</option>
             </select>
           </div>
-          <button type="button" class="portal-btn is-secondary" data-load-branches="skills">Load Branches</button>
+          <button type="button" class="portal-btn is-secondary" data-load-branches="skills">{{ t("Load Branches") }}</button>
         </div>
         <p id="create-skills-msg" class="portal-modal-feedback"></p>
       </section>
@@ -614,9 +619,9 @@
       </section>
 
       <div class="portal-modal-actions create-agent-wizard-actions">
-        <button type="button" class="portal-btn is-secondary" data-create-back>Back</button>
-        <button type="button" class="portal-btn is-primary" data-create-next>Next</button>
-        <button type="submit" class="portal-btn is-primary" data-create-submit>Create Assistant</button>
+        <button type="button" class="portal-btn is-secondary" data-create-back>{{ t("Back") }}</button>
+        <button type="button" class="portal-btn is-primary" data-create-next>{{ t("Next") }}</button>
+        <button type="submit" class="portal-btn is-primary" data-create-submit>{{ t("Create Assistant") }}</button>
       </div>
       <p id="create-msg" class="portal-modal-feedback"></p>
     </form>
@@ -626,73 +631,73 @@
 <div id="edit-modal" class="modal hidden" aria-hidden="true">
   <div class="modal-card panel create-agent-wizard-card">
     <div class="portal-modal-titlebar">
-      <h3>Edit Assistant</h3>
-      <button id="close-edit-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
+      <h3>{{ t("Edit Assistant") }}</h3>
+      <button id="close-edit-modal" class="portal-modal-close" type="button" title="{{ t('Close') }}" aria-label="{{ t('Close') }}">✕</button>
     </div>
 
     <form id="edit-form" class="stack">
       <input type="hidden" name="id" />
-      <ol class="create-agent-steps" aria-label="Edit assistant steps">
+      <ol class="create-agent-steps" aria-label="{{ t('Edit assistant steps') }}">
         <li class="create-agent-step is-active" data-edit-step-indicator="runtime">
           <span class="create-agent-step-index">1</span>
-          <span class="create-agent-step-label">Engine</span>
+          <span class="create-agent-step-label">{{ t("Engine") }}</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="instructions">
           <span class="create-agent-step-index">2</span>
-          <span class="create-agent-step-label">Behavior</span>
+          <span class="create-agent-step-label">{{ t("Behavior") }}</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="skills">
           <span class="create-agent-step-index">3</span>
-          <span class="create-agent-step-label">Skills</span>
+          <span class="create-agent-step-label">{{ t("Skills") }}</span>
         </li>
         <li class="create-agent-step" data-edit-step-indicator="review">
           <span class="create-agent-step-index">4</span>
-          <span class="create-agent-step-label">Review</span>
+          <span class="create-agent-step-label">{{ t("Review") }}</span>
         </li>
       </ol>
 
       <section class="create-agent-step-panel" data-edit-step-panel="runtime">
         <div>
-          <label>Assistant Name</label>
+          <label>{{ t("Assistant Name") }}</label>
           <input name="name" placeholder="MyAgent" required />
         </div>
         <div>
-          <label>Engine</label>
+          <label>{{ t("Engine") }}</label>
           <div id="edit-runtime-type-display" class="portal-readonly-field">native</div>
-          <p class="portal-modal-copy">The engine is fixed after creation.</p>
+          <p class="portal-modal-copy">{{ t("The engine is fixed after creation.") }}</p>
         </div>
       </section>
 
       <section class="create-agent-step-panel hidden" data-edit-step-panel="instructions">
         <div>
-          <label>Behavior pack repository</label>
-          <input name="agent_settings_repo_url" placeholder="https://github.com/user/agents (leave empty to use configured default)" />
+          <label>{{ t("Behavior pack repository") }}</label>
+          <input name="agent_settings_repo_url" placeholder="{{ t('https://github.com/user/agents (leave empty to use configured default)') }}" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Behavior pack branch</label>
-            <select name="agent_settings_branch" id="edit-agent-settings-branch-select" data-branch-placeholder="Configured default branch">
-              <option value="">Configured default branch</option>
+            <label>{{ t("Behavior pack branch") }}</label>
+            <select name="agent_settings_branch" id="edit-agent-settings-branch-select" data-branch-placeholder="{{ t('Configured default branch') }}">
+              <option value="">{{ t("Configured default branch") }}</option>
             </select>
           </div>
-          <button type="button" class="portal-btn is-secondary" data-edit-load-branches="agent-settings">Load Branches</button>
+          <button type="button" class="portal-btn is-secondary" data-edit-load-branches="agent-settings">{{ t("Load Branches") }}</button>
         </div>
         <p id="edit-agent-settings-msg" class="portal-modal-feedback"></p>
       </section>
 
       <section class="create-agent-step-panel hidden" data-edit-step-panel="skills">
         <div>
-          <label>Skill pack repository</label>
-          <input name="skill_repo_url" placeholder="https://github.com/user/repo (leave empty to use configured default)" />
+          <label>{{ t("Skill pack repository") }}</label>
+          <input name="skill_repo_url" placeholder="{{ t('https://github.com/user/repo (leave empty to use configured default)') }}" />
         </div>
         <div class="portal-form-row-inline">
           <div>
-            <label>Skill pack branch</label>
-            <select name="skill_branch" id="edit-skill-branch-select" data-branch-placeholder="Configured default branch">
-              <option value="">Configured default branch</option>
+            <label>{{ t("Skill pack branch") }}</label>
+            <select name="skill_branch" id="edit-skill-branch-select" data-branch-placeholder="{{ t('Configured default branch') }}">
+              <option value="">{{ t("Configured default branch") }}</option>
             </select>
           </div>
-          <button type="button" class="portal-btn is-secondary" data-edit-load-branches="skills">Load Branches</button>
+          <button type="button" class="portal-btn is-secondary" data-edit-load-branches="skills">{{ t("Load Branches") }}</button>
         </div>
         <p id="edit-skills-msg" class="portal-modal-feedback"></p>
       </section>
@@ -702,9 +707,9 @@
       </section>
 
       <div class="portal-modal-actions create-agent-wizard-actions edit-agent-wizard-actions">
-        <button type="button" class="portal-btn is-secondary" data-edit-back>Back</button>
-        <button type="button" class="portal-btn is-primary" data-edit-next>Next</button>
-        <button type="submit" class="portal-btn is-primary" data-edit-submit>Save Changes</button>
+        <button type="button" class="portal-btn is-secondary" data-edit-back>{{ t("Back") }}</button>
+        <button type="button" class="portal-btn is-primary" data-edit-next>{{ t("Next") }}</button>
+        <button type="submit" class="portal-btn is-primary" data-edit-submit>{{ t("Save Changes") }}</button>
       </div>
       <p id="edit-msg" class="portal-modal-feedback"></p>
     </form>
@@ -714,17 +719,17 @@
 <div id="message-edit-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="message-edit-title" aria-hidden="true">
   <div class="modal-card panel">
     <div class="portal-modal-titlebar">
-      <h3>Edit Message</h3>
-      <button id="close-message-edit-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
+      <h3>{{ t("Edit Message") }}</h3>
+      <button id="close-message-edit-modal" class="portal-modal-close" type="button" title="{{ t('Close') }}" aria-label="{{ t('Close') }}">✕</button>
     </div>
     <form id="message-edit-form" class="stack">
       <input type="hidden" id="edit-message-id" />
       <div>
-        <label for="edit-message-content">Message Content</label>
-        <textarea id="edit-message-content" class="portal-form-textarea" rows="5" placeholder="Enter new message content..."></textarea>
+        <label for="edit-message-content">{{ t("Message Content") }}</label>
+        <textarea id="edit-message-content" class="portal-form-textarea" rows="5" placeholder="{{ t('Enter new message content...') }}"></textarea>
       </div>
-      <p class="portal-modal-copy">Note: All subsequent messages will be deleted after editing.</p>
-      <button type="submit" class="portal-btn is-primary">Save & Resend</button>
+      <p class="portal-modal-copy">{{ t("Note: All subsequent messages will be deleted after editing.") }}</p>
+      <button type="submit" class="portal-btn is-primary">{{ t("Save & Resend") }}</button>
     </form>
   </div>
 </div>
@@ -733,8 +738,8 @@
 <div id="file-preview-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="file-preview-title" aria-hidden="true">
   <div class="modal-backdrop" id="file-preview-backdrop"></div>
   <div class="modal-card file-preview-card">
-    <button id="close-file-preview" class="portal-modal-close" type="button" title="Close" aria-label="Close">✕</button>
-    <h2 id="file-preview-title" class="sr-only">File Preview</h2>
+    <button id="close-file-preview" class="portal-modal-close" type="button" title="{{ t('Close') }}" aria-label="{{ t('Close') }}">✕</button>
+    <h2 id="file-preview-title" class="sr-only">{{ t("File Preview") }}</h2>
     <div id="file-preview-content" class="file-preview-content"></div>
   </div>
 </div>
@@ -751,50 +756,47 @@
 
     <section class="portal-onboarding-step" data-onboarding-step="0">
       <div class="portal-onboarding-art" aria-hidden="true"><i data-lucide="sparkles" class="w-7 h-7"></i></div>
-      <h2 id="onboarding-title">Welcome to Engineering Flow Platform</h2>
-      <p>
-        Assistants do real work across Jira, Confluence, GitHub, and your repositories &mdash;
-        drafting test cases, summarizing requirements, reviewing pull requests, diagnosing builds.
-      </p>
-      <p class="portal-onboarding-muted">You describe the outcome. The assistant does the steps.</p>
+      <h2 id="onboarding-title">{{ t("Welcome to Engineering Flow Platform") }}</h2>
+      <p>{{ t("Assistants do real work across Jira, Confluence, GitHub, and your repositories — drafting test cases, summarizing requirements, reviewing pull requests, diagnosing builds.") }}</p>
+      <p class="portal-onboarding-muted">{{ t("You describe the outcome. The assistant does the steps.") }}</p>
     </section>
 
     <section class="portal-onboarding-step hidden" data-onboarding-step="1">
       <div class="portal-onboarding-art" aria-hidden="true"><i data-lucide="compass" class="w-7 h-7"></i></div>
-      <h2>Three things worth knowing</h2>
+      <h2>{{ t("Three things worth knowing") }}</h2>
       <dl class="portal-onboarding-concepts">
-        <dt>Assistant</dt>
-        <dd>Your own workspace to chat with. It keeps its history and files.</dd>
-        <dt>Task</dt>
-        <dd>Work you hand over to run on its own while you do something else.</dd>
-        <dt>Connectors</dt>
-        <dd>Your model provider, Jira, GitHub and the other services assistants can use, each set up once for all of them.</dd>
+        <dt>{{ t("Assistant") }}</dt>
+        <dd>{{ t("Your own workspace to chat with. It keeps its history and files.") }}</dd>
+        <dt>{{ t("Task") }}</dt>
+        <dd>{{ t("Work you hand over to run on its own while you do something else.") }}</dd>
+        <dt>{{ t("Connectors") }}</dt>
+        <dd>{{ t("Your model provider, Jira, GitHub and the other services assistants can use, each set up once for all of them.") }}</dd>
       </dl>
     </section>
 
     <section class="portal-onboarding-step hidden" data-onboarding-step="2">
       <div class="portal-onboarding-art" aria-hidden="true"><i data-lucide="bot" class="w-7 h-7"></i></div>
-      <h2>Create your first assistant</h2>
-      <p class="portal-onboarding-muted">Pick the kind of work you do. You can create more later.</p>
+      <h2>{{ t("Create your first assistant") }}</h2>
+      <p class="portal-onboarding-muted">{{ t("Pick the kind of work you do. You can create more later.") }}</p>
       <form id="onboarding-create-form" class="portal-onboarding-form">
         <label class="portal-form-label">
-          <span class="portal-form-label">Name</span>
-          <input type="text" name="name" class="portal-form-input" placeholder="My Assistant" required />
+          <span class="portal-form-label">{{ t("Name") }}</span>
+          <input type="text" name="name" class="portal-form-input" placeholder="{{ t('My Assistant') }}" required />
         </label>
         <div class="portal-assistant-type-grid" data-assistant-type-choices data-onboarding-type-choices>
-          <div class="portal-inline-state">Loading assistant types&hellip;</div>
+          <div class="portal-inline-state">{{ t("Loading assistant types…") }}</div>
         </div>
         <p class="portal-modal-feedback" data-onboarding-msg></p>
       </form>
     </section>
 
     <div class="portal-onboarding-actions">
-      <button type="button" class="portal-btn" data-onboarding-skip>Skip</button>
+      <button type="button" class="portal-btn" data-onboarding-skip>{{ t("Skip") }}</button>
       <span class="portal-onboarding-spacer"></span>
-      <button type="button" class="portal-btn is-secondary hidden" data-onboarding-back>Back</button>
-      <button type="button" class="portal-btn is-primary" data-onboarding-next>Next</button>
+      <button type="button" class="portal-btn is-secondary hidden" data-onboarding-back>{{ t("Back") }}</button>
+      <button type="button" class="portal-btn is-primary" data-onboarding-next>{{ t("Next") }}</button>
       <button type="submit" form="onboarding-create-form" class="portal-btn is-primary hidden" data-onboarding-create>
-        Create assistant
+        {{ t("Create assistant") }}
       </button>
     </div>
   </div>
@@ -805,23 +807,23 @@
   <div class="modal-card panel">
     <div class="portal-modal-titlebar">
       <div>
-        <h3 id="create-simple-title">Create assistant</h3>
-        <p class="portal-modal-copy">Pick a name and the kind of work you do.</p>
+        <h3 id="create-simple-title">{{ t("Create assistant") }}</h3>
+        <p class="portal-modal-copy">{{ t("Pick a name and the kind of work you do.") }}</p>
       </div>
-      <button id="close-create-simple-modal" class="portal-modal-close" type="button" title="Close" aria-label="Close">&#10005;</button>
+      <button id="close-create-simple-modal" class="portal-modal-close" type="button" title="{{ t('Close') }}" aria-label="{{ t('Close') }}">&#10005;</button>
     </div>
     <form id="create-simple-form" class="stack">
       <label class="portal-form-label">
-        <span class="portal-form-label">Name</span>
-        <input type="text" name="name" class="portal-form-input" placeholder="My Assistant" required />
+        <span class="portal-form-label">{{ t("Name") }}</span>
+        <input type="text" name="name" class="portal-form-input" placeholder="{{ t('My Assistant') }}" required />
       </label>
       <div class="portal-assistant-type-grid" data-assistant-type-choices data-simple-type-choices>
-        <div class="portal-inline-state">Loading assistant types&hellip;</div>
+        <div class="portal-inline-state">{{ t("Loading assistant types…") }}</div>
       </div>
       <div class="portal-modal-actions">
-        <button type="button" class="portal-btn is-secondary" data-open-advanced-create>Advanced setup</button>
+        <button type="button" class="portal-btn is-secondary" data-open-advanced-create>{{ t("Advanced setup") }}</button>
         <span class="portal-onboarding-spacer"></span>
-        <button type="submit" class="portal-btn is-primary">Create assistant</button>
+        <button type="submit" class="portal-btn is-primary">{{ t("Create assistant") }}</button>
       </div>
       <p id="create-simple-msg" class="portal-modal-feedback"></p>
     </form>

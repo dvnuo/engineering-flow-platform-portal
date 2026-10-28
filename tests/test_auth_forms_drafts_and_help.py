@@ -168,5 +168,5 @@ def test_assistant_removal_is_a_single_action():
 
 def test_delete_confirmation_states_what_survives():
     assert "Files already written to the shared workspace volume are kept on the cluster." in CHAT_JS
-    assert 'confirmText: "Delete assistant"' in CHAT_JS
+    assert 'confirmText: t("Delete assistant")' in CHAT_JS
     assert "danger: true" in CHAT_JS

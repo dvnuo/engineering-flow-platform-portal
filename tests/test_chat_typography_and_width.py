@@ -152,7 +152,7 @@ def test_the_account_menu_offers_the_three_widths_beside_the_theme():
     start = APP_HTML.index('id="account-menu"')
     menu = APP_HTML[start:APP_HTML.index('id="logout-btn"', start)]
     assert 'aria-labelledby="account-chat-width-label"' in menu
-    assert ">Chat width<" in menu
+    assert '>{{ t("Chat width") }}<' in menu
     for choice in WIDTH_CHOICES:
         assert f'role="menuitemradio" aria-checked="false" data-chat-width-option="{choice}"' in menu, choice
     # The theme already had a segmented control; the width uses the same one
