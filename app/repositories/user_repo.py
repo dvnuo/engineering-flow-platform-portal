@@ -48,6 +48,13 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def update_preferences_json(self, user: User, preferences_json: Optional[str]) -> User:
+        user.preferences_json = preferences_json
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def mark_login(self, user: User) -> User:
         user.last_login_at = datetime.utcnow()
         self.db.add(user)

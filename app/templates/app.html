@@ -74,6 +74,33 @@
                 </button>
               </div>
             </div>
+            {# The Portal's language and the assistant's reply language are
+               server-side preferences (users.preferences_json), unlike the
+               theme: the page is rendered with the language, the chat proxy
+               derives the reply language from it on every request, and the
+               member expects the same choice on another device. The checked
+               states therefore come from the template, not from localStorage.
+               The option labels are the languages' own names, as every
+               language picker shows them: a member who cannot read the current
+               UI language still has to find their own. #}
+            <div class="portal-account-group" role="group" aria-labelledby="account-language-label" data-locale-source="{{ locale_source }}">
+              <div id="account-language-label" class="portal-account-group-label">Language</div>
+              <div class="portal-account-options is-four">
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'auto' else 'false' }}" data-ui-locale-option="auto" title="Follow the browser's language">Auto</button>
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'en' else 'false' }}" data-ui-locale-option="en" lang="en" title="English">English</button>
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'zh-Hans' else 'false' }}" data-ui-locale-option="zh-Hans" lang="zh-Hans" title="Simplified Chinese">&#x7B80;&#x4F53;</button>
+                <button type="button" class="portal-account-option" role="menuitemradio" aria-checked="{{ 'true' if ui_locale_preference == 'zh-Hant-HK' else 'false' }}" data-ui-locale-option="zh-Hant-HK" lang="zh-Hant-HK" title="Traditional Chinese (Hong Kong)">&#x7E41;&#x9AD4;</button>
+              </div>
+              <label class="portal-account-reply-language" for="account-reply-language">
+                <span>Assistant replies in</span>
+                <select id="account-reply-language" class="portal-account-select" data-reply-language-select>
+                  <option value="follow"{% if reply_language_preference == 'follow' %} selected{% endif %}>Same as language</option>
+                  <option value="en"{% if reply_language_preference == 'en' %} selected{% endif %}>English</option>
+                  <option value="zh-Hans" lang="zh-Hans"{% if reply_language_preference == 'zh-Hans' %} selected{% endif %}>&#x7B80;&#x4F53;&#x4E2D;&#x6587;</option>
+                  <option value="zh-Hant-HK" lang="zh-Hant-HK"{% if reply_language_preference == 'zh-Hant-HK' %} selected{% endif %}>&#x7E41;&#x9AD4;&#x4E2D;&#x6587;&#xFF08;&#x9999;&#x6E2F;&#xFF09;</option>
+                </select>
+              </label>
+            </div>
             <div class="portal-account-sep" role="separator"></div>
             <button id="help-btn" class="portal-account-item" type="button" role="menuitem">
               <i data-lucide="circle-help" class="w-4 h-4"></i>Help

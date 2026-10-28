@@ -44,6 +44,8 @@ const dom = {
   accountMenu: document.getElementById("account-menu"),
   themeOptions: Array.from(document.querySelectorAll("[data-theme-option]")),
   chatWidthOptions: Array.from(document.querySelectorAll("[data-chat-width-option]")),
+  uiLocaleOptions: Array.from(document.querySelectorAll("[data-ui-locale-option]")),
+  replyLanguageSelect: document.getElementById("account-reply-language"),
   shortcutsBtn: document.getElementById("shortcuts-btn"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
@@ -5091,6 +5093,83 @@ if (window.matchMedia) {
   else if (typeof darkQuery.addListener === "function") darkQuery.addListener(onSchemeChange);
 }
 
+// Language is a server-side preference, unlike theme and chat width: the
+// templates are rendered with it and the assistant's reply language is derived
+// from it on every chat request, so another device must see the same choice.
+// base.html puts the resolved values on <html> (lang, data-locale,
+// data-reply-language) and the menu's checked states come rendered from the
+// template. Saving goes through PUT /api/auth/me/preferences; the page reloads
+// only when the language the server resolved differs from the one it was
+// rendered with (the reply language needs no reload: the next message carries it).
+const UI_LOCALE_CHOICES = ["auto", "en", "zh-Hans", "zh-Hant-HK"];
+const REPLY_LANGUAGE_CHOICES = ["follow", "en", "zh-Hans", "zh-Hant-HK"];
+
+function markUiLocaleOption(preference) {
+  dom.uiLocaleOptions.forEach((option) => {
+    option.setAttribute("aria-checked", option.dataset.uiLocaleOption === preference ? "true" : "false");
+  });
+}
+
+function checkedUiLocaleOption() {
+  const checked = dom.uiLocaleOptions.find((option) => option.getAttribute("aria-checked") === "true");
+  return checked ? checked.dataset.uiLocaleOption : "auto";
+}
+
+function localeChangeNeedsReload(resolvedLocale, renderedLocale) {
+  const next = String(resolvedLocale || "").trim();
+  const current = String(renderedLocale || "").trim();
+  return Boolean(next) && next !== current;
+}
+
+function applyResolvedLocaleAttributes(resolved) {
+  const locale = resolved && typeof resolved === "object" ? resolved : {};
+  document.documentElement.setAttribute("data-reply-language", String(locale.reply_language || ""));
+  document.documentElement.setAttribute("data-reply-language-strict", locale.reply_language_strict ? "true" : "false");
+}
+
+async function savePortalPreferences(patch) {
+  const response = await fetch("/api/auth/me/preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+async function applyUiLocalePreference(preference) {
+  if (!UI_LOCALE_CHOICES.includes(preference)) return;
+  const previous = checkedUiLocaleOption();
+  markUiLocaleOption(preference);
+  try {
+    const me = await savePortalPreferences({ ui_locale: preference });
+    const resolved = me?.locale || {};
+    applyResolvedLocaleAttributes(resolved);
+    if (localeChangeNeedsReload(resolved.ui_locale, document.documentElement.getAttribute("data-locale"))) {
+      location.reload();
+    }
+  } catch (error) {
+    console.warn("Failed to save the language preference", error);
+    markUiLocaleOption(previous);
+    showToast("Could not save the language preference", { variant: "error" });
+  }
+}
+
+async function applyReplyLanguagePreference(preference) {
+  const select = dom.replyLanguageSelect;
+  if (!select || !REPLY_LANGUAGE_CHOICES.includes(preference)) return;
+  const previous = select.dataset.saved || "follow";
+  try {
+    const me = await savePortalPreferences({ reply_language: preference });
+    select.dataset.saved = preference;
+    applyResolvedLocaleAttributes(me?.locale || {});
+  } catch (error) {
+    console.warn("Failed to save the reply language preference", error);
+    select.value = previous;
+    showToast("Could not save the reply language preference", { variant: "error" });
+  }
+}
+
 // Chat width is a three-way preference as well: default, wide, or full. The
 // default column already grows with the pane (--portal-chat-width in app.css);
 // wide and full are for members on very wide screens who would rather have
@@ -6322,6 +6401,17 @@ function portalSurfaceColor(theme) {
   return value || (theme === "dark" ? "#111827" : "#ffffff");
 }
 
+// The font stack a standalone SVG carries: the page's, which on a Chinese
+// Portal (html lang, see app.css) continues into the matching CJK fonts so an
+// exported diagram keeps its labels readable off the page.
+function exportFontFamily(lang) {
+  const base = "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI'";
+  const tag = String(lang || "").trim();
+  if (tag === "zh-Hans") return `${base},'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',sans-serif`;
+  if (tag.startsWith("zh-Hant")) return `${base},'PingFang HK','PingFang TC','Microsoft JhengHei','Noto Sans CJK HK','Noto Sans CJK TC',sans-serif`;
+  return `${base},sans-serif`;
+}
+
 // A standalone copy of an SVG: natural pixel size instead of mermaid's 100%,
 // a real font stack instead of "inherit", and the page's surface colour so a
 // dark-theme diagram does not land on a white canvas.
@@ -6338,8 +6428,9 @@ function standaloneSvgText(svgMarkup, theme) {
   }
   if (!svg.getAttribute("xmlns")) svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   svg.style.backgroundColor = portalSurfaceColor(theme);
+  const fontFamily = exportFontFamily(document.documentElement.lang);
   const text = new XMLSerializer().serializeToString(svg)
-    .replace(/font-family:\s*inherit/g, "font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif");
+    .replace(/font-family:\s*inherit/g, () => `font-family:${fontFamily}`);
   return `<?xml version="1.0" encoding="UTF-8"?>\n${text}`;
 }
 
@@ -19048,6 +19139,8 @@ function bindEvents() {
     setAccountMenuOpen(true, { focus: event.key === "ArrowDown" ? "first" : "last" });
   });
   dom.accountMenu?.addEventListener("keydown", (event) => {
+    // The reply-language select handles its own arrow keys.
+    if (event.target instanceof Element && event.target.closest("select")) return;
     const items = accountMenuItems();
     if (!items.length) return;
     const index = items.indexOf(document.activeElement);
@@ -19102,6 +19195,13 @@ function bindEvents() {
   dom.chatWidthOptions.forEach((option) => {
     option.addEventListener("click", () => applyChatWidth(option.dataset.chatWidthOption));
   });
+  dom.uiLocaleOptions.forEach((option) => {
+    option.addEventListener("click", () => applyUiLocalePreference(option.dataset.uiLocaleOption));
+  });
+  if (dom.replyLanguageSelect) {
+    dom.replyLanguageSelect.dataset.saved = dom.replyLanguageSelect.value;
+    dom.replyLanguageSelect.addEventListener("change", () => applyReplyLanguagePreference(dom.replyLanguageSelect.value));
+  }
   dom.helpBtn?.addEventListener("click", () => {
     setAccountMenuOpen(false);
     openPortalSection("help");

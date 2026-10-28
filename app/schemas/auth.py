@@ -1,5 +1,11 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
+
+# Kept in step with app/services/locale_service.py: "auto" and "follow" are
+# the defaults, the three tags are the Portal's languages (Traditional
+# Chinese means Hong Kong conventions).
+UiLocaleChoice = Literal["auto", "en", "zh-Hans", "zh-Hant-HK"]
+ReplyLanguageChoice = Literal["follow", "en", "zh-Hans", "zh-Hant-HK"]
 
 
 class LoginRequest(BaseModel):
@@ -23,9 +29,34 @@ class RegisterRequest(BaseModel):
         return str(value or "").strip().lower()
 
 
+class MePreferences(BaseModel):
+    """What the member saved: ``auto`` / ``follow`` until they choose."""
+
+    ui_locale: UiLocaleChoice = "auto"
+    reply_language: ReplyLanguageChoice = "follow"
+
+
+class MeLocale(BaseModel):
+    """What this request resolved to (preference, else the browser, else English)."""
+
+    ui_locale: str
+    ui_source: str
+    reply_language: str
+    reply_language_strict: bool
+
+
 class MeResponse(BaseModel):
     id: int
     username: str
     nickname: Optional[str] = None
     role: str
     onboarding_completed: bool = False
+    preferences: MePreferences = Field(default_factory=MePreferences)
+    locale: Optional[MeLocale] = None
+
+
+class PreferencesUpdate(BaseModel):
+    """A partial update: a key that is absent (or null) keeps its stored value."""
+
+    ui_locale: Optional[UiLocaleChoice] = None
+    reply_language: Optional[ReplyLanguageChoice] = None

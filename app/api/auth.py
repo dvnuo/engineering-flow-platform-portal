@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 import logging
 logger = logging.getLogger(__name__)
@@ -14,13 +14,18 @@ from app.deps import get_current_user
 from app.redaction import sanitize_exception_message
 from app.repositories.user_repo import UserRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository
-from app.schemas.auth import LoginRequest, MeResponse
+from app.schemas.auth import LoginRequest, MeLocale, MePreferences, MeResponse, PreferencesUpdate
 from app.services.auth_service import issue_session_token, set_session_cookie, verify_password
 from app.services.copilot_auth_service import copilot_auth_service
 from app.services.external_login_service import (
     fetch_github_user,
     provision_external_user,
     sync_copilot_token_to_default_profile,
+)
+from app.services.locale_service import (
+    locale_preferences_for_user,
+    merge_locale_preferences,
+    resolve_locale_for_request,
 )
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 
@@ -58,19 +63,52 @@ def logout(response: Response):
     return {"ok": True}
 
 
-@router.get("/me", response_model=MeResponse)
-def me(user=Depends(get_current_user)):
+def _me_response(user, request: Request) -> MeResponse:
+    """The member plus their saved language preferences and what this request resolved them to."""
     return MeResponse(
         id=user.id,
         username=user.username,
         nickname=user.nickname,
         role=user.role,
         onboarding_completed=getattr(user, "onboarding_completed_at", None) is not None,
+        preferences=MePreferences(**locale_preferences_for_user(user).as_dict()),
+        locale=MeLocale(**resolve_locale_for_request(request, user).as_dict()),
     )
 
 
+@router.get("/me", response_model=MeResponse)
+def me(request: Request, user=Depends(get_current_user)):
+    return _me_response(user, request)
+
+
+@router.put("/me/preferences", response_model=MeResponse)
+def update_preferences(
+    payload: PreferencesUpdate,
+    request: Request,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save the Portal language and the assistant's reply language.
+
+    Server-side, unlike the theme: the pages are rendered with the language,
+    the chat proxy derives the assistant's reply language from it on every
+    request, and the member expects the same choice on another device. The
+    answer carries the resolved locale so the page knows whether to reload.
+    """
+    try:
+        stored = merge_locale_preferences(
+            getattr(user, "preferences_json", None),
+            ui_locale=payload.ui_locale,
+            reply_language=payload.reply_language,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    UserRepository(db).update_preferences_json(user, stored)
+    return _me_response(user, request)
+
+
 @router.post("/me/onboarding-complete", response_model=MeResponse)
-def complete_onboarding(user=Depends(get_current_user), db: Session = Depends(get_db)):
+def complete_onboarding(request: Request, user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Mark the first-run tour as seen.
 
     Recorded per member rather than inferred from "owns zero assistants" so
@@ -82,13 +120,7 @@ def complete_onboarding(user=Depends(get_current_user), db: Session = Depends(ge
         db.add(user)
         db.commit()
         db.refresh(user)
-    return MeResponse(
-        id=user.id,
-        username=user.username,
-        nickname=user.nickname,
-        role=user.role,
-        onboarding_completed=True,
-    )
+    return _me_response(user, request)
 
 
 # --- GitHub Copilot sign-in ---------------------------------------------------

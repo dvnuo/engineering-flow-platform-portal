@@ -39,6 +39,7 @@ REQUIRED_DELEGATION_RULE_EVENT_COLUMNS = (
 REQUIRED_USER_COLUMNS = (
     "last_login_at",
     "onboarding_completed_at",
+    "preferences_json",
 )
 
 

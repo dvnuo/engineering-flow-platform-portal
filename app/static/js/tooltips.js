@@ -73,7 +73,7 @@
     ["#connectors-menu-btn", "Connectors — the model provider and every service your assistants can reach"],
     // Help, Theme and Sign out are menu items with visible labels now, so only
     // the button that opens the menu needs a hint.
-    ["#account-menu-btn", "Your account — theme, help, keyboard shortcuts, and sign out"],
+    ["#account-menu-btn", "Your account — theme, language, help, keyboard shortcuts, and sign out"],
 
     // --- main header ---
     ["#header-new-chat-btn", "Start a fresh conversation (Ctrl/Cmd + Shift + O)"],

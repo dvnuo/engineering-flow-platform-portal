@@ -49,6 +49,7 @@ from app.redaction import sanitize_exception_message
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.session_run_settings_service import apply_session_run_settings
+from app.services.locale_service import resolve_locale_for_request
 
 router = APIRouter(tags=["proxy"])
 proxy_service = ProxyService()
@@ -180,6 +181,27 @@ def _user_input_respond_session_id(method: str, subpath: str) -> str | None:
     if method.upper() != "POST":
         return None
     match = _USER_INPUT_RESPOND_RE.match((subpath or "").strip("/"))
+    return match.group(1) if match else None
+
+
+_SESSION_TURN_REQUEST_RE = re.compile(
+    r"^api/sessions/([^/]+)/(?:messages/[^/]+/edit(?:/async)?|title/generate)$",
+    re.IGNORECASE,
+)
+
+
+def _session_turn_request_session_id(method: str, subpath: str) -> str | None:
+    """The session of a request that has the runtime write member-visible text outside a chat post.
+
+    Editing an earlier message regenerates the answer from it, and
+    ``title/generate`` names the session with a model call. Both used to be
+    forwarded untouched, so the regenerated turn ran without the chat post's
+    server-owned metadata: no identity block, no connectors, and no reply
+    language. They get the same enrichment as an answer to a card.
+    """
+    if method.upper() != "POST":
+        return None
+    match = _SESSION_TURN_REQUEST_RE.match((subpath or "").strip("/"))
     return match.group(1) if match else None
 
 
@@ -328,6 +350,7 @@ def _enrich_chat_payload_with_runtime_metadata(
     user,
     runtime_type: str = "",
     inference_overrides: dict | None = None,
+    reply_language=None,
 ) -> dict:
     enriched = dict(payload)
     enriched.pop("metadata", None)
@@ -337,10 +360,12 @@ def _enrich_chat_payload_with_runtime_metadata(
     # Identity is server-owned: whatever the browser put in the payload was
     # dropped above, and the signed-in member goes in as structured metadata so
     # the runtime can tell the model who "me" is (the CLI credentials belong to
-    # a shared service account, not to the member).
+    # a shared service account, not to the member). The member's reply
+    # language rides along the same way (``reply_language`` is the request's
+    # resolved locale), so a stale page cannot pick another member's language.
     runtime_metadata = dict(runtime_metadata) if isinstance(runtime_metadata, dict) else {}
     runtime_metadata.pop("portal_user", None)
-    portal_user = build_portal_user_metadata(user)
+    portal_user = build_portal_user_metadata(user, reply_language=reply_language)
     if portal_user:
         runtime_metadata["portal_user"] = portal_user
 
@@ -491,8 +516,12 @@ async def proxy_agent(
         # the resumed run had none of the chat post's server-owned metadata --
         # in particular no `connectors`, hence no browser tool right after the
         # member agreed to an upload -- while any client `metadata` in the
-        # body reached the runtime as if Portal had vouched for it.
-        respond_session_id = _user_input_respond_session_id(request.method, subpath)
+        # body reached the runtime as if Portal had vouched for it. A message
+        # edit (which regenerates the answer) and title generation are turns of
+        # the same kind, so they get the same treatment.
+        respond_session_id = _user_input_respond_session_id(request.method, subpath) or _session_turn_request_session_id(
+            request.method, subpath
+        )
         extra_headers = {
             **build_runtime_trace_headers(get_log_context()),
             **build_portal_agent_headers(user, agent),
@@ -535,6 +564,9 @@ async def proxy_agent(
                 user,
                 runtime_type=getattr(agent, "runtime_type", None),
                 inference_overrides=inference_overrides,
+                # The member's saved language, else the browser's: what the
+                # runtime's "Reply language" prompt block is built from.
+                reply_language=resolve_locale_for_request(request, user),
             )
             parsed_payload = _inject_connectors_metadata(parsed_payload, db, user)
             if is_direct_chat_execution:

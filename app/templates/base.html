@@ -1,5 +1,12 @@
 <!doctype html>
-<html lang="en">
+{#- The page language: the member's resolved locale when the route passes one
+    (app.html, the share page), else what the browser asks for. <html lang> is
+    what makes browsers pick Simplified or Traditional glyph forms and the
+    matching CJK fonts (app.css), so it is set even before any string is
+    translated; data-locale and data-reply-language are what chat_ui.js reads
+    after a preference is saved. -#}
+{%- set page_locale = locale if (locale is defined and locale) else browser_locale(request) -%}
+<html lang="{{ page_locale }}" data-locale="{{ page_locale }}"{% if reply_language is defined and reply_language %} data-reply-language="{{ reply_language }}" data-reply-language-strict="{{ 'true' if reply_language_strict else 'false' }}"{% endif %}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
