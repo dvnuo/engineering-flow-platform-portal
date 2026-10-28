@@ -11,6 +11,7 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_task_repo import AgentTaskRepository
 from app.repositories.delegation_rule_repo import DelegationRuleRepository
@@ -97,7 +98,7 @@ class DelegationRuleService:
         if source == "jira_status" and not conditions.get("status_include"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A Jira status delegation needs the status that starts the work, for example Ready for Test",
+                detail=N_("A Jira status delegation needs the status that starts the work, for example Ready for Test"),
             )
 
     @staticmethod
@@ -124,7 +125,7 @@ class DelegationRuleService:
     def _validate_agent_provider_config(self, *, agent_id: str, provider: str, source_scope: dict | None = None) -> None:
         agent = AgentRepository(self.db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent not found")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Target agent not found"))
         if provider == "timer":
             return
         try:
@@ -148,7 +149,7 @@ class DelegationRuleService:
         self._validate_agent_provider_config(agent_id=payload.target_agent_id, provider=provider, source_scope=source_scope)
         skill_name = str(payload.skill_name or "").strip()
         if not skill_name:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="skill_name is required")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("skill_name is required"))
         interval_seconds = int(payload.interval_seconds or 60)
         schedule = self._normalize_schedule_or_400(
             payload.schedule or {"type": "interval", "interval_seconds": interval_seconds},
@@ -173,7 +174,7 @@ class DelegationRuleService:
         if source == "timer":
             task_prompt = str(payload.task_prompt or "").strip()
             if not task_prompt:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_prompt is required for timer delegations")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("task_prompt is required for timer delegations"))
             task_config["task_prompt"] = task_prompt
         now = datetime.utcnow()
         create_data = {
@@ -242,7 +243,7 @@ class DelegationRuleService:
         if "skill_name" in data:
             skill_name = str(data["skill_name"] or "").strip()
             if not skill_name:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="skill_name is required")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("skill_name is required"))
             task_config["skill_name"] = skill_name
             update_data["task_config_json"] = self._json(task_config)
         if "task_prompt" in data:
@@ -291,7 +292,7 @@ class DelegationRuleService:
         if source == "timer":
             task_prompt = str(task_config.get("task_prompt") or "").strip()
             if not task_prompt:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_prompt is required for timer delegations")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("task_prompt is required for timer delegations"))
         elif source_changed and "task_prompt" in task_config:
             task_config.pop("task_prompt", None)
             update_data["task_config_json"] = self._json(task_config)
@@ -704,9 +705,9 @@ class DelegationRuleService:
     async def run_rule_once(self, rule_id: str, triggered_by: str = "api") -> RunOnceResult:
         rule = self.repo.get(rule_id)
         if not rule:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("DelegationRule not found"))
         if self.repo.is_deleted_rule(rule):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="DelegationRule is archived")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("DelegationRule is archived"))
 
         source = self._validate_source(rule.trigger_type)
         provider = self._provider_for_source(source)

@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
@@ -44,11 +45,11 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     repo = UserRepository(db)
     user = repo.get_by_username_case_insensitive(payload.username)
     if not user or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Invalid credentials"))
     if not UserAllowlistRepository(db).get_active_by_username(user.username):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is not on the active allowlist",
+            detail=N_("Account is not on the active allowlist"),
         )
 
     repo.mark_login(user)
@@ -146,7 +147,7 @@ class CopilotLoginCheckRequest(BaseModel):
 
 def _require_copilot_login_enabled() -> None:
     if not settings.copilot_login_enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GitHub Copilot sign-in is disabled")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("GitHub Copilot sign-in is disabled"))
 
 
 @router.post("/copilot/start")
@@ -167,7 +168,7 @@ async def copilot_login_check(payload: CopilotLoginCheckRequest, db: Session = D
     _require_copilot_login_enabled()
     flow_id = (payload.flow_id or "").strip()
     if not flow_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="flow_id required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("flow_id required"))
     status_code, result = await copilot_auth_service.check_authorization(
         user_id=_copilot_flow_owner(flow_id),
         auth_id=payload.auth_id,

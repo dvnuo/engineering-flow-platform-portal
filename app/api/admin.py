@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.db import SessionLocal, get_db
 from app.deps import require_admin
 from app.repositories.audit_repo import AuditRepository
@@ -61,7 +62,7 @@ def put_runtime_profile_seed(
     """
     seed = payload.get("seed") if isinstance(payload, dict) and "seed" in payload else payload
     if not isinstance(seed, dict):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Seed must be a JSON object.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("Seed must be a JSON object."))
     error = seed_config_error(seed)
     if error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error)

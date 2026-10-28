@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
@@ -57,9 +58,9 @@ def recording_config(agent_id: str, user=Depends(get_current_user), db: Session 
     """
     agent = AgentRepository(db).get_by_id(agent_id)
     if agent is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Assistant not found"))
     if agent.owner_user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the assistant's owner can record on it")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Only the assistant's owner can record on it"))
     service = RuntimeProfileService(db)
     config = service.effective_config_for(service.get_or_create_for_user(user))
     mobile = _section(config, "mobile-auto")
@@ -112,14 +113,14 @@ def hosted_inspector(request: Request, asset_path: str = ""):
         return access_response
     base = appium_inspector_dir()
     if base is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The hosted Appium Inspector is not installed on this Portal")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("The hosted Appium Inspector is not installed on this Portal"))
     if not asset_path and not request.url.path.endswith("/"):
         target = "/inspector/" + (f"?{request.url.query}" if request.url.query else "")
         return RedirectResponse(target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     root = base.resolve()
     candidate = (root / asset_path).resolve() if asset_path else root / "index.html"
     if root not in candidate.parents and candidate != root / "index.html":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Not found"))
     if not candidate.is_file():
         # A client-side route; the app handles it.
         candidate = root / "index.html"

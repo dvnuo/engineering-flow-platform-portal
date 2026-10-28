@@ -6,6 +6,7 @@ import jwt
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.config import get_settings
 from app.redaction import sanitize_exception_message
 from app.services.auth_service import issue_session_token
@@ -59,7 +60,7 @@ def sso_token_url() -> str:
 
 async def get_user_by_code(redirect_uri: str, code: str):
     if not sso_enabled():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SSO is not configured")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("SSO is not configured"))
     form = {
         "grant_type": "authorization_code",
         "redirect_uri": redirect_uri,
@@ -88,7 +89,7 @@ async def get_user_by_code(redirect_uri: str, code: str):
     email = str(claims.get("email") or "").strip()
     username = str(claims.get("preferred_username") or "").strip() or email
     if not username:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="SSO did not return a username")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=N_("SSO did not return a username"))
     return username, email
 
 

@@ -56,7 +56,8 @@
     }
     if (!response.ok) {
       const detail = payload && (payload.detail || payload.message || payload.error);
-      throw new Error(typeof detail === "string" ? detail : t("Request failed ({status})", { status: response.status }));
+      // Portal details are English keys; tv() shows the ones the catalogue knows translated.
+      throw new Error(typeof detail === "string" ? tv(detail) : t("Request failed ({status})", { status: response.status }));
     }
     return payload;
   }

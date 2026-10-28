@@ -271,7 +271,7 @@ def test_legacy_app_chat_send_allows_attachment_only_contract():
     start = web_py.index("async def app_chat_send")
     end = len(web_py)
     block = web_py[start:end]
-    assert 'raise HTTPException(status_code=400, detail="Message or attachment required")' in block
+    assert 'raise HTTPException(status_code=400, detail=N_("Message or attachment required"))' in block
     assert '"message": request_message' in block
     assert '"user_message": display_message' in block
     assert 'request_message = message or "[attachment]"' in block

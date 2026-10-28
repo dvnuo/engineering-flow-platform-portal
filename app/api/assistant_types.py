@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.config import get_settings
 from app.contracts.runtime_type import (
     InvalidRuntimeType,
@@ -97,7 +98,7 @@ def update_assistant_type(
             if not normalized:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="name cannot be empty",
+                    detail=N_("name cannot be empty"),
                 )
             value = normalized
         if field in {"agent_settings_branch", "skill_branch", "description"} and isinstance(value, str):
@@ -149,5 +150,5 @@ def delete_assistant_type(
 def _require_type(repo: AssistantTypeRepository, type_id: str) -> AssistantType:
     assistant_type = repo.get_by_id(type_id)
     if not assistant_type:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant type not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Assistant type not found"))
     return assistant_type

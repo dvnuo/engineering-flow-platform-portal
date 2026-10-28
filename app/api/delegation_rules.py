@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import json
 
+from app.i18n import N_
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
@@ -41,7 +42,7 @@ def _can_manage_rule(rule, user) -> bool:
 
 def _require_manage_rule(rule, user) -> None:
     if not _can_manage_rule(rule, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the owner can manage this delegation")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Only the owner can manage this delegation"))
 
 
 def _user_display_name(db: Session, user_id: int | None) -> str | None:
@@ -118,9 +119,9 @@ def _delegation_rule_list_item(row: dict, user) -> DelegationRuleListItemRead:
 def _ensure_accessible_target_agent(db: Session, user, target_agent_id: str):
     agent = AgentRepository(db).get_by_id(target_agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Target agent not found"))
     if not _can_write(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     return agent
 
 
@@ -165,7 +166,7 @@ def preview_delegation_rule_schedule(payload: DelegationSchedulePreviewRequest, 
 def get_delegation_rule(rule_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     rule = DelegationRuleRepository(db).get(rule_id)
     if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("DelegationRule not found"))
     return _delegation_rule_response(db, rule, user)
 
 
@@ -174,9 +175,9 @@ def update_delegation_rule(rule_id: str, payload: DelegationRuleUpdate, user=Dep
     repo = DelegationRuleRepository(db)
     rule = repo.get(rule_id)
     if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("DelegationRule not found"))
     if repo.is_deleted_rule(rule):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="DelegationRule is archived")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("DelegationRule is archived"))
     _require_manage_rule(rule, user)
     if payload.target_agent_id:
         _ensure_accessible_target_agent(db, user, payload.target_agent_id)
@@ -189,7 +190,7 @@ def delete_delegation_rule(rule_id: str, user=Depends(get_current_user), db: Ses
     repo = DelegationRuleRepository(db)
     rule = repo.get(rule_id)
     if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("DelegationRule not found"))
     _require_manage_rule(rule, user)
     if repo.is_deleted_rule(rule):
         return {"ok": True}
@@ -222,9 +223,9 @@ def delete_delegation_rule(rule_id: str, user=Depends(get_current_user), db: Ses
 async def run_delegation_rule_once(rule_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     rule = DelegationRuleRepository(db).get(rule_id)
     if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("DelegationRule not found"))
     if DelegationRuleRepository(db).is_deleted_rule(rule):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="DelegationRule is archived")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("DelegationRule is archived"))
     _require_manage_rule(rule, user)
     result = await DelegationRuleService(db).run_rule_once(rule_id, triggered_by="api")
     return DelegationRuleRunOnceResponse(**result.__dict__)
@@ -234,7 +235,7 @@ async def run_delegation_rule_once(rule_id: str, user=Depends(get_current_user),
 def list_rule_runs(rule_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     rule = DelegationRuleRepository(db).get(rule_id)
     if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("DelegationRule not found"))
     return [DelegationRuleRunRead.model_validate(run) for run in DelegationRuleRepository(db).list_runs(rule_id, limit=50)]
 
 
@@ -242,5 +243,5 @@ def list_rule_runs(rule_id: str, user=Depends(get_current_user), db: Session = D
 def list_rule_events(rule_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     rule = DelegationRuleRepository(db).get(rule_id)
     if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DelegationRule not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("DelegationRule not found"))
     return [DelegationRuleEventRead.model_validate(event) for event in DelegationRuleRepository(db).list_events(rule_id, limit=100)]

@@ -54,7 +54,8 @@ function initAuthForm(options) {
       try {
         var payload = await response.json();
         if (typeof payload.detail === "string" && payload.detail.trim()) {
-          message = payload.detail;
+          // "Invalid credentials" and friends: English keys, shown translated.
+          message = tv(payload.detail);
         } else if (Array.isArray(payload.detail)) {
           message = payload.detail.map(function (item) { return item.msg; }).filter(Boolean).join("; ") || message;
         }

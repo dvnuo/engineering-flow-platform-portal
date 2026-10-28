@@ -115,7 +115,9 @@
   }
 
   function describeFailure(data, fallback) {
-    return data.message || data.detail || data.details || data.error || fallback;
+    var text = data.message || data.detail || data.details || data.error;
+    // A Portal detail is an English key: shown translated when the catalogue knows it.
+    return typeof text === "string" && text ? tv(text) : (text || fallback);
   }
 
   function failAndReset(message) {

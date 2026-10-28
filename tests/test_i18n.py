@@ -266,6 +266,43 @@ def test_the_check_script_reads_marked_keys_and_leaves_tv_alone(tmp_path):
     assert [error.split(": ", 1)[1] for error in errors] == ["N_() needs a plain string literal as its key"]
 
 
+# --- API error details ----------------------------------------------------------------
+
+def test_api_error_details_stay_english_and_are_catalogue_keys():
+    # Raise sites mark the detail with N_(): the API answers in English
+    # whatever the browser asks for, and the page translates what it shows.
+    from test_agents_api import _build_agents_client_with_overrides
+
+    client, _db, cleanup = _build_agents_client_with_overrides()
+    try:
+        response = client.get("/api/agents/missing-agent", headers={"Accept-Language": "zh-CN"})
+    finally:
+        cleanup()
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Agent not found"}
+    check = _load_check_script()
+    keys = {key.text for key in check.extract_keys(REPO)[0]}
+    assert {"Agent not found", "Forbidden", "Unauthorized", "Invalid credentials"} <= keys
+    hans = json.loads((REPO / "app" / "locale" / "zh-Hans.json").read_text(encoding="utf-8"))
+    assert hans["Agent not found"].strip()
+
+
+def test_the_page_translates_a_known_error_detail():
+    script = "\n".join(
+        [
+            # The page's tv(): a catalogue that knows one detail.
+            "globalThis.tv = (k) => (k === 'Task not found' ? '[hans] Task not found' : String(k));",
+            _extract_js_function(CHAT_JS, "getRuntimeMutationErrorMessage"),
+            "console.log(JSON.stringify({",
+            "  known: getRuntimeMutationErrorMessage({ status: 404 }, { detail: 'Task not found' }),",
+            "  unknown: getRuntimeMutationErrorMessage({ status: 500 }, { error: 'runtime exploded' }),",
+            "  fallback: getRuntimeMutationErrorMessage({ status: 500 }, {}, 'Failed'),",
+            "}));",
+        ]
+    )
+    assert _run_node(script) == {"known": "[hans] Task not found", "unknown": "runtime exploded", "fallback": "Failed"}
+
+
 # --- the browser helpers -----------------------------------------------------------
 
 def _node():

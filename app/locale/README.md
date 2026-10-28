@@ -33,6 +33,12 @@ back to it, so a new string ships in English until it is translated.
   mirrors): the keys exist, and the display code uses `tv()`.
 - Text the Portal sends to the model ("Continue", the attachment placeholder, task
   instructions) stays in English and is not wrapped.
+- JSON APIs answer in English: their routes resolve the member through a sync dependency,
+  whose locale binding never reaches the route, so `t()` there would follow the browser
+  rather than the member's preference. Mark an error detail as a key instead,
+  `HTTPException(status_code=404, detail=N_("Task not found"))`, and let the page translate
+  what it shows (`handleErrorResponse`, `getRuntimeMutationErrorMessage`, `requestJson` and
+  the sign-in form call `tv()` on the detail). A detail built with an f-string stays English.
 - The catalogues and `app/help/<locale>/` are the only places where Chinese may appear in
   `app/`; the check script fails on a Chinese character anywhere else.
 

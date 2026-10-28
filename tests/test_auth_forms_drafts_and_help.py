@@ -120,7 +120,7 @@ def test_viewer_role_is_gone_everywhere():
 
 
 def test_member_count_is_pluralised():
-    assert '{{ summary.total_users }} member{{ "" if summary.total_users == 1 else "s" }}' in USERS_HTML
+    assert '{{ tn(summary.total_users, "{n} member", "{n} members") }}' in USERS_HTML
     assert "function pluralize(count, singular, plural = null)" in CHAT_JS
 
 

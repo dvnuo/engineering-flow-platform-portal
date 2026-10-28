@@ -174,7 +174,10 @@ def _render_panel(**overrides):
     if "assistant_types" in overrides and overrides["assistant_types"]:
         context["assistant_types"] = [FakeType(**item) for item in overrides["assistant_types"]]
 
+    from app.i18n import template_globals
+
     env = Environment(loader=FileSystemLoader("app/templates"))
+    env.globals.update(template_globals())
     return env.get_template("partials/assistant_types_panel.html").render(**context)
 
 

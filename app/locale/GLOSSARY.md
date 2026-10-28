@@ -48,5 +48,7 @@ freely, but these terms always render as below.
 | scenario / script / segment | 场景 / 脚本 / 片段 | 情境 / 腳本 / 片段 | |
 | device (hold, release) | 设备（占用、释放） | 裝置（佔用、釋放） | |
 | compile | 编译 | 編譯 | |
+| return (an API or a search returns) | 返回 | 傳回 | Hong Kong says 傳回; 回傳 is the Taiwan form |
+| project (Jira) | 项目 | 專案 | follows Jira's own Traditional Chinese UI |
 | Library (mobile testing tab) | 资料库 | 資料庫 | |
 | Copilot, GitHub, Jira, Confluence, Jenkins, BrowserStack, Mermaid, Markdown, Productivity Suite | unchanged | unchanged | product names |

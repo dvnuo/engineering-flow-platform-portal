@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
@@ -20,9 +21,9 @@ def _can_write(agent, user) -> bool:
 def sync_runtime_capability_catalog(payload: RuntimeCapabilityCatalogSyncRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(payload.agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_write(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     try:
         snapshot = service.sync_from_agent_runtime(db=db, agent_id=payload.agent_id)
     except RuntimeCapabilitySyncError as exc:
@@ -40,14 +41,14 @@ def get_latest_runtime_capability_catalog(
     if agent_id is not None:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
         if not _can_write(agent, user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
         snapshot = repo.get_latest_for_agent(agent_id)
     else:
         if user.role != "admin":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
         snapshot = repo.get_latest()
     if not snapshot:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No runtime capability catalog snapshot found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("No runtime capability catalog snapshot found"))
     return RuntimeCapabilityCatalogSnapshotResponse.model_validate(snapshot)

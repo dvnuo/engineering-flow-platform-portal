@@ -16,6 +16,13 @@ The markdown is rendered in the browser (renderHelpMarkdown in chat_ui.js)
 with the markdown-it build chat already loads, so a guide can hold tables,
 code fences and mermaid diagrams. The files are read on every request: there
 is nothing to restart after an edit.
+
+Translations live beside the English in app/help/<locale>/<topic>.md and are
+swapped in topic by topic for the request's language (localized_documents):
+a translation brings its title, summary and body, while the group, icon and
+order always come from the English file, so a translation can neither move a
+topic nor break the navigation. A topic without a translation stays English,
+and the panel says so.
 """
 from __future__ import annotations
 
@@ -23,8 +30,9 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.i18n import t, tv
+from app.i18n import current_locale, t, tv
 from app.services.connection_guidance import CONNECTION_GUIDANCE, CONNECTOR_GUIDANCE, localized
+from app.services.locale_service import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +65,9 @@ class HelpTopic:
     connector_type: str | None = None
     connector_label: str | None = None
     order: int = DEFAULT_ORDER
+    # The language the body is written in: the request's when the topic has a
+    # translation, else English (the panel then says it is not translated yet).
+    body_locale: str = DEFAULT_LOCALE
 
 
 @dataclass(frozen=True)
@@ -66,6 +77,7 @@ class HelpDocument:
     id: str
     meta: dict[str, str]
     body: str
+    locale: str = DEFAULT_LOCALE
 
 
 def split_front_matter(text: str) -> tuple[dict[str, str], str]:
@@ -115,6 +127,41 @@ def load_documents(directory: Path | None = None) -> dict[str, HelpDocument]:
     return documents
 
 
+def localized_documents(locale: str | None = None, directory: Path | None = None) -> dict[str, HelpDocument]:
+    """The English topics, each one ``locale`` has a translation for swapped in.
+
+    The translation brings its title, summary and body; the group, icon and
+    order stay the English file's. A translation whose English topic is gone
+    is ignored, so a removed guide cannot linger in one language.
+    """
+
+    base = HELP_DIR if directory is None else directory
+    documents = load_documents(base)
+    locale = current_locale() if locale is None else locale
+    if locale == DEFAULT_LOCALE or locale not in SUPPORTED_LOCALES:
+        return documents
+    translated_dir = base / locale
+    if not translated_dir.is_dir():
+        return documents
+    for topic_id, translation in load_documents(translated_dir).items():
+        original = documents.get(topic_id)
+        if original is None:
+            logger.warning("help translation %s/%s.md has no English topic; ignored", locale, topic_id)
+            continue
+        meta = dict(original.meta)
+        for key in ("title", "summary"):
+            value = translation.meta.get(key, "").strip()
+            if value:
+                meta[key] = value
+        documents[topic_id] = HelpDocument(
+            id=topic_id,
+            meta=meta,
+            body=translation.body or original.body,
+            locale=locale if translation.body else original.locale,
+        )
+    return documents
+
+
 def _order_of(meta: dict[str, str]) -> int:
     try:
         return int(meta.get("order", DEFAULT_ORDER))
@@ -154,6 +201,7 @@ def _connection_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
                 group="Connectors",
                 icon=meta.get("icon") or "plug",
                 body=document.body if document else "",
+                body_locale=document.locale if document else DEFAULT_LOCALE,
                 steps=tuple(guidance.get("steps") or ()),
                 help_url=guidance.get("help_url"),
                 help_label=guidance.get("help_label"),
@@ -182,6 +230,7 @@ def _connector_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
                 group="Connectors",
                 icon=meta.get("icon") or "globe",
                 body=document.body if document else "",
+                body_locale=document.locale if document else DEFAULT_LOCALE,
                 steps=tuple(guidance.get("steps") or ()),
                 troubleshooting=tuple(guidance.get("troubleshooting") or ()),
                 help_url=guidance.get("help_url"),
@@ -212,6 +261,7 @@ def _concept_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
                 group=group,
                 icon=document.meta.get("icon") or DEFAULT_ICON,
                 body=document.body,
+                body_locale=document.locale,
                 order=_order_of(document.meta),
             )
         )
@@ -220,7 +270,7 @@ def _concept_topics(documents: dict[str, HelpDocument]) -> list[HelpTopic]:
 
 
 def all_topics() -> tuple[HelpTopic, ...]:
-    documents = load_documents()
+    documents = localized_documents()
     connections = _connection_topics(documents)
     connectors = _connector_topics(documents)
     concepts = _concept_topics(documents)

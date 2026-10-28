@@ -9,6 +9,7 @@ Settings connectors (Jira, GitHub, ...) are edited through their panels
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.db import get_db
 from app.deps import get_current_user
 from app.schemas.connector import (
@@ -32,7 +33,7 @@ def get_connector(connector_type: str, user=Depends(get_current_user), db: Sessi
     try:
         entry = connector_service.get_for_user(db, user, connector_type)
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown connector type"))
     return ConnectorResponse.model_validate(entry)
 
 
@@ -52,7 +53,7 @@ def update_connector(
             config=payload.config,
         )
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown connector type"))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return ConnectorResponse.model_validate(entry)
@@ -80,7 +81,7 @@ def verify_connector(
             details=payload.details,
         )
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown connector type"))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return ConnectorVerifyResponse.model_validate(result)

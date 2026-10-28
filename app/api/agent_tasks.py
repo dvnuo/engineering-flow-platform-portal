@@ -4,6 +4,7 @@ import json
 import logging
 from uuid import uuid4
 
+from app.i18n import N_
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.agent_repo import AgentRepository
@@ -52,22 +53,22 @@ def _is_task_visible_to_user(task, user) -> bool:
 def _require_writable_assignee(db: Session, assignee_agent_id: str, user):
     cleaned_agent_id = (assignee_agent_id or "").strip()
     if not cleaned_agent_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="assignee_agent_id is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("assignee_agent_id is required"))
     assignee_agent = AgentRepository(db).get_by_id(cleaned_agent_id)
     if not assignee_agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Assignee agent not found"))
     if not _can_write(assignee_agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     return assignee_agent
 
 
 def _require_visible_task(db: Session, task_id: str, user):
     task = AgentTaskRepository(db).get_by_id(task_id)
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Task not found"))
     if user.role != "admin":
         if not _is_task_visible_to_user(task, user):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Task not found"))
     return task
 
 
@@ -238,9 +239,9 @@ def create_agent_async_task(payload: CreateAgentAsyncTaskRequest, user=Depends(g
     task_content = (payload.task_content or "").strip()
     skill_name = _normalize_skill_name(payload.skill_name)
     if not skill_name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="skill_name is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("skill_name is required"))
     if not task_content:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_content is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("task_content is required"))
 
     assignee_agent = _require_writable_assignee(db, payload.assignee_agent_id, user)
     inference = _normalize_task_inference_or_400(db, assignee_agent, payload)
@@ -286,7 +287,7 @@ def create_agent_task_followup(
 ):
     task_content = (payload.task_content or "").strip()
     if not task_content:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_content is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("task_content is required"))
     return _continue_agent_task(db, user, task_id, task_content, payload)
 
 
@@ -305,10 +306,10 @@ def review_agent_task(
     """
     decision = (payload.decision or "").strip().lower()
     if decision not in REVIEW_DECISIONS:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="decision must be approve or changes")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("decision must be approve or changes"))
     notes = (payload.notes or "").strip()
     if decision == "changes" and not notes and not payload.declined:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Say what to change, or leave out the items to rework")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Say what to change, or leave out the items to rework"))
     task_content = review_decision_text(
         decision=decision,
         kind=payload.kind or "review",
@@ -337,18 +338,18 @@ def review_agent_task(
 def _continue_agent_task(db: Session, user, task_id: str, task_content: str, payload) -> AgentTaskResponse:
     target_task = _require_visible_task(db, task_id, user)
     if target_task.task_type != AGENT_ASYNC_TASK_TYPE:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Follow-up is only supported for agent async tasks")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Follow-up is only supported for agent async tasks"))
     if not _can_manage_task(db, target_task, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to continue task")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Not allowed to continue task"))
     if (target_task.status or "").strip().lower() in ACTIVE_TASK_STATUSES:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is still running")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task is still running"))
 
     root_task_id = _root_id_for_task(target_task)
     if _chain_has_active_task(db, root_task_id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task chain is still running")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task chain is still running"))
     skill_name = _skill_name_for_task(target_task)
     if not skill_name:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing a selected skill")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task is missing a selected skill"))
 
     existing_input = _input_payload_for_task(target_task)
     assignee_agent = AgentRepository(db).get_by_id(target_task.assignee_agent_id)
@@ -379,18 +380,18 @@ def _continue_agent_task(db: Session, user, task_id: str, task_content: str, pay
 def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     target_task = _require_visible_task(db, task_id, user)
     if target_task.task_type != AGENT_ASYNC_TASK_TYPE:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rerun is only supported for agent async tasks")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Rerun is only supported for agent async tasks"))
     if not _can_manage_task(db, target_task, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to rerun task")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Not allowed to rerun task"))
     if (target_task.status or "").strip().lower() in ACTIVE_TASK_STATUSES:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is still running")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task is still running"))
 
     root_task_id = _root_id_for_task(target_task)
     if _chain_has_active_task(db, root_task_id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task chain is still running")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task chain is still running"))
     skill_name = _skill_name_for_task(target_task)
     if not skill_name:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing a selected skill")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task is missing a selected skill"))
 
     existing_input = _input_payload_for_task(target_task)
     inference = existing_input.get("inference") if isinstance(existing_input.get("inference"), dict) else {}
@@ -398,7 +399,7 @@ def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session =
     original_task = str(existing_input.get("original_task") or existing_input.get("user_task") or "").strip()
     task_content = followup_task or str(existing_input.get("user_task") or existing_input.get("original_task") or "").strip()
     if not task_content:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is missing task content")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task is missing task content"))
 
     task_session_id = f"agent-task:{target_task.id}:{uuid4().hex[:12]}"
     task_input = _agent_async_payload(
@@ -430,7 +431,7 @@ def rerun_agent_task(task_id: str, user=Depends(get_current_user), db: Session =
 async def cancel_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     task = _require_visible_task(db, task_id, user)
     if not _can_manage_task(db, task, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to cancel task")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Not allowed to cancel task"))
 
     normalized_status = (task.status or "").strip().lower()
     if normalized_status in TERMINAL_TASK_STATUSES:
@@ -448,7 +449,7 @@ async def cancel_agent_task(task_id: str, user=Depends(get_current_user), db: Se
         )
         return _task_response(db, task, user)
     if normalized_status != "running":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is not cancellable")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task is not cancellable"))
 
     try:
         task = await task_dispatcher_service.cancel_task(task.id, db, user=user)
@@ -461,9 +462,9 @@ async def cancel_agent_task(task_id: str, user=Depends(get_current_user), db: Se
 def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_user), db: Session = Depends(get_db)):
     assignee_agent = AgentRepository(db).get_by_id(payload.assignee_agent_id)
     if not assignee_agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Assignee agent not found"))
     if not _can_write(assignee_agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
 
     create_payload = payload.model_dump()
     create_payload["owner_user_id"] = assignee_agent.owner_user_id
@@ -475,7 +476,7 @@ def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_
 @router.get("/api/agent-tasks", response_model=list[AgentTaskResponse])
 def list_agent_tasks(user=Depends(get_current_user), db: Session = Depends(get_db)):
     if user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admin can list all tasks")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Only admin can list all tasks"))
     tasks = AgentTaskRepository(db).list_all()
     return [_task_response(db, task, user) for task in tasks]
 
@@ -522,11 +523,11 @@ def _attach_scenario_progress(db: Session, items: list[AgentTaskListItemResponse
 def get_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     task = AgentTaskRepository(db).get_by_id(task_id)
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Task not found"))
 
     if user.role != "admin":
         if not _is_task_visible_to_user(task, user):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Task not found"))
 
     return _task_response(db, task, user)
 
@@ -535,9 +536,9 @@ def get_agent_task(task_id: str, user=Depends(get_current_user), db: Session = D
 def list_agent_tasks_by_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if user.role != "admin" and agent.owner_user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
 
     tasks = AgentTaskRepository(db).list_by_agent(agent_id)
     return [_task_response(db, task, user) for task in tasks]
@@ -547,16 +548,16 @@ def list_agent_tasks_by_agent(agent_id: str, user=Depends(get_current_user), db:
 async def dispatch_agent_task(task_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     task = AgentTaskRepository(db).get_by_id(task_id)
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Task not found"))
 
     assignee_agent = AgentRepository(db).get_by_id(task.assignee_agent_id)
     if not assignee_agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Assignee agent not found"))
     if user.role != "admin" and assignee_agent.owner_user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to dispatch task")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Not allowed to dispatch task"))
 
     if task.status != "queued":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is not dispatchable")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Task is not dispatchable"))
 
     upsert_task_execution_queued_best_effort(db, task=task, agent=assignee_agent, user=user)
     logger.info(

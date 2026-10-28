@@ -1373,7 +1373,7 @@ function uploadErrorMessageFromXhr(xhr) {
   try {
     const parsed = JSON.parse(raw);
     const detail = parsed?.detail;
-    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (typeof detail === "string" && detail.trim()) return tv(detail.trim());
     if (Array.isArray(detail)) {
       const items = detail
         .map((item) => (typeof item === "string" ? item : item?.msg))
@@ -6815,7 +6815,9 @@ async function handleErrorResponse(resp) {
       try {
         const err = JSON.parse(rawText);
         const detail = err?.detail;
-        if (typeof detail === "string" && detail.trim()) return detail;
+        // Portal details are English keys (N_() at the raise site): shown in
+        // the page's language when the catalogue knows them.
+        if (typeof detail === "string" && detail.trim()) return tv(detail);
         if (Array.isArray(detail)) {
           const items = detail
             .map((e) => {
@@ -11137,6 +11139,12 @@ function helpMarkdown() {
     typographer: true,
     highlight: md.options.highlight,
   });
+  // The translated guides need the chat's CJK-friendly emphasis too: without
+  // it, bold that ends in a full-width bracket right before a Chinese
+  // character pairs with the wrong asterisks.
+  if (typeof window.markdownItCjkFriendly === "function") {
+    helpMarkdownRenderer.use(window.markdownItCjkFriendly);
+  }
   // Other sites and the app's own #/ routes (a guide linking to another guide,
   // or to Connections) may become links; nothing else.
   helpMarkdownRenderer.validateLink = (text) => {
@@ -15181,7 +15189,7 @@ function agentRestartErrorMessage(error, fallback = t("Assistant restart failed 
   try {
     const parsed = JSON.parse(raw);
     const detail = parsed?.detail;
-    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (typeof detail === "string" && detail.trim()) return tv(detail.trim());
     if (Array.isArray(detail) && detail.length) return detail.map((item) => item?.msg || item).join("; ");
   } catch {}
   return raw;
@@ -17747,7 +17755,9 @@ function getRuntimeMutationErrorMessage(response, result, fallbackMessage = t("F
   if (response?.status === 501 || error === "unsupported_by_opencode_adapter_mvp") {
     return t("This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.");
   }
-  if (error) return error;
+  // A Portal error arrives in English (its detail is marked with N_()); the
+  // catalogue translates the ones it knows, anything else passes through.
+  if (error) return tv(error);
   return fallbackMessage;
 }
 
