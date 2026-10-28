@@ -2589,33 +2589,82 @@ function assistantModelAttribution(source = {}) {
   };
 }
 
-function assistantModelBadgeText(attribution) {
-  if (!attribution || !attribution.model) return "";
-  const label = inferenceModelLabel(attribution.model);
-  const requested = String(attribution.requestedModel || "").toLowerCase();
-  // "Auto -> GPT-6 Luna", or "Auto (Efficiency) -> ..." for the other tiers.
-  if (isAutoModelId(requested)) return `${inferenceModelLabel(assistantModelBareId(requested))} \u2192 ${label}`;
-  return label;
+// The badge is also where the turn's cost is read: its tooltip lists the
+// model lines first, then the steps, tokens and estimated credits from the
+// usage summary (assistantUsageCostLines), and it carries `data-credits` for
+// the session total in the Context panel.
+function assistantModelBadgeModel(attribution, usageSummary) {
+  // The badge names a model. A message without attribution (an older stored
+  // message, a runtime image that predates the fields) still says in its
+  // usage which model it was billed as, and that stands in.
+  if (attribution && attribution.model) return attribution;
+  const billed = String(usageSummary?.model || "").trim();
+  if (billed && !isAutoModelId(billed)) return { model: billed, requestedModel: "", autoTier: "", fallbackReason: "" };
+  return null;
 }
 
-function assistantModelBadgeTitle(attribution) {
-  if (!attribution || !attribution.model) return "";
-  const lines = [`Model: ${attribution.model}`];
-  if (attribution.requestedModel) lines.push(`Requested: ${attribution.requestedModel}`);
-  if (attribution.autoTier) lines.push(`Tier: ${attribution.autoTier}`);
-  if (attribution.fallbackReason) lines.push(`Fallback: ${attribution.fallbackReason}`);
+function assistantModelBadgeText(attribution, usageSummary = null) {
+  if (attribution && attribution.model) {
+    const label = inferenceModelLabel(attribution.model);
+    const requested = String(attribution.requestedModel || "").toLowerCase();
+    // "Auto -> GPT-6 Luna", or "Auto (Efficiency) -> ..." for the other tiers.
+    if (isAutoModelId(requested)) return `${inferenceModelLabel(assistantModelBareId(requested))} \u2192 ${label}`;
+    return label;
+  }
+  // No model anywhere: the credits are the badge, so the cost still has a
+  // place to be read.
+  const credits = typeof formatCredits === "function" ? formatCredits(usageSummary?.estimatedCredits) : "";
+  return credits ? `\u2248 ${credits} credits` : "";
+}
+
+function assistantModelBadgeTitle(attribution, usageSummary = null, options = {}) {
+  // What the hover says: which model answered, then what the turn cost.
+  const lines = [];
+  if (attribution && attribution.model) {
+    lines.push(`Model: ${attribution.model}`);
+    if (attribution.requestedModel) lines.push(`Requested: ${attribution.requestedModel}`);
+    if (attribution.autoTier) lines.push(`Tier: ${attribution.autoTier}`);
+    if (attribution.fallbackReason) lines.push(`Fallback: ${attribution.fallbackReason}`);
+  }
+  const costLines = typeof assistantUsageCostLines === "function" ? assistantUsageCostLines(usageSummary, options) : [];
+  if (costLines.length) {
+    if (lines.length) lines.push("");
+    lines.push(...costLines);
+  }
   return lines.join("\n");
 }
 
-function buildAssistantModelBadgeHtml(attribution) {
-  const text = assistantModelBadgeText(attribution);
-  if (!text) return "";
-  const fallbackClass = attribution.fallbackReason ? " message-model-fallback" : "";
-  return `<span class="message-model${fallbackClass}" title="${escapeHtmlAttr(assistantModelBadgeTitle(attribution))}" data-model="${escapeHtmlAttr(attribution.model)}">${escapeHtml(text)}</span>`;
+function assistantModelBadgeClassName(attribution, usageSummary = null) {
+  const classes = ["message-model"];
+  if (attribution?.fallbackReason) classes.push("message-model-fallback");
+  // Past 272K input tokens in one request the turn billed at twice the price.
+  if (usageSummary?.tier === "long_context") classes.push("message-model-long-context");
+  return classes.join(" ");
 }
 
-function applyAssistantModelBadge(target, attribution) {
-  if (!target || !attribution || !attribution.model) return null;
+function assistantModelBadgeCredits(usageSummary) {
+  const credits = Number(usageSummary?.estimatedCredits);
+  return Number.isFinite(credits) && credits >= 0 ? credits : null;
+}
+
+function buildAssistantModelBadgeHtml(attribution, usageSummary = null, options = {}) {
+  const model = assistantModelBadgeModel(attribution, usageSummary);
+  const text = assistantModelBadgeText(model, usageSummary);
+  if (!text) return "";
+  const credits = assistantModelBadgeCredits(usageSummary);
+  const attrs = [
+    model ? ` data-model="${escapeHtmlAttr(model.model)}"` : "",
+    credits != null ? ` data-credits="${escapeHtmlAttr(String(credits))}"` : "",
+    usageSummary?.tier ? ` data-tier="${escapeHtmlAttr(usageSummary.tier)}"` : "",
+  ].join("");
+  return `<span class="${assistantModelBadgeClassName(model, usageSummary)}" title="${escapeHtmlAttr(assistantModelBadgeTitle(model, usageSummary, options))}"${attrs}>${escapeHtml(text)}</span>`;
+}
+
+function applyAssistantModelBadge(target, attribution, usageSummary = null, options = {}) {
+  if (!target) return null;
+  const model = assistantModelBadgeModel(attribution, usageSummary);
+  const text = assistantModelBadgeText(model, usageSummary);
+  if (!text) return null;
   const row = target.classList?.contains("message-row") ? target : target.closest?.(".message-row");
   if (!row) return null;
   const header = row.querySelector(".message-meta");
@@ -2625,12 +2674,15 @@ function applyAssistantModelBadge(target, attribution) {
     badge = document.createElement("span");
     header.appendChild(badge);
   }
-  badge.className = `message-model${attribution.fallbackReason ? " message-model-fallback" : ""}`;
-  badge.textContent = assistantModelBadgeText(attribution);
-  badge.title = assistantModelBadgeTitle(attribution);
-  badge.dataset.model = attribution.model;
+  badge.className = assistantModelBadgeClassName(model, usageSummary);
+  badge.textContent = text;
+  badge.title = assistantModelBadgeTitle(model, usageSummary, options);
+  if (model) badge.dataset.model = model.model;
+  const credits = assistantModelBadgeCredits(usageSummary);
+  if (credits != null) badge.dataset.credits = String(credits);
+  if (usageSummary?.tier) badge.dataset.tier = usageSummary.tier;
   const article = row.querySelector("article.assistant-message");
-  if (article) article.dataset.model = attribution.model;
+  if (article && model) article.dataset.model = model.model;
   return badge;
 }
 
@@ -2652,9 +2704,11 @@ function latestAssistantModelAttribution(messages = []) {
 // stored assistant message (input_tokens, cached_input_tokens, output_tokens,
 // reasoning_tokens, `iterations`, `estimated_credits`, `cache_hit_ratio`,
 // `pricing` {model, tier, threshold_tokens}); the native runner's usage.updated
-// events carry the running total while the turn works. One quiet line under
-// the bubble says what the turn took. The estimate follows GitHub's published
-// prices and is never the bill itself: the tooltip says so.
+// events carry the running total while the turn works. The figures ride in
+// the model badge's tooltip at the top right of the bubble, under the model
+// lines, so one hover says who answered and what it took. The estimate
+// follows GitHub's published prices and is never the bill itself: the tooltip
+// says so.
 const COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS = 272000;
 
 function usageNumber(source, ...keys) {
@@ -2761,61 +2815,32 @@ function assistantUsageTierLabel(tier) {
   return "";
 }
 
-function assistantUsageCostText(summary) {
-  if (!summary) return "";
-  const parts = [];
-  if (summary.iterations) parts.push(`${summary.iterations} steps`);
+function assistantUsageCostLines(summary, options = {}) {
+  // The cost part of the model badge's tooltip, one line per figure. Empty
+  // without a usage summary, so a message that carries none reads as before.
+  if (!summary) return [];
+  const lines = [];
+  if (summary.iterations) lines.push(`Steps: ${summary.iterations}`);
   const input = formatCompactTokens(summary.inputTokens);
   if (input) {
     const cache = summary.cacheHitRatio != null ? ` (cache ${Math.round(summary.cacheHitRatio * 100)}%)` : "";
-    parts.push(`input ${input}${cache}`);
+    lines.push(`Input: ${input} tokens${cache}`);
   }
   const output = formatCompactTokens(summary.outputTokens);
   if (output) {
     const reasoning = summary.reasoningTokens ? ` (reasoning ${formatCompactTokens(summary.reasoningTokens)})` : "";
-    parts.push(`output ${output}${reasoning}`);
+    lines.push(`Output: ${output} tokens${reasoning}`);
   }
   const credits = formatCredits(summary.estimatedCredits);
-  if (credits) parts.push(`\u2248 ${credits} credits`);
-  return parts.join(" \u00b7 ");
-}
-
-function assistantUsageCostTitle(summary) {
-  if (!summary) return "";
-  const lines = [];
-  const tier = assistantUsageTierLabel(summary.tier);
-  if (tier) lines.push(`Billing tier: ${tier}`);
-  if (summary.model) lines.push(`Model: ${summary.model}`);
-  if (summary.cachedInputTokens != null) lines.push(`Cache hits: ${formatCompactTokens(summary.cachedInputTokens) || "0"} tokens`);
-  lines.push("Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill.");
-  return lines.join("\n");
-}
-
-function buildAssistantCostLineHtml(summary, options = {}) {
-  const text = assistantUsageCostText(summary);
-  if (!text) return "";
-  const credits = Number(summary.estimatedCredits);
-  const creditsAttr = Number.isFinite(credits) && credits >= 0 ? ` data-credits="${escapeHtmlAttr(String(credits))}"` : "";
-  const liveClass = options.live ? " is-live" : "";
-  const tierHtml = summary.tier === "long_context" ? `<span class="message-cost-tier-long">Long context 2\u00d7</span>` : "";
-  return `<div class="message-cost${liveClass}" title="${escapeHtmlAttr(assistantUsageCostTitle(summary))}"${creditsAttr} data-tier="${escapeHtmlAttr(summary.tier || "")}"><span>${escapeHtml(text)}</span>${tierHtml}</div>`;
-}
-
-function applyAssistantCostLine(target, summary, options = {}) {
-  if (typeof document === "undefined" || !target) return null;
-  const row = target.classList?.contains("message-row") ? target : target.closest?.(".message-row");
-  if (!row) return null;
-  const html = buildAssistantCostLineHtml(summary, options);
-  const existing = row.querySelector(":scope > .message-cost");
-  if (!html) return existing || null;
-  if (existing) {
-    existing.outerHTML = html;
-  } else {
-    const article = row.querySelector(":scope > article");
-    if (article) article.insertAdjacentHTML("afterend", html);
-    else row.insertAdjacentHTML("beforeend", html);
+  if (credits) {
+    const tier = assistantUsageTierLabel(summary.tier);
+    lines.push(`Credits: \u2248 ${credits}${tier ? ` (${tier})` : ""}`);
   }
-  return row.querySelector(":scope > .message-cost");
+  if (!lines.length) return lines;
+  lines.push(options.live
+    ? "Still running; these are the totals so far."
+    : "Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill.");
+  return lines;
 }
 
 function sumVisibleAssistantCredits(root) {
@@ -2823,7 +2848,7 @@ function sumVisibleAssistantCredits(root) {
   const scope = root || document;
   let total = 0;
   let seen = false;
-  scope.querySelectorAll(".message-cost[data-credits]").forEach((element) => {
+  scope.querySelectorAll(".message-model[data-credits]").forEach((element) => {
     const value = Number(element.dataset.credits);
     if (Number.isFinite(value)) {
       total += value;
@@ -3010,6 +3035,7 @@ function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
     requestedModel: attribution?.requestedModel || "",
     autoTier: attribution?.autoTier || "",
     modelFallbackReason: attribution?.fallbackReason || "",
+    usageSummary: typeof latestAssistantUsageSummary === "function" ? latestAssistantUsageSummary(group?.messages || []) : null,
   });
 }
 
@@ -3069,7 +3095,7 @@ function buildAssistantMessageArticle(content, displayBlocks = [], authorName = 
   const streamingClass = options.isStreaming ? " is-streaming" : "";
   const hasVisibleContent = String(content || "").trim() || (displayBlocks || []).length ? ` data-has-visible-content="1"` : "";
   const modelBadgeHtml = (typeof buildAssistantModelBadgeHtml === "function" && typeof assistantModelAttribution === "function")
-    ? buildAssistantModelBadgeHtml(assistantModelAttribution(options))
+    ? buildAssistantModelBadgeHtml(assistantModelAttribution(options), options.usageSummary || null)
     : "";
   return `<div class="message-row message-row-assistant"${hasVisibleContent}><div class="message-meta"><span class="message-author">${escapeHtml(authorName)}</span><span class="message-timestamp">${now}</span>${modelBadgeHtml}</div><article class="message-surface message-surface-assistant assistant-message${streamingClass}"${messageIdAttr}${primaryMessageAttr}${messageIdsAttr}${userMessageIdAttr}${groupKeyAttr}${requestIdAttr}${clientRequestIdAttr}${copyTextAttr}${hasVisibleContent}><div class="message-markdown md-render" data-md="${encodedMd}" data-display-blocks="${encodedBlocks}"></div></article></div>`;
 }
@@ -9140,13 +9166,10 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
 
   const row = article.closest(".message-row");
   if (typeof applyAssistantModelBadge === "function" && typeof assistantModelAttribution === "function") {
-    applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
-  }
-  if (typeof applyAssistantCostLine === "function" && typeof assistantUsageSummary === "function") {
     // A partial payload carries no usage; the final one (and the stored
-    // message) does, so the line appears once the turn has a cost.
-    const usageSummary = assistantUsageSummary(payload);
-    if (usageSummary) applyAssistantCostLine(article, usageSummary);
+    // message) does, and until it lands the badge keeps the running total.
+    const usageSummary = typeof assistantUsageSummary === "function" ? (assistantUsageSummary(payload) || requestCtx?.usageSummary || null) : null;
+    applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null, usageSummary);
   }
   if (typeof applyBudgetPauseNotice === "function" && typeof budgetPauseInfo === "function") {
     const budgetPause = budgetPauseInfo(payload);
@@ -9325,10 +9348,8 @@ function finalizePendingAssistantRow(agentId, requestCtx, payload) {
   article.querySelector('.assistant-stream-cursor')?.remove();
   article.querySelector('.assistant-waiting-indicator')?.remove();
   if (typeof applyAssistantModelBadge === "function" && typeof assistantModelAttribution === "function") {
-    applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null);
-  }
-  if (typeof applyAssistantCostLine === "function" && typeof assistantUsageSummary === "function") {
-    applyAssistantCostLine(article, assistantUsageSummary(payload) || requestCtx?.usageSummary || null);
+    const usageSummary = typeof assistantUsageSummary === "function" ? (assistantUsageSummary(payload) || requestCtx?.usageSummary || null) : null;
+    applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null, usageSummary);
   }
   if (typeof applyBudgetPauseNotice === "function" && typeof budgetPauseInfo === "function") {
     const budgetPause = budgetPauseInfo(payload) || requestCtx?.budgetPause || null;
@@ -9788,21 +9809,16 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     };
     handleAgentEventMessage(JSON.stringify(streamEventPayload), {agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "", requestId: requestCtx.clientRequestId});
     rememberAssociatedRuntimeDeltaEvent(requestCtx, eventData, embeddedType);
-    if (embeddedType === "usage.updated" && typeof assistantModelAttribution === "function" && typeof applyAssistantModelBadge === "function") {
-      const modelAttribution = assistantModelAttribution(eventData);
-      if (modelAttribution) {
-        requestCtx.modelAttribution = modelAttribution;
-        applyAssistantModelBadge(findPendingAssistantArticle(requestCtx.clientRequestId || requestCtx.requestId || ""), modelAttribution);
-      }
-    }
-    if (embeddedType === "usage.updated" && typeof assistantUsageSummary === "function" && typeof applyAssistantCostLine === "function") {
-      // The running total after every model call: the cost line under the
-      // pending bubble counts up while the turn works, and the final payload
-      // replaces it with the stored figures.
-      const liveUsage = assistantUsageSummary(eventData);
-      if (liveUsage) {
-        requestCtx.usageSummary = liveUsage;
-        applyAssistantCostLine(findPendingAssistantArticle(requestCtx.clientRequestId || requestCtx.requestId || ""), liveUsage, { live: true });
+    if (embeddedType === "usage.updated" && typeof applyAssistantModelBadge === "function") {
+      // After every model call: which model answered and the running total of
+      // what the turn has cost, both on the pending bubble's badge. The final
+      // payload replaces the figures with the stored ones.
+      const modelAttribution = typeof assistantModelAttribution === "function" ? assistantModelAttribution(eventData) : null;
+      if (modelAttribution) requestCtx.modelAttribution = modelAttribution;
+      const liveUsage = typeof assistantUsageSummary === "function" ? assistantUsageSummary(eventData) : null;
+      if (liveUsage) requestCtx.usageSummary = liveUsage;
+      if (modelAttribution || liveUsage) {
+        applyAssistantModelBadge(findPendingAssistantArticle(requestCtx.clientRequestId || requestCtx.requestId || ""), requestCtx.modelAttribution || null, requestCtx.usageSummary || null, { live: true });
       }
     }
     if (embeddedType === "run_budget_paused" && typeof budgetPauseInfo === "function") {
@@ -12176,7 +12192,7 @@ function renderChatHistory(messages, metadata = {}) {
       if (last?.timestamp || last?.created_at || first?.timestamp || first?.created_at) { try { timeStr = new Date(last.timestamp || last.created_at || first.timestamp || first.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
       if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
       const modelBadgeHtml = (typeof buildAssistantModelBadgeHtml === "function" && typeof latestAssistantModelAttribution === "function")
-        ? buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages))
+        ? buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages), typeof latestAssistantUsageSummary === "function" ? latestAssistantUsageSummary(entry.messages) : null)
         : "";
       if (modelBadgeHtml) header.insertAdjacentHTML("beforeend", modelBadgeHtml);
       row.appendChild(header);
@@ -12200,10 +12216,6 @@ function renderChatHistory(messages, metadata = {}) {
       content.dataset.displayBlocks = JSON.stringify(getAssistantGroupDisplayBlocks(entry));
       article.appendChild(content);
       row.appendChild(article);
-      if (typeof latestAssistantUsageSummary === "function" && typeof buildAssistantCostLineHtml === "function") {
-        const usageSummary = latestAssistantUsageSummary(entry.messages);
-        if (usageSummary) row.insertAdjacentHTML("beforeend", buildAssistantCostLineHtml(usageSummary));
-      }
       if (entry === lastAssistantEntry && typeof budgetPauseInfo === "function" && typeof applyBudgetPauseNotice === "function") {
         const budgetPause = budgetPauseInfo(last) || budgetPauseInfo(last?.metadata);
         if (budgetPause) applyBudgetPauseNotice(row, budgetPause);

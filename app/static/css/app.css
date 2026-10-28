@@ -984,14 +984,12 @@ html[data-chat-width="full"] .portal-conversation-main { --portal-chat-width: ma
 .message-row-assistant .message-meta { width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); }
 .message-model { margin-left: auto; font-size: 11px; line-height: 1; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text-muted); white-space: nowrap; opacity: 0; transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .message-model-fallback { border-style: dashed; }
+.message-model-long-context { border-color: var(--portal-warning); color: var(--portal-warning); }
 .message-row:hover .message-model,
 .message-row:focus-within .message-model { opacity: 1; }
 @media (hover: none) { .message-model { opacity: 1; } }
 /* What the answer cost: one quiet line under the bubble (tokens, cache hits,
    estimated AI credits), from the runtime's usage on the message. */
-.message-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); color: var(--portal-text-muted); font-size: 11px; line-height: 1.4; }
-.message-cost.is-live { opacity: .75; }
-.message-cost .message-cost-tier-long { color: var(--portal-warning); font-weight: 600; }
 .message-cost-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); padding: 8px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--portal-warning), var(--portal-border) 45%); background: color-mix(in srgb, var(--portal-warning), var(--portal-surface) 90%); color: var(--portal-text-secondary); font-size: 12px; }
 .message-cost-notice-btn { border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text); border-radius: 999px; height: 26px; padding: 0 12px; font-size: 12px; cursor: pointer; }
 .message-cost-notice-btn:hover { background: var(--portal-surface-soft); }
