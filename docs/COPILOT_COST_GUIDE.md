@@ -1,30 +1,30 @@
-# Copilot 费用说明（给成员）
+# Copilot cost guide (for members)
 
-Portal 内的同一份说明在 Help → Working → "Copilot 费用说明"（`app/help/copilot-costs.md`）。
+The same guide inside the Portal is Help → Working → "Copilot costs" (`app/help/copilot-costs.md`).
 
-## 计费口径
+## How billing works
 
-- 2026-06-01 起 GitHub Copilot 按 token 计 GitHub AI Credits，1 credit = $0.01；Business 每人每月含 $19 额度，在组织层面汇总，用超后按同样单价计费。premium request（按次）只对年付 Pro 的存量用户保留。
-- GPT-6.1 Sol 默认档：输入 $2.00 / 百万 token，cached 输入 $0.10，cache write $2.50，输出 $10（推理算输出）。单次请求输入超过 272K token 进入 Long context 档，全部翻倍。
-- 官方价目表：<https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing>
+- Since 2026-06-01 GitHub Copilot bills per token in GitHub AI Credits, 1 credit = $0.01; the Business plan includes $19 per member per month, pooled at the organization level, and overage is billed at the same per-token prices. Premium requests (per call) remain only for existing annual Pro subscribers.
+- GPT-6.1 Sol default tier: input $2.00 per million tokens, cached input $0.10, cache write $2.50, output $10 (reasoning counts as output). A request whose input exceeds 272K tokens moves to the long context tier, where everything doubles.
+- Official price list: <https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing>
 
-## 一条消息为什么会花上百 credits
+## Why one message can cost a hundred credits
 
-一条消息触发的 agent 循环会跑十几轮，每一轮都把整段上下文（系统提示、工具定义、历史、工具输出）重发一次。15 轮、每轮约 10 万 token 就是 150 万输入 token：cache 命中约 100 credits，命中不了 400 credits 以上，进入 Long context 档再翻倍。推理强度 High 还会多出按输出计费的推理 token。
+The agent loop behind one message runs a dozen or more steps, and every step resends the whole context (system prompt, tool definitions, history, tool output). 15 steps at about 100K tokens each is 1.5 million input tokens: about 100 credits with cache hits, 400 or more without, and double again on the long context tier. High reasoning effort adds reasoning tokens, billed as output.
 
-## Portal 里能看到什么
+## What the Portal shows
 
-| 位置 | 内容 |
+| Where | What |
 | --- | --- |
-| 每条回答下方 | 轮数、输入 / 输出 token、cache 命中率、估算 credits；悬停看计费档位与模型 |
-| Context 面板 | 表盘上的 272K 计费线、当前档位、运行时实际预算、按实测 token 校准的用量、本会话累计 credits、本月 Copilot 额度 |
-| 助手详情 Usage (30 days) | 请求数、输入 / 输出 / cached / 推理 token、估算 credits |
-| "已暂停"提示 | 一条消息超过 credits 上限或轮数上限时助手停下说明，点"继续"接着跑 |
+| Under every answer | Steps, input / output tokens, cache hit rate, estimated credits; hover for the billing tier and the model |
+| Context panel | The 272K billing line on the meter, the current tier, the runtime's real budget, usage calibrated from measured tokens, this session's cumulative credits, this month's Copilot balance |
+| Assistant details, Usage (30 days) | Requests, input / output / cached / reasoning tokens, estimated credits |
+| "Paused" notice | When one message exceeds the credits limit or the step limit the assistant stops and explains; click "Continue" to carry on |
 
-## 怎样省
+## How to spend less
 
-1. 新话题开新会话：上下文越长每条消息越贵。
-2. 少贴大文件：贴进来的内容每一轮都重发。
-3. 推理强度默认 Medium：需要时再按会话调 High。
-4. 模型用 Auto：简单请求走便宜模型，并有 10% 折扣。
-5. 上下文预设 1M 标注"Long context 2×"，知道代价再选。
+1. Start a new session for a new topic: the longer the context, the more every message costs.
+2. Paste fewer large files: pasted content is resent on every step.
+3. Reasoning effort defaults to Medium: raise it to High per session when needed.
+4. Keep the model on Auto: simple requests go to a cheaper model, with a 10% discount.
+5. The 1M context preset is labelled "Long context 2×"; pick it knowing the price.
