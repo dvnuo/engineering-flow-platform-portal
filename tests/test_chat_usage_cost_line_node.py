@@ -1,12 +1,14 @@
-"""The line under each answer that says what the turn cost, and its neighbours.
+"""What an answer cost rides in the model badge's tooltip, and its neighbours.
 
 Both runtimes stamp ``usage`` on the final chat payload and on the stored
 assistant message (tokens, iterations, estimated AI credits, the billing
 tier); the native runner's usage.updated events carry the running total. The
-chat UI turns that into a ``.message-cost`` line, a budget-pause notice with a
-Continue button, the 272K billing line on the context meter and the monthly
-Copilot balance chip. The pure helpers run in node; the wiring is checked on
-the shipped source, in the style of test_chat_model_badge_static.py.
+chat UI folds that into the ``.message-model`` badge at the top right of the
+bubble: its tooltip lists the model lines, then the cost, and its
+``data-credits`` feeds the session total. Next to it: a budget-pause notice
+with a Continue button, the 272K billing line on the context meter and the
+monthly Copilot balance chip. The pure helpers run in node; the wiring is
+checked on the shipped source, in the style of test_chat_model_badge_static.py.
 """
 from __future__ import annotations
 
@@ -48,21 +50,24 @@ def _run_node(script: str) -> dict:
 
 
 def _bundle(js: str) -> str:
-    # escapeHtml / escapeHtmlAttr / formatContextTokens are chat_ui globals the
-    # helpers lean on; the first two are stubbed, the third is the real one.
+    # escapeHtml / escapeHtmlAttr / formatContextTokens / inferenceModelLabel
+    # are chat_ui globals the helpers lean on; the label lookup reads the
+    # managed provider catalog in the page, so it is a table here.
     stubs = """
 const escapeHtml = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escapeHtmlAttr = (value) => escapeHtml(value).replace(/"/g, "&quot;");
+const MODEL_LABELS = { "gpt-6.1-sol": "GPT-6.1 Sol", "gpt-6-luna": "GPT-6 Luna", "auto": "Auto", "auto-efficiency": "Auto (Efficiency)" };
+const inferenceModelLabel = (value) => MODEL_LABELS[String(value || "").trim()] || String(value || "").trim() || "Model";
 """
     return "\n".join([
         stubs,
+        _extract_js_helper_block(js, "assistantModelAttribution"),
         _extract_js_helper_block(js, "assistantUsageCost"),
         _extract_js_helper_block(js, "copilotQuota"),
         _extract_js_helper_block(js, "contextBillingView"),
         _extract_js_function(js, "formatContextTokens"),
         _extract_js_function(js, "inferenceContextLabel"),
     ])
-
 
 FINAL_PAYLOAD = {
     "response": "done",
@@ -80,58 +85,80 @@ FINAL_PAYLOAD = {
 }
 
 
-def test_cost_line_reads_the_runtime_usage_and_renders_the_chinese_line():
+def test_cost_details_ride_in_the_model_badge_tooltip():
     script = f"""
 {_bundle(_js())}
 const payload = {json.dumps(FINAL_PAYLOAD)};
 const summary = assistantUsageSummary(payload);
+const attribution = {{ model: "gpt-6-luna", requestedModel: "auto", autoTier: "auto", fallbackReason: "" }};
 const liveEvent = {{ type: "usage.updated", iteration: 7, usage: {{ input_tokens: 500000, cached_input_tokens: 400000, output_tokens: 9000, reasoning_tokens: 6000, estimated_credits: 31.2 }} }};
 const opencodeMessage = {{ info: {{ tokens: {{ input: 1000, output: 200, reasoning: 50, cache: {{ read: 500, write: 100 }} }} }} }};
 const longContext = {{ usage: {{ input_tokens: 300000, output_tokens: 100, estimated_credits: 12, pricing: {{ tier: "long_context" }} }} }};
 const messages = [{{ role: "assistant", content: "a" }}, {{ role: "assistant", content: "b", usage: {{ input_tokens: 10, output_tokens: 2, estimated_credits: 0.5 }} }}, {{ role: "assistant", content: "c" }}];
 console.log(JSON.stringify({{
-  text: assistantUsageCostText(summary),
-  title: assistantUsageCostTitle(summary),
-  html: buildAssistantCostLineHtml(summary),
-  liveText: assistantUsageCostText(assistantUsageSummary(liveEvent)),
+  lines: assistantUsageCostLines(summary),
+  liveLines: assistantUsageCostLines(assistantUsageSummary(liveEvent), {{ live: true }}),
+  title: assistantModelBadgeTitle(attribution, summary),
+  html: buildAssistantModelBadgeHtml(attribution, summary),
+  modelOnlyHtml: buildAssistantModelBadgeHtml(attribution, null),
+  billedHtml: buildAssistantModelBadgeHtml(null, summary),
+  creditsOnlyHtml: buildAssistantModelBadgeHtml(null, assistantUsageSummary(longContext)),
+  longHtml: buildAssistantModelBadgeHtml(attribution, assistantUsageSummary(longContext)),
+  nothing: buildAssistantModelBadgeHtml(null, null),
   opencode: assistantUsageSummary(opencodeMessage),
-  longHtml: buildAssistantCostLineHtml(assistantUsageSummary(longContext)),
   latest: latestAssistantUsageSummary(messages),
   none: assistantUsageSummary({{ response: "no usage here" }}),
-  emptyHtml: buildAssistantCostLineHtml(null),
+  emptyLines: assistantUsageCostLines(null),
   compact: [formatCompactTokens(980), formatCompactTokens(45000), formatCompactTokens(1905000), formatCompactTokens(12345678)],
   credits: [formatCredits(104.3), formatCredits(31.26), formatCredits(0.5), formatCredits(2.345)],
 }}));
 """
     result = _run_node(script)
 
-    assert result["text"] == (
-        "15 steps \u00b7 input 1.9M (cache 91%) \u00b7 "
-        "output 45K (reasoning 30K) \u00b7 \u2248 104 credits"
-    )
-    assert "Default tier" in result["title"]
-    assert "gpt-6.1-sol" in result["title"]
-    assert "1 credit = $0.01" in result["title"]
-    assert 'class="message-cost"' in result["html"]
+    assert result["lines"] == [
+        "Steps: 15",
+        "Input: 1.9M tokens (cache 91%)",
+        "Output: 45K tokens (reasoning 30K)",
+        "Credits: ≈ 104 (Default tier)",
+        "Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill.",
+    ]
+    # One hover: the model lines lead, a blank line, then the cost.
+    assert result["title"].split("\n") == ["Model: gpt-6-luna", "Requested: auto", "Tier: auto", ""] + result["lines"]
+    assert result["html"].startswith('<span class="message-model" title="Model: gpt-6-luna')
+    assert result["html"].endswith(">Auto → GPT-6 Luna</span>")
+    assert 'data-model="gpt-6-luna"' in result["html"]
     assert 'data-credits="104.3"' in result["html"]
     assert 'data-tier="default"' in result["html"]
+    # Without usage the badge reads as it always did.
+    assert 'title="Model: gpt-6-luna\nRequested: auto\nTier: auto"' in result["modelOnlyHtml"]
+    assert "data-credits" not in result["modelOnlyHtml"]
     # The running total while the turn works: the iteration count comes from
-    # the event, the cache ratio from the token counts.
-    assert result["liveText"].startswith("7 steps \u00b7 input 500K (cache 80%)")
-    assert result["liveText"].endswith("\u2248 31.2 credits")
+    # the event, the cache ratio from the token counts, and the last line says
+    # the figures are not final.
+    assert result["liveLines"][:2] == ["Steps: 7", "Input: 500K tokens (cache 80%)"]
+    assert result["liveLines"][-2:] == ["Credits: ≈ 31.2", "Still running; these are the totals so far."]
+    # No attribution on the message: the model it was billed as names the badge.
+    assert result["billedHtml"].endswith(">GPT-6.1 Sol</span>")
+    assert 'data-model="gpt-6.1-sol"' in result["billedHtml"]
+    assert "Model: gpt-6.1-sol" in result["billedHtml"]
+    # No model anywhere: the credits are the badge, so the cost can still be read.
+    assert result["creditsOnlyHtml"].endswith(">≈ 12 credits</span>")
+    assert "data-model" not in result["creditsOnlyHtml"]
+    assert result["nothing"] == ""
+    # Past the 272K line the badge is tinted and the tooltip names the tier.
+    assert 'class="message-model message-model-long-context"' in result["longHtml"]
+    assert "Long context tier, 2× price" in result["longHtml"]
+    assert 'data-tier="long_context"' in result["longHtml"]
     # OpenCode's own record: input/output/reasoning plus cache.read.
     assert result["opencode"]["inputTokens"] == 1000
     assert result["opencode"]["cachedInputTokens"] == 500
     assert result["opencode"]["cacheHitRatio"] == 0.5
     assert result["opencode"]["reasoningTokens"] == 50
-    assert "message-cost-tier-long" in result["longHtml"]
-    assert "Long context 2\u00d7" in result["longHtml"]
     assert result["latest"]["estimatedCredits"] == 0.5
     assert result["none"] is None
-    assert result["emptyHtml"] == ""
+    assert result["emptyLines"] == []
     assert result["compact"] == ["980", "45K", "1.9M", "12M"]
     assert result["credits"] == ["104", "31.3", "0.5", "2.35"]
-
 
 def test_budget_pause_notice_reads_the_final_payload_and_the_event():
     script = f"""
@@ -230,23 +257,31 @@ console.log(JSON.stringify({{ over, under, legacy, labels: [inferenceContextLabe
 
 def test_rows_panels_and_streams_are_wired_to_the_helpers():
     src = _js()
+    css = _css()
 
     history = _extract_js_function(src, "renderChatHistory")
-    assert "buildAssistantCostLineHtml(usageSummary)" in history
-    assert "latestAssistantUsageSummary(entry.messages)" in history
+    assert 'buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages), typeof latestAssistantUsageSummary === "function" ? latestAssistantUsageSummary(entry.messages) : null)' in history
     assert "entry === lastAssistantEntry" in history
     assert "applyBudgetPauseNotice(row, budgetPause)" in history
 
+    article = _extract_js_function(src, "buildAssistantMessageArticle")
+    assert "buildAssistantModelBadgeHtml(assistantModelAttribution(options), options.usageSummary || null)" in article
+
+    group = _extract_js_function(src, "buildAssistantGroupMessageArticle")
+    assert 'usageSummary: typeof latestAssistantUsageSummary === "function" ? latestAssistantUsageSummary(group?.messages || []) : null' in group
+
     finalize = _extract_js_function(src, "finalizePendingAssistantRow")
-    assert "applyAssistantCostLine(article, assistantUsageSummary(payload) || requestCtx?.usageSummary || null)" in finalize
+    assert "assistantUsageSummary(payload) || requestCtx?.usageSummary || null" in finalize
+    assert "applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null, usageSummary)" in finalize
     assert "budgetPauseInfo(payload) || requestCtx?.budgetPause || null" in finalize
 
     update = _extract_js_function(src, "updateOrCreateAssistantRowForRequest")
-    assert "applyAssistantCostLine(article, usageSummary)" in update
+    assert "assistantUsageSummary(payload) || requestCtx?.usageSummary || null" in update
+    assert "applyAssistantModelBadge(article, assistantModelAttribution(payload) || requestCtx?.modelAttribution || null, usageSummary)" in update
 
     stream = _extract_js_function(src, "handleChatStreamEvent")
     assert "requestCtx.usageSummary = liveUsage" in stream
-    assert "{ live: true }" in stream
+    assert "requestCtx.modelAttribution || null, requestCtx.usageSummary || null, { live: true }" in stream
     assert 'embeddedType === "run_budget_paused"' in stream
     assert "requestCtx.budgetPause = budgetPause" in stream
 
@@ -260,22 +295,12 @@ def test_rows_panels_and_streams_are_wired_to_the_helpers():
     assert "sumVisibleAssistantCredits(dom.messageList)" in panel
     assert "buildCostGuideHtml()" in panel
 
-    guide = _extract_js_function(src, "buildCostGuideHtml")
-    assert 'const COPILOT_PRICING_DOCS_URL = "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing";' in src
-    assert "COPILOT_PRICING_DOCS_URL" in guide
-    assert "#/help/copilot-costs" in guide
-
-    legacy = _extract_js_function(src, "canonicalMessageToLegacyDisplayMessage")
-    assert "usage: (typeof assistantUsageObject === \"function\" ? assistantUsageObject(message) : null) || undefined" in legacy
-
-    usage_card = _extract_js_function(src, "fetchUsageForAgent")
-    assert "total_estimated_credits" in usage_card
-    assert "total_cached_input_tokens" in usage_card
-    assert "total_reasoning_tokens" in usage_card
-
-    quota = _extract_js_function(src, "renderCopilotQuotaChip")
-    assert 'agentApiFor(agentId, "/api/copilot/quota")' in quota
-
-    css = _css()
-    for selector in (".message-cost {", ".message-cost-notice {", ".portal-context-meter-marker {", ".portal-context-meter-fill.is-over-threshold", ".portal-quota-chip {", ".portal-cost-guide summary"):
-        assert selector in css, selector
+    # The session total sums the badges; the separate line under the bubble is
+    # gone, so the badge is the one place the cost is read.
+    total = _extract_js_function(src, "sumVisibleAssistantCredits")
+    assert '".message-model[data-credits]"' in total
+    assert 'class="message-cost"' not in src
+    assert "applyAssistantCostLine" not in src
+    assert "buildAssistantCostLineHtml" not in src
+    assert ".message-cost {" not in css
+    assert ".message-model-long-context {" in css

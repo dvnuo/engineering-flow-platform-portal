@@ -20,8 +20,8 @@ GPT-6.1 Sol's default-tier prices: input $2 per million tokens, cached input $0.
 - 15 steps with a 100K-token context each is 1.5 million input tokens: about 100 credits when the cache hits, 400 or more when it does not.
 - Reasoning ("thinking") counts as output, priced at five times the input rate. High reasoning effort adds a lot of reasoning tokens.
 
-The line under every answer tells you what that answer cost: steps, input / output tokens, cache hit rate, estimated credits.
-Hover over it to see the billing tier and the model. The estimate uses GitHub's published price list; it is not the bill itself.
+Hover over the model badge at the top right of an answer (it reads like "Auto → GPT-6 Luna") to see what that answer cost: steps, input / output tokens, cache hit rate, estimated credits and the billing tier, under the model lines.
+The estimate uses GitHub's published price list; it is not the bill itself.
 
 ## The 272K line
 

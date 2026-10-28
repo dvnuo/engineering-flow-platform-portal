@@ -16,7 +16,7 @@ The agent loop behind one message runs a dozen or more steps, and every step res
 
 | Where | What |
 | --- | --- |
-| Under every answer | Steps, input / output tokens, cache hit rate, estimated credits; hover for the billing tier and the model |
+| The model badge at the top right of every answer, on hover | Model, requested model and tier, then steps, input / output tokens, cache hit rate, estimated credits and the billing tier |
 | Context panel | The 272K billing line on the meter, the current tier, the runtime's real budget, usage calibrated from measured tokens, this session's cumulative credits, this month's Copilot balance |
 | Assistant details, Usage (30 days) | Requests, input / output / cached / reasoning tokens, estimated credits |
 | "Paused" notice | When one message exceeds the credits limit or the step limit the assistant stops and explains; click "Continue" to carry on |
