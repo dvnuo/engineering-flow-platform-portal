@@ -196,8 +196,9 @@ def _session_turn_request_session_id(method: str, subpath: str) -> str | None:
     Editing an earlier message regenerates the answer from it, and
     ``title/generate`` names the session with a model call. Both used to be
     forwarded untouched, so the regenerated turn ran without the chat post's
-    server-owned metadata: no identity block, no connectors, and no reply
-    language. They get the same enrichment as an answer to a card.
+    server-owned metadata: no identity block and no reply language. They get
+    the same enrichment as an answer to a card. Connectors still come only
+    from a body's ``connectors`` hint, which the edit form does not send.
     """
     if method.upper() != "POST":
         return None
@@ -457,6 +458,14 @@ def _normalize_and_validate_inference_overrides_for_agent(
         normalized["model_override"] = overrides["model"]
     else:
         normalized.pop("model_override", None)
+    # A runtime that reads ``model`` (the opencode adapter, the native edit
+    # endpoint) must see the validated value, never a raw one riding along
+    # next to a validated ``model_override``.
+    if "model" in normalized:
+        if "model" in overrides:
+            normalized["model"] = overrides["model"]
+        else:
+            normalized.pop("model")
     if "reasoning_effort" in overrides:
         normalized["reasoning_effort"] = overrides["reasoning_effort"]
     else:
@@ -548,6 +557,11 @@ async def proxy_agent(
                 parsed_payload["session_id"] = respond_session_id
             chat_session_id = _loggable_id(parsed_payload.get("session_id"), fallback=chat_session_id)
             chat_request_id = _loggable_id(parsed_payload.get("request_id"), fallback=chat_request_id)
+            # The edit form names the composer's model as ``model`` where a chat
+            # post says ``model_override``: either way it is the request's own
+            # choice, so it counts as one before saved settings are considered.
+            if "model" in parsed_payload and "model_override" not in parsed_payload:
+                parsed_payload["model_override"] = parsed_payload["model"]
             # Run settings saved for the session stand in when the request names
             # none of its own (another tab, another device, a resumed run);
             # anything the request says wins.

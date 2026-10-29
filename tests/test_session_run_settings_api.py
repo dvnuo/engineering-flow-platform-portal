@@ -144,3 +144,56 @@ def test_parse_run_settings_json_keeps_only_usable_values():
         "max_context_tokens": 64000,
     }
     assert parse_run_settings_json(json.dumps({"model_override": "", "max_context_tokens": True})) == {}
+
+
+def test_proxy_edit_runs_the_model_it_names_and_forwards_only_the_validated_value(monkeypatch):
+    import app.api.proxy as proxy_module
+
+    client, db, cleanup = _build_agents_client_with_overrides()
+    forwarded = []
+
+    async def _fake_forward(**kwargs):
+        forwarded.append(json.loads(kwargs["body"].decode("utf-8")))
+        return 200, b'{"ok": true}', "application/json"
+
+    try:
+        agent_id = _agent_with_copilot_profile(client, db, monkeypatch)
+        agent = AgentRepository(db).get_by_id(agent_id)
+        agent.status = "running"
+        db.commit()
+        monkeypatch.setattr(proxy_module.proxy_service, "forward", _fake_forward)
+        saved = client.put(
+            f"/api/agents/{agent_id}/sessions/sess-1/run-settings",
+            json={"model_override": "gpt-6-astra", "reasoning_effort": "low"},
+        )
+        assert saved.status_code == 200
+        edit_url = f"/a/{agent_id}/api/sessions/sess-1/messages/m-1/edit/async"
+
+        # The edit form names the composer's model as ``model``. That is the
+        # request's own choice, so the saved settings do not stand in for it
+        # (the model and the thinking level of another choice never mix).
+        named = client.post(edit_url, json={"content": "edited", "model": "gpt-6-luna"})
+        assert named.status_code == 200, named.text
+        assert forwarded[-1]["model"] == "gpt-6-luna"
+        assert forwarded[-1]["model_override"] == "gpt-6-luna"
+        assert "reasoning_effort" not in forwarded[-1]
+
+        # An edit that names nothing gets the saved settings, like a chat post.
+        plain = client.post(edit_url, json={"content": "edited"})
+        assert plain.status_code == 200, plain.text
+        assert forwarded[-1]["model_override"] == "gpt-6-astra"
+        assert forwarded[-1]["reasoning_effort"] == "low"
+        assert "model" not in forwarded[-1]
+
+        # A model the profile does not offer is refused, as on a chat post.
+        refused = client.post(edit_url, json={"content": "edited", "model": "gpt-4"})
+        assert refused.status_code == 422
+
+        # A raw ``model`` riding along with a valid ``model_override`` is
+        # replaced by the validated value before it reaches the runtime.
+        both = client.post(edit_url, json={"content": "edited", "model": "gpt-4", "model_override": "gpt-6-luna"})
+        assert both.status_code == 200, both.text
+        assert forwarded[-1]["model"] == "gpt-6-luna"
+        assert forwarded[-1]["model_override"] == "gpt-6-luna"
+    finally:
+        cleanup()
