@@ -755,6 +755,9 @@ def test_proxy_direct_chat_overrides_client_metadata_with_server_runtime_context
         "id": "77",
         "username": "runtime-user",
         "display_name": "Runtime User",
+        # No saved preference and no Accept-Language: English, derived.
+        "reply_language": "en",
+        "reply_language_strict": False,
     }
     assert captured["extra_headers"]["X-Portal-Author-Source"] == "portal"
     assert captured["extra_headers"]["X-Portal-User-Id"] == "77"

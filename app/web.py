@@ -107,6 +107,7 @@ from app.services.help_center import (
     topics_by_group as help_topics_by_group,
 )
 from app.services.member_avatar import avatar_initials, avatar_photo_url
+from app.services.locale_service import locale_preferences_for_user, resolve_locale_for_request
 from app.services.git_branch_cache import cached_branches_for
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import (
@@ -202,6 +203,18 @@ def copilot_enterprise_sso_url() -> str:
 
 
 templates.env.globals['copilot_enterprise_sso_url'] = copilot_enterprise_sso_url
+
+
+def browser_locale(request: Request) -> str:
+    """The page language for a request with no member behind it (login, share links).
+
+    Pages a signed-in member sees pass their resolved ``locale`` explicitly;
+    base.html falls back to this, which reads only ``Accept-Language``.
+    """
+    return resolve_locale_for_request(request).ui_locale
+
+
+templates.env.globals['browser_locale'] = browser_locale
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
 k8s_service = K8sService()
@@ -2698,6 +2711,8 @@ def app_page(request: Request):
         return access_response
 
     chat_upload_policy = get_chat_upload_policy()
+    locale_preferences = locale_preferences_for_user(user)
+    resolved_locale = resolve_locale_for_request(request, user)
     return templates.TemplateResponse(
         "app.html",
         {
@@ -2707,6 +2722,15 @@ def app_page(request: Request):
             "nickname": user.nickname or user.username,
             "user_id": user.id,
             "role": user.role,
+            # The member's language: what they saved (for the account menu's
+            # checked options) and what this request resolved it to (for
+            # <html lang>, fonts and the data attributes chat_ui.js reads).
+            "ui_locale_preference": locale_preferences.ui_locale,
+            "reply_language_preference": locale_preferences.reply_language,
+            "locale": resolved_locale.ui_locale,
+            "locale_source": resolved_locale.ui_source,
+            "reply_language": resolved_locale.reply_language,
+            "reply_language_strict": resolved_locale.reply_language_strict,
             # The account button at the bottom of the rail: the directory photo
             # when AVATAR_PHOTO_HOST is set, initials otherwise (and in the
             # browser when the photo request fails).

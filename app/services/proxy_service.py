@@ -49,16 +49,22 @@ def build_portal_identity_fields(user) -> dict[str, str]:
     return identity
 
 
-def build_portal_user_metadata(user) -> dict[str, str]:
+def build_portal_user_metadata(user, reply_language=None) -> dict[str, object]:
     """Structured identity Portal places in trusted chat metadata as ``portal_user``.
 
     The identity headers collapse nickname and username into one display value;
     the runtime prompt needs both, because the display name is what the member
     recognises while the username is what Jira/Confluence filters accept.
+
+    ``reply_language`` is the request's resolved locale
+    (``app.services.locale_service.ResolvedLocale``): its ``reply_language``
+    tag and ``reply_language_strict`` flag ride along so the runtime can add
+    its "Reply language" prompt block. The tag is a BCP 47 string, so the
+    header sanitiser is a fine guard against anything odd in the database.
     """
     if user is None:
         return {}
-    identity: dict[str, str] = {}
+    identity: dict[str, object] = {}
     user_id = sanitize_header_value(getattr(user, "id", None))
     if user_id:
         identity["id"] = user_id
@@ -68,6 +74,11 @@ def build_portal_user_metadata(user) -> dict[str, str]:
     display_name = sanitize_header_value(getattr(user, "nickname", None)) or username
     if display_name:
         identity["display_name"] = display_name
+    if reply_language is not None:
+        tag = sanitize_header_value(getattr(reply_language, "reply_language", None), max_length=32)
+        if tag:
+            identity["reply_language"] = tag
+            identity["reply_language_strict"] = bool(getattr(reply_language, "reply_language_strict", False))
     return identity
 
 

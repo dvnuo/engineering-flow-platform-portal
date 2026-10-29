@@ -104,6 +104,15 @@ html[data-theme="dark"] {
 
 * { box-sizing: border-box; }
 body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--portal-app-bg); color: var(--portal-text); font-size: 14px }
+/* Chinese pages get a CJK-capable stack after Inter. <html lang> (base.html)
+   is what makes browsers pick Simplified or Traditional glyph forms for the
+   unified Han code points, so it matters before any string is translated;
+   Hong Kong's forms come from the HK/TC fonts, never the SC ones. Chinese also
+   needs more leading than Latin at the same size. */
+html[lang="zh-Hans"] body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+html[lang="zh-Hant-HK"] body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang HK", "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK HK", "Noto Sans CJK TC", sans-serif; }
+html[lang^="zh"] .message-body, html[lang^="zh"] .message-markdown { line-height: 1.8; }
+html[lang^="zh"] .portal-account-group-label { letter-spacing: 0; }
 .hidden { display: none !important; }
 
 .portal-app-root { height: 100vh; background: var(--portal-app-bg); color: var(--portal-text); padding: 8px; }
@@ -178,6 +187,13 @@ body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe 
 .portal-account-option:hover, .portal-account-option:focus-visible { color: var(--portal-text); outline: none; }
 .portal-account-option:focus-visible { box-shadow: 0 0 0 2px var(--portal-accent-soft); }
 .portal-account-option[aria-checked="true"] { background: var(--portal-surface); color: var(--portal-accent-strong); box-shadow: var(--portal-shadow); }
+/* The language group: four short options (Auto and the languages' own names)
+   plus the assistant's reply language as a select under them, since it is the
+   rarer choice and its labels are longer than a segment holds. */
+.portal-account-options.is-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.portal-account-reply-language { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--portal-text-secondary); }
+.portal-account-select { width: 100%; min-width: 0; min-height: 28px; padding: 0 6px; border: 1px solid var(--portal-border); border-radius: 8px; background: var(--portal-surface-muted); color: var(--portal-text); font-size: 12px; font-weight: 600; }
+.portal-account-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--portal-accent-soft); }
 .portal-account-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--portal-text); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
 .portal-account-item svg { flex: none; color: var(--portal-text-secondary); }
 .portal-account-item:hover, .portal-account-item:focus-visible { background: var(--portal-surface-soft); outline: none; }
