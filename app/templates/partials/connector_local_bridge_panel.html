@@ -13,39 +13,46 @@
   <section class="portal-panel-section">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>{{ connector.label }}</h6>
+      <h6>{{ tv(connector.label) }}</h6>
     </div>
-    <p class="portal-panel-note">{{ connector.description }}</p>
+    <p class="portal-panel-note">{{ tv(connector.description) }}</p>
     <div class="portal-connector-status" role="status">
-      <span>Bridge: <strong data-connector-status="bridge">checking…</strong></span>
-      <span>Browser window: <strong data-connector-status="session">–</strong></span>
-      <span>Mobile recording: <strong data-connector-status="mobile">–</strong></span>
-      <span>Last test: <strong data-connector-status="verified">{{ (connector.last_verified_at or 'never')|replace('T', ' ')|truncate(19, True, '') }}</strong></span>
-      <button type="button" class="composer-pill-btn" data-connector-action="refresh" title="Check again">
-        <i data-lucide="refresh-cw" class="w-4 h-4"></i><span>Refresh</span>
+      <span>{{ t("Bridge:") }} <strong data-connector-status="bridge">{{ t("checking…") }}</strong></span>
+      <span>{{ t("Browser window:") }} <strong data-connector-status="session">–</strong></span>
+      <span>{{ t("Mobile recording:") }} <strong data-connector-status="mobile">–</strong></span>
+      <span>{{ t("Last test:") }} <strong data-connector-status="verified">{{ (connector.last_verified_at or t('never'))|replace('T', ' ')|truncate(19, True, '') }}</strong></span>
+      <button type="button" class="composer-pill-btn" data-connector-action="refresh" title="{{ t('Check again') }}">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i><span>{{ t("Refresh") }}</span>
       </button>
     </div>
+    {#- Code and links keep their markup inside the translated sentences: the
+        set blocks escape what they hold, so the filled sentence is safe. -#}
+    {% set program_html %}<code>efp-bridge</code>{% endset %}
     <p class="portal-panel-note">
-      One program on your PC, <code>efp-bridge</code>, does both. Everything runs on your PC; the Portal only relays requests while a chat is open in this tab.
+      {{ t("One program on your PC, {program}, does both. Everything runs on your PC; the Portal only relays requests while a chat is open in this tab.", program=program_html)|safe }}
     </p>
   </section>
 
   <section class="portal-panel-section portal-connector-step" data-connector-step="1">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>Step 1 · Download the bridge</h6>
+      <h6>{{ t("Step 1 · Download the bridge") }}</h6>
     </div>
+    {% set bin_html %}<code>bin</code>{% endset %}{% set windows_bin_html %}<code>%USERPROFILE%\bin</code>{% endset %}{% set unix_bin_html %}<code>~/bin</code>{% endset %}{% set mobile_auto_html %}<code>mobile-auto</code>{% endset %}
     <p class="portal-panel-note">
-      Download the EFP local bridge{% if cli_version %} (version {{ cli_version }}){% endif %} for your system and unzip it into the <code>bin</code> folder of your home directory: <code>%USERPROFILE%\bin</code> (Windows) or <code>~/bin</code> (macOS, Linux). Create the folder if it is missing and overwrite any files already there. No administrator rights are needed. The package holds the <code>efp-bridge</code> program, <code>mobile-auto</code> for mobile recordings, the installer for that system, and a README.
+      {% if cli_version %}{{ t("Download the EFP local bridge (version {version}) for your system and unzip it into the {bin} folder of your home directory: {windows} (Windows) or {unix} (macOS, Linux).", version=cli_version|e, bin=bin_html, windows=windows_bin_html, unix=unix_bin_html)|safe }}{% else %}{{ t("Download the EFP local bridge for your system and unzip it into the {bin} folder of your home directory: {windows} (Windows) or {unix} (macOS, Linux).", bin=bin_html, windows=windows_bin_html, unix=unix_bin_html)|safe }}{% endif %}
+      {{ t("Create the folder if it is missing and overwrite any files already there.") }}
+      {{ t("No administrator rights are needed.") }}
+      {{ t("The package holds the {program} program, {mobile_auto} for mobile recordings, the installer for that system, and a README.", program=program_html, mobile_auto=mobile_auto_html)|safe }}
     </p>
     <div class="portal-setup-guide-links">
       <a class="portal-btn is-primary" href="{{ download_url }}" download data-connector-download-primary data-platform="{{ primary_platform }}">
-        <i data-lucide="download" class="w-4 h-4"></i> <span data-connector-download-label>Download for {{ primary_platform_label }}</span>
+        <i data-lucide="download" class="w-4 h-4"></i> <span data-connector-download-label>{{ t("Download for {platform}", platform=primary_platform_label) }}</span>
       </a>
-      <a class="portal-link-inline" href="#/help/local-bridge-connector">Full guide &rarr;</a>
+      <a class="portal-link-inline" href="#/help/local-bridge-connector">{{ t("Full guide") }} &rarr;</a>
     </div>
     <details class="portal-collapsible">
-      <summary class="portal-collapsible-summary"><span>Other systems</span></summary>
+      <summary class="portal-collapsible-summary"><span>{{ t("Other systems") }}</span></summary>
       <ul class="portal-setup-guide-steps">
         {% for link in download_links %}
         <li><a href="{{ link.url }}" download data-connector-download data-platform="{{ link.platform }}" data-label="{{ link.label }}">{{ link.label }}</a></li>
@@ -57,17 +64,18 @@
   <section class="portal-panel-section portal-connector-step" data-connector-step="2">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>Step 2 · Install and start the bridge</h6>
+      <h6>{{ t("Step 2 · Install and start the bridge") }}</h6>
     </div>
+    {% set cmd_html %}<code>install-bridge.cmd</code>{% endset %}{% set origin_html %}<span data-connector-origin>{{ portal_origin }}</span>{% endset %}{% set sh_html %}<code>./install-bridge.sh <span data-connector-origin>{{ portal_origin }}</span></code>{% endset %}{% set link_html %}<code>efp-bridge://</code>{% endset %}{% set register_html %}<code>efp-bridge register --origin <span data-connector-origin>{{ portal_origin }}</span></code>{% endset %}{% set start_bridge_html %}<strong>{{ t("Start bridge") }}</strong>{% endset %}{% set start_url_html %}<code>{{ start_url or portal_origin }}</code>{% endset %}
     <ol class="portal-setup-guide-steps">
-      <li>In the unzipped folder, double-click <code>install-bridge.cmd</code> (Windows) and enter <span data-connector-origin>{{ portal_origin }}</span> when it asks for the Portal address, or run <code>./install-bridge.sh <span data-connector-origin>{{ portal_origin }}</span></code> (macOS, Linux). It registers the <code>efp-bridge://</code> link for your account only (no admin, no autostart). Equivalent command: <code>efp-bridge register --origin <span data-connector-origin>{{ portal_origin }}</span></code></li>
-      <li>Click <strong>Start bridge</strong> below. Chrome asks whether to open the EFP bridge: allow it (tick "always allow" to skip the prompt next time).</li>
-      <li>A new Chrome window titled EFP opens with <code>{{ start_url or portal_origin }}</code> as its only tab. Sign in to your work sites there once; the window keeps its own logins.</li>
-      <li>Closed that window? The bridge keeps running in the background: click <strong>Start bridge</strong> again to reopen it, or just send a message; the next browser action reopens it.</li>
+      <li>{{ t("In the unzipped folder, double-click {cmd} (Windows) and enter {origin} when it asks for the Portal address, or run {sh} (macOS, Linux).", cmd=cmd_html, origin=origin_html, sh=sh_html)|safe }} {{ t("It registers the {link} link for your account only (no admin, no autostart).", link=link_html)|safe }} {{ t("Equivalent command: {command}", command=register_html)|safe }}</li>
+      <li>{{ t('Click {start} below. Chrome asks whether to open the EFP bridge: allow it (tick "always allow" to skip the prompt next time).', start=start_bridge_html)|safe }}</li>
+      <li>{{ t("A new Chrome window titled EFP opens with {url} as its only tab. Sign in to your work sites there once; the window keeps its own logins.", url=start_url_html)|safe }}</li>
+      <li>{{ t("Closed that window? The bridge keeps running in the background: click {start} again to reopen it, or just send a message; the next browser action reopens it.", start=start_bridge_html)|safe }}</li>
     </ol>
     <div class="portal-setup-guide-links">
       <a class="portal-btn is-secondary" href="efp-bridge://start" data-connector-launch-link data-connector-action="launch">
-        <i data-lucide="play" class="w-4 h-4"></i> Start bridge
+        <i data-lucide="play" class="w-4 h-4"></i> {{ t("Start bridge") }}
       </a>
     </div>
     <div class="portal-inline-state hidden" data-connector-result="launch"></div>
@@ -76,30 +84,30 @@
   <section class="portal-panel-section portal-connector-step" data-connector-step="3" data-connector-capability="browser">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6><i data-lucide="globe" class="w-4 h-4"></i> Browser automation</h6>
+      <h6><i data-lucide="globe" class="w-4 h-4"></i> {{ t("Browser automation") }}</h6>
     </div>
-    <p class="portal-panel-note">Assistants read and operate pages in the EFP Chrome window, a separate window with its own profile, so you sign in there once. The test asks the bridge for its version and lists the tabs open in that window. Nothing is changed on any page.</p>
+    <p class="portal-panel-note">{{ t("Assistants read and operate pages in the EFP Chrome window, a separate window with its own profile, so you sign in there once. The test asks the bridge for its version and lists the tabs open in that window. Nothing is changed on any page.") }}</p>
     <div class="portal-setup-guide-links">
       <button type="button" class="portal-btn is-secondary" data-connector-action="test">
-        <i data-lucide="activity" class="w-4 h-4"></i> Test connection
+        <i data-lucide="activity" class="w-4 h-4"></i> {{ t("Test connection") }}
       </button>
     </div>
     <div class="portal-inline-state hidden" data-connector-result="test"></div>
     <label class="portal-toggle-row">
       <input type="checkbox" data-connector-field="enabled" {% if connector.enabled %}checked{% endif %} />
-      <span><strong>Enabled</strong><small>Assistants may use the EFP Chrome window through the bridge on this PC.</small></span>
+      <span><strong>{{ t("Enabled") }}</strong><small>{{ t("Assistants may use the EFP Chrome window through the bridge on this PC.") }}</small></span>
     </label>
     <label class="portal-toggle-row">
       <input type="checkbox" data-connector-field="auto_enable_in_new_chats" {% if connector.config.auto_enable_in_new_chats is not defined or connector.config.auto_enable_in_new_chats %}checked{% endif %} />
-      <span><strong>On by default in new chats</strong><small>The composer toggle starts switched on; you can turn it off per chat.</small></span>
+      <span><strong>{{ t("On by default in new chats") }}</strong><small>{{ t("The composer toggle starts switched on; you can turn it off per chat.") }}</small></span>
     </label>
     <label class="portal-toggle-row">
-      <span><strong>Bridge port</strong><small>Default 8765. Change only if another program uses it.</small></span>
+      <span><strong>{{ t("Bridge port") }}</strong><small>{{ t("Default 8765. Change only if another program uses it.") }}</small></span>
       <input type="number" min="1024" max="65535" class="portal-input portal-input-short" data-connector-field="preferred_port" value="{{ connector.config.preferred_port or default_port }}" />
     </label>
     <div class="portal-setup-guide-links">
       <button type="button" class="portal-btn is-primary" data-connector-action="save">
-        <i data-lucide="save" class="w-4 h-4"></i> Save
+        <i data-lucide="save" class="w-4 h-4"></i> {{ t("Save") }}
       </button>
     </div>
     <div class="portal-inline-state hidden" data-connector-result="save"></div>
@@ -108,36 +116,37 @@
   <section class="portal-panel-section portal-connector-step" data-connector-step="4" data-connector-capability="mobile">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6><i data-lucide="smartphone" class="w-4 h-4"></i> Mobile recording</h6>
+      <h6><i data-lucide="smartphone" class="w-4 h-4"></i> {{ t("Mobile recording") }}</h6>
     </div>
-    <p class="portal-panel-note">The Mobile testing panel in an assistant's chat starts a BrowserStack device from this computer and records what you do in Appium Inspector. The bridge runs <code>mobile-auto</code> from its own folder with your BrowserStack settings; there is nothing more to install. A proxy this computer needs to reach BrowserStack is set with the BrowserStack settings and kept in this connector.</p>
-    <p class="portal-panel-note" data-connector-status="mobile-detail">Start the bridge (step 2) to check.</p>
+    <p class="portal-panel-note">{{ t("The Mobile testing panel in an assistant's chat starts a BrowserStack device from this computer and records what you do in Appium Inspector. The bridge runs {mobile_auto} from its own folder with your BrowserStack settings; there is nothing more to install. A proxy this computer needs to reach BrowserStack is set with the BrowserStack settings and kept in this connector.", mobile_auto=mobile_auto_html)|safe }}</p>
+    <p class="portal-panel-note" data-connector-status="mobile-detail">{{ t("Start the bridge (step 2) to check.") }}</p>
     <div class="portal-setup-guide-links">
       <a class="portal-btn is-secondary" href="#/connectors/browserstack">
-        <i data-lucide="smartphone" class="w-4 h-4"></i> BrowserStack settings
+        <i data-lucide="smartphone" class="w-4 h-4"></i> {{ t("BrowserStack settings") }}
       </a>
-      <a class="portal-link-inline" href="#/help/mobile-scenario-testing">Recording guide &rarr;</a>
+      <a class="portal-link-inline" href="#/help/mobile-scenario-testing">{{ t("Recording guide") }} &rarr;</a>
     </div>
   </section>
 
   <details class="portal-collapsible portal-setup-guide">
     <summary class="portal-collapsible-summary">
       <i data-lucide="circle-help" class="w-4 h-4"></i>
-      <span>Troubleshooting</span>
+      <span>{{ t("Troubleshooting") }}</span>
     </summary>
     <div class="portal-setup-guide-body">
       <ul class="portal-setup-guide-steps">
         {% if guide and guide.troubleshooting %}
-          {% for line in guide.troubleshooting %}<li>{{ line }}</li>{% endfor %}
+          {% for line in guide.troubleshooting %}<li>{{ tv(line) }}</li>{% endfor %}
         {% else %}
-          <li><strong>Bridge not detected</strong>: it is not running. Repeat step 2; if the efp-bridge link does nothing, run <code>install-bridge.cmd</code> (Windows) or <code>install-bridge.sh</code> (macOS, Linux) again.</li>
-          <li><strong>Start bridge seems to do nothing</strong>: the launcher deliberately runs without a window. Every attempt is written to <code>.efp/bridge/logs/bridge.log</code> in your home folder; read the last lines there.</li>
-          <li><strong>The EFP browser window is closed</strong> but the bridge shows as running: click Start bridge to reopen the window, or send a message; the next browser action reopens it.</li>
-          <li><strong>Still undetected after the Portal address changed</strong>: a bridge started for the old address is holding the port and rejects this page. Stop it (end the <code>efp-bridge</code> process, or close the terminal it runs in) and click Start bridge again.</li>
-          <li><strong>devtools_unavailable</strong>: Chrome refused its DevTools port. Check <code>chrome://policy</code> for <code>RemoteDebuggingAllowed</code>.</li>
-          <li><strong>origin_denied / CORS error</strong>: the bridge was started for another Portal address. Restart it with <code>--origin <span data-connector-origin>{{ portal_origin }}</span></code>.</li>
-          <li><strong>Windows SmartScreen</strong> may warn on first launch of <code>efp-bridge.exe</code>. Choose "More info" → "Run anyway".</li>
-          <li>The EFP browser window has its own logins. Sites protected by device-based sign-in may ask you to sign in there once.</li>
+          {% set sh_name_html %}<code>install-bridge.sh</code>{% endset %}{% set closed_html %}<strong>{{ t("The EFP browser window is closed") }}</strong>{% endset %}{% set origin_option_html %}<code>--origin <span data-connector-origin>{{ portal_origin }}</span></code>{% endset %}
+          <li><strong>{{ t("Bridge not detected") }}</strong>: {{ t("it is not running. Repeat step 2; if the efp-bridge link does nothing, run {cmd} (Windows) or {sh} (macOS, Linux) again.", cmd=cmd_html, sh=sh_name_html)|safe }}</li>
+          <li><strong>{{ t("Start bridge seems to do nothing") }}</strong>: {{ t("the launcher deliberately runs without a window. Every attempt is written to {log} in your home folder; read the last lines there.", log="<code>.efp/bridge/logs/bridge.log</code>")|safe }}</li>
+          <li>{{ t("{closed} but the bridge shows as running: click Start bridge to reopen the window, or send a message; the next browser action reopens it.", closed=closed_html)|safe }}</li>
+          <li><strong>{{ t("Still undetected after the Portal address changed") }}</strong>: {{ t("a bridge started for the old address is holding the port and rejects this page. Stop it (end the {program} process, or close the terminal it runs in) and click Start bridge again.", program=program_html)|safe }}</li>
+          <li><strong>devtools_unavailable</strong>: {{ t("Chrome refused its DevTools port. Check {policy} for {setting}.", policy="<code>chrome://policy</code>", setting="<code>RemoteDebuggingAllowed</code>")|safe }}</li>
+          <li><strong>origin_denied / {{ t("CORS error") }}</strong>: {{ t("the bridge was started for another Portal address. Restart it with {option}.", option=origin_option_html)|safe }}</li>
+          <li>{{ t('{smartscreen} may warn on first launch of {program}. Choose "More info" → "Run anyway".', smartscreen="<strong>Windows SmartScreen</strong>", program="<code>efp-bridge.exe</code>")|safe }}</li>
+          <li>{{ t("The EFP browser window has its own logins. Sites protected by device-based sign-in may ask you to sign in there once.") }}</li>
         {% endif %}
       </ul>
     </div>

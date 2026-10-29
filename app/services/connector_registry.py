@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.i18n import N_
 from app.schemas.runtime_profile import PROXY_ASSIGNABLE_CONNECTORS, PROXY_DEFAULT_ONLY_CONNECTORS
 
 
@@ -36,13 +37,13 @@ PROXY_CHOICE_DEFAULT_ONLY = "default_only"
 
 # Display order of the categories in the Connectors list.
 CATEGORY_ORDER = (
-    "Model",
-    "Work tracking & docs",
-    "Code & delivery",
-    "Cloud & data",
-    "Testing",
-    "Network",
-    "Local devices & tools",
+    N_("Model"),
+    N_("Work tracking & docs"),
+    N_("Code & delivery"),
+    N_("Cloud & data"),
+    N_("Testing"),
+    N_("Network"),
+    N_("Local devices & tools"),
 )
 
 # What a connector's state reads as in the list and panel header.
@@ -344,9 +345,9 @@ def _settings_connector(
 SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
     _settings_connector(
         "llm",
-        "Model provider",
+        N_("Model provider"),
         "Model",
-        "The model your assistants think with: GitHub Copilot or AI Platform, and the defaults they start a chat with.",
+        N_("The model your assistants think with: GitHub Copilot or AI Platform, and the defaults they start a chat with."),
         icon="sparkles",
         state_of=_llm_state,
         test_targets=("llm",),
@@ -356,7 +357,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "jira",
         "Jira",
         "Work tracking & docs",
-        "Read and update issues on one or more Jira sites.",
+        N_("Read and update issues on one or more Jira sites."),
         icon="square-kanban",
         state_of=_instances_state("jira"),
         test_targets=("jira",),
@@ -365,7 +366,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "confluence",
         "Confluence",
         "Work tracking & docs",
-        "Search and read pages on one or more Confluence sites.",
+        N_("Search and read pages on one or more Confluence sites."),
         icon="book-open",
         state_of=_instances_state("confluence"),
         test_targets=("confluence",),
@@ -374,7 +375,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "github",
         "GitHub",
         "Code & delivery",
-        "Clone, push and open pull requests, plus the name and email on the assistant's commits.",
+        N_("Clone, push and open pull requests, plus the name and email on the assistant's commits."),
         icon="github",
         state_of=_github_state,
         config_sections=("github", "git"),
@@ -388,7 +389,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "jenkins",
         "Jenkins",
         "Code & delivery",
-        "Look up jobs, builds and deployments on one or more Jenkins servers.",
+        N_("Look up jobs, builds and deployments on one or more Jenkins servers."),
         icon="hammer",
         state_of=_instances_state("jenkins"),
         test_targets=("jenkins",),
@@ -397,7 +398,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "nexus",
         "Nexus Repository",
         "Code & delivery",
-        "Find artifacts and image versions in Nexus.",
+        N_("Find artifacts and image versions in Nexus."),
         icon="package",
         state_of=_instances_state("nexus"),
         test_targets=("nexus",),
@@ -406,7 +407,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "aws",
         "AWS",
         "Cloud & data",
-        "Sign in to your AWS accounts with a read-only role and reach their EKS clusters.",
+        N_("Sign in to your AWS accounts with a read-only role and reach their EKS clusters."),
         icon="cloud",
         state_of=_aws_state,
     ),
@@ -414,7 +415,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "splunk",
         "Splunk",
         "Cloud & data",
-        "Search service logs in Splunk.",
+        N_("Search service logs in Splunk."),
         icon="scroll-text",
         state_of=_instances_state("splunk"),
         test_targets=("splunk",),
@@ -423,7 +424,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "pgsql",
         "PostgreSQL",
         "Cloud & data",
-        "Query your databases; writes only where you allow them.",
+        N_("Query your databases; writes only where you allow them."),
         icon="database",
         state_of=_instances_state("pgsql", ("host",)),
         test_targets=("pgsql",),
@@ -432,7 +433,7 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
         "browserstack",
         "BrowserStack",
         "Testing",
-        "Drive real mobile devices on BrowserStack for app tests.",
+        N_("Drive real mobile devices on BrowserStack for app tests."),
         icon="smartphone",
         state_of=_browserstack_state,
         config_sections=("mobile-auto",),
@@ -442,9 +443,9 @@ SETTINGS_CONNECTORS: tuple[ConnectorSpec, ...] = (
     ),
     _settings_connector(
         "proxy",
-        "Proxy",
+        N_("Proxy"),
         "Network",
-        "Send your assistants' outbound traffic through an HTTP proxy.",
+        N_("Send your assistants' outbound traffic through an HTTP proxy."),
         icon="network",
         state_of=_proxy_state,
         test_targets=("proxy",),
@@ -456,15 +457,12 @@ CONNECTOR_REGISTRY: dict[str, ConnectorSpec] = {
     **{spec.type: spec for spec in SETTINGS_CONNECTORS},
     LOCAL_BRIDGE_TYPE: ConnectorSpec(
         type=LOCAL_BRIDGE_TYPE,
-        label="Local bridge",
+        label=N_("Local bridge"),
         kind=KIND_LOCAL,
         icon="laptop",
         category="Local devices & tools",
-        description=(
-            "The EFP local bridge on your own PC. Assistants read and operate pages in a "
-            "Chrome window with your existing logins, and the Mobile testing panel records "
-            "mobile tests on BrowserStack devices from this computer. Nothing leaves your "
-            "machine except what you ask the assistant to look at."
+        description=N_(
+            "The EFP local bridge on your own PC. Assistants read and operate pages in a Chrome window with your existing logins, and the Mobile testing panel records mobile tests on BrowserStack devices from this computer. Nothing leaves your machine except what you ask the assistant to look at."
         ),
         panel_template="partials/connector_local_bridge_panel.html",
         guidance_key=LOCAL_BRIDGE_TYPE,
@@ -516,10 +514,10 @@ def settings_connector_for_section(section: str) -> ConnectorSpec | None:
 
 def state_label(spec: ConnectorSpec, state: str) -> str:
     if state == STATE_CONNECTED:
-        return "On" if spec.type == "proxy" else "Connected"
+        return N_("On") if spec.type == "proxy" else N_("Connected")
     if state == STATE_OFF:
-        return "Turned off"
-    return "Not set up"
+        return N_("Turned off")
+    return N_("Not set up")
 
 
 __all__ = [

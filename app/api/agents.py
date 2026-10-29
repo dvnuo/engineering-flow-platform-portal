@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.config import get_settings
 from app.contracts.llm_catalog import SUPPORTED_REASONING_EFFORTS
 from app.contracts.runtime_type import (
@@ -122,9 +123,9 @@ def _load_writable_agent(agent_id: str, user, db: Session):
     repo = AgentRepository(db)
     agent = repo.get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_write(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     return repo, agent
 
 
@@ -158,7 +159,7 @@ def _validate_agent_type_or_422(agent_type: str | None) -> None:
     if agent_type is None:
         return
     if agent_type not in ALLOWED_AGENT_TYPES:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_type must be one of: workspace, specialist, task")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("agent_type must be one of: workspace, specialist, task"))
 
 
 def _default_agent_image() -> str:
@@ -441,7 +442,7 @@ async def create_agent_simple(
     if not assistant_type or not assistant_type.is_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Assistant type not found or no longer offered",
+            detail=N_("Assistant type not found or no longer offered"),
         )
 
     try:
@@ -563,14 +564,14 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
     changes.pop("branch", None)
 
     if "disk_size_gi" in changes and changes["disk_size_gi"] is not None and changes["disk_size_gi"] < 1:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="disk_size_gi must be >= 1")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("disk_size_gi must be >= 1"))
     if "agent_type" in changes:
         if changes["agent_type"] is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_type cannot be null")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("agent_type cannot be null"))
         _validate_agent_type_or_422(changes["agent_type"])
     if "runtime_type" in changes:
         if changes["runtime_type"] is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="runtime_type cannot be null")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("runtime_type cannot be null"))
         _validate_runtime_type_or_422(changes["runtime_type"])
         runtime_type_changed = _normalize_runtime_type_update_change(agent, changes)
         if runtime_type_changed:
@@ -643,9 +644,9 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
 def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_read(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     return build_agent_response(agent)
 
 
@@ -653,9 +654,9 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
 def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_read(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
 
     profile = resolve_agent_inference_profile(db, agent)
     return AgentChatModelProfileResponse(
@@ -680,9 +681,9 @@ def get_session_run_settings(agent_id: str, session_id: str, user=Depends(get_cu
 
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_read(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     stored = load_session_run_settings(db, agent_id, session_id)
     return SessionRunSettingsResponse(agent_id=agent_id, session_id=session_id, **stored)
 
@@ -704,12 +705,12 @@ def put_session_run_settings(
 
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_read(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     normalized_session_id = str(session_id or "").strip()
     if not normalized_session_id or len(normalized_session_id) > 255:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="session_id is invalid")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("session_id is invalid"))
     try:
         stored = save_session_run_settings(db, agent, normalized_session_id, payload.model_dump())
     except ValueError as exc:
@@ -760,7 +761,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     if not k8s_service.enabled:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Kubernetes integration is disabled; restart is unsupported in noop mode.",
+            detail=N_("Kubernetes integration is disabled; restart is unsupported in noop mode."),
         )
 
     restartable_statuses = {"running", "stopped", "failed"}
@@ -856,9 +857,9 @@ async def agent_status(agent_id: str, user=Depends(get_current_user), db: Sessio
     repo = AgentRepository(db)
     agent = repo.get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_read(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
 
     runtime = _refresh_agent_runtime_status(repo, agent, use_cache=False)
 

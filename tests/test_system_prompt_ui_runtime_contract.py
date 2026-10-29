@@ -27,7 +27,7 @@ def test_editor_and_save_do_not_force_runtime_specific_prompt_rules():
     editor_fn = _extract_js_function(source, 'showSystemPromptEditor')
     save_fn = _extract_js_function(source, 'saveSystemPromptSection')
 
-    assert "var title = label + ' Configuration';" in editor_fn
+    assert 'var title = t("{label} Configuration", { label: label });' in editor_fn
     assert 'enabledCheckbox.checked = canDisable ? enabled !== false : true;' in editor_fn
     assert 'enabledCheckbox.disabled = !canDisable;' in editor_fn
     assert 'AGENTS.md is always active' not in editor_fn

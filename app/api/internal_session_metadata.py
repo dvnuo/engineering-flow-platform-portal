@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.db import get_db
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
@@ -43,7 +44,7 @@ def _metadata_json_keeping_the_title(repo: AgentSessionMetadataRepository, agent
 def upsert_session_metadata(agent_id: str, session_id: str, payload: AgentSessionMetadataUpsertRequest, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     repo = AgentSessionMetadataRepository(db)
     fields = payload.model_dump()
     fields["metadata_json"] = _metadata_json_keeping_the_title(repo, agent_id, session_id, fields.get("metadata_json"))
@@ -63,10 +64,10 @@ def update_session_title(agent_id: str, session_id: str, payload: SessionTitleUp
     """
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     title = str(payload.title or "").strip()
     if not title:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="title required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("title required"))
     repo = AgentSessionMetadataRepository(db)
     record = repo.get_by_agent_and_session(agent_id=agent_id, session_id=session_id)
     metadata = parse_metadata_json(getattr(record, "metadata_json", None)) if record else {}
@@ -78,17 +79,17 @@ def update_session_title(agent_id: str, session_id: str, payload: SessionTitleUp
 def get_session_metadata(agent_id: str, session_id: str, include_deleted: bool = False, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     record = AgentSessionMetadataRepository(db).get_by_agent_and_session(agent_id=agent_id, session_id=session_id, include_deleted=include_deleted)
     if not record:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session metadata not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Session metadata not found"))
     return AgentSessionMetadataResponse.model_validate(serialize_agent_session_metadata_with_preview(record))
 
 @router.get("/api/internal/agents/{agent_id}/sessions/metadata", response_model=list[AgentSessionMetadataResponse])
 def list_session_metadata(agent_id: str, latest_event_state: str | None = None, current_task_id: str | None = None, include_deleted: bool = False, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     records = AgentSessionMetadataRepository(db).list_by_agent(agent_id, latest_event_state=latest_event_state, current_task_id=current_task_id, include_deleted=include_deleted)
     return [AgentSessionMetadataResponse.model_validate(serialize_agent_session_metadata_with_preview(item)) for item in records]
 
@@ -96,7 +97,7 @@ def list_session_metadata(agent_id: str, latest_event_state: str | None = None, 
 def delete_session_metadata(agent_id: str, session_id: str, db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     record, already_deleted = AgentSessionMetadataRepository(db).mark_deleted(agent_id=agent_id, session_id=session_id)
     return {
         "success": True,

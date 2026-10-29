@@ -47,7 +47,7 @@ def test_network_failure_is_reported_instead_of_failing_silently():
 def test_submitting_disables_the_button_and_shows_progress():
     assert "function setPending(pending)" in AUTH_JS
     assert "submitButton.disabled = pending;" in AUTH_JS
-    assert 'pendingText: "Signing in…"' in Path("app/templates/login.html").read_text(encoding="utf-8")
+    assert 'pendingText: t("Signing in…")' in Path("app/templates/login.html").read_text(encoding="utf-8")
 
 
 def test_server_side_validation_errors_are_surfaced_verbatim():
@@ -120,7 +120,7 @@ def test_viewer_role_is_gone_everywhere():
 
 
 def test_member_count_is_pluralised():
-    assert '{{ summary.total_users }} member{{ "" if summary.total_users == 1 else "s" }}' in USERS_HTML
+    assert '{{ tn(summary.total_users, "{n} member", "{n} members") }}' in USERS_HTML
     assert "function pluralize(count, singular, plural = null)" in CHAT_JS
 
 
@@ -168,5 +168,5 @@ def test_assistant_removal_is_a_single_action():
 
 def test_delete_confirmation_states_what_survives():
     assert "Files already written to the shared workspace volume are kept on the cluster." in CHAT_JS
-    assert 'confirmText: "Delete assistant"' in CHAT_JS
+    assert 'confirmText: t("Delete assistant")' in CHAT_JS
     assert "danger: true" in CHAT_JS

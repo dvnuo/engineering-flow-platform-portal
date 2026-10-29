@@ -29,7 +29,7 @@
 
     var titleHtml = opts.title
       ? '<div class="portal-modal-titlebar"><h3 id="' + id + '-title">' + escapeHtml(opts.title) + "</h3></div>"
-      : '<h3 id="' + id + '-title" class="sr-only">' + escapeHtml(opts.confirmText || "Confirm") + "</h3>";
+      : '<h3 id="' + id + '-title" class="sr-only">' + escapeHtml(opts.confirmText || t("Confirm")) + "</h3>";
 
     var messageHtml = opts.message
       ? '<p class="portal-modal-copy portal-dialog-msg" id="' + id + '-msg">' + escapeHtml(opts.message) + "</p>"
@@ -47,12 +47,12 @@
       kind === "alert"
         ? ""
         : '<button type="button" class="portal-btn" data-dialog-cancel>' +
-          escapeHtml(opts.cancelText || "Cancel") +
+          escapeHtml(opts.cancelText || t("Cancel")) +
           "</button>";
     var confirmClass = "portal-btn is-primary" + (danger ? " portal-dialog-danger" : "");
     var confirmBtn =
       '<button type="button" class="' + confirmClass + '" data-dialog-confirm>' +
-      escapeHtml(opts.confirmText || (kind === "alert" ? "OK" : "Confirm")) +
+      escapeHtml(opts.confirmText || (kind === "alert" ? t("OK") : t("Confirm"))) +
       "</button>";
 
     root.innerHTML =
@@ -194,7 +194,9 @@
   document.addEventListener("htmx:responseError", function (evt) {
     if (typeof window.showToast !== "function") return;
     var xhr = evt.detail && evt.detail.xhr;
-    var status = xhr && xhr.status ? " (HTTP " + xhr.status + ")" : "";
-    window.showToast("The request failed" + status + ". Reload the page and try again.", { variant: "error" });
+    var message = xhr && xhr.status
+      ? t("The request failed (HTTP {status}). Reload the page and try again.", { status: xhr.status })
+      : t("The request failed. Reload the page and try again.");
+    window.showToast(message, { variant: "error" });
   });
 })();

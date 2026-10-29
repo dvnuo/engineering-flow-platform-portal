@@ -126,7 +126,7 @@ if (dom.chatInput) {
     e.preventDefault();
 
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
 
@@ -189,28 +189,28 @@ function initialPortalRouteSectionFromHash(hash = window.location.hash) {
 const INITIAL_PORTAL_ROUTE_SECTION = initialPortalRouteSectionFromHash();
 
 function initialPortalSectionTitle(section) {
-  if (section === "tasks") return "Tasks";
-  if (section === "connectors") return "Connectors";
-  if (section === "delegations") return "Delegations";
-  if (section === "users") return "Administration";
-  if (section === "help") return "Help";
-  return "Assistants";
+  if (section === "tasks") return t("Tasks");
+  if (section === "connectors") return t("Connectors");
+  if (section === "delegations") return t("Delegations");
+  if (section === "users") return t("Administration");
+  if (section === "help") return t("Help");
+  return t("Assistants");
 }
 
 function initialPortalStatusText(section) {
-  if (section === "tasks") return "Task health, workload, and recent activity";
-  if (section === "connectors") return "Everything your assistants can connect to";
-  if (section === "delegations") return "Manage delegations";
-  if (section === "users") return "Manage members, roles, access, and usage";
-  if (section === "help") return "Guides for setting up and working with assistants";
-  return "Ready";
+  if (section === "tasks") return t("Task health, workload, and recent activity");
+  if (section === "connectors") return t("Everything your assistants can connect to");
+  if (section === "delegations") return t("Manage delegations");
+  if (section === "users") return t("Manage members, roles, access, and usage");
+  if (section === "help") return t("Guides for setting up and working with assistants");
+  return t("Ready");
 }
 
 // The eyebrow above the side pane's title: whose things the pane lists.
 function portalSectionEyebrow(section) {
-  if (section === "users" || section === "help") return "Portal";
-  if (section === "tasks" || section === "delegations") return "Workspace";
-  return "My Space";
+  if (section === "users" || section === "help") return t("Portal");
+  if (section === "tasks" || section === "delegations") return t("Workspace");
+  return t("My Space");
 }
 
 function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
@@ -278,7 +278,7 @@ function applyInitialPortalRouteShell(section = INITIAL_PORTAL_ROUTE_SECTION) {
   dom.workspaceDetailView?.classList.remove("hidden");
   if (dom.workspaceDetailContent) {
     dom.workspaceDetailContent.dataset.workspaceState = `${normalized}-initial-loading`;
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">Loading ${title.toLowerCase()}...</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading {section}...", { section: title.toLowerCase() })}</div>`;
   }
   if (dom.embedTitle) dom.embedTitle.textContent = title;
   if (dom.chatStatus) dom.chatStatus.textContent = initialPortalStatusText(normalized);
@@ -469,7 +469,7 @@ const state = {
   chatStatesByAgent: new Map(),
   pendingMessage: "",
   currentUserId: Number(dom.appRoot?.dataset.userId || 0),
-  currentUserName: dom.appRoot?.dataset.nickname || dom.appRoot?.dataset.username || "You",
+  currentUserName: dom.appRoot?.dataset.nickname || dom.appRoot?.dataset.username || t("You"),
   currentUserRole: String(dom.appRoot?.dataset.role || "user"),
   eventWs: null,
   eventWsAgentId: null,
@@ -912,7 +912,7 @@ function shouldShowAbortChatRunButton(agentId) {
 
 function activeChatRequestMessage(agentId, actionLabel = "perform this action") {
   if (!hasActiveChatRequestForAgent(agentId)) return "";
-  return "This assistant is responding. Please wait for the current response to finish.";
+  return t("This assistant is responding. Please wait for the current response to finish.");
 }
 
 function guardNoActiveChatRequestForAgent(agentId, actionLabel = "perform this action") {
@@ -928,13 +928,13 @@ function syncSelectedAgentChatActionControls() {
   const sessionsBtn = document.getElementById("btn-sessions");
   const contextBtn = dom.contextUsageBtn;
   if (!agentId) {
-    setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
-    setButtonDisabled(sessionsBtn, true, "Select an assistant first");
-    setButtonDisabled(contextBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.headerNewChatBtn, true, t("Select an assistant first"));
+    setButtonDisabled(sessionsBtn, true, t("Select an assistant first"));
+    setButtonDisabled(contextBtn, true, t("Select an assistant first"));
     // Details was the one header control left enabled with nothing to show.
-    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
-    if (dom.contextUsageLabel) dom.contextUsageLabel.textContent = "Context —";
-    setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.detailToggle, true, t("Select an assistant first"));
+    if (dom.contextUsageLabel) dom.contextUsageLabel.textContent = t("Context —");
+    setButtonDisabled(dom.homeStartChatBtn, true, t("Select an assistant first"));
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
     if (dom.abortChatRunBtn) {
       dom.abortChatRunBtn.classList.add("hidden");
@@ -959,8 +959,8 @@ function syncSelectedAgentChatActionControls() {
   const needsStart = status !== "running";
   const disabled = busy || needsStart;
   const title = busy
-    ? "This assistant is still working in the current session."
-    : "Start the assistant first";
+    ? t("This assistant is still working in the current session.")
+    : t("Start the assistant first");
 
   setButtonDisabled(dom.headerNewChatBtn, disabled, disabled ? title : "");
   setButtonDisabled(sessionsBtn, disabled, disabled ? title : "");
@@ -971,18 +971,18 @@ function syncSelectedAgentChatActionControls() {
   const contextTitle = busy
     ? title
     : !hasSession
-      ? "Start a conversation to inspect context usage"
+      ? t("Start a conversation to inspect context usage")
       : chatState?.compactingContext
-        ? "Compacting conversation…"
+        ? t("Compacting conversation…")
         : chatState?.contextUsageLoading
-          ? "Loading context usage…"
-          : "Context usage";
+          ? t("Loading context usage…")
+          : t("Context usage");
   setButtonDisabled(contextBtn, contextDisabled, contextTitle);
   syncContextUsageToolbar(chatState?.contextUsage);
   // A paused assistant can still be chatted with: New chat and Send start it
   // first (see prepareSelectedAssistantForSend).
   setButtonDisabled(dom.homeStartChatBtn, disabled && !wakeable, disabled && !wakeable ? title : "");
-  if (dom.homeStartChatBtn) dom.homeStartChatBtn.textContent = needsStart && wakeable ? "Start & chat" : "New Chat";
+  if (dom.homeStartChatBtn) dom.homeStartChatBtn.textContent = needsStart && wakeable ? t("Start & chat") : t("New Chat");
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = busy || (needsStart && !wakeable);
 }
 
@@ -1242,7 +1242,7 @@ function attachmentChipHtml(attachment, displayName) {
   const bodyHtml = `<span class="message-attachment-body"><span class="message-attachment-name">${escapeHtml(displayName)}</span>${metaHtml}</span>`;
   const url = attachmentFileUrl(attachment);
   if (url) {
-    return `<a class="message-attachment-file is-clickable" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr("Open " + displayName)}">${iconHtml}${bodyHtml}</a>`;
+    return `<a class="message-attachment-file is-clickable" href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtmlAttr(t("Open {name}", { name: displayName }))}">${iconHtml}${bodyHtml}</a>`;
   }
   return `<div class="message-attachment-file" title="${escapeHtmlAttr(displayName)}">${iconHtml}${bodyHtml}</div>`;
 }
@@ -1258,7 +1258,7 @@ function buildAttachmentChipNode(attachment, displayName) {
     chip.href = url;
     chip.target = "_blank";
     chip.rel = "noopener noreferrer";
-    chip.title = `Open ${displayName}`;
+    chip.title = t("Open {name}", { name: displayName });
   } else {
     chip.title = displayName;
   }
@@ -1347,7 +1347,7 @@ function uploadTooLargeMessage(file) {
   if (!policy.maxUploadMb || !file || typeof file.size !== "number") return "";
   if (file.size <= policy.maxUploadMb * 1024 * 1024) return "";
   const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-  return `File too large: ${file.name} (${sizeMb} MB). Maximum size is ${policy.maxUploadMb}MB.`;
+  return t("File too large: {name} ({size} MB). Maximum size is {max}MB.", { name: file.name, size: sizeMb, max: policy.maxUploadMb });
 }
 
 function shouldAutoParseUploadedFile(pf, uploadedData) {
@@ -1367,13 +1367,13 @@ function shouldAutoParseUploadedFile(pf, uploadedData) {
 function uploadErrorMessageFromXhr(xhr) {
   // The Portal proxy answers with FastAPI {"detail"}; the runtime with
   // {"success": false, "error"}. Surface the words, not just the status.
-  const fallback = "HTTP " + xhr.status;
+  const fallback = t("HTTP {status}", { status: xhr.status });
   const raw = String(xhr.responseText || "").trim();
   if (!raw) return fallback;
   try {
     const parsed = JSON.parse(raw);
     const detail = parsed?.detail;
-    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (typeof detail === "string" && detail.trim()) return tv(detail.trim());
     if (Array.isArray(detail)) {
       const items = detail
         .map((item) => (typeof item === "string" ? item : item?.msg))
@@ -1402,7 +1402,7 @@ async function parseUploadedPendingFile(pf, agentId, sessionId) {
   }
   const data = await response.json();
   if (data && typeof data === "object" && data.success === false) {
-    throw new Error(data.error || "Parse failed");
+    throw new Error(data.error || t("Parse failed"));
   }
   return data;
 }
@@ -1411,7 +1411,7 @@ function filterRuntimeSupportedUploads(files) {
   const accepted = [];
   for (const file of Array.from(files || [])) {
     if (!isRuntimeSupportedUpload(file)) {
-      showToast(`Unsupported file type: ${file?.name || "file"}. Supported: ${describeChatUploadPolicy()}.`, { variant: "error" });
+      showToast(t("Unsupported file type: {name}. Supported: {policy}.", { name: file?.name || t("file"), policy: describeChatUploadPolicy() }), { variant: "error" });
       continue;
     }
     const tooLarge = uploadTooLargeMessage(file);
@@ -1500,7 +1500,7 @@ async function addPendingFilesAndUpload(files) {
       const data = await uploadPendingFile(pf, agentId);
       pf.uploadedData = data;
       pf.file_id = data.file_id || data.id;
-      let uploadToastMessage = "File uploaded: " + file.name;
+      let uploadToastMessage = t("File uploaded: {name}", { name: file.name });
 
       // Store blob URL to file ID mapping
       if (pf.previewUrl && pf.file_id) {
@@ -1521,10 +1521,10 @@ async function addPendingFilesAndUpload(files) {
           renderInputPreview();
         } catch (parseError) {
           pf.status = "uploaded";
-          pf.parseError = parseError?.message || "Parse failed";
+          pf.parseError = parseError?.message || t("Parse failed");
           pf.error = "";
           pf.parseData = null;
-          uploadToastMessage = "File uploaded; text extraction unavailable: " + pf.parseError;
+          uploadToastMessage = t("File uploaded; text extraction unavailable: {error}", { error: pf.parseError });
           renderInputPreview();
         }
       } else {
@@ -1543,11 +1543,11 @@ async function addPendingFilesAndUpload(files) {
       ensureEventSocketForSelectedAgent();
     } catch (error) {
       pf.status = 'failed';
-      pf.error = error?.message || "Upload failed";
+      pf.error = error?.message || t("Upload failed");
       pf.parseError = "";
       pf.parseData = null;
       renderInputPreview();
-      showToast('Upload failed: ' + error.message, { variant: 'error' });
+      showToast(t("Upload failed: {error}", { error: error.message }), { variant: 'error' });
     }
   }
 }
@@ -1582,26 +1582,25 @@ function renderInputPreview() {
     if (pf.status === 'uploading') {
       const hasPct = typeof pf.uploadProgress === 'number';
       const pct = hasPct ? Math.max(0, Math.min(100, Math.round(pf.uploadProgress))) : 0;
-      const pctLabel = hasPct ? ` ${pct}%` : '';
-      statusBadge = `<span class="input-preview-badge is-uploading" title="Uploading${pctLabel}" aria-hidden="true">⏳</span>`;
+      statusBadge = `<span class="input-preview-badge is-uploading" title="${hasPct ? t("Uploading {pct}%", { pct }) : t("Uploading")}" aria-hidden="true">⏳</span>`;
       progressBar = `<div class="input-preview-progress" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(148,163,184,0.35);border-bottom-left-radius:inherit;border-bottom-right-radius:inherit;overflow:hidden;"><div style="height:100%;width:${pct}%;background:#3b82f6;transition:width .15s ease;"></div></div>`;
-      metaText = `Uploading…${pctLabel}`;
+      metaText = hasPct ? t("Uploading… {pct}%", { pct }) : t("Uploading…");
       cardState = 'is-uploading';
     } else if (pf.status === 'parsing') {
-      statusBadge = '<span class="input-preview-badge is-uploading" aria-hidden="true" title="Extracting text">🧠</span>';
-      metaText = 'Extracting text…';
+      statusBadge = `<span class="input-preview-badge is-uploading" aria-hidden="true" title="${t("Extracting text")}">🧠</span>`;
+      metaText = t("Extracting text…");
       cardState = 'is-parsing';
     } else if (pf.status === 'uploaded') {
       statusBadge = '<span class="input-preview-badge is-success" aria-hidden="true">✓</span>';
       metaText = [kind.label, sizeText].filter(Boolean).join(' · ');
       if (pf.parseError) {
-        metaText = `${metaText} · text not extracted`;
+        metaText = t("{meta} · text not extracted", { meta: metaText });
         tooltip = pf.parseError;
       }
       cardState = 'is-uploaded';
     } else if (pf.status === 'failed') {
       statusBadge = '<span class="input-preview-badge is-error" aria-hidden="true">✗</span>';
-      metaText = pf.error ? `Failed: ${pf.error}` : 'Upload failed';
+      metaText = pf.error ? t("Failed: {error}", { error: pf.error }) : t("Upload failed");
       tooltip = pf.error || '';
       cardState = 'is-failed';
     }
@@ -1615,7 +1614,7 @@ function renderInputPreview() {
     const safePreviewName = escapeHtmlAttr(name);
     const titleAttr = ` title="${escapeHtmlAttr(tooltip || name)}"`;
     const cardClass = `input-preview-card ${cardState}${hasThumb ? ' is-image' : ''}`;
-    return `<div class="${cardClass}" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}"${titleAttr}><span class="input-preview-visual">${visual}${statusBadge}</span><span class="input-preview-body"><span class="input-preview-name">${escapeHtml(name)}</span><span class="input-preview-meta">${escapeHtml(metaText)}</span></span><button type="button" class="remove-btn" aria-label="Remove attachment" data-remove-id="${safeId}">×</button>${progressBar}</div>`;
+    return `<div class="${cardClass}" data-id="${safeId}" data-preview-url="${safePreviewUrl}" data-preview-name="${safePreviewName}" data-is-image="${pf.isImage ? 'true' : 'false'}"${titleAttr}><span class="input-preview-visual">${visual}${statusBadge}</span><span class="input-preview-body"><span class="input-preview-name">${escapeHtml(name)}</span><span class="input-preview-meta">${escapeHtml(metaText)}</span></span><button type="button" class="remove-btn" aria-label="${t("Remove attachment")}" data-remove-id="${safeId}">×</button>${progressBar}</div>`;
   }).join('');
   renderIcons(container);
 }
@@ -1624,7 +1623,7 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
   return new Promise((resolve, reject) => {
     // Check if already cancelled
     if (pf.cancelled) {
-      reject(new Error('Upload cancelled'));
+      reject(new Error(t("Upload cancelled")));
       return;
     }
 
@@ -1646,7 +1645,7 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
     xhr.addEventListener('load', () => {
       // Check if cancelled during upload
       if (pf.cancelled) {
-        reject(new Error('Upload cancelled'));
+        reject(new Error(t("Upload cancelled")));
         return;
       }
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -1659,11 +1658,11 @@ async function uploadPendingFile(pf, agentId = state.selectedAgentId) {
             setBlobUrlMapping(pf.previewUrl, fileId);
           }
           resolve(data);
-        } catch { reject(new Error('Invalid response')); }
+        } catch { reject(new Error(t("Invalid response"))); }
       } else { reject(new Error(uploadErrorMessageFromXhr(xhr))); }
     });
-    xhr.addEventListener('error', () => { reject(new Error('Network error')); });
-    xhr.addEventListener('abort', () => { reject(new Error('Upload cancelled')); });
+    xhr.addEventListener('error', () => { reject(new Error(t("Network error"))); });
+    xhr.addEventListener('abort', () => { reject(new Error(t("Upload cancelled"))); });
     const sessionId = ensureChatSessionId(agentId);
     const url = `/a/${agentId}/api/files/upload?session_id=${encodeURIComponent(sessionId)}`;
     xhr.open('POST', url);
@@ -1700,8 +1699,8 @@ function toSkillSuggestion(item) {
   const blockedReason = skill?.blocked_reason || "";
   const compatibilityWarnings = Array.isArray(skill?.compatibility_warnings) ? skill.compatibility_warnings.filter(Boolean).join(" · ") : "";
   const isCallable = skill?.callable !== false;
-  const status = isCallable ? "" : "Not callable";
-  const descBase = typeof item === "string" ? "Skill" : (skill?.description || "Skill");
+  const status = isCallable ? "" : t("Not callable");
+  const descBase = typeof item === "string" ? t("Skill") : (skill?.description || t("Skill"));
   const desc = [descBase, status, blockedReason || compatibilityWarnings].filter(Boolean).join(" · ");
   const missingTools = Array.isArray(skill?.missing_tools) ? skill.missing_tools.join(", ") : "";
   const missingRuntimeTools = Array.isArray(skill?.missing_runtime_tools)
@@ -1829,12 +1828,12 @@ function getSelectedAgentStatus() {
 function ensureRunningSelectedAssistant(actionLabel = "perform this action") {
   const agent = getSelectedAgent();
   if (!agent) {
-    showToast("Please select an assistant first");
+    showToast(t("Please select an assistant first"));
     return false;
   }
   const status = getSelectedAgentStatus();
   if (status !== "running") {
-    showToast(`${agent.name} is ${status}. Start it first.`);
+    showToast(t("{name} is {status}. Start it first.", { name: agent.name, status }));
     return false;
   }
   return true;
@@ -1869,7 +1868,7 @@ async function wakeSelectedAssistant(agentId = state.selectedAgentId) {
     const status = agentRuntimeStatus(agent);
     if (status === "running") return true;
     if (!canWakeSelectedAssistant(agent, status)) return false;
-    if (state.selectedAgentId === agentId) setChatStatus("Starting the assistant… your message will be sent when it is ready.");
+    if (state.selectedAgentId === agentId) setChatStatus(t("Starting the assistant… your message will be sent when it is ready."));
     if (status === "stopped") {
       await action(`/api/agents/${encodeURIComponent(agentId)}/start`);
     }
@@ -1882,7 +1881,7 @@ async function wakeSelectedAssistant(agentId = state.selectedAgentId) {
     return true;
   })()
     .catch((error) => {
-      const message = `Could not start the assistant: ${error?.message || "unknown error"}`;
+      const message = t("Could not start the assistant: {error}", { error: error?.message || t("unknown error") });
       showToast(message, { variant: "error" });
       if (state.selectedAgentId === agentId) setChatStatus(message, true);
       return false;
@@ -2031,12 +2030,12 @@ function syncComposerMode() {
   if (note) {
     // Names the question, since it is no longer on screen to read.
     note.textContent = showingComposer
-      ? (intent.note || "Answering the question above.")
-      : (intent.acceptsText ? "Answer above to continue." : intent.reason);
+      ? (intent.note || t("Answering the question above."))
+      : (intent.acceptsText ? t("Answer above to continue.") : intent.reason);
   }
   if (button) {
     button.classList.toggle("hidden", !intent.acceptsText);
-    button.textContent = showingComposer ? "Back to the card" : "Type your answer instead";
+    button.textContent = showingComposer ? t("Back to the card") : t("Type your answer instead");
   }
   if (showingComposer) dom.chatInput?.focus();
 }
@@ -2058,7 +2057,7 @@ function updateChatInputPlaceholder() {
     : null;
   if (pendingIntent) {
     dom.chatInput.placeholder = pendingIntent.acceptsText
-      ? "Type your answer, or use the card above"
+      ? t("Type your answer, or use the card above")
       : pendingIntent.reason;
     return;
   }
@@ -2066,20 +2065,20 @@ function updateChatInputPlaceholder() {
   const maxPlaceholderAgentLength = 24;
   const assistantName = String(state.selectedAgentName || "").trim();
   if (!assistantName) {
-    dom.chatInput.placeholder = "Ask anything...";
+    dom.chatInput.placeholder = t("Ask anything...");
     return;
   }
   const status = getSelectedAgentStatus();
   if (status !== "running" && canWakeSelectedAssistant(getSelectedAgent(), status)) {
     dom.chatInput.placeholder = status === "stopped"
-      ? `Paused. Sending a message starts it first (about ${typicalStartSeconds()} seconds).`
-      : "Starting up. Your message is sent once it is ready.";
+      ? t("Paused. Sending a message starts it first (about {seconds} seconds).", { seconds: typicalStartSeconds() })
+      : t("Starting up. Your message is sent once it is ready.");
     return;
   }
   const displayName = assistantName.length > maxPlaceholderAgentLength
     ? `${assistantName.slice(0, maxPlaceholderAgentLength - 1)}…`
     : assistantName;
-  dom.chatInput.placeholder = `Ask ${displayName}`;
+  dom.chatInput.placeholder = t("Ask {name}", { name: displayName });
 }
 
 function syncChatInputHeight() {
@@ -2140,10 +2139,10 @@ function trackChatSurfaceSizes() {
 
 function getCurrentUserDisplayName() {
   const name = String(state.currentUserName || "").trim();
-  return name || "You";
+  return name || t("You");
 }
 
-function getSelectedAssistantDisplayName(fallback = "Assistant") {
+function getSelectedAssistantDisplayName(fallback = t("Assistant")) {
   const name = String(state.selectedAgentName || "").trim();
   return name || fallback;
 }
@@ -2156,7 +2155,7 @@ function getNonBlankAuthorName(value) {
 function getHistoryMessageDisplayName(message, isUser) {
   const persistedName = getNonBlankAuthorName(message?.author_name);
   if (persistedName) return persistedName;
-  if (isUser) return "User";
+  if (isUser) return t("User");
   return getSelectedAssistantDisplayName();
 }
 
@@ -2354,33 +2353,33 @@ function canonicalStreamItemToRuntimeEvent(item = {}, sessionId = "") {
   if (item.kind === "reasoning") {
     return baseEvent("runtime.reasoning", {
       ...baseData,
-      message: item.text || "Reasoning update",
+      message: item.text || t("Reasoning update"),
       status: item.status || "running",
-    }, item.text || "Reasoning update");
+    }, item.text || t("Reasoning update"));
   }
   if (item.kind === "tool") {
     return baseEvent("runtime.tool", {
       ...baseData,
-      message: item.tool ? `${item.tool} ${item.status || "running"}` : "Tool update",
-    }, item.tool || "Tool update");
+      message: item.tool ? `${item.tool} ${item.status || "running"}` : t("Tool update"),
+    }, item.tool || t("Tool update"));
   }
   if (item.kind === "step_start") {
     return baseEvent("runtime.step.started", {
       ...baseData,
-      message: "Step started",
-    }, "Step started");
+      message: t("Step started"),
+    }, t("Step started"));
   }
   if (item.kind === "step_finish") {
     return baseEvent("runtime.step.finished", {
       ...baseData,
-      message: item.reason || "Step finished",
-    }, item.reason || "Step finished");
+      message: item.reason || t("Step finished"),
+    }, item.reason || t("Step finished"));
   }
   if (item.kind === "permission") {
     return baseEvent("permission_request", {
       ...baseData,
-      message: item.status ? `Permission ${item.status}` : "Permission requested",
-    }, item.permission_id || "Permission requested");
+      message: item.status ? t("Permission {status}", { status: item.status }) : t("Permission requested"),
+    }, item.permission_id || t("Permission requested"));
   }
   return null;
 }
@@ -2616,17 +2615,17 @@ function assistantModelBadgeText(attribution, usageSummary = null) {
   // No model anywhere: the credits are the badge, so the cost still has a
   // place to be read.
   const credits = typeof formatCredits === "function" ? formatCredits(usageSummary?.estimatedCredits) : "";
-  return credits ? `\u2248 ${credits} credits` : "";
+  return credits ? t("≈ {credits} credits", { credits }) : "";
 }
 
 function assistantModelBadgeTitle(attribution, usageSummary = null, options = {}) {
   // What the hover says: which model answered, then what the turn cost.
   const lines = [];
   if (attribution && attribution.model) {
-    lines.push(`Model: ${attribution.model}`);
-    if (attribution.requestedModel) lines.push(`Requested: ${attribution.requestedModel}`);
-    if (attribution.autoTier) lines.push(`Tier: ${attribution.autoTier}`);
-    if (attribution.fallbackReason) lines.push(`Fallback: ${attribution.fallbackReason}`);
+    lines.push(t("Model: {model}", { model: attribution.model }));
+    if (attribution.requestedModel) lines.push(t("Requested: {model}", { model: attribution.requestedModel }));
+    if (attribution.autoTier) lines.push(t("Tier: {tier}", { tier: attribution.autoTier }));
+    if (attribution.fallbackReason) lines.push(t("Fallback: {reason}", { reason: attribution.fallbackReason }));
   }
   const costLines = typeof assistantUsageCostLines === "function" ? assistantUsageCostLines(usageSummary, options) : [];
   if (costLines.length) {
@@ -2812,8 +2811,8 @@ function formatCredits(value) {
 
 function assistantUsageTierLabel(tier) {
   const normalized = String(tier || "").trim().toLowerCase();
-  if (normalized === "long_context") return "Long context tier, 2\u00d7 price";
-  if (normalized === "default") return "Default tier";
+  if (normalized === "long_context") return t("Long context tier, 2× price");
+  if (normalized === "default") return t("Default tier");
   return "";
 }
 
@@ -2822,26 +2821,30 @@ function assistantUsageCostLines(summary, options = {}) {
   // without a usage summary, so a message that carries none reads as before.
   if (!summary) return [];
   const lines = [];
-  if (summary.iterations) lines.push(`Steps: ${summary.iterations}`);
+  if (summary.iterations) lines.push(t("Steps: {steps}", { steps: summary.iterations }));
   const input = formatCompactTokens(summary.inputTokens);
   if (input) {
-    const cache = summary.cacheHitRatio != null ? ` (cache ${Math.round(summary.cacheHitRatio * 100)}%)` : "";
-    lines.push(`Input: ${input} tokens${cache}`);
+    const cachePercent = summary.cacheHitRatio != null ? Math.round(summary.cacheHitRatio * 100) : null;
+    lines.push(cachePercent != null
+      ? t("Input: {tokens} tokens (cache {percent}%)", { tokens: input, percent: cachePercent })
+      : t("Input: {tokens} tokens", { tokens: input }));
   }
   const output = formatCompactTokens(summary.outputTokens);
   if (output) {
-    const reasoning = summary.reasoningTokens ? ` (reasoning ${formatCompactTokens(summary.reasoningTokens)})` : "";
-    lines.push(`Output: ${output} tokens${reasoning}`);
+    const reasoning = summary.reasoningTokens ? formatCompactTokens(summary.reasoningTokens) : "";
+    lines.push(reasoning
+      ? t("Output: {tokens} tokens (reasoning {reasoning})", { tokens: output, reasoning })
+      : t("Output: {tokens} tokens", { tokens: output }));
   }
   const credits = formatCredits(summary.estimatedCredits);
   if (credits) {
     const tier = assistantUsageTierLabel(summary.tier);
-    lines.push(`Credits: \u2248 ${credits}${tier ? ` (${tier})` : ""}`);
+    lines.push(tier ? t("Credits: ≈ {credits} ({tier})", { credits, tier }) : t("Credits: ≈ {credits}", { credits }));
   }
   if (!lines.length) return lines;
   lines.push(options.live
-    ? "Still running; these are the totals so far."
-    : "Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill.");
+    ? t("Still running; these are the totals so far.")
+    : t("Credits are an estimate from GitHub's published price list (1 credit = $0.01), not the bill."));
   return lines;
 }
 
@@ -2896,20 +2899,24 @@ function budgetPauseInfo(source) {
 function budgetPauseNoticeText(info) {
   if (!info) return "";
   if (info.reason === "iteration_cap") {
-    const steps = info.iterations != null ? `after ${Math.round(info.iterations)} steps` : "at the step limit";
-    const cap = info.iterationLimit != null ? ` (limit ${Math.round(info.iterationLimit)})` : "";
-    return `Paused ${steps}${cap}.`;
+    const steps = info.iterations != null ? Math.round(info.iterations) : null;
+    const stepLimit = info.iterationLimit != null ? Math.round(info.iterationLimit) : null;
+    if (steps != null && stepLimit != null) return t("Paused after {steps} steps (limit {limit}).", { steps, limit: stepLimit });
+    if (steps != null) return t("Paused after {steps} steps.", { steps });
+    if (stepLimit != null) return t("Paused at the step limit (limit {limit}).", { limit: stepLimit });
+    return t("Paused at the step limit.");
   }
   const credits = formatCredits(info.estimatedCredits) || "?";
   const limit = formatCredits(info.creditsLimit);
-  return `Paused at about ${credits} credits for this message${limit ? ` (limit ${limit})` : ""}.`;
+  if (limit) return t("Paused at about {credits} credits for this message (limit {limit}).", { credits, limit });
+  return t("Paused at about {credits} credits for this message.", { credits });
 }
 
 function buildBudgetPauseNoticeHtml(info) {
   const text = budgetPauseNoticeText(info);
   if (!text) return "";
-  const hint = 'Reply "Continue" to carry on.';
-  return `<div class="message-cost-notice" data-budget-pause="${escapeHtmlAttr(info.reason || "")}"><span>${escapeHtml(`${text} ${hint}`)}</span><button type="button" class="message-cost-notice-btn" data-budget-pause-continue>Continue</button></div>`;
+  const hint = t('Reply "Continue" to carry on.');
+  return `<div class="message-cost-notice" data-budget-pause="${escapeHtmlAttr(info.reason || "")}"><span>${escapeHtml(`${text} ${hint}`)}</span><button type="button" class="message-cost-notice-btn" data-budget-pause-continue>${t("Continue")}</button></div>`;
 }
 
 function applyBudgetPauseNotice(target, info) {
@@ -2986,23 +2993,25 @@ function copilotQuotaSummary(quota) {
 }
 
 function copilotQuotaChipHtml(summary) {
-  const label = "Copilot balance this month";
+  const label = t("Copilot balance this month");
   if (!summary || summary.available !== true) {
-    const detail = summary?.error ? `Unavailable: ${summary.error}` : "The runtime did not report a balance; check GitHub's Billing page.";
-    return `<div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="unavailable"><div class="portal-quota-chip-head"><span>${label}</span><span>Unavailable</span></div><div>${escapeHtml(detail)}</div></div>`;
+    const detail = summary?.error ? t("Unavailable: {error}", { error: summary.error }) : t("The runtime did not report a balance; check GitHub's Billing page.");
+    return `<div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="unavailable"><div class="portal-quota-chip-head"><span>${label}</span><span>${t("Unavailable")}</span></div><div>${escapeHtml(detail)}</div></div>`;
   }
   if (!summary.hasNumbers) {
-    const plan = summary.plan ? `Plan: ${summary.plan}` : "The quota endpoint returned no usable numbers.";
+    const plan = summary.plan ? t("Plan: {plan}", { plan: summary.plan }) : t("The quota endpoint returned no usable numbers.");
     return `<div id="context-quota-chip" class="portal-quota-chip" data-copilot-quota="no-numbers"><div class="portal-quota-chip-head"><span>${label}</span></div><div>${escapeHtml(plan)}</div></div>`;
   }
-  const unit = escapeHtml(summary.unit || "credits");
-  const usedText = summary.used != null ? `${escapeHtml(formatCredits(summary.used) || String(Math.round(summary.used)))} ${unit} used` : (summary.percentUsed != null ? `${Math.round(summary.percentUsed)}% used` : "");
+  const unit = escapeHtml(summary.unit && summary.unit !== "credits" ? summary.unit : t("credits"));
+  const usedText = summary.used != null
+    ? t("{amount} {unit} used", { amount: escapeHtml(formatCredits(summary.used) || String(Math.round(summary.used))), unit })
+    : (summary.percentUsed != null ? t("{percent}% used", { percent: Math.round(summary.percentUsed) }) : "");
   const rightText = summary.remaining != null
-    ? `${escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining)))} left`
-    : (summary.included != null ? `${escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included)))} included` : "");
+    ? t("{amount} left", { amount: escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining))) })
+    : (summary.included != null ? t("{amount} included", { amount: escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included))) }) : "");
   const meter = summary.percentUsed != null ? `<div class="portal-quota-meter"><span style="width:${Math.round(summary.percentUsed * 10) / 10}%"></span></div>` : "";
-  const reset = summary.resetDate ? `<div>Resets on ${escapeHtml(summary.resetDate)}</div>` : "";
-  const warning = summary.warning ? `<div>More than 80% used; watch this month's usage.</div>` : "";
+  const reset = summary.resetDate ? `<div>${t("Resets on {date}", { date: escapeHtml(summary.resetDate) })}</div>` : "";
+  const warning = summary.warning ? `<div>${t("More than 80% used; watch this month's usage.")}</div>` : "";
   return `<div id="context-quota-chip" class="portal-quota-chip${summary.warning ? " is-warning" : ""}" data-copilot-quota="${summary.warning ? "warning" : "ok"}"><div class="portal-quota-chip-head"><span>${label}</span><span>${usedText}${usedText && rightText ? " \u00b7 " : ""}${rightText}</span></div>${meter}${reset}${warning}</div>`;
 }
 // RUNTIME_EVENT_HELPER_END: copilotQuota
@@ -3021,7 +3030,7 @@ async function renderCopilotQuotaChip(agentId) {
   return quota;
 }
 
-function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
+function buildAssistantGroupMessageArticle(group, authorName = t("Assistant")) {
   const messageIds = getAssistantGroupMessageIds(group);
   const primaryMessageId = messageIds[messageIds.length - 1] || "";
   const markdown = getAssistantGroupMarkdown(group);
@@ -3044,8 +3053,14 @@ function buildAssistantGroupMessageArticle(group, authorName = "Assistant") {
 function buildPendingAssistantArticle(clientRequestId = "", pendingText = "Thinking") {
   const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const pendingAgentName = getSelectedAssistantDisplayName();
+  // The callers pass the English word and compare on it ("Reconnecting"),
+  // so the indicator is translated here, where it is drawn.
+  const indicatorText = pendingText === "Thinking" ? t("Thinking")
+    : pendingText === "Working" ? t("Working")
+      : pendingText === "Reconnecting" ? t("Reconnecting")
+        : pendingText;
   const clientRequestAttr = clientRequestId ? ` data-client-request-id="${escapeHtmlAttr(clientRequestId)}"` : "";
-  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"${clientRequestAttr}><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(pendingText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render" data-md="" data-display-blocks="[]"></div><div class="agent-timeline" data-agent-timeline="1"><div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>Working</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-temporary-assistant="1"${clientRequestAttr}><div class="message-meta"><span class="message-author">${escapeHtml(pendingAgentName)}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-assistant assistant-message is-pending pending-assistant" data-pending-assistant="1"${clientRequestAttr}><div class="assistant-waiting-indicator">${escapeHtml(indicatorText)}<span class="assistant-waiting-dots"></span></div><div class="message-markdown md-render" data-md="" data-display-blocks="[]"></div><div class="agent-timeline" data-agent-timeline="1"><div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>${t("Working")}</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div></div></article></div>`;
 }
 
 function findPendingAssistantArticle(requestId = "") {
@@ -3863,7 +3878,7 @@ function upsertAgentTimelineItem(timeline, itemId, defaults = {}, updates = {}) 
       id: itemId,
       kind: defaults.kind || "event",
       status: defaults.status || "running",
-      title: defaults.title || "Runtime event",
+      title: defaults.title || t("Runtime event"),
       summary: "",
       detail: "",
       createdAt: defaults.createdAt || new Date().toISOString(),
@@ -3893,7 +3908,7 @@ function agentTimelineToolName(event) {
   const value = getAgentTimelineField(event, [
     "tool", "tool_name", "toolName", "name", "command",
   ]);
-  return String(value || "Tool");
+  return String(value || t("Tool"));
 }
 
 function agentTimelineInputText(event) {
@@ -3945,14 +3960,14 @@ function reduceAgentTimelineStepEvent(timeline, event, type) {
     upsertAgentTimelineItem(timeline, stepId, {
       kind: "step",
       status: "running",
-      title: "Agent step",
+      title: t("Agent step"),
       icon: "play-circle",
       createdAt: event.created_at,
     }, {
       kind: "step",
       status: "running",
-      title: data.title || "Agent step started",
-      summary: truncateAgentTimelineText(data.message || data.prompt || data.status || "Working"),
+      title: data.title || t("Agent step started"),
+      summary: truncateAgentTimelineText(data.message || data.prompt || data.status || t("Working")),
       model: timeline.model,
       agent: timeline.agent,
       icon: "play-circle",
@@ -3966,13 +3981,13 @@ function reduceAgentTimelineStepEvent(timeline, event, type) {
     upsertAgentTimelineItem(timeline, stepId, {
       kind: "step",
       status: "failed",
-      title: "Agent step failed",
+      title: t("Agent step failed"),
       icon: "x-circle",
       createdAt: event.created_at,
     }, {
       status: "failed",
-      title: "Agent step failed",
-      summary: truncateAgentTimelineText(data.error || data.detail || data.message || "Step failed"),
+      title: t("Agent step failed"),
+      summary: truncateAgentTimelineText(data.error || data.detail || data.message || t("Step failed")),
       icon: "x-circle",
     });
     return true;
@@ -3983,13 +3998,13 @@ function reduceAgentTimelineStepEvent(timeline, event, type) {
   upsertAgentTimelineItem(timeline, stepId, {
     kind: "step",
     status: "completed",
-    title: "Agent step completed",
+    title: t("Agent step completed"),
     icon: "flag",
     createdAt: event.created_at,
   }, {
     status: "completed",
-    title: "Agent step completed",
-    summary: truncateAgentTimelineText(data.reason || data.message || data.completion_state || "Completed"),
+    title: t("Agent step completed"),
+    summary: truncateAgentTimelineText(data.reason || data.message || data.completion_state || t("Completed")),
     icon: "flag",
   });
   return true;
@@ -4002,30 +4017,30 @@ function reduceAgentTimelineTextEvent(timeline, event, type) {
   const item = upsertAgentTimelineItem(timeline, textItemId, {
     kind: "text",
     status: "running",
-    title: "Writing response",
+    title: t("Writing response"),
     icon: "message-square",
     createdAt: event.created_at,
   }, {
     kind: "text",
     status: type.endsWith(".ended") || type === "message.completed" ? "completed" : "running",
-    title: "Writing response",
+    title: t("Writing response"),
     icon: type.endsWith(".ended") || type === "message.completed" ? "message-square-check" : "message-square",
   });
   timeline.textById[partId] = textItemId;
   if (type === "session.next.text.delta" || type === "message.delta" || type === "assistant_delta") {
     const delta = data.delta ?? data.response_delta ?? data.text_delta ?? data.content_delta ?? data.content ?? data.text ?? data.message ?? "";
     appendAgentTimelineText(timeline, delta);
-    item.summary = truncateAgentTimelineText(timeline.assistantText || "Streaming response");
+    item.summary = truncateAgentTimelineText(timeline.assistantText || t("Streaming response"));
     return true;
   }
   if (type === "session.next.text.ended" || type === "message.completed") {
     const finalText = data.text ?? data.content ?? data.response ?? data.message ?? data.assistantText ?? "";
     if (finalText) appendAgentTimelineText(timeline, finalText, { replace: true });
     item.status = "completed";
-    item.summary = truncateAgentTimelineText(timeline.assistantText || "Response text completed");
+    item.summary = truncateAgentTimelineText(timeline.assistantText || t("Response text completed"));
     return true;
   }
-  item.summary = truncateAgentTimelineText(data.message || "Response text started");
+  item.summary = truncateAgentTimelineText(data.message || t("Response text started"));
   return true;
 }
 
@@ -4037,14 +4052,14 @@ function reduceAgentTimelineReasoningEvent(timeline, event, type) {
   const item = upsertAgentTimelineItem(timeline, itemId, {
     kind: "reasoning",
     status,
-    title: "Reasoning summary",
+    title: t("Reasoning summary"),
     icon: "brain",
     weak: true,
     createdAt: event.created_at,
   }, {
     kind: "reasoning",
     status,
-    title: data.title || "Reasoning summary",
+    title: data.title || t("Reasoning summary"),
     icon: status === "completed" ? "check-circle-2" : "brain",
     weak: true,
   });
@@ -4055,7 +4070,7 @@ function reduceAgentTimelineReasoningEvent(timeline, event, type) {
       ? truncateAgentTimelineText(`${item.detail ? `${item.detail} ` : ""}${reasoningText}`, 520)
       : truncateAgentTimelineText(reasoningText, 520);
   }
-  item.summary = item.detail || truncateAgentTimelineText(data.status || "Reasoning update");
+  item.summary = item.detail || truncateAgentTimelineText(data.status || t("Reasoning update"));
   return true;
 }
 
@@ -4086,32 +4101,32 @@ function reduceAgentTimelineToolEvent(timeline, event, type) {
     icon: status === "completed" ? "check-circle-2" : (status === "failed" ? "x-circle" : "wrench"),
   });
   if (type === "session.next.tool.input.started") {
-    item.summary = truncateAgentTimelineText(data.message || "Preparing tool input");
+    item.summary = truncateAgentTimelineText(data.message || t("Preparing tool input"));
     item.input = truncateAgentTimelineText(agentTimelineInputText(event) || item.input || "", 520);
   } else if (type === "session.next.tool.input.delta") {
     const delta = agentTimelineInputText(event);
     item.input = truncateAgentTimelineText(`${item.input || ""}${delta}`, 520);
-    item.summary = item.input || "Preparing tool input";
+    item.summary = item.input || t("Preparing tool input");
   } else if (type === "session.next.tool.input.ended") {
     const inputText = agentTimelineInputText(event);
     if (inputText) item.input = truncateAgentTimelineText(inputText, 520);
-    item.summary = item.input || "Tool input ready";
+    item.summary = item.input || t("Tool input ready");
   } else if (type === "session.next.tool.called" || type === "tool.started" || type === "tool_call") {
     const inputText = agentTimelineInputText(event);
     if (inputText) item.input = truncateAgentTimelineText(inputText, 520);
-    item.summary = truncateAgentTimelineText(data.message || item.input || `Running ${toolName}`);
+    item.summary = truncateAgentTimelineText(data.message || item.input || t("Running {tool}", { tool: toolName }));
   } else if (type === "session.next.tool.progress") {
     const progress = normalizeAgentTimelineJsonText(data.progress ?? data.message ?? data.delta ?? data.status ?? "");
     item.progress = truncateAgentTimelineText(`${item.progress ? `${item.progress} ` : ""}${progress}`, 520);
-    item.summary = item.progress || `Running ${toolName}`;
+    item.summary = item.progress || t("Running {tool}", { tool: toolName });
   } else if (status === "completed") {
     const outputText = agentTimelineOutputText(event);
     if (outputText) item.output = truncateAgentTimelineText(outputText, 520);
-    item.summary = truncateAgentTimelineText(data.message || item.output || `${toolName} completed`);
+    item.summary = truncateAgentTimelineText(data.message || item.output || t("{tool} completed", { tool: toolName }));
   } else if (status === "failed") {
     const errorText = agentTimelineOutputText(event);
     if (errorText) item.error = truncateAgentTimelineText(errorText, 520);
-    item.summary = truncateAgentTimelineText(data.error || data.detail || data.message || item.error || `${toolName} failed`);
+    item.summary = truncateAgentTimelineText(data.error || data.detail || data.message || item.error || t("{tool} failed", { tool: toolName }));
   }
   return true;
 }
@@ -4124,18 +4139,18 @@ function reduceAgentTimelineCompactionEvent(timeline, event, type) {
   const item = upsertAgentTimelineItem(timeline, itemId, {
     kind: "compaction",
     status,
-    title: "Context compaction",
+    title: t("Context compaction"),
     icon: "archive",
     createdAt: event.created_at,
   }, {
     kind: "compaction",
     status,
-    title: data.title || "Context compaction",
+    title: data.title || t("Context compaction"),
     icon: status === "completed" ? "archive" : "scissors",
   });
   const delta = normalizeAgentTimelineJsonText(data.summary ?? data.delta ?? data.message ?? data.stage ?? "");
   if (delta) item.summary = truncateAgentTimelineText(type.endsWith(".delta") ? `${item.summary ? `${item.summary} ` : ""}${delta}` : delta, 520);
-  else item.summary = status === "completed" ? "Compaction completed" : "Compacting context";
+  else item.summary = status === "completed" ? t("Compaction completed") : t("Compacting context");
   return true;
 }
 
@@ -4150,14 +4165,14 @@ function reduceAgentTimelinePermissionEvent(timeline, event, type) {
   upsertAgentTimelineItem(timeline, itemId, {
     kind: "permission",
     status: resolved ? (denied ? "failed" : "completed") : "pending",
-    title: "Permission requested",
+    title: t("Permission requested"),
     icon: "shield",
     createdAt: event.created_at,
   }, {
     kind: "permission",
     status: resolved ? (denied ? "failed" : "completed") : "pending",
-    title: resolved ? "Permission resolved" : "Permission requested",
-    summary: truncateAgentTimelineText(data.message || data.reason || data.prompt || data.tool || "Permission required"),
+    title: resolved ? t("Permission resolved") : t("Permission requested"),
+    summary: truncateAgentTimelineText(data.message || data.reason || data.prompt || data.tool || t("Permission required")),
     icon: resolved ? (denied ? "shield-alert" : "shield-check") : "shield",
   });
   return true;
@@ -4174,7 +4189,7 @@ function connectorRequestDetail(action, data) {
   if (!params || typeof params !== "object") return "";
   const files = params.files;
   const count = Array.isArray(files) ? files.length : (files && typeof files === "object" ? Object.keys(files).length : 0);
-  const filesText = count ? `${count} file${count === 1 ? "" : "s"}` : "";
+  const filesText = count ? tn(count, "{n} file", "{n} files") : "";
   if (action === "page.upload") return filesText ? ` (${filesText})` : "";
   if (action === "workflow.run") {
     const workflow = params.workflow ? String(params.workflow).split("/").slice(-2).join("/") : "";
@@ -4193,16 +4208,16 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
   let status = "running";
   if (type.startsWith("provider.") || type === "model.retry") {
     kind = "provider";
-    title = type === "provider.retry" || type === "model.retry" ? "Provider retry" : "Provider status";
+    title = type === "provider.retry" || type === "model.retry" ? t("Provider retry") : t("Provider status");
     icon = type.includes("retry") ? "refresh-cw" : "activity";
   } else if (type === "question.requested") {
     kind = "permission";
-    title = "Question requested";
+    title = t("Question requested");
     icon = "circle-help";
     status = "pending";
   } else if (type === "run_budget_paused") {
     kind = "event";
-    title = "Budget pause";
+    title = t("Budget pause");
     icon = "pause-circle";
     status = "completed";
   } else if (type === "connector.request" || type === "connector.responded") {
@@ -4213,8 +4228,8 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
       || "";
     if (connectorRequestId) {
       const action = data.action || (data.connector_request && data.connector_request.action) || "";
-      const label = data.connector_type === "local_bridge" ? "Browser" : (data.connector_type || "Connector");
-      const title = `${label}: ${action || "request"}${connectorRequestDetail(action, data)}`;
+      const label = data.connector_type === "local_bridge" ? t("Browser") : (data.connector_type || t("Connector"));
+      const title = `${label}: ${action || t("request")}${connectorRequestDetail(action, data)}`;
       const pendingId = `connector:${connectorRequestId}`;
       const responded = type === "connector.responded";
       const ok = data.ok !== false;
@@ -4229,14 +4244,14 @@ function reduceAgentTimelineGenericEvent(timeline, event, type) {
         status: responded ? (ok ? "completed" : "failed") : "pending",
         title,
         summary: responded
-          ? truncateAgentTimelineText(ok ? `done in ${data.duration_ms || 0} ms` : (data.error_code || "failed"))
-          : "waiting for your browser",
+          ? truncateAgentTimelineText(ok ? t("done in {ms} ms", { ms: data.duration_ms || 0 }) : (data.error_code || t("failed")))
+          : t("waiting for your browser"),
         icon: "globe",
       });
       return true;
     }
     kind = "tool";
-    title = type === "connector.request" ? "Connector request" : "Connector response";
+    title = type === "connector.request" ? t("Connector request") : t("Connector response");
     icon = "globe";
     status = type === "connector.request" ? "pending" : "completed";
   }
@@ -4313,11 +4328,11 @@ function agentTimelineMatchesRequest(timeline, requestCtx = {}) {
 
 function renderAgentTimelineItemDetail(item) {
   const details = [
-    item.input ? ["Input", item.input] : null,
-    item.progress ? ["Progress", item.progress] : null,
-    item.output ? ["Output", item.output] : null,
-    item.error ? ["Error", item.error] : null,
-    item.detail && item.detail !== item.summary ? ["Detail", item.detail] : null,
+    item.input ? [t("Input"), item.input] : null,
+    item.progress ? [t("Progress"), item.progress] : null,
+    item.output ? [t("Output"), item.output] : null,
+    item.error ? [t("Error"), item.error] : null,
+    item.detail && item.detail !== item.summary ? [t("Detail"), item.detail] : null,
   ].filter(Boolean);
   if (!details.length) return "";
   return details.map(([label, value]) => `<div class="agent-timeline-detail"><span>${safe(label)}</span><code>${safe(truncateAgentTimelineText(value, 260))}</code></div>`).join("");
@@ -4331,10 +4346,17 @@ function renderAgentTimelineRowsHtml(timeline) {
     const status = String(item.status || "running").toLowerCase();
     const kind = String(item.kind || "event").toLowerCase();
     const icon = item.icon || (kind === "tool" ? "wrench" : "activity");
-    const title = item.title || "Runtime event";
+    const title = item.title || t("Runtime event");
     const summary = item.summary || item.detail || "";
     const detail = renderAgentTimelineItemDetail(item);
-    return `<div class="agent-timeline-row is-${safe(kind)} is-${safe(status)}${item.weak ? " is-weak" : ""}"><span class="agent-timeline-icon"><i data-lucide="${safe(icon)}"></i></span><div class="agent-timeline-row-main"><div class="agent-timeline-row-head"><span class="agent-timeline-title">${safe(title)}</span><span class="agent-timeline-chip is-${safe(status)}">${safe(status)}</span></div>${summary ? `<div class="agent-timeline-summary">${safe(truncateAgentTimelineText(summary, 280))}</div>` : ""}${detail}</div></div>`;
+    // The status is a runtime identifier (the row's class); the chip reads it
+    // in the member's language.
+    const statusText = status === "running" ? t("running")
+      : status === "completed" ? t("completed")
+        : status === "failed" ? t("failed")
+          : status === "pending" ? t("pending")
+            : status;
+    return `<div class="agent-timeline-row is-${safe(kind)} is-${safe(status)}${item.weak ? " is-weak" : ""}"><span class="agent-timeline-icon"><i data-lucide="${safe(icon)}"></i></span><div class="agent-timeline-row-main"><div class="agent-timeline-row-head"><span class="agent-timeline-title">${safe(title)}</span><span class="agent-timeline-chip is-${safe(status)}">${safe(statusText)}</span></div>${summary ? `<div class="agent-timeline-summary">${safe(truncateAgentTimelineText(summary, 280))}</div>` : ""}${detail}</div></div>`;
   }).join("");
 }
 
@@ -4417,11 +4439,11 @@ function renderAgentTimelineForCurrentRequestNow(agentId, chatState, options = {
     const created = document.createElement("div");
     created.className = "agent-timeline";
     created.dataset.agentTimeline = "1";
-    created.innerHTML = `<div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>Working</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div>`;
+    created.innerHTML = `<div class="agent-timeline-head"><span class="agent-timeline-status"><span class="portal-running-spinner" aria-hidden="true"></span><span data-agent-timeline-status-text>${t("Working")}</span></span><span class="agent-timeline-meta" data-agent-timeline-meta></span></div><div class="agent-timeline-list" data-agent-timeline-items></div>`;
     article.appendChild(created);
     return created;
   })();
-  const statusText = timeline.status === "failed" ? "Failed" : (timeline.completed ? "Completed" : "Working");
+  const statusText = timeline.status === "failed" ? t("Failed") : (timeline.completed ? t("Completed") : t("Working"));
   const statusNode = timelineEl.querySelector("[data-agent-timeline-status-text]");
   if (statusNode) statusNode.textContent = statusText;
   timelineEl.classList.toggle("is-completed", Boolean(timeline.completed));
@@ -4434,7 +4456,7 @@ function renderAgentTimelineForCurrentRequestNow(agentId, chatState, options = {
   const listNode = timelineEl.querySelector("[data-agent-timeline-items]");
   if (listNode) {
     const rows = renderAgentTimelineRowsHtml(timeline);
-    listNode.innerHTML = rows || `<div class="agent-timeline-empty">Waiting for runtime events...</div>`;
+    listNode.innerHTML = rows || `<div class="agent-timeline-empty">${t("Waiting for runtime events...")}</div>`;
   }
   // Only the timeline's own icons changed; an unscoped pass re-creates every
   // icon in the document (a few hundred on a long conversation).
@@ -4484,13 +4506,13 @@ function syncAgentTimelineAssistantTextFromStream(chatState, requestCtx = {}, te
   const item = upsertAgentTimelineItem(timeline, "text:current", {
     kind: "text",
     status: "running",
-    title: "Writing response",
+    title: t("Writing response"),
     icon: "message-square",
   }, {
     kind: "text",
     status: "running",
-    title: "Writing response",
-    summary: truncateAgentTimelineText(timeline.assistantText || "Streaming response"),
+    title: t("Writing response"),
+    summary: truncateAgentTimelineText(timeline.assistantText || t("Streaming response")),
     icon: "message-square",
   });
   timeline.textById.current = item?.id || "text:current";
@@ -4861,7 +4883,7 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
       || entry?.data?.detail
       || entry?.data?.incomplete_reason
       || entry?.data?.message
-      || "regeneration failed"
+      || t("regeneration failed")
     );
     handleEditedRegenerationFailure(currentAgentId, chatState.currentRequest, failureMessage);
     return;
@@ -4974,7 +4996,7 @@ function ensureEventSocketForAgent(agentId, sessionId, requestId = null) {
       console.error("Portal chat event handler failed", error);
       const latestChatState = ensureChatState(agentId);
       if (latestChatState?.currentRequest) {
-        setChatStatus("Live event update failed. Waiting for the final response...", true);
+        setChatStatus(t("Live event update failed. Waiting for the final response..."), true);
       }
 
       syncSelectedAgentChatActionControls();
@@ -5036,17 +5058,17 @@ function computeRuntimeUiState(agent = {}, chatState = {}) {
 function runtimeUiStatusText(uiState = {}) {
   const runtimeHealth = uiState.normalizedRuntimeHealth || normalizeRuntimeHealthStatus(uiState.runtimeHealth);
   const sessionStatus = String(uiState.sessionStatus || "unknown").toLowerCase();
-  if (runtimeHealth === "offline") return "Runtime offline. Session status unknown.";
-  if (sessionStatus === "idle") return "Assistant online. Ready.";
-  if (sessionStatus === "busy") return "Assistant online. Response in progress.";
-  return "Assistant online. Session status unknown.";
+  if (runtimeHealth === "offline") return t("Runtime offline. Session status unknown.");
+  if (sessionStatus === "idle") return t("Assistant online. Ready.");
+  if (sessionStatus === "busy") return t("Assistant online. Response in progress.");
+  return t("Assistant online. Session status unknown.");
 }
 
 function renderRuntimeStateNotes(uiState = {}) {
   return `
-    <div class="portal-panel-note">Runtime: ${safe(uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown")}</div>
-    <div class="portal-panel-note">Session: ${safe(uiState.sessionStatus || "unknown")}</div>
-    <div class="portal-panel-note">Message: ${safe(uiState.messageProgress || "idle")}</div>
+    <div class="portal-panel-note">${safe(t("Runtime: {status}", { status: uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown" }))}</div>
+    <div class="portal-panel-note">${safe(t("Session: {status}", { status: uiState.sessionStatus || "unknown" }))}</div>
+    <div class="portal-panel-note">${safe(t("Message: {status}", { status: uiState.messageProgress || "idle" }))}</div>
   `;
 }
 
@@ -5151,7 +5173,7 @@ async function applyUiLocalePreference(preference) {
   } catch (error) {
     console.warn("Failed to save the language preference", error);
     markUiLocaleOption(previous);
-    showToast("Could not save the language preference", { variant: "error" });
+    showToast(t("Could not save the language preference"), { variant: "error" });
   }
 }
 
@@ -5166,7 +5188,7 @@ async function applyReplyLanguagePreference(preference) {
   } catch (error) {
     console.warn("Failed to save the reply language preference", error);
     select.value = previous;
-    showToast("Could not save the reply language preference", { variant: "error" });
+    showToast(t("Could not save the reply language preference"), { variant: "error" });
   }
 }
 
@@ -5215,9 +5237,9 @@ function setChatStatus(text, isError = false) {
   dom.chatStatus.dataset.messageProgress = uiState.messageProgress || "idle";
   const statusDetail = [
     runtimeSummary,
-    `Runtime: ${uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown"}`,
-    `Session: ${uiState.sessionStatus || "unknown"}`,
-    `Message: ${uiState.messageProgress || "idle"}`,
+    t("Runtime: {status}", { status: uiState.normalizedRuntimeHealth || uiState.runtimeHealth || "unknown" }),
+    t("Session: {status}", { status: uiState.sessionStatus || "unknown" }),
+    t("Message: {status}", { status: uiState.messageProgress || "idle" }),
   ];
   dom.chatStatus.title = statusDetail.join("\n");
   dom.chatStatus.setAttribute("aria-label", `${visibleStatusText}. ${statusDetail.join(". ")}`);
@@ -5352,7 +5374,7 @@ function renderCodeBlock(block) {
       <div class="message-codeblock">
         <div class="message-codeblock-toolbar">
           <span class="message-codeblock-lang">${safe(language || "text")}</span>
-          <button type="button" class="message-codeblock-copy" data-copy-text="${escapeHtmlAttr(code || "")}">Copy</button>
+          <button type="button" class="message-codeblock-copy" data-copy-text="${escapeHtmlAttr(code || "")}">${t("Copy")}</button>
         </div>
         <pre><code class="${className}">${safe(code || "")}</code></pre>
       </div>
@@ -5415,13 +5437,13 @@ function renderFileBlock(block) {
   const name = pickFirstMeaningfulBlockValue(block, ["name", "filename"]) || workspaceFileName(path);
   const downloadUrl = buildWorkspaceFileDownloadUrl(currentWorkspaceAgentId(), path);
   const action = String(block?.action || "").toLowerCase();
-  const actionLabel = action === "updated" ? "Updated" : (action === "created" ? "New" : "");
+  const actionLabel = action === "updated" ? t("Updated") : (action === "created" ? t("New") : "");
   const meta = formatFileBlockMeta(block, name);
   const description = getDisplayBlockText(block);
   // One template literal per fragment: the test-side function extractor does
   // not follow nested template literals.
   const downloadHtml = downloadUrl
-    ? `<a class="portal-btn is-secondary message-file-download" href="${escapeHtmlAttr(downloadUrl)}" download="${escapeHtmlAttr(name)}" rel="noopener">Download</a>`
+    ? `<a class="portal-btn is-secondary message-file-download" href="${escapeHtmlAttr(downloadUrl)}" download="${escapeHtmlAttr(name)}" rel="noopener">${t("Download")}</a>`
     : "";
   const badgeHtml = actionLabel
     ? ` <span class="message-file-badge is-${escapeHtmlAttr(action)}">${actionLabel}</span>`
@@ -5441,7 +5463,7 @@ function renderFileBlock(block) {
         </div>
         <div class="message-file-actions">
           ${downloadHtml}
-          <button type="button" class="portal-btn is-secondary message-file-open" data-server-path="${directoryAttr}" title="Open in Server Files">Open folder</button>
+          <button type="button" class="portal-btn is-secondary message-file-open" data-server-path="${directoryAttr}" title="${t("Open in Server Files")}">${t("Open folder")}</button>
         </div>
       </div>
       ${previewHtml}
@@ -5544,20 +5566,20 @@ async function copyText(text) {
 
 
 function setDebugCopyButtonCopied(button) {
-  const label = button?.dataset?.copyLabel || "text";
+  const label = button?.dataset?.copyLabel || t("text");
   const token = String(Date.now());
   button.dataset.copyStateToken = token;
   button.classList.add("is-copied");
-  button.title = `Copied ${label}`;
-  button.setAttribute("aria-label", `Copied ${label}`);
+  button.title = t("Copied {label}", { label });
+  button.setAttribute("aria-label", t("Copied {label}", { label }));
   button.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i>';
   renderIcons();
 
   window.setTimeout(() => {
     if (button.dataset.copyStateToken !== token) return;
     button.classList.remove("is-copied");
-    button.title = `Copy ${label}`;
-    button.setAttribute("aria-label", `Copy ${label}`);
+    button.title = t("Copy {label}", { label });
+    button.setAttribute("aria-label", t("Copy {label}", { label }));
     button.innerHTML = '<i data-lucide="copy" class="w-4 h-4"></i>';
     delete button.dataset.copyStateToken;
     renderIcons();
@@ -5574,7 +5596,7 @@ document.addEventListener("click", async (event) => {
   const text = source?.textContent || "";
 
   if (!text.trim()) {
-    showToast("Nothing to copy");
+    showToast(t("Nothing to copy"));
     return;
   }
 
@@ -5583,12 +5605,12 @@ document.addEventListener("click", async (event) => {
     const copied = await copyText(text);
     if (copied) {
       setDebugCopyButtonCopied(button);
-      showToast("Copied to clipboard");
+      showToast(t("Copied to clipboard"));
     } else {
-      showToast("Copy failed", { variant: 'error' });
+      showToast(t("Copy failed"), { variant: 'error' });
     }
   } catch (error) {
-    showToast("Copy failed", { variant: 'error' });
+    showToast(t("Copy failed"), { variant: 'error' });
   } finally {
     button.disabled = false;
   }
@@ -5632,14 +5654,14 @@ function enhanceMarkdownBlock(root) {
     const copyButton = document.createElement("button");
     copyButton.type = "button";
     copyButton.className = "message-codeblock-copy";
-    copyButton.textContent = "Copy";
+    copyButton.textContent = t("Copy");
     copyButton.addEventListener("click", async () => {
       const copied = await copyText(code.textContent || "");
       if (!copied) return;
-      copyButton.textContent = "Copied";
+      copyButton.textContent = t("Copied");
       copyButton.classList.add("is-copied");
       window.setTimeout(() => {
-        copyButton.textContent = "Copy";
+        copyButton.textContent = t("Copy");
         copyButton.classList.remove("is-copied");
       }, 1400);
     });
@@ -5654,10 +5676,10 @@ function enhanceMarkdownBlock(root) {
     button.addEventListener("click", async () => {
       const copied = await copyText(button.dataset.copyText || "");
       if (!copied) return;
-      button.textContent = "Copied";
+      button.textContent = t("Copied");
       button.classList.add("is-copied");
       window.setTimeout(() => {
-        button.textContent = "Copy";
+        button.textContent = t("Copy");
         button.classList.remove("is-copied");
       }, 1400);
     });
@@ -5791,7 +5813,7 @@ function diagramExportFilename(source, extension) {
 }
 
 function diagramTitle(source) {
-  return String(source || "").split("\n").map((line) => line.trim()).find((line) => line) || "Diagram";
+  return String(source || "").split("\n").map((line) => line.trim()).find((line) => line) || t("Diagram");
 }
 
 // ----- viewports: the inline canvas and the lightbox share this -------------
@@ -5980,11 +6002,11 @@ function ensureDiagramRefitObserver() {
 
 function buildDiagramZoomControlsHtml() {
   return (
-    '<div class="message-diagram-zoom" role="group" aria-label="Zoom">'
-    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="out" title="Zoom out" aria-label="Zoom out">−</button>'
-    + '<button type="button" class="message-diagram-zoom-level" data-diagram-zoom="reset" title="Reset to 100%">100%</button>'
-    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
-    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="fit" title="Fit to width">Fit</button>'
+    '<div class="message-diagram-zoom" role="group" aria-label="' + t("Zoom") + '">'
+    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="out" title="' + t("Zoom out") + '" aria-label="' + t("Zoom out") + '">−</button>'
+    + '<button type="button" class="message-diagram-zoom-level" data-diagram-zoom="reset" title="' + t("Reset to 100%") + '">100%</button>'
+    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="in" title="' + t("Zoom in") + '" aria-label="' + t("Zoom in") + '">+</button>'
+    + '<button type="button" class="message-diagram-zoom-btn" data-diagram-zoom="fit" title="' + t("Fit to width") + '">' + t("Fit") + '</button>'
     + '</div>'
   );
 }
@@ -5994,13 +6016,13 @@ function buildDiagramToolbarHtml() {
     '<div class="message-codeblock-toolbar message-diagram-toolbar">'
     + '<span class="message-codeblock-lang">mermaid</span>'
     + '<div class="message-diagram-actions">'
-    + '<div class="message-diagram-switch" role="group" aria-label="Diagram view">'
-    + '<button type="button" class="message-diagram-switch-btn" data-diagram-view="diagram" aria-pressed="false" disabled>Diagram</button>'
-    + '<button type="button" class="message-diagram-switch-btn is-active" data-diagram-view="code" aria-pressed="true">Code</button>'
+    + '<div class="message-diagram-switch" role="group" aria-label="' + t("Diagram view") + '">'
+    + '<button type="button" class="message-diagram-switch-btn" data-diagram-view="diagram" aria-pressed="false" disabled>' + t("Diagram") + '</button>'
+    + '<button type="button" class="message-diagram-switch-btn is-active" data-diagram-view="code" aria-pressed="true">' + t("Code") + '</button>'
     + '</div>'
     + buildDiagramZoomControlsHtml()
-    + '<button type="button" class="message-diagram-tool message-diagram-expand" data-diagram-expand title="Open large: zoom, full screen, download">Expand</button>'
-    + '<button type="button" class="message-codeblock-copy message-diagram-copy" title="Copy Mermaid source">Copy</button>'
+    + '<button type="button" class="message-diagram-tool message-diagram-expand" data-diagram-expand title="' + t("Open large: zoom, full screen, download") + '">' + t("Expand") + '</button>'
+    + '<button type="button" class="message-codeblock-copy message-diagram-copy" title="' + t("Copy Mermaid source") + '">' + t("Copy") + '</button>'
     + '</div>'
     + '</div>'
     + '<div class="message-diagram-status" role="status" hidden></div>'
@@ -6029,7 +6051,7 @@ function setDiagramError(component, message) {
   component.dataset.diagramState = "error";
   const status = component.querySelector(".message-diagram-status");
   if (status) {
-    status.textContent = `Diagram unavailable: ${message}`;
+    status.textContent = t("Diagram unavailable: {message}", { message });
     const fixButton = buildDiagramFixButton(component, message);
     if (fixButton) status.appendChild(fixButton);
     status.hidden = false;
@@ -6072,8 +6094,8 @@ function buildDiagramFixButton(component, message) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "message-diagram-fix";
-  button.textContent = "Ask assistant to fix";
-  button.title = "Put a fix request for this diagram in the message box";
+  button.textContent = t("Ask assistant to fix");
+  button.title = t("Put a fix request for this diagram in the message box");
   button.addEventListener("click", () => {
     fillComposer(composeDiagramFixRequest(message, diagramSource(component)));
   });
@@ -6081,7 +6103,7 @@ function buildDiagramFixButton(component, message) {
 }
 
 function flashCopied(button, idleLabel) {
-  button.textContent = "Copied";
+  button.textContent = t("Copied");
   button.classList.add("is-copied");
   window.setTimeout(() => {
     button.textContent = idleLabel;
@@ -6100,7 +6122,7 @@ function buildDiagramComponent(code) {
   component.dataset.view = "code";
   component.dataset.diagramState = "pending";
   component.innerHTML = buildDiagramToolbarHtml()
-    + '<div class="message-diagram-canvas" role="img" aria-label="Mermaid diagram" hidden></div>';
+    + '<div class="message-diagram-canvas" role="img" aria-label="' + t("Mermaid diagram") + '" hidden></div>';
   pre.parentNode.insertBefore(component, pre);
   pre.classList.add("message-diagram-source");
   component.appendChild(pre);
@@ -6121,7 +6143,7 @@ function buildDiagramComponent(code) {
     // Always the Mermaid source, whichever view is showing: that is what pastes
     // into a README, a pull request, or Gliffy's Mermaid import.
     const copied = await copyText(diagramSource(component));
-    if (copied) flashCopied(copyButton, "Copy");
+    if (copied) flashCopied(copyButton, t("Copy"));
   });
   return component;
 }
@@ -6192,6 +6214,8 @@ async function renderMermaidSvg(mermaid, theme, source, { exportable = false } =
   const id = `portal-mermaid-${mermaidRenderSeq}`;
   const result = await mermaid.render(id, source);
   const svg = String(result?.svg || "");
+  // English like the renderer's own errors: the message also goes into the
+  // fix request the model reads.
   if (!svg) throw new Error("the renderer produced no output");
   const entry = { id, svg };
   mermaidSvgCache.set(key, entry);
@@ -6284,24 +6308,24 @@ function ensureDiagramLightbox() {
   box.hidden = true;
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
-  box.setAttribute("aria-label", "Diagram");
+  box.setAttribute("aria-label", t("Diagram"));
   box.innerHTML = (
     '<div class="message-diagram-lightbox-backdrop" data-lightbox-close></div>'
     + '<div class="message-diagram-lightbox-panel">'
     + '<div class="message-diagram-lightbox-toolbar">'
-    + '<span class="message-diagram-lightbox-title">Diagram</span>'
+    + '<span class="message-diagram-lightbox-title">' + t("Diagram") + '</span>'
     + '<div class="message-diagram-actions">'
     + buildDiagramZoomControlsHtml()
-    + '<button type="button" class="message-diagram-tool" data-lightbox-fullscreen title="Full screen (F)">Full screen</button>'
-    + '<button type="button" class="message-diagram-tool" data-lightbox-open-tab title="Open the SVG in a new tab">Open in tab</button>'
-    + '<button type="button" class="message-diagram-tool" data-lightbox-download="svg" title="Download as SVG">SVG</button>'
-    + '<button type="button" class="message-diagram-tool" data-lightbox-download="png" title="Download as PNG">PNG</button>'
-    + '<button type="button" class="message-diagram-tool" data-lightbox-copy-png title="Copy as an image for Slack or slides">Copy PNG</button>'
-    + '<button type="button" class="message-codeblock-copy message-diagram-copy" data-lightbox-copy-source title="Copy Mermaid source">Copy source</button>'
-    + '<button type="button" class="message-diagram-tool message-diagram-lightbox-close" data-lightbox-close title="Close (Esc)" aria-label="Close">×</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-fullscreen title="' + t("Full screen (F)") + '">' + t("Full screen") + '</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-open-tab title="' + t("Open the SVG in a new tab") + '">' + t("Open in tab") + '</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-download="svg" title="' + t("Download as SVG") + '">SVG</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-download="png" title="' + t("Download as PNG") + '">PNG</button>'
+    + '<button type="button" class="message-diagram-tool" data-lightbox-copy-png title="' + t("Copy as an image for Slack or slides") + '">' + t("Copy PNG") + '</button>'
+    + '<button type="button" class="message-codeblock-copy message-diagram-copy" data-lightbox-copy-source title="' + t("Copy Mermaid source") + '">' + t("Copy source") + '</button>'
+    + '<button type="button" class="message-diagram-tool message-diagram-lightbox-close" data-lightbox-close title="' + t("Close (Esc)") + '" aria-label="' + t("Close") + '">×</button>'
     + '</div>'
     + '</div>'
-    + '<div class="message-diagram-lightbox-viewport" tabindex="0" aria-label="Diagram, drag to pan, Ctrl + wheel to zoom"></div>'
+    + '<div class="message-diagram-lightbox-viewport" tabindex="0" aria-label="' + t("Diagram, drag to pan, Ctrl + wheel to zoom") + '"></div>'
     + '</div>'
   );
   document.body.appendChild(box);
@@ -6320,7 +6344,7 @@ function ensureDiagramLightbox() {
     if (target.closest("[data-lightbox-copy-png]")) { copyDiagramPng(target.closest("[data-lightbox-copy-png]")); return; }
     const copySource = target.closest("[data-lightbox-copy-source]");
     if (copySource) {
-      copyText(diagramSource(diagramLightboxState?.component)).then((copied) => { if (copied) flashCopied(copySource, "Copy source"); });
+      copyText(diagramSource(diagramLightboxState?.component)).then((copied) => { if (copied) flashCopied(copySource, t("Copy source")); });
     }
   });
   box.addEventListener("keydown", (event) => {
@@ -6335,7 +6359,7 @@ function ensureDiagramLightbox() {
     const active = document.fullscreenElement === box;
     box.classList.toggle("is-fullscreen", active);
     const button = box.querySelector("[data-lightbox-fullscreen]");
-    if (button) button.textContent = active ? "Exit full screen" : "Full screen";
+    if (button) button.textContent = active ? t("Exit full screen") : t("Full screen");
     scheduleDiagramRefit();
   });
   diagramLightbox = box;
@@ -6382,7 +6406,7 @@ function toggleDiagramFullscreen() {
   }
   const request = box.requestFullscreen || box.webkitRequestFullscreen;
   if (typeof request !== "function") {
-    showToast("Full screen is not available in this browser");
+    showToast(t("Full screen is not available in this browser"));
     return;
   }
   // Browsers report a refusal either as a rejected promise or, in embedded
@@ -6393,7 +6417,7 @@ function toggleDiagramFullscreen() {
   } catch (error) {
     outcome = Promise.reject(error);
   }
-  outcome.catch(() => showToast("The browser blocked full screen", { variant: "error" }));
+  outcome.catch(() => showToast(t("The browser blocked full screen"), { variant: "error" }));
 }
 
 function portalSurfaceColor(theme) {
@@ -6436,11 +6460,11 @@ function standaloneSvgText(svgMarkup, theme) {
 
 async function exportableDiagramSvg() {
   const state = diagramLightboxState;
-  if (!state) throw new Error("no diagram is open");
+  if (!state) throw new Error(t("no diagram is open"));
   const mermaid = await ensureMermaidLoaded();
   const entry = await renderMermaidSvg(mermaid, state.theme, state.source, { exportable: true });
   const text = standaloneSvgText(entry.svg, state.theme);
-  if (!text) throw new Error("the diagram could not be exported");
+  if (!text) throw new Error(t("the diagram could not be exported"));
   const holder = document.createElement("div");
   holder.innerHTML = entry.svg;
   const svg = holder.querySelector("svg");
@@ -6465,11 +6489,11 @@ async function openDiagramInTab() {
     const { text } = await exportableDiagramSvg();
     const url = URL.createObjectURL(new Blob([text], { type: "image/svg+xml;charset=utf-8" }));
     const opened = window.open(url, "_blank", "noopener");
-    if (!opened) showToast("The browser blocked the new tab; allow pop-ups for Portal", { variant: "error" });
+    if (!opened) showToast(t("The browser blocked the new tab; allow pop-ups for Portal"), { variant: "error" });
     // The tab has loaded long before this; a later reload of it would need a fresh copy.
     window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
   } catch (error) {
-    showToast(`Could not open the diagram: ${diagramErrorSummary(error)}`, { variant: "error" });
+    showToast(t("Could not open the diagram: {error}", { error: diagramErrorSummary(error) }), { variant: "error" });
   }
 }
 
@@ -6520,26 +6544,26 @@ async function downloadDiagram(format) {
     if (format === "png") {
       // Some diagram types keep HTML labels, which taint the canvas; the SVG
       // still carries everything.
-      showToast(`PNG export failed (${diagramErrorSummary(error)}); downloading the SVG instead`, { variant: "error" });
+      showToast(t("PNG export failed ({error}); downloading the SVG instead", { error: diagramErrorSummary(error) }), { variant: "error" });
       downloadDiagram("svg");
       return;
     }
-    showToast(`Could not export the diagram: ${diagramErrorSummary(error)}`, { variant: "error" });
+    showToast(t("Could not export the diagram: {error}", { error: diagramErrorSummary(error) }), { variant: "error" });
   }
 }
 
 async function copyDiagramPng(button) {
   if (!diagramLightboxState) return;
   if (typeof ClipboardItem !== "function" || !navigator.clipboard?.write) {
-    showToast("This browser cannot copy images; download the PNG instead");
+    showToast(t("This browser cannot copy images; download the PNG instead"));
     return;
   }
   try {
     const blob = await diagramPngBlob();
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-    if (button) flashCopied(button, "Copy PNG");
+    if (button) flashCopied(button, t("Copy PNG"));
   } catch (error) {
-    showToast(`Could not copy the image: ${diagramErrorSummary(error)}`, { variant: "error" });
+    showToast(t("Could not copy the image: {error}", { error: diagramErrorSummary(error) }), { variant: "error" });
   }
 }
 
@@ -6724,8 +6748,8 @@ function applyToolPanelState() {
   if (dom.pinToolPanel) {
     dom.pinToolPanel.classList.toggle("is-active", pinned);
     dom.pinToolPanel.setAttribute("aria-pressed", pinned ? "true" : "false");
-    dom.pinToolPanel.setAttribute("title", pinned ? "Unpin panel" : "Pin panel");
-    dom.pinToolPanel.setAttribute("aria-label", pinned ? "Unpin panel" : "Pin panel");
+    dom.pinToolPanel.setAttribute("title", pinned ? t("Unpin panel") : t("Pin panel"));
+    dom.pinToolPanel.setAttribute("aria-label", pinned ? t("Unpin panel") : t("Pin panel"));
     dom.pinToolPanel.innerHTML = `<i data-lucide="${pinned ? "pin-off" : "pin"}" class="w-5 h-5"></i>`;
   }
 
@@ -6755,7 +6779,7 @@ function toggleToolPanelPinned() {
   const wantsToPin = !state.toolPanelPinned;
   if (wantsToPin) {
     if (!isWideEnoughToPinToolPanel()) {
-      showToast("Pinning is available on wider screens.");
+      showToast(t("Pinning is available on wider screens."));
       return;
     }
     clampToolPanelWidthForPinned();
@@ -6783,7 +6807,7 @@ async function api(path, options = {}) {
 }
 
 async function handleErrorResponse(resp) {
-  const fallbackMessage = `Request failed (HTTP ${resp.status})`;
+  const fallbackMessage = t("Request failed (HTTP {status})", { status: resp.status });
   const contentType = resp.headers.get("content-type") || "";
   try {
     const rawText = await resp.text();
@@ -6793,7 +6817,9 @@ async function handleErrorResponse(resp) {
       try {
         const err = JSON.parse(rawText);
         const detail = err?.detail;
-        if (typeof detail === "string" && detail.trim()) return detail;
+        // Portal details are English keys (N_() at the raise site): shown in
+        // the page's language when the catalogue knows them.
+        if (typeof detail === "string" && detail.trim()) return tv(detail);
         if (Array.isArray(detail)) {
           const items = detail
             .map((e) => {
@@ -6825,12 +6851,12 @@ async function handleErrorResponse(resp) {
 }
 
 async function agentApi(path, options = {}) {
-  if (!state.selectedAgentId) throw new Error("No selected assistant");
+  if (!state.selectedAgentId) throw new Error(t("No selected assistant"));
   return api(`/a/${state.selectedAgentId}${path}`, options);
 }
 
 async function agentApiFor(agentId, path, options = {}) {
-  if (!agentId) throw new Error("No selected assistant");
+  if (!agentId) throw new Error(t("No selected assistant"));
   return api(`/a/${agentId}${path}`, options);
 }
 
@@ -6847,11 +6873,11 @@ function focusComposer() {
 // one place: app.html used to carry a second copy, and that copy -- author
 // "Assistant", timestamp "Ready" -- was what a paused assistant showed before
 // any script had run.
-const DEFAULT_WELCOME_MARKDOWN = "👋 Welcome! Ask me anything.";
+const DEFAULT_WELCOME_MARKDOWN = t("👋 Welcome! Ask me anything.");
 
 function defaultWelcomeMessage() {
   const welcomeAgentName = getSelectedAssistantDisplayName();
-  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">Ready</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render" data-md="${escapeHtmlAttr(DEFAULT_WELCOME_MARKDOWN)}"></div></article></div>`;
+  return `<div class="message-row message-row-assistant" data-welcome="1"><div class="message-meta"><span class="message-author">${escapeHtml(welcomeAgentName)}</span><span class="message-timestamp">${t("Ready")}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render" data-md="${escapeHtmlAttr(DEFAULT_WELCOME_MARKDOWN)}"></div></article></div>`;
 }
 
 /* ===== paused assistant ====================================================
@@ -6872,15 +6898,15 @@ function assistantPausedMessage(agent, status) {
   const health = agentHealth(agent);
   let markdown;
   if (status === "stopped" && canWriteAgent(agent)) {
-    markdown = `**${name} is paused**, so no conversation is loaded yet. Sending a message starts it and opens a new chat. Earlier conversations are kept under Sessions.`;
+    markdown = t("**{name} is paused**, so no conversation is loaded yet. Sending a message starts it and opens a new chat. Earlier conversations are kept under Sessions.", { name });
   } else if (status === "stopped") {
-    markdown = `**${name} is paused.** Chat will open here once it is started.`;
+    markdown = t("**{name} is paused.** Chat will open here once it is started.", { name });
   } else if (status === "restarting") {
-    markdown = `**${name} is restarting.** Chat will open here once it is ready.`;
+    markdown = t("**{name} is restarting.** Chat will open here once it is ready.", { name });
   } else if (["creating", "starting", "pending"].includes(status)) {
-    markdown = `**${name} is starting.** Chat will open here once it is ready.`;
+    markdown = t("**{name} is starting.** Chat will open here once it is ready.", { name });
   } else {
-    markdown = `**${name} is not running.** Chat will open here once it is started.`;
+    markdown = t("**{name} is not running.** Chat will open here once it is started.", { name });
   }
   return `<div class="message-row message-row-assistant" data-assistant-paused="1" data-assistant-status="${escapeHtmlAttr(status)}"><div class="message-meta"><span class="message-author">${escapeHtml(name)}</span><span class="message-timestamp">${escapeHtml(health.label)}</span></div><article class="message-surface message-surface-assistant assistant-message"><div class="message-markdown md-render" data-md="${escapeHtmlAttr(markdown)}"></div></article></div>`;
 }
@@ -7275,8 +7301,8 @@ function agentHealth(agent) {
     return {
       key: "attention",
       tone: "error",
-      label: "Needs attention",
-      detail: lastError ? compactText(lastError, 120) : "The runtime reported an error.",
+      label: t("Needs attention"),
+      detail: lastError ? compactText(lastError, 120) : t("The runtime reported an error."),
       action: writable ? (status === "running" ? "Restart" : "Start") : "",
     };
   }
@@ -7284,8 +7310,8 @@ function agentHealth(agent) {
     return {
       key: "starting",
       tone: "warning",
-      label: "Restarting",
-      detail: "Runtime is restarting. Chat will be available soon.",
+      label: t("Restarting"),
+      detail: t("Runtime is restarting. Chat will be available soon."),
       action: "",
       busy: true,
     };
@@ -7294,8 +7320,8 @@ function agentHealth(agent) {
     return {
       key: "starting",
       tone: "warning",
-      label: "Starting",
-      detail: "Runtime is preparing. Chat will be available soon.",
+      label: t("Starting"),
+      detail: t("Runtime is preparing. Chat will be available soon."),
       action: "",
       busy: true,
     };
@@ -7304,8 +7330,8 @@ function agentHealth(agent) {
     return {
       key: "deleting",
       tone: "neutral",
-      label: "Deleting",
-      detail: "This assistant is being removed.",
+      label: t("Deleting"),
+      detail: t("This assistant is being removed."),
       action: "",
       busy: true,
     };
@@ -7314,8 +7340,8 @@ function agentHealth(agent) {
     return {
       key: "stopping",
       tone: "neutral",
-      label: "Stopping",
-      detail: "Pausing the runtime.",
+      label: t("Stopping"),
+      detail: t("Pausing the runtime."),
       action: "",
       busy: true,
     };
@@ -7326,8 +7352,8 @@ function agentHealth(agent) {
     return {
       key: "ready",
       tone: "warning",
-      label: "Restart to apply",
-      detail: "Your connector settings changed since this assistant started. Restart it when it is free to use them.",
+      label: t("Restart to apply"),
+      detail: t("Your connector settings changed since this assistant started. Restart it when it is free to use them."),
       action: writable ? "Restart" : "",
     };
   }
@@ -7335,25 +7361,25 @@ function agentHealth(agent) {
     return {
       key: "ready",
       tone: "success",
-      label: "Ready",
-      detail: "Ready to chat.",
+      label: t("Ready"),
+      detail: t("Ready to chat."),
       action: "",
     };
   }
   return {
     key: "stopped",
     tone: "neutral",
-    label: "Stopped",
-    detail: writable ? "Start this assistant when you need it." : "This assistant is not running.",
+    label: t("Stopped"),
+    detail: writable ? t("Start this assistant when you need it.") : t("This assistant is not running."),
     action: writable ? "Start" : "",
   };
 }
 
 function agentScopeLabel(agent) {
   const scope = agentScope(agent);
-  if (scope === "mine") return "Mine";
-  if (scope === "public") return "Public";
-  return `Shared by User ${agent?.owner_user_id ?? "-"}`;
+  if (scope === "mine") return t("Mine");
+  if (scope === "public") return t("Public");
+  return t("Shared by User {id}", { id: agent?.owner_user_id ?? "-" });
 }
 
 function agentMatchesFilters(agent) {
@@ -7393,7 +7419,7 @@ function syncAgentFilterControls(visibleCount = null) {
     const shown = visibleCount === null ? visibleAgents().length : visibleCount;
     const parts = [];
     if (filters.query) parts.push(`"${filters.query}"`);
-    dom.agentFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "assistant")}`;
+    dom.agentFilterSummary.textContent = parts.length ? t("{shown} of {total} shown · {filters}", { shown, total, filters: parts.join(", ") }) : tn(total, "{n} assistant", "{n} assistants");
   }
 }
 
@@ -7404,13 +7430,13 @@ function renderAgentList() {
   dom.mineList.innerHTML = "";
   syncAgentFilterControls();
   if (!state.mineAgents.length) {
-    dom.mineList.innerHTML = '<div class="portal-empty-note">No assistants</div>';
+    dom.mineList.innerHTML = `<div class="portal-empty-note">${t("No assistants")}</div>`;
     return;
   }
   const filteredAgents = visibleAgents();
   syncAgentFilterControls(filteredAgents.length);
   if (!filteredAgents.length) {
-    dom.mineList.innerHTML = `<div class="portal-empty-note">${hasActiveAgentFilters() ? "No assistants match these filters." : "No assistants"}</div>`;
+    dom.mineList.innerHTML = `<div class="portal-empty-note">${hasActiveAgentFilters() ? t("No assistants match these filters.") : t("No assistants")}</div>`;
     return;
   }
 
@@ -7439,16 +7465,16 @@ function renderAgentList() {
       row.dataset.agentId = agent.id;
       row.className = `portal-agent-row is-${safe(health.tone)}${isActive ? " is-active" : ""}`;
       if (isActive) row.setAttribute("aria-current", "true");
-      row.title = `${agent.name || "Assistant"}\nStatus: ${status}\n${health.detail}`;
-      row.setAttribute("aria-label", `${agent.name || "Assistant"}. Status ${status}. ${health.detail}`);
-      const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent))}</span>`;
+      row.title = `${agent.name || t("Assistant")}\n${t("Status: {status}", { status })}\n${health.detail}`;
+      row.setAttribute("aria-label", `${agent.name || t("Assistant")}. ${t("Status {status}", { status })}. ${health.detail}`);
+      const sharedBadge = agentScope(agent) === "mine" ? "" : `<span class="portal-agent-shared">${safe(agentScope(agent) === "public" ? t("public") : t("shared"))}</span>`;
       const unreadBadge = chatState?.unreadCount ? `<span class="portal-agent-unread">${chatState.unreadCount}</span>` : "";
       let runtimeBadge = "";
-      if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = '<span class="portal-agent-chat-badge is-running">running</span>';
+      if (hasActiveChatRequestForAgent(agent.id)) runtimeBadge = `<span class="portal-agent-chat-badge is-running">${t("running")}</span>`;
       const runtimeType = String(agent.runtime_type || "native").trim().toLowerCase() || "native";
       const runtimeTypeBadge = `<span class="portal-agent-chat-badge">${safe(runtimeType)}</span>`;
       const rowBadges = `${runtimeTypeBadge}${runtimeBadge}${unreadBadge}${sharedBadge}`;
-      const statusLabel = `Status: ${status}`;
+      const statusLabel = t("Status: {status}", { status });
       const dotClass = `portal-agent-status-dot status-${safe(status)}${health.busy ? " is-pulsing" : ""}`;
       row.innerHTML = `
         <div class="portal-agent-row-head">
@@ -7465,9 +7491,9 @@ function renderAgentList() {
     dom.mineList.append(section);
   };
 
-  renderSection("My Space", mine, { showTitle: false });
-  renderSection("Shared", shared);
-  renderSection("Public", publicAgents);
+  renderSection(t("My Space"), mine, { showTitle: false });
+  renderSection(t("Shared"), shared);
+  renderSection(t("Public"), publicAgents);
   renderIcons();
 }
 
@@ -7526,13 +7552,13 @@ function syncAgentListStatus(agentIds = null) {
 
     TONES.forEach((tone) => row.classList.remove(tone));
     row.classList.add(`is-${health.tone}`);
-    row.title = `${agent.name || "Assistant"}\nStatus: ${status}\n${health.detail}`;
-    row.setAttribute("aria-label", `${agent.name || "Assistant"}. Status ${status}. ${health.detail}`);
+    row.title = `${agent.name || t("Assistant")}\n${t("Status: {status}", { status })}\n${health.detail}`;
+    row.setAttribute("aria-label", `${agent.name || t("Assistant")}. ${t("Status {status}", { status })}. ${health.detail}`);
 
     const dot = row.querySelector(".portal-agent-status-dot");
     if (dot) {
       dot.className = `portal-agent-status-dot status-${status}${health.busy ? " is-pulsing" : ""}`;
-      dot.title = `Status: ${status}`;
+      dot.title = t("Status: {status}", { status });
     }
     const label = row.querySelector(".portal-agent-status-label");
     if (label) {
@@ -7570,7 +7596,7 @@ function agentHealthCardHtml(agent) {
   const actionLabel = agentHealthActionLabel(health);
   const actionButton = actionLabel ? `
     <button class="portal-btn is-secondary" type="button" data-agent-health-action="${escapeHtmlAttr(actionLabel)}">
-      <i data-lucide="${actionLabel === "Edit setup" ? "settings" : (actionLabel === "Restart" ? "rotate-cw" : "play")}" class="w-4 h-4"></i>${safe(actionLabel)}
+      <i data-lucide="${actionLabel === "Edit setup" ? "settings" : (actionLabel === "Restart" ? "rotate-cw" : "play")}" class="w-4 h-4"></i>${safe(actionLabel === "Edit setup" ? t("Edit setup") : (actionLabel === "Restart" ? t("Restart") : (actionLabel === "Start" ? t("Start") : actionLabel)))}
     </button>
   ` : "";
   return `
@@ -7611,8 +7637,8 @@ function renderAgentMeta(agent) {
   const dateStr = created.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   // Format resources as pills
-  const cpu = agent.cpu || 'N/A';
-  const mem = agent.memory || 'N/A';
+  const cpu = agent.cpu || t("N/A");
+  const mem = agent.memory || t("N/A");
   const disk = agent.disk_size_gi;
 
   const effectiveAgentSettingsRepoUrl = agent.effective_agent_settings_repo_url || agent.agent_settings_repo_url || state.agentDefaults?.default_agent_settings_repo_url || "";
@@ -7632,22 +7658,22 @@ function renderAgentMeta(agent) {
   if (effectiveAgentSettingsRepoUrl) {
     const branchLine = effectiveAgentSettingsBranch
       ? `
-        <div class="portal-detail-subtle">Branch: ${safe(effectiveAgentSettingsBranch)}</div>
+        <div class="portal-detail-subtle">${t("Branch: {branch}", { branch: safe(effectiveAgentSettingsBranch) })}</div>
       `
       : "";
     const subdirLine = effectiveAgentSettingsSubdir
       ? `
-        <div class="portal-detail-subtle">Subdirectory: ${safe(effectiveAgentSettingsSubdir)}</div>
+        <div class="portal-detail-subtle">${t("Subdirectory: {path}", { path: safe(effectiveAgentSettingsSubdir) })}</div>
       `
       : "";
     const defaultIndicator = isDefaultAgentSettingsRepo
       ? `
-        <div class="portal-detail-subtle">Using configured default</div>
+        <div class="portal-detail-subtle">${t("Using configured default")}</div>
       `
       : "";
     agentSettingsSection = `
       <div class="portal-detail-row">
-        <div class="portal-detail-label">Instructions Repository</div>
+        <div class="portal-detail-label">${t("Instructions Repository")}</div>
         <div class="portal-detail-value"><code>${safe(effectiveAgentSettingsRepoUrl)}</code></div>
         ${branchLine}
         ${subdirLine}
@@ -7658,21 +7684,21 @@ function renderAgentMeta(agent) {
   if (effectiveSkillRepoUrl) {
     const branchLine = effectiveSkillBranch
       ? `
-        <div class="portal-detail-subtle">Branch: ${safe(effectiveSkillBranch)}</div>
+        <div class="portal-detail-subtle">${t("Branch: {branch}", { branch: safe(effectiveSkillBranch) })}</div>
       `
       : "";
     const defaultIndicator = isDefaultSkillRepo
       ? `
-        <div class="portal-detail-subtle">Using configured default</div>
+        <div class="portal-detail-subtle">${t("Using configured default")}</div>
       `
       : "";
     repoSection = `
       <div class="portal-detail-row">
-        <div class="portal-detail-label">Skills Repository</div>
+        <div class="portal-detail-label">${t("Skills Repository")}</div>
         <div class="portal-detail-value"><code>${safe(effectiveSkillRepoUrl)}</code></div>
         ${branchLine}
         ${defaultIndicator}
-        <div id="agent-skill-git-commit" class="portal-detail-subtle">Loading skill commit...</div>
+        <div id="agent-skill-git-commit" class="portal-detail-subtle">${t("Loading skill commit...")}</div>
       </div>
     `;
   }
@@ -7681,25 +7707,25 @@ function renderAgentMeta(agent) {
     <div class="portal-detail-stack">
       ${agentHealthCardHtml(agent)}
       <div class="portal-detail-section">
-        <div class="portal-detail-label">Assistant ID</div>
+        <div class="portal-detail-label">${t("Assistant ID")}</div>
         <code class="portal-detail-code">${safe(agent.id)}</code>
       </div>
       <div class="portal-detail-section">
-        <div class="portal-detail-label">Runtime Type</div>
+        <div class="portal-detail-label">${t("Runtime Type")}</div>
         <div class="portal-detail-value">${safe(runtimeType)}</div>
       </div>
       <div class="portal-detail-section">
-        <div class="portal-detail-label">Image</div>
+        <div class="portal-detail-label">${t("Image")}</div>
         <code class="portal-detail-code">${safe(agent.image)}</code>
       </div>
       ${agentSettingsSection}
       ${repoSection}
       <div class="portal-detail-section">
-        <div class="portal-detail-label">Created</div>
+        <div class="portal-detail-label">${t("Created")}</div>
         <div class="portal-detail-value">${dateStr}</div>
       </div>
       <div class="portal-detail-section">
-        <div class="portal-detail-label">Resources</div>
+        <div class="portal-detail-label">${t("Resources")}</div>
         <div class="portal-resource-pills">
           <span class="portal-resource-pill is-cpu">
             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
@@ -7722,7 +7748,7 @@ function renderAgentMeta(agent) {
     try {
       await handleAgentHealthAction(agent, event.currentTarget.dataset.agentHealthAction);
     } catch (error) {
-      showToast(`Action failed: ${error.message}`, { variant: 'error' });
+      showToast(t("Action failed: {error}", { error: error.message }), { variant: 'error' });
     }
   });
 
@@ -7743,7 +7769,7 @@ async function fetchSkillGitInfo(agentId) {
     const data = await api(`/a/${agentId}/api/skill-git-info`);
     if (data.commit_id) {
       const shortCommit = data.commit_id.substring(0, 7);
-      commitEl.textContent = 'Skill commit: ';
+      commitEl.textContent = t("Skill commit:") + " ";
 
       // Validate URL to prevent XSS
       let safeUrl = null;
@@ -7774,17 +7800,17 @@ async function fetchSkillGitInfo(agentId) {
       }
     } else if (data.status === 'running') {
       commitEl.className = "portal-detail-subtle";
-      commitEl.textContent = "Skill commit: unavailable";
+      commitEl.textContent = t("Skill commit: unavailable");
     } else if (data.status === 'error') {
       commitEl.className = "portal-detail-subtle";
-      commitEl.textContent = "Skill commit: unavailable";
+      commitEl.textContent = t("Skill commit: unavailable");
     } else {
       commitEl.className = "portal-detail-subtle";
-      commitEl.textContent = "Skill commit: unavailable";
+      commitEl.textContent = t("Skill commit: unavailable");
     }
   } catch (e) {
     commitEl.className = "portal-detail-subtle";
-    commitEl.textContent = "Skill commit: unavailable";
+    commitEl.textContent = t("Skill commit: unavailable");
   }
 }
 
@@ -7795,7 +7821,7 @@ async function fetchUsageForAgent(agentId) {
     const data = await api(`/a/${agentId}/api/usage`);
     if (!data) {
       usageEl.className = "portal-detail-subtle";
-      usageEl.textContent = "No usage data";
+      usageEl.textContent = t("No usage data");
       return;
     }
     const global = data.global || {};
@@ -7812,31 +7838,31 @@ async function fetchUsageForAgent(agentId) {
     const reasoningTokens = Number(global.total_reasoning_tokens);
     const hasReasoning = global.total_reasoning_tokens !== undefined && global.total_reasoning_tokens !== null && Number.isFinite(reasoningTokens);
     const costCard = hasCredits
-      ? `<div class="portal-usage-card"><span class="portal-usage-k">Est. credits</span><strong class="portal-usage-v">${(typeof formatCredits === "function" ? formatCredits(credits) : credits.toFixed(1)) || "0"}</strong></div>`
-      : `<div class="portal-usage-card"><span class="portal-usage-k">Cost</span><strong class="portal-usage-v">$${cost.toFixed(4)}</strong></div>`;
+      ? `<div class="portal-usage-card"><span class="portal-usage-k">${t("Est. credits")}</span><strong class="portal-usage-v">${(typeof formatCredits === "function" ? formatCredits(credits) : credits.toFixed(1)) || "0"}</strong></div>`
+      : `<div class="portal-usage-card"><span class="portal-usage-k">${t("Cost")}</span><strong class="portal-usage-v">$${cost.toFixed(4)}</strong></div>`;
     usageEl.innerHTML = `
-      <div class="portal-detail-label">Usage (30 days)</div>
+      <div class="portal-detail-label">${t("Usage (30 days)")}</div>
       <div class="portal-usage-grid">
         <div class="portal-usage-card">
-          <span class="portal-usage-k">Requests</span>
+          <span class="portal-usage-k">${t("Requests")}</span>
           <strong class="portal-usage-v">${reqCount}</strong>
         </div>
         ${costCard}
         <div class="portal-usage-card">
-          <span class="portal-usage-k">Input</span>
+          <span class="portal-usage-k">${t("Input")}</span>
           <strong class="portal-usage-v">${inputTokens.toLocaleString()}</strong>
         </div>
         <div class="portal-usage-card">
-          <span class="portal-usage-k">Output</span>
+          <span class="portal-usage-k">${t("Output")}</span>
           <strong class="portal-usage-v">${outputTokens.toLocaleString()}</strong>
         </div>
-        ${hasCached ? `<div class="portal-usage-card"><span class="portal-usage-k">Cached input</span><strong class="portal-usage-v">${cachedTokens.toLocaleString()}</strong></div>` : ""}
-        ${hasReasoning ? `<div class="portal-usage-card"><span class="portal-usage-k">Reasoning</span><strong class="portal-usage-v">${reasoningTokens.toLocaleString()}</strong></div>` : ""}
+        ${hasCached ? `<div class="portal-usage-card"><span class="portal-usage-k">${t("Cached input")}</span><strong class="portal-usage-v">${cachedTokens.toLocaleString()}</strong></div>` : ""}
+        ${hasReasoning ? `<div class="portal-usage-card"><span class="portal-usage-k">${t("Reasoning")}</span><strong class="portal-usage-v">${reasoningTokens.toLocaleString()}</strong></div>` : ""}
       </div>
     `;
   } catch (e) {
     usageEl.className = "portal-inline-error";
-    usageEl.textContent = "No usage data";
+    usageEl.textContent = t("No usage data");
   }
 }
 
@@ -7865,19 +7891,19 @@ function renderAgentActions(agent, status) {
   };
 
   const actions = [
-    { label: "Start", icon: "play", variantClass: "is-success", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
-    { label: "Stop", icon: "square", variantClass: "is-warning", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
-    { label: "Restart", icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
-    { label: "Edit", icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
-    { label: agent.visibility === "public" ? "Unshare" : "Share", icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
-    { label: "Delete", icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent) },
+    { label: t("Start"), icon: "play", variantClass: "is-success", disabled: !writable || !(status === "stopped" || status === "failed"), onClick: () => action(`/api/agents/${agent.id}/start`) },
+    { label: t("Stop"), icon: "square", variantClass: "is-warning", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/stop`) },
+    { label: t("Restart"), icon: "rotate-cw", variantClass: "is-info", disabled: !writable || status !== "running", onClick: () => action(`/api/agents/${agent.id}/restart`) },
+    { label: t("Edit"), icon: "pencil", variantClass: "is-neutral", disabled: !writable, onClick: () => openEditDialog(agent) },
+    { label: agent.visibility === "public" ? t("Unshare") : t("Share"), icon: agent.visibility === "public" ? "lock" : "share-2", variantClass: "is-info", disabled: !writable, onClick: () => action(`/api/agents/${agent.id}/${agent.visibility === "public" ? "unshare" : "share"}`) },
+    { label: t("Delete"), icon: "trash-2", variantClass: "is-danger", disabled: !writable, onClick: () => removeAgent(agent) },
   ];
   actions.forEach((cfg) => container.append(buildIconBtn(cfg)));
 
   if (!writable) {
     const note = document.createElement("div");
     note.className = "portal-detail-note";
-    note.textContent = "Read-only assistant.";
+    note.textContent = t("Read-only assistant.");
     container.append(note);
   }
 
@@ -7969,8 +7995,8 @@ function setSelectedStatusText(status = "idle") {
   const health = agentHealth(agent);
   dom.selectedStatus.textContent = health.label;
   dom.selectedStatus.className = `portal-status-badge portal-header-status-badge is-${health.tone}${health.busy ? " is-pulsing" : ""}`;
-  dom.selectedStatus.title = `${health.detail}\nRuntime status: ${normalized}`;
-  dom.selectedStatus.setAttribute("aria-label", `Assistant status: ${health.label}. ${health.detail}`);
+  dom.selectedStatus.title = `${health.detail}\n${t("Runtime status: {status}", { status: normalized })}`;
+  dom.selectedStatus.setAttribute("aria-label", t("Assistant status: {label}. {detail}", { label: health.label, detail: health.detail }));
 }
 
 // Tells assistant_startup.js which assistant to watch. Selection can change
@@ -8095,15 +8121,15 @@ function applyHomeEmptyState() {
   const hasAnyAgent = Array.isArray(state.mineAgents) && state.mineAgents.length > 0;
 
   if (dom.homeTitle) {
-    dom.homeTitle.textContent = hasAnyAgent ? "Select an assistant" : "Create your first assistant";
+    dom.homeTitle.textContent = hasAnyAgent ? t("Select an assistant") : t("Create your first assistant");
   }
   if (dom.homeSubtitle) {
     dom.homeSubtitle.textContent = hasAnyAgent
-      ? "Choose an assistant from the left to start chatting."
-      : "An assistant is a running workspace you chat with. A set of connections is already set up for you, so you can create one now.";
+      ? t("Choose an assistant from the left to start chatting.")
+      : t("An assistant is a running workspace you chat with. A set of connections is already set up for you, so you can create one now.");
   }
   if (dom.homeAgentSummary) {
-    dom.homeAgentSummary.textContent = hasAnyAgent ? "No assistant selected." : "No assistants yet.";
+    dom.homeAgentSummary.textContent = hasAnyAgent ? t("No assistant selected.") : t("No assistants yet.");
   }
   if (dom.homeCreateAgentBtn) {
     dom.homeCreateAgentBtn.classList.toggle("hidden", hasAnyAgent);
@@ -8120,15 +8146,15 @@ async function syncSelectedAgentState() {
 
   if (!agent) {
     announceStartupWatch(null);
-    dom.embedTitle.textContent = "Select an assistant";
+    dom.embedTitle.textContent = t("Select an assistant");
     setSelectedStatusText("idle");
-    setChatStatus("Ready");
-    setButtonDisabled(dom.headerNewChatBtn, true, "Select an assistant first");
-    setButtonDisabled(sessionsBtn, true, "Select an assistant first");
-    setButtonDisabled(dom.contextUsageBtn, true, "Select an assistant first");
-    setButtonDisabled(dom.detailToggle, true, "Select an assistant first");
+    setChatStatus(t("Ready"));
+    setButtonDisabled(dom.headerNewChatBtn, true, t("Select an assistant first"));
+    setButtonDisabled(sessionsBtn, true, t("Select an assistant first"));
+    setButtonDisabled(dom.contextUsageBtn, true, t("Select an assistant first"));
+    setButtonDisabled(dom.detailToggle, true, t("Select an assistant first"));
     syncContextUsageToolbar(null);
-    setButtonDisabled(dom.homeStartChatBtn, true, "Select an assistant first");
+    setButtonDisabled(dom.homeStartChatBtn, true, t("Select an assistant first"));
     applyHomeEmptyState();
     if (state.activeNavSection === "assistants") {
       setMainView("home");
@@ -8147,12 +8173,12 @@ async function syncSelectedAgentState() {
   updateChatInputPlaceholder();
   dom.embedTitle.textContent = agent.name;
   setSelectedStatusText(status);
-  setChatStatus("Ready");
+  setChatStatus(t("Ready"));
   syncSelectedAgentChatActionControls();
   dom.homeCreateAgentBtn?.classList.add("hidden");
   dom.homeStartChatBtn?.classList.remove("hidden");
   dom.homeTitle && (dom.homeTitle.textContent = `${agent.name}`);
-  dom.homeSubtitle && (dom.homeSubtitle.textContent = "Choose an assistant from the left to start chatting.");
+  dom.homeSubtitle && (dom.homeSubtitle.textContent = t("Choose an assistant from the left to start chatting."));
   if (dom.homeAgentSummary) {
     const health = agentHealth(agent);
     const startable = canWriteAgent(agent) && ["stopped", "failed"].includes(status);
@@ -8160,9 +8186,9 @@ async function syncSelectedAgentState() {
     // card that told the member to go and find it.
     dom.homeAgentSummary.innerHTML = `
       <p class="portal-home-agent-summary-copy">${safe(status === "running"
-        ? `${agent.name} is running. Open a session or start a new chat.`
-        : `${agent.name}: ${health.label}. ${health.detail}`)}</p>
-      ${startable ? `<button type="button" class="toolbar-primary-btn portal-home-start-agent-btn" data-home-start-agent="${escapeHtmlAttr(agent.id)}"><i data-lucide="play" class="w-4 h-4"></i>Start</button>` : ""}
+        ? t("{name} is running. Open a session or start a new chat.", { name: agent.name })
+        : t("{name}: {label}. {detail}", { name: agent.name, label: health.label, detail: health.detail }))}</p>
+      ${startable ? `<button type="button" class="toolbar-primary-btn portal-home-start-agent-btn" data-home-start-agent="${escapeHtmlAttr(agent.id)}"><i data-lucide="play" class="w-4 h-4"></i>${t("Start")}</button>` : ""}
     `;
     renderIcons();
   }
@@ -8306,7 +8332,9 @@ function maybeRequestNotificationPermission() {
 }
 
 function notifyAgentCompletion(agentId, agentName, status, summary = "") {
-  const text = `${agentName || agentId}: ${status}${summary ? ` - ${summary}` : ""}`;
+  const name = agentName || agentId;
+  const statusText = status === "completed" ? t("completed") : (status === "failed" ? t("failed") : status);
+  const text = summary ? t("{name}: {status} - {summary}", { name, status: statusText, summary }) : t("{name}: {status}", { name, status: statusText });
   if (document.hidden && "Notification" in window && Notification.permission === "granted") {
     try {
       new Notification(text);
@@ -8382,7 +8410,7 @@ async function submitChatForSelectedAgent() {
   if (!agentIdAtSend || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   if (chatState.wakeInFlight) {
-    showToast("Starting the assistant… your message will be sent when it is ready.");
+    showToast(t("Starting the assistant… your message will be sent when it is ready."));
     return;
   }
   // Paused assistants used to disable Send and point at a hidden panel; now the
@@ -8438,11 +8466,11 @@ async function submitChatForSelectedAgent() {
   const uploadingFiles = chatState.pendingFiles.filter((pf) => pf.status === "uploading");
   const parsingFiles = chatState.pendingFiles.filter((pf) => pf.status === "parsing");
   if (uploadingFiles.length) {
-    showToast(`Waiting for ${uploadingFiles.length} file(s) to upload...`);
+    showToast(tn(uploadingFiles.length, "Waiting for {n} file to upload...", "Waiting for {n} files to upload..."));
     return;
   }
   if (parsingFiles.length) {
-    showToast(`Waiting for ${parsingFiles.length} file(s) to finish processing...`);
+    showToast(tn(parsingFiles.length, "Waiting for {n} file to finish processing...", "Waiting for {n} files to finish processing..."));
     return;
   }
   const rawMessageAtSend = dom.chatInput?.value || "";
@@ -8450,7 +8478,7 @@ async function submitChatForSelectedAgent() {
   const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);
   if (!messageAtSend && attachmentsAtSend.length === 0) return;
   const requestMessage = messageAtSend || "[attachment]";
-  const displayMessage = messageAtSend || "📎 Attachment";
+  const displayMessage = messageAtSend || t("📎 Attachment");
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
 
   const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
@@ -8504,8 +8532,8 @@ async function submitChatForSelectedAgent() {
   const slashInvocation = parseSkillSlashInput(messageAtSend);
   const matchedSkill = findCachedSkillForSlash(slashInvocation, agentIdAtSend);
   if (slashInvocation && matchedSkill && matchedSkill.callable === false) {
-    showToast(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.");
-    setChatStatus(matchedSkill.blocked_reason || "This skill is not callable in the current runtime/profile.", true);
+    showToast(matchedSkill.blocked_reason || t("This skill is not callable in the current runtime/profile."));
+    setChatStatus(matchedSkill.blocked_reason || t("This skill is not callable in the current runtime/profile."), true);
     chatState.currentRequest = null;
     cancelAssistantTypewriter(requestCtx);
   setChatSubmittingForAgent(agentIdAtSend, false);
@@ -8587,7 +8615,7 @@ async function submitChatForSelectedAgent() {
   resetChatInputHeight();
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
-  setChatStatus("Sending...");
+  setChatStatus(t("Sending..."));
   chatState.currentRequest = requestCtx;
   setChatSubmittingForAgent(agentIdAtSend, true);
   persistInflightChatRun(agentIdAtSend, {
@@ -9225,7 +9253,7 @@ function updateOrCreateAssistantRowForRequest(agentId, requestCtx, payload, opti
     const assistantHtml = buildAssistantMessageArticle(
       text,
       displayBlocks,
-      getSelectedAssistantDisplayName(payload?.author_name || "Assistant"),
+      getSelectedAssistantDisplayName(payload?.author_name || t("Assistant")),
       primaryMessageId,
       {
         messageIds,
@@ -9467,33 +9495,33 @@ function renderCompletionStateWarning(payload = {}) {
 const COMPLETION_FAILURE_HINTS = [
   {
     match: /transport failed with status (5\d\d)|\b(502|503|504)\b|internal server error/i,
-    headline: "The model provider had a temporary failure",
-    detail: "Nothing is wrong with your request. Send it again — this usually clears on its own.",
+    headline: t("The model provider had a temporary failure"),
+    detail: t("Nothing is wrong with your request. Send it again — this usually clears on its own."),
   },
   {
     match: /\b429\b|rate.?limit/i,
-    headline: "The model provider is rate limiting",
-    detail: "Wait a few moments before sending again.",
+    headline: t("The model provider is rate limiting"),
+    detail: t("Wait a few moments before sending again."),
   },
   {
     match: /\b401\b|unauthorized|token is required|token exchange failed/i,
-    headline: "The model provider rejected your credentials",
-    detail: "Your access may have expired. Reconnect it in Connectors → Model provider.",
+    headline: t("The model provider rejected your credentials"),
+    detail: t("Your access may have expired. Reconnect it in Connectors → Model provider."),
   },
   {
     match: /timed out|timeout/i,
-    headline: "The model provider took too long to respond",
-    detail: "Send your message again, or shorten it if it was very long.",
+    headline: t("The model provider took too long to respond"),
+    detail: t("Send your message again, or shorten it if it was very long."),
   },
   {
     match: /context.{0,20}(overflow|too long|exceed)/i,
-    headline: "The conversation got too long for the model",
-    detail: "Start a new chat, or ask for a summary before continuing.",
+    headline: t("The conversation got too long for the model"),
+    detail: t("Start a new chat, or ask for a summary before continuing."),
   },
   {
     match: /max.?iterations/i,
-    headline: "The assistant hit its step limit",
-    detail: "Ask it to continue, or narrow the request into smaller steps.",
+    headline: t("The assistant hit its step limit"),
+    detail: t("Ask it to continue, or narrow the request into smaller steps."),
   },
 ];
 
@@ -9539,7 +9567,7 @@ function renderCompletionDiagnosticFields(finalPayload = {}) {
     + `<p>${escapeHtml(hint.detail)}</p>`
     + `</div>`
     + `<details class="portal-collapsible chat-completion-raw">`
-    + `<summary class="portal-collapsible-summary">Technical details</summary>`
+    + `<summary class="portal-collapsible-summary">${t("Technical details")}</summary>`
     + `${rawFields}`
     + `</details>`;
 }
@@ -9574,7 +9602,7 @@ function finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload = {}) 
   if (!responseIsJustTheReason) {
     const responseEl = document.createElement("div");
     responseEl.className = "chat-incomplete-response md-render";
-    responseEl.dataset.md = responseText || "No final assistant response was returned.";
+    responseEl.dataset.md = responseText || t("No final assistant response was returned.");
     responseEl.dataset.displayBlocks = "[]";
     markdownEl.appendChild(responseEl);
   }
@@ -9661,12 +9689,11 @@ function finalizeTerminalStreamState(agentId, requestCtx, finalPayload = {}) {
 function setTerminalCompletionStatus(finalPayload = {}) {
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "unknown");
   const reason = String(finalPayload?.incomplete_reason || finalPayload?.error || finalPayload?.detail || "").trim();
-  const suffix = reason ? `: ${reason}` : "";
-  if (completionState === "blocked") setChatStatus(`Blocked${suffix}`, true);
-  else if (completionState === "incomplete") setChatStatus(`Incomplete${suffix}`, true);
-  else if (completionState === "error" || completionState === "failed") setChatStatus(`Error${suffix}`, true);
-  else if (completionState === "empty_final") setChatStatus("Empty final response", true);
-  else setChatStatus(`Finished with non-success state: ${completionState}`, true);
+  if (completionState === "blocked") setChatStatus(reason ? t("Blocked: {reason}", { reason }) : t("Blocked"), true);
+  else if (completionState === "incomplete") setChatStatus(reason ? t("Incomplete: {reason}", { reason }) : t("Incomplete"), true);
+  else if (completionState === "error" || completionState === "failed") setChatStatus(reason ? t("Error: {reason}", { reason }) : t("Error"), true);
+  else if (completionState === "empty_final") setChatStatus(t("Empty final response"), true);
+  else setChatStatus(t("Finished with non-success state: {state}", { state: completionState }), true);
 }
 /**
  * Whether the run ended because it is waiting on the member.
@@ -9728,7 +9755,7 @@ function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, 
     }
     mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload);
     finalizeTerminalStreamState(agentId, requestCtx, finalPayload);
-    if (state.selectedAgentId === agentId) setChatStatus("Waiting for your answer.");
+    if (state.selectedAgentId === agentId) setChatStatus(t("Waiting for your answer."));
     cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
     // The card is raised by a question.requested event, which a run this
     // client joined rather than sent may never deliver. This is the moment
@@ -9765,7 +9792,7 @@ function cleanupChatStreamRequest(agentIdAtSend, requestCtx, { keepStatus = fals
   }
   setChatSubmittingForAgent(agentIdAtSend, false);
   if (chatState?.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
-  if (!keepStatus && state.selectedAgentId === agentIdAtSend && !requestCtx?.streamIncomplete && !requestCtx?.streamFailed) setChatStatus("Ready");
+  if (!keepStatus && state.selectedAgentId === agentIdAtSend && !requestCtx?.streamIncomplete && !requestCtx?.streamFailed) setChatStatus(t("Ready"));
 }
 function startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx) {
   clearWaitingForRuntimeEventsTimer(requestCtx);
@@ -9780,7 +9807,7 @@ function startWaitingForRuntimeEventsTimer(agentIdAtSend, requestCtx) {
       session_id: requestCtx.sessionIdAtSend || "",
       request_id: requestCtx.clientRequestId,
       created_at: new Date().toISOString(),
-      data: { message: "Portal is connected and waiting for runtime events." },
+      data: { message: t("Portal is connected and waiting for runtime events.") },
     };
     handleAgentEventMessage(JSON.stringify(waitingEvent), { agentId: agentIdAtSend, sessionId: requestCtx.sessionIdAtSend || "", requestId: requestCtx.clientRequestId });
   }, 15000);
@@ -9818,8 +9845,8 @@ async function abortActiveChatRequestForSelectedAgent() {
   if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
   else chatState.inflightAgentTimeline = null;
   setChatSubmittingForAgent(agentId, false);
-  setChatStatus("Stopped current response.");
-  showToast("Stopped current response.");
+  setChatStatus(t("Stopped current response."));
+  showToast(t("Stopped current response."));
   syncSelectedAgentChatActionControls();
 }
 
@@ -10043,7 +10070,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
         eventData?.response ||
         eventData?.detail ||
         eventData?.error ||
-        "Chat stream failed before a final assistant response was produced.",
+        t("Chat stream failed before a final assistant response was produced."),
       request_id: eventData?.request_id || requestCtx.clientRequestId,
       session_id: eventData?.session_id || requestCtx.sessionIdAtSend || "",
       runtime_events: eventData?.runtime_events || [],
@@ -10124,7 +10151,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
       sessionId: requestCtx.sessionIdAtSend || eventData.session_id || "",
       requestId: requestCtx.requestId || requestCtx.clientRequestId,
     });
-    if (state.selectedAgentId === agentIdAtSend) setChatStatus("Thinking…");
+    if (state.selectedAgentId === agentIdAtSend) setChatStatus(t("Thinking…"));
     return "heartbeat";
   }
 
@@ -10166,7 +10193,7 @@ async function handleIncompleteChatStream(agentIdAtSend, requestCtx, reason, pay
     // The toast reports a problem, and it sits outside the call above, so a
     // parked run recognised only by the card still raised one.
     if (reason !== WAITING_FOR_USER_INPUT_REASON && !chatRunIsWaitingForUserInput(finalPayload)) {
-      showToast(String(finalPayload.incomplete_reason || "Assistant response stream ended in an incomplete state."));
+      showToast(String(finalPayload.incomplete_reason || t("Assistant response stream ended in an incomplete state.")));
     }
     addEditButtonsToMessages();
     renderIcons();
@@ -10341,7 +10368,7 @@ function announceToChat(message) {
 }
 
 async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, options = {}) {
-  if (agentIdAtSend === state.selectedAgentId) announceToChat("Assistant response ready.");
+  if (agentIdAtSend === state.selectedAgentId) announceToChat(t("Assistant response ready."));
   const localHasRenderableAssistantPayload = (typeof hasRenderableAssistantPayload === "function")
     ? hasRenderableAssistantPayload
     : (candidate) => {
@@ -10404,7 +10431,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     else chatState.inflightAgentTimeline = null;
     chatState.needsReload = true;
     setChatSubmittingForAgent(agentIdAtSend, false);
-    setChatStatus("Completed without a visible assistant response. Reloading session...");
+    setChatStatus(t("Completed without a visible assistant response. Reloading session..."));
     if (finalSessionId) {
       await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
@@ -10533,7 +10560,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
       await loadSessionForAgent(agentIdAtSend, finalSessionId, { render: true, force: true });
     }
     addEditButtonsToMessages();
-    setChatStatus("Ready");
+    setChatStatus(t("Ready"));
     if (document.hidden) {
       const agentName = state.mineAgents.find((a) => a.id === agentIdAtSend)?.name || agentIdAtSend;
       notifyAgentCompletion(agentIdAtSend, agentName, "completed", (payload.response || "").slice(0, 80));
@@ -10553,7 +10580,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
         const assistantHtml = buildAssistantMessageArticle(
           payload.response || "",
           payload.display_blocks || [],
-          getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+          getSelectedAssistantDisplayName(payload.author_name || t("Assistant")),
           payload.assistant_message_id || "",
         );
         dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
@@ -10564,13 +10591,13 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
     const assistantHtml = buildAssistantMessageArticle(
       payload.response || "",
       payload.display_blocks || [],
-      getSelectedAssistantDisplayName(payload.author_name || "Assistant"),
+      getSelectedAssistantDisplayName(payload.author_name || t("Assistant")),
       payload.assistant_message_id || "",
       { userMessageId: payload.user_message_id || optimisticUserArticle?.dataset?.messageId || "", messageIds: localNormalizeAssistantMessageIds(payload), primaryMessageId: localPrimaryAssistantMessageId(payload), requestId: payload.request_id || "", copyText: payload.response || "" }
     );
     dom.messageList?.insertAdjacentHTML("beforeend", assistantHtml);
   }
-  setChatStatus("Ready");
+  setChatStatus(t("Ready"));
   // Only the article this request wrote needs drawing: history rows were drawn
   // when the session loaded, and re-rendering every message's markdown (code
   // highlighting, diagrams) plus every icon grew with the conversation.
@@ -10623,7 +10650,7 @@ async function tryRecoverBrokenChatStream(agentIdAtSend, requestCtx) {
   });
   chatState.currentRequest = null;
   if (state.selectedAgentId === agentIdAtSend) {
-    setChatStatus("Connection lost. Reconnecting to running response...");
+    setChatStatus(t("Connection lost. Reconnecting to running response..."));
   }
   const recovered = await recoverInflightChatRunForAgent(
     agentIdAtSend,
@@ -10649,7 +10676,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestCtx.clientRequestId) return;
   }
   const restoredMessage = requestCtx.backupMessage || "";
-  const errorMsg = error?.message || "Send failed";
+  const errorMsg = error?.message || t("Send failed");
   const finalPayload = {
     completion_state: "error",
     incomplete_reason: errorMsg,
@@ -10700,7 +10727,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
   if (dom.chatInput) dom.chatInput.value = restoredMessage;
   const attachmentsInput = document.getElementById("chat-attachments");
   if (attachmentsInput) attachmentsInput.value = "";
-  showToast("Send failed. Please re-attach files before retrying.", { variant: 'error' });
+  showToast(t("Send failed. Please re-attach files before retrying."), { variant: 'error' });
   renderInputPreview();
   syncChatInputHeight();
   if (typeof setTerminalCompletionStatus === "function") setTerminalCompletionStatus(finalPayload);
@@ -10710,7 +10737,7 @@ async function handleAgentChatFailure(agentIdAtSend, requestCtx, error) {
     dom.messageList.insertAdjacentHTML("beforeend", `
       <div class="message-row message-row-assistant message-row-error">
         <div class="message-meta">
-          <span class="message-author">System</span>
+          <span class="message-author">${t("System")}</span>
           <span class="message-timestamp">${now}</span>
         </div>
         <article class="message-surface message-surface-assistant message-surface-error">
@@ -10790,7 +10817,7 @@ function showSuggest(items, onPick) {
   }
 
   dom.chatSuggest.innerHTML = items.map((item, index) => (
-    `<button type="button" data-i="${index}" class="portal-suggest-item${item.callable === false ? " is-blocked" : ""}" title="${escapeHtmlAttr(item.title || "")}"><div class="portal-suggest-title">${safe(item.label || item.title || "")}${item.callable === false ? ' <span class="portal-badge">blocked</span>' : ""}</div><div class="portal-suggest-desc">${safe(item.desc || "")}</div></button>`
+    `<button type="button" data-i="${index}" class="portal-suggest-item${item.callable === false ? " is-blocked" : ""}" title="${escapeHtmlAttr(item.title || "")}"><div class="portal-suggest-title">${safe(item.label || item.title || "")}${item.callable === false ? ' <span class="portal-badge">' + t("blocked") + '</span>' : ""}</div><div class="portal-suggest-desc">${safe(item.desc || "")}</div></button>`
   )).join("");
   dom.chatSuggest.classList.remove("hidden");
   state.selectedSuggestionIndex = 0;
@@ -10891,7 +10918,7 @@ function openAssistantDetailsPanel() {
   if (!state.selectedAgentId) return false;
   const agent = state.mineAgents.find((candidate) => candidate.id === state.selectedAgentId);
   if (!agent) return false;
-  setToolPanel("Assistant details", `
+  setToolPanel(t("Assistant details"), `
     <div id="agent-meta" class="portal-detail-card"></div>
     <div id="agent-actions" class="portal-detail-actions"></div>
   `, "details");
@@ -10904,7 +10931,7 @@ function openAssistantDetailsPanel() {
 
 function toggleAssistantDetailsPanel() {
   if (!state.selectedAgentId) {
-    showToast("Please select an assistant first");
+    showToast(t("Please select an assistant first"));
     return;
   }
   if (state.activeUtilityPanel === "details" && state.toolPanelOpen) {
@@ -10927,7 +10954,7 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
   dom.userManagementNavItem?.setAttribute("aria-current", "page");
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "users-loading";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading users…</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading users…")}</div>`;
   syncMainHeader();
 
   if (updateRoute && !isApplyingPortalRoute) {
@@ -10943,12 +10970,12 @@ async function openUsersInMain({ ensureSection = true, updateRoute = true } = {}
     renderIcons();
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "users-error";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load users: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${safe(t("Failed to load users: {error}", { error: error.message }))}</div>`;
   }
 }
 
-function showPinnedPanelRestorePlaceholder(message = "Select a utility from top toolbar.") {
-  setToolPanel("Panel", `<div class="portal-inline-state">${safe(message)}</div>`, null, {
+function showPinnedPanelRestorePlaceholder(message = t("Select a utility from top toolbar.")) {
+  setToolPanel(t("Panel"), `<div class="portal-inline-state">${safe(message)}</div>`, null, {
     persistPreference: false,
   });
   state.toolPanelOpen = true;
@@ -10988,7 +11015,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
     }
 
     if (requiresSelectedAssistant.has(panelKey) && !state.selectedAgentId) {
-      showPinnedPanelRestorePlaceholder("Select an assistant first to restore this panel.");
+      showPinnedPanelRestorePlaceholder(t("Select an assistant first to restore this panel."));
       return;
     }
 
@@ -11003,7 +11030,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
       if (getSelectedAgentStatus() === "running") {
         await openSessionsPanel();
       } else {
-        setToolPanel("Sessions", "<div class='portal-inline-state'>Start the assistant first to browse sessions.</div>", "sessions", {
+        setToolPanel(t("Sessions"), `<div class='portal-inline-state'>${t("Start the assistant first to browse sessions.")}</div>`, "sessions", {
           persistPreference: false,
         });
       }
@@ -11039,7 +11066,7 @@ async function restorePinnedToolPanelFromPreferencesOnce() {
     }
     showPinnedPanelRestorePlaceholder();
   } catch (_error) {
-    showPinnedPanelRestorePlaceholder("Unable to restore the saved panel.");
+    showPinnedPanelRestorePlaceholder(t("Unable to restore the saved panel."));
   }
 }
 
@@ -11066,7 +11093,7 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
 
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "help-loading";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading…</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading…")}</div>`;
   syncMainHeader();
 
   if (updateRoute && !isApplyingPortalRoute) {
@@ -11094,7 +11121,7 @@ async function openHelpTopic(topicId, { updateRoute = true, ensureSection = true
     renderIcons();
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "help-error";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load help: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${safe(t("Failed to load help: {error}", { error: error.message }))}</div>`;
   }
 }
 
@@ -11114,6 +11141,12 @@ function helpMarkdown() {
     typographer: true,
     highlight: md.options.highlight,
   });
+  // The translated guides need the chat's CJK-friendly emphasis too: without
+  // it, bold that ends in a full-width bracket right before a Chinese
+  // character pairs with the wrong asterisks.
+  if (typeof window.markdownItCjkFriendly === "function") {
+    helpMarkdownRenderer.use(window.markdownItCjkFriendly);
+  }
   // Other sites and the app's own #/ routes (a guide linking to another guide,
   // or to Connections) may become links; nothing else.
   helpMarkdownRenderer.validateLink = (text) => {
@@ -11147,7 +11180,7 @@ function renderHelpMarkdown(scope) {
 
 function currentHelpTopicTitle() {
   const active = document.querySelector(`[data-help-topic-nav="${CSS.escape(activeHelpTopicId)}"]`);
-  return active?.querySelector("strong")?.textContent?.trim() || "Help";
+  return active?.querySelector("strong")?.textContent?.trim() || t("Help");
 }
 
 
@@ -11156,11 +11189,7 @@ function setToolPanel(title, contentHtml, panelKey = null, { persistPreference =
   state.detailOpen = panelKey === "details";
   state.activeUtilityPanel = normalizeUtilityPanelKey(panelKey);
   dom.toolPanelTitle.textContent = title;
-  if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
-    dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
-  } else {
-    dom.toolPanelBody.innerHTML = contentHtml;
-  }
+  dom.toolPanelBody.innerHTML = contentHtml;
   openToolPanel();
   if (persistPreference) {
     persistUiLayoutPreferences({ includeSecondaryPane: false, includeToolPanel: true });
@@ -11183,7 +11212,7 @@ function closeToolPanel() {
 async function openSessionsPanel() {
   if (!ensureRunningSelectedAssistant("browse sessions")) return;
 
-  setToolPanel("Sessions", '<div class="portal-inline-state">Loading sessions…</div>', "sessions");
+  setToolPanel(t("Sessions"), `<div class="portal-inline-state">${t("Loading sessions…")}</div>`, "sessions");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/sessions/panel?current_session_id=${encodeURIComponent(currentSessionIdForSelectedAgent())}&limit=12`, {
@@ -11191,8 +11220,8 @@ async function openSessionsPanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Sessions", `Failed: ${safe(error.message)}`, "sessions");
-    setChatStatus("Failed to load sessions", true);
+    setToolPanel(t("Sessions"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "sessions");
+    setChatStatus(t("Failed to load sessions"), true);
   }
 }
 
@@ -11232,12 +11261,12 @@ function syncContextUsageToolbar(snapshot = null) {
   if (!dom.contextUsageLabel) return;
   const percent = contextUsagePercent(snapshot);
   dom.contextUsageLabel.textContent = percent == null
-    ? "Context —"
-    : `Context ≈${Math.round(percent)}%`;
+    ? t("Context —")
+    : t("Context ≈{percent}%", { percent: Math.round(percent) });
   if (dom.contextUsageBtn && !dom.contextUsageBtn.disabled) {
     const detail = percent == null
-      ? "Context usage is not available yet"
-      : `Context usage: approximately ${percent}%`;
+      ? t("Context usage is not available yet")
+      : t("Context usage: approximately {percent}%", { percent });
     dom.contextUsageBtn.title = detail;
     dom.contextUsageBtn.setAttribute("aria-label", detail);
   }
@@ -11257,7 +11286,7 @@ function renderContextUsagePanel(snapshot) {
     return `
       <div class="portal-context-category">
         <div class="portal-context-category-head">
-          <span>${safe(category?.label || category?.id || "Other")}</span>
+          <span>${safe(category?.label || category?.id || t("Other"))}</span>
           <span>${formatContextTokens(category?.tokens)} · ${Number.isFinite(categoryPercent) ? `${categoryPercent}%` : "—"}</span>
         </div>
         <div class="portal-context-category-meter"><span style="width:${normalizedPercent}%"></span></div>
@@ -11267,44 +11296,44 @@ function renderContextUsagePanel(snapshot) {
   const canCompact = canWriteAgent(getSelectedAgent());
   const compactDisabled = !canCompact || compact.supported === false || compact.eligible === false || Boolean(compact.in_progress);
   const compactReason = !canCompact
-    ? "Only the assistant owner or an administrator can compact this conversation."
-    : compact?.reason || (compact.supported === false ? "Manual Compact is not supported by this runtime." : "");
+    ? t("Only the assistant owner or an administrator can compact this conversation.")
+    : compact?.reason || (compact.supported === false ? t("Manual Compact is not supported by this runtime.") : "");
   const modelLabel = [snapshot?.model?.provider_id, snapshot?.model?.model_id].filter(Boolean).join(" / ") || "—";
-  const scopeLabel = snapshot?.scope === "last_request" ? "last model request" : "current session estimate";
+  const scopeLabel = snapshot?.scope === "last_request" ? t("last model request") : t("current session estimate");
   const billing = contextBillingView(snapshot);
   const sessionCredits = (typeof sumVisibleAssistantCredits === "function") ? sumVisibleAssistantCredits(dom.messageList) : null;
   const costGuideHtml = (typeof buildCostGuideHtml === "function") ? buildCostGuideHtml() : "";
 
-  setToolPanel("Context", `
+  setToolPanel(t("Context"), `
     <div class="portal-context-panel">
       <div class="portal-context-summary">
         <div class="portal-context-total-row">
           <div>
-            <div class="portal-panel-title">Context window</div>
-            <div class="portal-context-total">${percent == null ? "Usage unavailable" : `≈${safe(String(percent))}% used`}</div>
+            <div class="portal-panel-title">${t("Context window")}</div>
+            <div class="portal-context-total">${percent == null ? t("Usage unavailable") : t("≈{percent}% used", { percent: safe(String(percent)) })}</div>
           </div>
-          <div class="portal-context-token-total">${usedTokens} / ${windowTokens} tokens</div>
+          <div class="portal-context-token-total">${t("{used} / {window} tokens", { used: usedTokens, window: windowTokens })}</div>
         </div>
         <div class="portal-context-meter"><div class="portal-context-meter-fill${billing.fillClass}" style="width:${meterPercent}%"></div>${billing.markerHtml}</div>
         ${billing.rowHtml}
         ${billing.calibrationHtml}
-        <div class="portal-panel-note">Model: ${safe(modelLabel)} · ${safe(scopeLabel)}</div>
-        ${sessionCredits != null ? `<div class="portal-context-credits"><span>This session so far</span><strong>\u2248 ${safe(formatCredits(sessionCredits) || "0")} credits</strong></div>` : ""}
-        <div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="loading"><div class="portal-quota-chip-head"><span>Copilot balance this month</span><span>Loading\u2026</span></div></div>
+        <div class="portal-panel-note">${t("Model: {model} · {scope}", { model: safe(modelLabel), scope: safe(scopeLabel) })}</div>
+        ${sessionCredits != null ? `<div class="portal-context-credits"><span>${t("This session so far")}</span><strong>${t("≈ {credits} credits", { credits: safe(formatCredits(sessionCredits) || "0") })}</strong></div>` : ""}
+        <div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="loading"><div class="portal-quota-chip-head"><span>${t("Copilot balance this month")}</span><span>${t("Loading…")}</span></div></div>
         ${costGuideHtml}
       </div>
       <div class="portal-panel-section">
-        <div class="portal-panel-title">Coarse breakdown</div>
-        <div class="portal-context-categories">${categoryHtml || '<div class="portal-inline-state is-visible">No category data yet.</div>'}</div>
-        <div class="portal-panel-note">Approximate categories; they never expose or store raw prompt content.</div>
+        <div class="portal-panel-title">${t("Coarse breakdown")}</div>
+        <div class="portal-context-categories">${categoryHtml || `<div class="portal-inline-state is-visible">${t("No category data yet.")}</div>`}</div>
+        <div class="portal-panel-note">${t("Approximate categories; they never expose or store raw prompt content.")}</div>
       </div>
       <div class="portal-panel-section portal-context-actions">
         <button id="context-compact-btn" class="toolbar-primary-btn" type="button" ${compactDisabled ? "disabled" : ""}>
           <i data-lucide="archive-restore" class="w-4 h-4"></i>
-          Compact conversation
+          ${t("Compact conversation")}
         </button>
         ${compactReason ? `<div class="portal-panel-note">${safe(compactReason)}</div>` : ""}
-        <div class="portal-panel-note">Compact replaces older visible turns with a summary. Native sessions create a recovery checkpoint first; runtime support varies.</div>
+        <div class="portal-panel-note">${t("Compact replaces older visible turns with a summary. Native sessions create a recovery checkpoint first; runtime support varies.")}</div>
       </div>
     </div>
   `, "context");
@@ -11338,38 +11367,38 @@ function contextBillingView(snapshot) {
   view.fillClass = view.overBudget ? " is-over-budget" : (view.overThreshold ? " is-over-threshold" : "");
   if (threshold && windowTokens > threshold) {
     const left = Math.max(0, Math.min(100, (threshold / windowTokens) * 100));
-    view.markerHtml = `<div class="portal-context-meter-marker" style="left:${left.toFixed(1)}%" title="${escapeHtmlAttr(`${formatCompactTokens(threshold)}: the long context tier starts here (2\u00d7 price)`)}"></div>`;
+    view.markerHtml = `<div class="portal-context-meter-marker" style="left:${left.toFixed(1)}%" title="${escapeHtmlAttr(t("{tokens}: the long context tier starts here (2× price)", { tokens: formatCompactTokens(threshold) }))}"></div>`;
   }
   const pieces = [];
   if (tier) {
     const tierText = tier === "long_context"
-      ? `Long context (> ${formatCompactTokens(threshold || 272000)}, 2\u00d7 price)`
-      : `Default (\u2264 ${formatCompactTokens(threshold || 272000)}, standard price)`;
-    pieces.push(`<span>Billing tier: <span class="${tier === "long_context" ? "is-long-context" : ""}">${escapeHtml(tierText)}</span></span>`);
+      ? t("Long context (> {tokens}, 2× price)", { tokens: formatCompactTokens(threshold || 272000) })
+      : t("Default (≤ {tokens}, standard price)", { tokens: formatCompactTokens(threshold || 272000) });
+    pieces.push(`<span>${t("Billing tier:")} <span class="${tier === "long_context" ? "is-long-context" : ""}">${escapeHtml(tierText)}</span></span>`);
   }
-  if (budget) pieces.push(`<span>Runtime budget ${escapeHtml(formatCompactTokens(budget))} tokens${view.overBudget ? " (exceeded; older content gets compacted)" : ""}</span>`);
+  if (budget) pieces.push(`<span>${escapeHtml(t("Runtime budget {tokens} tokens", { tokens: formatCompactTokens(budget) }))}${view.overBudget ? ` ${t("(exceeded; older content gets compacted)")}` : ""}</span>`);
   if (pieces.length) view.rowHtml = `<div class="portal-context-billing">${pieces.join("")}</div>`;
   const calibration = snapshot.calibration && typeof snapshot.calibration === "object" ? snapshot.calibration : null;
   if (calibrated) {
     const ratio = Number(calibration?.ratio);
-    const ratioText = Number.isFinite(ratio) && ratio > 0 ? ` (measured / estimated ${ratio.toFixed(2)})` : "";
-    view.calibrationHtml = `<div class="portal-panel-note">Calibrated from measured tokens \u2248 ${escapeHtml(formatContextTokens(calibrated))} tokens${escapeHtml(ratioText)}</div>`;
+    const ratioText = Number.isFinite(ratio) && ratio > 0 ? ` ${t("(measured / estimated {ratio})", { ratio: ratio.toFixed(2) })}` : "";
+    view.calibrationHtml = `<div class="portal-panel-note">${escapeHtml(t("Calibrated from measured tokens ≈ {tokens} tokens", { tokens: formatContextTokens(calibrated) }))}${escapeHtml(ratioText)}</div>`;
   }
   return view;
 }
 
 const COPILOT_COST_GUIDE_LINES = [
-  "Copilot bills AI Credits per token (1 credit = $0.01), not per message.",
-  "Every tool-call step resends the whole context, so the longer the session, the more each message costs.",
-  "A single request above 272K input tokens moves to the long context tier, where every price doubles.",
-  "To spend less: start a new session for a new topic, paste fewer large files, keep reasoning at Medium and the model on Auto.",
+  t("Copilot bills AI Credits per token (1 credit = $0.01), not per message."),
+  t("Every tool-call step resends the whole context, so the longer the session, the more each message costs."),
+  t("A single request above 272K input tokens moves to the long context tier, where every price doubles."),
+  t("To spend less: start a new session for a new topic, paste fewer large files, keep reasoning at Medium and the model on Auto."),
 ];
 const COPILOT_PRICING_DOCS_URL = "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing";
 
 function buildCostGuideHtml() {
   const items = COPILOT_COST_GUIDE_LINES.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
-  const links = `<li><a href="${COPILOT_PRICING_DOCS_URL}" target="_blank" rel="noopener noreferrer">GitHub price list</a> \u00b7 <a href="#/help/copilot-costs">Full cost guide</a></li>`;
-  return `<details class="portal-cost-guide" data-cost-guide><summary>Cost guide</summary><ul>${items}${links}</ul></details>`;
+  const links = `<li><a href="${COPILOT_PRICING_DOCS_URL}" target="_blank" rel="noopener noreferrer">${t("GitHub price list")}</a> \u00b7 <a href="#/help/copilot-costs">${t("Full cost guide")}</a></li>`;
+  return `<details class="portal-cost-guide" data-cost-guide><summary>${t("Cost guide")}</summary><ul>${items}${links}</ul></details>`;
 }
 // RUNTIME_EVENT_HELPER_END: contextBillingView
 
@@ -11391,9 +11420,9 @@ async function refreshContextUsageForAgent(agentId, sessionId, { renderPanel = f
     return snapshot;
   } catch (error) {
     if (renderPanel && agentId === state.selectedAgentId) {
-      setToolPanel("Context", `<div class="portal-inline-state is-error">Failed to load context usage: ${safe(error?.message || error)}</div>`, "context");
+      setToolPanel(t("Context"), `<div class="portal-inline-state is-error">${t("Failed to load context usage: {error}", { error: safe(error?.message || error) })}</div>`, "context");
     } else if (!silent) {
-      showToast("Failed to load context usage");
+      showToast(t("Failed to load context usage"));
     }
     return null;
   } finally {
@@ -11407,10 +11436,10 @@ async function openContextUsagePanel() {
   const agentId = state.selectedAgentId;
   const sessionId = currentSessionIdForSelectedAgent();
   if (!sessionId) {
-    setToolPanel("Context", '<div class="portal-inline-state is-visible">Start a conversation to inspect context usage.</div>', "context");
+    setToolPanel(t("Context"), `<div class="portal-inline-state is-visible">${t("Start a conversation to inspect context usage.")}</div>`, "context");
     return;
   }
-  setToolPanel("Context", '<div class="portal-inline-state is-visible">Loading context usage…</div>', "context");
+  setToolPanel(t("Context"), `<div class="portal-inline-state is-visible">${t("Loading context usage…")}</div>`, "context");
   await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
 }
 
@@ -11421,16 +11450,16 @@ async function compactCurrentConversation() {
   if (!agentId || !sessionId || !chatState) return;
   if (!guardNoActiveChatRequestForAgent(agentId, "compact this conversation")) return;
   const confirmed = await showConfirm({
-    title: "Compact conversation",
-    message: "Older visible turns will be replaced by a summary. Native sessions create a recovery checkpoint first.",
-    confirmText: "Compact",
-    cancelText: "Cancel",
+    title: t("Compact conversation"),
+    message: t("Older visible turns will be replaced by a summary. Native sessions create a recovery checkpoint first."),
+    confirmText: t("Compact"),
+    cancelText: t("Cancel"),
   });
   if (!confirmed) return;
 
   chatState.compactingContext = true;
   syncSelectedAgentChatActionControls();
-  setToolPanel("Context", '<div class="portal-inline-state is-visible"><span class="portal-running-spinner" aria-hidden="true"></span> Compacting conversation…</div>', "context");
+  setToolPanel(t("Context"), `<div class="portal-inline-state is-visible"><span class="portal-running-spinner" aria-hidden="true"></span> ${t("Compacting conversation…")}</div>`, "context");
   try {
     const result = await agentApiFor(
       agentId,
@@ -11443,13 +11472,12 @@ async function compactCurrentConversation() {
     await loadSessionForAgent(agentId, sessionId, { render: agentId === state.selectedAgentId, force: true });
     const refreshed = await refreshContextUsageForAgent(agentId, sessionId, { renderPanel: true, silent: false });
     const afterPercent = contextUsagePercent(refreshed || afterSnapshot);
-    const reduction = beforePercent != null && afterPercent != null
-      ? ` (${beforePercent}% → ${afterPercent}%)`
-      : "";
-    showToast(`Conversation compacted${reduction}`);
+    showToast(beforePercent != null && afterPercent != null
+      ? t("Conversation compacted ({before}% → {after}%)", { before: beforePercent, after: afterPercent })
+      : t("Conversation compacted"));
   } catch (error) {
-    setToolPanel("Context", `<div class="portal-inline-state is-error">Compact failed: ${safe(error?.message || error)}</div>`, "context");
-    showToast("Compact failed");
+    setToolPanel(t("Context"), `<div class="portal-inline-state is-error">${t("Compact failed: {error}", { error: safe(error?.message || error) })}</div>`, "context");
+    showToast(t("Compact failed"));
   } finally {
     chatState.compactingContext = false;
     syncSelectedAgentChatActionControls();
@@ -11466,18 +11494,18 @@ function restoreAssistantHeaderState() {
   const agent = getSelectedAgent();
   if (agent) {
     const status = getSelectedAgentStatus();
-    dom.embedTitle.textContent = agent.name || "Select an assistant";
+    dom.embedTitle.textContent = agent.name || t("Select an assistant");
     setSelectedStatusText(status);
-    setChatStatus("Ready");
+    setChatStatus(t("Ready"));
     return;
   }
 
-  dom.embedTitle.textContent = "Select an assistant";
+  dom.embedTitle.textContent = t("Select an assistant");
   setSelectedStatusText("idle");
-  setChatStatus("Ready");
+  setChatStatus(t("Ready"));
 }
 
-function renderWorkspaceDetailPlaceholder(message = "Select a task or delegation from the left sidebar.", workspaceState = "workspace-placeholder") {
+function renderWorkspaceDetailPlaceholder(message = t("Select a task or delegation from the left sidebar."), workspaceState = "workspace-placeholder") {
   if (!dom.workspaceDetailContent) return;
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = workspaceState;
@@ -11489,7 +11517,7 @@ async function loadTaskOverviewPanel({ scope = state.taskFilters?.owner || "all"
   const normalizedScope = scope === "mine" ? "mine" : "all";
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "tasks-overview-loading";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task overview...</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading task overview...")}</div>`;
   try {
     await htmx.ajax("GET", `/app/tasks/panel?scope=${encodeURIComponent(normalizedScope)}`, {
       target: "#workspace-detail-content",
@@ -11500,7 +11528,7 @@ async function loadTaskOverviewPanel({ scope = state.taskFilters?.owner || "all"
     renderIcons();
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "tasks-overview-error";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load task overview: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Failed to load task overview: {error}", { error: safe(error.message) })}</div>`;
   }
 }
 
@@ -11509,7 +11537,7 @@ async function loadDelegationOverviewPanel({ scope = state.delegationFilters?.ow
   const normalizedScope = scope === "mine" ? "mine" : "all";
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "delegations-overview-loading";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading delegation overview...</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading delegation overview...")}</div>`;
   try {
     await htmx.ajax("GET", `/app/delegations/panel?scope=${encodeURIComponent(normalizedScope)}`, {
       target: "#workspace-detail-content",
@@ -11520,7 +11548,7 @@ async function loadDelegationOverviewPanel({ scope = state.delegationFilters?.ow
     renderIcons();
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "delegations-overview-error";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load delegation overview: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Failed to load delegation overview: {error}", { error: safe(error.message) })}</div>`;
   }
 }
 
@@ -11531,11 +11559,11 @@ async function openOverviewAgent(agentId) {
 }
 
 function getSecondaryPaneLabel() {
-  if (state.activeNavSection === "tasks") return "Tasks";
-  if (state.activeNavSection === "connectors") return "Connectors";
-  if (state.activeNavSection === "delegations") return "Delegations";
-  if (state.activeNavSection === "users") return "Administration";
-  return "Assistants";
+  if (state.activeNavSection === "tasks") return t("Tasks");
+  if (state.activeNavSection === "connectors") return t("Connectors");
+  if (state.activeNavSection === "delegations") return t("Delegations");
+  if (state.activeNavSection === "users") return t("Administration");
+  return t("Assistants");
 }
 
 // Below this width the secondary pane is an overlay drawer rather than a column.
@@ -11569,16 +11597,16 @@ function applySecondaryPaneState() {
 
   if (dom.secondaryPaneToggle) {
     dom.secondaryPaneToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    dom.secondaryPaneToggle.setAttribute("title", collapsed ? `Expand ${label} list` : "Collapse sidebar");
-    dom.secondaryPaneToggle.setAttribute("aria-label", collapsed ? `Expand ${label} list` : "Collapse sidebar");
+    dom.secondaryPaneToggle.setAttribute("title", collapsed ? t("Expand {label} list", { label }) : t("Collapse sidebar"));
+    dom.secondaryPaneToggle.setAttribute("aria-label", collapsed ? t("Expand {label} list", { label }) : t("Collapse sidebar"));
     dom.secondaryPaneToggle.innerHTML = `<i data-lucide="${collapsed ? "panel-left-open" : "panel-left-close"}" class="w-5 h-5"></i>`;
   }
 
   if (dom.secondaryPaneRestore) {
     dom.secondaryPaneRestore.classList.toggle("hidden", !collapsed);
     dom.secondaryPaneRestore.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    dom.secondaryPaneRestore.setAttribute("title", `Expand ${label} list`);
-    dom.secondaryPaneRestore.setAttribute("aria-label", `Expand ${label} list`);
+    dom.secondaryPaneRestore.setAttribute("title", t("Expand {label} list", { label }));
+    dom.secondaryPaneRestore.setAttribute("aria-label", t("Expand {label} list", { label }));
   }
 
   if (state.toolPanelOpen && state.toolPanelPinned) {
@@ -11598,26 +11626,26 @@ function renderSecondaryPaneHeader() {
   if (addDelegationBtn) addDelegationBtn.classList.add("hidden");
 
   if (state.activeNavSection === "assistants") {
-    dom.secondaryPaneEyebrow.textContent = "My Space";
-    dom.secondaryPaneTitle.textContent = "Assistants";
+    dom.secondaryPaneEyebrow.textContent = t("My Space");
+    dom.secondaryPaneTitle.textContent = t("Assistants");
     if (addAgentBtn) addAgentBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "tasks") {
-    dom.secondaryPaneEyebrow.textContent = "Workspace";
-    dom.secondaryPaneTitle.textContent = "Tasks";
+    dom.secondaryPaneEyebrow.textContent = t("Workspace");
+    dom.secondaryPaneTitle.textContent = t("Tasks");
     if (addTaskBtn) addTaskBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "delegations") {
-    dom.secondaryPaneEyebrow.textContent = "Workspace";
-    dom.secondaryPaneTitle.textContent = "Delegations";
+    dom.secondaryPaneEyebrow.textContent = t("Workspace");
+    dom.secondaryPaneTitle.textContent = t("Delegations");
     if (addDelegationBtn) addDelegationBtn.classList.remove("hidden");
   } else if (state.activeNavSection === "connectors") {
-    dom.secondaryPaneEyebrow.textContent = "My Space";
-    dom.secondaryPaneTitle.textContent = "Connectors";
+    dom.secondaryPaneEyebrow.textContent = t("My Space");
+    dom.secondaryPaneTitle.textContent = t("Connectors");
   } else if (state.activeNavSection === "help") {
-    dom.secondaryPaneEyebrow.textContent = "Portal";
-    dom.secondaryPaneTitle.textContent = "Help";
+    dom.secondaryPaneEyebrow.textContent = t("Portal");
+    dom.secondaryPaneTitle.textContent = t("Help");
   } else {
-    dom.secondaryPaneEyebrow.textContent = "Portal";
-    dom.secondaryPaneTitle.textContent = "Administration";
+    dom.secondaryPaneEyebrow.textContent = t("Portal");
+    dom.secondaryPaneTitle.textContent = t("Administration");
   }
 }
 
@@ -11670,16 +11698,16 @@ function applyOverviewStatusLine() {
 // nav buttons carry so a new panel cannot be added without a heading.
 const ADMIN_PANEL_HEADINGS = {
   "users": {
-    title: "User Management",
-    status: "Manage members, roles, access, and usage",
+    title: t("User Management"),
+    status: t("Manage members, roles, access, and usage"),
   },
   "assistant-types": {
-    title: "Assistant Types",
-    status: "Presets members choose from when creating an assistant",
+    title: t("Assistant Types"),
+    status: t("Presets members choose from when creating an assistant"),
   },
   "default-connections": {
-    title: "Default connectors",
-    status: "Connector settings every new member starts with",
+    title: t("Default connectors"),
+    status: t("Connector settings every new member starts with"),
   },
 };
 
@@ -11717,22 +11745,22 @@ function syncMainHeader() {
   } else {
     setSelectedStatusText("idle");
     if (state.activeNavSection === "tasks") {
-      dom.embedTitle.textContent = "Tasks";
+      dom.embedTitle.textContent = t("Tasks");
       // Falls back until the panel with the real numbers has swapped in.
-      if (!applyOverviewStatusLine()) setChatStatus("Task health, workload, and recent activity");
+      if (!applyOverviewStatusLine()) setChatStatus(t("Task health, workload, and recent activity"));
     } else if (state.activeNavSection === "delegations") {
-      dom.embedTitle.textContent = "Delegations";
-      if (!applyOverviewStatusLine()) setChatStatus("Manage delegations");
+      dom.embedTitle.textContent = t("Delegations");
+      if (!applyOverviewStatusLine()) setChatStatus(t("Manage delegations"));
     } else if (state.activeNavSection === "help") {
       dom.embedTitle.textContent = currentHelpTopicTitle();
-      setChatStatus("Guides for setting up and working with assistants");
+      setChatStatus(t("Guides for setting up and working with assistants"));
     } else if (state.activeNavSection === "users") {
       const heading = ADMIN_PANEL_HEADINGS[activeAdminPanel] || ADMIN_PANEL_HEADINGS.users;
       dom.embedTitle.textContent = heading.title;
       setChatStatus(heading.status);
     } else if (state.activeNavSection === "connectors") {
-      dom.embedTitle.textContent = "Connectors";
-      setChatStatus("Everything your assistants can connect to");
+      dom.embedTitle.textContent = t("Connectors");
+      setChatStatus(t("Everything your assistants can connect to"));
     }
   }
 }
@@ -11750,7 +11778,7 @@ function showAssistantDefaultMainView() {
 
 function showTasksLoadingMainView() {
   setMainView("detail");
-  renderWorkspaceDetailPlaceholder("Loading tasks…", "tasks-loading");
+  renderWorkspaceDetailPlaceholder(t("Loading tasks…"), "tasks-loading");
   syncMainHeader();
 }
 
@@ -11764,7 +11792,7 @@ function syncDefaultMainViewForSection(section) {
     return;
   }
   if (section === "connectors") {
-    renderWorkspaceDetailPlaceholder("Select a connector from the left sidebar.", "connectors-placeholder");
+    renderWorkspaceDetailPlaceholder(t("Select a connector from the left sidebar."), "connectors-placeholder");
     return;
   }
   if (section === "delegations") {
@@ -11772,7 +11800,7 @@ function syncDefaultMainViewForSection(section) {
     return;
   }
   if (section === "users") {
-    renderWorkspaceDetailPlaceholder("Select User Management from the left sidebar.", "users-placeholder");
+    renderWorkspaceDetailPlaceholder(t("Select User Management from the left sidebar."), "users-placeholder");
   }
 }
 
@@ -11865,9 +11893,9 @@ async function setActiveNavSection(section, {
     } else if (section === "tasks") {
       showTasksLoadingMainView();
     } else if (section === "connectors") {
-      renderWorkspaceDetailPlaceholder("Loading connectors…", "connectors-loading");
+      renderWorkspaceDetailPlaceholder(t("Loading connectors…"), "connectors-loading");
     } else if (section === "delegations") {
-      renderWorkspaceDetailPlaceholder("Loading delegations…", "delegations-loading");
+      renderWorkspaceDetailPlaceholder(t("Loading delegations…"), "delegations-loading");
     }
   }
 
@@ -11887,7 +11915,7 @@ async function setActiveNavSection(section, {
           commitPortalRoute({ section: "connectors", connectorType: targetType });
         }
       } else {
-        renderWorkspaceDetailPlaceholder("No connectors are available.", "connectors-placeholder");
+        renderWorkspaceDetailPlaceholder(t("No connectors are available."), "connectors-placeholder");
       }
     }
   }
@@ -11942,7 +11970,7 @@ function taskOwnerLabel(task) {
   const ownerName = String(task?.owner_display_name || "").trim();
   if (ownerName) return ownerName;
   const ownerId = task?.owner_user_id ?? "";
-  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : `User ${ownerId}`;
+  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : t("User {id}", { id: ownerId });
 }
 
 function hasActiveTaskFilters() {
@@ -11959,21 +11987,21 @@ function taskStatusFilterLabel(value) {
 function taskStatusLabel(value) {
   const normalized = String(value || "").trim().toLowerCase();
   const labels = {
-    queued: "Queued",
-    running: "Running",
-    blocked: "Blocked",
-    done: "Done",
-    completed: "Done",
-    success: "Done",
-    failed: "Failed",
-    error: "Failed",
-    stale: "Stale",
-    cancelled: "Cancelled",
-    canceled: "Cancelled",
-    pending_restart: "Pending restart",
-    cancel_failed: "Cancel failed",
+    queued: t("Queued"),
+    running: t("Running"),
+    blocked: t("Blocked"),
+    done: t("Done"),
+    completed: t("Done"),
+    success: t("Done"),
+    failed: t("Failed"),
+    error: t("Failed"),
+    stale: t("Stale"),
+    cancelled: t("Cancelled"),
+    canceled: t("Cancelled"),
+    pending_restart: t("Pending restart"),
+    cancel_failed: t("Cancel failed"),
   };
-  return labels[normalized] || (normalized ? normalized.replace(/_/g, " ") : "Unknown");
+  return labels[normalized] || (normalized ? normalized.replace(/_/g, " ") : t("Unknown"));
 }
 
 function taskStatusTone(value) {
@@ -11986,7 +12014,7 @@ function taskStatusTone(value) {
 }
 
 function portalRowStatusDot(label, tone = "neutral") {
-  const displayLabel = String(label || "Status unknown").trim();
+  const displayLabel = String(label || t("Status unknown")).trim();
   const displayTone = String(tone || "neutral").trim();
   return `<span class="portal-row-status-dot is-${safe(displayTone)}" title="${escapeHtmlAttr(displayLabel)}" aria-label="${escapeHtmlAttr(displayLabel)}"></span>`;
 }
@@ -11998,9 +12026,9 @@ function syncTaskFilterControls() {
   if (dom.taskFilterSummary) {
     const parts = [];
     if (filters.status !== "all") parts.push(taskStatusFilterLabel(filters.status));
-    if (filters.owner === "mine") parts.push("owned by you");
-    const filterLabel = parts.length ? `Filtered by ${parts.join(", ")}` : "All visible tasks";
-    const countLabel = state.taskListHasMore ? `${state.myTasks.length}+ loaded` : `${state.myTasks.length} shown`;
+    if (filters.owner === "mine") parts.push(t("owned by you"));
+    const filterLabel = parts.length ? t("Filtered by {filters}", { filters: parts.join(", ") }) : t("All visible tasks");
+    const countLabel = state.taskListHasMore ? t("{n}+ loaded", { n: state.myTasks.length }) : t("{n} shown", { n: state.myTasks.length });
     dom.taskFilterSummary.textContent = `${filterLabel} · ${countLabel}`;
   }
 }
@@ -12014,18 +12042,18 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
     return;
   }
   if (!state.myTasks.length) {
-    dom.taskNavList.innerHTML = `<div class="portal-list-state">${hasActiveTaskFilters() ? "No tasks match these filters." : "No visible tasks yet."}</div>`;
+    dom.taskNavList.innerHTML = `<div class="portal-list-state">${hasActiveTaskFilters() ? t("No tasks match these filters.") : t("No visible tasks yet.")}</div>`;
     return;
   }
 
   dom.taskNavList.innerHTML = "";
   state.myTasks.forEach((task) => {
-    const title = String(task.display_title || task.title || task.task_type || task.id || "Task").trim();
+    const title = String(task.display_title || task.title || task.task_type || task.id || t("Task")).trim();
     const displayTitle = title.length > 80 ? `${title.slice(0, 77).trim()}...` : title;
     const timeLabel = formatTaskNavTime(task.created_at || task.updated_at);
     const ownerLabel = taskOwnerLabel(task);
     const statusLabel = taskStatusLabel(task.status);
-    const statusDot = portalRowStatusDot(`Task status: ${statusLabel}`, taskStatusTone(task.status));
+    const statusDot = portalRowStatusDot(t("Task status: {status}", { status: statusLabel }), taskStatusTone(task.status));
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row${state.selectedTaskId === task.id ? " is-active" : ""}`;
@@ -12035,7 +12063,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
         ${statusDot}
       </div>
       <div class="portal-task-row-meta">
-        <span>Owner ${safe(ownerLabel)}</span>
+        <span>${t("Owner {owner}", { owner: safe(ownerLabel) })}</span>
         ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
       </div>
       ${taskNavScenarioProgressHtml(task.scenario_progress)}
@@ -12048,7 +12076,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
   if (state.taskListLoading || state.taskListHasMore) {
     const sentinel = document.createElement("div");
     sentinel.className = "portal-list-load-state";
-    sentinel.textContent = state.taskListLoading ? "Loading more tasks..." : "Scroll for more";
+    sentinel.textContent = state.taskListLoading ? t("Loading more tasks...") : t("Scroll for more");
     dom.taskNavList.append(sentinel);
   }
   if (preserveScroll) dom.taskNavList.scrollTop = previousScrollTop;
@@ -12063,9 +12091,9 @@ function taskNavScenarioProgressHtml(progress) {
   const failed = Number(progress.failed || 0);
   const pending = Number(progress.running || 0) + Number(progress.queued || 0);
   const pct = (n) => Math.max(0, Math.min(100, (n / total) * 100)).toFixed(1);
-  const label = `${passed}/${total} scenarios passed${failed ? `, ${failed} failed` : ""}`;
+  const label = failed ? t("{passed}/{total} scenarios passed, {failed} failed", { passed, total, failed }) : t("{passed}/{total} scenarios passed", { passed, total });
   return `
-      <div class="portal-task-progress" title="Scenario runs">
+      <div class="portal-task-progress" title="${t("Scenario runs")}">
         <div class="efp-matrix-bar" aria-hidden="true"><i class="is-success" style="width: ${pct(passed)}%"></i><i class="is-error" style="width: ${pct(failed)}%"></i><i class="is-warning" style="width: ${pct(pending)}%"></i></div>
         <span>${safe(label)}</span>
       </div>`;
@@ -12081,7 +12109,7 @@ function formatTaskNavTime(value) {
 async function refreshMyTasks({ reset = true } = {}) {
   if (!dom.taskNavList || state.taskListLoading) return;
   if (reset) {
-    dom.taskNavList.innerHTML = '<div class="portal-list-state">Loading tasks...</div>';
+    dom.taskNavList.innerHTML = `<div class="portal-list-state">${t("Loading tasks...")}</div>`;
   }
   state.taskListLoading = true;
   if (reset) {
@@ -12116,7 +12144,7 @@ async function refreshMyTasks({ reset = true } = {}) {
     renderTaskNavList("", { preserveScroll: !reset });
   } catch (error) {
     loadError = true;
-    renderTaskNavList(`Failed to load tasks: ${error.message}`);
+    renderTaskNavList(t("Failed to load tasks: {error}", { error: error.message }));
   } finally {
     state.taskListLoading = false;
     if (!loadError) renderTaskNavList("", { preserveScroll: !reset });
@@ -12140,7 +12168,7 @@ async function openTaskDetailInMain(taskId, { updateRoute = true } = {}) {
   renderTaskNavList();
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task detail…</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading task detail…")}</div>`;
   try {
     await htmx.ajax("GET", `/app/tasks/${encodeURIComponent(taskId)}/panel`, { target: "#workspace-detail-content", swap: "innerHTML" });
     dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
@@ -12151,7 +12179,7 @@ async function openTaskDetailInMain(taskId, { updateRoute = true } = {}) {
     }
   } catch (error) {
     dom.workspaceDetailContent.dataset.workspaceState = "task-detail";
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`;
   }
 }
 
@@ -12247,7 +12275,7 @@ function renderChatHistory(messages, metadata = {}) {
       const container = document.createElement("div"); container.className = "message-row message-row-user";
       const header = document.createElement("div"); header.className = "message-meta message-meta-user";
       const roleLabel = document.createElement("span"); roleLabel.className = "message-author"; roleLabel.textContent = getHistoryMessageDisplayName(message, true); header.appendChild(roleLabel);
-      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      if (timeStr) { const timeEl = document.createElement("span"); timeEl.className = "message-timestamp"; timeEl.textContent = timeStr; header.appendChild(timeEl); }
       container.appendChild(header);
       const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id; if (message.metadata?.internal_model_content_hidden) article.dataset.internalModelContentHidden = "1";
       const content = document.createElement("div"); content.className = "message-body"; content.textContent = getHistoryUserVisibleContent(message); article.appendChild(content);
@@ -12281,7 +12309,7 @@ function renderChatHistory(messages, metadata = {}) {
       const author = document.createElement("span"); author.className = "message-author"; author.textContent = getHistoryMessageDisplayName(first, false); header.appendChild(author);
       let timeStr = "";
       if (last?.timestamp || last?.created_at || first?.timestamp || first?.created_at) { try { timeStr = new Date(last.timestamp || last.created_at || first.timestamp || first.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
-      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      if (timeStr) { const timeEl = document.createElement("span"); timeEl.className = "message-timestamp"; timeEl.textContent = timeStr; header.appendChild(timeEl); }
       const modelBadgeHtml = (typeof buildAssistantModelBadgeHtml === "function" && typeof latestAssistantModelAttribution === "function")
         ? buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages), typeof latestAssistantUsageSummary === "function" ? latestAssistantUsageSummary(entry.messages) : null)
         : "";
@@ -12358,14 +12386,14 @@ function deriveSessionRecoveryNotice(metadata = {}) {
   if (latestEventType === "chat.failed" || latestEventState === "error") {
     return {
       level: "error",
-      message: "The previous request failed. You can review the last system error and retry.",
+      message: t("The previous request failed. You can review the last system error and retry."),
     };
   }
 
   if (metadataIndicatesRunningChatRun(metadata)) {
     return {
       level: "warning",
-      message: "Reconnecting to the previous request...",
+      message: t("Reconnecting to the previous request..."),
     };
   }
 
@@ -12496,8 +12524,8 @@ async function finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx,
     setChatSubmittingForAgent(agentId, false);
     setChatStatus(
       isWaitingForUserInputPayload(statusPayload) || isWaitingForUserInputPayload(statusPayload?.final_payload)
-        ? "Waiting for your answer."
-        : isTerminalChatRunState(statusPayload?.state) ? "Recovered latest response." : "Ready",
+        ? t("Waiting for your answer.")
+        : isTerminalChatRunState(statusPayload?.state) ? t("Recovered latest response.") : t("Ready"),
     );
     await loadSessionForAgent(agentId, sessionId, { render: true, recoverRunning: false, force: true });
   } else if (chatState) {
@@ -12549,7 +12577,7 @@ function scheduleRecoveredChatRunPoll(agentId, sessionId, requestId, requestCtx)
       || (requestCtx.recoveryFallbackFrozenStreak || 0) >= RECOVERED_RUN_POLL_MAX_FALLBACK_FROZEN_STREAK
     ) {
       // Never poll forever: give up, unlock the composer, show latest state.
-      showToast("Stopped waiting for the running response; showing the latest session state.");
+      showToast(t("Stopped waiting for the running response; showing the latest session state."));
       await finishRecoveredChatRun(agentId, sessionId, requestId, requestCtx, { state: "unknown" });
       return;
     }
@@ -12647,7 +12675,7 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   const metadataSaysRunning = metadataIndicatesRunningChatRun(metadata);
   const insertedRecoveryPending = render ? renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText) : false;
   if (insertedRecoveryPending && state.selectedAgentId === agentId) {
-    setChatStatus(pendingText === "Reconnecting" ? "Reconnecting to running response..." : "Working...");
+    setChatStatus(pendingText === "Reconnecting" ? t("Reconnecting to running response...") : t("Working..."));
   }
 
   let statusPayload = null;
@@ -12716,7 +12744,7 @@ async function recoverInflightChatRunForAgent(agentId, sessionId, metadata = {},
   setChatSubmittingForAgent(agentId, true);
   if (render) renderRecoveredPendingAssistantArticle(agentId, candidate.request_id, pendingText);
   if (state.selectedAgentId === agentId) {
-    setChatStatus(pendingText === "Reconnecting" ? "Reconnected to running response." : "Working...");
+    setChatStatus(pendingText === "Reconnecting" ? t("Reconnected to running response.") : t("Working..."));
   }
   ensureEventSocketForAgent(agentId, sessionId, candidate.request_id);
   startWaitingForRuntimeEventsTimer(agentId, requestCtx);
@@ -12794,7 +12822,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
         updateAgentSession(agentId, "");
         setLastSessionId(agentId, "");
       }
-      showToast("Session no longer exists");
+      showToast(t("Session no longer exists"));
       await openSessionsPanel();
       return;
     }
@@ -12854,7 +12882,7 @@ async function loadSessionForAgent(agentId, sessionId, { render = agentId === st
     renderChatHistory(normalizedPayload.messages || [], normalizedPayload.metadata || {});
     markTranscriptReady(token);
     addEditButtonsToMessages();
-    if (!ensureChatState(agentId)?.currentRequest) setChatStatus(`Loaded session ${normalized}`);
+    if (!ensureChatState(agentId)?.currentRequest) setChatStatus(t("Loaded session {session}", { session: normalized }));
     applyRecoveryNotice();
   }
   if (recoverRunning) {
@@ -12875,12 +12903,12 @@ async function renameSessionForAgent(agentId, sessionId, currentName) {
   if (!agentId || !normalizedSessionId) return;
 
   const defaultName = String(currentName || "").trim();
-  const proposedName = await showPrompt({ title: "Rename session", defaultValue: defaultName, confirmText: "Rename" });
+  const proposedName = await showPrompt({ title: t("Rename session"), defaultValue: defaultName, confirmText: t("Rename") });
   if (proposedName === null) return;
 
   const nextName = proposedName.trim();
   if (!nextName) {
-    showToast("Session name cannot be empty");
+    showToast(t("Session name cannot be empty"));
     return;
   }
   if (nextName === defaultName) return;
@@ -12892,14 +12920,14 @@ async function renameSessionForAgent(agentId, sessionId, currentName) {
       body: JSON.stringify({ name: nextName }),
     });
     if (!resp.ok) throw new Error(await handleErrorResponse(resp));
-    showToast("Session renamed");
+    showToast(t("Session renamed"));
     if (typeof setSessionName === "function") setSessionName(agentId, normalizedSessionId, nextName, "custom");
     if (typeof updateSessionsPanelRowName === "function") updateSessionsPanelRowName(normalizedSessionId, nextName, "custom");
     // Only a panel that is open is redrawn.
     if (state.activeUtilityPanel === "sessions" && state.toolPanelOpen) await openSessionsPanel();
     renderIcons();
   } catch (error) {
-    showToast(`Rename failed: ${safe(error.message)}`, { variant: 'error' });
+    showToast(t("Rename failed: {error}", { error: safe(error.message) }), { variant: 'error' });
   }
 }
 
@@ -12960,8 +12988,8 @@ function updateSessionsPanelRowShare(sessionId, shared) {
   if (!normalizedSessionId) return;
   document.querySelectorAll(`[data-session-action="share"]${sessionRowSelector(normalizedSessionId)}`).forEach((button) => {
     button.classList.toggle("is-shared", shared);
-    button.setAttribute("aria-label", shared ? "Manage the share link" : "Share session");
-    button.title = shared ? "Shared: manage the link" : "Share session (read only)";
+    button.setAttribute("aria-label", shared ? t("Manage the share link") : t("Share session"));
+    button.title = shared ? t("Shared: manage the link") : t("Share session (read only)");
   });
   document.querySelectorAll(`.sessions-item-main${sessionRowSelector(normalizedSessionId)}`).forEach((row) => {
     const existing = row.querySelector("[data-session-shared-badge]");
@@ -12977,8 +13005,8 @@ function updateSessionsPanelRowShare(sessionId, shared) {
       const badge = document.createElement("span");
       badge.className = "badge badge--info";
       badge.dataset.sessionSharedBadge = "1";
-      badge.title = "This session has a read-only share link";
-      badge.textContent = "Shared";
+      badge.title = t("This session has a read-only share link");
+      badge.textContent = t("Shared");
       meta.appendChild(badge);
     } else if (!shared && existing) {
       const meta = existing.parentElement;
@@ -12991,16 +13019,20 @@ function updateSessionsPanelRowShare(sessionId, shared) {
 function updateSessionsPanelRowName(sessionId, name, source) {
   const normalizedSessionId = String(sessionId || "").trim();
   if (!normalizedSessionId) return;
-  const displayName = String(name || "").trim() || "New Chat";
+  // The data attribute carries the session's own name, empty when it has
+  // none: the rename prompt and the share title read it, so the placeholder
+  // shown in the member's language must not become stored data.
+  const storedName = String(name || "").trim();
+  const displayName = storedName || t("New Chat");
   document.querySelectorAll(`.sessions-item-main${sessionRowSelector(normalizedSessionId)}`).forEach((row) => {
     const title = row.querySelector(".sessions-item-title");
     if (title) title.textContent = displayName;
-    row.dataset.sessionName = displayName;
+    row.dataset.sessionName = storedName;
     row.dataset.sessionNameSource = String(source || "");
     row.title = displayName;
   });
   document.querySelectorAll(`[data-session-action]${sessionRowSelector(normalizedSessionId)}`).forEach((button) => {
-    button.dataset.sessionName = displayName;
+    button.dataset.sessionName = storedName;
   });
 }
 
@@ -13058,8 +13090,8 @@ function scheduleSessionTitleRefresh(agentId, sessionId) {
 }
 
 const SHARE_SCOPE_COPY = {
-  anyone: "Anyone with the link can open it. No sign-in needed.",
-  members: "Only people who sign in to this Portal can open it.",
+  anyone: t("Anyone with the link can open it. No sign-in needed."),
+  members: t("Only people who sign in to this Portal can open it."),
 };
 
 // The share dialog. Who can open the link is chosen before the link exists
@@ -13074,7 +13106,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
   try {
     share = await fetchSessionShare(agentId, normalizedSessionId);
   } catch (error) {
-    showToast(`Could not read the share: ${safe(error.message)}`, { variant: "error" });
+    showToast(t("Could not read the share: {error}", { error: safe(error.message) }), { variant: "error" });
     return;
   }
 
@@ -13082,7 +13114,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
   const scopeOf = (value) => (value === "anyone" && anyoneAllowed ? "anyone" : "members");
   let selectedScope = share ? scopeOf(share.scope) : scopeOf("anyone");
   let busy = false;
-  const displayName = String(sessionName || "").trim() || "this session";
+  const displayName = String(sessionName || "").trim() || t("this session");
   const previouslyFocused = document.activeElement;
   const root = document.createElement("div");
   root.className = "modal portal-dialog portal-share-dialog-root";
@@ -13091,28 +13123,28 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
   root.setAttribute("aria-labelledby", "session-share-dialog-title");
   root.innerHTML = `
     <div class="modal-card panel portal-dialog-card portal-share-dialog" data-dialog-card>
-      <div class="portal-modal-titlebar"><h3 id="session-share-dialog-title">Share session</h3></div>
+      <div class="portal-modal-titlebar"><h3 id="session-share-dialog-title">${t("Share session")}</h3></div>
       <p class="portal-modal-copy portal-share-session-name">${escapeHtml(displayName)}</p>
-      <div class="portal-share-options" role="radiogroup" aria-label="Who can open the link">
+      <div class="portal-share-options" role="radiogroup" aria-label="${t("Who can open the link")}">
         <label class="portal-share-option${anyoneAllowed ? "" : " hidden"}">
           <input type="radio" name="session-share-scope" value="anyone" />
-          <span><strong>Anyone with the link</strong><small>No sign-in needed: anyone who can reach this Portal and has the link can read it.</small></span>
+          <span><strong>${t("Anyone with the link")}</strong><small>${t("No sign-in needed: anyone who can reach this Portal and has the link can read it.")}</small></span>
         </label>
         <label class="portal-share-option">
           <input type="radio" name="session-share-scope" value="members" />
-          <span><strong>Signed-in members</strong><small>Viewers sign in to this Portal first.</small></span>
+          <span><strong>${t("Signed-in members")}</strong><small>${t("Viewers sign in to this Portal first.")}</small></span>
         </label>
       </div>
       <div class="portal-share-link hidden" data-share-link-row>
-        <input type="text" class="portal-form-input" readonly data-share-link-input aria-label="Share link" />
-        <button type="button" class="portal-btn" data-share-copy>Copy link</button>
+        <input type="text" class="portal-form-input" readonly data-share-link-input aria-label="${t("Share link")}" />
+        <button type="button" class="portal-btn" data-share-copy>${t("Copy link")}</button>
       </div>
       <p class="portal-share-status hidden" data-share-status aria-live="polite"></p>
-      <p class="portal-share-note">Viewers see the conversation as it is now, including later turns, and cannot send messages. It may contain data from connected systems.</p>
+      <p class="portal-share-note">${t("Viewers see the conversation as it is now, including later turns, and cannot send messages. It may contain data from connected systems.")}</p>
       <div class="portal-modal-actions">
-        <button type="button" class="portal-btn portal-dialog-danger hidden" data-share-revoke>Stop sharing</button>
-        <button type="button" class="portal-btn" data-dialog-cancel>Cancel</button>
-        <button type="button" class="portal-btn is-primary" data-share-submit>Create link</button>
+        <button type="button" class="portal-btn portal-dialog-danger hidden" data-share-revoke>${t("Stop sharing")}</button>
+        <button type="button" class="portal-btn" data-dialog-cancel>${t("Cancel")}</button>
+        <button type="button" class="portal-btn is-primary" data-share-submit>${t("Create link")}</button>
       </div>
     </div>`;
   document.body.appendChild(root);
@@ -13148,7 +13180,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
       submitBtn.classList.toggle("hidden", Boolean(share));
       submitBtn.disabled = busy;
     }
-    if (cancelBtn) cancelBtn.textContent = share ? "Done" : "Cancel";
+    if (cancelBtn) cancelBtn.textContent = share ? t("Done") : t("Cancel");
   };
   let closed = false;
   const close = () => {
@@ -13191,7 +13223,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
   copyBtn?.addEventListener("click", async () => {
     if (!linkInput?.value) return;
     const copied = typeof copyText === "function" ? await copyText(linkInput.value) : false;
-    showToast(copied ? "Link copied" : "Copy the link from the box");
+    showToast(copied ? t("Link copied") : t("Copy the link from the box"));
   });
   scopeInputs.forEach((input) => input.addEventListener("change", async () => {
     if (!input.checked || busy) return;
@@ -13206,7 +13238,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
       share = await saveShare(selectedScope, { create: false });
       showToast(SHARE_SCOPE_COPY[scopeOf(share.scope)]);
     } catch (error) {
-      showToast(`Could not change who can open the link: ${safe(error.message)}`, { variant: "error" });
+      showToast(t("Could not change who can open the link: {error}", { error: safe(error.message) }), { variant: "error" });
     } finally {
       busy = false;
       selectedScope = share ? scopeOf(share.scope) : selectedScope;
@@ -13222,9 +13254,9 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
       selectedScope = scopeOf(share.scope);
       updateSessionsPanelRowShare(normalizedSessionId, true);
       const copied = typeof copyText === "function" && share.url ? await copyText(share.url) : false;
-      showToast(copied ? "Link created and copied" : "Link created");
+      showToast(copied ? t("Link created and copied") : t("Link created"));
     } catch (error) {
-      showToast(`Share failed: ${safe(error.message)}`, { variant: "error" });
+      showToast(t("Share failed: {error}", { error: safe(error.message) }), { variant: "error" });
     } finally {
       busy = false;
       paint();
@@ -13232,16 +13264,16 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
     }
   });
   revokeBtn?.addEventListener("click", async () => {
-    if (!(await showConfirm({ title: "Stop sharing", message: "The link stops working for everyone.", confirmText: "Stop sharing", danger: true }))) return;
+    if (!(await showConfirm({ title: t("Stop sharing"), message: t("The link stops working for everyone."), confirmText: t("Stop sharing"), danger: true }))) return;
     try {
       const resp = await fetch(sessionShareApiUrl(agentId, normalizedSessionId), { method: "DELETE" });
       if (!resp.ok && resp.status !== 404) throw new Error(await handleErrorResponse(resp));
       share = null;
       updateSessionsPanelRowShare(normalizedSessionId, false);
-      showToast("Sharing stopped");
+      showToast(t("Sharing stopped"));
       close();
     } catch (error) {
-      showToast(`Could not stop sharing: ${safe(error.message)}`, { variant: "error" });
+      showToast(t("Could not stop sharing: {error}", { error: safe(error.message) }), { variant: "error" });
     }
   });
   window.requestAnimationFrame(() => (share && linkInput ? linkInput : submitBtn)?.focus?.());
@@ -13250,7 +13282,7 @@ async function openSessionShareDialog(agentId, sessionId, sessionName) {
 async function deleteSessionForAgent(agentId, sessionId) {
   const normalizedSessionId = (sessionId || "").trim();
   if (!agentId || !normalizedSessionId) return;
-  if (!(await showConfirm({ title: "Delete session", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
+  if (!(await showConfirm({ title: t("Delete session"), message: t("This can't be undone."), confirmText: t("Delete"), danger: true }))) return;
 
   try {
     const resp = await fetch(`/app/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(normalizedSessionId)}`, {
@@ -13286,22 +13318,22 @@ async function deleteSessionForAgent(agentId, sessionId) {
         removeTemporaryAssistantRows({ forceAll: true });
         showFreshConversationForSelectedAgent();
         resetChatInputHeight();
-        setChatStatus("Session deleted");
+        setChatStatus(t("Session deleted"));
       }
     }
 
-    showToast("Session deleted");
+    showToast(t("Session deleted"));
     await openSessionsPanel();
     renderIcons();
   } catch (error) {
-    showToast(`Delete failed: ${safe(error.message)}`, { variant: 'error' });
+    showToast(t("Delete failed: {error}", { error: safe(error.message) }), { variant: 'error' });
   }
 }
 
 async function openServerFiles() {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("You do not have permission to access this assistant's files.")}</div>`, "server-files");
     return;
   }
   state.serverFilesRootPath = null;
@@ -13314,7 +13346,7 @@ async function openServerFiles() {
 async function openServerFilesAt(path) {
   const agent = state.mineAgents?.find(a => a.id === state.selectedAgentId);
   if (!canWriteAgent(agent)) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">You do not have permission to access this assistant's files.</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("You do not have permission to access this assistant's files.")}</div>`, "server-files");
     return;
   }
   await loadServerFiles(path || undefined);
@@ -13324,8 +13356,8 @@ function buildServerFilesBreadcrumb(path, rootPath) {
   const normalizedRoot = String(rootPath || '/').replace(/\/+$/, '') || '/';
   const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
   const workspaceCrumb = normalizedRoot
-    ? `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">Workspace</a>`
-    : '<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">Workspace</a>';
+    ? `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">${t("Workspace")}</a>`
+    : `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">${t("Workspace")}</a>`;
   const breadcrumbParts = [
     workspaceCrumb
   ];
@@ -13397,7 +13429,7 @@ function normalizeServerFileItem(item) {
 }
 
 async function loadServerFiles(path) {
-  setToolPanel("Server Files", '<div class="portal-inline-state">Loading files…</div>', "server-files");
+  setToolPanel(t("Server Files"), `<div class="portal-inline-state">${t("Loading files…")}</div>`, "server-files");
 
   try {
     const hasPath = typeof path === 'string' && path.length > 0;
@@ -13420,7 +13452,7 @@ async function loadServerFiles(path) {
       const icon = item.is_dir ? '📁' : '📄';
       const itemPath = String(item.path || '');
       const safePath = escapeHtmlAttr(itemPath);
-      const safeName = escapeHtml(item.name || '(unknown)');
+      const safeName = escapeHtml(item.name || t("(unknown)"));
       const disabledAttr = itemPath ? '' : ' disabled';
       return (
         `<div class="portal-file-row file-item" data-path="${safePath}" data-is-dir="${item.is_dir}">` +
@@ -13434,20 +13466,20 @@ async function loadServerFiles(path) {
     }).join("");
 
     // Set panel content with toolbar
-    setToolPanel("Server Files",
+    setToolPanel(t("Server Files"),
       `<div id="server-files-panel" class="portal-file-browser">` +
         `<div class="portal-file-toolbar">` +
           `<div class="portal-file-breadcrumb">${breadcrumb}</div>` +
           `<div class="portal-file-toolbar-actions">` +
-            `<button class="portal-btn is-secondary sf-upload-btn">Upload</button>` +
-            `<button class="portal-btn is-secondary sf-download-btn" disabled>Download</button>` +
-            `<button class="portal-btn is-secondary sf-delete-btn" disabled>Delete</button>` +
+            `<button class="portal-btn is-secondary sf-upload-btn">${t("Upload")}</button>` +
+            `<button class="portal-btn is-secondary sf-download-btn" disabled>${t("Download")}</button>` +
+            `<button class="portal-btn is-secondary sf-delete-btn" disabled>${t("Delete")}</button>` +
           `</div>` +
         `</div>` +
         `<div class="portal-file-select-row">` +
-          `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all">Select all</label>` +
+          `<input type="checkbox" id="sf-select-all" class="portal-file-checkbox"><label for="sf-select-all">${t("Select all")}</label>` +
         `</div>` +
-        `<div class="portal-panel-stack">${rows || '<div class="portal-inline-state">Empty directory</div>'}</div>` +
+        `<div class="portal-panel-stack">${rows || `<div class="portal-inline-state">${t("Empty directory")}</div>`}</div>` +
       `</div>`,
       "server-files"
     );
@@ -13540,7 +13572,7 @@ async function loadServerFiles(path) {
       updateDownloadButton(panel);
     }
   } catch (error) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Failed: ${safe(error.message)}</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "server-files");
   }
 }
 
@@ -13586,11 +13618,11 @@ function updateDownloadButton(panel) {
   const selected = getSelectedFiles(panel);
   if (downloadBtn) {
     downloadBtn.disabled = selected.length === 0;
-    downloadBtn.textContent = selected.length > 0 ? `Download (${selected.length})` : 'Download';
+    downloadBtn.textContent = selected.length > 0 ? t("Download ({count})", { count: selected.length }) : t("Download");
   }
   if (deleteBtn) {
     deleteBtn.disabled = selected.length === 0;
-    deleteBtn.textContent = selected.length > 0 ? `Delete (${selected.length})` : 'Delete';
+    deleteBtn.textContent = selected.length > 0 ? t("Delete ({count})", { count: selected.length }) : t("Delete");
   }
 
   // Update select all checkbox state
@@ -13619,7 +13651,7 @@ async function uploadToServerFiles(targetPath) {
     const file = e.target.files[0];
     if (!file) return;
 
-    setToolPanel("Server Files", `<div class="portal-inline-state">Uploading ${escapeHtml(file.name)}…</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state">${t("Uploading {name}…", { name: escapeHtml(file.name) })}</div>`, "server-files");
 
     try {
       const formData = new FormData();
@@ -13633,7 +13665,7 @@ async function uploadToServerFiles(targetPath) {
 
       if (!resp.ok) {
         const errMsg = await parseRuntimeErrorResponse(resp);
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(errMsg)}</div>`, "server-files");
+        setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Upload failed: {error}", { error: escapeHtml(errMsg) })}</div>`, "server-files");
         return;
       }
 
@@ -13644,26 +13676,30 @@ async function uploadToServerFiles(targetPath) {
         const extractedCount = Number.isFinite(Number(data.extracted_count))
           ? Number(data.extracted_count)
           : null;
-        const targetLabel = data.target_path ? ` to ${escapeHtml(data.target_path)}` : '';
+        const target = data.target_path ? escapeHtml(data.target_path) : '';
+        const extractedMessage = (count) => (target
+          ? tn(count, "Extracted {n} file to {target}", "Extracted {n} files to {target}", { target })
+          : tn(count, "Extracted {n} file", "Extracted {n} files"));
+        const uploadedMessage = (name) => (target
+          ? t("Uploaded {name} to {target}", { name, target })
+          : t("Uploaded {name}", { name }));
         let message;
         if (mode === 'zip_extract') {
-          const countLabel = extractedCount !== null ? extractedCount : 0;
-          message = `Extracted ${countLabel} files${targetLabel}`;
+          message = extractedMessage(extractedCount !== null ? extractedCount : 0);
         } else if (mode === 'file_save') {
-          message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
+          message = uploadedMessage(escapeHtml(uploadedFilename));
         } else if (extractedCount !== null || String(uploadedFilename).toLowerCase().endsWith('.zip')) {
-          const countLabel = extractedCount !== null ? extractedCount : 0;
-          message = `Extracted ${countLabel} files${targetLabel}`;
+          message = extractedMessage(extractedCount !== null ? extractedCount : 0);
         } else {
-          message = `Uploaded ${escapeHtml(uploadedFilename)}${targetLabel}`;
+          message = uploadedMessage(escapeHtml(uploadedFilename));
         }
-        setToolPanel("Server Files", `<div class="portal-inline-state is-success">${message}</div>`, "server-files");
+        setToolPanel(t("Server Files"), `<div class="portal-inline-state is-success">${message}</div>`, "server-files");
         loadServerFiles(targetPath);
       } else {
-        setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(data.error)}</div>`, "server-files");
+        setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Upload failed: {error}", { error: escapeHtml(data.error) })}</div>`, "server-files");
       }
     } catch (err) {
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Upload failed: ${escapeHtml(err.message)}</div>`, "server-files");
+      setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Upload failed: {error}", { error: escapeHtml(err.message) })}</div>`, "server-files");
     }
   };
   input.click();
@@ -13672,10 +13708,10 @@ async function uploadToServerFiles(targetPath) {
 async function deleteSelectedServerFiles(paths, currentPath) {
   if (!Array.isArray(paths) || paths.length === 0) return;
 
-  const confirmed = await showConfirm({ title: "Delete files", message: `Delete ${paths.length} selected item(s)? This can't be undone.`, confirmText: "Delete", danger: true });
+  const confirmed = await showConfirm({ title: t("Delete files"), message: tn(paths.length, "Delete {n} selected item? This can't be undone.", "Delete {n} selected items? This can't be undone."), confirmText: t("Delete"), danger: true });
   if (!confirmed) return;
 
-  setToolPanel("Server Files", `<div class="portal-inline-state">Deleting ${paths.length} item(s)…</div>`, "server-files");
+  setToolPanel(t("Server Files"), `<div class="portal-inline-state">${tn(paths.length, "Deleting {n} item…", "Deleting {n} items…")}</div>`, "server-files");
 
   try {
     const resp = await fetch(`/a/${state.selectedAgentId}/api/server-files/delete`, {
@@ -13686,14 +13722,14 @@ async function deleteSelectedServerFiles(paths, currentPath) {
 
     if (!resp.ok) {
       const errMsg = await parseRuntimeErrorResponse(resp);
-      setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(errMsg)}</div>`, "server-files");
+      setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Delete failed: {error}", { error: escapeHtml(errMsg) })}</div>`, "server-files");
       return;
     }
 
-    setToolPanel("Server Files", `<div class="portal-inline-state is-success">Deleted ${paths.length} item(s).</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-success">${tn(paths.length, "Deleted {n} item.", "Deleted {n} items.")}</div>`, "server-files");
     loadServerFiles(currentPath);
   } catch (err) {
-    setToolPanel("Server Files", `<div class="portal-inline-state is-error">Delete failed: ${escapeHtml(err.message)}</div>`, "server-files");
+    setToolPanel(t("Server Files"), `<div class="portal-inline-state is-error">${t("Delete failed: {error}", { error: escapeHtml(err.message) })}</div>`, "server-files");
   }
 }
 
@@ -13730,7 +13766,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
     };
 
     if (binaryPreviewExtensions.image.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<div class="portal-preview-image-wrap"><img src="${contentUrl}" class="max-w-full rounded" /></div>`,
         "server-files"
@@ -13738,7 +13774,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
       return;
     }
     if (binaryPreviewExtensions.pdf.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<iframe src="${contentUrl}" class="w-full" style="min-height: 70vh;" title="${escapeHtmlAttr(fileName)}"></iframe>`,
         "server-files"
@@ -13746,7 +13782,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
       return;
     }
     if (binaryPreviewExtensions.audio.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<audio controls src="${contentUrl}" class="w-full"></audio>`,
         "server-files"
@@ -13754,7 +13790,7 @@ async function previewServerFile(filePath, currentDir, rootPath) {
       return;
     }
     if (binaryPreviewExtensions.video.includes(ext)) {
-      setToolPanel("File: " + fileName,
+      setToolPanel(t("File: {name}", { name: fileName }),
         `<div class="portal-file-preview-header">${breadcrumb}</div>` +
         `<video controls src="${contentUrl}" class="max-w-full rounded"></video>`,
         "server-files"
@@ -13764,15 +13800,15 @@ async function previewServerFile(filePath, currentDir, rootPath) {
 
     const resp = await agentApi(`/api/server-files/read?path=${encodedPath}`);
     if (resp.error) throw new Error(resp.error);
-    const content = resp.content || "(empty file)";
-    setToolPanel("File: " + fileName,
+    const content = resp.content || t("(empty file)");
+    setToolPanel(t("File: {name}", { name: fileName }),
       `<div class="portal-file-preview-header">${breadcrumb}</div>` +
       `<pre class="portal-panel-pre">${escapeHtml(content)}</pre>`,
       "server-files"
     );
   } catch (error) {
-    setToolPanel("File Preview",
-      `<div class="portal-inline-state is-error">Unable to preview this file: ${safe(error.message)}</div>`,
+    setToolPanel(t("File Preview"),
+      `<div class="portal-inline-state is-error">${t("Unable to preview this file: {error}", { error: safe(error.message) })}</div>`,
       "server-files"
     );
   }
@@ -13782,7 +13818,7 @@ async function openSkillsPanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Skills", '<div class="portal-inline-state">Loading skills…</div>', "skills");
+  setToolPanel(t("Skills"), `<div class="portal-inline-state">${t("Loading skills…")}</div>`, "skills");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/skills/panel`, {
@@ -13797,7 +13833,7 @@ async function openSkillsPanel() {
       state.cachedSkills = mapped;
     }
   } catch (error) {
-    setToolPanel("Skills", `Failed: ${safe(error.message)}`, "skills");
+    setToolPanel(t("Skills"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "skills");
   }
 }
 
@@ -13806,7 +13842,7 @@ async function openUsagePanel() {
   if (!state.selectedAgentId) return;
 
 
-  setToolPanel("Usage", '<div class="portal-inline-state">Loading usage…</div>', "usage");
+  setToolPanel(t("Usage"), `<div class="portal-inline-state">${t("Loading usage…")}</div>`, "usage");
 
   try {
     await htmx.ajax("GET", `/app/agents/${state.selectedAgentId}/usage/panel`, {
@@ -13814,7 +13850,7 @@ async function openUsagePanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel("Usage", `Failed: ${safe(error.message)}`, "usage");
+    setToolPanel(t("Usage"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "usage");
   }
 }
 
@@ -13845,10 +13881,10 @@ function updateTemperatureInputState(root) {
   const allowTemperature = managedModelSupportsTemperature(modelSelect.value || modelSelect.dataset.currentValue || "");
 
   input.disabled = !allowTemperature;
-  input.placeholder = allowTemperature ? "0.7" : "Only available for gpt-4";
+  input.placeholder = allowTemperature ? "0.7" : t("Only available for gpt-4");
   input.title = allowTemperature
-    ? "Temperature is used only for exact gpt-4."
-    : "Temperature is disabled because this model omits the deprecated temperature parameter.";
+    ? t("Temperature is used only for exact gpt-4.")
+    : t("Temperature is disabled because this model omits the deprecated temperature parameter.");
 
   if (!allowTemperature) {
     input.value = "";
@@ -13856,8 +13892,8 @@ function updateTemperatureInputState(root) {
 
   if (note) {
     note.textContent = allowTemperature
-      ? "Temperature is only sent for exact gpt-4."
-      : "Temperature is disabled unless the selected model is exact gpt-4. Other models omit this deprecated parameter.";
+      ? t("Temperature is only sent for exact gpt-4.")
+      : t("Temperature is disabled unless the selected model is exact gpt-4. Other models omit this deprecated parameter.");
   }
 }
 
@@ -13892,20 +13928,20 @@ function inferenceModelLabel(value) {
     const match = models.find((item) => item.value === normalized);
     if (match) return match.label;
   }
-  return normalized || "Model";
+  return normalized || t("Model");
 }
 
 function inferenceReasoningLabel(value) {
-  const labels = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
-  return labels[String(value || "").trim().toLowerCase()] || "Default";
+  const labels = { low: t("Low"), medium: t("Medium"), high: t("High"), xhigh: t("Extra high"), max: t("Max") };
+  return labels[String(value || "").trim().toLowerCase()] || t("Default");
 }
 
-function inferenceContextLabel(value, fallback = "Auto") {
+function inferenceContextLabel(value, fallback = t("Auto")) {
   const tokens = Number(value || 0);
   if (!Number.isFinite(tokens) || tokens <= 0) return fallback;
   const base = tokens >= 1000000 ? "1M" : `${Math.round(tokens / 1000)}K`;
   const threshold = (typeof COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS === "number") ? COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS : 272000;
-  return tokens > threshold ? `${base} \u00b7 Long context 2\u00d7` : base;
+  return tokens > threshold ? t("{size} · Long context 2×", { size: base }) : base;
 }
 
 function contextSizeOptionsForModel(model, fallback = []) {
@@ -13960,7 +13996,7 @@ function renderComposerModelSelectorForAgent(agentId) {
   if (currentModel && !models.some((model) => model.value === currentModel)) {
     const extra = document.createElement("option");
     extra.value = currentModel;
-    extra.textContent = `${currentModel} (Current)`;
+    extra.textContent = t("{model} (Current)", { model: currentModel });
     dom.chatModelSelect.appendChild(extra);
   }
 
@@ -14005,14 +14041,14 @@ function renderComposerModelSelectorForAgent(agentId) {
     const automatic = document.createElement("option");
     automatic.value = "";
     automatic.textContent = chatState.profileDefaultMaxContextTokens
-      ? `Default (${inferenceContextLabel(chatState.profileDefaultMaxContextTokens)})`
-      : "Automatic";
+      ? t("Default ({size})", { size: inferenceContextLabel(chatState.profileDefaultMaxContextTokens) })
+      : t("Automatic");
     dom.chatContextSelect.appendChild(automatic);
     contextSizes.forEach((tokens, index) => {
       const option = document.createElement("option");
       option.value = String(tokens);
       option.textContent = index === contextSizes.length - 1
-        ? `Maximum (${inferenceContextLabel(tokens)})`
+        ? t("Maximum ({size})", { size: inferenceContextLabel(tokens) })
         : inferenceContextLabel(tokens);
       dom.chatContextSelect.appendChild(option);
     });
@@ -14120,6 +14156,11 @@ async function restoreSessionRunSettings(agentId, sessionId) {
 const managedSettingsActionSelector = "[data-settings-action]";
 // keep regression guard text for static test:
 
+// The label tables below stay plain English (tests read them as JSON and
+// compare them with the server's copies); the words are catalogue keys
+// because the connector templates wrap the same text with t() (web.py marks
+// TROUBLESHOOTING_CARD_PLACEHOLDERS with N_), so every place that shows one
+// translates it with tv().
 const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jenkins": "Jenkins", "aws_accounts": "AWS account", "aws_eks_clusters": "EKS cluster", "nexus": "Nexus", "splunk": "Splunk", "pgsql": "PostgreSQL", "proxy": "Proxy" };
 
 // The regions a profile may name, offered in every region dropdown (account
@@ -14127,7 +14168,8 @@ const INSTANCE_GROUP_LABELS = { "jira": "Jira", "confluence": "Confluence", "jen
 // AWS_REGIONS in app/schemas/runtime_profile.py; a test holds the two equal.
 const AWS_REGIONS = ["ap-east-1", "eu-west-1", "us-east-1"];
 
-// The <option>s of a region dropdown; blankLabel adds a "none" choice first.
+// The <option>s of a region dropdown; blankLabel (display text, already
+// translated) adds a "none" choice first.
 function regionOptionsHtml(blankLabel) {
   const options = blankLabel ? [`<option value="">${blankLabel}</option>`] : [];
   AWS_REGIONS.forEach((region) => options.push(`<option value="${region}">${region}</option>`));
@@ -14156,9 +14198,9 @@ function refreshEksAccountOptions(root) {
       option.selected = selected;
       select.append(option);
     };
-    add("", "Choose an account", current === "");
+    add("", t("Choose an account"), current === "");
     names.forEach((name) => add(name, name, name === current));
-    if (current && !names.includes(current)) add(current, `${current} (not listed above)`, true);
+    if (current && !names.includes(current)) add(current, t("{name} (not listed above)", { name: current }), true);
   });
 }
 
@@ -14167,6 +14209,7 @@ function refreshEksAccountOptions(root) {
 // server-rendered cards in the connector form templates (partials/connectors/).
 // The nexus/splunk/pgsql entries are copies of TROUBLESHOOTING_CARD_PLACEHOLDERS
 // in app/web.py, which renders the saved cards; a test holds the two equal.
+// Shown through tv(); example values (a URL, a port) pass through unchanged.
 const INSTANCE_GROUP_PLACEHOLDERS = {
   "jira": { "url": "URL (e.g. https://yourcompany.atlassian.net)", "username": "Email" },
   "confluence": { "url": "URL (e.g. https://yourcompany.atlassian.net/wiki)", "username": "Email" },
@@ -14236,9 +14279,9 @@ const INSTANCE_GROUP_ITEM_TITLES = { "aws_accounts": "Account", "aws_eks_cluster
 // where there is a test endpoint (a member's connector page).
 function proxyCardHtml(withTest) {
   const testHtml = withTest
-    ? `<div class="flex items-end gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy" data-test-card="proxy">Test this proxy</button></div>`
+    ? `<div class="flex items-end gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="proxy" data-test-card="proxy">${t("Test this proxy")}</button></div>`
     : `<div></div>`;
-  return `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Proxy</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="proxy">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">Name</span><input type="text" data-field="name" value="" placeholder="corp-a" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Proxy URL</span><input type="text" data-field="url" value="" placeholder="http://proxy.example.com:3128" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" data-field="username" value="" placeholder="Optional" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">Password</span><input type="password" data-field="password" value="" placeholder="Optional" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">No proxy for</span><input type="text" data-field="no_proxy" value="" placeholder="localhost,.svc.cluster.local" class="portal-form-input" /></label>${testHtml}</div></div>`;
+  return `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Proxy")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="proxy">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">${t("Name")}</span><input type="text" data-field="name" value="" placeholder="corp-a" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">${t("Proxy URL")}</span><input type="text" data-field="url" value="" placeholder="http://proxy.example.com:3128" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">${t("Username")}</span><input type="text" data-field="username" value="" placeholder="${t("Optional")}" class="portal-form-input" /></label><label class="portal-form-label"><span class="portal-form-label">${t("Password")}</span><input type="password" data-field="password" value="" placeholder="${t("Optional")}" class="portal-form-input" /></label></div><div class="grid grid-cols-2 gap-2"><label class="portal-form-label"><span class="portal-form-label">${t("No proxy for")}</span><input type="text" data-field="no_proxy" value="" placeholder="localhost,.svc.cluster.local" class="portal-form-input" /></label>${testHtml}</div></div>`;
 }
 
 // The Proxy connector's dropdowns (the default proxy, one per connector in
@@ -14272,19 +14315,20 @@ function refreshProxyOptions(root) {
     };
     fixed.forEach(([value, label]) => add(value, label, current === value));
     names.forEach((name) => add(name, name, name === current));
-    if (current && !names.includes(current) && !fixed.some(([value]) => value === current)) add(current, `${current} (not listed above)`, true);
-    if (!fixed.length && !names.length) add("", "No proxies yet", true);
+    if (current && !names.includes(current) && !fixed.some(([value]) => value === current)) add(current, t("{name} (not listed above)", { name: current }), true);
+    if (!fixed.length && !names.length) add("", t("No proxies yet"), true);
   };
   root.querySelectorAll("select[data-proxy-default]").forEach((select) => rebuild(select, []));
-  root.querySelectorAll("select[data-proxy-assign]").forEach((select) => rebuild(select, [["", "Default"], ["none", "None (direct)"]]));
+  root.querySelectorAll("select[data-proxy-assign]").forEach((select) => rebuild(select, [["", t("Default")], ["none", t("None (direct)")]]));
 }
 
+// Both return display text in the page's language.
 function instanceGroupLabel(group) {
-  return INSTANCE_GROUP_LABELS[group] || String(group || "");
+  return INSTANCE_GROUP_LABELS[group] ? tv(INSTANCE_GROUP_LABELS[group]) : String(group || "");
 }
 
 function instanceGroupItemTitle(group) {
-  return INSTANCE_GROUP_ITEM_TITLES[group] || "Instance";
+  return INSTANCE_GROUP_ITEM_TITLES[group] ? tv(INSTANCE_GROUP_ITEM_TITLES[group]) : t("Instance");
 }
 
 // The AWS account card: no URL/credentials, one row per account the aws-auth
@@ -14292,7 +14336,7 @@ function instanceGroupItemTitle(group) {
 // rendered card in partials/connectors/aws.html.
 function awsAccountCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_accounts;
-  return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Account</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${placeholders.name}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${placeholders.account_id}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${placeholders.role}" class="portal-form-input" /><select multiple size="${AWS_REGIONS.length}" data-field="regions" class="portal-form-select">${regionOptionsHtml()}</select></div></div>`;
+  return `<input type="hidden" data-original-field="name" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Account")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_accounts">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${tv(placeholders.name)}" class="portal-form-input" /><input type="text" data-field="account_id" value="" placeholder="${tv(placeholders.account_id)}" inputmode="numeric" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="text" data-field="role" value="" placeholder="${tv(placeholders.role)}" class="portal-form-input" /><select multiple size="${AWS_REGIONS.length}" data-field="regions" class="portal-form-select">${regionOptionsHtml()}</select></div></div>`;
 }
 
 // The EKS private-endpoint card: one cluster reached through PrivateLink,
@@ -14300,18 +14344,20 @@ function awsAccountCardHtml(label) {
 // the server-rendered card in partials/connectors/aws.html.
 function awsEksClusterCardHtml(label) {
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS.aws_eks_clusters;
-  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">EKS cluster</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><select data-field="account" class="portal-form-select"><option value="">Choose an account</option></select><input type="text" data-field="cluster" value="" placeholder="${placeholders.cluster}" class="portal-form-input" /><select data-field="region" class="portal-form-select">${regionOptionsHtml("Any region")}</select></div><div class="grid grid-cols-3 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${placeholders.private_endpoint}" class="portal-form-input" /><select data-field="server_ca" class="portal-form-select"><option value="cluster" selected>Cluster CA (endpoint passes TLS through)</option><option value="system">System trust store (endpoint has its own certificate)</option></select><input type="text" data-field="tls_server_name" value="" placeholder="${placeholders.tls_server_name}" class="portal-form-input" /></div></div>`;
+  return `<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("EKS cluster")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="aws_eks_clusters">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-3 gap-2"><select data-field="account" class="portal-form-select"><option value="">${t("Choose an account")}</option></select><input type="text" data-field="cluster" value="" placeholder="${tv(placeholders.cluster)}" class="portal-form-input" /><select data-field="region" class="portal-form-select">${regionOptionsHtml(t("Any region"))}</select></div><div class="grid grid-cols-3 gap-2"><input type="text" data-field="private_endpoint" value="" placeholder="${tv(placeholders.private_endpoint)}" class="portal-form-input" /><select data-field="server_ca" class="portal-form-select"><option value="cluster" selected>${t("Cluster CA (endpoint passes TLS through)")}</option><option value="system">${t("System trust store (endpoint has its own certificate)")}</option></select><input type="text" data-field="tls_server_name" value="" placeholder="${tv(placeholders.tls_server_name)}" class="portal-form-input" /></div></div>`;
 }
 
 // One field of a troubleshooting-CLI card, from the layout tables above. Must
 // render exactly what the card_field macro in
-// partials/runtime_profile_instance_cards.html renders for an empty value.
+// partials/runtime_profile_instance_cards.html renders for an empty value,
+// placeholder and option labels translated with tv() on both sides.
 function troubleshootingFieldHtml(group, field) {
   if (!field) return `<div></div>`;
   const spec = INSTANCE_GROUP_FIELD_SPECS[field] || {};
-  const placeholder = (INSTANCE_GROUP_PLACEHOLDERS[group] || {})[field] || "";
+  const placeholder = tv((INSTANCE_GROUP_PLACEHOLDERS[group] || {})[field] || "");
   if (spec.type === "select") {
     const options = (spec.options || [])
+      .map(([value, label]) => [value, tv(label)])
       .map(([value, text], index) => `<option value="${value}"${index === 0 ? " selected" : ""}>${text}</option>`)
       .join("");
     return `<select data-field="${field}" class="portal-form-select">${options}</select>`;
@@ -14332,7 +14378,7 @@ function troubleshootingCardHtml(group, label) {
   const bodyHtml = rows
     .map((row) => `<div class="grid grid-cols-2 gap-2">${row.map((field) => troubleshootingFieldHtml(group, field)).join("")}</div>`)
     .join("");
-  return `<input type="hidden" data-original-field="name" value="" />${originalUrlHtml}<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body">${bodyHtml}</div>`;
+  return `<input type="hidden" data-original-field="name" value="" />${originalUrlHtml}<div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Instance")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">${t("Remove")}</button></div><div class="portal-settings-instance-body">${bodyHtml}</div>`;
 }
 
 // Keeps the "disabled" affordance in sync with the per-instance toggle: the
@@ -14345,7 +14391,7 @@ function syncInstanceEnabledState(item) {
   const enabled = !!input.checked;
   item.classList.toggle("is-instance-disabled", !enabled);
   const state = item.querySelector("[data-instance-state]");
-  if (state) state.textContent = enabled ? "Enabled" : "Disabled";
+  if (state) state.textContent = enabled ? t("Enabled") : t("Disabled");
 }
 
 function normalizeInstanceInputs(root, group) {
@@ -14360,7 +14406,7 @@ function normalizeInstanceInputs(root, group) {
     const title = item.querySelector(".portal-settings-instance-title");
     if (title) title.textContent = `${itemTitle} ${idx + 1}`;
     const enabledInput = item.querySelector('input[data-field="enabled"]');
-    if (enabledInput) enabledInput.setAttribute("aria-label", `Enable ${label} instance ${idx + 1}`);
+    if (enabledInput) enabledInput.setAttribute("aria-label", t("Enable {label} instance {n}", { label, n: idx + 1 }));
     syncInstanceEnabledState(item);
     item.querySelectorAll("[data-field]").forEach((fieldEl) => {
       const field = fieldEl.dataset.field;
@@ -14422,20 +14468,20 @@ function addInstanceRow(root, group) {
   // partials/connectors/ (jira.html, confluence.html, jenkins.html),
   // otherwise a freshly added row looks different from the saved ones.
   const scopedFieldHtml = group === "jira"
-    ? `<input type="text" data-field="project" value="" placeholder="Project" class="portal-form-input" />`
+    ? `<input type="text" data-field="project" value="" placeholder="${t("Project")}" class="portal-form-input" />`
     : group === "confluence"
-      ? `<input type="text" data-field="space" value="" placeholder="Space Key" class="portal-form-input" />`
+      ? `<input type="text" data-field="space" value="" placeholder="${t("Space Key")}" class="portal-form-input" />`
       : `<div></div>`;
   const apiVersionHtml = group === "jira"
-    ? `<div class="grid grid-cols-2 gap-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>Auto API Version</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
+    ? `<div class="grid grid-cols-2 gap-2"><select data-field="api_version" class="portal-form-select"><option value="" selected>${t("Auto API Version")}</option><option value="2">REST API v2</option><option value="3">REST API v3</option></select><div></div></div>`
     : "";
   const placeholders = INSTANCE_GROUP_PLACEHOLDERS[group] || INSTANCE_GROUP_PLACEHOLDERS.jira;
-  const urlPlaceholder = placeholders.url;
-  const usernamePlaceholder = placeholders.username;
+  const urlPlaceholder = tv(placeholders.url);
+  const usernamePlaceholder = tv(placeholders.username);
   const label = instanceGroupLabel(group);
-  const credentialFieldsHtml = `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="Password" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="API token" class="portal-form-input" />${scopedFieldHtml}</div>`;
+  const credentialFieldsHtml = `<div class="grid grid-cols-2 gap-2"><input type="text" data-field="username" value="" placeholder="${usernamePlaceholder}" class="portal-form-input" /><input type="password" data-field="password" value="" placeholder="${t("Password")}" class="portal-form-input" /></div><div class="grid grid-cols-2 gap-2"><input type="password" data-field="token" value="" placeholder="${t("API token")}" class="portal-form-input" />${scopedFieldHtml}</div>`;
 
-  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">Instance</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="Enable ${label} instance" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>Enabled</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">Remove</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="Name" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>${credentialFieldsHtml}${apiVersionHtml}</div>`;
+  div.innerHTML = `<input type="hidden" data-original-field="name" value="" /><input type="hidden" data-original-field="url" value="" /><div class="portal-settings-instance-head"><div class="portal-settings-instance-head-main"><span class="portal-settings-instance-title">${t("Instance")}</span><label class="toggle-switch"><input type="checkbox" data-field="enabled" value="1" aria-label="${t("Enable {label} instance", { label })}" checked /><span class="toggle-slider"></span></label><span class="portal-instance-state" data-instance-state>${t("Enabled")}</span></div><button type="button" class="portal-instance-remove" data-action="remove-instance" data-group="${group}">${t("Remove")}</button></div><div class="portal-settings-instance-body"><div class="grid grid-cols-2 gap-2"><input type="text" data-field="name" value="" placeholder="${t("Name")}" class="portal-form-input" /><input type="text" data-field="url" value="" placeholder="${urlPlaceholder}" class="portal-form-input" /></div>${credentialFieldsHtml}${apiVersionHtml}</div>`;
   container.append(div);
   normalizeInstanceInputs(root, group);
 
@@ -14499,7 +14545,7 @@ window.initPasswordToggles = function(root = document) {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.tabIndex = 0;
-    toggle.setAttribute("aria-label", "Toggle password visibility");
+    toggle.setAttribute("aria-label", t("Toggle password visibility"));
     toggle.setAttribute("aria-pressed", "false");
     toggle.className = "portal-password-toggle";
     toggle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
@@ -14564,7 +14610,7 @@ function getManagedGithubBaseUrl(root) {
 
 function finishCopilotAuthWithMessage(root, message, kind = "error") {
   stopCopilotPolling(root);
-  const finalMessage = message || "Authorization failed";
+  const finalMessage = message || t("Authorization failed");
   if (typeof setCopilotResultSummary === "function") {
     setCopilotResultSummary(root, finalMessage, kind);
   }
@@ -14599,7 +14645,7 @@ function updateModelOptions(root) {
   modelSelect.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
-  defaultOption.textContent = "Use runtime local default";
+  defaultOption.textContent = t("Use runtime local default");
   modelSelect.appendChild(defaultOption);
   models.forEach((model) => {
     const option = document.createElement("option");
@@ -14615,7 +14661,7 @@ function updateModelOptions(root) {
     if (preferred && !hasModel(preferred)) {
       const extra = document.createElement("option");
       extra.value = preferred;
-      extra.textContent = `${preferred} (Current)`;
+      extra.textContent = t("{model} (Current)", { model: preferred });
       modelSelect.appendChild(extra);
     }
   } else if (provider !== lastProvider) {
@@ -14649,7 +14695,7 @@ async function runManagedSettingsTest(root, target, button) {
   const resultEl = root.querySelector(`[data-test-result="${target}"]`);
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = "Testing...";
+  button.textContent = t("Testing...");
   try {
     const body = new FormData(form);
     // A card's Test names the card: the Proxy connector tests one proxy at a time.
@@ -14664,13 +14710,13 @@ async function runManagedSettingsTest(root, target, button) {
       resultEl.className = `portal-inline-state ${ok ? "is-success" : "is-error"}`;
       resultEl.textContent = data.message || "";
     }
-    showToast(data.message || `${target} test completed`);
+    showToast(data.message || t("{target} test completed", { target }));
   } catch (error) {
     if (resultEl) {
       resultEl.className = "portal-inline-state is-error";
       resultEl.textContent = safe(error.message);
     }
-    showToast(`Test failed: ${safe(error.message)}`, { variant: 'error' });
+    showToast(t("Test failed: {error}", { error: safe(error.message) }), { variant: 'error' });
   } finally {
     button.disabled = false;
     button.textContent = original;
@@ -14696,14 +14742,14 @@ async function startCopilotAuth(root) {
     try {
       data = await response.json();
     } catch (_error) {
-      throw new Error("Authorization start failed: invalid response");
+      throw new Error(t("Authorization start failed: invalid response"));
     }
-    if (!response.ok || data.error) throw new Error(data.error || data.details || "Authorization start failed");
+    if (!response.ok || data.error) throw new Error(data.error || data.details || t("Authorization start failed"));
 
     const requiredStartFields = ["auth_id", "device_code", "user_code", "verification_url"];
     const missingStartFields = requiredStartFields.filter((field) => !data[field]);
     if (missingStartFields.length > 0) {
-      throw new Error(`Authorization start failed: missing ${missingStartFields.join(", ")}`);
+      throw new Error(t("Authorization start failed: missing {fields}", { fields: missingStartFields.join(", ") }));
     }
 
     if (instructions) instructions.classList.remove("hidden");
@@ -14725,7 +14771,7 @@ async function startCopilotAuth(root) {
     }
     if (userCode) userCode.textContent = data.user_code || "";
     if (typeof setCopilotResultSummary === "function") {
-      setCopilotResultSummary(root, "Device authorization started. Complete GitHub verification, then wait for this panel to update.");
+      setCopilotResultSummary(root, t("Device authorization started. Complete GitHub verification, then wait for this panel to update."));
     }
 
     let remaining = Number(data.expires_in || 600);
@@ -14735,7 +14781,7 @@ async function startCopilotAuth(root) {
       remaining -= 1;
       if (timer) timer.textContent = `${Math.max(remaining, 0)}s`;
       if (remaining <= 0) {
-        finishCopilotAuthWithMessage(root, "Authorization timed out. Please start again.");
+        finishCopilotAuthWithMessage(root, t("Authorization timed out. Please start again."));
       }
     }, 1000);
 
@@ -14748,7 +14794,7 @@ async function startCopilotAuth(root) {
           body: JSON.stringify({ auth_id: data.auth_id, device_code: data.device_code }),
         });
       } catch (error) {
-        finishCopilotAuthWithMessage(root, `Authorization check failed: ${safe(error.message)}`);
+        finishCopilotAuthWithMessage(root, t("Authorization check failed: {error}", { error: safe(error.message) }));
         return;
       }
 
@@ -14756,14 +14802,14 @@ async function startCopilotAuth(root) {
       try {
         check = await checkResp.json();
       } catch (_error) {
-        finishCopilotAuthWithMessage(root, "Authorization check failed: invalid response");
+        finishCopilotAuthWithMessage(root, t("Authorization check failed: invalid response"));
         return;
       }
 
       if (!checkResp.ok) {
         finishCopilotAuthWithMessage(
           root,
-          check?.message || check?.details || check?.error || `Authorization check failed (HTTP ${checkResp.status})`,
+          check?.message || check?.details || check?.error || t("Authorization check failed (HTTP {status})", { status: checkResp.status }),
         );
         return;
       }
@@ -14774,7 +14820,7 @@ async function startCopilotAuth(root) {
       }
 
       if (!check?.status) {
-        finishCopilotAuthWithMessage(root, "Authorization check failed: missing status");
+        finishCopilotAuthWithMessage(root, t("Authorization check failed: missing status"));
         return;
       }
 
@@ -14789,28 +14835,28 @@ async function startCopilotAuth(root) {
         if (!token || !updated) {
           finishCopilotAuthWithMessage(
             root,
-            "Authorization completed, but no token was returned. Please try again.",
+            t("Authorization completed, but no token was returned. Please try again."),
             "error"
           );
-          showToast("GitHub Copilot authorization completed, but no token was returned.");
+          showToast(t("GitHub Copilot authorization completed, but no token was returned."));
           return;
         }
 
-        setCopilotResultSummary(root, "Authorization complete. API Key field has been filled. Click Save to keep it.", "success");
-        showToast("Authorization complete. API Key field has been filled. Click Save to keep it.");
+        setCopilotResultSummary(root, t("Authorization complete. API Key field has been filled. Click Save to keep it."), "success");
+        showToast(t("Authorization complete. API Key field has been filled. Click Save to keep it."));
       } else if (check.status === "expired" || check.status === "declined" || check.status === "failed") {
-        const errorMessage = check.message || check.error || "Authorization failed";
+        const errorMessage = check.message || check.error || t("Authorization failed");
         finishCopilotAuthWithMessage(root, errorMessage);
         if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, errorMessage, "error");
       } else {
-        const unknownStatusMessage = `Authorization check failed: unknown status ${safe(check.status)}`;
+        const unknownStatusMessage = t("Authorization check failed: unknown status {status}", { status: safe(check.status) });
         finishCopilotAuthWithMessage(root, unknownStatusMessage);
         if (typeof setCopilotResultSummary === "function") setCopilotResultSummary(root, unknownStatusMessage, "error");
       }
     }, (Number(data.interval) || 5) * 1000);
   } catch (error) {
-    showToast(`Copilot authorization failed: ${safe(error.message)}`, { variant: 'error' });
-    finishCopilotAuthWithMessage(root, `Copilot authorization failed: ${safe(error.message)}`);
+    showToast(t("Copilot authorization failed: {error}", { error: safe(error.message) }), { variant: 'error' });
+    finishCopilotAuthWithMessage(root, t("Copilot authorization failed: {error}", { error: safe(error.message) }));
   }
 }
 
@@ -14914,7 +14960,7 @@ function initializeManagedSettingsRoot(root) {
       const code = authRoot?.querySelector("[data-copilot-user-code]")?.textContent || "";
       if (code && navigator.clipboard) {
         await navigator.clipboard.writeText(code);
-        showToast("Code copied!");
+        showToast(t("Code copied!"));
       }
     }
   });
@@ -14973,9 +15019,9 @@ async function clearChat() {
     removeTemporaryAssistantRows({ forceAll: true });
     showFreshConversationForSelectedAgent();
     resetChatInputHeight();
-    setChatStatus("Chat cleared");
+    setChatStatus(t("Chat cleared"));
   } catch (error) {
-    setChatStatus(`Clear failed: ${safe(error.message)}`);
+    setChatStatus(t("Clear failed: {error}", { error: safe(error.message) }));
   }
 }
 
@@ -15004,7 +15050,7 @@ async function startNewChatForSelectedAgent() {
   clearMessageListToWelcome();
   setChatSubmitting(false);
   resetChatInputHeight();
-  setChatStatus("New chat started");
+  setChatStatus(t("New chat started"));
   syncContextUsageToolbar(null);
   syncSelectedAgentChatActionControls();
   dom.chatInput?.focus();
@@ -15074,14 +15120,14 @@ async function waitForAgentRuntimeStatus(agentId, options = {}) {
       return payload;
     }
     if (failureStatuses.includes(status)) {
-      const detail = payload?.last_error || payload?.message || `Agent entered ${status}`;
+      const detail = payload?.last_error || payload?.message || t("Agent entered {status}", { status });
       throw new Error(detail);
     }
 
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
-  throw new Error("Timed out waiting for agent restart to finish");
+  throw new Error(t("Timed out waiting for agent restart to finish"));
 }
 
 async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeoutMs = 120000 } = {}) {
@@ -15092,7 +15138,7 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
       statusPayload = await api(`/api/agents/${encodeURIComponent(agentId)}/status`);
     } catch (error) {
       if (state.selectedAgentId === agentId) {
-        setChatStatus(`Restart status check failed: ${safe(error.message)}`, true);
+        setChatStatus(t("Restart status check failed: {error}", { error: safe(error.message) }), true);
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
       continue;
@@ -15103,8 +15149,8 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
 
     if (status === "running") {
       if (state.selectedAgentId === agentId) {
-        setChatStatus("Assistant restart completed.");
-        showToast("Assistant restart completed.");
+        setChatStatus(t("Assistant restart completed."));
+        showToast(t("Assistant restart completed."));
         await refreshAll({ preserveLayout: true });
         const chatState = ensureChatState(agentId);
         if (chatState?.sessionId) {
@@ -15120,32 +15166,32 @@ async function pollAgentUntilRestartComplete(agentId, { intervalMs = 2000, timeo
     }
 
     if (status === "failed" || status === "stopped") {
-      const message = statusPayload?.last_error || statusPayload?.message || `Assistant restart ended with status ${status}`;
+      const message = statusPayload?.last_error || statusPayload?.message || t("Assistant restart ended with status {status}", { status });
       if (state.selectedAgentId === agentId) setChatStatus(message, true);
       showToast(message);
       return false;
     }
 
     if (state.selectedAgentId === agentId) {
-      setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
+      setChatStatus(t("Restarting assistant… waiting for runtime pod to become ready."));
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
   if (state.selectedAgentId === agentId) {
-    setChatStatus("Restart is still in progress. Check Assistant details or Kubernetes rollout status.", true);
+    setChatStatus(t("Restart is still in progress. Check Assistant details or Kubernetes rollout status."), true);
   }
-  showToast("Restart is still in progress.");
+  showToast(t("Restart is still in progress."));
   return false;
 }
 
-function agentRestartErrorMessage(error, fallback = "Assistant restart failed or timed out.") {
+function agentRestartErrorMessage(error, fallback = t("Assistant restart failed or timed out.")) {
   const raw = String(error?.message || error || "").trim();
   if (!raw) return fallback;
   try {
     const parsed = JSON.parse(raw);
     const detail = parsed?.detail;
-    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (typeof detail === "string" && detail.trim()) return tv(detail.trim());
     if (Array.isArray(detail) && detail.length) return detail.map((item) => item?.msg || item).join("; ");
   } catch {}
   return raw;
@@ -15174,24 +15220,24 @@ function resetLocalChatSubmissionForAgent(agentId) {
 function agentActionLabel(path = "") {
   const tail = String(path || "").split("/").filter(Boolean).pop() || "";
   const labels = {
-    start: "Start",
-    stop: "Stop",
-    restart: "Restart",
-    share: "Share",
-    unshare: "Unshare",
-    "delete-runtime": "Delete",
+    start: t("Start"),
+    stop: t("Stop"),
+    restart: t("Restart"),
+    share: t("Share"),
+    unshare: t("Unshare"),
+    "delete-runtime": t("Delete"),
   };
-  return labels[tail] || "Action";
+  return labels[tail] || t("Action");
 }
 
 async function action(path, method = "POST", needsConfirm = false) {
-  if (needsConfirm && !(await showConfirm({ title: "Confirm action", message: "Please confirm this action.", confirmText: "Continue" }))) return;
+  if (needsConfirm && !(await showConfirm({ title: t("Confirm action"), message: t("Please confirm this action."), confirmText: t("Continue") }))) return;
   const lifecycle = parseAgentLifecycleAction(path);
   const normalizedMethod = String(method || "POST").toUpperCase();
   const isRestartAction = Boolean(lifecycle && normalizedMethod === "POST" && lifecycle.action === "restart");
 
   if (isRestartAction && state.selectedAgentId === lifecycle.agentId) {
-    setChatStatus("Restarting assistant…");
+    setChatStatus(t("Restarting assistant…"));
   }
 
   // Show the transition the moment it is asked for, not when the request
@@ -15228,8 +15274,8 @@ async function action(path, method = "POST", needsConfirm = false) {
     }
     // Every other lifecycle action used to rethrow into a discarded promise, so
     // failures were completely invisible. Surface it before propagating.
-    const message = agentRestartErrorMessage(error, "Request failed.");
-    showToast(`${agentActionLabel(path)} failed: ${message}`, { variant: "error" });
+    const message = agentRestartErrorMessage(error, t("Request failed."));
+    showToast(t("{action} failed: {error}", { action: agentActionLabel(path), error: message }), { variant: "error" });
     throw error;
   }
 
@@ -15254,13 +15300,13 @@ async function action(path, method = "POST", needsConfirm = false) {
       applyLocalAgentStatus(
         lifecycle.agentId,
         result?.status || "restarting",
-        result?.last_error || result?.message || "Restart requested"
+        result?.last_error || result?.message || t("Restart requested")
       );
       resetLocalChatSubmissionForAgent(lifecycle.agentId);
       if (state.eventWsAgentId === lifecycle.agentId) disconnectEventSocket();
       if (state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Restart requested.\nWaiting for runtime pod to restart…");
-        showToast("Restart requested.");
+        setChatStatus(t("Restart requested.\nWaiting for runtime pod to restart…"));
+        showToast(t("Restart requested."));
       }
 
       await refreshAll({ preserveLayout: true });
@@ -15271,13 +15317,13 @@ async function action(path, method = "POST", needsConfirm = false) {
         ""
       ).toLowerCase();
       if (!["running", "failed", "stopped", "deleting"].includes(cachedStatus) && state.selectedAgentId === lifecycle.agentId) {
-        setChatStatus("Restarting assistant… waiting for runtime pod to become ready.");
+        setChatStatus(t("Restarting assistant… waiting for runtime pod to become ready."));
       }
 
       pollAgentUntilRestartComplete(lifecycle.agentId).catch((error) => {
         console.warn("Restart poll failed", error);
         if (state.selectedAgentId === lifecycle.agentId) {
-          setChatStatus(`Restart polling failed: ${safe(error.message)}`, true);
+          setChatStatus(t("Restart polling failed: {error}", { error: safe(error.message) }), true);
         }
       });
 
@@ -15286,7 +15332,7 @@ async function action(path, method = "POST", needsConfirm = false) {
 
     resetLocalChatSubmissionForAgent(lifecycle.agentId);
     if (state.selectedAgentId === lifecycle.agentId) {
-      setChatStatus("Assistant stopped.");
+      setChatStatus(t("Assistant stopped."));
     }
   }
   await refreshAll();
@@ -15301,12 +15347,12 @@ async function action(path, method = "POST", needsConfirm = false) {
 // the assistant nor the consequence.
 async function removeAgent(agent) {
   if (!agent?.id) return;
-  const name = agent.name || "this assistant";
+  const name = agent.name || t("this assistant");
   const confirmed = await showConfirm({
-    title: `Delete ${name}?`,
-    message: `${name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept on the cluster. This can't be undone.`,
-    confirmText: "Delete assistant",
-    cancelText: "Cancel",
+    title: t("Delete {name}?", { name }),
+    message: t("{name} and its runtime pod are removed from the Portal. Files already written to the shared workspace volume are kept on the cluster. This can't be undone.", { name }),
+    confirmText: t("Delete assistant"),
+    cancelText: t("Cancel"),
     danger: true,
   });
   if (!confirmed) return;
@@ -15315,7 +15361,7 @@ async function removeAgent(agent) {
   // router answered 405.
   try {
     await action(`/api/agents/${agent.id}/delete-runtime`, "POST");
-    showToast(`${name} deleted.`);
+    showToast(t("{name} deleted.", { name }));
   } catch (error) {
     // action() already surfaced the failure toast.
     console.warn("Agent removal failed", error);
@@ -15354,7 +15400,7 @@ function setCreateAgentRepoFeedback(elementId, kind, message) {
 }
 
 function branchSelectPlaceholder(selectEl, defaultBranch = "") {
-  const base = selectEl?.dataset?.branchPlaceholder || "Configured default branch";
+  const base = selectEl?.dataset?.branchPlaceholder || t("Configured default branch");
   const branch = String(defaultBranch || "").trim();
   return branch ? `${base} (${branch})` : base;
 }
@@ -15401,7 +15447,7 @@ async function refreshCreateRepoBranches(kind) {
     setCreateAgentRepoFeedback(feedbackId, "", "");
     return;
   }
-  setCreateAgentRepoFeedback(feedbackId, "", "Loading branches...");
+  setCreateAgentRepoFeedback(feedbackId, "", t("Loading branches..."));
   try {
     const branches = await loadGitRepoBranches(repoUrl);
     let selectedBranch = createAgentFieldValue(form, branchField);
@@ -15409,10 +15455,10 @@ async function refreshCreateRepoBranches(kind) {
       selectedBranch = branches.includes("master") ? "master" : (branches.includes("main") ? "main" : branches[0]);
     }
     populateBranchSelect(selectId, branches, selectedBranch, defaultBranch);
-    setCreateAgentRepoFeedback(feedbackId, branches.length ? "success" : "", branches.length ? `${branches.length} branches loaded.` : "No branches found.");
+    setCreateAgentRepoFeedback(feedbackId, branches.length ? "success" : "", branches.length ? tn(branches.length, "{n} branch loaded.", "{n} branches loaded.") : t("No branches found."));
   } catch (error) {
     populateBranchSelect(selectId, [], createAgentFieldValue(form, branchField), defaultBranch);
-    setCreateAgentRepoFeedback(feedbackId, "error", error.message || "Failed to load branches.");
+    setCreateAgentRepoFeedback(feedbackId, "error", error.message || t("Failed to load branches."));
   }
 }
 
@@ -15422,13 +15468,13 @@ function renderCreateAgentReview(form, defaults) {
   const runtimeType = createAgentRuntimeType(form, defaults);
   const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
   const rows = [
-    ["Assistant Name", createAgentFieldValue(form, "name") || "Untitled"],
-    ["Runtime Type", runtimeType],
-    ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
-    ["Instructions Repository", createAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
-    ["Instructions Branch", createAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
-    ["Skill Repository", createAgentFieldValue(form, "skill_repo_url") || "Configured default"],
-    ["Skill Branch", createAgentFieldValue(form, "skill_branch") || "Configured default"],
+    [t("Assistant Name"), createAgentFieldValue(form, "name") || t("Untitled")],
+    [t("Runtime Type"), runtimeType],
+    [t("Runtime Image"), runtimeImagePreview(runtimeConfig) || t("Configured default")],
+    [t("Instructions Repository"), createAgentFieldValue(form, "agent_settings_repo_url") || t("Configured default")],
+    [t("Instructions Branch"), createAgentFieldValue(form, "agent_settings_branch") || t("Configured default")],
+    [t("Skill Repository"), createAgentFieldValue(form, "skill_repo_url") || t("Configured default")],
+    [t("Skill Branch"), createAgentFieldValue(form, "skill_branch") || t("Configured default")],
   ];
   reviewEl.innerHTML = rows.map(([label, value]) => `
     <div class="create-agent-review-item">
@@ -15523,7 +15569,7 @@ async function refreshEditRepoBranches(kind) {
     setEditAgentRepoFeedback(feedbackId, "", "");
     return;
   }
-  setEditAgentRepoFeedback(feedbackId, "", "Loading branches...");
+  setEditAgentRepoFeedback(feedbackId, "", t("Loading branches..."));
   try {
     const branches = await loadGitRepoBranches(repoUrl);
     let selectedBranch = editAgentFieldValue(form, branchField);
@@ -15531,10 +15577,10 @@ async function refreshEditRepoBranches(kind) {
       selectedBranch = branches.includes("master") ? "master" : (branches.includes("main") ? "main" : branches[0]);
     }
     populateBranchSelect(selectId, branches, selectedBranch, defaultBranch);
-    setEditAgentRepoFeedback(feedbackId, branches.length ? "success" : "", branches.length ? `${branches.length} branches loaded.` : "No branches found.");
+    setEditAgentRepoFeedback(feedbackId, branches.length ? "success" : "", branches.length ? tn(branches.length, "{n} branch loaded.", "{n} branches loaded.") : t("No branches found."));
   } catch (error) {
     populateBranchSelect(selectId, [], editAgentFieldValue(form, branchField), defaultBranch);
-    setEditAgentRepoFeedback(feedbackId, "error", error.message || "Failed to load branches.");
+    setEditAgentRepoFeedback(feedbackId, "error", error.message || t("Failed to load branches."));
   }
 }
 
@@ -15557,13 +15603,13 @@ function renderEditAgentReview(form, defaults) {
   const runtimeType = editAgentRuntimeType(form, defaults);
   const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
   const rows = [
-    ["Assistant Name", editAgentFieldValue(form, "name") || "Untitled"],
-    ["Runtime Type", editRuntimeTypeLabel(form, defaults)],
-    ["Runtime Image", runtimeImagePreview(runtimeConfig) || "Configured default"],
-    ["Instructions Repository", editAgentFieldValue(form, "agent_settings_repo_url") || "Configured default"],
-    ["Instructions Branch", editAgentFieldValue(form, "agent_settings_branch") || "Configured default"],
-    ["Skill Repository", editAgentFieldValue(form, "skill_repo_url") || "Configured default"],
-    ["Skill Branch", editAgentFieldValue(form, "skill_branch") || "Configured default"],
+    [t("Assistant Name"), editAgentFieldValue(form, "name") || t("Untitled")],
+    [t("Runtime Type"), editRuntimeTypeLabel(form, defaults)],
+    [t("Runtime Image"), runtimeImagePreview(runtimeConfig) || t("Configured default")],
+    [t("Instructions Repository"), editAgentFieldValue(form, "agent_settings_repo_url") || t("Configured default")],
+    [t("Instructions Branch"), editAgentFieldValue(form, "agent_settings_branch") || t("Configured default")],
+    [t("Skill Repository"), editAgentFieldValue(form, "skill_repo_url") || t("Configured default")],
+    [t("Skill Branch"), editAgentFieldValue(form, "skill_branch") || t("Configured default")],
   ];
   reviewEl.innerHTML = rows.map(([label, value]) => `
     <div class="create-agent-review-item">
@@ -15626,7 +15672,7 @@ function moveEditAgentStep(form, direction) {
 function getRuntimeTypes(defaults) {
   const runtimeTypes = Array.isArray(defaults?.runtime_types) ? defaults.runtime_types : [];
   if (runtimeTypes.length) return runtimeTypes;
-  return [{ value: "native", label: "EFP Native Runtime", image_repo: defaults?.image_repo || "", image_tag: defaults?.image_tag || "latest", default_mount_path: defaults?.mount_path || "/workspace" }];
+  return [{ value: "native", label: t("EFP Native Runtime"), image_repo: defaults?.image_repo || "", image_tag: defaults?.image_tag || "latest", default_mount_path: defaults?.mount_path || "/workspace" }];
 }
 
 function normalizeRuntimeTypeValue(value, defaults) {
@@ -15667,9 +15713,9 @@ function getCreateDefaultRuntimeType(defaults) {
 
 function runtimeTypeDescription(item) {
   const value = String(item?.value || "").trim().toLowerCase();
-  if (value === "opencode") return "Use the opencode runtime adapter.";
-  if (value === "native") return "Use the native EFP Python runtime.";
-  return "Use this runtime for the assistant.";
+  if (value === "opencode") return t("Use the opencode runtime adapter.");
+  if (value === "native") return t("Use the native EFP Python runtime.");
+  return t("Use this runtime for the assistant.");
 }
 
 function populateRuntimeTypeSelect(selectEl, defaults, selectedValue = "") {
@@ -15696,7 +15742,7 @@ function populateRuntimeTypeRadioGroup(groupEl, defaults, selectedValue = "") {
     const image = runtimeImagePreview(item);
     const mountPath = item.default_mount_path || "";
     const meta = image
-      ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}`
+      ? `${t("Default image: {image}", { image })}${mountPath ? ` · ${t("Mount: {path}", { path: mountPath })}` : ""}`
       : runtimeTypeDescription(item);
 
     return `
@@ -15726,7 +15772,7 @@ function updateCreateRuntimeTypeHint(form, defaults) {
   const config = findRuntimeTypeConfig(defaults, runtimeTypeValue);
   const image = runtimeImagePreview(config);
   const mountPath = config?.default_mount_path || defaults?.mount_path || "";
-  if (hintEl) hintEl.textContent = image ? `Default image: ${image}${mountPath ? ` · Mount: ${mountPath}` : ""}` : "";
+  if (hintEl) hintEl.textContent = image ? `${t("Default image: {image}", { image })}${mountPath ? ` · ${t("Mount: {path}", { path: mountPath })}` : ""}` : "";
 }
 
 function applyCreateAgentDefaults(form, defaults) {
@@ -15789,17 +15835,19 @@ function renderConnectorList(errorMessage = "") {
     return;
   }
   if (!state.connectors.length) {
-    dom.connectorNavList.innerHTML = '<div class="portal-list-state">No connectors are available.</div>';
+    dom.connectorNavList.innerHTML = `<div class="portal-list-state">${t("No connectors are available.")}</div>`;
     return;
   }
   dom.connectorNavList.innerHTML = "";
   let currentCategory = null;
   state.connectors.forEach((connector) => {
+    // Category, label and status arrive in English from /api/connectors (the
+    // registry marks them with N_()); the page's catalogue translates them.
     if (connector.category && connector.category !== currentCategory) {
       currentCategory = connector.category;
       const heading = document.createElement("div");
       heading.className = "portal-list-group-label";
-      heading.textContent = connector.category;
+      heading.textContent = tv(connector.category);
       dom.connectorNavList.append(heading);
     }
     const row = document.createElement("button");
@@ -15807,13 +15855,13 @@ function renderConnectorList(errorMessage = "") {
     row.className = `portal-list-row portal-connector-row${state.selectedConnectorType === connector.type ? " is-active" : ""}`;
     row.dataset.connectorType = connector.type;
     const connectorState = String(connector.state || (connector.enabled ? "connected" : "not_set_up"));
-    const status = connector.status_label || (connector.enabled ? "Enabled" : "Not enabled");
+    const status = connector.status_label ? tv(connector.status_label) : (connector.enabled ? t("Enabled") : t("Not enabled"));
     // A settings connector that follows the administrator's Default connectors says so.
-    const modeNote = connector.mode === "system" ? '<span class="portal-connector-row-mode"> \u00b7 System default</span>' : "";
+    const modeNote = connector.mode === "system" ? `<span class="portal-connector-row-mode"> \u00b7 ${t("System default")}</span>` : "";
     row.innerHTML = `
       <span class="portal-connector-row-icon" aria-hidden="true"><i data-lucide="${escapeHtmlAttr(connector.icon || "plug")}" class="w-4 h-4"></i></span>
       <span class="portal-connector-row-text">
-        <span class="portal-list-title">${safe(connector.label || connector.type)}</span>
+        <span class="portal-list-title">${safe(tv(connector.label || connector.type))}</span>
         <span class="portal-list-meta portal-connector-row-state is-${escapeHtmlAttr(connectorState)}">${safe(status)}${modeNote}</span>
       </span>
     `;
@@ -15897,9 +15945,9 @@ function syncDelegationFilterControls(visibleCount = null) {
     const total = Array.isArray(state.delegations) ? state.delegations.length : 0;
     const shown = visibleCount === null ? visibleDelegationRules().length : visibleCount;
     const parts = [];
-    if (filters.owner === "mine") parts.push("owned by you");
+    if (filters.owner === "mine") parts.push(t("owned by you"));
     if (filters.source !== "all") parts.push(delegationSourceLabel(filters.source));
-    dom.delegationFilterSummary.textContent = parts.length ? `${shown} of ${total} shown · ${parts.join(", ")}` : `${total} ${pluralize(total, "delegation")}`;
+    dom.delegationFilterSummary.textContent = parts.length ? t("{shown} of {total} shown · {filters}", { shown, total, filters: parts.join(", ") }) : tn(total, "{n} delegation", "{n} delegations");
   }
 }
 
@@ -15908,18 +15956,18 @@ function renderDelegationRuleNavList(rules = null) {
   const items = Array.isArray(rules) ? rules : visibleDelegationRules();
   syncDelegationFilterControls(items.length);
   if (!items.length) {
-    dom.delegationRuleNavList.innerHTML = `<div class="portal-list-state">${hasActiveDelegationFilters() ? "No delegations match these filters." : "No delegations found."}</div>`;
+    dom.delegationRuleNavList.innerHTML = `<div class="portal-list-state">${hasActiveDelegationFilters() ? t("No delegations match these filters.") : t("No delegations found.")}</div>`;
     return;
   }
   dom.delegationRuleNavList.innerHTML = "";
   items.forEach((rule) => {
     const source = rule.source || rule.trigger_type;
     const sourceLabel = delegationSourceLabel(source);
-    const title = String(rule.name || sourceLabel || "Delegation").trim();
+    const title = String(rule.name || sourceLabel || t("Delegation")).trim();
     const timeLabel = delegationDisplayTime(rule.created_at || rule.updated_at || rule.next_run_at || rule.last_run_at);
     const ownerLabel = delegationOwnerLabel(rule);
     const statusLabel = delegationRuleStatusLabel(rule);
-    const statusDot = portalRowStatusDot(`Delegation status: ${statusLabel}`, delegationRuleStatusTone(rule));
+    const statusDot = portalRowStatusDot(t("Delegation status: {status}", { status: statusLabel }), delegationRuleStatusTone(rule));
     const row = document.createElement("button");
     row.type = "button";
     row.className = `portal-task-row portal-delegation-row${state.selectedDelegationRuleId === rule.id ? " is-active" : ""}`;
@@ -15929,7 +15977,7 @@ function renderDelegationRuleNavList(rules = null) {
         ${statusDot}
       </div>
       <div class="portal-task-row-meta">
-        <span>Owner ${safe(ownerLabel)}</span>
+        <span>${t("Owner {owner}", { owner: safe(ownerLabel) })}</span>
         <span>${safe(timeLabel)}</span>
       </div>
     `;
@@ -15939,12 +15987,12 @@ function renderDelegationRuleNavList(rules = null) {
 }
 
 const DELEGATION_SOURCE_OPTIONS = [
-  ["github_pr_review", "GitHub PR Review"],
-  ["github_pr_mention", "GitHub PR Mention"],
-  ["jira_assignee", "Jira Assignee"],
-  ["jira_mention", "Jira Mention"],
-  ["jira_status", "Jira Status Change"],
-  ["timer", "Timer"],
+  ["github_pr_review", t("GitHub PR Review")],
+  ["github_pr_mention", t("GitHub PR Mention")],
+  ["jira_assignee", t("Jira Assignee")],
+  ["jira_mention", t("Jira Mention")],
+  ["jira_status", t("Jira Status Change")],
+  ["timer", t("Timer")],
 ];
 
 function isDelegationTimerSource(source) {
@@ -15959,29 +16007,29 @@ function delegationSourceLabel(source) {
 
 function delegationProviderLabel(source) {
   const normalized = String(source || "").trim();
-  if (normalized === "timer") return "Timer";
+  if (normalized === "timer") return t("Timer");
   if (normalized.startsWith("github_")) return "GitHub";
   if (normalized.startsWith("jira_")) return "Jira";
   return normalized || "-";
 }
 
 function delegationReplyTargetLabel(source) {
-  if (isDelegationTimerSource(source)) return "No automatic reply";
+  if (isDelegationTimerSource(source)) return t("No automatic reply");
   const provider = delegationProviderLabel(source);
-  if (provider === "GitHub") return "PR comment";
-  if (provider === "Jira") return "Jira comment";
-  return "Reply";
+  if (provider === "GitHub") return t("PR comment");
+  if (provider === "Jira") return t("Jira comment");
+  return t("Reply");
 }
 
 function delegationInputLabel(source) {
   const normalized = String(source || "").trim();
-  if (normalized === "github_pr_review") return "PR URL";
-  if (normalized === "github_pr_mention") return "PR URL + comment";
-  if (normalized === "jira_assignee") return "Jira URL";
-  if (normalized === "jira_mention") return "Jira URL + comment";
-  if (normalized === "jira_status") return "Jira URL (moved to a status)";
-  if (normalized === "timer") return "Cron schedule";
-  return "Source payload";
+  if (normalized === "github_pr_review") return t("PR URL");
+  if (normalized === "github_pr_mention") return t("PR URL + comment");
+  if (normalized === "jira_assignee") return t("Jira URL");
+  if (normalized === "jira_mention") return t("Jira URL + comment");
+  if (normalized === "jira_status") return t("Jira URL (moved to a status)");
+  if (normalized === "timer") return t("Cron schedule");
+  return t("Source payload");
 }
 
 function delegationRuleSkillLabel(rule) {
@@ -15990,8 +16038,8 @@ function delegationRuleSkillLabel(rule) {
 }
 
 function delegationRuleStatusLabel(rule) {
-  if (rule?.target_agent_missing) return "Needs agent";
-  return rule?.enabled ? "Enabled" : "Paused";
+  if (rule?.target_agent_missing) return t("Needs agent");
+  return rule?.enabled ? t("Enabled") : t("Paused");
 }
 
 function delegationRuleStatusTone(rule) {
@@ -16022,7 +16070,7 @@ function delegationOwnerLabel(rule) {
   const ownerName = String(rule?.owner_display_name || "").trim();
   if (ownerName) return ownerName;
   const ownerId = rule?.owner_user_id ?? "";
-  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : `User ${ownerId}`;
+  return ownerId === "" || ownerId === null || ownerId === undefined ? "-" : t("User {id}", { id: ownerId });
 }
 
 function delegationCanManage(rule) {
@@ -16112,27 +16160,27 @@ function collectDelegationSourceConditions(formEl) {
 
 function delegationConditionSummaryLabel(source, scope = {}, conditions = {}) {
   const provider = delegationProviderKey(source);
-  if (provider === "timer") return "Scheduled by Portal timer";
+  if (provider === "timer") return t("Scheduled by Portal timer");
   const parts = [];
   if (provider === "github") {
-    if (conditions.repository) parts.push(`repo ${conditions.repository}`);
-    if (conditions.base_branch) parts.push(`base ${conditions.base_branch}`);
-    if (Array.isArray(conditions.labels_include) && conditions.labels_include.length) parts.push(`labels +${conditions.labels_include.join(", ")}`);
-    if (Array.isArray(conditions.labels_exclude) && conditions.labels_exclude.length) parts.push(`labels -${conditions.labels_exclude.join(", ")}`);
-    if (Array.isArray(conditions.authors_include) && conditions.authors_include.length) parts.push(`authors ${conditions.authors_include.join(", ")}`);
-    if (Array.isArray(conditions.authors_exclude) && conditions.authors_exclude.length) parts.push(`exclude authors ${conditions.authors_exclude.join(", ")}`);
-    if (conditions.include_drafts === false) parts.push("no drafts");
+    if (conditions.repository) parts.push(t("repo {value}", { value: conditions.repository }));
+    if (conditions.base_branch) parts.push(t("base {value}", { value: conditions.base_branch }));
+    if (Array.isArray(conditions.labels_include) && conditions.labels_include.length) parts.push(t("labels +{value}", { value: conditions.labels_include.join(", ") }));
+    if (Array.isArray(conditions.labels_exclude) && conditions.labels_exclude.length) parts.push(t("labels -{value}", { value: conditions.labels_exclude.join(", ") }));
+    if (Array.isArray(conditions.authors_include) && conditions.authors_include.length) parts.push(t("authors {value}", { value: conditions.authors_include.join(", ") }));
+    if (Array.isArray(conditions.authors_exclude) && conditions.authors_exclude.length) parts.push(t("exclude authors {value}", { value: conditions.authors_exclude.join(", ") }));
+    if (conditions.include_drafts === false) parts.push(t("no drafts"));
   } else if (provider === "jira") {
-    if (scope.jira_instance) parts.push(`instance ${scope.jira_instance}`);
-    if (conditions.project_key) parts.push(`project ${conditions.project_key}`);
-    if (conditions.issue_type) parts.push(`type ${conditions.issue_type}`);
-    if (Array.isArray(conditions.status_include) && conditions.status_include.length) parts.push(`status ${conditions.status_include.join(", ")}`);
-    if (Array.isArray(conditions.status_exclude) && conditions.status_exclude.length) parts.push(`exclude status ${conditions.status_exclude.join(", ")}`);
-    if (conditions.priority) parts.push(`priority ${conditions.priority}`);
-    if (Array.isArray(conditions.labels_include) && conditions.labels_include.length) parts.push(`labels +${conditions.labels_include.join(", ")}`);
-    if (Array.isArray(conditions.labels_exclude) && conditions.labels_exclude.length) parts.push(`labels -${conditions.labels_exclude.join(", ")}`);
+    if (scope.jira_instance) parts.push(t("instance {value}", { value: scope.jira_instance }));
+    if (conditions.project_key) parts.push(t("project {value}", { value: conditions.project_key }));
+    if (conditions.issue_type) parts.push(t("type {value}", { value: conditions.issue_type }));
+    if (Array.isArray(conditions.status_include) && conditions.status_include.length) parts.push(t("status {value}", { value: conditions.status_include.join(", ") }));
+    if (Array.isArray(conditions.status_exclude) && conditions.status_exclude.length) parts.push(t("exclude status {value}", { value: conditions.status_exclude.join(", ") }));
+    if (conditions.priority) parts.push(t("priority {value}", { value: conditions.priority }));
+    if (Array.isArray(conditions.labels_include) && conditions.labels_include.length) parts.push(t("labels +{value}", { value: conditions.labels_include.join(", ") }));
+    if (Array.isArray(conditions.labels_exclude) && conditions.labels_exclude.length) parts.push(t("labels -{value}", { value: conditions.labels_exclude.join(", ") }));
   }
-  return parts.length ? parts.join(" · ") : "Everything this connection can see";
+  return parts.length ? parts.join(" · ") : t("Everything this connection can see");
 }
 
 function delegationJiraInstanceSelectHtml(scope = {}, preview = null) {
@@ -16140,7 +16188,7 @@ function delegationJiraInstanceSelectHtml(scope = {}, preview = null) {
   const options = Array.isArray(preview?.options?.jira_instances) ? preview.options.jira_instances : [];
   if (!options.length) {
     const value = selected || "";
-    const label = selected || "Default Jira instance";
+    const label = selected || t("Default Jira instance");
     return `<select class="portal-form-select" name="source_scope_jira_instance"><option value="${escapeHtmlAttr(value)}" selected>${safe(label)}</option></select>`;
   }
   const selectedMatched = selected && options.some((option) => String(option.value || "") === selected);
@@ -16149,7 +16197,7 @@ function delegationJiraInstanceSelectHtml(scope = {}, preview = null) {
     const isSelected = selected ? value === selected : index === 0;
     return `<option value="${escapeHtmlAttr(value)}" ${isSelected ? "selected" : ""}>${safe(option.label || value)}</option>`;
   }).join("");
-  const staleOption = selected && !selectedMatched ? `<option value="${escapeHtmlAttr(selected)}" selected>${safe(selected)} (missing)</option>` : "";
+  const staleOption = selected && !selectedMatched ? `<option value="${escapeHtmlAttr(selected)}" selected>${t("{name} (missing)", { name: safe(selected) })}</option>` : "";
   return `<select class="portal-form-select" name="source_scope_jira_instance">${staleOption}${optionHtml}</select>`;
 }
 
@@ -16160,17 +16208,17 @@ function delegationSourceConditionFieldsHtml(source, scope = {}, conditions = {}
     const includeDraftsChecked = conditions.include_drafts === false ? "" : "checked";
     return `
       <div class="portal-panel-grid cols-2">
-        <label class="portal-form-label"><span class="portal-form-label">Repository</span><input class="portal-form-input" name="condition_repository" value="${escapeHtmlAttr(conditions.repository || "")}" placeholder="owner/repo" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Base branch</span><input class="portal-form-input" name="condition_base_branch" value="${escapeHtmlAttr(conditions.base_branch || "")}" placeholder="main" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Include labels</span><input class="portal-form-input" name="condition_labels_include" value="${escapeHtmlAttr(delegationCsv(conditions.labels_include))}" placeholder="bug, backend" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Exclude labels</span><input class="portal-form-input" name="condition_labels_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.labels_exclude))}" placeholder="wip" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Repository")}</span><input class="portal-form-input" name="condition_repository" value="${escapeHtmlAttr(conditions.repository || "")}" placeholder="owner/repo" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Base branch")}</span><input class="portal-form-input" name="condition_base_branch" value="${escapeHtmlAttr(conditions.base_branch || "")}" placeholder="main" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Include labels")}</span><input class="portal-form-input" name="condition_labels_include" value="${escapeHtmlAttr(delegationCsv(conditions.labels_include))}" placeholder="bug, backend" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Exclude labels")}</span><input class="portal-form-input" name="condition_labels_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.labels_exclude))}" placeholder="wip" /></label>
       </div>
       <details class="portal-collapsible portal-delegation-advanced">
-        <summary class="portal-collapsible-summary"><span>More conditions</span><i data-lucide="chevron-down" class="w-4 h-4"></i></summary>
+        <summary class="portal-collapsible-summary"><span>${t("More conditions")}</span><i data-lucide="chevron-down" class="w-4 h-4"></i></summary>
         <div class="portal-panel-grid cols-2 portal-delegation-advanced-body">
-          <label class="portal-form-label"><span class="portal-form-label">PR authors</span><input class="portal-form-input" name="condition_authors_include" value="${escapeHtmlAttr(delegationCsv(conditions.authors_include))}" placeholder="octocat" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Exclude authors</span><input class="portal-form-input" name="condition_authors_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.authors_exclude))}" placeholder="bot-user" /></label>
-          <label class="portal-toggle-field portal-delegation-toggle-field"><span>Include draft PRs</span><span class="toggle-switch" aria-label="Include draft PRs"><input type="checkbox" name="condition_include_drafts" ${includeDraftsChecked} /><span class="toggle-slider"></span></span></label>
+          <label class="portal-form-label"><span class="portal-form-label">${t("PR authors")}</span><input class="portal-form-input" name="condition_authors_include" value="${escapeHtmlAttr(delegationCsv(conditions.authors_include))}" placeholder="octocat" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">${t("Exclude authors")}</span><input class="portal-form-input" name="condition_authors_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.authors_exclude))}" placeholder="bot-user" /></label>
+          <label class="portal-toggle-field portal-delegation-toggle-field"><span>${t("Include draft PRs")}</span><span class="toggle-switch" aria-label="${t("Include draft PRs")}"><input type="checkbox" name="condition_include_drafts" ${includeDraftsChecked} /><span class="toggle-slider"></span></span></label>
         </div>
       </details>
     `;
@@ -16178,23 +16226,23 @@ function delegationSourceConditionFieldsHtml(source, scope = {}, conditions = {}
   if (provider === "jira") {
     return `
       <div class="portal-panel-grid cols-2">
-        <label class="portal-form-label"><span class="portal-form-label">Jira instance</span>${delegationJiraInstanceSelectHtml(scope, preview)}</label>
-        <label class="portal-form-label"><span class="portal-form-label">Project key</span><input class="portal-form-input" name="condition_project_key" value="${escapeHtmlAttr(conditions.project_key || "")}" placeholder="EFP" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Issue type</span><input class="portal-form-input" name="condition_issue_type" value="${escapeHtmlAttr(conditions.issue_type || "")}" placeholder="Bug" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">${source === "jira_status" ? "Starts when an issue moves to" : "Include statuses"}</span><input class="portal-form-input" name="condition_status_include" value="${escapeHtmlAttr(delegationCsv(conditions.status_include))}" placeholder="${source === "jira_status" ? "Ready for Test" : "To Do, In Progress"}" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Exclude statuses</span><input class="portal-form-input" name="condition_status_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.status_exclude))}" placeholder="Done" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Jira instance")}</span>${delegationJiraInstanceSelectHtml(scope, preview)}</label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Project key")}</span><input class="portal-form-input" name="condition_project_key" value="${escapeHtmlAttr(conditions.project_key || "")}" placeholder="EFP" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Issue type")}</span><input class="portal-form-input" name="condition_issue_type" value="${escapeHtmlAttr(conditions.issue_type || "")}" placeholder="Bug" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${source === "jira_status" ? t("Starts when an issue moves to") : t("Include statuses")}</span><input class="portal-form-input" name="condition_status_include" value="${escapeHtmlAttr(delegationCsv(conditions.status_include))}" placeholder="${source === "jira_status" ? "Ready for Test" : "To Do, In Progress"}" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Exclude statuses")}</span><input class="portal-form-input" name="condition_status_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.status_exclude))}" placeholder="Done" /></label>
       </div>
       <details class="portal-collapsible portal-delegation-advanced">
-        <summary class="portal-collapsible-summary"><span>More conditions</span><i data-lucide="chevron-down" class="w-4 h-4"></i></summary>
+        <summary class="portal-collapsible-summary"><span>${t("More conditions")}</span><i data-lucide="chevron-down" class="w-4 h-4"></i></summary>
         <div class="portal-panel-grid cols-2 portal-delegation-advanced-body">
-          <label class="portal-form-label"><span class="portal-form-label">Priority</span><input class="portal-form-input" name="condition_priority" value="${escapeHtmlAttr(conditions.priority || "")}" placeholder="High" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Include labels</span><input class="portal-form-input" name="condition_labels_include" value="${escapeHtmlAttr(delegationCsv(conditions.labels_include))}" placeholder="support" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Exclude labels</span><input class="portal-form-input" name="condition_labels_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.labels_exclude))}" placeholder="blocked" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">${t("Priority")}</span><input class="portal-form-input" name="condition_priority" value="${escapeHtmlAttr(conditions.priority || "")}" placeholder="High" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">${t("Include labels")}</span><input class="portal-form-input" name="condition_labels_include" value="${escapeHtmlAttr(delegationCsv(conditions.labels_include))}" placeholder="support" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">${t("Exclude labels")}</span><input class="portal-form-input" name="condition_labels_exclude" value="${escapeHtmlAttr(delegationCsv(conditions.labels_exclude))}" placeholder="blocked" /></label>
         </div>
       </details>
     `;
   }
-  return `<div class="portal-inline-state is-visible">Select a source first.</div>`;
+  return `<div class="portal-inline-state is-visible">${t("Select a source first.")}</div>`;
 }
 
 function renderDelegationSourceControls(formEl, scope = {}, conditions = {}, preview = null, { loading = false } = {}) {
@@ -16203,16 +16251,16 @@ function renderDelegationSourceControls(formEl, scope = {}, conditions = {}, pre
   const source = String(formEl.querySelector('[name="source"]')?.value || "").trim();
   const providerKey = delegationProviderKey(source);
   const providerLabel = delegationProviderLabel(source);
-  const accountSummary = preview?.account_summary || (providerKey === "timer" ? "Portal timer" : `${providerLabel} from the assistant's connections`);
+  const accountSummary = preview?.account_summary || (providerKey === "timer" ? t("Portal timer") : t("{provider} from the assistant's connections", { provider: providerLabel }));
   const conditionSummary = delegationConditionSummaryLabel(source, scope, conditions);
   const status = String(preview?.status || (loading ? "loading" : "ok")).trim();
   const statusTone = status === "missing" ? "warning" : (loading ? "info" : "success");
-  const statusLabel = status === "missing" ? "Needs source" : (loading ? "Checking" : "Ready");
+  const statusLabel = status === "missing" ? t("Needs source") : (loading ? t("Checking") : t("Ready"));
   const warning = String(preview?.warning || "").trim();
   const conditionBuilder = providerKey === "timer" ? "" : `
       <div class="portal-delegation-condition-builder">
         <div class="portal-task-section-heading">
-          <span>Source Conditions</span>
+          <span>${t("Source Conditions")}</span>
           <span>${safe(providerLabel)}</span>
         </div>
         ${delegationSourceConditionFieldsHtml(source, scope, conditions, preview)}
@@ -16222,7 +16270,7 @@ function renderDelegationSourceControls(formEl, scope = {}, conditions = {}, pre
     <section class="portal-delegation-source-config">
       <div class="portal-delegation-source-account">
         <div>
-          <span>${providerKey === "timer" ? "Source" : "Runtime source"}</span>
+          <span>${providerKey === "timer" ? t("Source") : t("Runtime source")}</span>
           <strong>${safe(accountSummary)}</strong>
           <small>${safe(conditionSummary)}</small>
         </div>
@@ -16257,7 +16305,7 @@ async function refreshDelegationSourcePreview(formEl, { resetScope = false, rese
       scope,
       conditions,
       {
-        account_summary: delegationProviderKey(source) === "timer" ? "Portal timer" : `${delegationProviderLabel(source)} from the assistant's connections`,
+        account_summary: delegationProviderKey(source) === "timer" ? t("Portal timer") : t("{provider} from the assistant's connections", { provider: delegationProviderLabel(source) }),
         status: "missing",
         warning: error.message,
         options: {},
@@ -16302,18 +16350,18 @@ function renderDelegationSchedulePreview(formEl, preview = null, { loading = fal
   if (!container) return;
   if (loading) {
     container.className = "portal-inline-state is-visible";
-    container.textContent = "Checking schedule...";
+    container.textContent = t("Checking schedule...");
     return;
   }
   if (error || preview?.valid === false) {
     container.className = "portal-inline-state is-error";
-    container.textContent = error || preview?.error || "Invalid schedule";
+    container.textContent = error || preview?.error || t("Invalid schedule");
     return;
   }
   if (preview?.valid) {
     const nextRun = preview.next_run_local || preview.next_run_at || "-";
     container.className = "portal-inline-state is-success";
-    container.textContent = `${preview.summary || "Schedule ready"} · Next ${nextRun}`;
+    container.textContent = t("{summary} · Next {next}", { summary: preview.summary || t("Schedule ready"), next: nextRun });
     return;
   }
   container.className = "portal-inline-state is-visible";
@@ -16331,7 +16379,7 @@ async function refreshDelegationSchedulePreview(formEl, { debounce = false } = {
   }
   const schedule = collectDelegationSchedule(formEl);
   if (!schedule.expression) {
-    renderDelegationSchedulePreview(formEl, null, { error: "Cron expression is required" });
+    renderDelegationSchedulePreview(formEl, null, { error: t("Cron expression is required") });
     return;
   }
   const requestId = `${Date.now()}:${Math.random()}`;
@@ -16377,15 +16425,15 @@ function renderDelegationScheduleControls(formEl, schedule = {}, taskPrompt = ""
   container.innerHTML = `
     <section class="portal-delegation-source-config" data-delegation-timer-config>
       <div class="portal-task-section-heading">
-        <span>Timer</span>
-        <span>Cron</span>
+        <span>${t("Timer")}</span>
+        <span>${t("Cron")}</span>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Task prompt</span><textarea class="portal-form-textarea" name="task_prompt" rows="5" required>${safe(taskPrompt)}</textarea></label>
+      <label class="portal-form-label"><span class="portal-form-label">${t("Task prompt")}</span><textarea class="portal-form-textarea" name="task_prompt" rows="5" required>${safe(taskPrompt)}</textarea></label>
       <div class="portal-panel-grid cols-2">
-        <label class="portal-form-label"><span class="portal-form-label">Cron expression</span><input class="portal-form-input" name="schedule_cron_expression" value="${escapeHtmlAttr(expression)}" placeholder="30 9 * * 1-5" required /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Timezone</span><input class="portal-form-input" name="schedule_timezone" value="${escapeHtmlAttr(timezone)}" placeholder="Asia/Shanghai" required /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Cron expression")}</span><input class="portal-form-input" name="schedule_cron_expression" value="${escapeHtmlAttr(expression)}" placeholder="30 9 * * 1-5" required /></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Timezone")}</span><input class="portal-form-input" name="schedule_timezone" value="${escapeHtmlAttr(timezone)}" placeholder="Asia/Shanghai" required /></label>
       </div>
-      <label class="portal-toggle-field portal-delegation-toggle-field"><span>Skip overlapping runs</span><span class="toggle-switch" aria-label="Skip overlapping runs"><input type="checkbox" name="schedule_skip_overlapping" ${skipOverlapping ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
+      <label class="portal-toggle-field portal-delegation-toggle-field"><span>${t("Skip overlapping runs")}</span><span class="toggle-switch" aria-label="${t("Skip overlapping runs")}"><input type="checkbox" name="schedule_skip_overlapping" ${skipOverlapping ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
       <div data-delegation-schedule-preview class="portal-inline-state is-visible" aria-live="polite"></div>
     </section>
   `;
@@ -16431,14 +16479,14 @@ function delegationEventReplyLabel(event) {
   const normalized = _safeJson(event?.normalized_payload_json) || {};
   const statusText = String(event?.status || "").trim();
   if (isDelegationTimerSource(normalized.source || normalized.provider || "")) {
-    if (statusText === "reply_sent") return "Completed";
-    if (statusText === "reply_failed") return "Completion failed";
-    if (statusText === "task_created" || statusText === "task_done") return "Task pending";
+    if (statusText === "reply_sent") return t("Completed");
+    if (statusText === "reply_failed") return t("Completion failed");
+    if (statusText === "task_created" || statusText === "task_done") return t("Task pending");
     return "-";
   }
-  if (statusText === "reply_sent") return "Reply sent";
-  if (statusText === "reply_failed") return "Reply failed";
-  if (statusText === "task_created" || statusText === "task_done") return "Reply pending";
+  if (statusText === "reply_sent") return t("Reply sent");
+  if (statusText === "reply_failed") return t("Reply failed");
+  if (statusText === "task_created" || statusText === "task_done") return t("Reply pending");
   return "-";
 }
 
@@ -16448,7 +16496,7 @@ function delegationTruncate(value, maxLength = 160) {
 
 function delegationRunTimelineItems(runs) {
   const items = Array.isArray(runs) ? runs : [];
-  if (!items.length) return '<div class="portal-inline-state is-visible">No runs yet.</div>';
+  if (!items.length) return `<div class="portal-inline-state is-visible">${t("No runs yet.")}</div>`;
   return items.slice(0, 8).map((run) => {
     const status = String(run.status || "unknown").trim();
     const tone = delegationRunStatusTone(status);
@@ -16462,8 +16510,8 @@ function delegationRunTimelineItems(runs) {
             <span class="portal-status-badge is-${safe(tone)}">${safe(status)}</span>
             <span class="portal-panel-note">${safe(started)}</span>
           </div>
-          <strong>Found ${safe(String(run.found_count ?? 0))} · Created ${safe(String(run.created_task_count ?? 0))} · Skipped ${safe(String(run.skipped_count ?? 0))}</strong>
-          <div class="portal-delegation-timeline-meta">Finished ${safe(finished)}</div>
+          <strong>${t("Found {found} · Created {created} · Skipped {skipped}", { found: safe(String(run.found_count ?? 0)), created: safe(String(run.created_task_count ?? 0)), skipped: safe(String(run.skipped_count ?? 0)) })}</strong>
+          <div class="portal-delegation-timeline-meta">${t("Finished {time}", { time: safe(finished) })}</div>
           ${error ? `<div class="portal-callout is-error">${safe(error)}</div>` : ""}
         </div>
       </article>
@@ -16473,15 +16521,16 @@ function delegationRunTimelineItems(runs) {
 
 function delegationEventTimelineItems(events) {
   const items = Array.isArray(events) ? events : [];
-  if (!items.length) return '<div class="portal-inline-state is-visible">No tasks or replies yet.</div>';
+  if (!items.length) return `<div class="portal-inline-state is-visible">${t("No tasks or replies yet.")}</div>`;
   return items.slice(0, 12).map((event) => {
     const normalized = _safeJson(event?.normalized_payload_json) || {};
     const status = String(event.status || "unknown").trim();
     const tone = delegationEventStatusTone(status);
     const replyLabel = delegationEventReplyLabel(event);
-    const replyTone = ["Reply sent", "Completed"].includes(replyLabel)
+    // The tone follows the event status, not the (translated) label.
+    const replyTone = status === "reply_sent"
       ? "success"
-      : (["Reply failed", "Completion failed"].includes(replyLabel) ? "error" : "neutral");
+      : (status === "reply_failed" ? "error" : "neutral");
     const comment = delegationTruncate(normalized.source_comment || "", 180);
     const identity = String(normalized.represented_identity || "").trim();
     const taskId = String(event.task_id || "").trim();
@@ -16496,13 +16545,13 @@ function delegationEventTimelineItems(events) {
           <strong>${delegationEventSourceLink(event)}</strong>
           <div class="portal-delegation-timeline-meta">
             <span>${safe(delegationDisplayTime(event.created_at))}</span>
-            ${identity ? `<span>As ${safe(identity)}</span>` : ""}
+            ${identity ? `<span>${t("As {identity}", { identity: safe(identity) })}</span>` : ""}
           </div>
           ${comment ? `<div class="portal-delegation-comment">${safe(comment)}</div>` : ""}
           ${error ? `<div class="portal-callout is-error">${safe(error)}</div>` : ""}
         </div>
         <div class="portal-delegation-timeline-actions">
-          ${taskId ? `<button class="portal-btn is-secondary" type="button" data-open-task-main="${escapeHtmlAttr(taskId)}"><i data-lucide="external-link" class="w-4 h-4"></i>Task</button>` : `<span class="portal-panel-note">No task</span>`}
+          ${taskId ? `<button class="portal-btn is-secondary" type="button" data-open-task-main="${escapeHtmlAttr(taskId)}"><i data-lucide="external-link" class="w-4 h-4"></i>${t("Task")}</button>` : `<span class="portal-panel-note">${t("No task")}</span>`}
         </div>
       </article>
     `;
@@ -16522,31 +16571,31 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
     const sourceLabel = delegationSourceLabel(source);
     const providerLabel = delegationProviderLabel(source);
     const intervalLabel = delegationIntervalLabel(detail.interval_seconds || 60);
-    const scheduleLabel = String(detail.schedule_summary || "").trim() || `Every ${intervalLabel}`;
+    const scheduleLabel = String(detail.schedule_summary || "").trim() || t("Every {interval}", { interval: intervalLabel });
     const skillLabel = delegationRuleSkillLabel(detail);
     const statusLabel = delegationRuleStatusLabel(detail);
     const statusTone = delegationRuleStatusTone(detail);
     const agentLabel = delegationTargetAgentLabel(detail, targetAgent);
     const ownerLabel = delegationOwnerLabel(detail);
     const canManage = delegationCanManage(detail);
-    const accountSummary = String(detail.source_account_summary || `${providerLabel} from the assistant's connections`).trim();
-    const conditionSummary = String(detail.source_condition_summary || "Everything this connection can see").trim();
+    const accountSummary = String(detail.source_account_summary || t("{provider} from the assistant's connections", { provider: providerLabel })).trim();
+    const conditionSummary = String(detail.source_condition_summary || t("Everything this connection can see")).trim();
     const sourceWarning = String(detail.source_config_warning || "").trim();
     const sourceConfigTone = detail.source_config_status === "missing" ? "warning" : "success";
-    const sourceConfigLabel = detail.source_config_status === "missing" ? "Needs source" : "Ready";
+    const sourceConfigLabel = detail.source_config_status === "missing" ? t("Needs source") : t("Ready");
     const managementActions = canManage ? `
-            <button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="pencil" class="w-4 h-4"></i>Edit</button>
-            <button class="portal-btn is-secondary" type="button" data-run-delegation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>Run once</button>
-            <button class="portal-btn is-secondary" type="button" data-toggle-delegation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? "Pause" : "Enable"}</button>
-            <button class="portal-btn is-danger" type="button" data-delete-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>Delete</button>
-    ` : '<span class="portal-panel-note">Only the owner can manage this delegation.</span>';
+            <button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="pencil" class="w-4 h-4"></i>${t("Edit")}</button>
+            <button class="portal-btn is-secondary" type="button" data-run-delegation-once="${escapeHtmlAttr(detail.id)}"><i data-lucide="play" class="w-4 h-4"></i>${t("Run once")}</button>
+            <button class="portal-btn is-secondary" type="button" data-toggle-delegation-enabled="${escapeHtmlAttr(detail.id)}" data-next-enabled="${detail.enabled ? "false" : "true"}"><i data-lucide="${detail.enabled ? "pause" : "play"}" class="w-4 h-4"></i>${detail.enabled ? t("Pause") : t("Enable")}</button>
+            <button class="portal-btn is-danger" type="button" data-delete-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="trash-2" class="w-4 h-4"></i>${t("Delete")}</button>
+    ` : `<span class="portal-panel-note">${t("Only the owner can manage this delegation.")}</span>`;
     const missingAgentCallout = detail.target_agent_missing ? `
         <div class="portal-callout is-warning portal-repair-callout">
           <div>
-            <strong>Target agent was deleted.</strong>
-            <span>${canManage ? "Choose a replacement agent to resume scheduled runs." : `Ask ${safe(ownerLabel)} to choose a replacement agent.`}</span>
+            <strong>${t("Target agent was deleted.")}</strong>
+            <span>${canManage ? t("Choose a replacement agent to resume scheduled runs.") : t("Ask {owner} to choose a replacement agent.", { owner: safe(ownerLabel) })}</span>
           </div>
-          ${canManage ? `<button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="wrench" class="w-4 h-4"></i>Change agent</button>` : ""}
+          ${canManage ? `<button class="portal-btn is-secondary" type="button" data-edit-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="wrench" class="w-4 h-4"></i>${t("Change agent")}</button>` : ""}
         </div>
     ` : "";
     dom.workspaceDetailContent.innerHTML = `
@@ -16567,17 +16616,17 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
         ${missingAgentCallout}
 
         <section class="portal-task-metrics portal-delegation-metrics">
-          <div><span>Source</span><strong>${safe(sourceLabel)}</strong></div>
-          <div><span>Owner</span><strong>${safe(ownerLabel)}</strong></div>
-          <div><span>Schedule</span><strong>${safe(scheduleLabel)}</strong></div>
-          <div><span>Last Run</span><strong>${safe(delegationDisplayTime(detail.last_run_at))}</strong></div>
-          <div><span>Next Run</span><strong>${safe(delegationDisplayTime(detail.next_run_at))}</strong></div>
+          <div><span>${t("Source")}</span><strong>${safe(sourceLabel)}</strong></div>
+          <div><span>${t("Owner")}</span><strong>${safe(ownerLabel)}</strong></div>
+          <div><span>${t("Schedule")}</span><strong>${safe(scheduleLabel)}</strong></div>
+          <div><span>${t("Last Run")}</span><strong>${safe(delegationDisplayTime(detail.last_run_at))}</strong></div>
+          <div><span>${t("Next Run")}</span><strong>${safe(delegationDisplayTime(detail.next_run_at))}</strong></div>
         </section>
 
         <section class="portal-delegation-source-summary">
           <article class="portal-delegation-source-summary-item">
             <div>
-              <span>${isDelegationTimerSource(source) ? "Source" : "Runtime Source"}</span>
+              <span>${isDelegationTimerSource(source) ? t("Source") : t("Runtime Source")}</span>
               <strong>${safe(accountSummary)}</strong>
               ${sourceWarning ? `<small>${safe(sourceWarning)}</small>` : ""}
             </div>
@@ -16585,26 +16634,26 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
           </article>
           <article class="portal-delegation-source-summary-item">
             <div>
-              <span>Conditions</span>
+              <span>${t("Conditions")}</span>
               <strong>${safe(conditionSummary)}</strong>
               <small>${safe(sourceLabel)}</small>
             </div>
           </article>
         </section>
 
-        <section class="portal-delegation-flow" aria-label="Delegation flow">
+        <section class="portal-delegation-flow" aria-label="${t("Delegation flow")}">
           <div class="portal-delegation-flow-step">
-            <span>Trigger</span>
+            <span>${t("Trigger")}</span>
             <strong>${safe(sourceLabel)}</strong>
             <small>${safe(providerLabel)} · ${safe(delegationInputLabel(source))}</small>
           </div>
           <div class="portal-delegation-flow-step">
-            <span>Task</span>
+            <span>${t("Task")}</span>
             <strong>${safe(skillLabel)}</strong>
             <small>${safe(agentLabel)}</small>
           </div>
           <div class="portal-delegation-flow-step">
-            <span>Reply</span>
+            <span>${t("Reply")}</span>
             <strong>${safe(delegationReplyTargetLabel(source))}</strong>
             <small>${safe(providerLabel)}</small>
           </div>
@@ -16613,14 +16662,14 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
         <div class="portal-task-detail-grid portal-delegation-detail-grid">
           <section class="portal-task-content-panel">
             <div class="portal-task-section-heading">
-              <span>Recent Runs</span>
+              <span>${t("Recent Runs")}</span>
               <span>${safe(String((runs || []).length))}</span>
             </div>
             <div class="portal-delegation-timeline-list">${delegationRunTimelineItems(runs)}</div>
           </section>
           <section class="portal-task-content-panel">
             <div class="portal-task-section-heading">
-              <span>Tasks / Replies</span>
+              <span>${t("Tasks / Replies")}</span>
               <span>${safe(String((events || []).length))}</span>
             </div>
             <div class="portal-delegation-timeline-list">${delegationEventTimelineItems(events)}</div>
@@ -16635,14 +16684,14 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
       commitPortalRoute({ section: "delegations", delegationRuleId: ruleId });
     }
   } catch (error) {
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load delegation: ${safe(error.message)}</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Failed to load delegation: {error}", { error: safe(error.message) })}</div>`;
   }
 }
 
 async function openCreateDelegationRuleModal() {
   const mineAgents = state.mineAgents || [];
   if (!mineAgents.length) {
-    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">No agents available. Create or enable an agent first.</div>`;
+    dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("No agents available. Create or enable an agent first.")}</div>`;
     return;
   }
   setMainView("detail");
@@ -16658,10 +16707,10 @@ async function openCreateDelegationRuleModal() {
       <div class="modal-card panel create-agent-wizard-card">
         <div class="portal-modal-titlebar">
           <div>
-            <h3 id="create-delegation-modal-title">Create Delegation</h3>
-            <p class="portal-modal-copy">Route matching work into a writable agent.</p>
+            <h3 id="create-delegation-modal-title">${t("Create Delegation")}</h3>
+            <p class="portal-modal-copy">${t("Route matching work into a writable agent.")}</p>
           </div>
-          <button class="portal-modal-close" type="button" title="Close" aria-label="Close" data-close-delegation-create-modal>✕</button>
+          <button class="portal-modal-close" type="button" title="${t("Close")}" aria-label="${t("Close")}" data-close-delegation-create-modal>✕</button>
         </div>
         <form
           id="create-delegation-inline-form"
@@ -16669,46 +16718,46 @@ async function openCreateDelegationRuleModal() {
           data-wizard-steps="basics,source,work,review"
           data-current-step="basics"
         >
-          <ol class="create-agent-steps" aria-label="Create delegation steps" style="--portal-step-count: 4">
+          <ol class="create-agent-steps" aria-label="${t("Create delegation steps")}" style="--portal-step-count: 4">
             <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
               <span class="create-agent-step-index">1</span>
-              <span class="create-agent-step-label">Basics</span>
+              <span class="create-agent-step-label">${t("Basics")}</span>
             </li>
             <li class="create-agent-step" data-wizard-step-indicator="source">
               <span class="create-agent-step-index">2</span>
-              <span class="create-agent-step-label">Source</span>
+              <span class="create-agent-step-label">${t("Source")}</span>
             </li>
             <li class="create-agent-step" data-wizard-step-indicator="work">
               <span class="create-agent-step-index">3</span>
-              <span class="create-agent-step-label">Work</span>
+              <span class="create-agent-step-label">${t("Work")}</span>
             </li>
             <li class="create-agent-step" data-wizard-step-indicator="review">
               <span class="create-agent-step-index">4</span>
-              <span class="create-agent-step-label">Review</span>
+              <span class="create-agent-step-label">${t("Review")}</span>
             </li>
           </ol>
           <section class="create-agent-step-panel" data-wizard-step-panel="basics">
-            <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" required /></label>
-            <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Name")}</span><input class="portal-form-input" name="name" required /></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Agent")}</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
             ${inferenceSettingsFieldsHtml()}
-            <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
+            <label class="portal-toggle-field"><span>${t("Enabled")}</span><span class="toggle-switch" aria-label="${t("Enabled")}"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
-            <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Source")}</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
             <div data-delegation-source-controls></div>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="work">
             <div data-delegation-schedule-controls></div>
-            <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="">Select an agent first</option></select></label>
-            <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Skill")}</span><select class="portal-form-select" name="skill_name" required disabled><option value="">${t("Select an agent first")}</option></select></label>
+            <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">${t("Interval seconds")}</span><input class="portal-form-input" name="interval_seconds" type="number" value="60" min="1" required /></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
             <div class="create-agent-review-grid" data-delegation-review></div>
           </section>
           <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
-            <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
-            <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
-            <button class="portal-btn is-primary" type="submit" data-wizard-submit>Create Delegation</button>
+            <button class="portal-btn is-secondary" type="button" data-wizard-back>${t("Back")}</button>
+            <button class="portal-btn is-primary" type="button" data-wizard-next>${t("Next")}</button>
+            <button class="portal-btn is-primary" type="submit" data-wizard-submit>${t("Create Delegation")}</button>
           </div>
         </form>
       </div>
@@ -16726,7 +16775,7 @@ async function openCreateDelegationRuleModal() {
 async function openEditDelegationRuleModal(ruleId) {
   const detail = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`);
   if (!delegationCanManage(detail)) {
-    showToast("Only the owner can edit this delegation.");
+    showToast(t("Only the owner can edit this delegation."));
     return;
   }
   if (!state.mineAgents || !state.mineAgents.length) {
@@ -16745,7 +16794,7 @@ async function openEditDelegationRuleModal(ruleId) {
     .map(([value, label]) => `<option value="${escapeHtmlAttr(value)}" ${value === sourceValue ? "selected" : ""}>${safe(label)}</option>`)
     .join("");
   const skillName = String(detail.skill_name || "").trim().replace(/^\/+/, "");
-  const skillOptionLabel = skillName ? `/${safe(skillName)}` : "Select an agent first";
+  const skillOptionLabel = skillName ? `/${safe(skillName)}` : t("Select an agent first");
   const schedule = detail.schedule || {};
   const taskPrompt = String(detail.task_prompt || "");
   const intervalSeconds = Number(schedule.type === "interval" ? (schedule.interval_seconds || 60) : (detail.interval_seconds || 60));
@@ -16758,10 +16807,10 @@ async function openEditDelegationRuleModal(ruleId) {
       <div class="modal-card panel create-agent-wizard-card">
         <div class="portal-modal-titlebar">
           <div>
-            <h3 id="edit-delegation-modal-title">Edit Delegation</h3>
-            <p class="portal-modal-copy">Update how this delegation selects source work and runs the agent.</p>
+            <h3 id="edit-delegation-modal-title">${t("Edit Delegation")}</h3>
+            <p class="portal-modal-copy">${t("Update how this delegation selects source work and runs the agent.")}</p>
           </div>
-          <button class="portal-modal-close" type="button" title="Close" aria-label="Close" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}">✕</button>
+          <button class="portal-modal-close" type="button" title="${t("Close")}" aria-label="${t("Close")}" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}">✕</button>
         </div>
         <form
           id="edit-delegation-inline-form"
@@ -16787,47 +16836,47 @@ async function openEditDelegationRuleModal(ruleId) {
           data-selected-reasoning-effort="${escapeHtmlAttr(detail.reasoning_effort || "")}"
           data-selected-max-context-tokens="${escapeHtmlAttr(String(detail.max_context_tokens || ""))}"
         >
-          <ol class="create-agent-steps" aria-label="Edit delegation steps" style="--portal-step-count: 4">
+          <ol class="create-agent-steps" aria-label="${t("Edit delegation steps")}" style="--portal-step-count: 4">
             <li class="create-agent-step is-active" data-wizard-step-indicator="basics">
               <span class="create-agent-step-index">1</span>
-              <span class="create-agent-step-label">Basics</span>
+              <span class="create-agent-step-label">${t("Basics")}</span>
             </li>
             <li class="create-agent-step" data-wizard-step-indicator="source">
               <span class="create-agent-step-index">2</span>
-              <span class="create-agent-step-label">Source</span>
+              <span class="create-agent-step-label">${t("Source")}</span>
             </li>
             <li class="create-agent-step" data-wizard-step-indicator="work">
               <span class="create-agent-step-index">3</span>
-              <span class="create-agent-step-label">Work</span>
+              <span class="create-agent-step-label">${t("Work")}</span>
             </li>
             <li class="create-agent-step" data-wizard-step-indicator="review">
               <span class="create-agent-step-index">4</span>
-              <span class="create-agent-step-label">Review</span>
+              <span class="create-agent-step-label">${t("Review")}</span>
             </li>
           </ol>
           <section class="create-agent-step-panel" data-wizard-step-panel="basics">
-            <label class="portal-form-label"><span class="portal-form-label">Name</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
-            <label class="portal-form-label"><span class="portal-form-label">Agent</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Name")}</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Agent")}</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
             ${inferenceSettingsFieldsHtml()}
-            <label class="portal-toggle-field"><span>Enabled</span><span class="toggle-switch" aria-label="Enabled"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
+            <label class="portal-toggle-field"><span>${t("Enabled")}</span><span class="toggle-switch" aria-label="${t("Enabled")}"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
-            <label class="portal-form-label"><span class="portal-form-label">Source</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Source")}</span><select class="portal-form-select" name="source" required>${sourceOptions}</select></label>
             <div data-delegation-source-controls></div>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="work">
             <div data-delegation-schedule-controls></div>
-            <label class="portal-form-label"><span class="portal-form-label">Skill</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
-            <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">Interval seconds</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
+            <label class="portal-form-label"><span class="portal-form-label">${t("Skill")}</span><select class="portal-form-select" name="skill_name" required disabled><option value="${escapeHtmlAttr(skillName)}">${skillOptionLabel}</option></select></label>
+            <label class="portal-form-label" data-delegation-interval-field><span class="portal-form-label">${t("Interval seconds")}</span><input class="portal-form-input" name="interval_seconds" type="number" value="${escapeHtmlAttr(String(intervalSeconds))}" min="1" required /></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
             <div class="create-agent-review-grid" data-delegation-review></div>
           </section>
           <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
-            <button class="portal-btn is-secondary" type="button" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="arrow-left" class="w-4 h-4"></i>Cancel</button>
-            <button class="portal-btn is-secondary" type="button" data-wizard-back>Back</button>
-            <button class="portal-btn is-primary" type="button" data-wizard-next>Next</button>
-            <button class="portal-btn is-primary" type="submit" data-wizard-submit><i data-lucide="save" class="w-4 h-4"></i>Save</button>
+            <button class="portal-btn is-secondary" type="button" data-open-delegation-rule="${escapeHtmlAttr(detail.id)}"><i data-lucide="arrow-left" class="w-4 h-4"></i>${t("Cancel")}</button>
+            <button class="portal-btn is-secondary" type="button" data-wizard-back>${t("Back")}</button>
+            <button class="portal-btn is-primary" type="button" data-wizard-next>${t("Next")}</button>
+            <button class="portal-btn is-primary" type="submit" data-wizard-submit><i data-lucide="save" class="w-4 h-4"></i>${t("Save")}</button>
           </div>
         </form>
       </div>
@@ -16871,7 +16920,7 @@ async function submitCreateDelegationRule(formEl) {
 
 async function submitEditDelegationRule(formEl) {
   const ruleId = String(formEl?.dataset?.ruleId || "").trim();
-  if (!ruleId) throw new Error("Missing delegation id");
+  if (!ruleId) throw new Error(t("Missing delegation id"));
   const fd = new FormData(formEl);
   const payload = {};
   const name = String(fd.get("name") || "").trim();
@@ -16912,7 +16961,7 @@ async function submitEditDelegationRule(formEl) {
   if (reasoningEffort !== String(formEl.dataset.originalReasoningEffort || "")) payload.reasoning_effort = reasoningEffort || null;
   if (maxContextTokens !== (Number(formEl.dataset.originalMaxContextTokens || 0) || null)) payload.max_context_tokens = maxContextTokens;
   if (!Object.keys(payload).length) {
-    showToast("No changes to save");
+    showToast(t("No changes to save"));
     await openDelegationRulePanel(ruleId);
     return;
   }
@@ -16926,7 +16975,7 @@ async function submitEditDelegationRule(formEl) {
 
 async function runDelegationRuleOnce(ruleId) {
   const result = await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}/run-once`, { method: "POST" });
-  showToast(`Run finished: created ${result.created_task_count} task(s)`);
+  showToast(tn(Number(result.created_task_count || 0), "Run finished: created {n} task", "Run finished: created {n} tasks"));
   await openDelegationRulePanel(ruleId);
 }
 
@@ -16940,7 +16989,7 @@ async function toggleDelegationRuleEnabled(ruleId, enabled) {
 }
 
 async function deleteDelegationRule(ruleId) {
-  if (!(await showConfirm({ title: "Delete delegation", message: "This can't be undone.", confirmText: "Delete", danger: true }))) return;
+  if (!(await showConfirm({ title: t("Delete delegation"), message: t("This can't be undone."), confirmText: t("Delete"), danger: true }))) return;
   await api(`/api/delegation-rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
   await loadDelegationRules();
   if (state.delegations.length) {
@@ -16988,7 +17037,7 @@ function selectedOptionLabel(formEl, name) {
   return String(field.value || "").trim();
 }
 
-function wizardPreviewText(value, fallback = "Not set") {
+function wizardPreviewText(value, fallback = t("Not set")) {
   const text = String(value || "").trim();
   if (!text) return fallback;
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
@@ -17006,20 +17055,20 @@ function renderWizardReviewRows(container, rows) {
 
 function renderTaskCreateReview(formEl) {
   renderWizardReviewRows(document.getElementById("create-task-review"), [
-    ["Agent", selectedOptionLabel(formEl, "assignee_agent_id") || "Not selected"],
-    ["Model", selectedOptionLabel(formEl, "model_override") || "Agent default"],
-    ["Thinking", selectedOptionLabel(formEl, "reasoning_effort") || "Agent default"],
-    ["Context", selectedOptionLabel(formEl, "max_context_tokens") || "Automatic"],
-    ["Skill", selectedOptionLabel(formEl, "skill_name") || "Not selected"],
-    ["Task Content", wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
-    ["Mode", "Background task"],
+    [t("Agent"), selectedOptionLabel(formEl, "assignee_agent_id") || t("Not selected")],
+    [t("Model"), selectedOptionLabel(formEl, "model_override") || t("Agent default")],
+    [t("Thinking"), selectedOptionLabel(formEl, "reasoning_effort") || t("Agent default")],
+    [t("Context"), selectedOptionLabel(formEl, "max_context_tokens") || t("Automatic")],
+    [t("Skill"), selectedOptionLabel(formEl, "skill_name") || t("Not selected")],
+    [t("Task Content"), wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
+    [t("Mode"), t("Background task")],
   ]);
 }
 
 function renderTaskFollowupReview(formEl) {
   renderWizardReviewRows(document.getElementById("continue-task-review"), [
-    ["Task", formEl?.dataset?.taskId || "Current task"],
-    ["Follow-up", wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
+    [t("Task"), formEl?.dataset?.taskId || t("Current task")],
+    [t("Follow-up"), wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
   ]);
 }
 
@@ -17028,7 +17077,7 @@ function delegationScheduleSummaryForForm(formEl) {
   if (isDelegationTimerSource(source)) {
     const expression = String(formEl?.querySelector('[name="schedule_cron_expression"]')?.value || "").trim();
     const timezone = String(formEl?.querySelector('[name="schedule_timezone"]')?.value || "").trim() || defaultDelegationTimezone();
-    return expression ? `Cron ${expression} (${timezone})` : `Cron schedule (${timezone})`;
+    return expression ? t("Cron {expression} ({timezone})", { expression, timezone }) : t("Cron schedule ({timezone})", { timezone });
   }
   const seconds = Number(formEl?.querySelector('[name="interval_seconds"]')?.value || 60);
   return delegationIntervalLabel(Number.isFinite(seconds) && seconds > 0 ? seconds : 60);
@@ -17039,19 +17088,19 @@ function renderDelegationReview(formEl) {
   const scope = collectDelegationSourceScope(formEl);
   const conditions = collectDelegationSourceConditions(formEl);
   const rows = [
-    ["Name", selectedOptionLabel(formEl, "name") || "Untitled delegation"],
-    ["Agent", selectedOptionLabel(formEl, "target_agent_id") || "Not selected"],
-    ["Model", selectedOptionLabel(formEl, "model_override") || "Agent default"],
-    ["Thinking", selectedOptionLabel(formEl, "reasoning_effort") || "Agent default"],
-    ["Context", selectedOptionLabel(formEl, "max_context_tokens") || "Automatic"],
-    ["Source", delegationSourceLabel(source) || "Not selected"],
-    ["Source Filters", delegationConditionSummaryLabel(source, scope, conditions)],
-    ["Skill", selectedOptionLabel(formEl, "skill_name") || "Not selected"],
-    ["Schedule", delegationScheduleSummaryForForm(formEl)],
-    ["Enabled", formEl?.querySelector('[name="enabled"]')?.checked ? "Yes" : "No"],
+    [t("Name"), selectedOptionLabel(formEl, "name") || t("Untitled delegation")],
+    [t("Agent"), selectedOptionLabel(formEl, "target_agent_id") || t("Not selected")],
+    [t("Model"), selectedOptionLabel(formEl, "model_override") || t("Agent default")],
+    [t("Thinking"), selectedOptionLabel(formEl, "reasoning_effort") || t("Agent default")],
+    [t("Context"), selectedOptionLabel(formEl, "max_context_tokens") || t("Automatic")],
+    [t("Source"), delegationSourceLabel(source) || t("Not selected")],
+    [t("Source Filters"), delegationConditionSummaryLabel(source, scope, conditions)],
+    [t("Skill"), selectedOptionLabel(formEl, "skill_name") || t("Not selected")],
+    [t("Schedule"), delegationScheduleSummaryForForm(formEl)],
+    [t("Enabled"), formEl?.querySelector('[name="enabled"]')?.checked ? t("Yes") : t("No")],
   ];
   if (isDelegationTimerSource(source)) {
-    rows.push(["Task Prompt", wizardPreviewText(collectDelegationTaskPrompt(formEl))]);
+    rows.push([t("Task Prompt"), wizardPreviewText(collectDelegationTaskPrompt(formEl))]);
   }
   renderWizardReviewRows(formEl?.querySelector("[data-delegation-review]"), rows);
 }
@@ -17094,7 +17143,7 @@ function validateInlineWizardPanel(formEl, panel) {
   if (!formEl || !panel) return true;
   const disabledRequired = Array.from(panel.querySelectorAll("input[required]:disabled, select[required]:disabled, textarea[required]:disabled"));
   if (disabledRequired.length) {
-    showToast("Complete this step before continuing.");
+    showToast(t("Complete this step before continuing."));
     return false;
   }
   const fields = Array.from(panel.querySelectorAll("input, select, textarea"));
@@ -17197,7 +17246,7 @@ async function openTaskCreatePanelInMain() {
   await setActiveNavSection("tasks", { toggleIfSame: false });
   setMainView("detail");
   dom.workspaceDetailContent.dataset.workspaceState = "task-create";
-  dom.workspaceDetailContent.innerHTML = '<div class="portal-inline-state">Loading task create form…</div>';
+  dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state">${t("Loading task create form…")}</div>`;
   await htmx.ajax("GET", "/app/tasks/create/panel", { target: "#workspace-detail-content", swap: "innerHTML" });
   const formEl = dom.workspaceDetailContent.querySelector("#create-agent-async-task-form");
   if (formEl) {
@@ -17210,11 +17259,11 @@ async function openTaskCreatePanelInMain() {
 function inferenceSettingsFieldsHtml() {
   return `
     <details class="portal-inference-settings" data-inference-settings>
-      <summary><span>Run settings</span><small data-inference-summary>Agent defaults</small></summary>
+      <summary><span>${t("Run settings")}</span><small data-inference-summary>${t("Agent defaults")}</small></summary>
       <div class="portal-inference-settings-grid">
-        <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="model_override" class="portal-form-select" data-inference-model disabled><option value="">Agent default</option></select></label>
-        <label class="portal-form-label" data-inference-reasoning-field><span class="portal-form-label">Thinking level</span><select name="reasoning_effort" class="portal-form-select" data-inference-reasoning disabled><option value="">Agent default</option></select></label>
-        <label class="portal-form-label" data-inference-context-field><span class="portal-form-label">Context size</span><select name="max_context_tokens" class="portal-form-select" data-inference-context disabled><option value="">Automatic</option></select></label>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Model")}</span><select name="model_override" class="portal-form-select" data-inference-model disabled><option value="">${t("Agent default")}</option></select></label>
+        <label class="portal-form-label" data-inference-reasoning-field><span class="portal-form-label">${t("Thinking level")}</span><select name="reasoning_effort" class="portal-form-select" data-inference-reasoning disabled><option value="">${t("Agent default")}</option></select></label>
+        <label class="portal-form-label" data-inference-context-field><span class="portal-form-label">${t("Context size")}</span><select name="max_context_tokens" class="portal-form-select" data-inference-context disabled><option value="">${t("Automatic")}</option></select></label>
       </div>
     </details>
   `;
@@ -17255,7 +17304,7 @@ function updateFormInferenceSummary(formEl) {
   if (settings.model_override) parts.push(inferenceModelLabel(settings.model_override));
   if (settings.reasoning_effort) parts.push(inferenceReasoningLabel(settings.reasoning_effort));
   if (settings.max_context_tokens) parts.push(inferenceContextLabel(settings.max_context_tokens));
-  summary.textContent = parts.length ? parts.join(" · ") : "Agent defaults";
+  summary.textContent = parts.length ? parts.join(" · ") : t("Agent defaults");
 }
 
 async function populateInferenceSettingsForForm(formEl, initial = null) {
@@ -17280,13 +17329,13 @@ async function populateInferenceSettingsForForm(formEl, initial = null) {
     const profile = await loadInferenceProfileForAgent(agentId);
     const models = Array.isArray(profile?.available_models) ? profile.available_models : [];
     modelSelect.innerHTML = "";
-    appendSelectOption(modelSelect, "", `Agent default (${inferenceModelLabel(profile?.current_model)})`, !initialSettings.model_override);
+    appendSelectOption(modelSelect, "", t("Agent default ({value})", { value: inferenceModelLabel(profile?.current_model) }), !initialSettings.model_override);
     models.forEach((model) => appendSelectOption(modelSelect, model, inferenceModelLabel(model), initialSettings.model_override === model));
     modelSelect.disabled = models.length === 0;
 
     const reasoningEfforts = Array.isArray(profile?.reasoning_efforts) ? profile.reasoning_efforts : [];
     reasoningSelect.innerHTML = "";
-    appendSelectOption(reasoningSelect, "", `Agent default (${inferenceReasoningLabel(profile?.current_reasoning_effort)})`, !initialSettings.reasoning_effort);
+    appendSelectOption(reasoningSelect, "", t("Agent default ({value})", { value: inferenceReasoningLabel(profile?.current_reasoning_effort) }), !initialSettings.reasoning_effort);
     reasoningEfforts.forEach((effort) => appendSelectOption(reasoningSelect, effort, inferenceReasoningLabel(effort), initialSettings.reasoning_effort === effort));
     const supportsReasoning = profile?.supports_reasoning_effort === true;
     reasoningSelect.disabled = !supportsReasoning;
@@ -17295,11 +17344,11 @@ async function populateInferenceSettingsForForm(formEl, initial = null) {
     const selectedModel = initialSettings.model_override || profile?.current_model;
     const contextSizes = contextSizeOptionsForModel(selectedModel, profile?.context_sizes || []);
     contextSelect.innerHTML = "";
-    appendSelectOption(contextSelect, "", profile?.current_max_context_tokens ? `Agent default (${inferenceContextLabel(profile.current_max_context_tokens)})` : "Automatic", !initialSettings.max_context_tokens);
+    appendSelectOption(contextSelect, "", profile?.current_max_context_tokens ? t("Agent default ({value})", { value: inferenceContextLabel(profile.current_max_context_tokens) }) : t("Automatic"), !initialSettings.max_context_tokens);
     contextSizes.forEach((tokens, index) => appendSelectOption(
       contextSelect,
       tokens,
-      index === contextSizes.length - 1 ? `Maximum (${inferenceContextLabel(tokens)})` : inferenceContextLabel(tokens),
+      index === contextSizes.length - 1 ? t("Maximum ({size})", { size: inferenceContextLabel(tokens) }) : inferenceContextLabel(tokens),
       Number(initialSettings.max_context_tokens) === Number(tokens),
     ));
     const supportsContext = profile?.supports_context_size === true;
@@ -17347,21 +17396,21 @@ async function populateCreateTaskSkillSelect(formEl) {
   const selectedSkillName = String(formEl.dataset.selectedSkillName || "").trim().replace(/^\/+/, "");
   if (!skillSelect) return;
   if (!agentId) {
-    setTaskSkillSelectOption(skillSelect, "Select an agent first");
+    setTaskSkillSelectOption(skillSelect, t("Select an agent first"));
     renderInlineWizardReview(formEl);
     return;
   }
-  setTaskSkillSelectOption(skillSelect, "Loading skills...");
+  setTaskSkillSelectOption(skillSelect, t("Loading skills..."));
   try {
     const skills = await loadTaskSkillsForAgent(agentId);
     skillSelect.innerHTML = "";
     const callableSkills = skills.filter((skill) => skill.callable !== false);
     if (!callableSkills.length) {
-      setTaskSkillSelectOption(skillSelect, "No callable skills found");
+      setTaskSkillSelectOption(skillSelect, t("No callable skills found"));
       skills.filter((skill) => skill.callable === false).forEach((skill) => {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = `${skill.command} unavailable`;
+        option.textContent = t("{skill} unavailable", { skill: skill.command });
         option.disabled = true;
         option.title = skill.title || skill.blocked_reason || skill.desc || "";
         skillSelect.append(option);
@@ -17389,7 +17438,7 @@ async function populateCreateTaskSkillSelect(formEl) {
     skills.filter((skill) => skill.callable === false).forEach((skill) => {
       const option = document.createElement("option");
       option.value = "";
-      option.textContent = `${skill.command} unavailable`;
+      option.textContent = t("{skill} unavailable", { skill: skill.command });
       option.disabled = true;
       option.title = skill.title || skill.blocked_reason || skill.desc || "";
       skillSelect.append(option);
@@ -17397,7 +17446,7 @@ async function populateCreateTaskSkillSelect(formEl) {
     skillSelect.disabled = false;
     renderInlineWizardReview(formEl);
   } catch (error) {
-    setTaskSkillSelectOption(skillSelect, `Failed to load skills: ${error.message}`);
+    setTaskSkillSelectOption(skillSelect, t("Failed to load skills: {error}", { error: error.message }));
     renderInlineWizardReview(formEl);
   }
 }
@@ -17419,7 +17468,7 @@ async function submitCreateAgentAsyncTask(formEl) {
 
 async function submitContinueAgentTask(formEl) {
   const taskId = String(formEl?.dataset?.taskId || "").trim();
-  if (!taskId) throw new Error("Missing task id");
+  if (!taskId) throw new Error(t("Missing task id"));
   const fd = new FormData(formEl);
   const updated = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/followups`, {
     method: "POST",
@@ -17703,12 +17752,14 @@ function truncateDomFromUserArticle(userArticle) {
 
 }
 
-function getRuntimeMutationErrorMessage(response, result, fallbackMessage = "Failed to update message") {
+function getRuntimeMutationErrorMessage(response, result, fallbackMessage = t("Failed to update message")) {
   const error = String(result?.detail || result?.error || "").trim();
   if (response?.status === 501 || error === "unsupported_by_opencode_adapter_mvp") {
-    return "This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.";
+    return t("This runtime does not support retry/edit yet. Please refresh the session after the runtime is upgraded, or start a new chat.");
   }
-  if (error) return error;
+  // A Portal error arrives in English (its detail is marked with N_()); the
+  // catalogue translates the ones it knows, anything else passes through.
+  if (error) return tv(error);
   return fallbackMessage;
 }
 
@@ -17828,7 +17879,7 @@ function getEditedSessionFailureMessage(data = {}) {
     || lastEvent?.error
     || lastEvent?.detail
     || lastEvent?.incomplete_reason
-    || "regeneration failed"
+    || t("regeneration failed")
   );
 }
 
@@ -17864,7 +17915,7 @@ function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { 
   syncSelectedAgentChatActionControls();
 }
 
-function handleEditedRegenerationFailure(agentId, requestCtx, message = "regeneration failed") {
+function handleEditedRegenerationFailure(agentId, requestCtx, message = t("regeneration failed")) {
   const finalPayload = {
     completion_state: "error",
     incomplete_reason: message,
@@ -17873,7 +17924,7 @@ function handleEditedRegenerationFailure(agentId, requestCtx, message = "regener
     session_id: requestCtx?.sessionIdAtSend || "",
   };
   completeEditedMessageRequest(agentId, requestCtx, finalPayload, { status: "error" });
-  const fullMessage = `Edited message was saved, but regeneration failed: ${message}`;
+  const fullMessage = t("Edited message was saved, but regeneration failed: {error}", { error: message });
   if (state.selectedAgentId === agentId) {
     finalizeIncompleteAssistantRow(agentId, requestCtx, finalPayload);
     setChatStatus(fullMessage, true);
@@ -17903,7 +17954,7 @@ function finalizeEditedSessionMessages(agentId, sessionId, requestCtx, data = {}
     addEditButtonsToMessages();
     renderIcons();
     scrollToBottom();
-    setChatStatus("Ready");
+    setChatStatus(t("Ready"));
   } else {
     if (chatState) {
       chatState.needsReload = true;
@@ -17958,7 +18009,7 @@ async function pollEditedSessionUntilComplete(agentId, finalSessionId, requestId
 
   const chatState = ensureChatState(agentId);
   if (!chatState?.currentRequest || chatState.currentRequest.clientRequestId !== requestId) return;
-  const message = "Regeneration is still running or timed out; refresh the session to check the latest result.";
+  const message = t("Regeneration is still running or timed out; refresh the session to check the latest result.");
   chatState.needsReload = true;
   const finalPayload = {
     completion_state: "timeout",
@@ -17987,11 +18038,11 @@ async function retryAssistantMessage(row) {
   const chatState = getChatState(agentId);
 
   if (!agentId || !sessionId) {
-    showToast("No active session");
+    showToast(t("No active session"));
     return;
   }
   if (chatState?.isSubmitting) {
-    showToast("Please wait for the current response to finish");
+    showToast(t("Please wait for the current response to finish"));
     return;
   }
 
@@ -17999,18 +18050,18 @@ async function retryAssistantMessage(row) {
   const userArticle = findPrecedingUserArticle(row);
   const userMessageId = rowUserMessageId || userArticle?.dataset?.messageId || "";
   if (!userMessageId || userMessageId.startsWith("local-")) {
-    showToast("Cannot retry this message yet");
+    showToast(t("Cannot retry this message yet"));
     return;
   }
 
   const content = getUserArticleContent(userArticle).trim();
   if (!content) {
-    showToast("Original message is empty");
+    showToast(t("Original message is empty"));
     return;
   }
 
   if (hasFollowingMessageRows(row)) {
-    const shouldContinue = await showConfirm({ title: "Retry response", message: "Retrying will remove this message and all messages after it.", confirmText: "Retry", danger: true });
+    const shouldContinue = await showConfirm({ title: t("Retry response"), message: t("Retrying will remove this message and all messages after it."), confirmText: t("Retry"), danger: true });
     if (!shouldContinue) return;
   }
 
@@ -18027,23 +18078,23 @@ async function retryAssistantMessage(row) {
     try {
       result = await response.json();
     } catch (_error) {
-      showToast(getRuntimeMutationErrorMessage(response, {}, "Failed to delete message"), { variant: 'error' });
+      showToast(getRuntimeMutationErrorMessage(response, {}, t("Failed to delete message")), { variant: 'error' });
       return;
     }
 
     if (!response.ok || !result.success) {
-      showToast(getRuntimeMutationErrorMessage(response, result, "Failed to delete message"), { variant: 'error' });
+      showToast(getRuntimeMutationErrorMessage(response, result, t("Failed to delete message")), { variant: 'error' });
       return;
     }
 
     truncateDomFromUserArticle(userArticle);
     if (chatState) chatState.pendingFiles = [];
     if (dom.chatInput) dom.chatInput.value = content;
-    setChatStatus("Retrying...");
+    setChatStatus(t("Retrying..."));
     await submitChatForSelectedAgent();
   } catch (err) {
-    showToast("Retry failed: " + (err?.message || String(err)), { variant: 'error' });
-    setChatStatus("Ready");
+    showToast(t("Retry failed: {error}", { error: err?.message || String(err) }), { variant: 'error' });
+    setChatStatus(t("Ready"));
   } finally {
     if (retryBtn) retryBtn.disabled = false;
   }
@@ -18064,8 +18115,8 @@ function addUserEditButtonsToMessages() {
     const editBtn = document.createElement("button");
     editBtn.className = "edit-msg-btn";
     editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
-    editBtn.title = "Edit message";
-    editBtn.setAttribute("aria-label", "Edit message");
+    editBtn.title = t("Edit message");
+    editBtn.setAttribute("aria-label", t("Edit message"));
     editBtn.onclick = () => {
       const content = getUserArticleContent(article);
       openEditMessageModal(messageId, content);
@@ -18073,7 +18124,7 @@ function addUserEditButtonsToMessages() {
 
     container.appendChild(editBtn);
     container.tabIndex = 0;
-    container.setAttribute("aria-label", "User message actions");
+    container.setAttribute("aria-label", t("User message actions"));
   });
 }
 
@@ -18100,19 +18151,19 @@ function addAssistantActionsToMessages() {
     const copyBtn = document.createElement("button");
     copyBtn.type = "button";
     copyBtn.className = "message-action-btn assistant-copy-btn";
-    copyBtn.title = "Copy message";
-    copyBtn.setAttribute("aria-label", "Copy assistant message");
+    copyBtn.title = t("Copy message");
+    copyBtn.setAttribute("aria-label", t("Copy assistant message"));
     copyBtn.innerHTML = `<i data-lucide="copy" class="w-4 h-4"></i>`;
     copyBtn.addEventListener("click", async () => {
       const copied = await copyText(getAssistantCopyText(article));
-      showToast(copied ? "Copied" : "Copy failed");
+      showToast(copied ? t("Copied") : t("Copy failed"));
     });
 
     const retryBtn = document.createElement("button");
     retryBtn.type = "button";
     retryBtn.className = "message-action-btn assistant-retry-btn";
-    retryBtn.title = "Retry";
-    retryBtn.setAttribute("aria-label", "Retry assistant response");
+    retryBtn.title = t("Retry");
+    retryBtn.setAttribute("aria-label", t("Retry assistant response"));
     retryBtn.innerHTML = `<i data-lucide="refresh-ccw" class="w-4 h-4"></i>`;
     retryBtn.addEventListener("click", () => retryAssistantMessage(row));
 
@@ -18120,7 +18171,7 @@ function addAssistantActionsToMessages() {
     actions.appendChild(retryBtn);
     row.appendChild(actions);
     row.tabIndex = 0;
-    row.setAttribute("aria-label", "Assistant message actions");
+    row.setAttribute("aria-label", t("Assistant message actions"));
     added.push(actions);
   });
   // This runs after every streamed delta of some runtimes; only the action
@@ -18192,13 +18243,13 @@ function showToast(message, opts = {}) {
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.className = 'portal-toast-action';
-    copy.textContent = 'Copy';
+    copy.textContent = t("Copy");
     copy.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(text);
-        copy.textContent = 'Copied';
+        copy.textContent = t("Copied");
       } catch {
-        copy.textContent = 'Copy failed';
+        copy.textContent = t("Copy failed");
       }
     });
     node.append(copy);
@@ -18207,8 +18258,8 @@ function showToast(message, opts = {}) {
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'portal-toast-close';
-  close.title = 'Dismiss';
-  close.setAttribute('aria-label', 'Dismiss notification');
+  close.title = t("Dismiss");
+  close.setAttribute('aria-label', t("Dismiss notification"));
   close.textContent = '✕';
   close.addEventListener('click', () => dismissToast(node));
   node.append(close);
@@ -18274,7 +18325,7 @@ function bindEvents() {
     if (branch !== undefined) updates.skill_branch = branch || null;
 
     const msgEl = document.getElementById("edit-msg");
-    msgEl.textContent = "Saving...";
+    msgEl.textContent = t("Saving...");
     setModalFeedback(msgEl, "", msgEl.textContent);
 
     try {
@@ -18282,7 +18333,7 @@ function bindEvents() {
         method: "PATCH",
         body: JSON.stringify(updates),
       });
-      msgEl.textContent = "Saved!";
+      msgEl.textContent = t("Saved!");
       setModalFeedback(msgEl, "success", msgEl.textContent);
       setTimeout(() => {
         document.getElementById("edit-modal").classList.add("hidden");
@@ -18290,7 +18341,7 @@ function bindEvents() {
         refreshAll();
       }, 800);
     } catch (err) {
-      msgEl.textContent = err.message || "Error saving";
+      msgEl.textContent = err.message || t("Error saving");
       setModalFeedback(msgEl, "error", msgEl.textContent);
     }
   });
@@ -18339,22 +18390,22 @@ function bindEvents() {
     const sessionId = document.getElementById("chat-session-id")?.value || "";
 
     if (!agentId) {
-      showToast("Please select an assistant first");
+      showToast(t("Please select an assistant first"));
       return;
     }
     if (!sessionId || !messageId) {
-      showToast("Invalid session", { variant: 'error' });
+      showToast(t("Invalid session"), { variant: 'error' });
       return;
     }
     if (!newContent.trim()) {
-      showToast("Message content cannot be empty");
+      showToast(t("Message content cannot be empty"));
       return;
     }
     if (!guardNoActiveChatRequestForAgent(agentId, "edit a message")) return;
     const clientRequestId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
       ? globalThis.crypto.randomUUID()
       : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    if (!beginSingleSubmit(form, { pendingText: "Saving...", closeButton: document.getElementById("close-message-edit-modal") })) return;
+    if (!beginSingleSubmit(form, { pendingText: t("Saving..."), closeButton: document.getElementById("close-message-edit-modal") })) return;
 
     const editBody = {
       content: newContent,
@@ -18368,7 +18419,7 @@ function bindEvents() {
     if (reasoningEffort && reasoningEffort !== defaultReasoningEffort) editBody.reasoning_effort = reasoningEffort;
     const maxContextTokens = Number(chatState?.maxContextTokensOverride || dom.chatContextSelect?.value || 0);
     if (maxContextTokens > 0) editBody.max_context_tokens = maxContextTokens;
-    setChatStatus("Saving edited message...");
+    setChatStatus(t("Saving edited message..."));
     let accepted = false;
 
     try {
@@ -18388,19 +18439,19 @@ function bindEvents() {
 
       if (!response.ok || result.success !== true) {
         const hasRuntimeErrorText = String(result?.detail || result?.error || "").trim().length > 0;
-        let message = getRuntimeMutationErrorMessage(response, result, "Failed to edit message");
+        let message = getRuntimeMutationErrorMessage(response, result, t("Failed to edit message"));
         if (!hasRuntimeErrorText && response.status !== 501 && !response.ok) {
           message = await handleErrorResponse(responseForError);
         }
         showToast(message);
-        setChatStatus(message || "Ready", true);
+        setChatStatus(message || t("Ready"), true);
         return;
       }
 
       if (result.accepted !== true) {
-        const message = getRuntimeMutationErrorMessage(response, result, "Failed to edit message");
+        const message = getRuntimeMutationErrorMessage(response, result, t("Failed to edit message"));
         showToast(message);
-        setChatStatus(message || "Ready", true);
+        setChatStatus(message || t("Ready"), true);
         return;
       }
 
@@ -18442,7 +18493,7 @@ function bindEvents() {
           if (optimisticUserArticle && replacementUserMessageId) {
             optimisticUserArticle.dataset.messageId = replacementUserMessageId;
           }
-          dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestId, "Regenerating response..."));
+          dom.messageList.insertAdjacentHTML("beforeend", buildPendingAssistantArticle(requestId, t("Regenerating response...")));
         }
         addEditButtonsToMessages();
         renderIcons();
@@ -18473,7 +18524,7 @@ function bindEvents() {
       }
       ensureEventSocketForAgent(agentId, finalSessionId, requestId);
       setChatSubmittingForAgent(agentId, true);
-      setChatStatus("Regenerating response...");
+      setChatStatus(t("Regenerating response..."));
       pollEditedSessionUntilComplete(agentId, finalSessionId, requestId, replacementUserMessageId, { requestCtx });
     } catch (err) {
       const message = err?.message || String(err);
@@ -18485,8 +18536,8 @@ function bindEvents() {
           edit: true,
         }, message);
       } else {
-        showToast("Error editing message: " + message, { variant: 'error' });
-        setChatStatus(message || "Ready", true);
+        showToast(t("Error editing message: {error}", { error: message }), { variant: 'error' });
+        setChatStatus(message || t("Ready"), true);
       }
     } finally {
       if (!accepted) {
@@ -18652,7 +18703,7 @@ function bindEvents() {
       }
       await openCreateDelegationRuleModal();
     } catch (error) {
-      dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Failed to load agents: ${safe(error.message)}</div>`;
+      dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Failed to load agents: {error}", { error: safe(error.message) })}</div>`;
     }
   });
   dom.homeStartChatBtn?.addEventListener("click", async () => {
@@ -18798,7 +18849,7 @@ function bindEvents() {
       dom.chatInput.setRangeText(`${command} `, skillStart, skillEnd, "end");
       hideSuggest();
       dom.chatInput.focus();
-      setChatStatus(`Inserted ${command}`);
+      setChatStatus(t("Inserted {command}", { command }));
       return;
     }
 
@@ -18811,7 +18862,7 @@ function bindEvents() {
       try {
         await submitCreateDelegationRule(delegationForm);
       } catch (error) {
-        showToast(`Create delegation failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Create delegation failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -18822,7 +18873,7 @@ function bindEvents() {
       try {
         await submitEditDelegationRule(editDelegationForm);
       } catch (error) {
-        showToast(`Update delegation failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Update delegation failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -18833,7 +18884,7 @@ function bindEvents() {
       try {
         await submitCreateAgentAsyncTask(taskForm);
       } catch (error) {
-        showToast(`Create task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Create task failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -18844,7 +18895,7 @@ function bindEvents() {
       try {
         await submitContinueAgentTask(continueTaskForm);
       } catch (error) {
-        showToast(`Continue task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Continue task failed: {error}", { error: error.message }), { variant: 'error' });
       }
     }
   });
@@ -18986,7 +19037,7 @@ function bindEvents() {
       try {
         await openEditDelegationRuleModal(editDelegationBtn.dataset.editDelegationRule || "");
       } catch (error) {
-        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Edit failed: ${safe(error.message)}</div>`;
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Edit failed: {error}", { error: safe(error.message) })}</div>`;
       }
       return;
     }
@@ -18996,7 +19047,7 @@ function bindEvents() {
       try {
         await runDelegationRuleOnce(runBtn.dataset.runDelegationOnce || "");
       } catch (error) {
-        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Run once failed: ${safe(error.message)}</div>`;
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Run once failed: {error}", { error: safe(error.message) })}</div>`;
       }
       return;
     }
@@ -19006,7 +19057,7 @@ function bindEvents() {
       try {
         await toggleDelegationRuleEnabled(toggleBtn.dataset.toggleDelegationEnabled || "", toggleBtn.dataset.nextEnabled === "true");
       } catch (error) {
-        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Update failed: ${safe(error.message)}</div>`;
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Update failed: {error}", { error: safe(error.message) })}</div>`;
       }
       return;
     }
@@ -19016,7 +19067,7 @@ function bindEvents() {
       try {
         await deleteDelegationRule(deleteBtn.dataset.deleteDelegationRule || "");
       } catch (error) {
-        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">Delete failed: ${safe(error.message)}</div>`;
+        dom.workspaceDetailContent.innerHTML = `<div class="portal-inline-state is-error">${t("Delete failed: {error}", { error: safe(error.message) })}</div>`;
       }
     }
   });
@@ -19067,7 +19118,7 @@ function bindEvents() {
       try {
         await cancelAgentTask(taskId);
       } catch (error) {
-        showToast(`Cancel task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Cancel task failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -19080,7 +19131,7 @@ function bindEvents() {
       try {
         await rerunAgentTask(taskId);
       } catch (error) {
-        showToast(`Rerun task failed: ${error.message}`, { variant: 'error' });
+        showToast(t("Rerun task failed: {error}", { error: error.message }), { variant: 'error' });
       }
       return;
     }
@@ -19091,9 +19142,9 @@ function bindEvents() {
       const agentId = restartForSettingsBtn.dataset.restartAgentId || "";
       if (!agentId) return;
       if (!(await showConfirm({
-        title: "Restart assistant",
-        message: "Anything it is working on right now is interrupted.",
-        confirmText: "Restart",
+        title: t("Restart assistant"),
+        message: t("Anything it is working on right now is interrupted."),
+        confirmText: t("Restart"),
       }))) return;
       restartForSettingsBtn.disabled = true;
       try {
@@ -19234,7 +19285,7 @@ function bindEvents() {
     try {
       await openTaskCreatePanelInMain();
     } catch (error) {
-      showToast(`Open task create failed: ${error.message}`, { variant: 'error' });
+      showToast(t("Open task create failed: {error}", { error: error.message }), { variant: 'error' });
     }
   });
   dom.connectorsMenuBtn?.addEventListener("click", () => openPortalSection("connectors"));
@@ -19338,7 +19389,7 @@ function bindEvents() {
       return;
     }
     if (!validateCreateAgentStep(form)) return;
-    if (!beginSingleSubmit(form, { pendingText: "Creating...", closeButton: document.getElementById("close-create-modal") })) return;
+    if (!beginSingleSubmit(form, { pendingText: t("Creating..."), closeButton: document.getElementById("close-create-modal") })) return;
     const formData = new FormData(form);
     const name = formData.get("name");
     const agentSettingsRepoUrl = (formData.get("agent_settings_repo_url") || "").toString().trim();
@@ -19353,7 +19404,7 @@ function bindEvents() {
       const defaults = await loadAgentDefaults();
 
       if (!defaults.disk_size_gi) {
-        throw new Error("Invalid defaults configuration");
+        throw new Error(t("Invalid defaults configuration"));
       }
       const runtimeConfig = findRuntimeTypeConfig(defaults, runtimeType);
 
@@ -19371,7 +19422,7 @@ function bindEvents() {
         mount_path: runtimeConfig?.default_mount_path || defaults.mount_path,
       };
 
-      msgEl.textContent = "Creating...";
+      msgEl.textContent = t("Creating...");
       setModalFeedback(msgEl, "", msgEl.textContent);
       const resp = await fetch("/api/agents", {
         method: "POST",
@@ -19382,7 +19433,7 @@ function bindEvents() {
         throw new Error(await handleErrorResponse(resp));
       }
       const agent = await resp.json();
-      msgEl.textContent = "Assistant created!";
+      msgEl.textContent = t("Assistant created!");
       setModalFeedback(msgEl, "success", msgEl.textContent);
       form.reset();
       applyCreateAgentDefaults(form, defaults);
@@ -19408,7 +19459,7 @@ function bindEvents() {
 // Last-resort net so a rejected promise from a click handler can never leave the
 // user staring at a button that silently did nothing.
 window.addEventListener("unhandledrejection", (event) => {
-  const message = agentRestartErrorMessage(event?.reason, "Something went wrong.");
+  const message = agentRestartErrorMessage(event?.reason, t("Something went wrong."));
   console.error("Unhandled rejection", event?.reason);
   if (typeof showToast === "function") {
     showToast(message, { variant: "error" });
@@ -19580,7 +19631,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Server Files button in header
   document.getElementById('btn-files')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
     openServerFiles();
@@ -19589,7 +19640,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Mobile test recording (mobile_testing.js)
   document.getElementById('btn-recording')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
     window.EfpMobileTesting?.openRecordingPanel?.();
@@ -19598,7 +19649,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Context usage button in header
   document.getElementById('btn-context')?.addEventListener('click', () => {
     if (!state.selectedAgentId) {
-      showToast('Please select an assistant first');
+      showToast(t("Please select an assistant first"));
       return;
     }
     openContextUsagePanel();
@@ -19616,14 +19667,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 window.addEventListener("hashchange", () => {
   applyPortalRouteFromHash({ replaceInvalid: true }).catch((error) => {
     console.error("Failed to apply portal route from hash", error);
-    showToast("Failed to open URL route: " + (error?.message || error), { variant: 'error' });
+    showToast(t("Failed to open URL route: {error}", { error: error?.message || error }), { variant: 'error' });
   });
 });
 
 window.addEventListener("popstate", () => {
   applyPortalRouteFromHash({ replaceInvalid: true }).catch((error) => {
     console.error("Failed to apply portal route from history", error);
-    showToast("Failed to open URL route: " + (error?.message || error), { variant: 'error' });
+    showToast(t("Failed to open URL route: {error}", { error: error?.message || error }), { variant: 'error' });
   });
 });
 
@@ -19723,7 +19774,7 @@ function openFilePreview(url, name, isImage) {
   if (isImage) {
     const img = document.createElement('img');
     img.src = url;
-    img.alt = name || 'Preview';
+    img.alt = name || t("Preview");
     filePreviewContent.appendChild(img);
   } else {
     const link = document.createElement('a');
@@ -19735,7 +19786,7 @@ function openFilePreview(url, name, isImage) {
     const icon = document.createElement('span');
     icon.textContent = '📄';
     const text = document.createElement('span');
-    text.textContent = name || 'Open File';
+    text.textContent = name || t("Open File");
     
     link.appendChild(icon);
     link.appendChild(text);
@@ -19839,7 +19890,7 @@ function getSystemPromptUiModel(agent, config) {
 
   return {
     runtimeType: runtimeType,
-    title: typeof configUi.title === 'string' && configUi.title.trim() ? configUi.title.trim() : 'System Prompt',
+    title: typeof configUi.title === 'string' && configUi.title.trim() ? configUi.title.trim() : t("System Prompt"),
     description: typeof configUi.description === 'string' ? configUi.description : '',
     sections: sections,
     labels: labels,
@@ -19882,7 +19933,7 @@ function renderSystemPromptSection(agent) {
   var section = document.createElement('div');
   section.id = 'system-prompt-section';
   section.className = 'portal-panel-section';
-  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">' + ui.title + '</div></div>' + descriptionHtml + '<div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state">Loading...</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
+  section.innerHTML = '<div class="portal-panel-header"><div class="portal-detail-label">' + ui.title + '</div></div>' + descriptionHtml + '<div id="system-prompt-items" class="portal-panel-stack"></div><div id="system-prompt-loading" class="portal-inline-state">' + t("Loading...") + '</div><div id="system-prompt-error" class="portal-inline-state is-error hidden"></div>';
   container.appendChild(section);
   loadSystemPromptConfig(agent.id);
 }
@@ -19914,10 +19965,10 @@ function loadSystemPromptConfig(agentId) {
       var safeName = escapeHtmlAttr(name);
       var toggleHtml = isToggleable
         ? '<label class="toggle-switch"><input type="checkbox" id="sp-' + safeName + '-enabled" data-section="' + safeName + '" ' + (enabled ? 'checked' : '') + ' class="portal-system-prompt-check"' + disabledAttr + '><span class="toggle-slider"></span></label>'
-        : '<label class="toggle-switch"><input type="checkbox" id="sp-' + safeName + '-enabled" data-section="' + safeName + '" checked class="portal-system-prompt-check" disabled><span class="toggle-slider"></span></label><span class="portal-muted">Always enabled</span>';
+        : '<label class="toggle-switch"><input type="checkbox" id="sp-' + safeName + '-enabled" data-section="' + safeName + '" checked class="portal-system-prompt-check" disabled><span class="toggle-slider"></span></label><span class="portal-muted">' + t("Always enabled") + '</span>';
       var editAllowed = ui.editable[name] === true;
       var editDisabledAttr = canWrite ? '' : ' disabled';
-      var editButton = editAllowed ? '<button data-section="' + safeName + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="Edit ' + escapeHtmlAttr(label) + '"' + editDisabledAttr + '>Edit</button>' : '';
+      var editButton = editAllowed ? '<button data-section="' + safeName + '" data-action="edit" class="portal-btn is-secondary portal-system-prompt-edit" title="' + t("Edit {label}", { label: escapeHtmlAttr(label) }) + '"' + editDisabledAttr + '>' + t("Edit") + '</button>' : '';
 
       var item = document.createElement('div');
       item.className = 'portal-system-prompt-item';
@@ -19944,7 +19995,7 @@ function loadSystemPromptConfig(agentId) {
 
     loading.classList.add('hidden');
   }).catch(function(e) {
-    error.textContent = 'Failed to load: ' + e.message;
+    error.textContent = t("Failed to load: {error}", { error: e.message });
     error.classList.remove('hidden');
     loading.classList.add('hidden');
   });
@@ -19955,7 +20006,7 @@ function updateSystemPromptEnabled(agentId, section, enabled) {
   payload[section] = { enabled: enabled };
   api('/a/' + agentId + '/api/agent/system-prompt/config', { method: 'PUT', body: JSON.stringify(payload) }).catch(function(e) {
     console.error('Failed to update:', e);
-    showToast('Failed to update: ' + e.message, { variant: 'error' });
+    showToast(t("Failed to update: {error}", { error: e.message }), { variant: 'error' });
     loadSystemPromptConfig(agentId);
   });
 }
@@ -19965,7 +20016,7 @@ function editSystemPromptSection(agentId, section) {
     showSystemPromptEditor(agentId, section, data.content || '', data.enabled, data || {});
   }).catch(function(e) {
     console.error('Failed to load:', e);
-    showToast('Failed to load: ' + e.message, { variant: 'error' });
+    showToast(t("Failed to load: {error}", { error: e.message }), { variant: 'error' });
   });
 }
 
@@ -19975,7 +20026,7 @@ function showSystemPromptEditor(agentId, section, content, enabled, sectionConfi
   var label = typeof sectionConfig.label === 'string' && sectionConfig.label.trim()
     ? sectionConfig.label.trim()
     : resolveSystemPromptLabel(currentAgent, section, {});
-  var title = label + ' Configuration';
+  var title = t("{label} Configuration", { label: label });
   var canDisable = sectionConfig.can_disable !== false;
 
   var modal = document.getElementById('system-prompt-editor-modal');
@@ -19987,7 +20038,7 @@ function showSystemPromptEditor(agentId, section, content, enabled, sectionConfi
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-labelledby', 'sp-editor-title');
-    modal.innerHTML = '<div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="Close">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>Enable custom prompt for this section</span></div><div id="sp-editor-enabled-note" class="portal-inline-state hidden"></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="Enter content..."></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">Cancel</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">Save</button></div></div></div>';
+    modal.innerHTML = '<div class="modal-card panel portal-editor-modal-card"><div class="portal-modal-titlebar"><h3 id="sp-editor-title"></h3><button type="button" id="sp-editor-close" class="portal-modal-close" aria-label="' + t("Close") + '">✕</button></div><div class="stack"><div class="portal-checkbox-row"><label class="toggle-switch"><input type="checkbox" id="sp-editor-enabled"><span class="toggle-slider"></span></label><span>' + t("Enable custom prompt for this section") + '</span></div><div id="sp-editor-enabled-note" class="portal-inline-state hidden"></div><textarea id="sp-editor-content" class="portal-form-textarea" rows="10" placeholder="' + t("Enter content...") + '"></textarea><div class="portal-modal-actions"><button type="button" id="sp-editor-cancel" class="portal-btn is-secondary">' + t("Cancel") + '</button><button type="button" id="sp-editor-save" class="portal-btn is-primary">' + t("Save") + '</button></div></div></div>';
     document.body.appendChild(modal);
     modal._keyHandler = function(e) { if (e.key === 'Escape') closeSystemPromptEditor(); };
     document.getElementById('sp-editor-close').addEventListener('click', closeSystemPromptEditor);
@@ -20013,7 +20064,7 @@ function showSystemPromptEditor(agentId, section, content, enabled, sectionConfi
   enabledNote.textContent = '';
   enabledNote.classList.add('hidden');
   if (!canDisable) {
-    enabledNote.textContent = 'Always enabled';
+    enabledNote.textContent = t("Always enabled");
     enabledNote.classList.remove('hidden');
   }
   document.getElementById('sp-editor-content').value = content;
@@ -20059,7 +20110,7 @@ function saveSystemPromptSection(agentId, section) {
     loadSystemPromptConfig(agentId);
   }).catch(function(e) {
     console.error('Failed to save:', e);
-    showToast('Failed to save: ' + e.message, { variant: 'error' });
+    showToast(t("Failed to save: {error}", { error: e.message }), { variant: 'error' });
     loadSystemPromptConfig(agentId);
   });
 }

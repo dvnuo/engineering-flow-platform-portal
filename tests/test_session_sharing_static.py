@@ -71,6 +71,11 @@ def test_sessions_panel_offers_share_beside_rename_and_delete():
     assert "is-shared" in html
     assert "data-session-name-source" in html
     assert 'data-session-shared-badge="1"' in html
+    # The share title and the rename prompt read data-session-name, so it is
+    # the session's own name (empty when it has none); the translated
+    # placeholder is only shown, never stored as a share's title.
+    assert html.count("data-session-name=" + '"' + "{{ session.name or '' }}" + '"') == 4
+    assert "button.dataset.sessionName = storedName;" in _read("app/static/js/chat_ui.js")
 
 
 def test_share_page_is_standalone():

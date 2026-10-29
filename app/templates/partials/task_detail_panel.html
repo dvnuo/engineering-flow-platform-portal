@@ -7,41 +7,41 @@
   {% endif %}>
   <div class="portal-task-detail-hero">
     <div class="portal-task-detail-title">
-      <span class="portal-status-badge is-{{ task_view_model.status_tone }}">{{ task_view_model.status_label }}</span>
+      <span class="portal-status-badge is-{{ task_view_model.status_tone }}">{{ tv(task_view_model.status_label|replace('_', ' ')) }}</span>
       <div>
         <h2 class="portal-panel-title">{{ task_view_model.display_title }}</h2>
         <p class="portal-panel-subtitle">{{ task_view_model.display_subtitle }}</p>
       </div>
     </div>
     <div class="portal-task-actions">
-      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
+      <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ task.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="refresh-cw" class="w-4 h-4"></i>{{ t("Refresh") }}</button>
       {% if task_view_model.can_rerun %}
-      <button class="portal-btn is-secondary" type="button" data-rerun-task="{{ task.id }}"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>Rerun</button>
+      <button class="portal-btn is-secondary" type="button" data-rerun-task="{{ task.id }}"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>{{ t("Rerun") }}</button>
       {% endif %}
       {% if task_view_model.can_cancel %}
-      <button class="portal-btn is-danger" type="button" data-cancel-task="{{ task.id }}"><i data-lucide="square" class="w-4 h-4"></i>Cancel</button>
+      <button class="portal-btn is-danger" type="button" data-cancel-task="{{ task.id }}"><i data-lucide="square" class="w-4 h-4"></i>{{ t("Cancel") }}</button>
       {% endif %}
       {% if task_view_model.show_followup_form %}
-      <button class="portal-btn is-primary" type="button" data-open-task-followup-modal><i data-lucide="message-square-plus" class="w-4 h-4"></i>Add Follow-up</button>
+      <button class="portal-btn is-primary" type="button" data-open-task-followup-modal><i data-lucide="message-square-plus" class="w-4 h-4"></i>{{ t("Add Follow-up") }}</button>
       {% endif %}
     </div>
   </div>
 
   {% if task_view_model.is_agent_async %}
   <section class="portal-task-metrics">
-    <div><span>Status</span><strong>{{ task_view_model.status_label }}</strong></div>
-    <div><span>Agent</span><strong>{{ task_view_model.assignee_agent_label }}</strong></div>
-    <div><span>Owner</span><strong>{{ task_view_model.owner_display_name }}</strong></div>
-    <div><span>Skill</span><strong>/{{ task_view_model.skill_name }}</strong></div>
-    <div><span>Duration</span><strong>{{ task_view_model.duration_label }}</strong></div>
+    <div><span>{{ t("Status") }}</span><strong>{{ tv(task_view_model.status_label|replace('_', ' ')) }}</strong></div>
+    <div><span>{{ t("Agent") }}</span><strong>{{ task_view_model.assignee_agent_label }}</strong></div>
+    <div><span>{{ t("Owner") }}</span><strong>{{ task_view_model.owner_display_name }}</strong></div>
+    <div><span>{{ t("Skill") }}</span><strong>/{{ task_view_model.skill_name }}</strong></div>
+    <div><span>{{ t("Duration") }}</span><strong>{{ task_view_model.duration_label }}</strong></div>
   </section>
 
   {% if task_view_model.execution_context_items %}
   <section class="portal-task-content-panel">
-    <div class="portal-task-section-heading"><span>Runtime Execution</span></div>
+    <div class="portal-task-section-heading"><span>{{ t("Runtime Execution") }}</span></div>
     <div class="portal-kv-grid">
       {% for label, value in task_view_model.execution_context_items %}
-      <div class="portal-kv-item"><span class="portal-usage-k">{{ label }}</span><span class="portal-usage-v">{{ value }}</span></div>
+      <div class="portal-kv-item"><span class="portal-usage-k">{{ tv(label) }}</span><span class="portal-usage-v">{{ value }}</span></div>
       {% endfor %}
     </div>
     {% if task_view_model.execution_warning %}
@@ -51,7 +51,7 @@
   {% endif %}
 
   {% if task_view_model.is_active %}
-  <div class="portal-callout is-warning">This task is {{ task_view_model.status_label }}. The detail view refreshes automatically.</div>
+  <div class="portal-callout is-warning">{{ t("This task is {status}. The detail view refreshes automatically.", status=tv(task_view_model.status_label|replace('_', ' '))) }}</div>
   {% elif task_view_model.error_text %}
   <div class="portal-callout is-error">{{ task_view_model.error_text }}</div>
   {% elif task_view_model.summary_text %}
@@ -60,7 +60,7 @@
 
   {% if task_view_model.result_cards or task_view_model.live_matrix_path %}
   <section class="portal-task-content-panel portal-task-results">
-    <div class="portal-task-section-heading"><span>Results</span></div>
+    <div class="portal-task-section-heading"><span>{{ t("Results") }}</span></div>
     {% for card in task_view_model.result_cards %}
     <div class="efp-card-host" data-efp-card="{{ card.kind }}" data-payload="{{ card.payload_json }}" data-agent-id="{{ task.assignee_agent_id }}" data-task-id="{{ task.id }}" data-surface="task"{% if card.kind == 'review' and not task_view_model.show_followup_form %} data-readonly="1"{% endif %}></div>
     {% endfor %}
@@ -73,12 +73,12 @@
   <div class="portal-task-detail-grid">
     <section class="portal-task-content-panel">
       <div class="portal-task-section-heading">
-        <span>{{ task_view_model.task_content_label }}</span>
+        <span>{{ tv(task_view_model.task_content_label) }}</span>
       </div>
-      <pre class="portal-panel-pre portal-task-pre">{{ task_view_model.task_content or "No task content was stored." }}</pre>
+      <pre class="portal-panel-pre portal-task-pre">{{ task_view_model.task_content or t("No task content was stored.") }}</pre>
       {% if task_view_model.original_task %}
       <details class="portal-collapsible portal-task-nested-detail">
-        <summary class="portal-collapsible-summary"><strong>Original Task</strong></summary>
+        <summary class="portal-collapsible-summary"><strong>{{ t("Original Task") }}</strong></summary>
         <pre class="portal-panel-pre portal-task-pre">{{ task_view_model.original_task }}</pre>
       </details>
       {% endif %}
@@ -86,21 +86,21 @@
 
     <section class="portal-task-content-panel">
       <div class="portal-task-section-heading">
-        <span>Agent Response</span>
+        <span>{{ t("Agent Response") }}</span>
       </div>
       {% if task_view_model.final_response %}
       <pre class="portal-panel-pre portal-task-pre">{{ task_view_model.final_response }}</pre>
       {% elif task_view_model.is_active %}
-      <div class="portal-inline-state is-visible">Waiting for the agent response.</div>
+      <div class="portal-inline-state is-visible">{{ t("Waiting for the agent response.") }}</div>
       {% else %}
-      <div class="portal-inline-state is-visible">No final response was returned.</div>
+      <div class="portal-inline-state is-visible">{{ t("No final response was returned.") }}</div>
       {% endif %}
     </section>
   </div>
 
   {% if task_view_model.blockers or task_view_model.next_recommendation %}
   <section class="portal-task-content-panel">
-    <div class="portal-task-section-heading"><span>Blockers</span></div>
+    <div class="portal-task-section-heading"><span>{{ t("Blockers") }}</span></div>
     {% if task_view_model.blockers %}
     <div class="portal-panel-stack">
       {% for blocker in task_view_model.blockers %}
@@ -108,7 +108,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="portal-inline-state is-visible">No blockers were reported.</div>
+    <div class="portal-inline-state is-visible">{{ t("No blockers were reported.") }}</div>
     {% endif %}
     {% if task_view_model.next_recommendation %}
     <div class="portal-callout is-info">{{ task_view_model.next_recommendation }}</div>
@@ -118,20 +118,20 @@
 
   {% if task_view_model.timeline|length > 1 %}
   <section class="portal-task-content-panel">
-    <div class="portal-task-section-heading"><span>Task Chain</span></div>
+    <div class="portal-task-section-heading"><span>{{ t("Task Chain") }}</span></div>
     <div class="portal-task-timeline-list">
       {% for item in task_view_model.timeline %}
       <div class="portal-task-timeline-item{% if item.is_current %} is-current{% endif %}">
         <div>
           <strong>{{ item.title }}</strong>
-          <span>{{ item.kind }} · {{ item.created_at }}</span>
+          <span>{{ tv(item.kind) }} · {{ item.created_at }}</span>
         </div>
-        <span class="portal-status-badge is-{{ item.status_tone }}">{{ item.status }}</span>
+        <span class="portal-status-badge is-{{ item.status_tone }}">{{ tv(item.status|replace('_', ' ')) }}</span>
         {% if not item.is_current %}
         {% if content_target == "#workspace-detail-content" %}
-        <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ item.id }}">Open</button>
+        <button class="portal-btn is-secondary" type="button" data-open-task-main="{{ item.id }}">{{ t("Open") }}</button>
         {% else %}
-        <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ item.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">Open</button>
+        <button class="portal-btn is-secondary" hx-get="/app/tasks/{{ item.id }}/panel" hx-target="{{ content_target }}" hx-swap="innerHTML">{{ t("Open") }}</button>
         {% endif %}
         {% endif %}
       </div>
@@ -145,10 +145,10 @@
     <div class="modal-card panel create-agent-wizard-card portal-task-followup-card">
       <div class="portal-modal-titlebar">
         <div>
-          <h3 id="task-followup-modal-title">Continue Task</h3>
-          <p class="portal-modal-copy">Add the next instruction to this same task session.</p>
+          <h3 id="task-followup-modal-title">{{ t("Continue Task") }}</h3>
+          <p class="portal-modal-copy">{{ t("Add the next instruction to this same task session.") }}</p>
         </div>
-        <button type="button" class="portal-modal-close" title="Close" aria-label="Close" data-close-task-followup-modal>✕</button>
+        <button type="button" class="portal-modal-close" title="{{ t('Close') }}" aria-label="{{ t('Close') }}" data-close-task-followup-modal>✕</button>
       </div>
 
       <form
@@ -158,35 +158,35 @@
         data-wizard-steps="followup,review"
         data-current-step="followup"
       >
-        <ol class="create-agent-steps" aria-label="Continue task steps" style="--portal-step-count: 2">
+        <ol class="create-agent-steps" aria-label="{{ t('Continue task steps') }}" style="--portal-step-count: 2">
           <li class="create-agent-step is-active" data-wizard-step-indicator="followup">
             <span class="create-agent-step-index">1</span>
-            <span class="create-agent-step-label">Follow-up</span>
+            <span class="create-agent-step-label">{{ t("Follow-up") }}</span>
           </li>
           <li class="create-agent-step" data-wizard-step-indicator="review">
             <span class="create-agent-step-index">2</span>
-            <span class="create-agent-step-label">Review</span>
+            <span class="create-agent-step-label">{{ t("Review") }}</span>
           </li>
         </ol>
         <section class="create-agent-step-panel" data-wizard-step-panel="followup">
-          <label class="portal-form-label" for="agent-task-followup">Follow-up</label>
+          <label class="portal-form-label" for="agent-task-followup">{{ t("Follow-up") }}</label>
           <textarea
             id="agent-task-followup"
             name="task_content"
             class="portal-form-textarea"
             rows="5"
             required
-            placeholder="Add the next instruction for this same task session."
+            placeholder="{{ t('Add the next instruction for this same task session.') }}"
           ></textarea>
         </section>
         <section class="create-agent-step-panel hidden" data-wizard-step-panel="review">
           <div id="continue-task-review" class="create-agent-review-grid"></div>
         </section>
         <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
-          <span class="portal-panel-note">Continues this task</span>
-          <button type="button" class="portal-btn is-secondary" data-wizard-back>Back</button>
-          <button type="button" class="portal-btn is-primary" data-wizard-next>Next</button>
-          <button type="submit" class="portal-btn is-primary" data-wizard-submit><i data-lucide="message-square-plus" class="w-4 h-4"></i>Start Follow-up</button>
+          <span class="portal-panel-note">{{ t("Continues this task") }}</span>
+          <button type="button" class="portal-btn is-secondary" data-wizard-back>{{ t("Back") }}</button>
+          <button type="button" class="portal-btn is-primary" data-wizard-next>{{ t("Next") }}</button>
+          <button type="submit" class="portal-btn is-primary" data-wizard-submit><i data-lucide="message-square-plus" class="w-4 h-4"></i>{{ t("Start Follow-up") }}</button>
         </div>
       </form>
     </div>
@@ -196,7 +196,7 @@
   <div class="portal-task-raw-grid">
     <details class="portal-raw-disclosure">
       <summary class="portal-raw-summary">
-        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Raw Input</strong></span>
+        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>{{ t("Raw Input") }}</strong></span>
         <span class="portal-raw-toggle" aria-hidden="true"></span>
       </summary>
       <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.input_payload_pretty }}</pre>
@@ -204,10 +204,10 @@
 
     <div class="portal-raw-disclosure">
       <div class="portal-raw-summary">
-        <span><i data-lucide="download" class="w-4 h-4"></i><strong>Result JSON</strong></span>
-        <a class="portal-btn is-secondary" href="{{ task_view_model.result_payload_download_url }}" download>Download JSON</a>
+        <span><i data-lucide="download" class="w-4 h-4"></i><strong>{{ t("Result JSON") }}</strong></span>
+        <a class="portal-btn is-secondary" href="{{ task_view_model.result_payload_download_url }}" download>{{ t("Download JSON") }}</a>
       </div>
-      <p class="portal-panel-note">Detailed result payload is available as a JSON download.</p>
+      <p class="portal-panel-note">{{ t("Detailed result payload is available as a JSON download.") }}</p>
     </div>
   </div>
   {% else %}
@@ -220,21 +220,21 @@
   {% elif task_view_model.summary_text %}
   <div class="portal-callout is-success">{{ task_view_model.summary_text }}</div>
   {% elif task_view_model.is_active %}
-  <div class="portal-callout is-warning">Task is {{ task_view_model.status_label }}...</div>
+  <div class="portal-callout is-warning">{{ t("Task is {status}...", status=tv(task_view_model.status_label|replace('_', ' '))) }}</div>
   {% endif %}
 
   <section class="portal-task-metrics">
-    <div><span>Status</span><strong>{{ task_view_model.status_label }}</strong></div>
-    <div><span>Assignee</span><strong>{{ task_view_model.assignee_agent_id }}</strong></div>
-    <div><span>Created</span><strong>{{ task_view_model.created_at }}</strong></div>
-    <div><span>Duration</span><strong>{{ task_view_model.duration_label }}</strong></div>
+    <div><span>{{ t("Status") }}</span><strong>{{ tv(task_view_model.status_label|replace('_', ' ')) }}</strong></div>
+    <div><span>{{ t("Assignee") }}</span><strong>{{ task_view_model.assignee_agent_id }}</strong></div>
+    <div><span>{{ t("Created") }}</span><strong>{{ task_view_model.created_at }}</strong></div>
+    <div><span>{{ t("Duration") }}</span><strong>{{ task_view_model.duration_label }}</strong></div>
   </section>
 
   <section class="portal-task-content-panel">
-    <div class="portal-task-section-heading"><span>Context</span></div>
+    <div class="portal-task-section-heading"><span>{{ t("Context") }}</span></div>
     <div class="portal-kv-grid">
       {% for label, value in task_view_model.context_items %}
-      <div class="portal-kv-item"><span class="portal-usage-k">{{ label }}</span><span class="portal-usage-v">{{ value }}</span></div>
+      <div class="portal-kv-item"><span class="portal-usage-k">{{ tv(label) }}</span><span class="portal-usage-v">{{ value }}</span></div>
       {% endfor %}
     </div>
   </section>
@@ -242,7 +242,7 @@
   <div class="portal-task-raw-grid">
     <details class="portal-raw-disclosure">
       <summary class="portal-raw-summary">
-        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>Input Payload</strong></span>
+        <span><i data-lucide="braces" class="w-4 h-4"></i><strong>{{ t("Input Payload") }}</strong></span>
         <span class="portal-raw-toggle" aria-hidden="true"></span>
       </summary>
       <pre class="portal-panel-pre portal-raw-pre">{{ task_view_model.input_payload_pretty }}</pre>
@@ -250,17 +250,17 @@
 
     <div class="portal-raw-disclosure">
       <div class="portal-raw-summary">
-        <span><i data-lucide="download" class="w-4 h-4"></i><strong>Result JSON</strong></span>
-        <a class="portal-btn is-secondary" href="{{ task_view_model.result_payload_download_url }}" download>Download JSON</a>
+        <span><i data-lucide="download" class="w-4 h-4"></i><strong>{{ t("Result JSON") }}</strong></span>
+        <a class="portal-btn is-secondary" href="{{ task_view_model.result_payload_download_url }}" download>{{ t("Download JSON") }}</a>
       </div>
-      <p class="portal-panel-note">Detailed result payload is available as a JSON download.</p>
+      <p class="portal-panel-note">{{ t("Detailed result payload is available as a JSON download.") }}</p>
     </div>
   </div>
   {% endif %}
 
   {% if content_target == "#workspace-detail-content" %}
-  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to Tasks</button>
+  <button class="portal-btn is-secondary" type="button" data-task-back-sidebar="1"><i data-lucide="arrow-left" class="w-4 h-4"></i>{{ t("Back to Tasks") }}</button>
   {% else %}
-  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to Tasks</button>
+  <button class="portal-btn is-secondary" hx-get="/app/tasks/panel" hx-target="{{ content_target }}" hx-swap="innerHTML"><i data-lucide="arrow-left" class="w-4 h-4"></i>{{ t("Back to Tasks") }}</button>
   {% endif %}
 </div>

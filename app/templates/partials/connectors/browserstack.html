@@ -3,19 +3,19 @@
 <section class="portal-panel-section" id="profile-section-mobile" data-managed-section="mobile">
       {{ setup_guide('mobile') }}
       <div class="portal-checkbox-row">
-          <label class="toggle-switch" aria-label="Enable BrowserStack Mobile">
+          <label class="toggle-switch" aria-label="{{ t('Enable {name}', name='BrowserStack Mobile') }}">
               <input type="checkbox" name="mobile_enabled" {% if mobile.get('enabled') %}checked{% endif %} />
               <span class="toggle-slider"></span>
           </label>
-          <span>Enabled</span>
+          <span>{{ t("Enabled") }}</span>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <label class="portal-form-label"><span class="portal-form-label">Username</span><input type="text" name="mobile_browserstack_username" value="{{ raw_mobile_browserstack.get('username', mobile_browserstack.get('username', '')) }}" placeholder="BrowserStack username" class="portal-form-input" /></label>
-        <label class="portal-form-label"><span class="portal-form-label">Access Key</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="BrowserStack access key" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Username") }}</span><input type="text" name="mobile_browserstack_username" value="{{ raw_mobile_browserstack.get('username', mobile_browserstack.get('username', '')) }}" placeholder="{{ t('BrowserStack username') }}" class="portal-form-input" /></label>
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Access Key") }}</span><input type="password" name="mobile_browserstack_access_key" value="{{ raw_mobile_browserstack.get('access_key', '') }}" placeholder="{{ t('BrowserStack access key') }}" class="portal-form-input" /></label>
       </div>
-      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-mobile-bridge-test>Test BrowserStack</button><div class="portal-inline-state" data-mobile-bridge-test-result role="status"></div></div>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-mobile-bridge-test>{{ t("Test {name}", name="BrowserStack") }}</button><div class="portal-inline-state" data-mobile-bridge-test-result role="status"></div></div>
       <div class="portal-inline-state" data-mobile-local-binary role="status"></div>
-      <p class="portal-inline-note">The test signs in from this computer through the local bridge, the way recordings do, and says whether BrowserStack Local, the tunnel a recording of an app on your company's network needs, is on this computer.</p>
+      <p class="portal-inline-note">{{ t("The test signs in from this computer through the local bridge, the way recordings do, and says whether BrowserStack Local, the tunnel a recording of an app on your company's network needs, is on this computer.") }}</p>
       {# The same Advanced fields the administrator's Default connectors offer (connectors/_macros.html). #}
       {{ browserstack_advanced(bs_defaults, raw_mobile_browserstack, mobile_default_network, 'member') }}
     </section>

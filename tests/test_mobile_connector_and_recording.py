@@ -24,6 +24,7 @@ from app.models import Agent, User
 from app.models.runtime_profile import RuntimeProfile
 from app.services.connector_registry import get_connector_spec
 from app.web import _settings_merge_payload
+from tests._js_extract_helpers import I18N_STUB
 from tests.test_web_connector_settings import _bind_profile, _build_env
 
 MOBILE_JS = Path("app/static/js/mobile_testing.js")
@@ -342,7 +343,7 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # the step at hand; the Inspector opens itself. It has no settings of its
     # own: the configuration lives in Connectors, and the build upload sits
     # in the start form with the build it adds to.
-    assert 'const PANEL_TITLE = "Mobile testing";' in js
+    assert 'const PANEL_TITLE = t("Mobile testing");' in js
     assert "Recording on my computer through the Mobile testing panel." in js
     for marker in ("data-recording-flow", "efp-menu", "openInspectorTabEarly", "data-recording-workspace", "efp-workspace-frame", 'data-recording-action="upload-toggle"', 'class="efp-upload${view.uploadOpen ? "" : " hidden"}" data-recording-upload'):
         assert marker in js, marker
@@ -353,7 +354,7 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # start form, and a replay asked for without a device points at it.
     assert "No device held" not in js and "under Session" not in js and js.count("askForDevice(") == 4
     # The tabs name what the member does there: Record, or the Library.
-    assert 'tab("record", "Record") + tab("library", "Library")' in js and '"session"' not in js
+    assert 'tab("record", t("Record")) + tab("library", t("Library"))' in js and '"session"' not in js
     # A collapsible reads as something to open, in the panel and on the
     # connector pages alike: the base style draws the chevron.
     css = Path("app/static/css/app.css").read_text(encoding="utf-8")
@@ -390,19 +391,19 @@ def test_the_page_drives_the_local_bridge_not_portal():
     # apps.upload.cancel; an older bridge holds the request, and the wait says
     # how long it has been. The upload sits in the view, so a re-render draws
     # the area as it is.
-    for marker in ('"apps.upload.status"', '"apps.upload.cancel"', "info.mobile.upload_status", 'data-recording-action="upload-cancel"', "Copying ${file.name} to the local bridge\\u2026", "Sending ${file.name} on to BrowserStack\\u2026 (${elapsedLabel(since)})", "BrowserStack is checking the build\\u2026", "upload: null,", "view.upload.fraction", "const UPLOAD_POLL_MS = 1500;"):
+    for marker in ('"apps.upload.status"', '"apps.upload.cancel"', "info.mobile.upload_status", 'data-recording-action="upload-cancel"', 't("Copying {name} to the local bridge\u2026", { name: file.name })', 't("Sending {name} on to BrowserStack\u2026 ({elapsed})", { name: file.name, elapsed: elapsedLabel(since) })', 't("BrowserStack is checking the build\u2026")', "upload: null,", "view.upload.fraction", "const UPLOAD_POLL_MS = 1500;"):
         assert marker in js, marker
     # A lost status ask (a slow answer, a moment's "Failed to fetch") keeps
     # the last progress on the line; only several in a row end the follow.
-    assert "const UPLOAD_STATUS_RETRIES = 3;" in js and "(waiting for the local bridge\\u2026)" in js
+    assert "const UPLOAD_STATUS_RETRIES = 3;" in js and "(waiting for the local bridge\u2026)" in js
     # The device is chosen from the list the bridge gives (devices.list,
     # phones first), the newest phone being the default, and the last choice
     # is kept per platform; an older bridge leaves the free-text field. The
     # start sends the device, or nothing, as before.
-    for marker in ('"devices.list"', "info.mobile.device_list", "data-recording-device-field", 'group("Phones", phones)', 'group("Tablets", tablets)', "Newest phone (default)", 'const DEVICE_KEY_PREFIX = "efp.mobile.device:";', 'target.matches("[data-recording-device-name]")', "rememberDevice(platform, device);", "if (device) params.device = device;"):
+    for marker in ('"devices.list"', "info.mobile.device_list", "data-recording-device-field", 'group(t("Phones"), phones)', 'group(t("Tablets"), tablets)', "Newest phone (default)", 'const DEVICE_KEY_PREFIX = "efp.mobile.device:";', 'target.matches("[data-recording-device-name]")', "rememberDevice(platform, device);", "if (device) params.device = device;"):
         assert marker in js, marker
     assert "Device (optional)" not in js and "params.form_factor" not in js
-    assert "Sending ${file.name} on to BrowserStack\u2026`" not in js, "the wait names its length"
+    assert 't("Sending {name} on to BrowserStack\u2026")' not in js, "the wait names its length"
     # The chat composer's "Local bridge offline" keeps up: the panel tells it
     # when the bridge appears, and the composer looks again while offline.
     assert "window.portalConnectors.refreshToggle()" in js
@@ -444,7 +445,7 @@ def test_the_connector_page_links_the_browserstack_local_downloads():
 def test_recording_button_is_wired_into_the_tool_panel():
     html = Path("app/templates/app.html").read_text(encoding="utf-8")
     assert 'id="btn-recording"' in html
-    assert '<span class="portal-header-action-label">Mobile testing</span>' in html
+    assert '<span class="portal-header-action-label">{{ t("Mobile testing") }}</span>' in html
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
     assert '"recording",' in js[js.index("const ALLOWED_UTILITY_PANEL_KEYS"): js.index("]);", js.index("const ALLOWED_UTILITY_PANEL_KEYS"))]
     assert "window.EfpMobileTesting.openRecordingPanel" in js
@@ -602,7 +603,7 @@ def test_recording_panel_helpers_and_bridge_calls_in_node(tmp_path):
         };
         """
     )
-    script = shim + source + textwrap.dedent(
+    script = I18N_STUB + shim + source + textwrap.dedent(
         """
         const assert = require("node:assert/strict");
         const M = window.EfpMobileTesting;

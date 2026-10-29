@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from _js_extract_helpers import _extract_js_function
+from _js_extract_helpers import I18N_STUB, _extract_js_function
 
 
 MODULE = Path("app/static/js/interactive_input.js")
@@ -118,7 +118,7 @@ def _run_node(body: str):
     node_bin = shutil.which("node")
     if not node_bin:
         pytest.skip("node is not installed; skipping card lifecycle tests")
-    script = f"{SHIM}\n{MODULE.read_text(encoding='utf-8')}\n(async () => {{\n{body}\n}})().catch((e) => {{ console.error(e); process.exit(1); }});"
+    script = f"{I18N_STUB}{SHIM}\n{MODULE.read_text(encoding='utf-8')}\n(async () => {{\n{body}\n}})().catch((e) => {{ console.error(e); process.exit(1); }});"
     # Run from a file rather than `node -e`: the script carries the whole
     # module, and Windows caps a command line at ~32KB, so passing it inline
     # fails there with "the filename or extension is too long" -- which reads

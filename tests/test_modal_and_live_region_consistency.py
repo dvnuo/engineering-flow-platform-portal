@@ -67,7 +67,7 @@ def test_errors_are_announced_assertively_but_routine_toasts_are_not():
 
 def test_completed_responses_are_announced_without_reading_the_stream():
     assert "function announceToChat(" in JS
-    assert 'announceToChat("Assistant response ready.")' in JS
+    assert 'announceToChat(t("Assistant response ready."))' in JS
 
 
 def test_sr_only_is_defined_locally_rather_than_left_to_the_tailwind_runtime():

@@ -17,7 +17,7 @@ def test_create_modal_submit_handlers_use_begin_single_submit():
     js = Path("app/static/js/chat_ui.js").read_text(encoding="utf-8")
 
     assert "closeCreateRuntimeProfileModal" not in js
-    assert "beginSingleSubmit(form, { pendingText: \"Creating...\", closeButton: document.getElementById(\"close-create-modal\") })" in js
+    assert "beginSingleSubmit(form, { pendingText: t(\"Creating...\"), closeButton: document.getElementById(\"close-create-modal\") })" in js
 
 
 def test_create_modal_close_handlers_check_submitting_guard():

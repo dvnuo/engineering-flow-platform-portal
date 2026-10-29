@@ -61,12 +61,13 @@
   async function errorMessage(response) {
     try {
       var payload = await response.json();
-      if (typeof payload.detail === "string") return payload.detail;
+      // Portal details are English keys (N_() at the raise site), shown translated.
+      if (typeof payload.detail === "string") return tv(payload.detail);
       if (Array.isArray(payload.detail)) {
         return payload.detail.map(function (item) { return item.msg; }).filter(Boolean).join("; ");
       }
     } catch (_error) {}
-    return "Request failed (" + response.status + ")";
+    return t("Request failed ({status})", { status: response.status });
   }
 
   async function request(url, options) {
@@ -102,7 +103,7 @@
     });
 
     var resultCount = root.querySelector("[data-admin-member-result-count]");
-    if (resultCount) resultCount.textContent = visible + " shown";
+    if (resultCount) resultCount.textContent = t("{n} shown", { n: visible });
     var empty = root.querySelector("[data-admin-member-filter-empty]");
     if (empty) empty.hidden = visible !== 0;
   }
@@ -129,12 +130,12 @@
     var data = new FormData(form);
     var usernames = parseUsernames(data.get("usernames"));
     if (!usernames.length) {
-      feedback(root, "Enter at least one username.", true);
+      feedback(root, t("Enter at least one username."), true);
       return;
     }
 
     if (submit) submit.disabled = true;
-    feedback(root, "Adding " + usernames.length + " username" + (usernames.length === 1 ? "" : "s") + "…", false);
+    feedback(root, tn(usernames.length, "Adding {n} username…", "Adding {n} usernames…"), false);
 
     try {
       var result = await request("/api/users/allowlist/bulk", {
@@ -143,16 +144,16 @@
         body: JSON.stringify({ usernames: usernames, role: data.get("role") }),
       });
       var messages = [];
-      if (result.added.length) messages.push("Allowed " + result.added.length + ".");
-      if (result.already_allowlisted.length) messages.push("Skipped " + result.already_allowlisted.length + " already allowed.");
-      var successMessage = messages.join(" ") || "No changes were needed.";
+      if (result.added.length) messages.push(t("Allowed {n}.", { n: result.added.length }));
+      if (result.already_allowlisted.length) messages.push(t("Skipped {n} already allowed.", { n: result.already_allowlisted.length }));
+      var successMessage = messages.join(" ") || t("No changes were needed.");
       closeAllowlistModal();
       await reloadPanel(successMessage, false);
       if (window.showToast) window.showToast(successMessage, { variant: "success" });
     } catch (error) {
       feedback(root, error.message, true);
       if (window.showAlert) {
-        await window.showAlert({ title: "Unable to update allowlist", message: error.message });
+        await window.showAlert({ title: t("Unable to update allowlist"), message: error.message });
       }
       if (submit) submit.disabled = false;
     }
@@ -176,7 +177,7 @@
     var statusNode = card && card.querySelector("[data-admin-role-status]");
     group.classList.add("is-saving");
     if (statusNode) {
-      statusNode.textContent = "Saving…";
+      statusNode.textContent = t("Saving…");
       statusNode.classList.remove("is-error", "is-success");
     }
 
@@ -195,7 +196,7 @@
         adminSummary.textContent = String(adminCount + (updated.role === "admin" ? 1 : -1));
       }
       if (statusNode) {
-        statusNode.textContent = "Saved";
+        statusNode.textContent = t("Saved");
         statusNode.classList.add("is-success");
       }
     } catch (error) {
@@ -203,11 +204,11 @@
       // server did not accept.
       checkRoleOption(group, previousRole);
       if (statusNode) {
-        statusNode.textContent = "Not saved";
+        statusNode.textContent = t("Not saved");
         statusNode.classList.add("is-error");
       }
       if (window.showAlert) {
-        await window.showAlert({ title: "Unable to change role", message: error.message });
+        await window.showAlert({ title: t("Unable to change role"), message: error.message });
       }
     } finally {
       group.classList.remove("is-saving");
@@ -248,11 +249,11 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: username, role: selectedRole(allowCard) }),
         });
-        await reloadPanel(username + " is now allowed.", false);
+        await reloadPanel(t("{username} is now allowed.", { username: username }), false);
       } catch (error) {
         feedback(allowRoot, error.message, true);
         if (window.showAlert) {
-          await window.showAlert({ title: "Unable to allow member", message: error.message });
+          await window.showAlert({ title: t("Unable to allow member"), message: error.message });
         }
         allowButton.disabled = false;
       }
@@ -263,15 +264,15 @@
     if (!button) return;
     event.preventDefault();
     var root = panelRoot(button);
-    var removeUsername = button.dataset.allowlistUsername || "this member";
+    var removeUsername = button.dataset.allowlistUsername || t("this member");
     var confirmed = window.showConfirm
       ? await window.showConfirm({
-          title: "Revoke allowlist access",
-          message: removeUsername + " will immediately lose registration, sign-in, and session access.",
-          confirmText: "Revoke access",
+          title: t("Revoke allowlist access"),
+          message: t("{username} will immediately lose registration, sign-in, and session access.", { username: removeUsername }),
+          confirmText: t("Revoke access"),
           danger: true,
         })
-      : window.confirm("Revoke allowlist access for " + removeUsername + "?");
+      : window.confirm(t("Revoke allowlist access for {username}?", { username: removeUsername }));
     if (!confirmed) return;
 
     button.disabled = true;
@@ -279,11 +280,11 @@
       await request("/api/users/allowlist/" + encodeURIComponent(button.dataset.removeAllowlist), {
         method: "DELETE",
       });
-      await reloadPanel(removeUsername + " no longer has access.", false);
+      await reloadPanel(t("{username} no longer has access.", { username: removeUsername }), false);
     } catch (error) {
       feedback(root, error.message, true);
       if (window.showAlert) {
-        await window.showAlert({ title: "Unable to revoke access", message: error.message });
+        await window.showAlert({ title: t("Unable to revoke access"), message: error.message });
       }
       button.disabled = false;
     }

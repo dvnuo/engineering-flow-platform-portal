@@ -130,7 +130,10 @@ def test_quota_lookup_is_forwarded_for_a_member_who_can_only_read_the_assistant(
 def _render_usage_panel(**context) -> str:
     from jinja2 import Environment, FileSystemLoader
 
+    from app.i18n import template_globals
+
     env = Environment(loader=FileSystemLoader(str(ROOT / "app/templates")))
+    env.globals.update(template_globals())
     return env.get_template("partials/usage_panel.html").render(**context)
 
 

@@ -44,7 +44,7 @@ function initAuthForm(options) {
       });
     } catch (networkError) {
       // The case that used to fail completely silently.
-      showError("Could not reach the server. Check your connection and try again.");
+      showError(t("Could not reach the server. Check your connection and try again."));
       setPending(false);
       return;
     }
@@ -54,7 +54,8 @@ function initAuthForm(options) {
       try {
         var payload = await response.json();
         if (typeof payload.detail === "string" && payload.detail.trim()) {
-          message = payload.detail;
+          // "Invalid credentials" and friends: English keys, shown translated.
+          message = tv(payload.detail);
         } else if (Array.isArray(payload.detail)) {
           message = payload.detail.map(function (item) { return item.msg; }).filter(Boolean).join("; ") || message;
         }
@@ -95,7 +96,7 @@ document.addEventListener("click", function (event) {
   if (!field) return;
   var reveal = field.type === "password";
   field.type = reveal ? "text" : "password";
-  toggle.textContent = reveal ? "Hide" : "Show";
+  toggle.textContent = reveal ? t("Hide") : t("Show");
   toggle.setAttribute("aria-pressed", reveal ? "true" : "false");
-  toggle.setAttribute("aria-label", reveal ? "Hide password" : "Show password");
+  toggle.setAttribute("aria-label", reveal ? t("Hide password") : t("Show password"));
 });

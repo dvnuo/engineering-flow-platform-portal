@@ -48,15 +48,15 @@ def test_connector_enable_toggle_is_a_plain_toggle_switch(template_name, section
     label_open = section[label_start : section.find(">", label_start) + 1]
     assert "toggle-switch" in label_open
     assert "portal-section-enable-switch" not in label_open
-    assert "<span>Enabled</span>" in section
+    assert '<span>{{ t("Enabled") }}</span>' in section
 
 
 def test_connector_title_renders_above_the_form_fields():
     # The connector's name is the panel heading; each form partial is included
     # below it, so the enable toggle sits under the title.
     panel = (CONNECTOR_TEMPLATES / "panel.html").read_text(encoding="utf-8")
-    assert "<h5>{{ connector.label }}</h5>" in panel
-    assert panel.index("<h5>{{ connector.label }}</h5>") < panel.index("{% include connector_template %}")
+    assert "<h5>{{ tv(connector.label) }}</h5>" in panel
+    assert panel.index("<h5>{{ tv(connector.label) }}</h5>") < panel.index("{% include connector_template %}")
 
 
 def test_leading_toggle_css_classes_exist():

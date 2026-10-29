@@ -9,8 +9,8 @@
   {% endif %}
 
   <div class="portal-panel-header">
-    <h5 class="portal-panel-title">Usage</h5>
-    <span class="portal-panel-subtitle">Last {{ period_days or 30 }} days</span>
+    <h5 class="portal-panel-title">{{ t("Usage") }}</h5>
+    <span class="portal-panel-subtitle">{{ tn(period_days or 30, "Last {n} day", "Last {n} days") }}</span>
   </div>
 
   {% set has_global = global.request_count or global.total_cost_usd or global.total_cost or global.total_input_tokens or global.total_output_tokens or global.total_input or global.total_output %}
@@ -28,77 +28,77 @@
     {% set quota_credits = quota.credits if quota.credits is mapping else {} %}
     {% set quota_snapshots = quota.snapshots if quota.snapshots is sequence else [] %}
     <div class="portal-panel-section portal-quota-section" data-copilot-quota>
-      <div class="portal-detail-label">Copilot balance this month</div>
+      <div class="portal-detail-label">{{ t("Copilot balance this month") }}</div>
       {% if quota.available %}
         {% if quota_credits %}
           {% set used = (quota_credits.used or 0)|float %}
           {% set included = (quota_credits.included or 0)|float %}
           {% set percent_used = (used / included * 100) if included > 0 else none %}
           <div class="portal-quota-chip {% if percent_used is not none and percent_used >= 80 %}is-warning{% endif %}">
-            <div class="portal-quota-chip-head"><span>{{ '%.0f'|format(used) }} credits used</span><span>{% if quota_credits.remaining is not none %}{{ '%.0f'|format((quota_credits.remaining or 0)|float) }} left{% elif included > 0 %}{{ '%.0f'|format(included) }} included{% endif %}</span></div>
+            <div class="portal-quota-chip-head"><span>{{ t("{amount} {unit} used", amount='%.0f'|format(used), unit=t("credits")) }}</span><span>{% if quota_credits.remaining is not none %}{{ t("{amount} left", amount='%.0f'|format((quota_credits.remaining or 0)|float)) }}{% elif included > 0 %}{{ t("{amount} included", amount='%.0f'|format(included)) }}{% endif %}</span></div>
             {% if percent_used is not none %}<div class="portal-quota-meter"><span style="width:{{ [percent_used, 100]|min|round(1) }}%"></span></div>{% endif %}
-            {% if quota.reset_date %}<div class="portal-panel-note">Resets on {{ quota.reset_date }}</div>{% endif %}
+            {% if quota.reset_date %}<div class="portal-panel-note">{{ t("Resets on {date}", date=quota.reset_date) }}</div>{% endif %}
           </div>
         {% endif %}
         {% for snapshot in quota_snapshots %}
           {% if snapshot is mapping and not snapshot.unlimited %}
             {% set percent_remaining = snapshot.percent_remaining %}
-            <div class="portal-panel-note">{{ snapshot.label or snapshot.id }}{% if snapshot.used is not none %} · {{ snapshot.used }} used{% endif %}{% if snapshot.remaining is not none %} · {{ snapshot.remaining }} left{% endif %}{% if snapshot.entitlement %} / {{ snapshot.entitlement }}{% endif %}{% if percent_remaining is not none %} · {{ percent_remaining }}% left{% endif %}</div>
+            <div class="portal-panel-note">{{ snapshot.label or snapshot.id }}{% if snapshot.used is not none %} · {{ t("{amount} used", amount=snapshot.used) }}{% endif %}{% if snapshot.remaining is not none %} · {{ t("{amount} left", amount=snapshot.remaining) }}{% endif %}{% if snapshot.entitlement %} / {{ snapshot.entitlement }}{% endif %}{% if percent_remaining is not none %} · {{ t("{percent}% left", percent=percent_remaining) }}{% endif %}</div>
           {% endif %}
         {% endfor %}
         {% if not quota_credits and not quota_snapshots %}
-          <div class="portal-panel-note">The quota endpoint returned no usable numbers.{% if quota.plan %} Plan: {{ quota.plan }}{% endif %}</div>
+          <div class="portal-panel-note">{{ t("The quota endpoint returned no usable numbers.") }}{% if quota.plan %} {{ t("Plan: {plan}", plan=quota.plan) }}{% endif %}</div>
         {% endif %}
       {% else %}
-        <div class="portal-panel-note">Unavailable{% if quota.error %}: {{ quota.error }}{% endif %}. Check GitHub's Billing page.</div>
+        <div class="portal-panel-note">{% if quota.error %}{{ t("Unavailable: {error}. Check GitHub's Billing page.", error=quota.error) }}{% else %}{{ t("Unavailable. Check GitHub's Billing page.") }}{% endif %}</div>
       {% endif %}
     </div>
   {% endif %}
 
   {% if not has_global and not has_provider and not has_model and not has_recent %}
-    <div class="portal-panel-empty">No usage data yet.</div>
+    <div class="portal-panel-empty">{{ t("No usage data yet.") }}</div>
   {% else %}
     <div class="portal-usage-grid">
-      <div class="portal-usage-card"><span class="portal-usage-k">Requests</span><strong class="portal-usage-v">{{ global.request_count or 0 }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Requests") }}</span><strong class="portal-usage-v">{{ global.request_count or 0 }}</strong></div>
       {% if credits is not none %}
-      <div class="portal-usage-card"><span class="portal-usage-k">Est. credits</span><strong class="portal-usage-v">{{ '%.1f'|format(credits|float) }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Est. credits") }}</span><strong class="portal-usage-v">{{ '%.1f'|format(credits|float) }}</strong></div>
       {% else %}
-      <div class="portal-usage-card"><span class="portal-usage-k">Total Cost</span><strong class="portal-usage-v">${{ '%.4f'|format((global.total_cost_usd or global.total_cost or 0)|float) }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Total Cost") }}</span><strong class="portal-usage-v">${{ '%.4f'|format((global.total_cost_usd or global.total_cost or 0)|float) }}</strong></div>
       {% endif %}
-      <div class="portal-usage-card"><span class="portal-usage-k">Input Tokens</span><strong class="portal-usage-v">{{ global.total_input_tokens or global.total_input or 0 }}</strong></div>
-      <div class="portal-usage-card"><span class="portal-usage-k">Output Tokens</span><strong class="portal-usage-v">{{ global.total_output_tokens or global.total_output or 0 }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Input Tokens") }}</span><strong class="portal-usage-v">{{ global.total_input_tokens or global.total_input or 0 }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Output Tokens") }}</span><strong class="portal-usage-v">{{ global.total_output_tokens or global.total_output or 0 }}</strong></div>
       {% if cached_tokens is not none %}
-      <div class="portal-usage-card"><span class="portal-usage-k">Cached Input</span><strong class="portal-usage-v">{{ cached_tokens or 0 }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Cached Input") }}</span><strong class="portal-usage-v">{{ cached_tokens or 0 }}</strong></div>
       {% endif %}
       {% if reasoning_tokens is not none %}
-      <div class="portal-usage-card"><span class="portal-usage-k">Reasoning Tokens</span><strong class="portal-usage-v">{{ reasoning_tokens or 0 }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Reasoning Tokens") }}</span><strong class="portal-usage-v">{{ reasoning_tokens or 0 }}</strong></div>
       {% endif %}
     </div>
 
     <div class="portal-panel-stack">
       {% if has_provider %}
         <div class="portal-panel-section">
-          <div class="portal-detail-label">By Provider</div>
+          <div class="portal-detail-label">{{ t("By Provider") }}</div>
           {% for provider, stats in by_provider.items() %}
-            <div class="portal-panel-note">{{ provider }} · ${{ '%.4f'|format((stats.cost or 0)|float) }} · {{ stats.requests or 0 }} requests</div>
+            <div class="portal-panel-note">{{ provider }} · ${{ '%.4f'|format((stats.cost or 0)|float) }} · {{ tn(stats.requests or 0, "{n} request", "{n} requests") }}</div>
           {% endfor %}
         </div>
       {% endif %}
 
       {% if has_model %}
         <div class="portal-panel-section">
-          <div class="portal-detail-label">By Model</div>
+          <div class="portal-detail-label">{{ t("By Model") }}</div>
           {% for model, stats in by_model.items() %}
-            <div class="portal-panel-note">{{ model }} · ${{ '%.4f'|format((stats.cost or 0)|float) }} · {{ stats.input_tokens or 0 }} in / {{ stats.output_tokens or 0 }} out</div>
+            <div class="portal-panel-note">{{ model }} · ${{ '%.4f'|format((stats.cost or 0)|float) }} · {{ t("{input} in / {output} out", input=stats.input_tokens or 0, output=stats.output_tokens or 0) }}</div>
           {% endfor %}
         </div>
       {% endif %}
 
       {% if has_recent %}
         <div class="portal-panel-section">
-          <div class="portal-detail-label">Recent</div>
+          <div class="portal-detail-label">{{ t("Recent") }}</div>
           {% for row in recent_rows %}
-            <div class="portal-panel-note">{{ row.date or row.day or row.label or 'Recent' }} · {{ row.requests or row.request_count or 0 }} req · ${{ '%.4f'|format((row.cost or row.total_cost or 0)|float) }}</div>
+            <div class="portal-panel-note">{{ row.date or row.day or row.label or t('Recent') }} · {{ t("{n} req", n=row.requests or row.request_count or 0) }} · ${{ '%.4f'|format((row.cost or row.total_cost or 0)|float) }}</div>
           {% endfor %}
         </div>
       {% endif %}

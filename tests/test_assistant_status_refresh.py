@@ -207,7 +207,7 @@ def test_lifecycle_actions_show_their_transition_immediately_and_revert_on_failu
     assert 'if (lifecycleAction === "stop") applyLocalAgentStatus(lifecycleAgentId, result?.status || "stopped"' in action_fn
 
     health = _extract_js_function(CHAT_JS, "agentHealth")
-    assert 'label: "Stopping"' in health
+    assert 'label: t("Stopping")' in health
     assert ".portal-agent-status-dot.status-stopping" in CSS
 
 
@@ -262,7 +262,7 @@ def test_sending_to_a_paused_assistant_wakes_it_first():
 def test_slow_start_changes_the_card_without_promising_a_restart():
     assert "const SLOW_START_FACTOR = 2.5;" in STARTUP_JS
     assert "const SUPPORT_AFTER_SECONDS = 600;" in STARTUP_JS
-    assert 'headline: "Startup is taking longer than usual"' in STARTUP_JS
+    assert 'headline: t("Startup is taking longer than usual")' in STARTUP_JS
     assert 'view.action = "contact_support";' in STARTUP_JS
     assert "const startup = escalate(rawStartup);" in STARTUP_JS
     assert ".portal-startup-progress.is-slow" in CSS

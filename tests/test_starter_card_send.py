@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from _js_extract_helpers import I18N_STUB
+
 
 MODULE = Path("app/static/js/assistant_personalization.js")
 
@@ -85,7 +87,10 @@ def _click(card: dict, *, answer="ABC-1", drop_form=False, native_prompt=False):
         if native_prompt
         else f"globalThis.window.showPrompt = (options) => {{ calls.prompts.push(options); return Promise.resolve({json.dumps(answer)}); }};"
     )
+    # The page loads i18n.js before this module; the stand-in returns the
+    # English key, which is what an English Portal shows.
     script = f"""
+{I18N_STUB}
 {DOM_SHIM}
 {"delete elements['chat-form'];" if drop_form else ""}
 globalThis.window = {{}};

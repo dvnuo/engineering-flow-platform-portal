@@ -10,11 +10,11 @@ def test_render_agent_actions_has_no_settings_button_and_keeps_core_actions():
     assert 'label: "Settings"' not in render_agent_actions
     assert 'onClick: () => openSettings()' not in render_agent_actions
 
-    assert 'label: "Start"' in render_agent_actions
-    assert 'label: "Stop"' in render_agent_actions
-    assert 'label: "Restart"' in render_agent_actions
-    assert 'label: "Edit"' in render_agent_actions
-    assert 'label: "Delete"' in render_agent_actions
+    assert 'label: t("Start")' in render_agent_actions
+    assert 'label: t("Stop")' in render_agent_actions
+    assert 'label: t("Restart")' in render_agent_actions
+    assert 'label: t("Edit")' in render_agent_actions
+    assert 'label: t("Delete")' in render_agent_actions
     # Destroy was merged into Delete: destroy_data was never implemented
     # cluster-side, so the two buttons did the same thing.
     assert 'label: "Destroy"' not in render_agent_actions
@@ -24,7 +24,7 @@ def test_render_agent_actions_has_no_settings_button_and_keeps_core_actions():
     assert "/api/tasks" not in render_agent_actions
     assert "/api/internal" not in render_agent_actions
 
-    assert 'agent.visibility === "public" ? "Unshare" : "Share"' in render_agent_actions
+    assert 'agent.visibility === "public" ? t("Unshare") : t("Share")' in render_agent_actions
     assert 'agent.visibility === "public" ? "unshare" : "share"' in render_agent_actions
 
 
@@ -46,7 +46,7 @@ def test_render_agent_meta_defines_skill_repo_section_before_template_use_withou
     assert "Using configured default" in render_agent_meta
     assert "Branch:" in render_agent_meta
     assert "${safe(effectiveSkillRepoUrl)}" in render_agent_meta
-    assert "Branch: ${safe(effectiveSkillBranch)}" in render_agent_meta
+    assert 't("Branch: {branch}", { branch: safe(effectiveSkillBranch) })' in render_agent_meta
     assert "id=\"agent-skill-git-commit\"" in render_agent_meta
     assert "fetchSkillGitInfo(agent.id)" in render_agent_meta
 
@@ -71,7 +71,7 @@ def test_agent_health_card_is_wired_into_agent_meta():
     # asks for one instead.
     assert "no connection profile" not in agent_health
     assert 'status === "running" && agentSettingsRestartPending(agent)' in agent_health
-    assert 'label: "Restart to apply"' in agent_health
+    assert 'label: t("Restart to apply")' in agent_health
     assert "settings_restart_pending" in _extract_js_function(js, "agentSettingsRestartPending")
     assert "Ready to chat." in agent_health
     assert "openEditDialog(agent)" in health_action

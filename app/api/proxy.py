@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 import websockets
 
+from app.i18n import N_
 from app.config import get_settings
 from app.contracts.provider_projection import normalize_model_for_runtime
 from app.db import get_db
@@ -412,7 +413,7 @@ def _normalize_and_validate_model_override_for_agent(
         normalized.pop("model_override", None)
         return normalized
     if not isinstance(override, str):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="model_override must be a string")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("model_override must be a string"))
     trimmed = override.strip()
     if not trimmed:
         normalized.pop("model_override", None)
@@ -431,7 +432,7 @@ def _normalize_and_validate_model_override_for_agent(
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="model_override is not allowed for the agent's current runtime profile provider",
+            detail=N_("model_override is not allowed for the agent's current runtime profile provider"),
         )
     normalized["model_override"] = trimmed
     return normalized
@@ -488,28 +489,28 @@ async def proxy_agent(
 ):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
     if not _can_access(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     if _is_removed_legacy_ssh_path(subpath):
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
-            detail="Legacy SSH runtime endpoints have been removed",
+            detail=N_("Legacy SSH runtime endpoints have been removed"),
         )
     if _is_removed_portal_managed_config_path(subpath):
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
-            detail="Runtime config endpoints are no longer exposed via Portal proxy. Use Runtime Profiles in Portal instead.",
+            detail=N_("Runtime config endpoints are no longer exposed via Portal proxy. Use Runtime Profiles in Portal instead."),
         )
     if _is_control_plane_only_runtime_path(subpath):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Runtime internal endpoints are not exposed via the user-facing Portal proxy.",
+            detail=N_("Runtime internal endpoints are not exposed via the user-facing Portal proxy."),
         )
     if _requires_write_access(request.method, subpath) and not _can_write(agent, user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
     if agent.status != "running":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is not running")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Agent is not running"))
     touch_agent_activity(agent.id)
 
     try:
@@ -543,14 +544,14 @@ async def proxy_agent(
             if not _content_type_is_json(content_type):
                 raise HTTPException(
                     status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                    detail="Direct chat execution requires application/json content-type",
+                    detail=N_("Direct chat execution requires application/json content-type"),
                 )
             try:
                 parsed_payload = json.loads(request_body.decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Invalid JSON payload")) from exc
             if not isinstance(parsed_payload, dict):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON payload must be an object")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("JSON payload must be an object"))
             if respond_session_id and not parsed_payload.get("session_id"):
                 # The runtime reads the session from the path; the id is here
                 # for the session's run settings and the request log.

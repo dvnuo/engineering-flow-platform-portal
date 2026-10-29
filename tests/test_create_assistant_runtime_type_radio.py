@@ -19,7 +19,7 @@ def test_create_assistant_has_runtime_type_control():
     assert "create-runtime-type-select" in block
     assert "runtime-type-radio" in block
     # Labelled "Engine" for members; the field name stays runtime_type.
-    assert "<legend>Engine</legend>" in block
+    assert '<legend>{{ t("Engine") }}</legend>' in block
     # The cards come from the server so ENABLED_RUNTIME_TYPES decides what a
     # member can pick, even before /api/agents/defaults has answered.
     assert "{% for option in create_runtime_type_options %}" in block
@@ -33,7 +33,7 @@ def test_edit_assistant_shows_runtime_type_as_readonly_wizard_field():
     assert 'name="runtime_type"' not in block
     assert "edit-runtime-type-select" not in block
     assert "edit-runtime-type-display" in block
-    assert "<label>Engine</label>" in block
+    assert '<label>{{ t("Engine") }}</label>' in block
     assert "The engine is fixed after creation." in block
     assert 'data-edit-step-panel="runtime"' in block
     # Connector settings are per member now, so the wizard has no profile step.
@@ -45,6 +45,20 @@ def test_edit_assistant_shows_runtime_type_as_readonly_wizard_field():
     assert 'data-edit-load-branches="agent-settings"' in block
     assert 'data-edit-load-branches="skills"' in block
     assert "edit-agent-review" in block
+
+
+def test_wizard_engine_copy_is_the_contract_text_in_english():
+    # web.runtime_type_label() / runtime_type_description() spell their t()
+    # keys out per marker so scripts/i18n_check.py can read them; in English
+    # they must still be the constants /api/agents/defaults serves.
+    from app.contracts.runtime_type import ALLOWED_RUNTIME_TYPES, RUNTIME_TYPE_DESCRIPTIONS, RUNTIME_TYPE_LABELS
+    from app.web import runtime_type_description, runtime_type_label
+
+    for marker in ALLOWED_RUNTIME_TYPES:
+        assert runtime_type_label(marker) == RUNTIME_TYPE_LABELS[marker]
+        assert runtime_type_description(marker) == RUNTIME_TYPE_DESCRIPTIONS[marker]
+    assert runtime_type_label("other") == "other"
+    assert runtime_type_description("other") == ""
 
 
 def test_create_runtime_type_js_helpers_present():

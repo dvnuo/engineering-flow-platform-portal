@@ -107,7 +107,8 @@ from app.services.help_center import (
     topics_by_group as help_topics_by_group,
 )
 from app.services.member_avatar import avatar_initials, avatar_photo_url
-from app.services.locale_service import locale_preferences_for_user, resolve_locale_for_request
+from app.services.locale_service import locale_preferences_for_user, resolve_locale_for_request, resolve_locale_for_user
+from app.i18n import N_, bind_locale, t, template_globals
 from app.services.git_branch_cache import cached_branches_for
 from app.services.profile_secret_encryption import SENSITIVE_FIELD_NAMES
 from app.services.runtime_profile_seed_service import (
@@ -203,18 +204,9 @@ def copilot_enterprise_sso_url() -> str:
 
 
 templates.env.globals['copilot_enterprise_sso_url'] = copilot_enterprise_sso_url
-
-
-def browser_locale(request: Request) -> str:
-    """The page language for a request with no member behind it (login, share links).
-
-    Pages a signed-in member sees pass their resolved ``locale`` explicitly;
-    base.html falls back to this, which reads only ``Accept-Language``.
-    """
-    return resolve_locale_for_request(request).ui_locale
-
-
-templates.env.globals['browser_locale'] = browser_locale
+# t(), tn(), current_locale() and i18n_bootstrap(): the request's language,
+# bound by the middleware in app.main and by _session_user_access below.
+templates.env.globals.update(template_globals())
 proxy_service = ProxyService()
 runtime_execution_context_service = RuntimeExecutionContextService()
 k8s_service = K8sService()
@@ -237,6 +229,9 @@ def _session_user_access(request: Request):
         user = UserRepository(db).get_by_id(user_id)
         if not user:
             return None, "invalid_session"
+        # The member is known from here on: what this request renders follows
+        # their saved language rather than the browser's (app/i18n.py).
+        bind_locale(resolve_locale_for_user(user, request.headers.get("accept-language")).ui_locale)
         if not UserAllowlistRepository(db).get_active_by_username(user.username):
             return user, "not_allowlisted"
         return user, None
@@ -591,10 +586,10 @@ def _normalize_blockers(value) -> list[str]:
 
 def _task_content_from_input(input_obj: dict) -> tuple[str, str]:
     if isinstance(input_obj.get("followup_task"), str) and input_obj.get("followup_task").strip():
-        return input_obj.get("followup_task").strip(), "Latest Follow-up"
+        return input_obj.get("followup_task").strip(), N_("Latest Follow-up")
     if isinstance(input_obj.get("user_task"), str) and input_obj.get("user_task").strip():
-        return input_obj.get("user_task").strip(), "Original Task"
-    return "", "Task"
+        return input_obj.get("user_task").strip(), N_("Original Task")
+    return "", N_("Task")
 
 
 def _fallback_title_from_content(content: str) -> str:
@@ -623,14 +618,14 @@ def _user_label_for_id(db, user_id) -> str:
     if user_id in {None, ""}:
         return "-"
     if not db:
-        return f"User {user_id}"
+        return t("User {id}", id=user_id)
     try:
         owner = UserRepository(db).get_by_id(int(user_id))
     except Exception:
         owner = None
     if not owner:
-        return f"User {user_id}"
-    return (getattr(owner, "nickname", None) or getattr(owner, "username", None) or f"User {user_id}").strip()
+        return t("User {id}", id=user_id)
+    return (getattr(owner, "nickname", None) or getattr(owner, "username", None) or t("User {id}", id=user_id)).strip()
 
 
 def _execution_context_for_task(db, task) -> tuple[list[tuple[str, object]], str]:
@@ -644,18 +639,18 @@ def _execution_context_for_task(db, task) -> tuple[list[tuple[str, object]], str
         return [], ""
 
     items: list[tuple[str, object]] = [
-        ("Execution Status", getattr(execution, "status", None) or "-"),
-        ("Runtime Type", getattr(execution, "runtime_type", None) or "-"),
-        ("Runtime Task ID", getattr(execution, "runtime_task_id", None) or "-"),
-        ("Request ID", getattr(execution, "request_id", None) or getattr(task, "runtime_request_id", None) or "-"),
-        ("Last Heartbeat", getattr(execution, "heartbeat_at", None) or "-"),
-        ("Last Event", getattr(execution, "last_event_at", None) or "-"),
-        ("Runtime Code", getattr(execution, "runtime_status_code", None) or "-"),
+        (N_("Execution Status"), getattr(execution, "status", None) or "-"),
+        (N_("Runtime Type"), getattr(execution, "runtime_type", None) or "-"),
+        (N_("Runtime Task ID"), getattr(execution, "runtime_task_id", None) or "-"),
+        (N_("Request ID"), getattr(execution, "request_id", None) or getattr(task, "runtime_request_id", None) or "-"),
+        (N_("Last Heartbeat"), getattr(execution, "heartbeat_at", None) or "-"),
+        (N_("Last Event"), getattr(execution, "last_event_at", None) or "-"),
+        (N_("Runtime Code"), getattr(execution, "runtime_status_code", None) or "-"),
     ]
     if getattr(execution, "error_code", None):
-        items.append(("Execution Error", getattr(execution, "error_code", None)))
+        items.append((N_("Execution Error"), getattr(execution, "error_code", None)))
     if getattr(execution, "would_conflict_same_session", False):
-        warning = "Another active execution was detected for the same agent session."
+        warning = t("Another active execution was detected for the same agent session.")
     else:
         warning = ""
     return items, warning
@@ -693,7 +688,7 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
     result_obj = _extract_async_result_payload(result_payload)
     task_content, task_content_label = _task_content_from_input(input_obj)
     original_task = ""
-    if task_content_label == "Latest Follow-up":
+    if task_content_label == N_("Latest Follow-up"):
         original_task = _extract_text_field(input_obj, ("original_task", "user_task"))
     skill_name = (getattr(task, "skill_name", None) or input_obj.get("skill_name") or "").strip().lstrip("/")
     final_response = _extract_text_field(result_obj, ("final_response", "response", "summary", "raw_text", "message"))
@@ -726,7 +721,7 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
     return {
         "is_agent_async": True,
         "display_title": getattr(task, "title", None) or _fallback_title_from_content(task_content),
-        "display_subtitle": "Agent background task",
+        "display_subtitle": t("Agent background task"),
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "is_active": status_label in {"queued", "running"},
@@ -777,30 +772,30 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
 
     status_label = getattr(task, "status", None) or "unknown"
     context_items = [
-        ("Task ID", getattr(task, "id", "-")),
-        ("Task Type", getattr(task, "task_type", None) or "-"),
-        ("Task Family", getattr(task, "task_family", None) or "-"),
-        ("Provider", getattr(task, "provider", None) or "-"),
-        ("Trigger", getattr(task, "trigger", None) or "-"),
-        ("Version Key", getattr(task, "version_key", None) or "-"),
-        ("Dedupe Key", getattr(task, "dedupe_key", None) or "-"),
-        ("Runtime Request ID", getattr(task, "runtime_request_id", None) or "-"),
-        ("Owner", _user_label_for_id(db, getattr(task, "owner_user_id", None))),
-        ("Created By User ID", getattr(task, "created_by_user_id", None) or "-"),
-        ("Updated At", getattr(task, "updated_at", None) or "-"),
+        (N_("Task ID"), getattr(task, "id", "-")),
+        (N_("Task Type"), getattr(task, "task_type", None) or "-"),
+        (N_("Task Family"), getattr(task, "task_family", None) or "-"),
+        (N_("Provider"), getattr(task, "provider", None) or "-"),
+        (N_("Trigger"), getattr(task, "trigger", None) or "-"),
+        (N_("Version Key"), getattr(task, "version_key", None) or "-"),
+        (N_("Dedupe Key"), getattr(task, "dedupe_key", None) or "-"),
+        (N_("Runtime Request ID"), getattr(task, "runtime_request_id", None) or "-"),
+        (N_("Owner"), _user_label_for_id(db, getattr(task, "owner_user_id", None))),
+        (N_("Created By User ID"), getattr(task, "created_by_user_id", None) or "-"),
+        (N_("Updated At"), getattr(task, "updated_at", None) or "-"),
     ]
 
     return {
         "is_agent_async": False,
-        "display_title": getattr(task, "title", None) or "Unsupported Task",
-        "display_subtitle": "Read-only task type",
+        "display_title": getattr(task, "title", None) or t("Unsupported Task"),
+        "display_subtitle": t("Read-only task type"),
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "is_active": False,
         "can_cancel": False,
         "can_rerun": False,
         "show_followup_form": False,
-        "unsupported_message": "This task type is not supported by the background task panel. Raw payloads are available for inspection.",
+        "unsupported_message": t("This task type is not supported by the background task panel. Raw payloads are available for inspection."),
         "timeline": [],
         "summary_text": getattr(task, "summary", None) or "",
         "error_text": getattr(task, "error_message", None) or "",
@@ -1302,11 +1297,12 @@ TROUBLESHOOTING_CARD_FIELD_SPECS = {
 # The PostgreSQL section's shared settings, rendered above the instance cards
 # on the member panel and the admin Default connectors panel: the access
 # policy, the TLS mode and the query budget every instance uses. A blank
-# budget field means the runtime's default.
+# budget field means the runtime's default. The access labels are catalogue
+# keys (N_), shown through tv() by both templates; the SSL modes are names.
 PGSQL_SETTINGS_OPTIONS = {
     "access": [
-        {"value": "read_only", "label": "Read-only: the assistant's pgsql tool refuses anything that writes"},
-        {"value": "read_write", "label": "Read-write: the database role decides what the assistant may change"},
+        {"value": "read_only", "label": N_("Read-only: the assistant's pgsql tool refuses anything that writes")},
+        {"value": "read_write", "label": N_("Read-write: the database role decides what the assistant may change")},
     ],
     "default_access": PGSQL_DEFAULT_ACCESS,
     "sslmode": [{"value": mode, "label": mode} for mode in PGSQL_SSL_MODES],
@@ -1321,33 +1317,35 @@ PGSQL_SETTINGS_OPTIONS = {
 # What the two forms post for the shared settings, section-level like
 # pgsql_default_instance.
 PGSQL_SETTINGS_FORM_FIELDS = ("access", *PGSQL_SHARED_FIELDS)
+# The prose placeholders are catalogue keys (N_ keeps the English, so the JS
+# copy still equals this table); both card builders show them through tv().
 TROUBLESHOOTING_CARD_PLACEHOLDERS = {
     "nexus": {
-        "name": "Name",
-        "url": "URL (e.g. https://nexus.example.com)",
-        "username": "Username",
-        "password": "Password",
-        "token": "User token",
+        "name": N_("Name"),
+        "url": N_("URL (e.g. https://nexus.example.com)"),
+        "username": N_("Username"),
+        "password": N_("Password"),
+        "token": N_("User token"),
     },
     "splunk": {
-        "name": "Name",
-        "url": "Management API URL (e.g. https://splunk.example.com:8089)",
-        "username": "Username",
-        "password": "Password",
-        "token": "Authentication token",
-        "default_index": "Default index, e.g. app_prod",
-        "default_earliest": "Default earliest, e.g. -1h",
-        "max_results": "Max results (1-10000)",
-        "app": "App the saved searches live in, e.g. search",
-        "owner": "Namespace owner; blank means any",
+        "name": N_("Name"),
+        "url": N_("Management API URL (e.g. https://splunk.example.com:8089)"),
+        "username": N_("Username"),
+        "password": N_("Password"),
+        "token": N_("Authentication token"),
+        "default_index": N_("Default index, e.g. app_prod"),
+        "default_earliest": N_("Default earliest, e.g. -1h"),
+        "max_results": N_("Max results (1-10000)"),
+        "app": N_("App the saved searches live in, e.g. search"),
+        "owner": N_("Namespace owner; blank means any"),
     },
     "pgsql": {
-        "name": "Name",
-        "host": "Host, e.g. orders-uat.example.com",
+        "name": N_("Name"),
+        "host": N_("Host, e.g. orders-uat.example.com"),
         "port": "5432",
-        "database": "Database",
-        "username": "Username (read-only role)",
-        "password": "Password",
+        "database": N_("Database"),
+        "username": N_("Username (read-only role)"),
+        "password": N_("Password"),
     },
 }
 TROUBLESHOOTING_CARD_LAYOUT = {
@@ -2592,7 +2590,7 @@ def admin_login_page(request: Request):
     return _anonymous_auth_page(
         request,
         "login.html",
-        "Portal Login",
+        t("Portal Login"),
         next_path=_requested_next_path(request),
         **_login_page_context(password_form=True),
     )
@@ -2607,7 +2605,7 @@ def login_page(request: Request):
     return _anonymous_auth_page(
         request,
         "login.html",
-        "Portal Login",
+        t("Portal Login"),
         next_path=_requested_next_path(request),
         **_login_page_context(),
     )
@@ -2670,12 +2668,12 @@ def unauthorized_page(request: Request):
         "unauthorized.html",
         {
             "request": request,
-            "title": "Authorization Required",
+            "title": t("Authorization Required"),
             "username": user.nickname or user.username,
             # The exact string an administrator has to allowlist, which is not
             # necessarily the display name above.
             "allowlist_username": user.username,
-            "access_message": "Your account is not on the allowlist. Contact an administrator to request access.",
+            "access_message": t("Your account is not on the allowlist. Contact an administrator to request access."),
             "support_contact": settings.portal_support_contact,
         },
         status_code=403,
@@ -2684,6 +2682,29 @@ def unauthorized_page(request: Request):
 
 def _enabled_runtime_types() -> tuple[str, ...]:
     return normalize_enabled_runtime_types(get_settings().enabled_runtime_types)
+
+
+def runtime_type_label(runtime_type: str) -> str:
+    """RUNTIME_TYPE_LABELS[runtime_type] in the request's language.
+
+    The keys are spelled out per marker because scripts/i18n_check.py reads
+    them from the source; tests pin them to the English constants, which
+    /api/agents/defaults keeps serving untranslated.
+    """
+    if runtime_type == "native":
+        return t("EFP Native Runtime")
+    if runtime_type == "opencode":
+        return t("OpenCode Runtime")
+    return RUNTIME_TYPE_LABELS.get(runtime_type, runtime_type)
+
+
+def runtime_type_description(runtime_type: str) -> str:
+    """RUNTIME_TYPE_DESCRIPTIONS[runtime_type] in the request's language (see runtime_type_label)."""
+    if runtime_type == "native":
+        return t("Use the native EFP Python runtime.")
+    if runtime_type == "opencode":
+        return t("Use the opencode runtime adapter.")
+    return RUNTIME_TYPE_DESCRIPTIONS.get(runtime_type, "")
 
 
 def _create_runtime_type_options() -> list[dict]:
@@ -2696,8 +2717,8 @@ def _create_runtime_type_options() -> list[dict]:
     return [
         {
             "value": marker,
-            "label": RUNTIME_TYPE_LABELS.get(marker, marker),
-            "description": RUNTIME_TYPE_DESCRIPTIONS.get(marker, ""),
+            "label": runtime_type_label(marker),
+            "description": runtime_type_description(marker),
             "checked": marker == preselected,
         }
         for marker in enabled
@@ -2717,7 +2738,7 @@ def app_page(request: Request):
         "app.html",
         {
             "request": request,
-            "title": "Engineering Portal",
+            "title": t("Engineering Portal"),
             "username": user.username,
             "nickname": user.nickname or user.username,
             "user_id": user.id,
@@ -2734,7 +2755,7 @@ def app_page(request: Request):
             # The account button at the bottom of the rail: the directory photo
             # when AVATAR_PHOTO_HOST is set, initials otherwise (and in the
             # browser when the photo request fails).
-            "role_label": "Administrator" if user.role == "admin" else "Member",
+            "role_label": t("Administrator") if user.role == "admin" else t("Member"),
             "avatar_url": avatar_photo_url(user.username, get_settings().avatar_photo_host),
             "avatar_initials": avatar_initials(user.nickname, user.username),
             # The help sub-menu is part of the shell, like the other nav lists,
@@ -2911,7 +2932,7 @@ async def task_result_json_download(request: Request, task_id: str):
     try:
         task = AgentTaskRepository(db).get_by_id(task_id)
         if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+            raise HTTPException(status_code=404, detail=N_("Task not found"))
 
         filename = _safe_task_result_filename(getattr(task, "id", task_id))
         fallback_headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
@@ -2961,7 +2982,7 @@ def task_detail_panel(request: Request, task_id: str):
     try:
         task = AgentTaskRepository(db).get_by_id(task_id)
         if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+            raise HTTPException(status_code=404, detail=N_("Task not found"))
         return templates.TemplateResponse(
             "partials/task_detail_panel.html",
             {
@@ -2979,9 +3000,9 @@ def task_detail_panel(request: Request, task_id: str):
 async def app_users_panel(request: Request):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
     if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     db = SessionLocal()
     try:
@@ -3069,7 +3090,7 @@ async def app_help_topic_panel(request: Request, topic: str = Query(default=""))
 
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
 
     resolved = get_help_topic(topic) or default_help_topic()
     return templates.TemplateResponse(
@@ -3084,9 +3105,9 @@ async def app_assistant_types_panel(request: Request):
 
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
     if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     db = SessionLocal()
     try:
@@ -3125,9 +3146,9 @@ async def app_default_connections_panel(request: Request):
 
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
     if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     db = SessionLocal()
     try:
@@ -3157,9 +3178,9 @@ async def app_default_connections_save(request: Request, background_tasks: Backg
 
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
     if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
     form = await request.form()
     db = SessionLocal()
@@ -3218,14 +3239,14 @@ async def app_default_connections_save(request: Request, background_tasks: Backg
 async def app_agent_delete_session(request: Request, agent_id: str, session_id: str):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent or not _can_access(agent, user):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
         if not _can_write(agent, user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
 
         runtime_deleted = False
         runtime_missing = False
@@ -3254,7 +3275,7 @@ async def app_agent_delete_session(request: Request, agent_id: str, session_id: 
                     except (TypeError, ValueError, json.JSONDecodeError):
                         runtime_response_json = False
                 if isinstance(payload, dict) and payload.get("success") is False:
-                    raise HTTPException(status_code=502, detail="Runtime delete returned success=false")
+                    raise HTTPException(status_code=502, detail=N_("Runtime delete returned success=false"))
                 runtime_deleted = True
 
         record, already_deleted = AgentSessionMetadataRepository(db).mark_deleted(agent_id=agent_id, session_id=session_id)
@@ -3285,7 +3306,7 @@ def _mark_shared_sessions(db, agent_id: str, sessions: list[dict]) -> None:
 async def app_agent_sessions_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     current_session_id = (request.query_params.get("current_session_id") or "").strip()
     limit = (request.query_params.get("limit") or "10").strip()
@@ -3294,9 +3315,9 @@ async def app_agent_sessions_panel(request: Request, agent_id: str):
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail=N_("Agent not found"))
         if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=N_("Forbidden"))
         can_manage_sessions = _can_write(agent, user)
 
         # When K8s is disabled, return empty sessions
@@ -3496,9 +3517,9 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
     )
     disabled_reasons = []
     if permission_state in {"denied", "blocked"}:
-        disabled_reasons.append("Denied by runtime permission")
+        disabled_reasons.append(t("Denied by runtime permission"))
     if runtime_compatibility == "unsupported":
-        disabled_reasons.append("Unsupported by this runtime")
+        disabled_reasons.append(t("Unsupported by this runtime"))
     description = str(_skill_field(payload, "description") or metadata.get("description") or "").strip()
     tool_mappings = (
         payload.get("tool_mappings")
@@ -3515,15 +3536,15 @@ def _annotate_skill_for_panel(db, agent, raw_skill) -> dict:
 async def app_agent_skills_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail=N_("Agent not found"))
         if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
         # When K8s is disabled, return empty skills
         if not settings.k8s_enabled:
@@ -3560,7 +3581,7 @@ async def app_agent_skills_panel(request: Request, agent_id: str):
 async def app_agent_usage_panel(request: Request, agent_id: str):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     days = (request.query_params.get("days") or "30").strip()
 
@@ -3568,9 +3589,9 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail=N_("Agent not found"))
         if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
         # When K8s is disabled, return empty usage
         if not settings.k8s_enabled:
@@ -3622,9 +3643,9 @@ async def _copilot_quota_for_panel(*, user, agent) -> dict:
             body=None,
         )
         if status_code >= 400:
-            return {"available": False, "error": f"runtime answered {status_code}"}
+            return {"available": False, "error": t("the runtime answered HTTP {status}", status=status_code)}
         payload = json.loads(content.decode("utf-8"))
-        return payload if isinstance(payload, dict) else {"available": False, "error": "unexpected payload"}
+        return payload if isinstance(payload, dict) else {"available": False, "error": t("the runtime sent an unexpected answer")}
     except Exception as exc:  # noqa: BLE001 - the balance is a courtesy, never the panel
         logger.warning("Copilot quota lookup failed for agent %s: %s", getattr(agent, "id", "?"), exc)
         return {"available": False, "error": str(exc)}
@@ -3656,21 +3677,21 @@ async def agent_files_upload(agent_id: str, request: Request):
     """Proxy file upload to EFP agent"""
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail=N_("Agent not found"))
         if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
         # Read the multipart form data
         form = await request.form()
         file_field = form.get("file")
         if not file_field:
-            raise HTTPException(status_code=400, detail="No file provided")
+            raise HTTPException(status_code=400, detail=N_("No file provided"))
 
         # Same allowlist the composer shows (EFP_CHAT_UPLOAD_EXTENSIONS), so a
         # file the picker would not offer is refused here with the same words
@@ -3729,21 +3750,21 @@ async def agent_server_files_upload(agent_id: str, request: Request):
     """Proxy server files upload to EFP agent."""
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     db = SessionLocal()
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail=N_("Agent not found"))
         if not _can_write(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
         form = await request.form()
         file_field = form.get("file")
         target_path = form.get("path") or ""
         if not file_field:
-            raise HTTPException(status_code=400, detail="No file provided")
+            raise HTTPException(status_code=400, detail=N_("No file provided"))
 
         content = await file_field.read()
         _enforce_upload_size(content)
@@ -3769,7 +3790,7 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
     """Proxy file preview to EFP agent"""
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
     
     # Validate and cap max_chars
     max_chars = max(0, min(max_chars, 20000))  # Clamp between 0 and 20000
@@ -3778,9 +3799,9 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail=N_("Agent not found"))
         if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
         # Use proxy_service.forward for consistent proxy behavior
         status_code, content, content_type = await _forward_runtime(
@@ -3793,7 +3814,7 @@ async def agent_files_preview(request: Request, agent_id: str, file_id: str, max
         )
         
         if status_code >= 400:
-            raise HTTPException(status_code=502, detail="Preview failed")
+            raise HTTPException(status_code=502, detail=N_("Preview failed"))
         
         return Response(content=content, media_type=content_type, status_code=status_code)
     finally:
@@ -3806,7 +3827,7 @@ _MANAGED_TEST_TARGETS = {"proxy", "llm", "image_analysis", "jira", "confluence",
 def _validate_managed_test_target(target: str) -> str:
     clean_target = (target or "").strip().lower()
     if clean_target not in _MANAGED_TEST_TARGETS:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown test target")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown test target"))
     return clean_target
 
 
@@ -3816,10 +3837,10 @@ async def app_connector_panel(request: Request, connector_type: str):
 
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     from app.services import connector_service
-    from app.services.connection_guidance import CONNECTOR_GUIDANCE
+    from app.services.connection_guidance import connector_guidance_for
     from app.services.connector_registry import (
         LOCAL_BRIDGE_DEFAULT_PORT,
         detect_local_bridge_platform,
@@ -3830,7 +3851,7 @@ async def app_connector_panel(request: Request, connector_type: str):
     try:
         spec = get_connector_spec(connector_type)
     except KeyError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown connector type"))
 
     db = SessionLocal()
     try:
@@ -3840,7 +3861,7 @@ async def app_connector_panel(request: Request, connector_type: str):
         try:
             connector = connector_service.get_for_user(db, user, spec.type)
         except KeyError:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown connector type"))
     finally:
         db.close()
 
@@ -3854,7 +3875,8 @@ async def app_connector_panel(request: Request, connector_type: str):
         {
             "request": request,
             "connector": connector,
-            "guide": CONNECTOR_GUIDANCE.get(spec.guidance_key),
+            # In the request's language, like the settings connectors' guidance.
+            "guide": connector_guidance_for(spec.guidance_key),
             "download_url": connector_service.local_bridge_download_url(resolved_settings, primary_platform),
             "download_links": connector_service.local_bridge_download_links(resolved_settings),
             "primary_platform": primary_platform,
@@ -3875,7 +3897,7 @@ def _settings_connector_spec_or_404(connector_type: str):
     except KeyError:
         spec = None
     if spec is None or not spec.is_settings:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown connector type")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown connector type"))
     return spec
 
 
@@ -3919,12 +3941,12 @@ class _ConnectorFormView:
 async def app_connector_test(request: Request, connector_type: str, target: str):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     spec = _settings_connector_spec_or_404(connector_type)
     target = _validate_managed_test_target(target)
     if target not in spec.test_targets:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown test target")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Unknown test target"))
     form = _ConnectorFormView(spec, await request.form())
     db = SessionLocal()
     try:
@@ -3953,7 +3975,7 @@ async def app_connector_test(request: Request, connector_type: str, target: str)
 async def app_connector_save(request: Request, connector_type: str):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     spec = _settings_connector_spec_or_404(connector_type)
     form = _ConnectorFormView(spec, await request.form())
@@ -4000,7 +4022,7 @@ def _managed_connector_spec_or_404(connector_type: str):
 
     spec = _settings_connector_spec_or_404(connector_type)
     if not spec.managed_sections:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This connector has no system default")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("This connector has no system default"))
     return spec
 
 
@@ -4064,13 +4086,13 @@ async def app_connector_mode(request: Request, connector_type: str):
 
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     spec = _managed_connector_spec_or_404(connector_type)
     form = await request.form()
     mode = str(form.get("mode") or "").strip().lower()
     if mode not in (MODE_SYSTEM, MODE_CUSTOM):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mode must be system or custom")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("mode must be system or custom"))
     db = SessionLocal()
     try:
         service = RuntimeProfileService(db)
@@ -4114,7 +4136,7 @@ async def app_connector_mode(request: Request, connector_type: str):
 async def app_chat_send(request: Request):
     user = _current_user_from_cookie(request)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=N_("Unauthorized"))
 
     form = await request.form()
     agent_id = (form.get("agent_id") or "").strip()
@@ -4133,9 +4155,9 @@ async def app_chat_send(request: Request):
             pass  # Invalid JSON, ignore attachments
 
     if not agent_id:
-        raise HTTPException(status_code=400, detail="Agent not selected")
+        raise HTTPException(status_code=400, detail=N_("Agent not selected"))
     if not message and not attachments:
-        raise HTTPException(status_code=400, detail="Message or attachment required")
+        raise HTTPException(status_code=400, detail=N_("Message or attachment required"))
     request_message = message or "[attachment]"
     display_message = message or "📎 Attachment"
 
@@ -4143,11 +4165,11 @@ async def app_chat_send(request: Request):
     try:
         agent = AgentRepository(db).get_by_id(agent_id)
         if not agent:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail=N_("Agent not found"))
         if not _can_access(agent, user):
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=N_("Forbidden"))
         if agent.status != "running":
-            raise HTTPException(status_code=409, detail="Agent not running")
+            raise HTTPException(status_code=409, detail=N_("Agent not running"))
 
         metadata = runtime_execution_context_service.build_runtime_metadata(db, agent)
         payload = {

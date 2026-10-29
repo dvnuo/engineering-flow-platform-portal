@@ -1,7 +1,7 @@
 {% macro icon_picker(field_id, selected) -%}
 <div class="portal-icon-picker" data-icon-picker>
   <input type="hidden" name="icon" value="{{ selected or default_icon }}" data-icon-value />
-  <div class="portal-icon-grid" role="radiogroup" aria-label="Icon">
+  <div class="portal-icon-grid" role="radiogroup" aria-label="{{ t('Icon') }}">
     {% for name in icon_choices %}
     <button type="button"
             class="portal-icon-option{{ ' is-selected' if name == (selected or default_icon) else '' }}"
@@ -22,20 +22,20 @@
   <span class="portal-form-label">{{ label }}</span>
   {% if branches %}
   <select name="{{ field_name }}" class="portal-form-select">
-    <option value="">Configured default{{ " (" ~ configured_default ~ ")" if configured_default else "" }}</option>
+    <option value="">{{ t("Configured default ({branch})", branch=configured_default) if configured_default else t("Configured default") }}</option>
     {% for branch in branches %}
     <option value="{{ branch }}" {{ "selected" if branch == selected else "" }}>{{ branch }}</option>
     {% endfor %}
     {% if selected and selected not in branches %}
-    <option value="{{ selected }}" selected>{{ selected }} (not on the remote)</option>
+    <option value="{{ selected }}" selected>{{ t("{branch} (not on the remote)", branch=selected) }}</option>
     {% endif %}
   </select>
   {% else %}
   <input type="text" name="{{ field_name }}" class="portal-form-input" value="{{ selected or '' }}"
-         placeholder="Configured default{{ ' (' ~ configured_default ~ ')' if configured_default else '' }}" />
+         placeholder="{{ t('Configured default ({branch})', branch=configured_default) if configured_default else t('Configured default') }}" />
   <span class="portal-form-hint">
-    {% if error %}Branches could not be loaded ({{ error }}). Type a branch name.
-    {% else %}No repository configured. Type a branch name if you need one.{% endif %}
+    {% if error %}{{ t("Branches could not be loaded ({error}). Type a branch name.", error=error) }}
+    {% else %}{{ t("No repository configured. Type a branch name if you need one.") }}{% endif %}
   </span>
   {% endif %}
 </label>
@@ -44,19 +44,19 @@
 <div id="assistant-types-panel" class="portal-panel-stack portal-assistant-types" data-assistant-types-panel>
   <div class="portal-panel-header">
     <div>
-      <h5 class="portal-panel-title">Assistant types</h5>
+      <h5 class="portal-panel-title">{{ t("Assistant types") }}</h5>
       <p class="portal-panel-note">
-        The presets members choose from in simple mode. Each one fixes the engine and the
-        behavior and skill branches, so a member only has to pick a type and a name.
+        {{ t("The presets members choose from in simple mode. Each one fixes the engine and the behavior and skill branches, so a member only has to pick a type and a name.") }}
       </p>
     </div>
-    <span class="portal-panel-subtitle">{{ assistant_types|length }} type{{ "" if assistant_types|length == 1 else "s" }}</span>
+    <span class="portal-panel-subtitle">{{ tn(assistant_types|length, "{n} type", "{n} types") }}</span>
   </div>
 
   <div class="portal-inline-state">
-    Behavior packs come from <strong>{{ default_agent_settings_repo_url or "the configured default repository" }}</strong>,
-    skill packs from <strong>{{ default_skill_repo_url or "the configured default repository" }}</strong>.
-    Each type can point at a different branch of those repositories.
+    {% set agent_repo_html %}<strong>{{ default_agent_settings_repo_url or t("the configured default repository") }}</strong>{% endset %}
+    {% set skill_repo_html %}<strong>{{ default_skill_repo_url or t("the configured default repository") }}</strong>{% endset %}
+    {{ t("Behavior packs come from {agent_repo}, skill packs from {skill_repo}.", agent_repo=agent_repo_html, skill_repo=skill_repo_html)|safe }}
+    {{ t("Each type can point at a different branch of those repositories.") }}
   </div>
 
   {% if assistant_types %}
@@ -68,89 +68,88 @@
         <div class="portal-settings-instance-head-main">
           <i data-lucide="{{ assistant_type.icon or default_icon }}" class="w-5 h-5" data-type-icon-preview></i>
           <span class="portal-settings-instance-title" data-type-name-preview>{{ assistant_type.name }}</span>
-          <label class="toggle-switch" title="Offer this type to members">
+          <label class="toggle-switch" title="{{ t('Offer this type to members') }}">
             <input type="checkbox" data-assistant-type-active {{ "checked" if assistant_type.is_active else "" }} />
             <span class="toggle-slider"></span>
           </label>
-          <span class="portal-instance-state">{{ "Offered" if assistant_type.is_active else "Hidden" }}</span>
+          <span class="portal-instance-state">{{ t("Offered") if assistant_type.is_active else t("Hidden") }}</span>
         </div>
         <div class="portal-assistant-type-head-actions">
           <button type="button" class="portal-btn is-secondary" data-assistant-type-toggle-edit
-                  aria-expanded="false">Edit</button>
-          <button type="button" class="portal-instance-remove" data-assistant-type-delete>Delete</button>
+                  aria-expanded="false">{{ t("Edit") }}</button>
+          <button type="button" class="portal-instance-remove" data-assistant-type-delete>{{ t("Delete") }}</button>
         </div>
       </div>
 
       <div class="portal-settings-instance-body">
         <div class="portal-kv-grid" data-assistant-type-summary>
           <div class="portal-kv-item">
-            <span class="portal-usage-k">Engine</span>
+            <span class="portal-usage-k">{{ t("Engine") }}</span>
             <span class="portal-usage-v">{{ assistant_type.runtime_type }}</span>
           </div>
           <div class="portal-kv-item">
-            <span class="portal-usage-k">Behavior pack branch</span>
-            <span class="portal-usage-v">{{ assistant_type.agent_settings_branch or "configured default" }}</span>
+            <span class="portal-usage-k">{{ t("Behavior pack branch") }}</span>
+            <span class="portal-usage-v">{{ assistant_type.agent_settings_branch or t("configured default") }}</span>
           </div>
           <div class="portal-kv-item">
-            <span class="portal-usage-k">Skill pack branch</span>
-            <span class="portal-usage-v">{{ assistant_type.skill_branch or "configured default" }}</span>
+            <span class="portal-usage-k">{{ t("Skill pack branch") }}</span>
+            <span class="portal-usage-v">{{ assistant_type.skill_branch or t("configured default") }}</span>
           </div>
           <div class="portal-kv-item">
-            <span class="portal-usage-k">Order</span>
+            <span class="portal-usage-k">{{ t("Order") }}</span>
             <span class="portal-usage-v">{{ assistant_type.sort_order }}</span>
           </div>
         </div>
 
         <form class="portal-panel-stack portal-assistant-type-edit hidden" data-assistant-type-edit-form>
           <label class="portal-form-label">
-            <span class="portal-form-label">Icon</span>
+            <span class="portal-form-label">{{ t("Icon") }}</span>
             {{ icon_picker("edit-icon-" ~ assistant_type.id, assistant_type.icon) }}
           </label>
           <div class="grid grid-cols-2 gap-3">
             <label class="portal-form-label">
-              <span class="portal-form-label">Name</span>
+              <span class="portal-form-label">{{ t("Name") }}</span>
               <input type="text" name="name" class="portal-form-input" value="{{ assistant_type.name }}" required />
             </label>
             <label class="portal-form-label">
-              <span class="portal-form-label">Order</span>
+              <span class="portal-form-label">{{ t("Order") }}</span>
               <input type="number" name="sort_order" class="portal-form-input" value="{{ assistant_type.sort_order }}" />
             </label>
           </div>
           <label class="portal-form-label">
-            <span class="portal-form-label">Description</span>
+            <span class="portal-form-label">{{ t("Description") }}</span>
             <input type="text" name="description" class="portal-form-input"
                    value="{{ assistant_type.description or '' }}"
-                   placeholder="Shown under the name on the create card." />
+                   placeholder="{{ t('Shown under the name on the create card.') }}" />
           </label>
           <label class="portal-form-label">
-            <span class="portal-form-label">Engine</span>
+            <span class="portal-form-label">{{ t("Engine") }}</span>
             {# A type already on an engine this Portal no longer offers keeps it
                selectable; otherwise saving any other field would silently move
                the type onto the first offered engine. #}
             {% set engine_options = runtime_types if assistant_type.runtime_type in runtime_types else runtime_types + [assistant_type.runtime_type] %}
             <select name="runtime_type" class="portal-form-select">
               {% for value in engine_options %}
-              <option value="{{ value }}" {{ "selected" if value == assistant_type.runtime_type else "" }}>{{ value }}{{ " (not enabled)" if value not in runtime_types else "" }}</option>
+              <option value="{{ value }}" {{ "selected" if value == assistant_type.runtime_type else "" }}>{{ t("{engine} (not enabled)", engine=value) if value not in runtime_types else value }}</option>
               {% endfor %}
             </select>
-            <span class="portal-form-hint">Fixed on an assistant once it is created.</span>
+            <span class="portal-form-hint">{{ t("Fixed on an assistant once it is created.") }}</span>
           </label>
           <div class="grid grid-cols-2 gap-3">
-            {{ branch_field("Behavior pack branch", "agent_settings_branch", assistant_type.agent_settings_branch,
+            {{ branch_field(t("Behavior pack branch"), "agent_settings_branch", assistant_type.agent_settings_branch,
                             agent_branches, agent_branch_error, default_agent_settings_branch) }}
-            {{ branch_field("Skill pack branch", "skill_branch", assistant_type.skill_branch,
+            {{ branch_field(t("Skill pack branch"), "skill_branch", assistant_type.skill_branch,
                             skill_branches, skill_branch_error, default_skill_branch) }}
           </div>
           <div class="flex items-center gap-2">
-            <button type="submit" class="portal-btn is-primary">Save changes</button>
-            <button type="button" class="portal-btn" data-assistant-type-cancel-edit>Cancel</button>
+            <button type="submit" class="portal-btn is-primary">{{ t("Save changes") }}</button>
+            <button type="button" class="portal-btn" data-assistant-type-cancel-edit>{{ t("Cancel") }}</button>
             <div class="portal-inline-state" data-assistant-type-edit-msg></div>
           </div>
         </form>
 
         <p class="portal-inline-note">
-          Editing a type changes what new assistants inherit. Assistants already created from it keep
-          the values they were created with.
+          {{ t("Editing a type changes what new assistants inherit. Assistants already created from it keep the values they were created with.") }}
         </p>
       </div>
     </section>
@@ -158,8 +157,8 @@
   </div>
   {% else %}
   <div class="portal-panel-empty">
-    No assistant types yet. Members cannot use simple mode until at least one exists &mdash;
-    use <strong>Add type</strong> above to create one.
+    {% set add_type_html %}<strong>{{ t("Add type") }}</strong>{% endset %}
+    {{ t("No assistant types yet. Members cannot use simple mode until at least one exists — use {add_type} above to create one.", add_type=add_type_html)|safe }}
   </div>
   {% endif %}
 
@@ -169,34 +168,34 @@
     <div class="modal-card panel assistant-type-modal-card">
       <div class="portal-modal-titlebar">
         <div>
-          <h3 id="assistant-type-create-title">Add assistant type</h3>
-          <p class="portal-modal-copy">A preset members can choose in simple mode.</p>
+          <h3 id="assistant-type-create-title">{{ t("Add assistant type") }}</h3>
+          <p class="portal-modal-copy">{{ t("A preset members can choose in simple mode.") }}</p>
         </div>
-        <button type="button" class="portal-modal-close" title="Close" aria-label="Close"
+        <button type="button" class="portal-modal-close" title="{{ t('Close') }}" aria-label="{{ t('Close') }}"
                 data-close-assistant-type-modal>&#10005;</button>
       </div>
       <form class="portal-panel-stack" data-assistant-type-create-form>
       <label class="portal-form-label">
-        <span class="portal-form-label">Icon</span>
+        <span class="portal-form-label">{{ t("Icon") }}</span>
         {{ icon_picker("create-icon", default_icon) }}
       </label>
       <div class="grid grid-cols-2 gap-3">
         <label class="portal-form-label">
-          <span class="portal-form-label">Name</span>
-          <input type="text" name="name" class="portal-form-input" placeholder="Business Assistant" required />
+          <span class="portal-form-label">{{ t("Name") }}</span>
+          <input type="text" name="name" class="portal-form-input" placeholder="{{ t('Business Assistant') }}" required />
         </label>
         <label class="portal-form-label">
-          <span class="portal-form-label">Order</span>
+          <span class="portal-form-label">{{ t("Order") }}</span>
           <input type="number" name="sort_order" class="portal-form-input" value="0" />
         </label>
       </div>
       <label class="portal-form-label">
-        <span class="portal-form-label">Description</span>
+        <span class="portal-form-label">{{ t("Description") }}</span>
         <input type="text" name="description" class="portal-form-input"
-               placeholder="Requirements, tickets, and documentation." />
+               placeholder="{{ t('Requirements, tickets, and documentation.') }}" />
       </label>
       <label class="portal-form-label">
-        <span class="portal-form-label">Engine</span>
+        <span class="portal-form-label">{{ t("Engine") }}</span>
         <select name="runtime_type" class="portal-form-select">
           {% for value in runtime_types %}
           <option value="{{ value }}" {{ "selected" if value == "native" else "" }}>{{ value }}</option>
@@ -204,15 +203,15 @@
         </select>
       </label>
       <div class="grid grid-cols-2 gap-3">
-        {{ branch_field("Behavior pack branch", "agent_settings_branch", "",
+        {{ branch_field(t("Behavior pack branch"), "agent_settings_branch", "",
                         agent_branches, agent_branch_error, default_agent_settings_branch) }}
-        {{ branch_field("Skill pack branch", "skill_branch", "",
+        {{ branch_field(t("Skill pack branch"), "skill_branch", "",
                         skill_branches, skill_branch_error, default_skill_branch) }}
       </div>
       <div class="portal-modal-actions">
-          <button type="button" class="portal-btn" data-close-assistant-type-modal>Cancel</button>
+          <button type="button" class="portal-btn" data-close-assistant-type-modal>{{ t("Cancel") }}</button>
           <span class="portal-onboarding-spacer"></span>
-          <button type="submit" class="portal-btn is-primary">Add type</button>
+          <button type="submit" class="portal-btn is-primary">{{ t("Add type") }}</button>
         </div>
         <p class="portal-modal-feedback" data-assistant-type-create-msg></p>
       </form>

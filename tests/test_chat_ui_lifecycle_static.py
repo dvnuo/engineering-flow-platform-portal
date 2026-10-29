@@ -86,7 +86,7 @@ def test_completed_success_and_fallback_paths_clear_busy_state():
     assert 'chatState.currentRequest = null' in success
     assert 'chatState.inflightEventStream = null' in success
     assert 'setChatSubmittingForAgent(agentIdAtSend, false)' in success
-    assert 'setChatStatus("Ready")' in success
+    assert 'setChatStatus(t("Ready"))' in success
     assert 'finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, payload, "fallback")' in submit
     assert 'await handleAgentChatSuccess(agentIdAtSend, requestCtx' in submit
 

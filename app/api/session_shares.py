@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.api.agents import _load_writable_agent
 from app.config import get_settings
 from app.db import get_db
@@ -52,7 +53,7 @@ def get_session_share(
     _load_writable_agent(agent_id, user, db)
     share = SessionShareRepository(db).get_by_agent_and_session(agent_id, session_id)
     if share is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This session is not shared")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("This session is not shared"))
     return _response(request, share)
 
 
@@ -68,15 +69,15 @@ def upsert_session_share(
     _repo, agent = _load_writable_agent(agent_id, user, db)
     normalized_session_id = str(session_id or "").strip()
     if not normalized_session_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session ID required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Session ID required"))
     if is_task_session_id(normalized_session_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task sessions cannot be shared")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Task sessions cannot be shared"))
     try:
         scope = normalize_scope(payload.scope)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if scope == SCOPE_ANYONE and not anyone_scope_enabled():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sharing with anyone is turned off on this Portal")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("Sharing with anyone is turned off on this Portal"))
     title = normalize_share_title(payload.title)
 
     repo = SessionShareRepository(db)
@@ -121,7 +122,7 @@ def revoke_session_share(
     repo = SessionShareRepository(db)
     share = repo.get_by_agent_and_session(agent.id, session_id)
     if share is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This session is not shared")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("This session is not shared"))
     token = share.token
     repo.delete(share)
     invalidate_share_transcript(token)

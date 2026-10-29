@@ -3,25 +3,25 @@
 <section class="portal-panel-section" data-instance-group="pgsql" id="profile-section-pgsql" data-managed-section="pgsql">
       {{ setup_guide('pgsql') }}
       <div class="portal-checkbox-row">
-          <label class="toggle-switch" aria-label="Enable PostgreSQL">
+          <label class="toggle-switch" aria-label="{{ t('Enable {name}', name='PostgreSQL') }}">
               <input type="checkbox" name="pgsql_enabled" {% if pgsql.get('enabled') %}checked{% endif %} />
               <span class="toggle-slider"></span>
           </label>
-          <span>Enabled</span>
+          <span>{{ t("Enabled") }}</span>
       </div>
-      <label class="portal-form-label"><span class="portal-form-label">Default instance</span><input type="text" name="pgsql_default_instance" value="{{ pgsql.get('default_instance', '') }}" placeholder="Name of the instance used when a command names none" class="portal-form-input" /></label>
+      <label class="portal-form-label"><span class="portal-form-label">{{ t("Default instance") }}</span><input type="text" name="pgsql_default_instance" value="{{ pgsql.get('default_instance', '') }}" placeholder="{{ t('Name of the instance used when a command names none') }}" class="portal-form-input" /></label>
       <div class="portal-settings-shared space-y-2" data-pgsql-settings>
-        <div class="portal-inline-note">Applies to every instance below.</div>
+        <div class="portal-inline-note">{{ t("Applies to every instance below.") }}</div>
         <div class="grid grid-cols-2 gap-2">
-          <label class="portal-form-label"><span class="portal-form-label">Access</span><select name="pgsql_access" class="portal-form-select">{% for option in pgsql_settings_options.access %}<option value="{{ option.value }}" {% if (pgsql.get('access') or pgsql_settings_options.default_access) == option.value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select></label>
-          <label class="portal-form-label"><span class="portal-form-label">SSL mode</span><select name="pgsql_sslmode" class="portal-form-select">{% for option in pgsql_settings_options.sslmode %}<option value="{{ option.value }}" {% if (pgsql.get('sslmode') or pgsql_settings_options.default_sslmode) == option.value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select></label>
-          <label class="portal-form-label"><span class="portal-form-label">Statement timeout (seconds)</span><input type="number" name="pgsql_statement_timeout_seconds" value="{{ pgsql.get('statement_timeout_seconds', '') }}" placeholder="Default {{ pgsql_settings_options.statement_timeout_seconds.default }}" min="{{ pgsql_settings_options.statement_timeout_seconds.min }}" max="{{ pgsql_settings_options.statement_timeout_seconds.max }}" step="1" class="portal-form-input" /></label>
-          <label class="portal-form-label"><span class="portal-form-label">Max rows per query</span><input type="number" name="pgsql_max_rows" value="{{ pgsql.get('max_rows', '') }}" placeholder="Default {{ pgsql_settings_options.max_rows.default }}" min="{{ pgsql_settings_options.max_rows.min }}" max="{{ pgsql_settings_options.max_rows.max }}" step="1" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">{{ t("Access") }}</span><select name="pgsql_access" class="portal-form-select">{% for option in pgsql_settings_options.access %}<option value="{{ option.value }}" {% if (pgsql.get('access') or pgsql_settings_options.default_access) == option.value %}selected{% endif %}>{{ tv(option.label) }}</option>{% endfor %}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">{{ t("SSL mode") }}</span><select name="pgsql_sslmode" class="portal-form-select">{% for option in pgsql_settings_options.sslmode %}<option value="{{ option.value }}" {% if (pgsql.get('sslmode') or pgsql_settings_options.default_sslmode) == option.value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select></label>
+          <label class="portal-form-label"><span class="portal-form-label">{{ t("Statement timeout (seconds)") }}</span><input type="number" name="pgsql_statement_timeout_seconds" value="{{ pgsql.get('statement_timeout_seconds', '') }}" placeholder="{{ t('Default {value}', value=pgsql_settings_options.statement_timeout_seconds.default) }}" min="{{ pgsql_settings_options.statement_timeout_seconds.min }}" max="{{ pgsql_settings_options.statement_timeout_seconds.max }}" step="1" class="portal-form-input" /></label>
+          <label class="portal-form-label"><span class="portal-form-label">{{ t("Max rows per query") }}</span><input type="number" name="pgsql_max_rows" value="{{ pgsql.get('max_rows', '') }}" placeholder="{{ t('Default {value}', value=pgsql_settings_options.max_rows.default) }}" min="{{ pgsql_settings_options.max_rows.min }}" max="{{ pgsql_settings_options.max_rows.max }}" step="1" class="portal-form-input" /></label>
         </div>
-        <div class="portal-inline-note">Read-only means the assistant's pgsql tool refuses every statement that changes data or server state, whatever the database role allows. The role is still what protects the database from any client: give it SELECT and nothing else unless you mean the assistant to change things.</div>
+        <div class="portal-inline-note">{{ t("Read-only means the assistant's pgsql tool refuses every statement that changes data or server state, whatever the database role allows. The role is still what protects the database from any client: give it SELECT and nothing else unless you mean the assistant to change things.") }}</div>
       </div>
-      <div class="portal-inline-note">One row per database. The connection leaves the runtime the way the Proxy connector routes PostgreSQL.</div>
+      <div class="portal-inline-note">{{ t("One row per database. The connection leaves the runtime the way the Proxy connector routes PostgreSQL.") }}</div>
       {{ troubleshooting_instance_cards('pgsql', 'PostgreSQL', pgsql_instances, troubleshooting_cards) }}
-      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="pgsql">+ Add PostgreSQL Instance</button>
-      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="pgsql">Test PostgreSQL</button><div class="portal-inline-state" data-test-result="pgsql"></div></div>
+      <button type="button" class="portal-btn is-secondary" data-action="add-instance" data-group="pgsql">{{ t("+ Add {name} Instance", name="PostgreSQL") }}</button>
+      <div class="flex items-center gap-2"><button type="button" class="portal-btn is-secondary" data-test-target="pgsql">{{ t("Test {name}", name="PostgreSQL") }}</button><div class="portal-inline-state" data-test-result="pgsql"></div></div>
     </section>

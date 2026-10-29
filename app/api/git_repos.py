@@ -7,6 +7,7 @@ from typing import Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.i18n import N_
 from app.config import get_settings
 from app.deps import get_current_user
 from app.redaction import sanitize_exception_message
@@ -162,7 +163,7 @@ def list_git_repo_branches(
     _ = user
     normalized_repo_url = normalize_git_repo_url(repo_url)
     if not normalized_repo_url:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="repo_url is required")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("repo_url is required"))
 
     try:
         with _temporary_git_askpass() as askpass_path:
@@ -175,7 +176,7 @@ def list_git_repo_branches(
                 env=_build_git_ls_remote_env(askpass_path),
             )
     except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Timed out while loading repository branches") from exc
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=N_("Timed out while loading repository branches")) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

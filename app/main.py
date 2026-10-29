@@ -25,7 +25,9 @@ from app.api.connectors import router as connectors_router
 from app.api.mobile import router as mobile_router
 from app.config import get_settings
 from app.db import SessionLocal, engine
+from app.i18n import bind_locale, reset_locale
 from app.log_context import bind_log_context, generate_span_id, generate_trace_id, reset_log_context
+from app.services.locale_service import resolve_locale_for_request
 from app.logger import setup_logging
 from app.services.access_control_service import AccessControlService
 from app.services.runtime_profile_service import RuntimeProfileService
@@ -76,6 +78,18 @@ async def bind_request_log_context(request, call_next):
         reset_log_context(token)
     response.headers["X-Trace-Id"] = trace_id
     return response
+
+
+@app.middleware("http")
+async def bind_request_locale(request, call_next):
+    # The language everything rendered in this request uses (app/i18n.py's
+    # t()): the browser's Accept-Language here, replaced by the member's saved
+    # preference once a web route has loaded them (app.web._session_user_access).
+    token = bind_locale(resolve_locale_for_request(request).ui_locale)
+    try:
+        return await call_next(request)
+    finally:
+        reset_locale(token)
 
 
 @app.on_event("startup")

@@ -71,7 +71,7 @@
     startButton.disabled = false;
     startButton.textContent = startLabel;
     if (userCode) userCode.textContent = "";
-    if (copyButton) copyButton.textContent = "Copy";
+    if (copyButton) copyButton.textContent = t("Copy");
     setStatus("");
     setStep("enterprise");
   }
@@ -81,7 +81,7 @@
     panel.classList.remove("hidden");
     chooseButton.setAttribute("aria-expanded", "true");
     chooseButton.classList.add("is-selected");
-    if (intro) intro.textContent = "Sign in with GitHub Copilot";
+    if (intro) intro.textContent = t("Sign in with GitHub Copilot");
     setError("");
     resetFlow();
     var firstAction = panel.querySelector("a, button");
@@ -115,7 +115,9 @@
   }
 
   function describeFailure(data, fallback) {
-    return data.message || data.detail || data.details || data.error || fallback;
+    var text = data.message || data.detail || data.details || data.error;
+    // A Portal detail is an English key: shown translated when the catalogue knows it.
+    return typeof text === "string" && text ? tv(text) : (text || fallback);
   }
 
   function failAndReset(message) {
@@ -139,10 +141,10 @@
       if (!code) return;
       try {
         await navigator.clipboard.writeText(code);
-        copyButton.textContent = "Copied";
-        setTimeout(function () { copyButton.textContent = "Copy"; }, 1600);
+        copyButton.textContent = t("Copied");
+        setTimeout(function () { copyButton.textContent = t("Copy"); }, 1600);
       } catch (clipboardError) {
-        copyButton.textContent = "Select & copy";
+        copyButton.textContent = t("Select & copy");
       }
     });
   }
@@ -152,24 +154,24 @@
     setStatus("");
     stopTimers();
     startButton.disabled = true;
-    startButton.textContent = "Contacting GitHub…";
+    startButton.textContent = t("Contacting GitHub…");
 
     var started;
     try {
       started = await postJson(authBase + "/start", {});
     } catch (networkError) {
-      failAndReset("Could not reach the server. Check your connection and try again.");
+      failAndReset(t("Could not reach the server. Check your connection and try again."));
       return;
     }
     var flow = started.data;
     if (!started.ok || flow.error || !flow.auth_id || !flow.device_code || !flow.user_code || !flow.flow_id) {
-      failAndReset(describeFailure(flow, "Could not start GitHub authorization. Try again."));
+      failAndReset(describeFailure(flow, t("Could not start GitHub authorization. Try again.")));
       return;
     }
 
     if (userCode) userCode.textContent = flow.user_code;
     if (deviceLink) deviceLink.href = flow.verification_complete_url || flow.verification_url || "https://github.com/login/device";
-    startButton.textContent = "Waiting for GitHub…";
+    startButton.textContent = t("Waiting for GitHub…");
     setStep("device");
     if (deviceLink) deviceLink.focus({ preventScroll: true });
 
@@ -178,13 +180,13 @@
       if (!timerNode) return;
       var m = Math.floor(Math.max(remaining, 0) / 60);
       var s = Math.max(remaining, 0) % 60;
-      timerNode.textContent = "code valid " + m + ":" + (s < 10 ? "0" : "") + s;
+      timerNode.textContent = t("code valid {time}", { time: m + ":" + (s < 10 ? "0" : "") + s });
     }
     renderTimer();
     countdownTimer = setInterval(function () {
       remaining -= 1;
       renderTimer();
-      if (remaining <= 0) failAndReset("The code expired before GitHub confirmed it. Start again.");
+      if (remaining <= 0) failAndReset(t("The code expired before GitHub confirmed it. Start again."));
     }, 1000);
 
     var intervalMs = Math.max(Number(flow.interval || 5), 3) * 1000;
@@ -197,12 +199,12 @@
           device_code: flow.device_code,
         });
       } catch (networkError) {
-        failAndReset("Lost contact with the server while waiting for GitHub. Start again.");
+        failAndReset(t("Lost contact with the server while waiting for GitHub. Start again."));
         return;
       }
       var result = checked.data;
       if (!checked.ok) {
-        failAndReset(describeFailure(result, "Authorization check failed (HTTP " + checked.status + ")."));
+        failAndReset(describeFailure(result, t("Authorization check failed (HTTP {status}).", { status: checked.status })));
         return;
       }
       if (result.status === "pending") return;
@@ -219,7 +221,7 @@
         }, 500);
         return;
       }
-      failAndReset(describeFailure(result, "GitHub authorization failed."));
+      failAndReset(describeFailure(result, t("GitHub authorization failed.")));
     }, intervalMs);
   });
 })();

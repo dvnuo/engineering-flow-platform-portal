@@ -2,17 +2,17 @@
 <section class="portal-panel-section" id="profile-section-proxy" data-managed-section="proxy" data-instance-group="proxy">
       {{ setup_guide('proxy') }}
       <div class="portal-checkbox-row">
-          <label class="toggle-switch" aria-label="Enable Proxy">
+          <label class="toggle-switch" aria-label="{{ t('Enable {name}', name=t('Proxy')) }}">
               <input type="checkbox" name="proxy_enabled" {% if proxy.get('enabled') %}checked{% endif %} />
               <span class="toggle-slider"></span>
           </label>
-          <span>Enabled</span>
+          <span>{{ t("Enabled") }}</span>
       </div>
-      <div class="portal-inline-note">One card per proxy your assistants may need. The default proxy is what their environment gets; the table says which proxy each connector goes through.</div>
+      <div class="portal-inline-note">{{ t("One card per proxy your assistants may need. The default proxy is what their environment gets; the table says which proxy each connector goes through.") }}</div>
       {{ proxy_cards(proxy_entries) }}
       {{ proxy_default_select(proxy_entries, proxy_default) }}
-      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>Which proxy each connector uses</h6></div>
-      <div class="portal-inline-note">Default is the proxy above. None reaches the service directly, whatever the environment says. AWS and GitHub always use the default: their tools only read the environment.</div>
+      <div class="portal-settings-section-title"><span class="portal-section-accent" aria-hidden="true"></span><h6>{{ t("Which proxy each connector uses") }}</h6></div>
+      <div class="portal-inline-note">{{ t("Default is the proxy above. None reaches the service directly, whatever the environment says. AWS and GitHub always use the default: their tools only read the environment.") }}</div>
       {{ proxy_assignment_table(proxy_connectors, proxy_entries) }}
       <div class="flex items-center gap-2"><div class="portal-inline-state" data-test-result="proxy"></div></div>
     </section>

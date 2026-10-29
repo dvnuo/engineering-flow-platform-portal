@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from app.models import AgentTask, AuditLog
 from app.services.efp_cards import REPLY_CARDS_NOTE, extract_cards, live_matrix_path, reply_text_without_cards, review_decision_text
-from tests._js_extract_helpers import _extract_js_function
+from tests._js_extract_helpers import I18N_STUB, _extract_js_function
 from tests.test_agent_async_tasks_api import _client as _async_client
 from tests.test_web_connector_settings import _build_env
 
@@ -263,7 +263,7 @@ globalThis.Event = class { constructor(type) { this.type = type; } };
 
 def test_efp_cards_paths_and_decision_text_in_node():
     source = Path("app/static/js/efp_cards.js").read_text(encoding="utf-8")
-    script = CARDS_SHIM + source + textwrap.dedent(
+    script = I18N_STUB + CARDS_SHIM + source + textwrap.dedent(
         r"""
         const assert = require("node:assert/strict");
         const C = window.EfpCards;

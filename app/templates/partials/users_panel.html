@@ -1,35 +1,35 @@
 <div id="admin-users-panel" class="portal-panel-stack portal-admin-users">
   <div class="portal-panel-header">
     <div>
-      <h5 class="portal-panel-title">Member administration</h5>
-      <p class="portal-panel-note">Only allowlisted members can register, sign in, or keep using an existing session.</p>
+      <h5 class="portal-panel-title">{{ t("Member administration") }}</h5>
+      <p class="portal-panel-note">{{ t("Only allowlisted members can register, sign in, or keep using an existing session.") }}</p>
     </div>
-    <span class="portal-panel-subtitle">{{ summary.total_users }} member{{ "" if summary.total_users == 1 else "s" }}</span>
+    <span class="portal-panel-subtitle">{{ tn(summary.total_users, "{n} member", "{n} members") }}</span>
   </div>
 
-  <div class="portal-admin-summary-grid" aria-label="Member summary">
-    <div class="portal-usage-card"><span class="portal-usage-k">Members</span><strong class="portal-usage-v">{{ summary.total_users }}</strong></div>
-    <div class="portal-usage-card"><span class="portal-usage-k">Allowed</span><strong class="portal-usage-v">{{ summary.allowed_users }}</strong></div>
-    <div class="portal-usage-card"><span class="portal-usage-k">Administrators</span><strong class="portal-usage-v" data-admin-summary-admins>{{ summary.admin_users }}</strong></div>
+  <div class="portal-admin-summary-grid" aria-label="{{ t('Member summary') }}">
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Members") }}</span><strong class="portal-usage-v">{{ summary.total_users }}</strong></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Allowed") }}</span><strong class="portal-usage-v">{{ summary.allowed_users }}</strong></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Administrators") }}</span><strong class="portal-usage-v" data-admin-summary-admins>{{ summary.admin_users }}</strong></div>
   </div>
 
   <section class="portal-admin-members-section" aria-labelledby="registered-members-title">
     <div class="portal-panel-header">
       <div>
-        <div class="portal-list-title" id="registered-members-title">Registered members</div>
-        <div class="portal-panel-note">Search members, review usage, and manage access where the work happens.</div>
+        <div class="portal-list-title" id="registered-members-title">{{ t("Registered members") }}</div>
+        <div class="portal-panel-note">{{ t("Search members, review usage, and manage access where the work happens.") }}</div>
       </div>
-      <span class="portal-panel-subtitle" data-admin-member-result-count>{{ users|length }} shown</span>
+      <span class="portal-panel-subtitle" data-admin-member-result-count>{{ t("{n} shown", n=users|length) }}</span>
     </div>
     <div class="portal-admin-member-toolbar">
-      <label aria-label="Search registered members">
-        <input class="portal-form-input" type="search" aria-label="Search registered members" placeholder="Search members" autocomplete="off" data-admin-member-search />
+      <label aria-label="{{ t('Search registered members') }}">
+        <input class="portal-form-input" type="search" aria-label="{{ t('Search registered members') }}" placeholder="{{ t('Search members') }}" autocomplete="off" data-admin-member-search />
       </label>
-      <label aria-label="Filter members by access">
-        <select class="portal-form-select" aria-label="Filter members by access" data-admin-member-access-filter>
-          <option value="all">All access</option>
-          <option value="allowed">Allowed</option>
-          <option value="blocked">Needs access</option>
+      <label aria-label="{{ t('Filter members by access') }}">
+        <select class="portal-form-select" aria-label="{{ t('Filter members by access') }}" data-admin-member-access-filter>
+          <option value="all">{{ t("All access") }}</option>
+          <option value="allowed">{{ t("Allowed") }}</option>
+          <option value="blocked">{{ t("Needs access") }}</option>
         </select>
       </label>
     </div>
@@ -48,38 +48,38 @@
             <div>
               <div class="portal-list-title">
                 {{ u.nickname or u.username }}
-                {% if u.id == current_user.id %}<span class="portal-admin-role-badge">You</span>{% endif %}
+                {% if u.id == current_user.id %}<span class="portal-admin-role-badge">{{ t("You") }}</span>{% endif %}
               </div>
-              <div class="portal-panel-note">@{{ u.username }} · Joined {{ local_datetime(u.created_at, style='date') }}</div>
+              <div class="portal-panel-note">@{{ u.username }} · {{ t("Joined {date}", date=local_datetime(u.created_at, style='date'))|safe }}</div>
             </div>
             <div class="portal-admin-status-badges">
               <span class="portal-admin-status-badge {% if u.is_allowlisted %}is-success{% else %}is-danger{% endif %}">
-                {% if u.is_allowlisted %}Allowlisted{% else %}Blocked by allowlist{% endif %}
+                {% if u.is_allowlisted %}{{ t("Allowlisted") }}{% else %}{{ t("Blocked by allowlist") }}{% endif %}
               </span>
             </div>
           </div>
 
-          <div class="portal-admin-usage-grid" aria-label="Usage for {{ u.username }}">
-            <div><span>Assistants</span><strong>{{ u.assistant_count }}</strong></div>
-            <div><span>Tasks</span><strong>{{ u.task_count }}</strong></div>
-            <div><span>Completed</span><strong>{{ u.completed_task_count }}</strong></div>
-            <div><span>Executions</span><strong>{{ u.execution_count }}</strong></div>
-            <div><span>Chats</span><strong>{{ u.chat_count }}</strong></div>
-            <div><span>Delegations</span><strong>{{ u.delegation_count }}</strong></div>
+          <div class="portal-admin-usage-grid" aria-label="{{ t('Usage for {username}', username=u.username) }}">
+            <div><span>{{ t("Assistants") }}</span><strong>{{ u.assistant_count }}</strong></div>
+            <div><span>{{ t("Tasks") }}</span><strong>{{ u.task_count }}</strong></div>
+            <div><span>{{ t("Completed") }}</span><strong>{{ u.completed_task_count }}</strong></div>
+            <div><span>{{ t("Executions") }}</span><strong>{{ u.execution_count }}</strong></div>
+            <div><span>{{ t("Chats") }}</span><strong>{{ u.chat_count }}</strong></div>
+            <div><span>{{ t("Delegations") }}</span><strong>{{ u.delegation_count }}</strong></div>
           </div>
 
           <div class="portal-admin-activity-row">
-            <span>Last sign-in: {{ local_datetime(u.last_login_at, empty='Never') }}</span>
-            <span>Last activity: {{ local_datetime(u.last_activity_at, empty='No activity') }}</span>
+            <span>{{ t("Last sign-in: {time}", time=local_datetime(u.last_login_at, empty=t("Never")))|safe }}</span>
+            <span>{{ t("Last activity: {time}", time=local_datetime(u.last_activity_at, empty=t("No activity")))|safe }}</span>
           </div>
 
           <div class="portal-admin-member-controls">
             <label class="portal-admin-role-control">
-              <span>Role</span>
+              <span>{{ t("Role") }}</span>
               <div
                 class="portal-role-toggle"
                 role="radiogroup"
-                aria-label="Role for {{ u.username }}"
+                aria-label="{{ t('Role for {username}', username=u.username) }}"
                 data-admin-role-group
                 data-user-id="{{ u.id }}"
                 data-original-role="{{ u.role }}"
@@ -93,7 +93,7 @@
                     {% if u.role != 'admin' %}checked{% endif %}
                     {% if u.id == current_user.id %}disabled{% endif %}
                   />
-                  <span>User</span>
+                  <span>{{ t("User") }}</span>
                 </label>
                 <label class="portal-role-option">
                   <input
@@ -104,11 +104,11 @@
                     {% if u.role == 'admin' %}checked{% endif %}
                     {% if u.id == current_user.id %}disabled{% endif %}
                   />
-                  <span>Admin</span>
+                  <span>{{ t("Admin") }}</span>
                 </label>
               </div>
             </label>
-            <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}Current account{% endif %}</span>
+            <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}{{ t("Current account") }}{% endif %}</span>
             <div class="portal-admin-member-actions">
               {% if u.allowlist_entry_id and u.id != current_user.id %}
               <button
@@ -116,14 +116,14 @@
                 type="button"
                 data-remove-allowlist="{{ u.allowlist_entry_id }}"
                 data-allowlist-username="{{ u.username|data_attr }}"
-              >Revoke</button>
+              >{{ t("Revoke") }}</button>
               {% elif not u.is_allowlisted %}
               <button
                 class="portal-btn is-secondary"
                 type="button"
                 data-allow-member
                 data-username="{{ u.username|data_attr }}"
-              >Allow</button>
+              >{{ t("Allow") }}</button>
               {% endif %}
             </div>
           </div>
@@ -131,9 +131,9 @@
         </article>
       {% endfor %}
     </div>
-    <div class="portal-panel-empty" data-admin-member-filter-empty hidden>No members match this search.</div>
+    <div class="portal-panel-empty" data-admin-member-filter-empty hidden>{{ t("No members match this search.") }}</div>
     {% else %}
-    <div class="portal-panel-empty">No users found.</div>
+    <div class="portal-panel-empty">{{ t("No users found.") }}</div>
     {% endif %}
   </section>
 
@@ -141,25 +141,27 @@
   <details class="portal-panel-section portal-admin-pending-section">
     <summary class="portal-admin-pending-summary">
       <div>
-        <div class="portal-list-title">Pending registration</div>
-        <div class="portal-panel-note">Allowlisted usernames that have not created an account.</div>
+        <div class="portal-list-title">{{ t("Pending registration") }}</div>
+        <div class="portal-panel-note">{{ t("Allowlisted usernames that have not created an account.") }}</div>
       </div>
       <span class="portal-panel-subtitle">{{ pending_allowlist_entries|length }}</span>
       <span class="portal-admin-pending-chevron" aria-hidden="true">⌄</span>
     </summary>
     <div class="portal-admin-pending-list">
+      {# entry.role is the role identifier; only the word shown is translated. #}
+      {% set role_words = {"admin": t("admin"), "user": t("user")} %}
       {% for entry in pending_allowlist_entries %}
       <div class="portal-admin-pending-row">
         <div>
           <strong>{{ entry.username }}</strong>
-          <span class="portal-admin-role-badge">{{ entry.role }}</span>
+          <span class="portal-admin-role-badge">{{ role_words.get(entry.role, entry.role) }}</span>
         </div>
         <button
           class="portal-btn is-secondary"
           type="button"
           data-remove-allowlist="{{ entry.id }}"
           data-allowlist-username="{{ entry.username|data_attr }}"
-        >Remove</button>
+        >{{ t("Remove") }}</button>
       </div>
       {% endfor %}
     </div>
@@ -170,28 +172,29 @@
     <div class="modal-card panel portal-admin-allowlist-modal-card">
       <div class="portal-modal-titlebar">
         <div>
-          <h3 id="admin-allowlist-modal-title">Add to allowlist</h3>
-          <p class="portal-modal-copy">Enter one username per line and assign the same initial role.</p>
+          <h3 id="admin-allowlist-modal-title">{{ t("Add to allowlist") }}</h3>
+          <p class="portal-modal-copy">{{ t("Enter one username per line and assign the same initial role.") }}</p>
         </div>
-        <button type="button" class="portal-modal-close" title="Close" aria-label="Close" data-close-admin-allowlist-modal>✕</button>
+        <button type="button" class="portal-modal-close" title="{{ t('Close') }}" aria-label="{{ t('Close') }}" data-close-admin-allowlist-modal>✕</button>
       </div>
       <form class="stack portal-admin-allowlist-form" data-admin-allowlist-form>
         <label class="portal-admin-username-list-field">
-          <span>Usernames</span>
+          <span>{{ t("Usernames") }}</span>
           <textarea class="portal-form-input" name="usernames" rows="5" autocomplete="off" spellcheck="false" required placeholder="alex&#10;jamie&#10;taylor"></textarea>
-          <small>One username per line · <span data-admin-allowlist-count>0</span> ready</small>
+          {% set allowlist_count_html %}<span data-admin-allowlist-count>0</span>{% endset %}
+          <small>{{ t("One username per line · {count} ready", count=allowlist_count_html)|safe }}</small>
         </label>
         <label>
-          <span>Initial role</span>
+          <span>{{ t("Initial role") }}</span>
           <select class="portal-form-select" name="role">
-            <option value="user">User</option>
-            <option value="admin">Administrator</option>
+            <option value="user">{{ t("User") }}</option>
+            <option value="admin">{{ t("Administrator") }}</option>
           </select>
         </label>
         <p class="portal-modal-feedback" data-admin-users-feedback aria-live="polite"></p>
         <div class="portal-modal-actions">
-          <button class="portal-btn is-secondary" type="button" data-close-admin-allowlist-modal>Cancel</button>
-          <button class="portal-btn is-primary" type="submit">Allow users</button>
+          <button class="portal-btn is-secondary" type="button" data-close-admin-allowlist-modal>{{ t("Cancel") }}</button>
+          <button class="portal-btn is-primary" type="submit">{{ t("Allow users") }}</button>
         </div>
       </form>
     </div>

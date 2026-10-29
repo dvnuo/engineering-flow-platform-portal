@@ -412,7 +412,7 @@ def test_the_account_menu_has_the_language_group_and_chat_ui_wires_it():
     start = APP_HTML.index('id="account-menu"')
     menu = APP_HTML[start:APP_HTML.index('id="logout-btn"', start)]
     assert 'aria-labelledby="account-language-label"' in menu
-    assert ">Language<" in menu
+    assert '>{{ t("Language") }}<' in menu
     for choice in ("auto", "en", "zh-Hans", "zh-Hant-HK"):
         assert f'role="menuitemradio" aria-checked="{{{{ \'true\' if ui_locale_preference == \'{choice}\' else \'false\' }}}}" data-ui-locale-option="{choice}"' in menu, choice
     assert 'class="portal-account-options is-four"' in menu
@@ -434,7 +434,7 @@ def test_the_account_menu_has_the_language_group_and_chat_ui_wires_it():
 
 def test_the_page_language_is_rendered_by_the_server():
     assert '<html lang="en">' not in BASE_HTML
-    assert "browser_locale(request)" in BASE_HTML
+    assert "current_locale()" in BASE_HTML
     assert 'lang="{{ page_locale }}" data-locale="{{ page_locale }}"' in BASE_HTML
     assert 'html[lang="zh-Hans"] body' in CSS
     assert 'html[lang="zh-Hant-HK"] body' in CSS

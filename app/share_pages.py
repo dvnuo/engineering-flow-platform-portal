@@ -27,11 +27,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import web as portal_web
 from app.api.proxy import _harden_attachment_response_headers
 from app.db import SessionLocal
+from app.i18n import current_locale, t
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.session_share_repo import SessionShareRepository
 from app.repositories.user_repo import UserRepository
-from app.services.locale_service import resolve_locale_for_request
 from app.services.session_context_preview import parse_metadata_json
 from app.services.session_share_service import effective_scope, is_inline_image_type, share_path, viewer_may_open
 from app.services.share_transcripts import STATUS_OK, load_share_transcript
@@ -61,8 +61,8 @@ def _now_iso() -> str:
 def _owner_display_name(db, share) -> str:
     owner = UserRepository(db).get_by_id(share.owner_user_id)
     if owner is None:
-        return "a member"
-    return str(owner.nickname or owner.username or "a member")
+        return t("a member")
+    return str(owner.nickname or owner.username or t("a member"))
 
 
 def _stored_title(db, share) -> str:
@@ -73,7 +73,7 @@ def _stored_title(db, share) -> str:
     title = metadata.get("session_title")
     if isinstance(title, str) and title.strip():
         return title.strip()
-    return str(share.title or "").strip() or "Shared session"
+    return str(share.title or "").strip() or t("Shared session")
 
 
 def resolve_share_view(db, request: Request, token: str) -> tuple[Optional[ShareView], Optional[str]]:
@@ -112,13 +112,16 @@ def _share_page_context(request: Request, db, view: ShareView) -> dict[str, Any]
         "title": _stored_title(db, view.share),
         "token": view.share.token,
         "data_url": f"{share_path(view.share.token)}/data.json",
-        "assistant_name": str(getattr(view.agent, "name", "") or "Assistant"),
+        "assistant_name": str(getattr(view.agent, "name", "") or t("Assistant")),
         "owner_display_name": _owner_display_name(db, view.share),
         "scope": effective_scope(view.share),
         "missing": False,
         # The viewer's language, not the owner's: a signed-in member's
         # preference, else the browser's (the transcript stays as it was).
-        "locale": resolve_locale_for_request(request, view.user).ui_locale,
+        # The one the server text was rendered in, so <html lang> and the
+        # inlined catalogue match it even for a member the share admits
+        # without the allowlist.
+        "locale": current_locale(),
     }
 
 
@@ -127,7 +130,7 @@ def _missing_page(request: Request) -> Response:
         "share.html",
         {
             "request": request,
-            "title": "This link is no longer available",
+            "title": t("This link is no longer available"),
             "token": "",
             "data_url": "",
             "assistant_name": "",
@@ -179,7 +182,7 @@ async def share_data(request: Request, token: str):
             {
                 "status": transcript["status"],
                 "title": transcript.get("name") or _stored_title(db, view.share),
-                "assistant_name": str(getattr(view.agent, "name", "") or "Assistant"),
+                "assistant_name": str(getattr(view.agent, "name", "") or t("Assistant")),
                 "owner_display_name": _owner_display_name(db, view.share),
                 "scope": effective_scope(view.share),
                 "loaded_at": _now_iso(),

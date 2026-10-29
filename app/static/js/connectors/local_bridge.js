@@ -617,7 +617,7 @@
     button.classList.toggle("is-active", view.mode === "on");
     button.classList.toggle("is-muted", view.mode === "offline" || view.mode === "setup");
     button.title = view.title || "";
-    if (text) text.textContent = view.label || "Browser";
+    if (text) text.textContent = view.label || t("Browser");
   }
 
   async function renderToggle({ probe = true } = {}) {
@@ -633,21 +633,21 @@
       return;
     }
     if (!localBridgeEnabled()) {
-      applyToggleView({ mode: "setup", label: "Set up browser", title: "Let the assistant use your local browser: open Connectors to set it up." });
+      applyToggleView({ mode: "setup", label: t("Set up browser"), title: t("Let the assistant use your local browser: open Connectors to set it up.") });
       return;
     }
     if (!toggleOn(agentId)) {
-      applyToggleView({ mode: "off", label: "Browser off", title: "The assistant will not use your local browser in this chat. Click to switch on." });
+      applyToggleView({ mode: "off", label: t("Browser off"), title: t("The assistant will not use your local browser in this chat. Click to switch on.") });
       return;
     }
     const status = probe ? await probeLocalBridge() : { alive: state.localBridge.alive };
     if (!status.alive) {
-      applyToggleView({ mode: "offline", label: "Local bridge offline", title: "The local bridge is not running. Click to open the setup steps." });
+      applyToggleView({ mode: "offline", label: t("Local bridge offline"), title: t("The local bridge is not running. Click to open the setup steps.") });
       scheduleOfflineRecheck();
       return;
     }
     window.clearTimeout(offlineRecheck);
-    applyToggleView({ mode: "on", label: "Browser on", title: "The assistant can read and operate your EFP browser window in this chat. Click to switch off." });
+    applyToggleView({ mode: "on", label: t("Browser on"), title: t("The assistant can read and operate your EFP browser window in this chat. Click to switch off.") });
   }
 
   function scheduleOfflineRecheck() {
@@ -678,7 +678,7 @@
       return;
     }
     if (mode === "offline") {
-      applyToggleView({ mode: "offline", label: "Starting browser…", title: "Starting the local bridge and its Chrome window." });
+      applyToggleView({ mode: "offline", label: t("Starting browser…"), title: t("Starting the local bridge and its Chrome window.") });
       const probe = await ensureBrowserSession();
       if (!probe.alive) window.location.hash = "#/connectors/local_bridge?step=2";
       await renderToggle({ probe: false });
@@ -720,13 +720,19 @@
   }
 
   async function refreshPanelStatus(root, { force = true } = {}) {
-    panelStatus(root, "bridge", "checking…", "");
+    panelStatus(root, "bridge", t("checking…"), "");
     const probe = await probeLocalBridge({ force });
-    panelStatus(root, "bridge", probe.alive ? `running on port ${probe.port}${probe.version ? ` (v${probe.version})` : ""}` : "not detected", probe.alive ? "ok" : "warn");
-    panelStatus(root, "session", probe.alive ? (probe.sessionAlive ? `Chrome window open (${probe.tabCount || 0} tabs)` : "Chrome window closed (Start bridge reopens it)") : "–", probe.sessionAlive ? "ok" : "");
+    const bridgeStatus = probe.version
+      ? t("running on port {port} (v{version})", { port: probe.port, version: probe.version })
+      : t("running on port {port}", { port: probe.port });
+    panelStatus(root, "bridge", probe.alive ? bridgeStatus : t("not detected"), probe.alive ? "ok" : "warn");
+    const sessionStatus = probe.sessionAlive
+      ? tn(probe.tabCount || 0, "Chrome window open ({n} tab)", "Chrome window open ({n} tabs)")
+      : t("Chrome window closed (Start bridge reopens it)");
+    panelStatus(root, "session", probe.alive ? sessionStatus : "–", probe.sessionAlive ? "ok" : "");
     const mobile = MOBILE_STATUS[probe.alive ? probe.mobile || "outdated" : ""];
-    panelStatus(root, "mobile", mobile.short, mobile.tone);
-    panelStatus(root, "mobile-detail", mobile.detail, mobile.tone);
+    panelStatus(root, "mobile", tv(mobile.short), mobile.tone);
+    panelStatus(root, "mobile-detail", tv(mobile.detail), mobile.tone);
     root.querySelectorAll("[data-connector-step]").forEach((section) => {
       const step = section.dataset.connectorStep;
       // Step 3 is browser automation (tested and switched on), step 4 mobile
@@ -737,45 +743,48 @@
     return probe;
   }
 
+  // The short and detail texts are catalogue keys (N_), shown through tv().
   const MOBILE_STATUS = {
-    "": { short: "–", tone: "", detail: "Start the bridge (step 2) to check." },
-    ready: { short: "ready", tone: "ok", detail: "Ready. Add your BrowserStack username and access key under Connectors → BrowserStack, then choose Recording in an assistant's chat." },
-    outdated: { short: "not in this bridge", tone: "warn", detail: "This bridge is older than mobile recording. Download the package again (step 1), run its installer, and start the bridge again." },
-    no_mobile_auto: { short: "mobile-auto missing", tone: "warn", detail: "mobile-auto is not next to the bridge. Unzip the whole package again (step 1) into the same folder, then start the bridge again." },
+    "": { short: "–", tone: "", detail: N_("Start the bridge (step 2) to check.") },
+    ready: { short: N_("ready"), tone: "ok", detail: N_("Ready. Add your BrowserStack username and access key under Connectors → BrowserStack, then choose Recording in an assistant's chat.") },
+    outdated: { short: N_("not in this bridge"), tone: "warn", detail: N_("This bridge is older than mobile recording. Download the package again (step 1), run its installer, and start the bridge again.") },
+    no_mobile_auto: { short: N_("mobile-auto missing"), tone: "warn", detail: N_("mobile-auto is not next to the bridge. Unzip the whole package again (step 1) into the same folder, then start the bridge again.") },
   };
 
+  // What the panel tells the member next to a failed test or start; the
+  // bridge's own error code and message stay as they are.
   function troubleshootFor(error) {
     const code = String((error && error.code) || "");
     if (code === "bridge_unreachable" || code === "bridge_timeout") {
-      return "The bridge is not running. Go back to step 2 and start it; if you just installed it, allow the efp-bridge link when Chrome asks.";
+      return t("The bridge is not running. Go back to step 2 and start it; if you just installed it, allow the efp-bridge link when Chrome asks.");
     }
     if (code === "devtools_unavailable") {
-      return "Chrome refused to expose its DevTools port. Check that the RemoteDebuggingAllowed policy is not set to false in chrome://policy.";
+      return t("Chrome refused to expose its DevTools port. Check that the RemoteDebuggingAllowed policy is not set to false in chrome://policy.");
     }
     if (code === "origin_denied") {
-      return `The bridge was started for a different Portal address. Restart it with --origin ${portalOrigin()}.`;
+      return t("The bridge was started for a different Portal address. Restart it with --origin {origin}.", { origin: portalOrigin() });
     }
     if (code === "command_not_allowed") {
-      return "Your bridge is older than this Portal. Download the bridge again (step 1) and run the installer once more.";
+      return t("Your bridge is older than this Portal. Download the bridge again (step 1) and run the installer once more.");
     }
     if (code === "browser_not_found") {
-      return "No Chrome, Edge, or Chromium was found on this PC. Install Chrome, then click Start bridge again.";
+      return t("No Chrome, Edge, or Chromium was found on this PC. Install Chrome, then click Start bridge again.");
     }
     if (code === "session_not_running" || code === "session_not_found") {
-      return "The EFP browser window is closed. Click Start bridge to reopen it.";
+      return t("The EFP browser window is closed. Click Start bridge to reopen it.");
     }
     if (code === "session_busy") {
-      return "Another browser command was still running. Wait a moment and test again.";
+      return t("Another browser command was still running. Wait a moment and test again.");
     }
     return "";
   }
 
   async function runPanelTest(root) {
-    setPanelResult(root, "test", "Testing the bridge…", "");
+    setPanelResult(root, "test", esc(t("Testing the bridge…")), "");
     const probe = await refreshPanelStatus(root, { force: true });
     if (!probe.alive) {
       const hint = troubleshootFor({ code: "bridge_unreachable" });
-      setPanelResult(root, "test", `<strong>Bridge not detected.</strong> ${esc(hint)}`, "error");
+      setPanelResult(root, "test", `<strong>${esc(t("Bridge not detected."))}</strong> ${esc(hint)}`, "error");
       await recordVerification(root, false, { reason: "bridge_unreachable" });
       return;
     }
@@ -783,16 +792,22 @@
     if (!outcome.ok) {
       const error = outcome.error || {};
       const hint = troubleshootFor(error) || String(error.hint || "");
-      setPanelResult(root, "test", `<strong>Test failed:</strong> ${esc(error.code || "error")} ${esc(error.message || "")}${hint ? `<br>${esc(hint)}` : ""}`, "error");
+      setPanelResult(root, "test", `<strong>${esc(t("Test failed:"))}</strong> ${esc(error.code || "error")} ${esc(error.message || "")}${hint ? `<br>${esc(hint)}` : ""}`, "error");
       await recordVerification(root, false, { code: error.code || "error" });
       return;
     }
     const tabs = outcome.result && Array.isArray(outcome.result.tabs) ? outcome.result.tabs : [];
-    const rows = tabs.slice(0, 12).map((tab) => `<li>${tab.active ? "▶ " : ""}${esc(tab.title || "(untitled)")} <small>${esc(tab.url || "")}</small></li>`).join("");
+    const rows = tabs.slice(0, 12).map((tab) => `<li>${tab.active ? "▶ " : ""}${esc(tab.title || t("(untitled)"))} <small>${esc(tab.url || "")}</small></li>`).join("");
+    const summary = tn(
+      tabs.length,
+      "Bridge v{version} on port {port}; {n} tab in your EFP browser window.",
+      "Bridge v{version} on port {port}; {n} tabs in your EFP browser window.",
+      { version: probe.version || "?", port: probe.port }
+    );
     setPanelResult(
       root,
       "test",
-      `<strong>Connected.</strong> Bridge v${esc(probe.version || "?")} on port ${esc(probe.port)}; ${tabs.length} tab${tabs.length === 1 ? "" : "s"} in your EFP browser window.${rows ? `<ul class="portal-connector-tab-list">${rows}</ul>` : ""}`,
+      `<strong>${esc(t("Connected."))}</strong> ${esc(summary)}${rows ? `<ul class="portal-connector-tab-list">${rows}</ul>` : ""}`,
       "success"
     );
     await recordVerification(root, true, { version: probe.version, port: probe.port, tab_count: tabs.length });
@@ -821,18 +836,18 @@
     const autoEnable = Boolean(root.querySelector('[data-connector-field="auto_enable_in_new_chats"]')?.checked);
     const portInput = root.querySelector('[data-connector-field="preferred_port"]');
     const preferredPort = portInput ? Number(portInput.value) || PORT_RANGE[0] : PORT_RANGE[0];
-    setPanelResult(root, "save", "Saving…", "");
+    setPanelResult(root, "save", esc(t("Saving…")), "");
     const { ok, payload } = await requestJson(`/api/connectors/${encodeURIComponent(type)}`, {
       method: "PUT",
       body: JSON.stringify({ enabled, config: { auto_enable_in_new_chats: autoEnable, preferred_port: preferredPort } }),
     });
     if (!ok) {
-      const detail = payload && (payload.detail || payload.error) ? (payload.detail || payload.error) : "Save failed.";
+      const detail = payload && (payload.detail || payload.error) ? (payload.detail || payload.error) : t("Save failed.");
       setPanelResult(root, "save", esc(typeof detail === "string" ? detail : JSON.stringify(detail)), "error");
       return;
     }
     root.dataset.enabled = enabled ? "true" : "false";
-    setPanelResult(root, "save", enabled ? "Saved. New chats can use your local browser." : "Saved. Assistants will not use your local browser.", "success");
+    setPanelResult(root, "save", esc(enabled ? t("Saved. New chats can use your local browser.") : t("Saved. Assistants will not use your local browser.")), "success");
     await loadConnectors({ force: true });
     await refreshPanelStatus(root, { force: false });
     await renderToggle({ probe: false });
@@ -877,7 +892,7 @@
     primary.href = match.href;
     primary.dataset.platform = platform;
     const label = primary.querySelector("[data-connector-download-label]");
-    if (label) label.textContent = `Download for ${match.dataset.label || platform}`;
+    if (label) label.textContent = t("Download for {platform}", { platform: match.dataset.label || platform });
   }
 
   function initPanel(rootElement) {
@@ -896,17 +911,23 @@
       const action = actionNode.dataset.connectorAction;
       if (action === "launch") {
         event.preventDefault();
-        setPanelResult(root, "launch", "Starting the bridge and its Chrome window… allow the efp-bridge link if Chrome asks.", "");
+        setPanelResult(root, "launch", esc(t("Starting the bridge and its Chrome window… allow the efp-bridge link if Chrome asks.")), "");
         const port = Number(root.querySelector('[data-connector-field="preferred_port"]')?.value) || undefined;
         const probe = await ensureBrowserSession({ port });
+        // The markup around a sentence's words is built here and passed in as
+        // a placeholder, so each sentence stays one catalogue key.
+        const running = `<strong>${esc(t("Bridge is running"))}</strong>`;
         if (probe.alive && probe.sessionAlive) {
-          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)} and the EFP browser window is open. Test it under Browser automation below.`, "success");
+          setPanelResult(root, "launch", t("{running} on port {port} and the EFP browser window is open. Test it under Browser automation below.", { running, port: esc(probe.port) }), "success");
         } else if (probe.alive) {
           const error = probe.error || {};
           const hint = troubleshootFor(error) || String(error.hint || "");
-          setPanelResult(root, "launch", `<strong>Bridge is running</strong> on port ${esc(probe.port)}, but its Chrome window did not open: ${esc(error.code || "error")} ${esc(error.message || "")}${hint ? `<br>${esc(hint)}` : ""}`, "error");
+          const failure = `${esc(error.code || "error")} ${esc(error.message || "")}`;
+          setPanelResult(root, "launch", `${t("{running} on port {port}, but its Chrome window did not open: {error}", { running, port: esc(probe.port), error: failure })}${hint ? `<br>${esc(hint)}` : ""}`, "error");
         } else {
-          setPanelResult(root, "launch", "<strong>Bridge not detected yet.</strong> If nothing happened, the protocol link is not registered: run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) from the unzipped folder, then try again. If it did start, the launcher writes what happened to <code>.efp/bridge/logs/bridge.log</code> in your home folder; a bridge left running for a different Portal address is refused there by name.", "error");
+          const notDetected = `<strong>${esc(t("Bridge not detected yet."))}</strong>`;
+          const logPath = "<code>.efp/bridge/logs/bridge.log</code>";
+          setPanelResult(root, "launch", `${notDetected} ${t("If nothing happened, the protocol link is not registered: run install-bridge.cmd (Windows) or install-bridge.sh (macOS, Linux) from the unzipped folder, then try again. If it did start, the launcher writes what happened to {log} in your home folder; a bridge left running for a different Portal address is refused there by name.", { log: logPath })}`, "error");
         }
         await refreshPanelStatus(root, { force: false });
         await renderToggle({ probe: false });

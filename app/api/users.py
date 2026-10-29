@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.i18n import N_
 from app.config import get_settings
 from app.db import get_db
 from app.deps import require_admin
@@ -29,7 +30,7 @@ settings = get_settings()
 def _get_user_or_404(repo: UserRepository, user_id: int):
     user = repo.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("User not found"))
     return user
 
 
@@ -57,7 +58,7 @@ def create_user(payload: UserCreateRequest, admin=Depends(require_admin), db: Se
     repo = UserRepository(db)
     username = payload.username
     if repo.get_by_username_case_insensitive(username):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Username already exists"))
 
     UserAllowlistRepository(db).ensure(
         username,
@@ -102,7 +103,7 @@ def add_to_allowlist(
     allowlist = UserAllowlistRepository(db)
     existing = allowlist.get_by_username(payload.username)
     if existing and existing.is_active:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username is already allowlisted")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("Username is already allowlisted"))
 
     entry = _ensure_allowlist_access(
         payload.username,
@@ -166,20 +167,20 @@ def remove_from_allowlist(
     allowlist = UserAllowlistRepository(db)
     entry = allowlist.get_by_id(entry_id)
     if not entry:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allowlist entry not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Allowlist entry not found"))
 
     normalized = normalize_username(entry.username)
     if normalized == normalize_username(settings.bootstrap_admin_username):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="The configured bootstrap administrator cannot be removed from the allowlist",
+            detail=N_("The configured bootstrap administrator cannot be removed from the allowlist"),
         )
     target_user = UserRepository(db).get_by_username_case_insensitive(entry.username)
     if target_user and target_user.id == admin.id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You cannot remove your own access")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("You cannot remove your own access"))
     access = AccessControlService(db)
     if target_user and access.is_effective_admin(target_user) and access.count_effective_admins() <= 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="At least one allowlisted administrator is required")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("At least one allowlisted administrator is required"))
 
     audit_details = {"username": entry.username}
     allowlist.delete(entry)
@@ -203,22 +204,22 @@ def update_user(
     repo = UserRepository(db)
     user = _get_user_or_404(repo, user_id)
     if payload.role is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No changes supplied")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("No changes supplied"))
     if (
         normalize_username(user.username) == normalize_username(settings.bootstrap_admin_username)
         and payload.role != "admin"
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="The configured bootstrap administrator must keep the administrator role",
+            detail=N_("The configured bootstrap administrator must keep the administrator role"),
         )
     if user.id == admin.id and payload.role != "admin":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You cannot remove your own administrator access")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("You cannot remove your own administrator access"))
 
     access = AccessControlService(db)
     loses_admin = access.is_effective_admin(user) and payload.role != "admin"
     if loses_admin and access.count_effective_admins() <= 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="At least one allowlisted administrator is required")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=N_("At least one allowlisted administrator is required"))
 
     updated = repo.update_access(user, role=payload.role)
     entry = UserAllowlistRepository(db).get_by_username(updated.username)
@@ -253,5 +254,5 @@ def revoke_user_access(
     user = _get_user_or_404(UserRepository(db), user_id)
     entry = UserAllowlistRepository(db).get_by_username(user.username)
     if not entry or not entry.is_active:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User is not allowlisted")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("User is not allowlisted"))
     return remove_from_allowlist(entry.id, admin, db)

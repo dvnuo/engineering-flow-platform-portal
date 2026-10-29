@@ -1,18 +1,21 @@
 <div class="portal-panel-stack">
-  <div class="portal-panel-header"><h5 class="portal-panel-title">Skills</h5><span class="portal-panel-subtitle">{{ skills|length }} available</span></div>
+  <div class="portal-panel-header"><h5 class="portal-panel-title">{{ t("Skills") }}</h5><span class="portal-panel-subtitle">{{ t("{n} available", n=skills|length) }}</span></div>
+  {# The states are identifiers (the badge colours compare them); only the words shown are translated. #}
+  {% set permission_words = {"allowed": t("allowed"), "ask": t("ask"), "denied": t("denied"), "blocked": t("blocked"), "unknown": t("unknown")} %}
+  {% set compatibility_words = {"full": t("full"), "prompt_only": t("prompt_only"), "unsupported": t("unsupported"), "unknown": t("unknown")} %}
   {% if skills %}<div class="portal-panel-stack" id="skills-list">
   {% for skill in skills %}
     {% set normalized_skill_name = (skill.name or '')|trim|replace('/', '', 1) %}
     {% if normalized_skill_name %}
-    <button type="button" class="portal-panel-section" {% if skill.disabled %}disabled aria-disabled="true" title="{{ skill.disabled_reason }}"{% else %}data-skill-command="/{{ normalized_skill_name }}" title="Insert /{{ normalized_skill_name }}"{% endif %}>
+    <button type="button" class="portal-panel-section" {% if skill.disabled %}disabled aria-disabled="true" title="{{ skill.disabled_reason }}"{% else %}data-skill-command="/{{ normalized_skill_name }}" title="{{ t('Insert {command}', command='/' ~ normalized_skill_name) }}"{% endif %}>
       <div class="portal-list-title">/{{ normalized_skill_name }}</div>
       {% if skill.description %}<div class="portal-panel-note">{{ skill.description }}</div>{% endif %}
       <div class="portal-panel-note">
-        <span class="portal-status-badge {{ 'is-success' if skill.catalog_available else 'is-warning' }}">Catalog: {{ 'available' if skill.catalog_available else 'unknown' }}</span>
-        <span class="portal-status-badge {{ 'is-success' if skill.permission_state == 'allowed' else ('is-error' if skill.permission_state in ['denied', 'blocked'] else 'is-warning') }}">Permission: {{ skill.permission_state }}</span>
-        <span class="portal-status-badge {{ 'is-success' if skill.runtime_compatibility == 'full' else ('is-error' if skill.runtime_compatibility == 'unsupported' else 'is-warning') }}">Runtime: {{ skill.runtime_compatibility }}</span>
+        <span class="portal-status-badge {{ 'is-success' if skill.catalog_available else 'is-warning' }}">{{ t("Catalog: {status}", status=(t("available") if skill.catalog_available else t("unknown"))) }}</span>
+        <span class="portal-status-badge {{ 'is-success' if skill.permission_state == 'allowed' else ('is-error' if skill.permission_state in ['denied', 'blocked'] else 'is-warning') }}">{{ t("Permission: {status}", status=permission_words.get(skill.permission_state, skill.permission_state)) }}</span>
+        <span class="portal-status-badge {{ 'is-success' if skill.runtime_compatibility == 'full' else ('is-error' if skill.runtime_compatibility == 'unsupported' else 'is-warning') }}">{{ t("Runtime: {status}", status=compatibility_words.get(skill.runtime_compatibility, skill.runtime_compatibility)) }}</span>
       </div>
-      {% if skill.prompt_only %}<div class="portal-panel-note">Prompt-only in this runtime.</div>{% endif %}
+      {% if skill.prompt_only %}<div class="portal-panel-note">{{ t("Prompt-only in this runtime.") }}</div>{% endif %}
     </button>{% endif %}
-  {% endfor %}</div>{% else %}<div class="portal-panel-empty">No skills available.</div>{% endif %}
+  {% endfor %}</div>{% else %}<div class="portal-panel-empty">{{ t("No skills available.") }}</div>{% endif %}
 </div>

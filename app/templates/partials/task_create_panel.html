@@ -4,10 +4,10 @@
     <div class="modal-card panel create-agent-wizard-card">
       <div class="portal-modal-titlebar">
         <div>
-          <h3 id="create-task-modal-title">Create Task</h3>
-          <p class="portal-modal-copy">Start background work on one writable agent.</p>
+          <h3 id="create-task-modal-title">{{ t("Create Task") }}</h3>
+          <p class="portal-modal-copy">{{ t("Start background work on one writable agent.") }}</p>
         </div>
-        <button type="button" class="portal-modal-close" title="Close" aria-label="Close" data-close-task-create-modal>✕</button>
+        <button type="button" class="portal-modal-close" title="{{ t('Close') }}" aria-label="{{ t('Close') }}" data-close-task-create-modal>✕</button>
       </div>
 
       <form
@@ -16,39 +16,39 @@
         data-wizard-steps="agent,skill,content,review"
         data-current-step="agent"
       >
-        <ol class="create-agent-steps" aria-label="Create task steps" style="--portal-step-count: 4">
+        <ol class="create-agent-steps" aria-label="{{ t('Create task steps') }}" style="--portal-step-count: 4">
           <li class="create-agent-step is-active" data-wizard-step-indicator="agent">
             <span class="create-agent-step-index">1</span>
-            <span class="create-agent-step-label">Agent</span>
+            <span class="create-agent-step-label">{{ t("Agent") }}</span>
           </li>
           <li class="create-agent-step" data-wizard-step-indicator="skill">
             <span class="create-agent-step-index">2</span>
-            <span class="create-agent-step-label">Skill</span>
+            <span class="create-agent-step-label">{{ t("Skill") }}</span>
           </li>
           <li class="create-agent-step" data-wizard-step-indicator="content">
             <span class="create-agent-step-index">3</span>
-            <span class="create-agent-step-label">Task</span>
+            <span class="create-agent-step-label">{{ t("Task") }}</span>
           </li>
           <li class="create-agent-step" data-wizard-step-indicator="review">
             <span class="create-agent-step-index">4</span>
-            <span class="create-agent-step-label">Review</span>
+            <span class="create-agent-step-label">{{ t("Review") }}</span>
           </li>
         </ol>
 
         <section class="portal-task-form-panel create-agent-step-panel" data-wizard-step-panel="agent">
           <div class="portal-task-form-row">
-            <label class="portal-form-label" for="agent-async-task-agent">Agent</label>
+            <label class="portal-form-label" for="agent-async-task-agent">{{ t("Agent") }}</label>
             <select id="agent-async-task-agent" name="assignee_agent_id" class="portal-form-select" required>
               {% for agent in agents %}
               <option value="{{ agent.id }}">{{ agent.name }} ({{ agent.id }})</option>
               {% endfor %}
             </select>
             <details class="portal-inference-settings" data-inference-settings>
-              <summary><span>Run settings</span><small data-inference-summary>Agent defaults</small></summary>
+              <summary><span>{{ t("Run settings") }}</span><small data-inference-summary>{{ t("Agent defaults") }}</small></summary>
               <div class="portal-inference-settings-grid">
-                <label class="portal-form-label"><span class="portal-form-label">Model</span><select name="model_override" class="portal-form-select" data-inference-model disabled><option value="">Agent default</option></select></label>
-                <label class="portal-form-label" data-inference-reasoning-field><span class="portal-form-label">Thinking level</span><select name="reasoning_effort" class="portal-form-select" data-inference-reasoning disabled><option value="">Agent default</option></select></label>
-                <label class="portal-form-label" data-inference-context-field><span class="portal-form-label">Context size</span><select name="max_context_tokens" class="portal-form-select" data-inference-context disabled><option value="">Automatic</option></select></label>
+                <label class="portal-form-label"><span class="portal-form-label">{{ t("Model") }}</span><select name="model_override" class="portal-form-select" data-inference-model disabled><option value="">{{ t("Agent default") }}</option></select></label>
+                <label class="portal-form-label" data-inference-reasoning-field><span class="portal-form-label">{{ t("Thinking level") }}</span><select name="reasoning_effort" class="portal-form-select" data-inference-reasoning disabled><option value="">{{ t("Agent default") }}</option></select></label>
+                <label class="portal-form-label" data-inference-context-field><span class="portal-form-label">{{ t("Context size") }}</span><select name="max_context_tokens" class="portal-form-select" data-inference-context disabled><option value="">{{ t("Automatic") }}</option></select></label>
               </div>
             </details>
           </div>
@@ -56,22 +56,22 @@
 
         <section class="portal-task-form-panel create-agent-step-panel hidden" data-wizard-step-panel="skill">
           <div class="portal-task-form-row">
-            <label class="portal-form-label" for="agent-async-task-skill">Skill</label>
+            <label class="portal-form-label" for="agent-async-task-skill">{{ t("Skill") }}</label>
             <select id="agent-async-task-skill" name="skill_name" class="portal-form-select" required disabled>
-              <option value="">Select an agent first</option>
+              <option value="">{{ t("Select an agent first") }}</option>
             </select>
           </div>
         </section>
 
         <section class="portal-task-form-panel create-agent-step-panel is-primary hidden" data-wizard-step-panel="content">
-          <label class="portal-form-label" for="agent-async-task-content">Task Content</label>
+          <label class="portal-form-label" for="agent-async-task-content">{{ t("Task Content") }}</label>
           <textarea
             id="agent-async-task-content"
             name="task_content"
             class="portal-form-textarea portal-task-textarea"
             rows="12"
             required
-            placeholder="Describe the objective, constraints, files, acceptance criteria, and context."
+            placeholder="{{ t('Describe the objective, constraints, files, acceptance criteria, and context.') }}"
           ></textarea>
         </section>
 
@@ -80,10 +80,10 @@
         </section>
 
         <div class="portal-modal-actions portal-task-form-actions portal-step-wizard-actions">
-          <span class="portal-panel-note">Background task</span>
-          <button type="button" class="portal-btn is-secondary" data-wizard-back>Back</button>
-          <button type="button" class="portal-btn is-primary" data-wizard-next>Next</button>
-          <button type="submit" class="portal-btn is-primary" data-wizard-submit><i data-lucide="play" class="w-4 h-4"></i>Start Task</button>
+          <span class="portal-panel-note">{{ t("Background task") }}</span>
+          <button type="button" class="portal-btn is-secondary" data-wizard-back>{{ t("Back") }}</button>
+          <button type="button" class="portal-btn is-primary" data-wizard-next>{{ t("Next") }}</button>
+          <button type="submit" class="portal-btn is-primary" data-wizard-submit><i data-lucide="play" class="w-4 h-4"></i>{{ t("Start Task") }}</button>
         </div>
       </form>
     </div>
@@ -91,10 +91,10 @@
   {% else %}
   <div class="portal-task-toolbar">
     <div>
-      <h2 class="portal-panel-title">Create Task</h2>
-      <p class="portal-panel-subtitle">Start background work on one writable agent.</p>
+      <h2 class="portal-panel-title">{{ t("Create Task") }}</h2>
+      <p class="portal-panel-subtitle">{{ t("Start background work on one writable agent.") }}</p>
     </div>
   </div>
-  <div class="portal-panel-empty">No writable agents are available. Create or request write access to an agent before starting a background task.</div>
+  <div class="portal-panel-empty">{{ t("No writable agents are available. Create or request write access to an agent before starting a background task.") }}</div>
   {% endif %}
 </div>

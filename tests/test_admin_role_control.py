@@ -91,7 +91,7 @@ def test_role_is_a_segmented_toggle_rather_than_a_dropdown():
 def test_pill_labels_stay_short_so_they_cannot_truncate():
     toggle = USERS_HTML.split('class="portal-role-toggle"', 1)[1].split("</div>", 1)[0]
     labels = re.findall(r"<span>([^<]+)</span>", toggle)
-    assert labels == ["User", "Admin"]
+    assert labels == ['{{ t("User") }}', '{{ t("Admin") }}']
 
 
 def test_radio_names_are_scoped_per_member():

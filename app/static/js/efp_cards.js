@@ -92,12 +92,12 @@
 
   async function fetchWorkspaceJson(agentId, path, { fresh = false } = {}) {
     const url = contentUrl(agentId, path);
-    if (!url) throw new Error("No assistant to read the file from.");
+    if (!url) throw new Error(t("No assistant to read the file from."));
     const cached = fetchCache.get(url);
     if (!fresh && cached && Date.now() - cached.at < FETCH_CACHE_MS) return cached.promise;
     const promise = fetch(url, { credentials: "same-origin", cache: "no-store" }).then(async (resp) => {
-      if (resp.status === 404) throw new Error(`${path} is not in the assistant's workspace yet.`);
-      if (!resp.ok) throw new Error(`Could not read ${path} (HTTP ${resp.status}). Is the assistant running?`);
+      if (resp.status === 404) throw new Error(t("{path} is not in the assistant's workspace yet.", { path }));
+      if (!resp.ok) throw new Error(t("Could not read {path} (HTTP {status}). Is the assistant running?", { path, status: resp.status }));
       return resp.json();
     });
     fetchCache.set(url, { promise, at: Date.now() });
@@ -115,21 +115,33 @@
     return "neutral";
   }
 
+  // The status word the member reads; a value the catalogue does not know is
+  // shown as the runtime wrote it.
+  function statusLabel(status) {
+    const key = String(status || "").toLowerCase();
+    if (key === "passed") return t("passed");
+    if (key === "failed") return t("failed");
+    if (key === "running") return t("running");
+    if (key === "queued") return t("queued");
+    if (key === "unknown") return t("unknown");
+    return String(status || "");
+  }
+
   function formatDuration(ms) {
     const n = Number(ms);
     if (!Number.isFinite(n) || n <= 0) return "";
     const seconds = Math.round(n / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    if (seconds < 60) return t("{seconds}s", { seconds });
+    return t("{minutes}m {seconds}s", { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
   }
 
   const CLASSIFICATION_LABELS = {
-    drift: "Script drift",
-    product_bug: "Product defect",
-    infra: "Infrastructure",
-    data: "Test data / environment",
-    flaky: "Flaky",
-    passed_on_rerun: "Passed on rerun",
+    drift: t("Script drift"),
+    product_bug: t("Product defect"),
+    infra: t("Infrastructure"),
+    data: t("Test data / environment"),
+    flaky: t("Flaky"),
+    passed_on_rerun: t("Passed on rerun"),
   };
 
   function classificationBadge(value) {
@@ -194,11 +206,11 @@
       .filter((shot) => shot.path);
     const failureShot = ev.failure_screenshot ? resolve(ev.failure_screenshot) : "";
     if (failureShot && !screenshots.some((shot) => shot.path === failureShot)) {
-      screenshots.unshift({ label: "At the failure", path: failureShot });
+      screenshots.unshift({ label: t("At the failure"), path: failureShot });
     }
     return {
       id: ev.id || [ev.scenario, ev.example].filter(Boolean).join("#"),
-      scenario: ev.scenario || ev.id || "Scenario",
+      scenario: ev.scenario || ev.id || t("Scenario"),
       example: ev.example || "",
       status: ev.status || "",
       platform: ev.platform || "",
@@ -225,26 +237,26 @@
     const shots = ev.screenshots.map((shot) => {
       const url = contentUrl(agentId, shot.path);
       return url
-        ? `<a class="efp-evidence-shot" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(shot.label || shot.path)}"><img src="${esc(url)}" alt="${esc(shot.label || "Screenshot")}" loading="lazy" /><span>${esc(shot.label)}</span></a>`
+        ? `<a class="efp-evidence-shot" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(shot.label || shot.path)}"><img src="${esc(url)}" alt="${esc(shot.label || t("Screenshot"))}" loading="lazy" /><span>${esc(shot.label)}</span></a>`
         : "";
     }).join("");
     const video = ev.video && agentId
       ? `<video class="efp-evidence-video" controls preload="metadata" src="${esc(streamUrl(agentId, ev.video))}"></video>`
       : "";
     const actions = [
-      ev.sessionUrl ? `<a class="portal-link-inline" href="${esc(ev.sessionUrl)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "",
-      ev.script && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, ev.script))}" target="_blank" rel="noopener" title="${esc(ev.script)}">Script</a>` : "",
+      ev.sessionUrl ? `<a class="portal-link-inline" href="${esc(ev.sessionUrl)}" target="_blank" rel="noopener noreferrer">${t("BrowserStack session")}</a>` : "",
+      ev.script && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, ev.script))}" target="_blank" rel="noopener" title="${esc(ev.script)}">${t("Script")}</a>` : "",
       ev.source && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, ev.source))}" target="_blank" rel="noopener">evidence.json</a>` : "",
       linksHtml(ev.links),
     ].filter(Boolean).join(" ");
     const drift = ev.fallbackHits
-      ? `<div class="portal-inline-state is-visible is-warning">${ev.fallbackHits} step(s) matched a fallback locator; the recorded locator has drifted.</div>`
+      ? `<div class="portal-inline-state is-visible is-warning">${esc(t("{n} step(s) matched a fallback locator; the recorded locator has drifted.", { n: ev.fallbackHits }))}</div>`
       : "";
     const error = ev.error ? `<pre class="efp-evidence-error">${esc(ev.error)}</pre>` : "";
     return `
       <article class="efp-card efp-evidence is-${statusTone(ev.status)}">
         <header class="efp-card-head">
-          <span class="portal-status-badge is-${statusTone(ev.status)}">${esc(ev.status || "unknown")}</span>
+          <span class="portal-status-badge is-${statusTone(ev.status)}">${esc(statusLabel(ev.status || "unknown"))}</span>
           <strong class="efp-card-title">${esc(title)}</strong>
           ${classificationBadge(ev.classification)}
         </header>
@@ -271,10 +283,10 @@
     else if (Array.isArray(payload.items)) payload.items.forEach(add);
     else add(payload);
     if (!entries.length) {
-      setMessage(container, "No evidence in this block.", "warning");
+      setMessage(container, t("No evidence in this block."), "warning");
       return;
     }
-    container.innerHTML = `<div class="efp-evidence-list">${entries.map(() => `<div class="efp-card efp-card-loading"><div class="portal-inline-state is-visible">Loading evidence…</div></div>`).join("")}</div>`;
+    container.innerHTML = `<div class="efp-evidence-list">${entries.map(() => `<div class="efp-card efp-card-loading"><div class="portal-inline-state is-visible">${t("Loading evidence…")}</div></div>`).join("")}</div>`;
     const slots = container.querySelectorAll(".efp-evidence-list > div");
     await Promise.all(entries.map(async (entry, index) => {
       const slot = slots[index];
@@ -343,26 +355,44 @@
 
   function replayCardHtml(rp, agentId) {
     const passed = rp.segments.filter((seg) => seg.status === "passed").length;
-    const one = rp.segments.length === 1;
-    const allOf = (kind) => rp.segments.length > 0 && rp.segments.every((seg) => seg.kind === kind);
-    const noun = allOf("script") ? (one ? "script" : "scripts") : (allOf("recording") ? (one ? "recording" : "recordings") : (one ? "segment" : "segments"));
-    const title = `Replay: ${passed} of ${rp.segments.length} ${noun} passed`;
-    const startLabel = { restart: "the app restarted", reset: "the app's data cleared first", current: "the screen the device showed" }[rp.start] || "";
+    const total = rp.segments.length;
+    const allOf = (kind) => total > 0 && rp.segments.every((seg) => seg.kind === kind);
+    let title;
+    if (allOf("script")) title = tn(total, "Replay: {passed} of {n} script passed", "Replay: {passed} of {n} scripts passed", { passed });
+    else if (allOf("recording")) title = tn(total, "Replay: {passed} of {n} recording passed", "Replay: {passed} of {n} recordings passed", { passed });
+    else title = tn(total, "Replay: {passed} of {n} segment passed", "Replay: {passed} of {n} segments passed", { passed });
+    const startLabel = {
+      restart: t("started with the app restarted"),
+      reset: t("started with the app's data cleared first"),
+      current: t("started with the screen the device showed"),
+    }[rp.start] || "";
     const meta = [
       [rp.platform === "ios" ? "iOS" : (rp.platform === "android" ? "Android" : rp.platform), rp.device, rp.osVersion].filter(Boolean).join(" · "),
-      rp.app ? `build ${rp.app}` : "",
-      startLabel ? `started with ${startLabel}` : "",
+      rp.app ? t("build {app}", { app: rp.app }) : "",
+      startLabel,
     ].filter(Boolean).join(" · ");
     const rows = rp.segments.map((seg) => {
       let detail;
-      if (seg.status === "passed") detail = `${seg.stepsTotal} ${seg.stepsTotal === 1 ? "step" : "steps"}${seg.fallbacks ? `, ${seg.fallbacks} matched a fallback target` : ""}`;
-      else if (seg.status === "failed") detail = `failed at step ${seg.failedStep || "?"} of ${seg.stepsTotal || "?"}${seg.failedAction ? `: ${seg.failedAction}` : ""}${seg.failedError ? ` (${seg.failedError})` : ""}`;
-      else detail = "not run";
+      if (seg.status === "passed") {
+        const steps = tn(seg.stepsTotal, "{n} step", "{n} steps");
+        detail = seg.fallbacks ? t("{steps}, {n} matched a fallback target", { steps, n: seg.fallbacks }) : steps;
+      } else if (seg.status === "failed") {
+        detail = t("failed at step {step} of {total}", { step: seg.failedStep || "?", total: seg.stepsTotal || "?" })
+          + (seg.failedAction ? `: ${seg.failedAction}` : "")
+          + (seg.failedError ? ` (${seg.failedError})` : "");
+      } else {
+        detail = t("not run");
+      }
       const icon = seg.status === "passed" ? "check" : (seg.status === "failed" ? "x" : "minus");
       return `<li class="efp-replay-card-seg is-${statusTone(seg.status)}"><i data-lucide="${icon}" class="w-3 h-3" aria-hidden="true"></i><strong>${esc(seg.name)}</strong> <span class="efp-card-meta">${esc(detail)}</span></li>`;
     }).join("");
-    const shots = rp.segments.filter((seg) => seg.screenshot).map((seg) => ({ label: `after ${seg.name}`, path: seg.screenshot }));
-    if (rp.failure && rp.failure.screenshot) shots.push({ label: `where ${rp.failure.segment || "it"} stopped`, path: rp.failure.screenshot });
+    const shots = rp.segments.filter((seg) => seg.screenshot).map((seg) => ({ label: t("after {name}", { name: seg.name }), path: seg.screenshot }));
+    if (rp.failure && rp.failure.screenshot) {
+      shots.push({
+        label: rp.failure.segment ? t("where {segment} stopped", { segment: rp.failure.segment }) : t("where it stopped"),
+        path: rp.failure.screenshot,
+      });
+    }
     const shotsHtml = shots.map((shot) => {
       const url = contentUrl(agentId, shot.path);
       return url
@@ -370,15 +400,15 @@
         : "";
     }).join("");
     const actions = [
-      rp.sessionUrl ? `<a class="portal-link-inline" href="${esc(rp.sessionUrl)}" target="_blank" rel="noopener noreferrer">BrowserStack session</a>` : "",
-      rp.failure && rp.failure.source && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, rp.failure.source))}" target="_blank" rel="noopener">Page source at the failure</a>` : "",
+      rp.sessionUrl ? `<a class="portal-link-inline" href="${esc(rp.sessionUrl)}" target="_blank" rel="noopener noreferrer">${t("BrowserStack session")}</a>` : "",
+      rp.failure && rp.failure.source && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, rp.failure.source))}" target="_blank" rel="noopener">${t("Page source at the failure")}</a>` : "",
       rp.source && agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(agentId, rp.source))}" target="_blank" rel="noopener">report.json</a>` : "",
     ].filter(Boolean).join(" ");
     const error = rp.error ? `<pre class="efp-evidence-error">${esc(rp.error)}</pre>` : "";
     return `
       <article class="efp-card efp-replay-card is-${statusTone(rp.status)}">
         <header class="efp-card-head">
-          <span class="portal-status-badge is-${statusTone(rp.status)}">${esc(rp.status || "unknown")}</span>
+          <span class="portal-status-badge is-${statusTone(rp.status)}">${esc(statusLabel(rp.status || "unknown"))}</span>
           <strong class="efp-card-title">${esc(title)}</strong>
         </header>
         ${meta ? `<div class="efp-card-meta">${esc(meta)}</div>` : ""}
@@ -400,10 +430,10 @@
     else if (Array.isArray(payload.paths)) payload.paths.forEach(add);
     else add(payload);
     if (!paths.length) {
-      setMessage(container, "No replay report in this block.", "warning");
+      setMessage(container, t("No replay report in this block."), "warning");
       return;
     }
-    container.innerHTML = `<div class="efp-evidence-list">${paths.map(() => `<div class="efp-card efp-card-loading"><div class="portal-inline-state is-visible">Loading the replay…</div></div>`).join("")}</div>`;
+    container.innerHTML = `<div class="efp-evidence-list">${paths.map(() => `<div class="efp-card efp-card-loading"><div class="portal-inline-state is-visible">${t("Loading the replay…")}</div></div>`).join("")}</div>`;
     const slots = container.querySelectorAll(".efp-evidence-list > div");
     await Promise.all(paths.map(async (raw, index) => {
       const slot = slots[index];
@@ -434,11 +464,11 @@
     const summary = matrixSummary(rows);
     const pct = (n) => (summary.total ? (n / summary.total) * 100 : 0);
     const headline = [
-      `${summary.total} scenario runs`,
-      summary.passed ? `${summary.passed} passed` : "",
-      summary.failed ? `${summary.failed} failed` : "",
-      summary.running ? `${summary.running} running` : "",
-      summary.queued ? `${summary.queued} queued` : "",
+      t("{n} scenario runs", { n: summary.total }),
+      summary.passed ? t("{n} passed", { n: summary.passed }) : "",
+      summary.failed ? t("{n} failed", { n: summary.failed }) : "",
+      summary.running ? t("{n} running", { n: summary.running }) : "",
+      summary.queued ? t("{n} queued", { n: summary.queued }) : "",
     ].filter(Boolean).join(" · ");
     const body = rows.map((row, index) => {
       const evidencePath = row.evidence ? resolvePath(baseDir, row.evidence) : "";
@@ -446,20 +476,20 @@
       const scriptPath = row.script ? resolvePath(baseDir, row.script) : "";
       const session = safeHttpUrl(row.session_url);
       const actions = [
-        evidencePath ? `<button type="button" class="composer-pill-btn" data-efp-evidence-toggle="${esc(evidencePath)}" data-row="${index}">Evidence</button>` : "",
-        videoPath && ctx.agentId ? `<a class="portal-link-inline" href="${esc(streamUrl(ctx.agentId, videoPath))}" target="_blank" rel="noopener">Video</a>` : "",
-        session ? `<a class="portal-link-inline" href="${esc(session)}" target="_blank" rel="noopener noreferrer">Session</a>` : "",
-        scriptPath && ctx.agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(ctx.agentId, scriptPath))}" target="_blank" rel="noopener" title="${esc(scriptPath)}">Script</a>` : "",
+        evidencePath ? `<button type="button" class="composer-pill-btn" data-efp-evidence-toggle="${esc(evidencePath)}" data-row="${index}">${t("Evidence")}</button>` : "",
+        videoPath && ctx.agentId ? `<a class="portal-link-inline" href="${esc(streamUrl(ctx.agentId, videoPath))}" target="_blank" rel="noopener">${t("Video")}</a>` : "",
+        session ? `<a class="portal-link-inline" href="${esc(session)}" target="_blank" rel="noopener noreferrer">${t("Session")}</a>` : "",
+        scriptPath && ctx.agentId ? `<a class="portal-link-inline" href="${esc(contentUrl(ctx.agentId, scriptPath))}" target="_blank" rel="noopener" title="${esc(scriptPath)}">${t("Script")}</a>` : "",
         linksHtml(row.links),
       ].filter(Boolean).join(" ");
       const note = [row.error, row.note].filter(Boolean).map((text) => `<div class="efp-matrix-note">${esc(text)}</div>`).join("");
       return `
         <tr class="is-${statusTone(row.status)}">
           <td><strong>${esc(row.case || row.id)}</strong>${row.example ? `<div class="efp-card-meta">${esc(row.example)}</div>` : ""}${note}</td>
-          <td><span class="portal-status-badge is-${statusTone(row.status)}">${esc(row.status || "")}</span></td>
+          <td><span class="portal-status-badge is-${statusTone(row.status)}">${esc(statusLabel(row.status || ""))}</span></td>
           <td>${esc([row.device, row.platform].filter(Boolean).join(" · "))}</td>
           <td>${esc(formatDuration(row.duration_ms))}</td>
-          <td>${classificationBadge(row.classification)}${row.fallback_hits ? ` <span class="portal-status-badge is-warning" title="Steps that matched a fallback locator">drift ${esc(row.fallback_hits)}</span>` : ""}</td>
+          <td>${classificationBadge(row.classification)}${row.fallback_hits ? ` <span class="portal-status-badge is-warning" title="${esc(t("Steps that matched a fallback locator"))}">${esc(t("drift {n}", { n: row.fallback_hits }))}</span>` : ""}</td>
           <td class="efp-matrix-actions">${actions}</td>
         </tr>
         <tr class="efp-matrix-evidence-row hidden" data-efp-evidence-row="${index}"><td colspan="6"><div data-efp-evidence-slot></div></td></tr>`;
@@ -467,7 +497,7 @@
     return `
       <article class="efp-card efp-matrix">
         <header class="efp-card-head">
-          <strong class="efp-card-title">${esc(doc.suite || "Scenario matrix")}${doc.run ? ` · ${esc(doc.run)}` : ""}</strong>
+          <strong class="efp-card-title">${esc(doc.suite || t("Scenario matrix"))}${doc.run ? ` · ${esc(doc.run)}` : ""}</strong>
           <span class="efp-card-meta">${esc(headline)}</span>
         </header>
         <div class="efp-matrix-bar" aria-hidden="true">
@@ -475,7 +505,7 @@
         </div>
         <div class="message-table-wrap">
           <table class="efp-matrix-table">
-            <thead><tr><th>Scenario</th><th>Result</th><th>Device</th><th>Time</th><th>Triage</th><th></th></tr></thead>
+            <thead><tr><th>${t("Scenario")}</th><th>${t("Result")}</th><th>${t("Device")}</th><th>${t("Time")}</th><th>${t("Triage")}</th><th></th></tr></thead>
             <tbody>${body}</tbody>
           </table>
         </div>
@@ -498,7 +528,7 @@
       }
     }
     if (!doc || !Array.isArray(doc.rows)) {
-      setMessage(container, "This block is not a scenario matrix.", "warning");
+      setMessage(container, t("This block is not a scenario matrix."), "warning");
       return;
     }
     container.innerHTML = matrixHtml(doc, ctx, path ? dirname(path) : "");
@@ -523,8 +553,8 @@
       const warnings = (Array.isArray(item.warnings) ? item.warnings : []).map((w) => `<li>${esc(w)}</li>`).join("");
       const type = String(item.type || "").toLowerCase();
       const typeBadge = type ? `<span class="portal-status-badge is-${type === "negative" ? "warning" : (type === "positive" ? "success" : "info")}">${esc(type)}</span>` : "";
-      const examples = item.examples ? `<span class="efp-card-meta">${esc(item.examples)} example rows</span>` : "";
-      const detail = item.detail ? `<details class="portal-collapsible"><summary class="portal-collapsible-summary"><span>Details</span></summary><pre class="efp-review-detail">${esc(item.detail)}</pre></details>` : "";
+      const examples = item.examples ? `<span class="efp-card-meta">${esc(t("{n} example rows", { n: item.examples }))}</span>` : "";
+      const detail = item.detail ? `<details class="portal-collapsible"><summary class="portal-collapsible-summary"><span>${t("Details")}</span></summary><pre class="efp-review-detail">${esc(item.detail)}</pre></details>` : "";
       return `
         <li class="efp-review-item">
           <label class="efp-review-check">
@@ -539,17 +569,17 @@
     return `
       <article class="efp-card efp-review" data-efp-review-kind="${esc(review.kind || "review")}">
         <header class="efp-card-head">
-          <span class="portal-status-badge is-info">Review</span>
-          <strong class="efp-card-title">${esc(review.title || "Review")}</strong>
+          <span class="portal-status-badge is-info">${t("Review")}</span>
+          <strong class="efp-card-title">${esc(review.title || t("Review"))}</strong>
         </header>
         ${review.summary ? `<p class="efp-card-meta">${esc(review.summary)}</p>` : ""}
         <ul class="efp-review-list">${list}</ul>
-        <label class="portal-form-label"><span class="portal-form-label">Notes for the assistant</span>
-          <textarea class="portal-form-textarea" rows="3" data-efp-review-notes placeholder="What to change, or the missing expected values"></textarea>
+        <label class="portal-form-label"><span class="portal-form-label">${t("Notes for the assistant")}</span>
+          <textarea class="portal-form-textarea" rows="3" data-efp-review-notes placeholder="${esc(t("What to change, or the missing expected values"))}"></textarea>
         </label>
         <div class="efp-card-actions">
-          <button type="button" class="portal-btn is-primary" data-efp-review-decision="approve">${esc(review.approve_label || "Approve selected")}</button>
-          <button type="button" class="portal-btn is-secondary" data-efp-review-decision="changes">Request changes</button>
+          <button type="button" class="portal-btn is-primary" data-efp-review-decision="approve">${esc(review.approve_label || t("Approve selected"))}</button>
+          <button type="button" class="portal-btn is-secondary" data-efp-review-decision="changes">${t("Request changes")}</button>
           <span class="portal-inline-state" data-efp-review-status role="status"></span>
         </div>
       </article>`;
@@ -590,7 +620,7 @@
     });
     const notes = (card.querySelector("[data-efp-review-notes]")?.value || "").trim();
     if (decision === "changes" && !notes && !declined.length) {
-      if (status) status.textContent = "Say what to change, or untick the items to rework.";
+      if (status) status.textContent = t("Say what to change, or untick the items to rework.");
       return;
     }
     card.querySelectorAll("button[data-efp-review-decision]").forEach((button) => { button.disabled = true; });
@@ -604,15 +634,15 @@
         });
         const body = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${resp.status}`);
-        if (status) status.textContent = "Sent. The assistant continues the task.";
+        if (status) status.textContent = t("Sent. The assistant continues the task.");
         const panel = card.closest("#task-detail-panel-root");
         if (panel && window.htmx && panel.parentElement) {
           window.htmx.ajax("GET", `/app/tasks/${encodeURIComponent(ctx.taskId)}/panel`, { target: panel.parentElement, swap: "innerHTML" });
         }
       } else if (sendChatText(reviewDecisionText(review, decision, approved, declined, notes))) {
-        if (status) status.textContent = "Sent to the assistant.";
+        if (status) status.textContent = t("Sent to the assistant.");
       } else {
-        throw new Error("Open the assistant's chat to answer this review.");
+        throw new Error(t("Open the assistant's chat to answer this review."));
       }
     } catch (error) {
       card.querySelectorAll("button[data-efp-review-decision]").forEach((button) => { button.disabled = false; });

@@ -2,17 +2,19 @@
   Panel of one settings connector (Connectors menu). The form partial in
   connector_template holds the fields; the hidden __touch_<section> flags are
   flipped by chat_ui.js when a field in that section changes, and the server
-  only rewrites touched sections.
+  only rewrites touched sections. The connector's label, description and
+  state word come from the registry and are shown through tv().
 #}
+{% set connector_label = tv(connector.label) %}
 <div class="portal-panel-stack" id="connector-settings-panel-root" data-connector-type="{{ connector.type }}" data-connector-mode="{{ connector_mode }}" data-copilot-auth-base="/api/copilot/auth" data-test-base="/app/connectors/{{ connector.type }}/test">
   <section class="portal-panel-section portal-connector-head">
     <div class="portal-connector-head-main">
       <span class="portal-connector-icon" aria-hidden="true"><i data-lucide="{{ connector.icon }}" class="w-5 h-5"></i></span>
       <div class="portal-connector-head-text">
-        <h5>{{ connector.label }}</h5>
-        <p class="portal-panel-note">{{ connector.description }}</p>
+        <h5>{{ tv(connector.label) }}</h5>
+        <p class="portal-panel-note">{{ tv(connector.description) }}</p>
       </div>
-      <span class="portal-connector-state is-{{ connector.state }}" data-connector-state="{{ connector.state }}">{{ connector.status_label }}</span>
+      <span class="portal-connector-state is-{{ connector.state }}" data-connector-state="{{ connector.state }}">{{ tv(connector.status_label) }}</span>
     </div>
   </section>
 
@@ -24,17 +26,17 @@
     <div class="portal-connector-mode-main">
       <div class="portal-connector-mode-text">
         {% if connector_follows_system %}
-        <strong>Follows your administrator's Default connectors</strong>
-        <p class="portal-panel-note">{% if admin_defaults_available %}Changes your administrator makes apply to you automatically. Customize to maintain {{ connector.label }} yourself.{% else %}Your administrator has not set up {{ connector.label }} yet. Customize to set it up yourself.{% endif %}</p>
+        <strong>{{ t("Follows your administrator's Default connectors") }}</strong>
+        <p class="portal-panel-note">{% if admin_defaults_available %}{{ t("Changes your administrator makes apply to you automatically. Customize to maintain {label} yourself.", label=connector_label) }}{% else %}{{ t("Your administrator has not set up {label} yet. Customize to set it up yourself.", label=connector_label) }}{% endif %}</p>
         {% else %}
-        <strong>Maintained by you</strong>
-        <p class="portal-panel-note">Your administrator's changes to Default connectors do not affect {{ connector.label }}. Use the system default to follow them again.</p>
+        <strong>{{ t("Maintained by you") }}</strong>
+        <p class="portal-panel-note">{{ t("Your administrator's changes to Default connectors do not affect {label}. Use the system default to follow them again.", label=connector_label) }}</p>
         {% endif %}
       </div>
       {% if connector_follows_system %}
-      <button type="button" class="portal-btn is-secondary" data-connector-mode-button="custom" hx-post="/app/connectors/{{ connector.type }}/mode" hx-vals='{"mode": "custom"}' hx-target="#workspace-detail-content" hx-swap="innerHTML" hx-disabled-elt="this">Customize</button>
+      <button type="button" class="portal-btn is-secondary" data-connector-mode-button="custom" hx-post="/app/connectors/{{ connector.type }}/mode" hx-vals='{"mode": "custom"}' hx-target="#workspace-detail-content" hx-swap="innerHTML" hx-disabled-elt="this">{{ t("Customize") }}</button>
       {% else %}
-      <button type="button" class="portal-btn is-secondary" data-connector-mode-button="system" hx-post="/app/connectors/{{ connector.type }}/mode" hx-vals='{"mode": "system"}' hx-target="#workspace-detail-content" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="Your {{ connector.label }} settings are replaced by your administrator's Default connectors and saved; from then on their changes apply to you automatically. Idle assistants restart to pick it up; a busy one asks you to restart it when you are ready." data-confirm-title="Use the system default for {{ connector.label }}?" data-confirm-ok="Use system default" data-confirm-danger="1">Use system default</button>
+      <button type="button" class="portal-btn is-secondary" data-connector-mode-button="system" hx-post="/app/connectors/{{ connector.type }}/mode" hx-vals='{"mode": "system"}' hx-target="#workspace-detail-content" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="{{ t('Your {label} settings are replaced by your administrator\'s Default connectors and saved; from then on their changes apply to you automatically. Idle assistants restart to pick it up; a busy one asks you to restart it when you are ready.', label=connector_label) }}" data-confirm-title="{{ t('Use the system default for {label}?', label=connector_label) }}" data-confirm-ok="{{ t('Use system default') }}" data-confirm-danger="1">{{ t("Use system default") }}</button>
       {% endif %}
     </div>
   </section>
@@ -52,10 +54,10 @@
 
     <div class="portal-connector-save-row">
       {% if connector_follows_system %}
-      <span class="portal-inline-note">These values are your administrator's Default connectors and change with them. Test runs on them; to edit them, choose Customize above.</span>
+      <span class="portal-inline-note">{{ t("These values are your administrator's Default connectors and change with them. Test runs on them; to edit them, choose Customize above.") }}</span>
       {% else %}
-      <button type="submit" class="portal-btn is-primary">Save</button>
-      <span class="portal-inline-note">Applies to all your assistants. Idle ones restart to pick it up; one that is busy keeps working and asks you to restart it when you are ready.</span>
+      <button type="submit" class="portal-btn is-primary">{{ t("Save") }}</button>
+      <span class="portal-inline-note">{{ t("Applies to all your assistants. Idle ones restart to pick it up; one that is busy keeps working and asks you to restart it when you are ready.") }}</span>
       {% endif %}
     </div>
   </form>

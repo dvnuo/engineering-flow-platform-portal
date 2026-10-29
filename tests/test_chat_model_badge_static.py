@@ -35,7 +35,7 @@ def test_model_attribution_helpers_read_runtime_fields_and_render_a_badge():
     # "Auto -> GPT-6 Luna", "Auto (Efficiency) -> ...": the requested auto id's
     # own label leads, the tier goes to the tooltip.
     assert "inferenceModelLabel(assistantModelBareId(requested))} \\u2192 ${label}" in helpers
-    assert "if (attribution.autoTier) lines.push(`Tier: ${attribution.autoTier}`);" in helpers
+    assert 'if (attribution.autoTier) lines.push(t("Tier: {tier}", { tier: attribution.autoTier }));' in helpers
     assert 'const classes = ["message-model"];' in helpers
     assert "message-model-fallback" in helpers
     # The cost rides in the same tooltip, after the model lines, and the badge

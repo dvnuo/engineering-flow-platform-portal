@@ -57,13 +57,13 @@
     if (!skill.callable && skill.blockedReason) {
       lines.push(skill.blockedReason);
     } else if (!skill.callable) {
-      lines.push("This skill is not callable on the current runtime.");
+      lines.push(t("This skill is not callable on the current runtime."));
     }
     if (skill.url) {
-      lines.push(`Open the source on ${skill.branch}`);
+      lines.push(t("Open the source on {branch}", { branch: skill.branch }));
     } else if (skill.branch) {
       // Says why the chip is not a link, rather than leaving a dead-looking one.
-      lines.push("Source link unavailable for this assistant.");
+      lines.push(t("Source link unavailable for this assistant."));
     }
     return lines.join("\n\n") || skill.command;
   }

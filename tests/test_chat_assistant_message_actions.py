@@ -68,7 +68,7 @@ const article = {{
 const copied = getAssistantCopyText(article);
 console.log(JSON.stringify({{ copied }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["copied"] == "# Hello\n\n```js\nx\n```"
     assert "Rendered toolbar" not in payload["copied"]
@@ -108,7 +108,7 @@ const article = {{
 }};
 console.log(JSON.stringify({{ copied: getAssistantCopyText(article) }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["copied"] == "console.log(1)"
     assert "Copy" not in payload["copied"]
@@ -148,7 +148,7 @@ const article = {{
 }};
 console.log(JSON.stringify({{ copied: getAssistantCopyText(article) }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert "A | B" in payload["copied"]
     assert "1 | 2" in payload["copied"]
@@ -170,7 +170,7 @@ const first = {{ nextElementSibling: second, matches: () => false }};
 const row = {{ nextElementSibling: first }};
 console.log(JSON.stringify({{ result: hasFollowingMessageRows(row) }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result"] is True
 
@@ -232,7 +232,7 @@ async function fetch(url) {{
   console.log(JSON.stringify({{ deletedUrls }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["deletedUrls"], "expected retryAssistantMessage to call delete-from-here"
     assert "/messages/u2/delete-from-here" in payload["deletedUrls"][0]
@@ -257,11 +257,11 @@ def test_message_mutation_failure_uses_friendly_runtime_error_helper():
     # Assert the helper is used with the right fallback, not the exact call text:
     # these pinned the pre-{ variant: 'error' } signature and broke on a cosmetic
     # argument, while the behaviour they guard never changed.
-    assert 'getRuntimeMutationErrorMessage(response, result, "Failed to delete message")' in retry_block
+    assert 'getRuntimeMutationErrorMessage(response, result, t("Failed to delete message"))' in retry_block
     assert "showToast(getRuntimeMutationErrorMessage(response, result" in retry_block
-    assert 'getRuntimeMutationErrorMessage(response, result, "Failed to edit message")' in edit_block
+    assert 'getRuntimeMutationErrorMessage(response, result, t("Failed to edit message"))' in edit_block
     assert "showToast(message" in edit_block
-    assert js_source.count('getRuntimeMutationErrorMessage(response, {}, "Failed to delete message")') >= 1
+    assert js_source.count('getRuntimeMutationErrorMessage(response, {}, t("Failed to delete message"))') >= 1
 
 
 def test_chat_stream_final_payload_preserves_assistant_message_id():
@@ -340,7 +340,7 @@ function handleAgentEventMessage() {{}}
   console.log(JSON.stringify({{ resultTopLevel, capturedTopLevel, resultNested, capturedNested: captured }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["resultTopLevel"] == "final"
     assert payload["capturedTopLevel"]["user_message_id"] == "u-1"
@@ -377,7 +377,7 @@ const normalized = normalizeRuntimeEvent({{
 }});
 console.log(JSON.stringify(normalized));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["type"] == "llm_thinking"
     assert payload["data"]["message"] == "thinking text"
@@ -421,7 +421,7 @@ async function handleAgentChatSuccess() {{}}
   console.log(JSON.stringify({{ result, streamedText: requestCtx.streamedText, updatesLen: updates.length }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result"] == "event"
     assert payload["streamedText"] == ""
@@ -460,7 +460,7 @@ async function handleAgentChatSuccess() {{}}
   console.log(JSON.stringify({{ streamedText: requestCtx.streamedText, updates, updatesLen: updates.length }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["streamedText"] == ""
     assert payload["updatesLen"] == 0
@@ -511,7 +511,7 @@ async function handleAgentChatSuccess() {{}}
   console.log(JSON.stringify({{ streamedText: requestCtx.streamedText, lastUpdate: updates[updates.length - 1] }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["streamedText"] == "Hello"
     assert payload["lastUpdate"] == "Hello"
@@ -559,7 +559,7 @@ async function handleAgentChatSuccess() {{}}
   console.log(JSON.stringify({{ result, streamedText: requestCtx.streamedText, updatesLen: updates.length }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result"] == "event"
     assert payload["streamedText"] == ""
@@ -617,7 +617,7 @@ async function handleAgentChatSuccess() {{}}
   console.log(JSON.stringify({{ result, streamedText: requestCtx.streamedText, updatesLen: updates.length, lastUpdate: updates[updates.length - 1] }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result"] == "delta"
     assert payload["streamedText"] == "hi"
@@ -694,7 +694,7 @@ const COMPLETION_RUNTIME_STATES = new Set(["complete", "completed", "done", "fin
   console.log(JSON.stringify({{ captured, seenTypes }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert len(payload["captured"]) == 1
     assert payload["captured"][0]["response"] == "good final"
@@ -751,7 +751,7 @@ function handleAgentEventMessage() {{}}
   console.log(JSON.stringify({{ first, second, capturedAfterFirst, capturedAfterSecond: captured }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["first"] != "final"
     assert payload["capturedAfterFirst"] is None
@@ -798,7 +798,7 @@ function handleAgentEventMessage() {{}}
   console.log(JSON.stringify({{ result, captured }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result"] == "final"
     assert payload["captured"]["response"] == "full response"
@@ -858,7 +858,7 @@ function handleAgentEventMessage() {{}}
   console.log(JSON.stringify({{ result, captured, candidate: requestCtx.streamFinalCandidate }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result"] == "candidate_final"
     assert payload["captured"] is None
@@ -891,7 +891,7 @@ console.log(JSON.stringify({{
   explicitFinal: getChatStreamEventType("final", {{ type: "complete" }})
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["contextSnapshot"] == "progress"
     assert payload["complete"] == "progress"
@@ -939,7 +939,7 @@ function handleAgentEventMessage() {{}}
   console.log(JSON.stringify({{ result1, result2, captured }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result1"] != "final"
     assert payload["result2"] != "final"
@@ -986,7 +986,7 @@ function handleAgentEventMessage() {{}}
   console.log(JSON.stringify({{ result, captured }}));
 }})();
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["result"] != "final"
     assert payload["captured"] is None
@@ -1012,7 +1012,7 @@ console.log(JSON.stringify({{
   streamed: hasChatStreamFinalPayload({{}}, "streamed text")
 }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
     assert payload["idsOnly"] is False
     assert payload["contextOnly"] is False
@@ -1053,7 +1053,7 @@ const friendly = getRuntimeMutationErrorMessage(
 );
 console.log(JSON.stringify({{ unsupported, passthrough, fallback, friendly }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
 
     assert payload["unsupported"] == (
@@ -1085,7 +1085,7 @@ const withId = buildAssistantMessageArticle("hello", [], "Assistant", "a-123");
 const withoutId = buildAssistantMessageArticle("hello", [], "Assistant");
 console.log(JSON.stringify({{ withId, withoutId }}));
 """
-    completed = subprocess.run([node_bin, "-e", script], capture_output=True, text=True, check=True)
+    completed = subprocess.run([node_bin], input=script, capture_output=True, encoding="utf-8", check=True)
     payload = json.loads(completed.stdout)
 
     assert 'data-message-id="a-123"' in payload["withId"]

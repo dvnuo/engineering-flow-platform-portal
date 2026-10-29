@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.i18n import t
 from app.models.agent import Agent
 from app.models.agent_task import AgentTask
 from app.models.delegation_rule import DelegationRule, DelegationRuleRun
@@ -69,17 +70,67 @@ def _tone_for_agent_status(status: str | None) -> str:
     return "neutral"
 
 
+def _status_label(status: str | None) -> str:
+    """A task or run status as a label ("Pending restart"), in the request's language.
+
+    Built per call rather than at import time so ``t()`` sees the request's locale.
+    """
+    key = _status_key(status)
+    labels = {
+        "queued": t("Queued"),
+        "running": t("Running"),
+        "pending_restart": t("Pending restart"),
+        "blocked": t("Blocked"),
+        "stale": t("Stale"),
+        "failed": t("Failed"),
+        "cancel_failed": t("Cancel failed"),
+        "error": t("Error"),
+        "done": t("Done"),
+        "success": t("Success"),
+        "completed": t("Completed"),
+        "cancelled": t("Cancelled"),
+        "pending": t("Pending"),
+        "unknown": t("Unknown"),
+    }
+    return labels.get(key) or key.replace("_", " ").title()
+
+
+def _status_word(status: str | None) -> str:
+    """A task or run status inside a sentence ("running on Reviewer", "last success")."""
+    key = _status_key(status)
+    words = {
+        "queued": t("queued"),
+        "running": t("running"),
+        "pending_restart": t("pending restart"),
+        "blocked": t("blocked"),
+        "stale": t("stale"),
+        "failed": t("failed"),
+        "cancel_failed": t("cancel failed"),
+        "error": t("error"),
+        "done": t("done"),
+        "success": t("success"),
+        "completed": t("completed"),
+        "cancelled": t("cancelled"),
+        "pending": t("pending"),
+        "unknown": t("unknown"),
+        "never": t("never"),
+    }
+    return words.get(key) or key.replace("_", " ")
+
+
 def _health_summary(*, critical: int, warning: int, subject: str, total: int) -> dict[str, Any]:
+    # The headlines are whole sentences per subject ("Tasks" or "Delegations")
+    # so each language can phrase them; t() runs here, at request time.
+    delegations = subject.strip().lower() == "delegations"
     # An empty system is not a healthy system. Scoring 100/100 and "running
     # smoothly" with nothing to report reads as real data and hides the fact
     # that there is nothing here yet.
     if total <= 0:
-        lowered = subject.lower()
         return {
             "score": None,
-            "label": "No data",
+            "label": t("No data"),
             "tone": "neutral",
-            "headline": f"No {lowered} yet",
+            "headline": t("No delegations yet") if delegations else t("No tasks yet"),
             "critical": 0,
             "warning": 0,
             "empty": True,
@@ -87,17 +138,17 @@ def _health_summary(*, critical: int, warning: int, subject: str, total: int) ->
 
     score = max(0, min(100, 100 - critical * 14 - warning * 6))
     if critical > 0:
-        label = "Needs attention"
+        label = t("Needs attention")
         tone = "error"
-        headline = f"Action is needed on {subject.lower()}"
+        headline = t("Action is needed on delegations") if delegations else t("Action is needed on tasks")
     elif warning > 0:
-        label = "Watch"
+        label = t("Watch")
         tone = "warning"
-        headline = f"A few {subject.lower()} need attention"
+        headline = t("A few delegations need attention") if delegations else t("A few tasks need attention")
     else:
-        label = "Healthy"
+        label = t("Healthy")
         tone = "success"
-        headline = f"{subject} are running smoothly"
+        headline = t("Delegations are running smoothly") if delegations else t("Tasks are running smoothly")
     return {
         "score": score,
         "label": label,
@@ -257,7 +308,7 @@ class WorkOverviewService:
         return [
             {
                 "status": status,
-                "label": status.replace("_", " ").title(),
+                "label": _status_label(status),
                 "count": int(count),
                 "percent": _percent(int(count), total),
                 "tone": _tone_for_task_status(status),
@@ -271,10 +322,10 @@ class WorkOverviewService:
     ) -> list[dict[str, Any]]:
         segment_total = max(total, due + failed, enabled + disabled)
         items = [
-            ("Enabled", enabled, "success"),
-            ("Due", due, "warning"),
-            ("Failed", failed, "error"),
-            ("Disabled", disabled, "neutral"),
+            (t("Enabled"), enabled, "success"),
+            (t("Due"), due, "warning"),
+            (t("Failed"), failed, "error"),
+            (t("Disabled"), disabled, "neutral"),
         ]
         return [
             {"label": label, "count": count, "percent": _percent(count, segment_total), "tone": tone}
@@ -291,7 +342,11 @@ class WorkOverviewService:
                 {
                     "tone": _tone_for_task_status(task.status),
                     "title": task.title or task.summary or task.task_type or task.id,
-                    "meta": f"{_status_key(task.status)} on {(agent.name if agent else task.assignee_agent_id)}",
+                    "meta": t(
+                        "{status} on {agent}",
+                        status=_status_word(task.status),
+                        agent=(agent.name if agent else task.assignee_agent_id),
+                    ),
                     "timestamp": task.updated_at or task.created_at,
                     "target_id": task.id,
                 }
@@ -342,8 +397,8 @@ class WorkOverviewService:
             items.append(
                 {
                     "tone": "error",
-                    "title": "Delegation run failed",
-                    "meta": run.error_message or f"Rule {run.rule_id}",
+                    "title": t("Delegation run failed"),
+                    "meta": run.error_message or t("Rule {id}", id=run.rule_id),
                     "timestamp": run.finished_at or run.started_at,
                     "target_id": run.rule_id,
                 }
@@ -353,7 +408,7 @@ class WorkOverviewService:
                 {
                     "tone": "warning",
                     "title": rule.name,
-                    "meta": "Scheduled run is due",
+                    "meta": t("Scheduled run is due"),
                     "timestamp": rule.next_run_at or rule.updated_at or rule.created_at,
                     "target_id": rule.id,
                 }
@@ -363,7 +418,7 @@ class WorkOverviewService:
                 {
                     "tone": "warning",
                     "title": rule.name,
-                    "meta": "Target agent is missing or not visible",
+                    "meta": t("Target agent is missing or not visible"),
                     "timestamp": rule.updated_at or rule.created_at,
                     "target_id": rule.id,
                 }
@@ -401,8 +456,9 @@ class WorkOverviewService:
                     "name": rule.name,
                     "enabled": rule.enabled,
                     "source": rule.trigger_type or rule.source_type,
-                    "agent_name": agent.name if agent else "Missing target",
+                    "agent_name": agent.name if agent else t("Missing target"),
                     "last_status": _status_key(run.status) if run else "never",
+                    "last_status_label": _status_word(run.status if run else "never"),
                     "last_status_tone": last_status_tone,
                     "row_tone": row_tone,
                     "is_due": is_due,
@@ -427,8 +483,8 @@ class WorkOverviewService:
             items.append(
                 {
                     "tone": _tone_for_run_status(run.status),
-                    "title": rule.name if rule else "Delegation run",
-                    "meta": _status_key(run.status),
+                    "title": rule.name if rule else t("Delegation run"),
+                    "meta": _status_word(run.status),
                     "timestamp": run.finished_at or run.started_at,
                     "target_id": run.rule_id,
                 }

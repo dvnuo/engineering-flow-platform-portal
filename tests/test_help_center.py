@@ -289,10 +289,10 @@ def test_the_secondary_pane_is_titled_help():
     header = _extract_js_function(js, "renderSecondaryPaneHeader")
 
     assert 'state.activeNavSection === "help"' in header
-    assert 'dom.secondaryPaneTitle.textContent = "Help"' in header
+    assert 'dom.secondaryPaneTitle.textContent = t("Help")' in header
     # And on a cold load of #/help/..., before the router has run.
-    assert 'if (section === "help") return "Help";' in _extract_js_function(js, "initialPortalSectionTitle")
-    assert 'if (section === "users" || section === "help") return "Portal";' in _extract_js_function(
+    assert 'if (section === "help") return t("Help");' in _extract_js_function(js, "initialPortalSectionTitle")
+    assert 'if (section === "users" || section === "help") return t("Portal");' in _extract_js_function(
         js, "portalSectionEyebrow"
     )
 

@@ -1,4 +1,5 @@
-{#- One help topic. The prose is app/help/<id>.md, handed to the browser in
+{#- One help topic. The prose is app/help/<id>.md (or its translation in
+    app/help/<locale>/<id>.md), handed to the browser in
     data-help-markdown and rendered there by renderHelpMarkdown (chat_ui.js).
     The steps and troubleshooting lines come from connection_guidance, shared
     with the form the topic describes. -#}
@@ -9,12 +10,16 @@
       <p class="portal-panel-note">{{ topic.summary }}</p>
     </div>
   </div>
+  {#- A topic not translated into the page's language yet is shown in English, and says so. -#}
+  {% if topic.body and topic.body_locale != current_locale() %}
+  <p class="portal-panel-note portal-help-untranslated">{{ t("This guide has not been translated yet, so it is shown in English.") }}</p>
+  {% endif %}
 
   {% if topic.steps %}
   <section class="portal-panel-section">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>Steps</h6>
+      <h6>{{ t("Steps") }}</h6>
     </div>
     <ol class="portal-help-steps">
       {% for step in topic.steps %}<li>{{ step }}</li>{% endfor %}
@@ -23,7 +28,7 @@
     <a class="portal-btn is-secondary portal-help-external" href="{{ topic.help_url }}"
        target="_blank" rel="noopener noreferrer">
       <i data-lucide="external-link" class="w-4 h-4"></i>
-      {{ topic.help_label or "Open the setup page" }}
+      {{ topic.help_label or t("Open the setup page") }}
     </a>
     {% endif %}
   </section>
@@ -39,7 +44,7 @@
   <section class="portal-panel-section">
     <div class="portal-settings-section-title">
       <span class="portal-section-accent" aria-hidden="true"></span>
-      <h6>If it stops working</h6>
+      <h6>{{ t("If it stops working") }}</h6>
     </div>
     <ul class="portal-help-steps">
       {% for line in topic.troubleshooting %}<li>{{ line }}</li>{% endfor %}
@@ -51,9 +56,9 @@
   <div class="portal-help-footer">
     <button type="button" class="portal-btn is-primary" data-help-open-connections="{{ topic.connector_type or '' }}">
       <i data-lucide="plug-zap" class="w-4 h-4"></i>
-      Open {{ topic.connector_label or "Connectors" }}
+      {{ t("Open {name}", name=(topic.connector_label or t("Connectors"))) }}
     </button>
-    <span class="portal-panel-note">Set it up once in Connectors; every assistant of yours uses it.</span>
+    <span class="portal-panel-note">{{ t("Set it up once in Connectors; every assistant of yours uses it.") }}</span>
   </div>
   {% endif %}
 </div>
