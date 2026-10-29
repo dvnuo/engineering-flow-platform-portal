@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -108,14 +109,18 @@ def test_marked_keys_are_translated_when_shown(pseudo_catalogues):
 
 
 def test_bootstrap_json_is_safe_inside_a_script_element(monkeypatch):
-    monkeypatch.setattr(i18n, "_catalogues", {"zh-Hans": {"</script>": "</script> [hans]", "Sign out": "[hans] Sign out"}})
+    messages = {
+        "</script>": "</script> [hans]",
+        "<!-- <script>": "a & b ]]>",
+        "line\u2028break": "para\u2029break",
+        "Sign out": "[hans] Sign out",
+    }
+    monkeypatch.setattr(i18n, "_catalogues", {"zh-Hans": dict(messages)})
     try:
         payload = i18n.i18n_bootstrap("zh-Hans")
-        assert "</" not in payload
-        assert json.loads(payload.replace("<\\/", "</")) == {
-            "locale": "zh-Hans",
-            "messages": {"</script>": "</script> [hans]", "Sign out": "[hans] Sign out"},
-        }
+        for sequence in ("</", "<!--", "<script", "]]>", "&", "\u2028", "\u2029"):
+            assert sequence not in payload
+        assert json.loads(payload) == {"locale": "zh-Hans", "messages": messages}
         assert i18n.i18n_bootstrap("en") == '{"locale":"en","messages":{}}'
         assert i18n.i18n_bootstrap("fr") == '{"locale":"en","messages":{}}'
     finally:
@@ -184,7 +189,7 @@ def test_the_check_script_reads_keys_and_reports_what_is_wrong(tmp_path):
         '// a method called t() is not a key: obj.t("nope"); and neither is at("nope")\n',
         encoding="utf-8",
     )
-    (tmp_path / "app" / "ui.py").write_text('label = t("Member")\nmessage = "中文"\n', encoding="utf-8")
+    (tmp_path / "app" / "ui.py").write_text('label = t("Member")\nmessage = "\u4e2d\u6587"\n', encoding="utf-8")
     locale_dir = tmp_path / "app" / "locale"
     locale_dir.mkdir()
     (locale_dir / "zh-Hans.json").write_text(
@@ -231,6 +236,48 @@ def test_the_check_script_reads_keys_and_reports_what_is_wrong(tmp_path):
     assert list(filled) == ["Copied", "Hello {name}", "Member", "one file|{n} files", "one item|{n} items", "Open it"]
     hans = json.loads((locale_dir / "zh-Hans.json").read_text(encoding="utf-8"))
     assert hans["Gone"] == "x" and hans["Member"] == ""
+
+
+def test_the_check_script_wants_the_whole_key_as_one_literal(tmp_path):
+    check = _load_check_script()
+    templates = tmp_path / "app" / "templates"
+    templates.mkdir(parents=True)
+    (templates / "page.html").write_text(
+        '{{ t("Hello " ~ name) }}\n{{ t("Shown" if ok else "Hidden") }}\n', encoding="utf-8"
+    )
+    js_dir = tmp_path / "app" / "static" / "js"
+    js_dir.mkdir(parents=True)
+    (js_dir / "ui.js").write_text('a = t("Saved " + name);\nb = tn(n, "one row", "{n} rows" + suffix);\n', encoding="utf-8")
+    (tmp_path / "app" / "ui.py").write_text(
+        'label = t("Part one" " and two")\nfine = t(\n    "Fine",\n)\n', encoding="utf-8"
+    )
+
+    keys, errors = check.extract_keys(tmp_path)
+
+    # Each of these looks a different key up at run time than the one the
+    # script would read, so none of them is accepted.
+    assert [key.text for key in keys] == ["Fine"]
+    assert sorted(error.split(": ", 1)[1] for error in errors) == [
+        "t() needs a plain string literal as its key",
+        "t() needs a plain string literal as its key",
+        "t() needs a plain string literal as its key",
+        "t() needs a plain string literal as its key",
+        "tn() needs a plain string literal for its plural form",
+    ]
+
+
+def test_the_check_script_reports_a_dropped_placeholder(tmp_path):
+    check = _load_check_script()
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "ui.py").write_text('label = t("Shared by {name}")\n', encoding="utf-8")
+    locale_dir = tmp_path / "app" / "locale"
+    locale_dir.mkdir()
+    for locale in ("zh-Hans", "zh-Hant-HK"):
+        (locale_dir / f"{locale}.json").write_text(json.dumps({"Shared by {name}": "[x] Shared"}), encoding="utf-8")
+
+    report = io.StringIO()
+    assert check.run([], repo=tmp_path, out=report) == 1
+    assert "translation of 'Shared by {name}' drops placeholders the key has: ['name']" in report.getvalue()
 
 
 def test_the_check_script_decodes_escapes_like_the_page_does(tmp_path):
@@ -384,6 +431,22 @@ def test_i18n_js_without_a_catalogue_is_english():
         "console.log(JSON.stringify({ locale: window.EFP_I18N.locale, one: tn(1, 'one file', '{n} files'), many: tn(2, 'one file', '{n} files'), text: t('Sign out') }));\n"
     )
     assert out == {"locale": "en", "one": "one file", "many": "2 files", "text": "Sign out"}
+
+
+def test_first_party_scripts_never_shadow_the_translation_helpers():
+    # A local ``t`` (a timestamp span, a loop variable) would turn every
+    # ``t("...")`` in its scope into a TypeError on that path only.
+    declaration = re.compile(r"\b(?:const|let|var|function)\s+(?:t|tn|tv|N_)\s*[=(]")
+    parameter = re.compile(r"(?:\(\s*|,\s*)(?:t|tn|tv|N_)\s*(?:[,)=]|=>)|\b(?:t|tn|tv|N_)\s*=>")
+    offenders = []
+    for path in sorted((REPO / "app" / "static" / "js").rglob("*.js")):
+        if path.name == "i18n.js":
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("//", 1)[0]
+            if declaration.search(code) or parameter.search(code.replace("t(", "")):
+                offenders.append(f"{path.relative_to(REPO).as_posix()}:{number}: {line.strip()[:80]}")
+    assert offenders == []
 
 
 def test_extracted_functions_carry_an_idempotent_stub():

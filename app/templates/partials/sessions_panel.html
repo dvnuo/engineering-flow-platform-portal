@@ -15,7 +15,7 @@
             type="button"
             class="sessions-item-main"
             data-session-id="{{ session.session_id }}"
-            data-session-name="{{ session.name or t('New Chat') }}"
+            data-session-name="{{ session.name or '' }}"
             data-session-name-source="{{ session.name_source or '' }}"
             title="{{ session.name or t('New Chat') }}"
           >
@@ -60,7 +60,7 @@
                 class="sessions-item-action{% if session.is_shared %} is-shared{% endif %}"
                 data-session-action="share"
                 data-session-id="{{ session.session_id }}"
-                data-session-name="{{ session.name or t('New Chat') }}"
+                data-session-name="{{ session.name or '' }}"
                 aria-label="{{ t('Manage the share link') if session.is_shared else t('Share session') }}"
                 title="{{ t('Shared: manage the link') if session.is_shared else t('Share session (read only)') }}"
               >
@@ -71,7 +71,7 @@
                 class="sessions-item-action"
                 data-session-action="rename"
                 data-session-id="{{ session.session_id }}"
-                data-session-name="{{ session.name or t('New Chat') }}"
+                data-session-name="{{ session.name or '' }}"
                 aria-label="{{ t('Rename session') }}"
                 title="{{ t('Rename session') }}"
               >
@@ -82,7 +82,7 @@
                 class="sessions-item-action is-danger"
                 data-session-action="delete"
                 data-session-id="{{ session.session_id }}"
-                data-session-name="{{ session.name or t('New Chat') }}"
+                data-session-name="{{ session.name or '' }}"
                 aria-label="{{ t('Delete session') }}"
                 title="{{ t('Delete session') }}"
               >

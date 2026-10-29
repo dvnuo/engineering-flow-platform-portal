@@ -62,10 +62,13 @@ def load_catalogue(locale: str) -> dict[str, str]:
 
 
 def reload_catalogues() -> None:
-    """Re-read every catalogue from disk (tests, and whoever edits a catalogue on a running Portal)."""
-    _catalogues.clear()
-    for locale in SUPPORTED_LOCALES:
-        _catalogues[locale] = load_catalogue(locale)
+    """Re-read every catalogue from disk (tests, and whoever edits a catalogue on a running Portal).
+
+    The new set replaces the old one in a single assignment, so a request
+    running alongside never sees some locales loaded and others not.
+    """
+    global _catalogues
+    _catalogues = {locale: load_catalogue(locale) for locale in SUPPORTED_LOCALES}
 
 
 def catalogue(locale: str) -> Mapping[str, str]:
@@ -155,7 +158,17 @@ def bootstrap_payload(locale: Optional[str] = None) -> dict[str, Any]:
 def i18n_bootstrap(locale: Optional[str] = None) -> str:
     """The JSON ``i18n.js`` reads, safe to inline in a ``<script>`` element."""
     payload = bootstrap_payload(locale)
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    # As Jinja's tojson does: no "</script>", "<!--" or "]]>" can form inside
+    # the element, and the two line separators JSON allows raw (but older
+    # JavaScript parsers do not) are escaped too.
+    return (
+        text.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 def template_globals() -> dict[str, Any]:

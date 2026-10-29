@@ -23,7 +23,7 @@ from app.services.help_center import HELP_DIR, NON_TOPIC_FILES, load_documents, 
 TRANSLATED_LOCALES = ("zh-Hans", "zh-Hant-HK")
 FENCE_RE = re.compile(r"^\s*```", re.M)
 INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
-CJK_RE = re.compile("[一-鿿]")
+CJK_RE = re.compile("[\u4e00-\u9fff]")
 
 
 def _write(path: Path, text: str) -> None:
@@ -149,7 +149,7 @@ def test_a_translation_keeps_the_structure_of_its_english_topic(locale, topic):
     assert english_path.is_file(), f"{locale}/{topic}.md has no English topic"
     english_text = english_path.read_text(encoding="utf-8-sig")
     translated_text = (HELP_DIR / locale / f"{topic}.md").read_text(encoding="utf-8")
-    assert not translated_text.startswith("﻿"), "write translations without a BOM"
+    assert not translated_text.startswith("\ufeff"), "write translations without a BOM"
 
     english_meta, english_body = split_front_matter(english_text)
     translated_meta, translated_body = split_front_matter(translated_text)

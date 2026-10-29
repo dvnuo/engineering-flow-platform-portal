@@ -6214,7 +6214,9 @@ async function renderMermaidSvg(mermaid, theme, source, { exportable = false } =
   const id = `portal-mermaid-${mermaidRenderSeq}`;
   const result = await mermaid.render(id, source);
   const svg = String(result?.svg || "");
-  if (!svg) throw new Error(t("the renderer produced no output"));
+  // English like the renderer's own errors: the message also goes into the
+  // fix request the model reads.
+  if (!svg) throw new Error("the renderer produced no output");
   const entry = { id, svg };
   mermaidSvgCache.set(key, entry);
   return entry;
@@ -11187,11 +11189,7 @@ function setToolPanel(title, contentHtml, panelKey = null, { persistPreference =
   state.detailOpen = panelKey === "details";
   state.activeUtilityPanel = normalizeUtilityPanelKey(panelKey);
   dom.toolPanelTitle.textContent = title;
-  if (typeof contentHtml === 'string' && contentHtml.startsWith('Failed:')) {
-    dom.toolPanelBody.textContent = contentHtml.replace('Failed: ', '');
-  } else {
-    dom.toolPanelBody.innerHTML = contentHtml;
-  }
+  dom.toolPanelBody.innerHTML = contentHtml;
   openToolPanel();
   if (persistPreference) {
     persistUiLayoutPreferences({ includeSecondaryPane: false, includeToolPanel: true });
@@ -11222,7 +11220,7 @@ async function openSessionsPanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel(t("Sessions"), t("Failed: {error}", { error: safe(error.message) }), "sessions");
+    setToolPanel(t("Sessions"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "sessions");
     setChatStatus(t("Failed to load sessions"), true);
   }
 }
@@ -12277,7 +12275,7 @@ function renderChatHistory(messages, metadata = {}) {
       const container = document.createElement("div"); container.className = "message-row message-row-user";
       const header = document.createElement("div"); header.className = "message-meta message-meta-user";
       const roleLabel = document.createElement("span"); roleLabel.className = "message-author"; roleLabel.textContent = getHistoryMessageDisplayName(message, true); header.appendChild(roleLabel);
-      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      if (timeStr) { const timeEl = document.createElement("span"); timeEl.className = "message-timestamp"; timeEl.textContent = timeStr; header.appendChild(timeEl); }
       container.appendChild(header);
       const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id; if (message.metadata?.internal_model_content_hidden) article.dataset.internalModelContentHidden = "1";
       const content = document.createElement("div"); content.className = "message-body"; content.textContent = getHistoryUserVisibleContent(message); article.appendChild(content);
@@ -12311,7 +12309,7 @@ function renderChatHistory(messages, metadata = {}) {
       const author = document.createElement("span"); author.className = "message-author"; author.textContent = getHistoryMessageDisplayName(first, false); header.appendChild(author);
       let timeStr = "";
       if (last?.timestamp || last?.created_at || first?.timestamp || first?.created_at) { try { timeStr = new Date(last.timestamp || last.created_at || first.timestamp || first.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (e) {} }
-      if (timeStr) { const t = document.createElement("span"); t.className = "message-timestamp"; t.textContent = timeStr; header.appendChild(t); }
+      if (timeStr) { const timeEl = document.createElement("span"); timeEl.className = "message-timestamp"; timeEl.textContent = timeStr; header.appendChild(timeEl); }
       const modelBadgeHtml = (typeof buildAssistantModelBadgeHtml === "function" && typeof latestAssistantModelAttribution === "function")
         ? buildAssistantModelBadgeHtml(latestAssistantModelAttribution(entry.messages), typeof latestAssistantUsageSummary === "function" ? latestAssistantUsageSummary(entry.messages) : null)
         : "";
@@ -13021,16 +13019,20 @@ function updateSessionsPanelRowShare(sessionId, shared) {
 function updateSessionsPanelRowName(sessionId, name, source) {
   const normalizedSessionId = String(sessionId || "").trim();
   if (!normalizedSessionId) return;
-  const displayName = String(name || "").trim() || t("New Chat");
+  // The data attribute carries the session's own name, empty when it has
+  // none: the rename prompt and the share title read it, so the placeholder
+  // shown in the member's language must not become stored data.
+  const storedName = String(name || "").trim();
+  const displayName = storedName || t("New Chat");
   document.querySelectorAll(`.sessions-item-main${sessionRowSelector(normalizedSessionId)}`).forEach((row) => {
     const title = row.querySelector(".sessions-item-title");
     if (title) title.textContent = displayName;
-    row.dataset.sessionName = displayName;
+    row.dataset.sessionName = storedName;
     row.dataset.sessionNameSource = String(source || "");
     row.title = displayName;
   });
   document.querySelectorAll(`[data-session-action]${sessionRowSelector(normalizedSessionId)}`).forEach((button) => {
-    button.dataset.sessionName = displayName;
+    button.dataset.sessionName = storedName;
   });
 }
 
@@ -13831,7 +13833,7 @@ async function openSkillsPanel() {
       state.cachedSkills = mapped;
     }
   } catch (error) {
-    setToolPanel(t("Skills"), t("Failed: {error}", { error: safe(error.message) }), "skills");
+    setToolPanel(t("Skills"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "skills");
   }
 }
 
@@ -13848,7 +13850,7 @@ async function openUsagePanel() {
       swap: "innerHTML",
     });
   } catch (error) {
-    setToolPanel(t("Usage"), t("Failed: {error}", { error: safe(error.message) }), "usage");
+    setToolPanel(t("Usage"), `<div class="portal-inline-state is-error">${t("Failed: {error}", { error: safe(error.message) })}</div>`, "usage");
   }
 }
 

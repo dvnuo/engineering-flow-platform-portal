@@ -9,11 +9,14 @@ Checks:
 
 - the first argument of every ``t("...")`` / ``N_("...")`` and the two forms
   of every ``tn(n, "...", "...")`` in templates, first-party JavaScript and
-  Python are plain string literals, since the keys are extracted from the
-  source (``tv(value)`` translates a value at run time and is not a key);
+  Python are plain string literals, each one a whole argument (no
+  concatenation, condition or adjacent literal after it), since the keys are
+  extracted from the source (``tv(value)`` translates a value at run time and
+  is not a key);
 - every key in use has a non-empty translation in each catalogue (missing
   keys are errors, so a slice is translated in the PR that wraps it);
-- a translation's ``{placeholders}`` are a subset of the English key's;
+- a translation has exactly the English key's ``{placeholders}`` (``{n}`` is
+  implied for a plural key);
 - catalogue entries nothing uses any more are reported as orphans (warnings);
 - Chinese characters appear only in the catalogues and under
   ``app/help/<locale>/``: the source stays English and ASCII.
@@ -40,7 +43,7 @@ TEXT_SUFFIXES = {".html", ".js", ".py", ".css", ".md", ".json", ".yaml", ".yml",
 # a data table as a key without translating it (shown later through tv()).
 CALL_RE = re.compile(r"(?<![\w.$])(tn|t|N_)\(")
 PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-CJK_RE = re.compile("[　-〿぀-ヿ一-鿿＀-￯]")
+CJK_RE = re.compile("[\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff\uff00-\uffef]")
 _ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "'": "'", '"': '"'}
 
 
@@ -73,6 +76,17 @@ def _skip_ws(text: str, index: int) -> int:
     return index
 
 
+def _ends_argument(text: str, index: int) -> bool:
+    """Whether a literal that ends at ``index`` is a whole argument.
+
+    Anything else after it (``+ name``, ``~ name``, ``if ... else "..."``, an
+    adjacent literal that Python would join to it) makes the key the page
+    looks up differ from the one read here.
+    """
+    index = _skip_ws(text, index)
+    return index < len(text) and text[index] in ",)"
+
+
 _HEX = "0123456789abcdefABCDEF"
 
 
@@ -80,7 +94,8 @@ def _decode_hex_escape(text: str, index: int):
     """``(character, end)`` for ``\\uXXXX``, ``\\u{X...}`` or ``\\xXX`` at ``index``, else ``None``.
 
     The page sees the decoded character, so the key must too: a key written
-    as "Loading\\u2026" is the same key as "Loading…".
+    as "Loading\\u2026" is the same key as one written with the ellipsis
+    character itself.
     """
     kind = text[index + 1] if index + 1 < len(text) else ""
     if kind == "x":
@@ -178,7 +193,7 @@ def extract_keys(repo: Path = REPO):
                 continue
             if name in ("t", "N_"):
                 parsed = _parse_string_literal(text, index)
-                if parsed is None:
+                if parsed is None or not _ends_argument(text, parsed[1]):
                     errors.append(f"{relative}:{line}: {name}() needs a plain string literal as its key")
                     continue
                 keys.append(Key(parsed[0], path, line))
@@ -196,7 +211,7 @@ def extract_keys(repo: Path = REPO):
                 errors.append(f"{relative}:{line}: tn() needs a plural form after the singular")
                 continue
             other = _parse_string_literal(text, _skip_ws(text, after_one + 1))
-            if other is None:
+            if other is None or not _ends_argument(text, other[1]):
                 errors.append(f"{relative}:{line}: tn() needs a plain string literal for its plural form")
                 continue
             keys.append(Key(f"{one[0]}{PLURAL_SEPARATOR}{other[0]}", path, line, plural=True))
@@ -239,6 +254,9 @@ def check_catalogues(repo: Path, keys: list[Key]):
             extra = _placeholders(value) - allowed
             if extra:
                 errors.append(f"{locale}: translation of {text!r} uses placeholders the key has not: {sorted(extra)}")
+            dropped = _placeholders(text) - _placeholders(value)
+            if dropped:
+                errors.append(f"{locale}: translation of {text!r} drops placeholders the key has: {sorted(dropped)}")
         for text in sorted(data):
             if text not in used:
                 warnings.append(f"{locale}: orphan entry {text!r} (nothing uses it)")

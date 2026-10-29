@@ -27,12 +27,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import web as portal_web
 from app.api.proxy import _harden_attachment_response_headers
 from app.db import SessionLocal
-from app.i18n import t
+from app.i18n import current_locale, t
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.agent_session_metadata_repo import AgentSessionMetadataRepository
 from app.repositories.session_share_repo import SessionShareRepository
 from app.repositories.user_repo import UserRepository
-from app.services.locale_service import resolve_locale_for_request
 from app.services.session_context_preview import parse_metadata_json
 from app.services.session_share_service import effective_scope, is_inline_image_type, share_path, viewer_may_open
 from app.services.share_transcripts import STATUS_OK, load_share_transcript
@@ -119,7 +118,10 @@ def _share_page_context(request: Request, db, view: ShareView) -> dict[str, Any]
         "missing": False,
         # The viewer's language, not the owner's: a signed-in member's
         # preference, else the browser's (the transcript stays as it was).
-        "locale": resolve_locale_for_request(request, view.user).ui_locale,
+        # The one the server text was rendered in, so <html lang> and the
+        # inlined catalogue match it even for a member the share admits
+        # without the allowlist.
+        "locale": current_locale(),
     }
 
 

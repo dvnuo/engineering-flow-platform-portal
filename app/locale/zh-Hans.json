@@ -2044,7 +2044,6 @@
   "The quota endpoint returned no usable numbers.": "配额接口没有返回可用的数字。",
   "The recording did not replay as it is; the result is in the Library. Record it again, or compile it as its scenario and ask the assistant.": "录制没能原样回放；结果在资料库中。请重新录制，或把它编译为它的场景并问助手。",
   "The recording replayed as it is; the result is in the Library. Compile it as its scenario when it is what you want.": "录制已原样回放；结果在资料库中。如果它符合你的要求，就把它编译为它的场景。",
-  "the renderer produced no output": "渲染器没有产生输出",
   "The replay could not run: {error}": "回放无法运行：{error}",
   "the replay of {date}": "{date} 的回放",
   "The report is at {path}.": "报告位于 {path}。",
