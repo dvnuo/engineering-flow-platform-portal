@@ -45,7 +45,6 @@ const dom = {
   themeOptions: Array.from(document.querySelectorAll("[data-theme-option]")),
   chatWidthOptions: Array.from(document.querySelectorAll("[data-chat-width-option]")),
   uiLocaleOptions: Array.from(document.querySelectorAll("[data-ui-locale-option]")),
-  replyLanguageSelect: document.getElementById("account-reply-language"),
   shortcutsBtn: document.getElementById("shortcuts-btn"),
   railAssistantsBtn: document.getElementById("rail-assistants-btn"),
   usersMenuBtn: document.getElementById("users-menu-btn"),
@@ -5116,15 +5115,14 @@ if (window.matchMedia) {
 }
 
 // Language is a server-side preference, unlike theme and chat width: the
-// templates are rendered with it and the assistant's reply language is derived
-// from it on every chat request, so another device must see the same choice.
-// base.html puts the resolved values on <html> (lang, data-locale,
-// data-reply-language) and the menu's checked states come rendered from the
-// template. Saving goes through PUT /api/auth/me/preferences; the page reloads
-// only when the language the server resolved differs from the one it was
-// rendered with (the reply language needs no reload: the next message carries it).
+// templates are rendered with it and the assistant answers in it (the chat
+// proxy derives the reply language from it on every request), so another
+// device must see the same choice. base.html puts the resolved values on
+// <html> (lang, data-locale, data-reply-language) and the menu's checked
+// states come rendered from the template. Saving goes through
+// PUT /api/auth/me/preferences; the page reloads only when the language the
+// server resolved differs from the one it was rendered with.
 const UI_LOCALE_CHOICES = ["auto", "en", "zh-Hans", "zh-Hant-HK"];
-const REPLY_LANGUAGE_CHOICES = ["follow", "en", "zh-Hans", "zh-Hant-HK"];
 
 function markUiLocaleOption(preference) {
   dom.uiLocaleOptions.forEach((option) => {
@@ -5174,21 +5172,6 @@ async function applyUiLocalePreference(preference) {
     console.warn("Failed to save the language preference", error);
     markUiLocaleOption(previous);
     showToast(t("Could not save the language preference"), { variant: "error" });
-  }
-}
-
-async function applyReplyLanguagePreference(preference) {
-  const select = dom.replyLanguageSelect;
-  if (!select || !REPLY_LANGUAGE_CHOICES.includes(preference)) return;
-  const previous = select.dataset.saved || "follow";
-  try {
-    const me = await savePortalPreferences({ reply_language: preference });
-    select.dataset.saved = preference;
-    applyResolvedLocaleAttributes(me?.locale || {});
-  } catch (error) {
-    console.warn("Failed to save the reply language preference", error);
-    select.value = previous;
-    showToast(t("Could not save the reply language preference"), { variant: "error" });
   }
 }
 
@@ -19190,8 +19173,6 @@ function bindEvents() {
     setAccountMenuOpen(true, { focus: event.key === "ArrowDown" ? "first" : "last" });
   });
   dom.accountMenu?.addEventListener("keydown", (event) => {
-    // The reply-language select handles its own arrow keys.
-    if (event.target instanceof Element && event.target.closest("select")) return;
     const items = accountMenuItems();
     if (!items.length) return;
     const index = items.indexOf(document.activeElement);
@@ -19249,10 +19230,6 @@ function bindEvents() {
   dom.uiLocaleOptions.forEach((option) => {
     option.addEventListener("click", () => applyUiLocalePreference(option.dataset.uiLocaleOption));
   });
-  if (dom.replyLanguageSelect) {
-    dom.replyLanguageSelect.dataset.saved = dom.replyLanguageSelect.value;
-    dom.replyLanguageSelect.addEventListener("change", () => applyReplyLanguagePreference(dom.replyLanguageSelect.value));
-  }
   dom.helpBtn?.addEventListener("click", () => {
     setAccountMenuOpen(false);
     openPortalSection("help");

@@ -2747,7 +2747,6 @@ def app_page(request: Request):
             # checked options) and what this request resolved it to (for
             # <html lang>, fonts and the data attributes chat_ui.js reads).
             "ui_locale_preference": locale_preferences.ui_locale,
-            "reply_language_preference": locale_preferences.reply_language,
             "locale": resolved_locale.ui_locale,
             "locale_source": resolved_locale.ui_source,
             "reply_language": resolved_locale.reply_language,

@@ -89,7 +89,7 @@ def update_preferences(
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Save the Portal language and the assistant's reply language.
+    """Save the Portal language, which is also the assistant's reply language.
 
     Server-side, unlike the theme: the pages are rendered with the language,
     the chat proxy derives the assistant's reply language from it on every
@@ -97,11 +97,7 @@ def update_preferences(
     answer carries the resolved locale so the page knows whether to reload.
     """
     try:
-        stored = merge_locale_preferences(
-            getattr(user, "preferences_json", None),
-            ui_locale=payload.ui_locale,
-            reply_language=payload.reply_language,
-        )
+        stored = merge_locale_preferences(getattr(user, "preferences_json", None), ui_locale=payload.ui_locale)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     UserRepository(db).update_preferences_json(user, stored)

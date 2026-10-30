@@ -191,9 +191,6 @@ html[lang^="zh"] .portal-account-group-label { letter-spacing: 0; }
    plus the assistant's reply language as a select under them, since it is the
    rarer choice and its labels are longer than a segment holds. */
 .portal-account-options.is-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.portal-account-reply-language { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--portal-text-secondary); }
-.portal-account-select { width: 100%; min-width: 0; min-height: 28px; padding: 0 6px; border: 1px solid var(--portal-border); border-radius: 8px; background: var(--portal-surface-muted); color: var(--portal-text); font-size: 12px; font-weight: 600; }
-.portal-account-select:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--portal-accent-soft); }
 .portal-account-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--portal-text); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
 .portal-account-item svg { flex: none; color: var(--portal-text-secondary); }
 .portal-account-item:hover, .portal-account-item:focus-visible { background: var(--portal-surface-soft); outline: none; }
