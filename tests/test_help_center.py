@@ -1,6 +1,6 @@
 """Help is a browsable section whose prose lives in markdown files.
 
-Three rounds of reports:
+Four rounds of reports:
 
 - Clicking a connection-checklist chip jumped to Assistants. They were anchors
   with href="#profile-section-jira", and the app owns location.hash for its own
@@ -12,7 +12,11 @@ Three rounds of reports:
   their icon, text and chevron, and changing a guide meant editing Python
   tuples. Topics are app/help/*.md now, rendered in the browser with the
   markdown-it build chat already uses.
+- Every guide wrapped at half its card. The text was capped at 72ch (68ch for
+  the steps) inside cards as wide as the pane: 543px of text in a 980px card,
+  about 38 characters a line in Chinese. The topic as a whole is capped now.
 """
+import re
 from pathlib import Path
 
 import pytest
@@ -313,6 +317,23 @@ def test_the_drawer_era_help_styles_are_gone():
 
     assert ".portal-help-panel" not in css
     assert ".portal-help-list" not in css
+
+
+def _css_rule(selector: str) -> str:
+    css = _css()
+    match = re.search(r"(?m)^" + re.escape(selector) + r" \{", css)
+    assert match, f"{selector} is not defined"
+    return css[match.end() :].split("}", 1)[0]
+
+
+def test_the_topic_is_capped_as_a_whole_not_its_text():
+    # A cap on the text alone ends the lines long before the card they sit in.
+    template = Path("app/templates/partials/help_topic_panel.html").read_text(encoding="utf-8")
+
+    assert 'class="portal-panel-stack portal-help-topic"' in template
+    assert "max-width: 980px" in _css_rule(".portal-help-topic")
+    assert "max-width" not in _css_rule(".portal-help-body")
+    assert "max-width" not in _css_rule(".portal-help-steps")
 
 
 # ---------------------------------------------------------------- routing
