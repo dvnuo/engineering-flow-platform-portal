@@ -116,8 +116,11 @@ def test_the_column_is_sized_from_the_conversation_pane():
 def test_everything_in_the_column_follows_the_one_width():
     for selector in (".portal-message-list", ".portal-composer", ".message-surface-assistant", ".message-surface-user"):
         assert any(f"var({WIDTH_VAR}, 980px)" in rule for rule in _rules(selector)), selector
+    # A help topic is not in the chat column: it keeps a fixed reading width of
+    # its own, pinned in test_help_center.py.
+    css = CSS.replace(".portal-help-topic { max-width: 980px; }", "")
     for leftover in ("max-width: 980px", "max-width: 1000px", "min(100%, 920px)", "min(100%, 760px)", "max-width: 920px"):
-        assert leftover not in CSS, f"{leftover} is a fixed cap the column has outgrown"
+        assert leftover not in css, f"{leftover} is a fixed cap the column has outgrown"
 
 
 def test_the_message_list_still_reserves_room_for_the_composer():

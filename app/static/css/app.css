@@ -6257,6 +6257,12 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
   color: var(--portal-text-muted);
 }
 
+/* The width limit is on the topic as a whole, cards included, so a card ends
+   where its text does; 980px is the chat column's default. Capping the text
+   instead left the right half of every card empty on a wide pane, and a cap in
+   ch is far narrower for Chinese, whose characters are about 1.85ch wide. */
+.portal-help-topic { max-width: 980px; }
+
 .portal-help-steps {
   margin: 0;
   padding-left: 22px;
@@ -6266,7 +6272,6 @@ html[data-theme="dark"] .portal-icon-option { background: var(--portal-surface-s
   flex-direction: column;
   gap: 8px;
   color: var(--portal-text-secondary);
-  max-width: 68ch;
 }
 
 ul.portal-help-steps { list-style: disc; }
@@ -6278,7 +6283,6 @@ ul.portal-help-steps { list-style: disc; }
    its headings read like the panel's other section titles. */
 .portal-help-body {
   color: var(--portal-text-secondary);
-  max-width: 72ch;
 }
 
 .portal-help-body h1,
