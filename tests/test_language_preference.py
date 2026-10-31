@@ -110,21 +110,22 @@ def test_saved_preferences_are_read_defensively():
     assert locale_preferences_from_json("not json") == LocalePreferences()
     assert locale_preferences_from_json("[1, 2]") == LocalePreferences()
     # A value this Portal does not ship reads as the default, never as itself.
-    assert locale_preferences_from_json('{"ui_locale": "fr", "reply_language": "yue-Hant-HK"}') == LocalePreferences()
+    assert locale_preferences_from_json('{"ui_locale": "fr"}') == LocalePreferences()
     assert locale_preferences_from_json('{"ui_locale": "zh-Hant-HK"}') == LocalePreferences(ui_locale="zh-Hant-HK")
-    assert locale_preferences_from_json({"reply_language": "en"}) == LocalePreferences(reply_language="en")
+    # There is one language setting: a separate reply language is not read.
+    assert locale_preferences_from_json({"reply_language": "en"}) == LocalePreferences()
 
 
 def test_merging_keeps_unknown_keys_and_refuses_unknown_values():
-    stored = merge_locale_preferences('{"theme": "dark", "ui_locale": "en"}', reply_language="zh-Hans")
+    stored = merge_locale_preferences('{"theme": "dark", "reply_language": "zh-Hans"}', ui_locale="en")
     assert json.loads(stored) == {"reply_language": "zh-Hans", "theme": "dark", "ui_locale": "en"}
     # None leaves a key alone; a broken stored value starts from scratch.
-    assert json.loads(merge_locale_preferences(stored, ui_locale=None, reply_language=None)) == json.loads(stored)
+    assert json.loads(merge_locale_preferences(stored, ui_locale=None)) == json.loads(stored)
     assert json.loads(merge_locale_preferences("garbage", ui_locale="auto")) == {"ui_locale": "auto"}
     with pytest.raises(ValueError):
         merge_locale_preferences(stored, ui_locale="fr")
-    with pytest.raises(ValueError):
-        merge_locale_preferences(stored, reply_language="yue-Hant-HK")
+    # A key this Portal does not have is neither saved nor validated.
+    assert json.loads(merge_locale_preferences(stored, reply_language="yue-Hant-HK")) == json.loads(stored)
 
 
 @pytest.mark.parametrize(
@@ -134,12 +135,12 @@ def test_merging_keeps_unknown_keys_and_refuses_unknown_values():
         (LocalePreferences(), None, ("en", "default", "en", False)),
         # Nothing saved: the browser decides, and the assistant follows it.
         (LocalePreferences(), "zh-HK", ("zh-Hant-HK", "browser", "zh-Hant-HK", False)),
-        # A saved UI language beats the browser; the assistant still follows.
-        (LocalePreferences(ui_locale="en"), "zh-HK", ("en", "preference", "en", False)),
-        (LocalePreferences(ui_locale="zh-Hans"), None, ("zh-Hans", "preference", "zh-Hans", False)),
-        # A saved reply language is strict and independent of the UI language.
-        (LocalePreferences(reply_language="zh-Hant-HK"), None, ("en", "default", "zh-Hant-HK", True)),
-        (LocalePreferences(ui_locale="zh-Hans", reply_language="en"), "zh-CN", ("zh-Hans", "preference", "en", True)),
+        # A language the member chose beats the browser, and the assistant
+        # always answers in it.
+        (LocalePreferences(ui_locale="en"), "zh-HK", ("en", "preference", "en", True)),
+        (LocalePreferences(ui_locale="zh-Hans"), None, ("zh-Hans", "preference", "zh-Hans", True)),
+        # Auto is the browser's language, as a default.
+        (LocalePreferences(ui_locale="auto"), "zh-CN", ("zh-Hans", "browser", "zh-Hans", False)),
     ],
 )
 def test_resolution_order(preferences, header, expected):
@@ -156,7 +157,7 @@ def test_resolution_order(preferences, header, expected):
 def test_portal_user_metadata_carries_the_reply_language_only_when_given():
     user = SimpleNamespace(id=7, username="jdoe", nickname="Jane")
     assert build_portal_user_metadata(user) == {"id": "7", "username": "jdoe", "display_name": "Jane"}
-    resolved = resolve_locale(LocalePreferences(reply_language="zh-Hant-HK"), None)
+    resolved = resolve_locale(LocalePreferences(ui_locale="zh-Hant-HK"), None)
     assert build_portal_user_metadata(user, reply_language=resolved) == {
         "id": "7",
         "username": "jdoe",
@@ -206,7 +207,7 @@ def test_me_reports_the_saved_preferences_and_what_this_request_resolved_to():
     try:
         me = client.get("/api/auth/me", headers={"Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8"})
         assert me.status_code == 200
-        assert me.json()["preferences"] == {"ui_locale": "auto", "reply_language": "follow"}
+        assert me.json()["preferences"] == {"ui_locale": "auto"}
         assert me.json()["locale"] == {
             "ui_locale": "zh-Hant-HK",
             "ui_source": "browser",
@@ -216,30 +217,31 @@ def test_me_reports_the_saved_preferences_and_what_this_request_resolved_to():
 
         saved = client.put("/api/auth/me/preferences", json={"ui_locale": "en"}, headers={"Accept-Language": "zh-HK"})
         assert saved.status_code == 200
-        assert saved.json()["preferences"] == {"ui_locale": "en", "reply_language": "follow"}
+        assert saved.json()["preferences"] == {"ui_locale": "en"}
+        # A language the member chose is the assistant's too, and strict.
         assert saved.json()["locale"] == {
             "ui_locale": "en",
             "ui_source": "preference",
             "reply_language": "en",
-            "reply_language_strict": False,
+            "reply_language_strict": True,
         }
         db.refresh(user)
         assert json.loads(user.preferences_json) == {"ui_locale": "en"}
 
-        # A partial update keeps the other key; an explicit reply language is strict.
-        saved = client.put("/api/auth/me/preferences", json={"reply_language": "zh-Hans"})
+        saved = client.put("/api/auth/me/preferences", json={"ui_locale": "zh-Hans"})
         assert saved.status_code == 200
-        assert saved.json()["preferences"] == {"ui_locale": "en", "reply_language": "zh-Hans"}
+        assert saved.json()["preferences"] == {"ui_locale": "zh-Hans"}
         assert saved.json()["locale"]["reply_language"] == "zh-Hans"
         assert saved.json()["locale"]["reply_language_strict"] is True
         db.refresh(user)
-        assert json.loads(user.preferences_json) == {"reply_language": "zh-Hans", "ui_locale": "en"}
+        assert json.loads(user.preferences_json) == {"ui_locale": "zh-Hans"}
 
-        # Values this Portal does not ship are refused, and nothing changes.
+        # Values this Portal does not ship are refused, and nothing changes;
+        # a setting it no longer has is ignored.
         assert client.put("/api/auth/me/preferences", json={"ui_locale": "yue-Hant-HK"}).status_code == 422
-        assert client.put("/api/auth/me/preferences", json={"reply_language": "fr"}).status_code == 422
+        assert client.put("/api/auth/me/preferences", json={"reply_language": "en"}).status_code == 200
         db.refresh(user)
-        assert json.loads(user.preferences_json) == {"reply_language": "zh-Hans", "ui_locale": "en"}
+        assert json.loads(user.preferences_json) == {"ui_locale": "zh-Hans"}
 
         # The rest of the member record is as it was, and the onboarding
         # endpoint answers with the same shape.
@@ -247,7 +249,7 @@ def test_me_reports_the_saved_preferences_and_what_this_request_resolved_to():
         assert onboarding.status_code == 200
         assert onboarding.json()["username"] == "jdoe"
         assert onboarding.json()["onboarding_completed"] is True
-        assert onboarding.json()["preferences"] == {"ui_locale": "en", "reply_language": "zh-Hans"}
+        assert onboarding.json()["preferences"] == {"ui_locale": "zh-Hans"}
     finally:
         cleanup()
 
@@ -290,7 +292,9 @@ def test_app_page_defaults_to_english(monkeypatch):
     assert '<html lang="en" data-locale="en" data-reply-language="en" data-reply-language-strict="false">' in html
     assert 'data-locale-source="default"' in html
     assert 'aria-checked="true" data-ui-locale-option="auto"' in html
-    assert '<option value="follow" selected>Same as language</option>' in html
+    # Language is the only language setting: nothing else to choose.
+    assert "account-reply-language" not in html
+    assert "replies in" not in html
 
 
 def test_app_page_follows_the_browser_until_the_member_chooses(monkeypatch):
@@ -306,14 +310,13 @@ def test_app_page_renders_the_saved_preference_over_the_browser(monkeypatch):
     html = _app_page(
         monkeypatch,
         accept_language="zh-HK",
-        preferences_json=json.dumps({"ui_locale": "en", "reply_language": "zh-Hans"}),
+        preferences_json=json.dumps({"ui_locale": "en"}),
     )
-    assert '<html lang="en" data-locale="en" data-reply-language="zh-Hans" data-reply-language-strict="true">' in html
+    # The chosen language is the assistant's too, strictly.
+    assert '<html lang="en" data-locale="en" data-reply-language="en" data-reply-language-strict="true">' in html
     assert 'data-locale-source="preference"' in html
     assert 'aria-checked="true" data-ui-locale-option="en"' in html
     assert 'aria-checked="false" data-ui-locale-option="auto"' in html
-    assert '<option value="zh-Hans" lang="zh-Hans" selected>' in html
-    assert '<option value="follow" selected>' not in html
 
 
 def test_pages_without_a_member_follow_the_browser():
@@ -348,7 +351,7 @@ def test_proxy_fills_the_reply_language_into_edits_and_title_generation(monkeypa
         username="runtime-user",
         nickname="Runtime User",
         role="user",
-        preferences_json=json.dumps({"reply_language": "zh-Hant-HK"}),
+        preferences_json=json.dumps({"ui_locale": "zh-Hant-HK"}),
     )
     fake_agent = SimpleNamespace(id="agent-1", owner_user_id=77, visibility="private", status="running", name="Agent One")
 
@@ -390,7 +393,7 @@ def test_proxy_fills_the_reply_language_into_edits_and_title_generation(monkeypa
     assert edit_body["content"] == "edited"
     assert edit_body["request_id"] == "r-1"
     assert edit_body["session_id"] == "s-1"
-    # The spoofed metadata is gone; the saved reply language (strict) beats the browser's zh-CN.
+    # The spoofed metadata is gone; the saved language (strict) beats the browser's zh-CN.
     assert edit_body["metadata"]["provider"] == "openai"
     assert edit_body["metadata"]["portal_user"] == {
         "id": "77",
@@ -416,20 +419,18 @@ def test_the_account_menu_has_the_language_group_and_chat_ui_wires_it():
     for choice in ("auto", "en", "zh-Hans", "zh-Hant-HK"):
         assert f'role="menuitemradio" aria-checked="{{{{ \'true\' if ui_locale_preference == \'{choice}\' else \'false\' }}}}" data-ui-locale-option="{choice}"' in menu, choice
     assert 'class="portal-account-options is-four"' in menu
-    assert 'id="account-reply-language"' in menu
-    for choice in ("follow", "en", "zh-Hans", "zh-Hant-HK"):
-        assert f'<option value="{choice}"' in menu, choice
+    # One language setting: no reply-language select.
+    assert "account-reply-language" not in menu
+    assert "<select" not in menu
     # The languages are named in their own script, as entities so the template stays ASCII.
     assert "&#x7B80;&#x4F53;" in menu and "&#x7E41;&#x9AD4;" in menu
     assert menu.isascii()
     assert menu.index('data-chat-width-option="full"') < menu.index('data-ui-locale-option="auto"')
     assert 'uiLocaleOptions: Array.from(document.querySelectorAll("[data-ui-locale-option]"))' in CHAT_JS
-    assert 'replyLanguageSelect: document.getElementById("account-reply-language")' in CHAT_JS
+    assert "replyLanguageSelect" not in CHAT_JS
+    assert "reply_language:" not in CHAT_JS
     assert 'option.addEventListener("click", () => applyUiLocalePreference(option.dataset.uiLocaleOption))' in CHAT_JS
-    assert 'dom.replyLanguageSelect.addEventListener("change", () => applyReplyLanguagePreference(dom.replyLanguageSelect.value))' in CHAT_JS
     assert 'fetch("/api/auth/me/preferences", {' in CHAT_JS
-    # The select keeps its own arrow keys; the menu's roving focus skips it.
-    assert 'if (event.target instanceof Element && event.target.closest("select")) return;' in CHAT_JS
 
 
 def test_the_page_language_is_rendered_by_the_server():

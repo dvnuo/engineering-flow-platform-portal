@@ -1,19 +1,17 @@
 """The member's language: a saved preference, else the browser, else English.
 
-Two settings live in ``users.preferences_json``:
+One setting lives in ``users.preferences_json``: ``ui_locale``, the Portal's
+language (``auto``, ``en``, ``zh-Hans``, ``zh-Hant-HK``), where ``auto``
+follows the browser's ``Accept-Language``. The assistant answers in the same
+language; there is no second setting for that.
 
-- ``ui_locale``: the Portal's language (``auto``, ``en``, ``zh-Hans``,
-  ``zh-Hant-HK``). ``auto`` follows the browser's ``Accept-Language``.
-- ``reply_language``: the language the assistant answers in (``follow`` or one
-  of the three tags). ``follow`` means "the same as the Portal's language".
-
-Both are resolved per request into :class:`ResolvedLocale`: the page is
-rendered with ``ui_locale`` (``<html lang>``, fonts, and the catalogues once
-they exist) and the chat proxy writes ``reply_language`` into the trusted
-``metadata.portal_user`` the runtimes turn into a "Reply language" prompt
-block. ``reply_language_strict`` tells the runtime whether the member chose
-the reply language explicitly (always answer in it) or it was derived (answer
-in the member's own language when the message is clearly in another one).
+It is resolved per request into :class:`ResolvedLocale`: the page is rendered
+with ``ui_locale`` (``<html lang>``, fonts and the catalogues) and the chat
+proxy writes ``reply_language`` into the trusted ``metadata.portal_user`` the
+runtimes turn into a "Reply language" prompt block. ``reply_language_strict``
+tells the runtime whether the member chose the language (always answer in it)
+or it came from the browser (a default the member's own messages may
+override).
 
 Traditional Chinese here means Hong Kong conventions (Standard Written Chinese
 in Traditional characters with Hong Kong vocabulary): ``zh-HK``, ``zh-MO``,
@@ -31,15 +29,13 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 UI_LOCALE_AUTO = "auto"
-REPLY_LANGUAGE_FOLLOW = "follow"
 DEFAULT_LOCALE = "en"
 
 # Order matters for the menu and for documentation; English is the source language.
 SUPPORTED_LOCALES: tuple[str, ...] = ("en", "zh-Hans", "zh-Hant-HK")
 UI_LOCALE_CHOICES: tuple[str, ...] = (UI_LOCALE_AUTO,) + SUPPORTED_LOCALES
-REPLY_LANGUAGE_CHOICES: tuple[str, ...] = (REPLY_LANGUAGE_FOLLOW,) + SUPPORTED_LOCALES
 
-_PREFERENCE_KEYS = ("ui_locale", "reply_language")
+_PREFERENCE_KEYS = ("ui_locale",)
 
 
 @dataclass(frozen=True)
@@ -47,10 +43,9 @@ class LocalePreferences:
     """What the member saved (never resolved)."""
 
     ui_locale: str = UI_LOCALE_AUTO
-    reply_language: str = REPLY_LANGUAGE_FOLLOW
 
     def as_dict(self) -> dict[str, str]:
-        return {"ui_locale": self.ui_locale, "reply_language": self.reply_language}
+        return {"ui_locale": self.ui_locale}
 
 
 @dataclass(frozen=True)
@@ -93,11 +88,7 @@ def parse_preferences_json(raw: Any) -> dict[str, Any]:
 def locale_preferences_from_json(raw: Any) -> LocalePreferences:
     data = parse_preferences_json(raw)
     ui_locale = data.get("ui_locale")
-    reply_language = data.get("reply_language")
-    return LocalePreferences(
-        ui_locale=ui_locale if ui_locale in UI_LOCALE_CHOICES else UI_LOCALE_AUTO,
-        reply_language=reply_language if reply_language in REPLY_LANGUAGE_CHOICES else REPLY_LANGUAGE_FOLLOW,
-    )
+    return LocalePreferences(ui_locale=ui_locale if ui_locale in UI_LOCALE_CHOICES else UI_LOCALE_AUTO)
 
 
 def locale_preferences_for_user(user: Any) -> LocalePreferences:
@@ -115,9 +106,8 @@ def merge_locale_preferences(raw: Any, **changes: Optional[str]) -> str:
     for key, value in changes.items():
         if key not in _PREFERENCE_KEYS or value is None:
             continue
-        allowed = UI_LOCALE_CHOICES if key == "ui_locale" else REPLY_LANGUAGE_CHOICES
-        if value not in allowed:
-            raise ValueError(f"{key} must be one of {', '.join(allowed)}")
+        if value not in UI_LOCALE_CHOICES:
+            raise ValueError(f"{key} must be one of {', '.join(UI_LOCALE_CHOICES)}")
         data[key] = value
     return json.dumps(data, sort_keys=True)
 
@@ -189,9 +179,10 @@ def resolve_locale(preferences: LocalePreferences, accept_language: Optional[str
     else:
         browser = locale_from_accept_language(accept_language)
         ui_locale, ui_source = (browser, "browser") if browser else (DEFAULT_LOCALE, "default")
-    if preferences.reply_language in SUPPORTED_LOCALES:
-        return ResolvedLocale(ui_locale, ui_source, preferences.reply_language, True)
-    return ResolvedLocale(ui_locale, ui_source, ui_locale, False)
+    # The assistant answers in the Portal's language. A language the member
+    # chose is strict (always answer in it); one taken from the browser is a
+    # default the member's own messages may override.
+    return ResolvedLocale(ui_locale, ui_source, ui_locale, ui_source == "preference")
 
 
 def resolve_locale_for_user(user: Any, accept_language: Optional[str]) -> ResolvedLocale:
