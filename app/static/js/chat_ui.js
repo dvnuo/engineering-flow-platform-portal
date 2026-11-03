@@ -1284,6 +1284,34 @@ function buildAttachmentChipNode(attachment, displayName) {
   return chip;
 }
 
+// A stored image comes back as its file id; the runtime serves the file
+// inline (GET /api/files/{file_id}), so the transcript shows the thumbnail
+// the optimistic bubble showed and opens the lightbox on click. Files go with
+// their session and after EFP_CHAT_UPLOAD_RETENTION_DAYS, so a thumbnail that
+// fails to load falls back to the chip.
+function buildAttachmentThumbNode(attachment, url, displayName) {
+  const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+  const fileId = isObj ? String(attachment.file_id || attachment.fileId || attachment.id || "").trim() : "";
+  const img = document.createElement("img");
+  img.className = "message-attachment-thumb";
+  img.alt = displayName;
+  img.loading = "lazy";
+  if (img.dataset) {
+    if (fileId) img.dataset.fileId = fileId;
+    img.dataset.previewUrl = url;
+    img.dataset.previewName = displayName;
+    img.dataset.isImage = "true";
+  }
+  img.onerror = () => {
+    const chip = buildAttachmentChipNode(attachment, displayName);
+    if (typeof img.replaceWith === "function") img.replaceWith(chip);
+    else if (img.parentNode) img.parentNode.replaceChild(chip, img);
+    if (typeof renderIcons === "function") renderIcons(chip.parentNode || chip);
+  };
+  img.src = url;
+  return img;
+}
+
 let cachedChatUploadPolicy = null;
 
 function normalizeUploadPolicyList(values) {
@@ -2948,35 +2976,104 @@ async function sendBudgetPauseContinue() {
 // RUNTIME_EVENT_HELPER_START: copilotQuota
 // The member's Copilot AI-credit balance this month, from the runtime's
 // GET /api/copilot/quota (GitHub's internal quota endpoint behind the member's
-// own credential). None of its fields is a contract: whatever arrives is
-// shown, and anything else reads as unavailable.
+// own credential, the source of VS Code's status bar). Since Copilot bills per
+// token the premium snapshot counts credits: a per-seat allotment has a
+// denominator (included / remaining), a pooled organization allotment reports
+// only the credits used and `has_quota: false` once the pool is spent. None
+// of the fields is a contract: whatever arrives is shown, anything else reads
+// as unavailable. `live` is the quota header of the latest chat answer, fresher
+// than the endpoint's cached reading.
+function copilotLiveQuota(live) {
+  if (!live || typeof live !== "object" || live.unlimited === true) return null;
+  const percentRemaining = usageNumber(live, "percent_remaining");
+  if (percentRemaining == null) return null;
+  const included = usageNumber(live, "entitlement");
+  const percentUsed = Math.max(0, Math.min(100, 100 - percentRemaining));
+  const used = included != null ? Math.round(included * percentUsed) / 100 : null;
+  return {
+    percentUsed,
+    included,
+    used,
+    remaining: included != null && used != null ? Math.max(0, included - used) : null,
+    resetDate: String(live.reset_date || "").trim(),
+    observedAt: String(live.observed_at || "").trim(),
+    overagePermitted: live.overage_permitted === true,
+  };
+}
+
 function copilotQuotaSummary(quota) {
   if (!quota || typeof quota !== "object" || quota.available !== true) {
+    const live = quota && typeof quota === "object" ? copilotLiveQuota(quota.live) : null;
+    if (live) {
+      return {
+        available: true,
+        fromLive: true,
+        used: live.used,
+        included: live.included,
+        remaining: live.remaining,
+        percentUsed: live.percentUsed,
+        unit: "credits",
+        pooled: false,
+        exhausted: live.percentUsed >= 100 && !live.overagePermitted,
+        overagePermitted: live.overagePermitted,
+        plan: "",
+        resetDate: live.resetDate,
+        warning: live.percentUsed >= 80,
+        hasNumbers: true,
+        error: String(quota.error || "").trim(),
+      };
+    }
     return { available: false, error: String(quota?.error || "").trim() };
   }
   const credits = quota.credits && typeof quota.credits === "object" ? quota.credits : null;
-  let used = usageNumber(credits, "used");
+  let used = usageNumber(credits, "used", "credits_used");
   let included = usageNumber(credits, "included", "entitlement");
   let remaining = usageNumber(credits, "remaining");
+  let percentRemaining = usageNumber(credits, "percent_remaining");
   let unit = "credits";
-  let percentRemaining = null;
-  if (used == null && remaining == null) {
+  let pooled = !!credits && (credits.pooled === true || credits.unlimited === true);
+  let exhausted = !!credits && (credits.exhausted === true || credits.has_quota === false);
+  let overagePermitted = !!credits && credits.overage_permitted === true;
+  if (!credits) {
     const snapshots = Array.isArray(quota.snapshots) ? quota.snapshots : [];
-    const snapshot = snapshots.find((item) => item && typeof item === "object" && item.unlimited !== true
+    const limited = snapshots.find((item) => item && typeof item === "object" && item.unlimited !== true
       && (usageNumber(item, "used") != null || usageNumber(item, "remaining") != null || usageNumber(item, "percent_remaining") != null)) || null;
+    const snapshot = limited || snapshots.find((item) => item && typeof item === "object" && item.unlimited === true
+      && usageNumber(item, "credits_used", "used") != null) || null;
     if (snapshot) {
-      used = usageNumber(snapshot, "used");
-      included = usageNumber(snapshot, "entitlement", "included");
-      remaining = usageNumber(snapshot, "remaining");
-      percentRemaining = usageNumber(snapshot, "percent_remaining");
+      pooled = snapshot.unlimited === true;
+      used = usageNumber(snapshot, "used", "credits_used");
+      included = pooled ? null : usageNumber(snapshot, "entitlement", "included");
+      remaining = pooled ? null : usageNumber(snapshot, "remaining");
+      percentRemaining = pooled ? null : usageNumber(snapshot, "percent_remaining");
       unit = String(snapshot.label || snapshot.id || "").trim() || unit;
+      exhausted = snapshot.has_quota === false;
+      overagePermitted = snapshot.overage_permitted === true;
     }
+  }
+  if (pooled) {
+    included = null;
+    remaining = null;
+    percentRemaining = null;
   }
   if (used == null && included != null && remaining != null) used = Math.max(0, included - remaining);
   if (remaining == null && included != null && used != null) remaining = Math.max(0, included - used);
   let percentUsed = null;
   if (used != null && included) percentUsed = Math.max(0, Math.min(100, (used / included) * 100));
   else if (percentRemaining != null) percentUsed = Math.max(0, Math.min(100, 100 - percentRemaining));
+  const live = pooled ? null : copilotLiveQuota(quota.live);
+  if (live && live.observedAt && live.observedAt > String(quota.fetched_at || "")) {
+    percentUsed = live.percentUsed;
+    if (included != null) {
+      used = Math.round(included * percentUsed) / 100;
+      remaining = Math.max(0, included - used);
+    } else if (live.included != null) {
+      included = live.included;
+      used = live.used;
+      remaining = live.remaining;
+    }
+  }
+  if (!pooled && percentUsed != null && percentUsed >= 100 && !overagePermitted) exhausted = true;
   return {
     available: true,
     used,
@@ -2984,9 +3081,12 @@ function copilotQuotaSummary(quota) {
     remaining,
     percentUsed,
     unit,
+    pooled,
+    exhausted,
+    overagePermitted,
     plan: String(quota.plan || "").trim(),
     resetDate: String(quota.reset_date || "").trim(),
-    warning: percentUsed != null && percentUsed >= 80,
+    warning: exhausted || (percentUsed != null && percentUsed >= 80),
     hasNumbers: used != null || remaining != null || percentUsed != null,
   };
 }
@@ -3005,13 +3105,21 @@ function copilotQuotaChipHtml(summary) {
   const usedText = summary.used != null
     ? t("{amount} {unit} used", { amount: escapeHtml(formatCredits(summary.used) || String(Math.round(summary.used))), unit })
     : (summary.percentUsed != null ? t("{percent}% used", { percent: Math.round(summary.percentUsed) }) : "");
-  const rightText = summary.remaining != null
-    ? t("{amount} left", { amount: escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining))) })
-    : (summary.included != null ? t("{amount} included", { amount: escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included))) }) : "");
-  const meter = summary.percentUsed != null ? `<div class="portal-quota-meter"><span style="width:${Math.round(summary.percentUsed * 10) / 10}%"></span></div>` : "";
+  const rightText = summary.pooled
+    ? t("organization pool")
+    : (summary.remaining != null
+      ? t("{amount} left", { amount: escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining))) })
+      : (summary.included != null ? t("{amount} included", { amount: escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included))) }) : ""));
+  const meter = !summary.pooled && summary.percentUsed != null ? `<div class="portal-quota-meter"><span style="width:${Math.round(summary.percentUsed * 10) / 10}%"></span></div>` : "";
   const reset = summary.resetDate ? `<div>${t("Resets on {date}", { date: escapeHtml(summary.resetDate) })}</div>` : "";
-  const warning = summary.warning ? `<div>${t("More than 80% used; watch this month's usage.")}</div>` : "";
-  return `<div id="context-quota-chip" class="portal-quota-chip${summary.warning ? " is-warning" : ""}" data-copilot-quota="${summary.warning ? "warning" : "ok"}"><div class="portal-quota-chip-head"><span>${label}</span><span>${usedText}${usedText && rightText ? " \u00b7 " : ""}${rightText}</span></div>${meter}${reset}${warning}</div>`;
+  const exhausted = summary.exhausted
+    ? `<div>${summary.pooled ? t("The organization's Copilot allotment for this month is used up.") : t("This month's Copilot allotment is used up.")}</div>`
+    : "";
+  const overage = summary.overagePermitted ? `<div>${t("Additional usage is enabled; usage past the allotment is billed.")}</div>` : "";
+  const warning = summary.warning && !summary.exhausted && summary.percentUsed != null ? `<div>${t("More than 80% used; watch this month's usage.")}</div>` : "";
+  const live = summary.fromLive ? `<div>${t("From the latest answer; the quota endpoint did not respond.")}</div>` : "";
+  const state = summary.exhausted ? "exhausted" : (summary.warning ? "warning" : "ok");
+  return `<div id="context-quota-chip" class="portal-quota-chip${summary.warning ? " is-warning" : ""}" data-copilot-quota="${state}"><div class="portal-quota-chip-head"><span>${label}</span><span>${usedText}${usedText && rightText ? " \u00b7 " : ""}${rightText}</span></div>${meter}${reset}${exhausted}${overage}${warning}${live}</div>`;
 }
 // RUNTIME_EVENT_HELPER_END: copilotQuota
 
@@ -10553,6 +10661,11 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   if (optimisticUserArticle && payload.user_message_id) {
     optimisticUserArticle.dataset.messageId = payload.user_message_id;
     delete optimisticUserArticle.dataset.optimisticUser;
+  } else if (optimisticUserArticle && finalSessionId) {
+    // An older runtime image answers without the stored message id: ask the
+    // session for it, so the bubble gets its Edit and Retry actions now
+    // rather than after a reload.
+    void reconcileOptimisticUserMessageId(agentIdAtSend, finalSessionId, optimisticUserArticle);
   }
   if (requestCtx.usedStream === true) {
     await flushAssistantTypewriter(agentIdAtSend, requestCtx, payload.response || "");
@@ -12271,7 +12384,10 @@ function renderChatHistory(messages, metadata = {}) {
           const imageUrl = isObj ? (attachment.url || attachment.previewUrl || "") : "";
           const fileId = isObj ? String(attachment.file_id || attachment.fileId || attachment.id || attachment.filename || "attachment") : String(attachment || "");
           const fileName = isObj ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment") : fileId;
-          if (type === "image" && imageUrl) { const img = document.createElement("img"); img.src = imageUrl; img.className = "message-attachment-thumb"; img.alt = fileName; img.dataset.fileId = fileId; attachmentDiv.appendChild(img); return; }
+          const contentType = isObj ? String(attachment.content_type || attachment.contentType || attachment.mime || "").toLowerCase() : "";
+          const isImage = type === "image" || contentType.startsWith("image/");
+          const thumbUrl = imageUrl || (isImage ? attachmentFileUrl(attachment) : "");
+          if (isImage && thumbUrl) { attachmentDiv.appendChild(buildAttachmentThumbNode(attachment, thumbUrl, fileName || fileId || "attachment")); return; }
           attachmentDiv.appendChild(buildAttachmentChipNode(attachment, fileName || fileId || "attachment"));
         });
         if (typeof renderIcons === "function") renderIcons(attachmentDiv);
@@ -13898,6 +14014,44 @@ const managedProviderModels = {
   ],
 };
 
+// Copilot's own catalog for the member, from the assistant's runtime
+// (GET /api/models: Copilot's GET /models with the organization's model policy
+// applied, filtered to what the runtime can drive). The static table above
+// stays the fallback for an older runtime image and supplies the labels of the
+// known ids; the catalog adds what GitHub added since. Cached per assistant.
+const RUNTIME_MODEL_CATALOG_TTL_MS = 60 * 60 * 1000;
+const runtimeModelCatalogs = new Map();
+let latestRuntimeModelCatalog = null;
+
+function runtimeCatalogPickerModels(catalog) {
+  if (!catalog || typeof catalog !== "object" || catalog.available !== true || catalog.source !== "catalog") return null;
+  const models = Array.isArray(catalog.models) ? catalog.models : [];
+  const selectable = models.filter((model) => model && typeof model === "object" && model.selectable === true && model.id);
+  if (!selectable.length) return null;
+  const known = managedProviderModels.github_copilot || [];
+  const labelFor = (id, fallback) => (known.find((item) => item.value === id) || {}).label || String(fallback || id);
+  const auto = (Array.isArray(catalog.auto) ? catalog.auto : [])
+    .filter((entry) => entry && typeof entry === "object" && entry.id)
+    .map((entry) => ({ value: String(entry.id), label: labelFor(String(entry.id), entry.label) }));
+  return [...auto, ...selectable.map((model) => ({ value: String(model.id), label: labelFor(String(model.id), model.name) }))];
+}
+
+async function refreshRuntimeModelCatalog(agentId, { force = false } = {}) {
+  if (!agentId) return null;
+  const cached = runtimeModelCatalogs.get(agentId);
+  if (cached && !force && Date.now() - cached.fetchedAt < RUNTIME_MODEL_CATALOG_TTL_MS) return cached.catalog;
+  let catalog = null;
+  try {
+    catalog = await agentApiFor(agentId, "/api/models");
+  } catch (error) {
+    // An older runtime image has no such route: the static table stands in.
+    catalog = null;
+  }
+  runtimeModelCatalogs.set(agentId, { catalog, fetchedAt: Date.now() });
+  if (runtimeCatalogPickerModels(catalog)) latestRuntimeModelCatalog = catalog;
+  return catalog;
+}
+
 const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
 // Mirrors CONTEXT_SIZE_PRESETS in app/contracts/llm_catalog.py. Above
 // COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS (272K input tokens per request) the
@@ -13964,9 +14118,13 @@ function renderComposerModelSelectorForAgent(agentId) {
   const currentModel = (chatState.profileDefaultModel || "").trim();
   const profileModels = Array.isArray(chatState.profileAvailableModels) ? chatState.profileAvailableModels : [];
   const catalogModels = managedProviderModels[provider] || [];
-  const models = profileModels.length
-    ? profileModels.map((value) => catalogModels.find((item) => item.value === value) || { value, label: value })
-    : catalogModels;
+  const runtimeModels = provider === "github_copilot"
+    ? runtimeCatalogPickerModels(runtimeModelCatalogs.get(agentId)?.catalog)
+    : null;
+  const models = runtimeModels
+    || (profileModels.length
+      ? profileModels.map((value) => catalogModels.find((item) => item.value === value) || { value, label: value })
+      : catalogModels);
   dom.chatModelSelect.innerHTML = "";
 
   models.forEach((model) => {
@@ -14067,6 +14225,13 @@ async function refreshComposerModelProfile(agentId) {
     chatState.supportsContextSize = payload?.supports_context_size === true;
     if (agentId !== state.selectedAgentId) return;
     renderComposerModelSelectorForAgent(agentId);
+    if (chatState.profileProvider === "github_copilot") {
+      // Copilot's own catalog for this member arrives after the static table
+      // has drawn the picker, then redraws it.
+      void refreshRuntimeModelCatalog(agentId).then((catalog) => {
+        if (catalog && agentId === state.selectedAgentId) renderComposerModelSelectorForAgent(agentId);
+      });
+    }
   } catch (error) {
     console.warn("Failed to refresh composer chat model profile", error);
     chatState.profileProvider = "";
@@ -14624,7 +14789,9 @@ function updateModelOptions(root) {
   const initialValue = modelSelect.dataset.initialValue || modelSelect.dataset.currentValue || "";
   const lastProvider = modelSelect.dataset.lastProvider || initialProvider;
   const previousValue = modelSelect.value || "";
-  const models = managedProviderModels[provider] || [];
+  const models = (provider === "github_copilot" && runtimeCatalogPickerModels(latestRuntimeModelCatalog))
+    || managedProviderModels[provider]
+    || [];
   modelSelect.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
@@ -18165,6 +18332,33 @@ function addAssistantActionsToMessages() {
 function addEditButtonsToMessages() {
   addUserEditButtonsToMessages();
   addAssistantActionsToMessages();
+}
+
+// The user bubble drawn on send has no message id until the runtime names the
+// stored turn (user_message_id on the final payload). When the answer carries
+// none, the session itself says which user message was last; the id makes the
+// bubble editable and the answer retryable without a reload.
+async function reconcileOptimisticUserMessageId(agentId, sessionId, article) {
+  if (!agentId || !sessionId || !article) return null;
+  try {
+    const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
+    const messages = Array.isArray(data?.messages) ? data.messages : [];
+    const latestUser = [...messages].reverse().find((message) => message && message.role === "user" && message.id);
+    if (!latestUser || article.isConnected === false) return null;
+    const messageId = String(latestUser.id);
+    if (!article.dataset.messageId) {
+      article.dataset.messageId = messageId;
+      delete article.dataset.optimisticUser;
+      const row = article.closest ? article.closest(".message-row") : null;
+      const assistantArticle = row?.nextElementSibling?.querySelector?.("article.assistant-message") || null;
+      if (assistantArticle && !assistantArticle.dataset.userMessageId) assistantArticle.dataset.userMessageId = messageId;
+      addEditButtonsToMessages();
+    }
+    return messageId;
+  } catch (error) {
+    console.warn("Could not resolve the user message id", error);
+    return null;
+  }
 }
 
 // Simple hash function for generating temporary message IDs

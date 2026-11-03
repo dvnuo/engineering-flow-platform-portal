@@ -107,8 +107,14 @@ def test_opencode_rejects_context_override_but_projects_model_and_reasoning(monk
 def test_rejects_unknown_model_and_context_outside_supported_presets(monkeypatch):
     agent = _install_profile(monkeypatch)
 
+    # A malformed id and a retired line are refused; a plausible id the
+    # member's runtime catalog may list (GET /api/models) is passed through,
+    # the runtime being the one that knows what Copilot serves.
     with pytest.raises(ValueError, match="not allowed"):
-        normalize_agent_inference_overrides(object(), agent, {"model_override": "gpt-unknown"})
+        normalize_agent_inference_overrides(object(), agent, {"model_override": "gpt unknown"})
+    with pytest.raises(ValueError, match="not allowed"):
+        normalize_agent_inference_overrides(object(), agent, {"model_override": "gpt-5.4"})
+    assert normalize_agent_inference_overrides(object(), agent, {"model_override": "gpt-6.2-nova"}) == {"model": "gpt-6.2-nova"}
     with pytest.raises(ValueError, match="must be one of"):
         normalize_agent_inference_overrides(
             object(),

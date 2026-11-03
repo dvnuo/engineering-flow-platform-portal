@@ -13,6 +13,7 @@ from app.contracts.llm_catalog import (
     DEFAULT_COPILOT_MODEL,
     DEFAULT_REASONING_EFFORT,
     PROVIDER_MODELS,
+    is_selectable_model,
     normalize_provider,
 )
 from app.schemas.runtime_profile import (
@@ -64,10 +65,9 @@ class RuntimeProfileService:
 
     @staticmethod
     def is_managed_model_allowed(provider: str | None, model: str | None) -> bool:
-        trimmed = str(model or "").strip()
-        if not trimmed:
-            return False
-        return trimmed in RuntimeProfileService.managed_model_values_for_provider(provider)
+        # The static list, or on Copilot any plausible id the member's runtime
+        # catalog may offer (the runtime rejects what Copilot does not serve).
+        return is_selectable_model(provider, model)
 
     @staticmethod
     def default_profile_config() -> dict:

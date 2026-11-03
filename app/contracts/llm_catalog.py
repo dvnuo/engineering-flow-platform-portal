@@ -8,6 +8,8 @@ managedProviderModels) and in each runtime's projection.
 """
 from __future__ import annotations
 
+import re
+
 COPILOT_PROVIDER = "github_copilot"
 AI_PLATFORM_PROVIDER = "ai_platform"
 
@@ -128,6 +130,43 @@ AI_PLATFORM_LLM_SUBTREE = {
     },
 }
 
+# Copilot's own catalog (GET /models, which the runtimes surface as
+# GET /api/models) is where the picker's list comes from at run time; the
+# tuple above is the offline default and the labels. A model id the catalog
+# lists but this file does not is therefore legitimate, so validation accepts
+# any plausible Copilot id and leaves the final word to the runtime, which
+# rejects what Copilot does not serve (`invalid_model`). Ids GitHub retired
+# from Copilot (the GPT-4 and GPT-5 lines) are the exception: a profile still
+# holding one is repaired to the default rather than sent.
+RETIRED_COPILOT_MODEL_PREFIXES: tuple[str, ...] = ("gpt-4", "gpt-5")
+_COPILOT_MODEL_ID_RE = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
+
+
+def is_retired_copilot_model(model: str | None) -> bool:
+    """Whether ``model`` belongs to a line GitHub retired from Copilot."""
+    text = str(model or "").strip().lower()
+    return bool(text) and text.startswith(RETIRED_COPILOT_MODEL_PREFIXES)
+
+
+def is_plausible_copilot_model_id(model: str | None) -> bool:
+    """A well-formed, lower-case Copilot model id (``gpt-6.2-nova``) that GitHub has not retired."""
+    text = str(model or "").strip()
+    if not text or len(text) > 64 or text != text.lower():
+        return False
+    return bool(_COPILOT_MODEL_ID_RE.match(text)) and not is_retired_copilot_model(text)
+
+
+def is_selectable_model(provider: str | None, model: str | None) -> bool:
+    """Whether a member may pick ``model`` on ``provider``: the catalog's list, or on Copilot any plausible id."""
+    canon = normalize_provider(provider)
+    trimmed = str(model or "").strip()
+    if not trimmed:
+        return False
+    if trimmed in PROVIDER_MODELS.get(canon, ()):
+        return True
+    return canon == COPILOT_PROVIDER and is_plausible_copilot_model_id(trimmed)
+
+
 _PROVIDER_ALIASES = {
     "github_copilot": COPILOT_PROVIDER,
     "github-copilot": COPILOT_PROVIDER,
@@ -173,6 +212,10 @@ def coerce_to_provider_model(provider: str | None, model: str | None) -> str:
     canon = normalize_provider(provider)
     trimmed = str(model or "").strip()
     if trimmed in PROVIDER_MODELS.get(canon, ()):
+        return trimmed
+    # A Copilot id this file does not list may still be one the member's
+    # runtime catalog offers; only a retired or malformed id is repaired.
+    if canon == COPILOT_PROVIDER and is_plausible_copilot_model_id(trimmed):
         return trimmed
     return PROVIDER_DEFAULT_MODEL.get(canon, DEFAULT_COPILOT_MODEL)
 
