@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.i18n import N_
 from app.config import get_settings
-from app.contracts.llm_catalog import SUPPORTED_REASONING_EFFORTS
+from app.contracts.llm_catalog import COPILOT_PROVIDER, SUPPORTED_REASONING_EFFORTS
 from app.contracts.runtime_type import (
     RUNTIME_TYPE_LABELS,
     InvalidRuntimeType,
@@ -42,6 +42,7 @@ from app.services.agent_busy import profile_restart_pending
 from app.services.agent_startup_status import startup_view
 from app.services.k8s_service import K8sService
 from app.services.inference_settings_service import resolve_agent_inference_profile
+from app.services.model_catalog_service import ensure_catalog
 from app.services.session_run_settings_service import load_session_run_settings, save_session_run_settings
 from app.services.proxy_service import ProxyService
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
@@ -651,7 +652,7 @@ def get_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depen
 
 
 @router.get("/{agent_id}/chat-model-profile", response_model=AgentChatModelProfileResponse)
-def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     agent = AgentRepository(db).get_by_id(agent_id)
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Agent not found"))
@@ -659,6 +660,13 @@ def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Forbidden"))
 
     profile = resolve_agent_inference_profile(db, agent)
+    # One model list for everyone: the Portal-wide Copilot catalog (filled by
+    # the first running Copilot assistant asked, kept across restarts), the
+    # static table until a runtime has answered. Never per member or assistant.
+    catalog = None
+    if profile.provider == COPILOT_PROVIDER:
+        catalog = await ensure_catalog(db, user=user, agent=agent, provider=profile.provider)
+    from_catalog = catalog is not None and catalog.source == "catalog"
     return AgentChatModelProfileResponse(
         runtime_profile_id=profile.runtime_profile_id or None,
         revision=profile.revision,
@@ -667,11 +675,14 @@ def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_user), 
         current_model=profile.current_model,
         current_reasoning_effort=profile.current_reasoning_effort,
         current_max_context_tokens=profile.current_max_context_tokens,
-        available_models=list(profile.available_models),
+        available_models=list(catalog.ids()) if from_catalog else list(profile.available_models),
         reasoning_efforts=list(SUPPORTED_REASONING_EFFORTS) if profile.supports_reasoning_effort else [],
         context_sizes=list(profile.context_sizes) if profile.supports_context_size else [],
         supports_reasoning_effort=profile.supports_reasoning_effort,
         supports_context_size=profile.supports_context_size,
+        model_labels=catalog.labels() if from_catalog else {},
+        models_source=catalog.source if catalog is not None else "static",
+        models_fetched_at=catalog.fetched_at if from_catalog else None,
     )
 
 

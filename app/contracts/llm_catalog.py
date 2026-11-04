@@ -141,6 +141,36 @@ AI_PLATFORM_LLM_SUBTREE = {
 RETIRED_COPILOT_MODEL_PREFIXES: tuple[str, ...] = ("gpt-4", "gpt-5")
 _COPILOT_MODEL_ID_RE = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
 
+# The Portal-wide copy of Copilot's catalog (app/services/model_catalog_service.py)
+# registers the ids it lists here. Once it has, the catalog is the rule: a
+# Copilot id is selectable when the catalog lists it (so GPT-5.3-Codex is fine
+# while Copilot still serves it) and nothing else is, which is exactly what the
+# pickers offer. Until a runtime has answered, the plausibility rule stands in.
+_CATALOG_COPILOT_MODELS: set[str] = set()
+_CATALOG_STATE = {"known": False}
+
+
+def register_catalog_models(model_ids) -> tuple[str, ...]:
+    """Make ``model_ids`` the catalog's list (replacing the previous one); returns it normalized."""
+    normalized = tuple(sorted({str(item).strip().lower() for item in (model_ids or ()) if str(item or "").strip()}))
+    _CATALOG_COPILOT_MODELS.clear()
+    _CATALOG_COPILOT_MODELS.update(normalized)
+    _CATALOG_STATE["known"] = bool(normalized)
+    return normalized
+
+
+def catalog_models_known() -> bool:
+    return _CATALOG_STATE["known"]
+
+
+def catalog_model_ids() -> tuple[str, ...]:
+    return tuple(sorted(_CATALOG_COPILOT_MODELS))
+
+
+def clear_catalog_models() -> None:
+    _CATALOG_COPILOT_MODELS.clear()
+    _CATALOG_STATE["known"] = False
+
 
 def is_retired_copilot_model(model: str | None) -> bool:
     """Whether ``model`` belongs to a line GitHub retired from Copilot."""
@@ -164,7 +194,11 @@ def is_selectable_model(provider: str | None, model: str | None) -> bool:
         return False
     if trimmed in PROVIDER_MODELS.get(canon, ()):
         return True
-    return canon == COPILOT_PROVIDER and is_plausible_copilot_model_id(trimmed)
+    if canon != COPILOT_PROVIDER:
+        return False
+    if catalog_models_known():
+        return trimmed.lower() in _CATALOG_COPILOT_MODELS
+    return is_plausible_copilot_model_id(trimmed)
 
 
 _PROVIDER_ALIASES = {
@@ -213,9 +247,10 @@ def coerce_to_provider_model(provider: str | None, model: str | None) -> str:
     trimmed = str(model or "").strip()
     if trimmed in PROVIDER_MODELS.get(canon, ()):
         return trimmed
-    # A Copilot id this file does not list may still be one the member's
-    # runtime catalog offers; only a retired or malformed id is repaired.
-    if canon == COPILOT_PROVIDER and is_plausible_copilot_model_id(trimmed):
+    # A Copilot id this file does not list may still be one the Portal-wide
+    # catalog offers (is_selectable_model); only an id the catalog does not
+    # list, or a retired / malformed one before any catalog, is repaired.
+    if canon == COPILOT_PROVIDER and is_selectable_model(canon, trimmed):
         return trimmed
     return PROVIDER_DEFAULT_MODEL.get(canon, DEFAULT_COPILOT_MODEL)
 

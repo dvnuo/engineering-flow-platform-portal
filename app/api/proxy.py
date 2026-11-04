@@ -428,7 +428,7 @@ def _normalize_and_validate_model_override_for_agent(
             if not isinstance(llm, dict):
                 llm = {}
             provider = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))
-            allowed = RuntimeProfileService.is_managed_model_allowed(provider, trimmed)
+            allowed = RuntimeProfileService.is_managed_model_allowed(provider, trimmed, db=db)
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

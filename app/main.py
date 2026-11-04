@@ -21,6 +21,7 @@ from app.api.assistant_types import router as assistant_types_router
 from app.api.git_repos import router as git_repos_router
 from app.api.users import router as users_router
 from app.api.copilot import router as copilot_router
+from app.api.model_catalog import router as model_catalog_router
 from app.api.connectors import router as connectors_router
 from app.api.mobile import router as mobile_router
 from app.config import get_settings
@@ -186,6 +187,7 @@ app.include_router(mobile_router)
 app.include_router(admin_router)
 app.include_router(proxy_router)
 app.include_router(copilot_router)
+app.include_router(model_catalog_router)
 app.include_router(agent_tasks_router)
 app.include_router(delegation_rules_router)
 app.include_router(runtime_capability_catalog_router)

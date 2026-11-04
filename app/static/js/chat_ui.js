@@ -12386,8 +12386,11 @@ function renderChatHistory(messages, metadata = {}) {
           const fileName = isObj ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment") : fileId;
           const contentType = isObj ? String(attachment.content_type || attachment.contentType || attachment.mime || "").toLowerCase() : "";
           const isImage = type === "image" || contentType.startsWith("image/");
-          const thumbUrl = imageUrl || (isImage ? attachmentFileUrl(attachment) : "");
-          if (isImage && thumbUrl) { attachmentDiv.appendChild(buildAttachmentThumbNode(attachment, thumbUrl, fileName || fileId || "attachment")); return; }
+          const thumbUrl = imageUrl || (isImage && typeof attachmentFileUrl === "function" ? attachmentFileUrl(attachment) : "");
+          if (isImage && thumbUrl) {
+            if (typeof buildAttachmentThumbNode === "function") { attachmentDiv.appendChild(buildAttachmentThumbNode(attachment, thumbUrl, fileName || fileId || "attachment")); return; }
+            const img = document.createElement("img"); img.src = thumbUrl; img.className = "message-attachment-thumb"; img.alt = fileName; if (img.dataset) img.dataset.fileId = fileId; attachmentDiv.appendChild(img); return;
+          }
           attachmentDiv.appendChild(buildAttachmentChipNode(attachment, fileName || fileId || "attachment"));
         });
         if (typeof renderIcons === "function") renderIcons(attachmentDiv);
@@ -14014,42 +14017,59 @@ const managedProviderModels = {
   ],
 };
 
-// Copilot's own catalog for the member, from the assistant's runtime
-// (GET /api/models: Copilot's GET /models with the organization's model policy
-// applied, filtered to what the runtime can drive). The static table above
-// stays the fallback for an older runtime image and supplies the labels of the
-// known ids; the catalog adds what GitHub added since. Cached per assistant.
-const RUNTIME_MODEL_CATALOG_TTL_MS = 60 * 60 * 1000;
-const runtimeModelCatalogs = new Map();
-let latestRuntimeModelCatalog = null;
+// One model list for everyone. The Portal keeps Copilot's catalog (filled by
+// the first assistant whose runtime answers GET /api/models, kept across
+// restarts) and serves it through chat-model-profile (available_models plus
+// model_labels) and GET /api/models/catalog, so members and assistants never
+// see different lists. The static table above is the fallback until a runtime
+// has answered, and the source of the known ids' labels.
+const portalModelLabels = new Map();
+let portalModelCatalog = null;
+let portalModelCatalogPromise = null;
 
-function runtimeCatalogPickerModels(catalog) {
-  if (!catalog || typeof catalog !== "object" || catalog.available !== true || catalog.source !== "catalog") return null;
-  const models = Array.isArray(catalog.models) ? catalog.models : [];
-  const selectable = models.filter((model) => model && typeof model === "object" && model.selectable === true && model.id);
-  if (!selectable.length) return null;
-  const known = managedProviderModels.github_copilot || [];
-  const labelFor = (id, fallback) => (known.find((item) => item.value === id) || {}).label || String(fallback || id);
-  const auto = (Array.isArray(catalog.auto) ? catalog.auto : [])
-    .filter((entry) => entry && typeof entry === "object" && entry.id)
-    .map((entry) => ({ value: String(entry.id), label: labelFor(String(entry.id), entry.label) }));
-  return [...auto, ...selectable.map((model) => ({ value: String(model.id), label: labelFor(String(model.id), model.name) }))];
+function rememberModelLabels(labels) {
+  if (!labels || typeof labels !== "object") return;
+  for (const [id, label] of Object.entries(labels)) {
+    const key = String(id || "").trim();
+    const text = String(label || "").trim();
+    if (key && text) portalModelLabels.set(key, text);
+  }
 }
 
-async function refreshRuntimeModelCatalog(agentId, { force = false } = {}) {
-  if (!agentId) return null;
-  const cached = runtimeModelCatalogs.get(agentId);
-  if (cached && !force && Date.now() - cached.fetchedAt < RUNTIME_MODEL_CATALOG_TTL_MS) return cached.catalog;
-  let catalog = null;
-  try {
-    catalog = await agentApiFor(agentId, "/api/models");
-  } catch (error) {
-    // An older runtime image has no such route: the static table stands in.
-    catalog = null;
+function pickerModelLabel(value) {
+  const normalized = String(value || "").trim();
+  for (const models of Object.values(managedProviderModels)) {
+    const match = models.find((item) => item.value === normalized);
+    if (match) return match.label;
   }
-  runtimeModelCatalogs.set(agentId, { catalog, fetchedAt: Date.now() });
-  if (runtimeCatalogPickerModels(catalog)) latestRuntimeModelCatalog = catalog;
-  return catalog;
+  return portalModelLabels.get(normalized) || normalized;
+}
+
+function catalogPickerModels(catalog) {
+  if (!catalog || typeof catalog !== "object" || catalog.source !== "catalog") return null;
+  const models = Array.isArray(catalog.models) ? catalog.models : [];
+  const entries = models
+    .filter((model) => model && typeof model === "object" && model.id)
+    .map((model) => {
+      const value = String(model.id);
+      const known = pickerModelLabel(value);
+      return { value, label: known !== value ? known : String(model.label || value) };
+    });
+  return entries.length ? entries : null;
+}
+
+async function ensurePortalModelCatalog({ force = false } = {}) {
+  if (portalModelCatalog && !force) return portalModelCatalog;
+  if (portalModelCatalogPromise && !force) return portalModelCatalogPromise;
+  portalModelCatalogPromise = api("/api/models/catalog")
+    .then((catalog) => {
+      portalModelCatalog = catalog && typeof catalog === "object" ? catalog : null;
+      if (portalModelCatalog) rememberModelLabels(portalModelCatalog.model_labels);
+      return portalModelCatalog;
+    })
+    .catch(() => null)
+    .finally(() => { portalModelCatalogPromise = null; });
+  return portalModelCatalogPromise;
 }
 
 const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
@@ -14065,7 +14085,8 @@ function inferenceModelLabel(value) {
     const match = models.find((item) => item.value === normalized);
     if (match) return match.label;
   }
-  return normalized || t("Model");
+  const remembered = typeof portalModelLabels !== "undefined" ? portalModelLabels.get(normalized) : "";
+  return remembered || normalized || t("Model");
 }
 
 function inferenceReasoningLabel(value) {
@@ -14118,13 +14139,11 @@ function renderComposerModelSelectorForAgent(agentId) {
   const currentModel = (chatState.profileDefaultModel || "").trim();
   const profileModels = Array.isArray(chatState.profileAvailableModels) ? chatState.profileAvailableModels : [];
   const catalogModels = managedProviderModels[provider] || [];
-  const runtimeModels = provider === "github_copilot"
-    ? runtimeCatalogPickerModels(runtimeModelCatalogs.get(agentId)?.catalog)
-    : null;
-  const models = runtimeModels
-    || (profileModels.length
-      ? profileModels.map((value) => catalogModels.find((item) => item.value === value) || { value, label: value })
-      : catalogModels);
+  // available_models is the Portal-wide list (the runtime catalog once one
+  // has answered, the static table until then), the same for every assistant.
+  const models = profileModels.length
+    ? profileModels.map((value) => catalogModels.find((item) => item.value === value) || { value, label: typeof pickerModelLabel === "function" ? pickerModelLabel(value) : value })
+    : catalogModels;
   dom.chatModelSelect.innerHTML = "";
 
   models.forEach((model) => {
@@ -14219,19 +14238,13 @@ async function refreshComposerModelProfile(agentId) {
     chatState.profileDefaultReasoningEffort = (payload?.current_reasoning_effort || "medium").trim();
     chatState.profileDefaultMaxContextTokens = Number(payload?.current_max_context_tokens || 0) || null;
     chatState.profileAvailableModels = Array.isArray(payload?.available_models) ? payload.available_models : [];
+    if (typeof rememberModelLabels === "function") rememberModelLabels(payload?.model_labels);
     chatState.profileReasoningEfforts = Array.isArray(payload?.reasoning_efforts) ? payload.reasoning_efforts : [];
     chatState.profileContextSizes = Array.isArray(payload?.context_sizes) ? payload.context_sizes : [];
     chatState.supportsReasoningEffort = payload?.supports_reasoning_effort === true;
     chatState.supportsContextSize = payload?.supports_context_size === true;
     if (agentId !== state.selectedAgentId) return;
     renderComposerModelSelectorForAgent(agentId);
-    if (chatState.profileProvider === "github_copilot") {
-      // Copilot's own catalog for this member arrives after the static table
-      // has drawn the picker, then redraws it.
-      void refreshRuntimeModelCatalog(agentId).then((catalog) => {
-        if (catalog && agentId === state.selectedAgentId) renderComposerModelSelectorForAgent(agentId);
-      });
-    }
   } catch (error) {
     console.warn("Failed to refresh composer chat model profile", error);
     chatState.profileProvider = "";
@@ -14789,7 +14802,8 @@ function updateModelOptions(root) {
   const initialValue = modelSelect.dataset.initialValue || modelSelect.dataset.currentValue || "";
   const lastProvider = modelSelect.dataset.lastProvider || initialProvider;
   const previousValue = modelSelect.value || "";
-  const models = (provider === "github_copilot" && runtimeCatalogPickerModels(latestRuntimeModelCatalog))
+  const portalCatalog = typeof portalModelCatalog !== "undefined" ? portalModelCatalog : null;
+  const models = (provider === "github_copilot" && typeof catalogPickerModels === "function" && catalogPickerModels(portalCatalog))
     || managedProviderModels[provider]
     || [];
   modelSelect.innerHTML = "";
@@ -15033,6 +15047,11 @@ function initializeManagedSettingsRoot(root) {
     modelSelect.dataset.lastProvider = provider?.value || "openai";
   }
   updateModelOptions(root);
+  if (typeof ensurePortalModelCatalog === "function" && !portalModelCatalog) {
+    void ensurePortalModelCatalog().then((catalog) => {
+      if (catalog && root.isConnected !== false) updateModelOptions(root);
+    });
+  }
   const settingsStatus = root.querySelector("#settings-status");
   if (settingsStatus && settingsStatus.dataset.handled !== "1") {
     settingsStatus.dataset.handled = "1";

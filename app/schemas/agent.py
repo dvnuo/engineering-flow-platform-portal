@@ -146,6 +146,11 @@ class AgentChatModelProfileResponse(BaseModel):
     context_sizes: list[int] = Field(default_factory=list)
     supports_reasoning_effort: bool = False
     supports_context_size: bool = False
+    # Labels for ids the static picker table does not know (the Portal-wide
+    # catalog's names), where the list came from and when.
+    model_labels: dict[str, str] = Field(default_factory=dict)
+    models_source: str = "static"
+    models_fetched_at: Optional[str] = None
 
 
 class SessionRunSettingsRequest(BaseModel):

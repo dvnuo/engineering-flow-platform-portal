@@ -103,7 +103,7 @@ def normalize_agent_inference_overrides(
             raise ValueError("model_override must be a string")
         model = model_value.strip()
         if model:
-            if not RuntimeProfileService.is_managed_model_allowed(profile.provider, model):
+            if not RuntimeProfileService.is_managed_model_allowed(profile.provider, model, db=db):
                 raise ValueError("model_override is not allowed for the agent's current runtime profile provider")
             normalized["model"] = model
 

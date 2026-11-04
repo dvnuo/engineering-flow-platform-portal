@@ -13,10 +13,12 @@ import pytest
 
 from _js_extract_helpers import _extract_js_function
 from app.contracts.llm_catalog import (
+    clear_catalog_models,
     coerce_to_provider_model,
     is_plausible_copilot_model_id,
     is_retired_copilot_model,
     is_selectable_model,
+    register_catalog_models,
 )
 from app.services.runtime_profile_service import RuntimeProfileService
 from test_chat_usage_cost_line_node import _bundle, _run_node
@@ -239,54 +241,72 @@ def test_usage_panel_shows_a_pooled_allotment_and_its_exhaustion():
     assert "AI credits" not in seat
 
 
-# --- 4. the picker follows the runtime's model catalog ------------------------
+# --- 4. one model list for everyone --------------------------------------------
 
 
-def test_the_picker_reads_the_runtime_catalog_and_keeps_the_static_table_as_fallback():
+def test_the_pickers_read_the_portal_wide_catalog_and_keep_the_static_table_as_fallback():
     js = _js()
-    assert 'agentApiFor(agentId, "/api/models")' in js
+    # Never per assistant: the composer takes the list from chat-model-profile,
+    # the connector form from GET /api/models/catalog, both served by the Portal.
+    assert 'agentApiFor(agentId, "/api/models")' not in js
+    assert "refreshRuntimeModelCatalog" not in js
+    assert 'api("/api/models/catalog")' in js
     composer = _extract_js_function(js, "renderComposerModelSelectorForAgent")
-    assert "runtimeCatalogPickerModels(runtimeModelCatalogs.get(agentId)?.catalog)" in composer
+    assert "pickerModelLabel(value)" in composer
+    assert "runtimeCatalogPickerModels" not in composer
     connector = _extract_js_function(js, "updateModelOptions")
-    assert "runtimeCatalogPickerModels(latestRuntimeModelCatalog)" in connector
+    assert "catalogPickerModels(portalCatalog)" in connector
     assert "managedProviderModels[provider]" in connector
     profile = _extract_js_function(js, "refreshComposerModelProfile")
-    assert "refreshRuntimeModelCatalog(agentId)" in profile
+    assert "rememberModelLabels(payload?.model_labels)" in profile
+    assert "ensurePortalModelCatalog().then" in js
 
 
-def test_runtime_catalog_models_are_listed_with_known_labels():
+def test_catalog_models_are_listed_with_the_known_labels():
     script = f"""
 const managedProviderModels = {{ github_copilot: [
   {{ value: "auto", label: "Auto" }}, {{ value: "gpt-6.1-sol", label: "GPT-6.1 Sol" }}, {{ value: "gpt-6-luna", label: "GPT-6 Luna" }},
+], ai_platform: [] }};
+const portalModelLabels = new Map();
+{_extract_js_function(_js(), "rememberModelLabels")}
+{_extract_js_function(_js(), "pickerModelLabel")}
+{_extract_js_function(_js(), "catalogPickerModels")}
+rememberModelLabels({{ "gpt-6.2-nova": "GPT-6.2 Nova", "mai-code-1.1-flash": "MAI-Code-1.1-Flash", "": "nothing" }});
+const catalog = {{ source: "catalog", models: [
+  {{ id: "auto", label: "Auto (Balance)", kind: "auto" }},
+  {{ id: "gpt-6.1-sol", label: "GPT-6.1 Sol (OpenAI)", kind: "model" }},
+  {{ id: "gpt-6.2-nova", label: "GPT-6.2 Nova", kind: "model" }},
+  {{ id: "gpt-5.3-codex", label: "GPT-5.3-Codex", kind: "model" }},
 ] }};
-{_extract_js_function(_js(), "runtimeCatalogPickerModels")}
-const catalog = {{ available: true, source: "catalog", auto: [{{ id: "auto", label: "Auto (Balance)", tier: "balance" }}, {{ id: "auto-efficiency", label: "Auto (Efficiency)", tier: "efficiency" }}],
-  models: [
-    {{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol (OpenAI)", selectable: true }},
-    {{ id: "gpt-6.2-nova", name: "GPT-6.2 Nova", selectable: true }},
-    {{ id: "gpt-6-luna", name: "GPT-6 Luna", selectable: false, reasons: ["policy disabled"] }},
-    {{ id: "claude-sonnet-5.5", name: "Claude Sonnet 5.5", selectable: false, reasons: ["not served on /responses"] }},
-  ] }};
 console.log(JSON.stringify({{
-  listed: runtimeCatalogPickerModels(catalog),
-  fromStatic: runtimeCatalogPickerModels({{ available: true, source: "static", models: [{{ id: "gpt-6-sol", selectable: true }}] }}),
-  empty: runtimeCatalogPickerModels({{ available: true, source: "catalog", models: [] }}),
-  missing: runtimeCatalogPickerModels(null),
+  listed: catalogPickerModels(catalog),
+  fromStatic: catalogPickerModels({{ source: "static", models: [{{ id: "gpt-6-sol", label: "x" }}] }}),
+  empty: catalogPickerModels({{ source: "catalog", models: [] }}),
+  missing: catalogPickerModels(null),
+  labels: [pickerModelLabel("gpt-6-luna"), pickerModelLabel("mai-code-1.1-flash"), pickerModelLabel("gpt-9-zeta")],
 }}));
 """
     result = _run_node(script)
     assert result["listed"] == [
         {"value": "auto", "label": "Auto"},
-        {"value": "auto-efficiency", "label": "Auto (Efficiency)"},
         {"value": "gpt-6.1-sol", "label": "GPT-6.1 Sol"},
         {"value": "gpt-6.2-nova", "label": "GPT-6.2 Nova"},
+        {"value": "gpt-5.3-codex", "label": "GPT-5.3-Codex"},
     ]
     assert result["fromStatic"] is None
     assert result["empty"] is None
     assert result["missing"] is None
+    assert result["labels"] == ["GPT-6 Luna", "MAI-Code-1.1-Flash", "gpt-9-zeta"]
 
 
-def test_a_plausible_copilot_model_id_is_accepted_and_a_retired_one_repaired():
+@pytest.fixture
+def _no_catalog():
+    clear_catalog_models()
+    yield
+    clear_catalog_models()
+
+
+def test_without_a_catalog_a_plausible_copilot_id_passes_and_a_retired_one_is_repaired(_no_catalog):
     assert is_plausible_copilot_model_id("gpt-6.2-nova") is True
     assert is_plausible_copilot_model_id("claude-sonnet-5.5") is True
     assert is_plausible_copilot_model_id("mai-code-1.1-flash") is True
@@ -310,3 +330,20 @@ def test_a_plausible_copilot_model_id_is_accepted_and_a_retired_one_repaired():
     assert RuntimeProfileService.is_managed_model_allowed("github_copilot", "gpt-5.4") is False
     assert RuntimeProfileService.is_managed_model_allowed("github_copilot", "") is False
     assert RuntimeProfileService.is_managed_model_allowed("ai_platform", "gpt-6.2-nova") is False
+
+
+def test_once_the_catalog_is_known_it_is_the_rule(_no_catalog):
+    # What the pickers offer is what validation accepts: a model Copilot still
+    # serves passes whatever its line (GPT-5.3-Codex), an id the catalog does
+    # not list is refused, and the static list always stands.
+    register_catalog_models(["auto", "gpt-6.1-sol", "mai-code-1.1-flash", "GPT-5.3-Codex"])
+    assert is_selectable_model("github_copilot", "mai-code-1.1-flash") is True
+    assert is_selectable_model("github_copilot", "gpt-5.3-codex") is True
+    assert is_selectable_model("github_copilot", "gpt-6-sol") is True
+    assert is_selectable_model("github_copilot", "gpt-9-zeta") is False
+    assert is_selectable_model("github_copilot", "gpt-6.2-nova") is False
+    assert coerce_to_provider_model("github_copilot", "gpt-5.3-codex") == "gpt-5.3-codex"
+    assert coerce_to_provider_model("github_copilot", "gpt-9-zeta") == "auto"
+    assert RuntimeProfileService.is_managed_model_allowed("github_copilot", "gpt-5.3-codex") is True
+    assert RuntimeProfileService.is_managed_model_allowed("github_copilot", "gpt-9-zeta") is False
+    assert RuntimeProfileService.is_managed_model_allowed("ai_platform", "mai-code-1.1-flash") is False
