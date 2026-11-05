@@ -63,11 +63,14 @@ class RuntimeProfileService:
         return RuntimeProfileService._MANAGED_PROVIDER_MODELS.get(normalized, ())
 
     @staticmethod
-    def is_managed_model_allowed(provider: str | None, model: str | None) -> bool:
-        trimmed = str(model or "").strip()
-        if not trimmed:
-            return False
-        return trimmed in RuntimeProfileService.managed_model_values_for_provider(provider)
+    def is_managed_model_allowed(provider: str | None, model: str | None, db: Session | None = None) -> bool:
+        # The static list, or on Copilot what the Portal-wide catalog lists
+        # (app/services/model_catalog_service.py); ``db`` lets a cold process
+        # load the stored catalog before judging, so validation agrees with
+        # the picker the member saw.
+        from app.services.model_catalog_service import is_model_allowed
+
+        return is_model_allowed(provider, model, db=db)
 
     @staticmethod
     def default_profile_config() -> dict:
@@ -374,6 +377,12 @@ class RuntimeProfileService:
         no-op, so it never marks assistants as needing a restart.
         """
 
+        # The stored Portal-wide catalog decides which Copilot ids survive
+        # normalization (coerce_to_provider_model); a cold process loads it
+        # before judging, so a model the picker offered is not repaired away.
+        from app.services.model_catalog_service import current_catalog
+
+        current_catalog(self.db)
         raw = config if isinstance(config, str) else dump_runtime_profile_config_json(config)
         new_config_json = self.normalize_persisted_config_json(raw)
         if new_config_json == (profile.config_json or ""):

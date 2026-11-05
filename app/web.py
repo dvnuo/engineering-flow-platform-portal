@@ -19,16 +19,18 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.contracts.llm_catalog import (
-    CONTEXT_SIZE_PRESETS,
-    DEFAULT_CONTEXT_SIZE,
-    DEFAULT_REASONING_EFFORT,
     PROVIDER_MODELS,
-    SUPPORTED_REASONING_EFFORTS,
     context_size_choices,
     context_size_label,
+    context_size_options,
+    effective_context_size,
+    effective_reasoning_effort,
+    reasoning_effort_choices,
+    reasoning_effort_options,
 )
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
+from app.services.model_catalog_service import current_catalog
 from app.repositories.agent_execution_repo import AgentExecutionRepository
 from app.contracts.runtime_type import (
     RUNTIME_TYPE_DESCRIPTIONS,
@@ -1127,6 +1129,22 @@ def _connector_settings_panel_context(
     raw_config_data = service.effective_config_for(runtime_profile)
     config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
     view_data = _settings_view_payload(raw_config_data, config_data)
+    # The Model provider form lists the sizes the stored model takes (the
+    # catalog's window closes the list; the whole ladder when no catalog
+    # describes it) and preselects what the stored size means for that model,
+    # so a window value such as 400K is shown and survives the next save.
+    current_catalog(db)
+    llm_config = config_data.get("llm") if isinstance(config_data.get("llm"), dict) else {}
+    context_sizes = context_size_choices(llm_config.get("provider"), llm_config.get("model"))
+    context_size_selected = effective_context_size(
+        llm_config.get("provider"), llm_config.get("model"), llm_config.get("max_context_tokens")
+    )
+    # Likewise the thinking levels: those the stored model's catalog row lists,
+    # with the stored level clamped to them.
+    reasoning_efforts = reasoning_effort_choices(llm_config.get("provider"), llm_config.get("model"))
+    reasoning_effort_selected = effective_reasoning_effort(
+        llm_config.get("provider"), llm_config.get("model"), llm_config.get("reasoning_effort")
+    )
     return {
         "request": request,
         "connector": settings_entry(spec, raw_config_data, mode),
@@ -1145,7 +1163,10 @@ def _connector_settings_panel_context(
         "connection_guidance": all_guidance(),
         # The Model provider form lists the same presets as the admin defaults,
         # long-context warning included (connectors/llm.html).
-        "context_sizes": context_size_choices(),
+        "context_sizes": context_sizes,
+        "context_size_selected": context_size_selected,
+        "reasoning_efforts": reasoning_efforts,
+        "reasoning_effort_selected": reasoning_effort_selected,
         "status_type": status_type,
         "status_message": status_message,
         "pending_restart_agents": _pending_restart_agents(db, runtime_profile),
@@ -2145,7 +2166,7 @@ def _merge_mobile_advanced_fields(form, mobile_cfg: dict, browserstack_cfg: dict
     return None
 
 
-def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
+def _settings_merge_payload(config_payload: dict, form, db: Optional[Session] = None) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
     def is_clear(field_name: str) -> bool:
@@ -2179,6 +2200,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     if is_section_touched("llm"):
+        if db is not None:
+            # The context sizes a model takes follow the Portal-wide catalog
+            # (its stored copy, on a cold worker), as the form offered them.
+            current_catalog(db)
         provider_value = (form.get("llm_provider") or "").strip()
         model_value = (form.get("llm_model") or "").strip()
         reasoning_effort_value = (form.get("llm_reasoning_effort") or "").strip().lower()
@@ -2195,7 +2220,8 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
             else:
                 llm.pop("model", None)
         if "llm_reasoning_effort" in form:
-            if reasoning_effort_value not in SUPPORTED_REASONING_EFFORTS:
+            # The levels the stored model takes (its catalog row), as the form offers them.
+            if reasoning_effort_value not in reasoning_effort_options(llm.get("provider"), llm.get("model")):
                 return config_payload, "Thinking level must be a supported value."
             llm["reasoning_effort"] = reasoning_effort_value
         if "llm_max_context_tokens" in form:
@@ -2203,8 +2229,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 max_context_tokens = int(max_context_tokens_value)
             except (TypeError, ValueError):
                 return config_payload, "Context size must be a supported value."
-            if max_context_tokens not in CONTEXT_SIZE_PRESETS:
-                supported = ", ".join(context_size_label(size) for size in CONTEXT_SIZE_PRESETS)
+            # What the form offers for this model: the ladder up to the
+            # catalog's window, or the whole ladder when no catalog describes it.
+            offered = context_size_options(llm.get("provider"), llm.get("model"))
+            if max_context_tokens not in offered:
+                supported = ", ".join(context_size_label(size) for size in offered)
                 return config_payload, f"Context size must be one of: {supported}."
             llm["max_context_tokens"] = max_context_tokens
         if api_key_value:
@@ -3052,6 +3081,19 @@ def _default_connections_context(
     # The form shows each credential in a password input the admin reveals on
     # purpose; the raw dump below it gets the masked copy instead.
     display_seed = redact_seed_for_display(seed)
+    # The Default context size lists what the seeded model takes and
+    # preselects what the seeded size means for it (the managed default when
+    # nothing is seeded), so neither the first option nor a size the model
+    # cannot take ends up selected.
+    current_catalog(db)
+    seed_llm = seed.get("llm") if isinstance(seed.get("llm"), dict) else {}
+    context_sizes = context_size_choices(seed_llm.get("provider"), seed_llm.get("model"))
+    context_size_selected = effective_context_size(
+        seed_llm.get("provider"), seed_llm.get("model"), seed_llm.get("max_context_tokens")
+    )
+    reasoning_effort_selected = effective_reasoning_effort(
+        seed_llm.get("provider"), seed_llm.get("model"), seed_llm.get("reasoning_effort")
+    )
     return {
         "request": request,
         "seed": seed,
@@ -3069,15 +3111,15 @@ def _default_connections_context(
         # What a blank BrowserStack Network means (connectors/_macros.html).
         "mobile_default_network": get_settings().mobile_default_network,
         "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
-        "reasoning_efforts": list(SUPPORTED_REASONING_EFFORTS),
-        "context_sizes": context_size_choices(),
+        "reasoning_efforts": list(reasoning_effort_options(seed_llm.get("provider"), seed_llm.get("model"))),
+        "context_sizes": context_sizes,
         # Neither field offers "leave it to the runtime" any more, because a
         # member's own panel rejects a blank one and would overwrite it on their
         # first save. Something has to be selected when nothing is stored, and
         # it must be the managed default rather than whichever value sorts
         # first -- otherwise saving an untouched form pins everyone to Low/64K.
-        "default_reasoning_effort": DEFAULT_REASONING_EFFORT,
-        "default_context_size": DEFAULT_CONTEXT_SIZE,
+        "reasoning_effort_selected": reasoning_effort_selected,
+        "context_size_selected": context_size_selected,
         "status_type": status_type,
         "status_message": status_message,
     }
@@ -3954,7 +3996,7 @@ async def app_connector_test(request: Request, connector_type: str, target: str)
         # Tested as the assistants would see it: a connector in system mode
         # posts no fields of its own, so the Default connectors are what runs.
         config_base = service.effective_config_for(runtime_profile)
-        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        config_payload, merge_error = _settings_merge_payload(config_base, form, db=db)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
 
@@ -3994,7 +4036,7 @@ async def app_connector_save(request: Request, connector_type: str):
                 status_message=f"{spec.label} follows your administrator's Default connectors. Choose Customize to edit it.",
             )
         config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        config_payload, merge_error = _settings_merge_payload(config_base, form, db=db)
         if merge_error:
             return _connector_panel_response(
                 request, db, spec, runtime_profile, status_type="error", status_message=merge_error

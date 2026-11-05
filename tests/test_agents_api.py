@@ -7,6 +7,7 @@ from app.models.agent import Agent
 from app.schemas.agent import AgentResponse
 from app.db import Base
 from app.models import User
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session, sessionmaker
@@ -136,6 +137,22 @@ def test_agent_status_values():
     assert "stopped" in VALID_STATUSES
     assert "creating" in VALID_STATUSES
     assert "restarting" in VALID_STATUSES
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime_model_catalog(monkeypatch):
+    # The chat-model-profile route asks a running assistant's runtime for the
+    # Copilot catalog; these tests have no runtime, so the fetch answers
+    # nothing and the static list stands, without a network round trip.
+    from app.services import model_catalog_service
+
+    async def _nothing(**_kwargs):
+        return None
+
+    model_catalog_service.reset_catalog_state()
+    monkeypatch.setattr(model_catalog_service, "fetch_runtime_models", _nothing)
+    yield
+    model_catalog_service.reset_catalog_state()
 
 
 def _build_agents_client_with_overrides():
@@ -649,6 +666,11 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
             "context_sizes": [64000, 128000, 256000, 1000000],
             "supports_reasoning_effort": True,
             "supports_context_size": True,
+            "model_labels": {},
+            "model_context_windows": {},
+            "model_reasoning_efforts": {},
+            "models_source": "static",
+            "models_fetched_at": None,
         }
         assert "config_json" not in body
         assert "token" not in body
@@ -691,6 +713,11 @@ def test_agent_chat_model_profile_endpoint_returns_empty_when_profile_missing(mo
             "context_sizes": [],
             "supports_reasoning_effort": False,
             "supports_context_size": False,
+            "model_labels": {},
+            "model_context_windows": {},
+            "model_reasoning_efforts": {},
+            "models_source": "static",
+            "models_fetched_at": None,
         }
 
         agent_row.runtime_profile_id = "missing-profile-id"
@@ -712,6 +739,11 @@ def test_agent_chat_model_profile_endpoint_returns_empty_when_profile_missing(mo
             "context_sizes": [],
             "supports_reasoning_effort": False,
             "supports_context_size": False,
+            "model_labels": {},
+            "model_context_windows": {},
+            "model_reasoning_efforts": {},
+            "models_source": "static",
+            "models_fetched_at": None,
         }
     finally:
         cleanup()
@@ -756,6 +788,11 @@ def test_agent_chat_model_profile_does_not_infer_provider_model_from_defaults(mo
             "context_sizes": [],
             "supports_reasoning_effort": False,
             "supports_context_size": False,
+            "model_labels": {},
+            "model_context_windows": {},
+            "model_reasoning_efforts": {},
+            "models_source": "static",
+            "models_fetched_at": None,
         }
     finally:
         cleanup()

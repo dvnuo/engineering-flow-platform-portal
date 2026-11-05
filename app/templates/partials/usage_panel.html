@@ -31,17 +31,22 @@
       <div class="portal-detail-label">{{ t("Copilot balance this month") }}</div>
       {% if quota.available %}
         {% if quota_credits %}
+          {# A pooled organization allotment has no per-member denominator: only the credits used are known, and has_quota says when the pool is spent. #}
+          {% set pooled = quota_credits.pooled or quota_credits.unlimited %}
+          {% set exhausted = quota_credits.exhausted or (quota_credits.has_quota is sameas false) %}
           {% set used = (quota_credits.used or 0)|float %}
-          {% set included = (quota_credits.included or 0)|float %}
+          {% set included = ((quota_credits.included or 0)|float) if not pooled else 0.0 %}
           {% set percent_used = (used / included * 100) if included > 0 else none %}
-          <div class="portal-quota-chip {% if percent_used is not none and percent_used >= 80 %}is-warning{% endif %}">
-            <div class="portal-quota-chip-head"><span>{{ t("{amount} {unit} used", amount='%.0f'|format(used), unit=t("credits")) }}</span><span>{% if quota_credits.remaining is not none %}{{ t("{amount} left", amount='%.0f'|format((quota_credits.remaining or 0)|float)) }}{% elif included > 0 %}{{ t("{amount} included", amount='%.0f'|format(included)) }}{% endif %}</span></div>
+          <div class="portal-quota-chip {% if exhausted or (percent_used is not none and percent_used >= 80) %}is-warning{% endif %}" data-copilot-quota="{% if exhausted %}exhausted{% elif pooled %}pooled{% else %}ok{% endif %}">
+            <div class="portal-quota-chip-head"><span>{{ t("{amount} {unit} used", amount='%.0f'|format(used), unit=t("credits")) }}</span><span>{% if pooled %}{{ t("organization pool") }}{% elif quota_credits.remaining is not none %}{{ t("{amount} left", amount='%.0f'|format((quota_credits.remaining or 0)|float)) }}{% elif included > 0 %}{{ t("{amount} included", amount='%.0f'|format(included)) }}{% endif %}</span></div>
             {% if percent_used is not none %}<div class="portal-quota-meter"><span style="width:{{ [percent_used, 100]|min|round(1) }}%"></span></div>{% endif %}
+            {% if exhausted %}<div class="portal-panel-note">{% if pooled %}{{ t("The organization's Copilot allotment for this month is used up.") }}{% else %}{{ t("This month's Copilot allotment is used up.") }}{% endif %}</div>{% endif %}
+            {% if quota_credits.overage_permitted %}<div class="portal-panel-note">{{ t("Additional usage is enabled; usage past the allotment is billed.") }}</div>{% endif %}
             {% if quota.reset_date %}<div class="portal-panel-note">{{ t("Resets on {date}", date=quota.reset_date) }}</div>{% endif %}
           </div>
         {% endif %}
         {% for snapshot in quota_snapshots %}
-          {% if snapshot is mapping and not snapshot.unlimited %}
+          {% if snapshot is mapping and not snapshot.unlimited and (not quota_credits or snapshot.id != quota_credits.id) %}
             {% set percent_remaining = snapshot.percent_remaining %}
             <div class="portal-panel-note">{{ snapshot.label or snapshot.id }}{% if snapshot.used is not none %} · {{ t("{amount} used", amount=snapshot.used) }}{% endif %}{% if snapshot.remaining is not none %} · {{ t("{amount} left", amount=snapshot.remaining) }}{% endif %}{% if snapshot.entitlement %} / {{ snapshot.entitlement }}{% endif %}{% if percent_remaining is not none %} · {{ t("{percent}% left", percent=percent_remaining) }}{% endif %}</div>
           {% endif %}

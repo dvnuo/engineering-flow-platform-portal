@@ -46,11 +46,17 @@ def test_llm_default_inference_controls_are_sanitized_to_supported_values():
         "max_context_tokens": 1_000_000,
     }
 
-    # 128K is a preset since the credits work; 300K is not one.
-    unsupported = sanitize_runtime_profile_config_dict(
+    # 300K is no preset, but a model's catalog window may sit between the
+    # presets and this sanitizer also runs where no catalog is loaded, so any
+    # whole number up to the ladder's top is kept (the forms validate what
+    # may be stored, the runtime clamps to the model); nonsense is dropped,
+    # along with the unknown thinking level.
+    between = sanitize_runtime_profile_config_dict(
         {"llm": {"reasoning_effort": "extreme", "max_context_tokens": 300_000}}
     )
-    assert "llm" not in unsupported
+    assert between["llm"] == {"max_context_tokens": 300_000}
+    for nonsense in (0, -5, 2_000_000, "lots", True):
+        assert "llm" not in sanitize_runtime_profile_config_dict({"llm": {"max_context_tokens": nonsense}})
 
 
 def test_external_sections_sanitized_and_secrets_preserved_for_persisted_config():

@@ -1284,6 +1284,34 @@ function buildAttachmentChipNode(attachment, displayName) {
   return chip;
 }
 
+// A stored image comes back as its file id; the runtime serves the file
+// inline (GET /api/files/{file_id}), so the transcript shows the thumbnail
+// the optimistic bubble showed and opens the lightbox on click. Files go with
+// their session and after EFP_CHAT_UPLOAD_RETENTION_DAYS, so a thumbnail that
+// fails to load falls back to the chip.
+function buildAttachmentThumbNode(attachment, url, displayName) {
+  const isObj = !!attachment && typeof attachment === "object" && !Array.isArray(attachment);
+  const fileId = isObj ? String(attachment.file_id || attachment.fileId || attachment.id || "").trim() : "";
+  const img = document.createElement("img");
+  img.className = "message-attachment-thumb";
+  img.alt = displayName;
+  img.loading = "lazy";
+  if (img.dataset) {
+    if (fileId) img.dataset.fileId = fileId;
+    img.dataset.previewUrl = url;
+    img.dataset.previewName = displayName;
+    img.dataset.isImage = "true";
+  }
+  img.onerror = () => {
+    const chip = buildAttachmentChipNode(attachment, displayName);
+    if (typeof img.replaceWith === "function") img.replaceWith(chip);
+    else if (img.parentNode) img.parentNode.replaceChild(chip, img);
+    if (typeof renderIcons === "function") renderIcons(chip.parentNode || chip);
+  };
+  img.src = url;
+  return img;
+}
+
 let cachedChatUploadPolicy = null;
 
 function normalizeUploadPolicyList(values) {
@@ -2948,35 +2976,104 @@ async function sendBudgetPauseContinue() {
 // RUNTIME_EVENT_HELPER_START: copilotQuota
 // The member's Copilot AI-credit balance this month, from the runtime's
 // GET /api/copilot/quota (GitHub's internal quota endpoint behind the member's
-// own credential). None of its fields is a contract: whatever arrives is
-// shown, and anything else reads as unavailable.
+// own credential, the source of VS Code's status bar). Since Copilot bills per
+// token the premium snapshot counts credits: a per-seat allotment has a
+// denominator (included / remaining), a pooled organization allotment reports
+// only the credits used and `has_quota: false` once the pool is spent. None
+// of the fields is a contract: whatever arrives is shown, anything else reads
+// as unavailable. `live` is the quota header of the latest chat answer, fresher
+// than the endpoint's cached reading.
+function copilotLiveQuota(live) {
+  if (!live || typeof live !== "object" || live.unlimited === true) return null;
+  const percentRemaining = usageNumber(live, "percent_remaining");
+  if (percentRemaining == null) return null;
+  const included = usageNumber(live, "entitlement");
+  const percentUsed = Math.max(0, Math.min(100, 100 - percentRemaining));
+  const used = included != null ? Math.round(included * percentUsed) / 100 : null;
+  return {
+    percentUsed,
+    included,
+    used,
+    remaining: included != null && used != null ? Math.max(0, included - used) : null,
+    resetDate: String(live.reset_date || "").trim(),
+    observedAt: String(live.observed_at || "").trim(),
+    overagePermitted: live.overage_permitted === true,
+  };
+}
+
 function copilotQuotaSummary(quota) {
   if (!quota || typeof quota !== "object" || quota.available !== true) {
+    const live = quota && typeof quota === "object" ? copilotLiveQuota(quota.live) : null;
+    if (live) {
+      return {
+        available: true,
+        fromLive: true,
+        used: live.used,
+        included: live.included,
+        remaining: live.remaining,
+        percentUsed: live.percentUsed,
+        unit: "credits",
+        pooled: false,
+        exhausted: live.percentUsed >= 100 && !live.overagePermitted,
+        overagePermitted: live.overagePermitted,
+        plan: "",
+        resetDate: live.resetDate,
+        warning: live.percentUsed >= 80,
+        hasNumbers: true,
+        error: String(quota.error || "").trim(),
+      };
+    }
     return { available: false, error: String(quota?.error || "").trim() };
   }
   const credits = quota.credits && typeof quota.credits === "object" ? quota.credits : null;
-  let used = usageNumber(credits, "used");
+  let used = usageNumber(credits, "used", "credits_used");
   let included = usageNumber(credits, "included", "entitlement");
   let remaining = usageNumber(credits, "remaining");
+  let percentRemaining = usageNumber(credits, "percent_remaining");
   let unit = "credits";
-  let percentRemaining = null;
-  if (used == null && remaining == null) {
+  let pooled = !!credits && (credits.pooled === true || credits.unlimited === true);
+  let exhausted = !!credits && (credits.exhausted === true || credits.has_quota === false);
+  let overagePermitted = !!credits && credits.overage_permitted === true;
+  if (!credits) {
     const snapshots = Array.isArray(quota.snapshots) ? quota.snapshots : [];
-    const snapshot = snapshots.find((item) => item && typeof item === "object" && item.unlimited !== true
+    const limited = snapshots.find((item) => item && typeof item === "object" && item.unlimited !== true
       && (usageNumber(item, "used") != null || usageNumber(item, "remaining") != null || usageNumber(item, "percent_remaining") != null)) || null;
+    const snapshot = limited || snapshots.find((item) => item && typeof item === "object" && item.unlimited === true
+      && usageNumber(item, "credits_used", "used") != null) || null;
     if (snapshot) {
-      used = usageNumber(snapshot, "used");
-      included = usageNumber(snapshot, "entitlement", "included");
-      remaining = usageNumber(snapshot, "remaining");
-      percentRemaining = usageNumber(snapshot, "percent_remaining");
+      pooled = snapshot.unlimited === true;
+      used = usageNumber(snapshot, "used", "credits_used");
+      included = pooled ? null : usageNumber(snapshot, "entitlement", "included");
+      remaining = pooled ? null : usageNumber(snapshot, "remaining");
+      percentRemaining = pooled ? null : usageNumber(snapshot, "percent_remaining");
       unit = String(snapshot.label || snapshot.id || "").trim() || unit;
+      exhausted = snapshot.has_quota === false;
+      overagePermitted = snapshot.overage_permitted === true;
     }
+  }
+  if (pooled) {
+    included = null;
+    remaining = null;
+    percentRemaining = null;
   }
   if (used == null && included != null && remaining != null) used = Math.max(0, included - remaining);
   if (remaining == null && included != null && used != null) remaining = Math.max(0, included - used);
   let percentUsed = null;
   if (used != null && included) percentUsed = Math.max(0, Math.min(100, (used / included) * 100));
   else if (percentRemaining != null) percentUsed = Math.max(0, Math.min(100, 100 - percentRemaining));
+  const live = pooled ? null : copilotLiveQuota(quota.live);
+  if (live && live.observedAt && live.observedAt > String(quota.fetched_at || "")) {
+    percentUsed = live.percentUsed;
+    if (included != null) {
+      used = Math.round(included * percentUsed) / 100;
+      remaining = Math.max(0, included - used);
+    } else if (live.included != null) {
+      included = live.included;
+      used = live.used;
+      remaining = live.remaining;
+    }
+  }
+  if (!pooled && percentUsed != null && percentUsed >= 100 && !overagePermitted) exhausted = true;
   return {
     available: true,
     used,
@@ -2984,9 +3081,12 @@ function copilotQuotaSummary(quota) {
     remaining,
     percentUsed,
     unit,
+    pooled,
+    exhausted,
+    overagePermitted,
     plan: String(quota.plan || "").trim(),
     resetDate: String(quota.reset_date || "").trim(),
-    warning: percentUsed != null && percentUsed >= 80,
+    warning: exhausted || (percentUsed != null && percentUsed >= 80),
     hasNumbers: used != null || remaining != null || percentUsed != null,
   };
 }
@@ -3005,13 +3105,21 @@ function copilotQuotaChipHtml(summary) {
   const usedText = summary.used != null
     ? t("{amount} {unit} used", { amount: escapeHtml(formatCredits(summary.used) || String(Math.round(summary.used))), unit })
     : (summary.percentUsed != null ? t("{percent}% used", { percent: Math.round(summary.percentUsed) }) : "");
-  const rightText = summary.remaining != null
-    ? t("{amount} left", { amount: escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining))) })
-    : (summary.included != null ? t("{amount} included", { amount: escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included))) }) : "");
-  const meter = summary.percentUsed != null ? `<div class="portal-quota-meter"><span style="width:${Math.round(summary.percentUsed * 10) / 10}%"></span></div>` : "";
+  const rightText = summary.pooled
+    ? t("organization pool")
+    : (summary.remaining != null
+      ? t("{amount} left", { amount: escapeHtml(formatCredits(summary.remaining) || String(Math.round(summary.remaining))) })
+      : (summary.included != null ? t("{amount} included", { amount: escapeHtml(formatCredits(summary.included) || String(Math.round(summary.included))) }) : ""));
+  const meter = !summary.pooled && summary.percentUsed != null ? `<div class="portal-quota-meter"><span style="width:${Math.round(summary.percentUsed * 10) / 10}%"></span></div>` : "";
   const reset = summary.resetDate ? `<div>${t("Resets on {date}", { date: escapeHtml(summary.resetDate) })}</div>` : "";
-  const warning = summary.warning ? `<div>${t("More than 80% used; watch this month's usage.")}</div>` : "";
-  return `<div id="context-quota-chip" class="portal-quota-chip${summary.warning ? " is-warning" : ""}" data-copilot-quota="${summary.warning ? "warning" : "ok"}"><div class="portal-quota-chip-head"><span>${label}</span><span>${usedText}${usedText && rightText ? " \u00b7 " : ""}${rightText}</span></div>${meter}${reset}${warning}</div>`;
+  const exhausted = summary.exhausted
+    ? `<div>${summary.pooled ? t("The organization's Copilot allotment for this month is used up.") : t("This month's Copilot allotment is used up.")}</div>`
+    : "";
+  const overage = summary.overagePermitted ? `<div>${t("Additional usage is enabled; usage past the allotment is billed.")}</div>` : "";
+  const warning = summary.warning && !summary.exhausted && summary.percentUsed != null ? `<div>${t("More than 80% used; watch this month's usage.")}</div>` : "";
+  const live = summary.fromLive ? `<div>${t("From the latest answer; the quota endpoint did not respond.")}</div>` : "";
+  const state = summary.exhausted ? "exhausted" : (summary.warning ? "warning" : "ok");
+  return `<div id="context-quota-chip" class="portal-quota-chip${summary.warning ? " is-warning" : ""}" data-copilot-quota="${state}"><div class="portal-quota-chip-head"><span>${label}</span><span>${usedText}${usedText && rightText ? " \u00b7 " : ""}${rightText}</span></div>${meter}${reset}${exhausted}${overage}${warning}${live}</div>`;
 }
 // RUNTIME_EVENT_HELPER_END: copilotQuota
 
@@ -10553,6 +10661,11 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   if (optimisticUserArticle && payload.user_message_id) {
     optimisticUserArticle.dataset.messageId = payload.user_message_id;
     delete optimisticUserArticle.dataset.optimisticUser;
+  } else if (optimisticUserArticle && finalSessionId) {
+    // An older runtime image answers without the stored message id: ask the
+    // session for it, so the bubble gets its Edit and Retry actions now
+    // rather than after a reload.
+    void reconcileOptimisticUserMessageId(agentIdAtSend, finalSessionId, optimisticUserArticle);
   }
   if (requestCtx.usedStream === true) {
     await flushAssistantTypewriter(agentIdAtSend, requestCtx, payload.response || "");
@@ -12271,7 +12384,13 @@ function renderChatHistory(messages, metadata = {}) {
           const imageUrl = isObj ? (attachment.url || attachment.previewUrl || "") : "";
           const fileId = isObj ? String(attachment.file_id || attachment.fileId || attachment.id || attachment.filename || "attachment") : String(attachment || "");
           const fileName = isObj ? String(attachment.name || attachment.filename || attachment.file_name || fileId || "attachment") : fileId;
-          if (type === "image" && imageUrl) { const img = document.createElement("img"); img.src = imageUrl; img.className = "message-attachment-thumb"; img.alt = fileName; img.dataset.fileId = fileId; attachmentDiv.appendChild(img); return; }
+          const contentType = isObj ? String(attachment.content_type || attachment.contentType || attachment.mime || "").toLowerCase() : "";
+          const isImage = type === "image" || contentType.startsWith("image/");
+          const thumbUrl = imageUrl || (isImage && typeof attachmentFileUrl === "function" ? attachmentFileUrl(attachment) : "");
+          if (isImage && thumbUrl) {
+            if (typeof buildAttachmentThumbNode === "function") { attachmentDiv.appendChild(buildAttachmentThumbNode(attachment, thumbUrl, fileName || fileId || "attachment")); return; }
+            const img = document.createElement("img"); img.src = thumbUrl; img.className = "message-attachment-thumb"; img.alt = fileName; if (img.dataset) img.dataset.fileId = fileId; attachmentDiv.appendChild(img); return;
+          }
           attachmentDiv.appendChild(buildAttachmentChipNode(attachment, fileName || fileId || "attachment"));
         });
         if (typeof renderIcons === "function") renderIcons(attachmentDiv);
@@ -13854,6 +13973,55 @@ function managedModelSupportsTemperature(value) {
   return normalizeManagedModelIdForCapabilities(value) === "gpt-4";
 }
 
+// The connector and admin forms render the whole ladder; once the Portal-wide
+// catalog is known, "Default context size" follows the selected model's
+// window the way the composer does (on updateModelOptions and a model change).
+function updateContextSizeOptions(root) {
+  if (!root || typeof contextSizeOptionsForModel !== "function") return;
+  const modelSelect = root.querySelector("#llm_model");
+  const contextSelect = root.querySelector('select[name="llm_max_context_tokens"]');
+  if (!modelSelect || !contextSelect) return;
+  const options = contextSizeOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "");
+  if (!options.length) return;
+  const listed = Array.from(contextSelect.options).map((option) => Number(option.value));
+  if (listed.length === options.length && listed.every((value, index) => value === options[index])) return;
+  const previous = Number(contextSelect.value || 0);
+  contextSelect.innerHTML = "";
+  options.forEach((tokens) => {
+    const option = document.createElement("option");
+    option.value = String(tokens);
+    option.textContent = typeof inferenceContextLabel === "function" ? inferenceContextLabel(tokens) : String(tokens);
+    contextSelect.appendChild(option);
+  });
+  const largest = options[options.length - 1];
+  const chosen = options.includes(previous) ? previous : (previous > largest ? largest : (options.includes(256000) ? 256000 : largest));
+  contextSelect.value = String(chosen);
+}
+
+// The same for "Default thinking level": the levels the selected model's
+// catalog row lists, the stored level clamped to them.
+function updateReasoningEffortOptions(root) {
+  if (!root || typeof reasoningEffortOptionsForModel !== "function") return;
+  const modelSelect = root.querySelector("#llm_model");
+  const effortSelect = root.querySelector('select[name="llm_reasoning_effort"]');
+  if (!modelSelect || !effortSelect) return;
+  const options = reasoningEffortOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "");
+  if (!options.length) return;
+  const listed = Array.from(effortSelect.options).map((option) => String(option.value));
+  if (listed.length === options.length && listed.every((value, index) => value === options[index])) return;
+  const previous = String(effortSelect.value || "");
+  effortSelect.innerHTML = "";
+  options.forEach((effort) => {
+    const option = document.createElement("option");
+    option.value = effort;
+    option.textContent = typeof inferenceReasoningLabel === "function" ? inferenceReasoningLabel(effort) : effort;
+    effortSelect.appendChild(option);
+  });
+  effortSelect.value = typeof clampReasoningEffort === "function"
+    ? clampReasoningEffort(previous || "medium", options)
+    : (options.includes(previous) ? previous : options[0]);
+}
+
 function updateTemperatureInputState(root) {
   if (!root) return;
   const modelSelect = root.querySelector("#llm_model");
@@ -13898,6 +14066,87 @@ const managedProviderModels = {
   ],
 };
 
+// One model list for everyone. The Portal keeps Copilot's catalog (filled by
+// the first assistant whose runtime answers GET /api/models, kept across
+// restarts) and serves it through chat-model-profile (available_models plus
+// model_labels) and GET /api/models/catalog, so members and assistants never
+// see different lists. The static table above is the fallback until a runtime
+// has answered, and the source of the known ids' labels.
+const portalModelLabels = new Map();
+// Model id -> context window (tokens) from the Portal-wide catalog; the
+// context-size presets follow it per model (contextSizeOptionsForModel).
+const portalModelContextWindows = new Map();
+// Model id -> the reasoning efforts its catalog row lists; the thinking-level
+// options follow it per model (reasoningEffortOptionsForModel).
+const portalModelReasoningEfforts = new Map();
+let portalModelCatalog = null;
+let portalModelCatalogPromise = null;
+
+function rememberModelLabels(labels) {
+  if (!labels || typeof labels !== "object") return;
+  for (const [id, label] of Object.entries(labels)) {
+    const key = String(id || "").trim();
+    const text = String(label || "").trim();
+    if (key && text) portalModelLabels.set(key, text);
+  }
+}
+
+function rememberModelContextWindows(windows) {
+  if (!windows || typeof windows !== "object") return;
+  for (const [id, tokens] of Object.entries(windows)) {
+    const key = String(id || "").trim().toLowerCase();
+    const value = Number(tokens);
+    if (key && Number.isFinite(value) && value > 0) portalModelContextWindows.set(key, value);
+  }
+}
+
+function rememberModelReasoningEfforts(efforts) {
+  if (!efforts || typeof efforts !== "object") return;
+  for (const [id, listed] of Object.entries(efforts)) {
+    const key = String(id || "").trim().toLowerCase();
+    const values = Array.isArray(listed) ? listed.map((effort) => String(effort || "").trim().toLowerCase()).filter(Boolean) : [];
+    if (key && values.length) portalModelReasoningEfforts.set(key, values);
+  }
+}
+
+function pickerModelLabel(value) {
+  const normalized = String(value || "").trim();
+  for (const models of Object.values(managedProviderModels)) {
+    const match = models.find((item) => item.value === normalized);
+    if (match) return match.label;
+  }
+  return portalModelLabels.get(normalized) || normalized;
+}
+
+function catalogPickerModels(catalog) {
+  if (!catalog || typeof catalog !== "object" || catalog.source !== "catalog") return null;
+  const models = Array.isArray(catalog.models) ? catalog.models : [];
+  const entries = models
+    .filter((model) => model && typeof model === "object" && model.id)
+    .map((model) => {
+      const value = String(model.id);
+      const known = pickerModelLabel(value);
+      return { value, label: known !== value ? known : String(model.label || value) };
+    });
+  return entries.length ? entries : null;
+}
+
+async function ensurePortalModelCatalog({ force = false } = {}) {
+  if (portalModelCatalog && !force) return portalModelCatalog;
+  if (portalModelCatalogPromise && !force) return portalModelCatalogPromise;
+  portalModelCatalogPromise = api("/api/models/catalog")
+    .then((catalog) => {
+      portalModelCatalog = catalog && typeof catalog === "object" ? catalog : null;
+      if (portalModelCatalog) rememberModelLabels(portalModelCatalog.model_labels);
+      if (portalModelCatalog) rememberModelContextWindows(portalModelCatalog.model_context_windows);
+      if (portalModelCatalog) rememberModelReasoningEfforts(portalModelCatalog.model_reasoning_efforts);
+      return portalModelCatalog;
+    })
+    .catch(() => null)
+    .finally(() => { portalModelCatalogPromise = null; });
+  return portalModelCatalogPromise;
+}
+
 const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
 // Mirrors CONTEXT_SIZE_PRESETS in app/contracts/llm_catalog.py. Above
 // COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS (272K input tokens per request) the
@@ -13911,7 +14160,8 @@ function inferenceModelLabel(value) {
     const match = models.find((item) => item.value === normalized);
     if (match) return match.label;
   }
-  return normalized || t("Model");
+  const remembered = typeof portalModelLabels !== "undefined" ? portalModelLabels.get(normalized) : "";
+  return remembered || normalized || t("Model");
 }
 
 function inferenceReasoningLabel(value) {
@@ -13927,10 +14177,48 @@ function inferenceContextLabel(value, fallback = t("Auto")) {
   return tokens > threshold ? t("{size} · Long context 2×", { size: base }) : base;
 }
 
+// Mirrors context_size_options in app/contracts/llm_catalog.py: the presets
+// up to the model's catalog window, the window itself closing the list; the
+// whole ladder for a model whose window no catalog has reported.
 function contextSizeOptionsForModel(model, fallback = []) {
-  void model;
-  const source = managedContextSizes.length ? managedContextSizes : fallback;
-  return Array.from(new Set((source || []).map(Number).filter((value) => Number.isFinite(value) && value > 0)));
+  const source = managedContextSizes.length ? managedContextSizes : (fallback || []);
+  const ladder = Array.from(new Set(source.map(Number).filter((value) => Number.isFinite(value) && value > 0))).sort((a, b) => a - b);
+  const id = String(model || "").trim().toLowerCase();
+  const windowTokens = id && typeof portalModelContextWindows !== "undefined" ? Number(portalModelContextWindows.get(id) || 0) : 0;
+  if (!ladder.length || !(windowTokens > 0) || windowTokens >= ladder[ladder.length - 1]) return ladder;
+  const options = ladder.filter((size) => size <= windowTokens);
+  if (!options.length || options[options.length - 1] < windowTokens) options.push(windowTokens);
+  return options;
+}
+
+// Mirrors reasoning_effort_options in app/contracts/llm_catalog.py: the
+// levels of the ladder the model's catalog row lists (xhigh is not offered
+// to a model that takes only low/medium/high); the whole ladder for a model
+// whose row lists none.
+function reasoningEffortOptionsForModel(model, fallback = []) {
+  const ladder = managedReasoningEfforts.length ? managedReasoningEfforts.slice() : (fallback || []).slice();
+  const id = String(model || "").trim().toLowerCase();
+  const listed = id && typeof portalModelReasoningEfforts !== "undefined" ? portalModelReasoningEfforts.get(id) : null;
+  if (Array.isArray(listed) && listed.length) {
+    const offered = ladder.filter((effort) => listed.includes(effort));
+    if (offered.length) return offered;
+  }
+  return ladder;
+}
+
+// Mirrors effective_reasoning_effort: the level when offered, else the
+// nearest lower offered level, then the nearest higher; an unknown level
+// reads as medium.
+function clampReasoningEffort(value, options) {
+  const offered = Array.isArray(options) ? options : [];
+  let wanted = String(value || "").trim().toLowerCase();
+  if (!offered.length) return wanted;
+  if (!managedReasoningEfforts.includes(wanted)) wanted = "medium";
+  if (offered.includes(wanted)) return wanted;
+  const index = managedReasoningEfforts.indexOf(wanted);
+  for (let i = index - 1; i >= 0; i -= 1) if (offered.includes(managedReasoningEfforts[i])) return managedReasoningEfforts[i];
+  for (let i = index + 1; i < managedReasoningEfforts.length; i += 1) if (offered.includes(managedReasoningEfforts[i])) return managedReasoningEfforts[i];
+  return offered[0];
 }
 
 function updateComposerInferenceSummary(chatState) {
@@ -13964,8 +14252,10 @@ function renderComposerModelSelectorForAgent(agentId) {
   const currentModel = (chatState.profileDefaultModel || "").trim();
   const profileModels = Array.isArray(chatState.profileAvailableModels) ? chatState.profileAvailableModels : [];
   const catalogModels = managedProviderModels[provider] || [];
+  // available_models is the Portal-wide list (the runtime catalog once one
+  // has answered, the static table until then), the same for every assistant.
   const models = profileModels.length
-    ? profileModels.map((value) => catalogModels.find((item) => item.value === value) || { value, label: value })
+    ? profileModels.map((value) => catalogModels.find((item) => item.value === value) || { value, label: typeof pickerModelLabel === "function" ? pickerModelLabel(value) : value })
     : catalogModels;
   dom.chatModelSelect.innerHTML = "";
 
@@ -14003,9 +14293,13 @@ function renderComposerModelSelectorForAgent(agentId) {
   }
 
   if (dom.chatReasoningSelect && typeof inferenceReasoningLabel === "function") {
-    const reasoningEfforts = chatState.profileReasoningEfforts.length
-      ? chatState.profileReasoningEfforts
-      : (typeof managedReasoningEfforts !== "undefined" ? managedReasoningEfforts : []);
+    // The levels the selected model takes (its catalog row); the whole
+    // ladder when nothing is known about it.
+    const reasoningEfforts = typeof reasoningEffortOptionsForModel === "function"
+      ? reasoningEffortOptionsForModel(dom.chatModelSelect.value, chatState.profileReasoningEfforts)
+      : (chatState.profileReasoningEfforts.length
+        ? chatState.profileReasoningEfforts
+        : (typeof managedReasoningEfforts !== "undefined" ? managedReasoningEfforts : []));
     dom.chatReasoningSelect.innerHTML = "";
     reasoningEfforts.forEach((effort) => {
       const option = document.createElement("option");
@@ -14013,8 +14307,17 @@ function renderComposerModelSelectorForAgent(agentId) {
       option.textContent = inferenceReasoningLabel(effort);
       dom.chatReasoningSelect.appendChild(option);
     });
-    const selectedReasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort || "medium";
-    dom.chatReasoningSelect.value = reasoningEfforts.includes(selectedReasoning) ? selectedReasoning : (reasoningEfforts[0] || "");
+    // A level the model does not take is not sent: the picker shows the
+    // nearest level it does take, and that becomes the session's choice
+    // when it differs from the assistant's default.
+    const wantedReasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort || "medium";
+    const shownReasoning = typeof clampReasoningEffort === "function"
+      ? clampReasoningEffort(wantedReasoning, reasoningEfforts)
+      : (reasoningEfforts.includes(wantedReasoning) ? wantedReasoning : (reasoningEfforts[0] || ""));
+    if (shownReasoning !== wantedReasoning) {
+      chatState.reasoningEffortOverride = shownReasoning === chatState.profileDefaultReasoningEffort ? "" : shownReasoning;
+    }
+    dom.chatReasoningSelect.value = shownReasoning;
     dom.chatReasoningField?.classList.toggle("hidden", !chatState.supportsReasoningEffort);
   }
 
@@ -14061,6 +14364,9 @@ async function refreshComposerModelProfile(agentId) {
     chatState.profileDefaultReasoningEffort = (payload?.current_reasoning_effort || "medium").trim();
     chatState.profileDefaultMaxContextTokens = Number(payload?.current_max_context_tokens || 0) || null;
     chatState.profileAvailableModels = Array.isArray(payload?.available_models) ? payload.available_models : [];
+    if (typeof rememberModelLabels === "function") rememberModelLabels(payload?.model_labels);
+    if (typeof rememberModelContextWindows === "function") rememberModelContextWindows(payload?.model_context_windows);
+    if (typeof rememberModelReasoningEfforts === "function") rememberModelReasoningEfforts(payload?.model_reasoning_efforts);
     chatState.profileReasoningEfforts = Array.isArray(payload?.reasoning_efforts) ? payload.reasoning_efforts : [];
     chatState.profileContextSizes = Array.isArray(payload?.context_sizes) ? payload.context_sizes : [];
     chatState.supportsReasoningEffort = payload?.supports_reasoning_effort === true;
@@ -14624,7 +14930,10 @@ function updateModelOptions(root) {
   const initialValue = modelSelect.dataset.initialValue || modelSelect.dataset.currentValue || "";
   const lastProvider = modelSelect.dataset.lastProvider || initialProvider;
   const previousValue = modelSelect.value || "";
-  const models = managedProviderModels[provider] || [];
+  const portalCatalog = typeof portalModelCatalog !== "undefined" ? portalModelCatalog : null;
+  const models = (provider === "github_copilot" && typeof catalogPickerModels === "function" && catalogPickerModels(portalCatalog))
+    || managedProviderModels[provider]
+    || [];
   modelSelect.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
@@ -14668,6 +14977,8 @@ function updateModelOptions(root) {
     el.classList.toggle("hidden", owner !== provider);
   });
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
+  if (typeof updateContextSizeOptions === "function") updateContextSizeOptions(root);
+  if (typeof updateReasoningEffortOptions === "function") updateReasoningEffortOptions(root);
 }
 
 async function runManagedSettingsTest(root, target, button) {
@@ -14866,6 +15177,11 @@ function initializeManagedSettingsRoot(root) {
     modelSelect.dataset.lastProvider = provider?.value || "openai";
   }
   updateModelOptions(root);
+  if (typeof ensurePortalModelCatalog === "function" && !portalModelCatalog) {
+    void ensurePortalModelCatalog().then((catalog) => {
+      if (catalog && root.isConnected !== false) updateModelOptions(root);
+    });
+  }
   const settingsStatus = root.querySelector("#settings-status");
   if (settingsStatus && settingsStatus.dataset.handled !== "1") {
     settingsStatus.dataset.handled = "1";
@@ -14881,6 +15197,8 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
+    if (event.target?.id === "llm_model" && typeof updateContextSizeOptions === "function") updateContextSizeOptions(root);
+    if (event.target?.id === "llm_model" && typeof updateReasoningEffortOptions === "function") updateReasoningEffortOptions(root);
     if (event.target?.dataset?.field === "enabled") {
       syncInstanceEnabledState(event.target.closest("[data-instance-item]"));
     }
@@ -17256,6 +17574,9 @@ async function loadInferenceProfileForAgent(agentId) {
   if (!agentId) return null;
   if (state.cachedInferenceProfilesByAgent.has(agentId)) return state.cachedInferenceProfilesByAgent.get(agentId);
   const profile = await api(`/api/agents/${encodeURIComponent(agentId)}/chat-model-profile`);
+  if (profile && typeof rememberModelLabels === "function") rememberModelLabels(profile.model_labels);
+  if (profile && typeof rememberModelContextWindows === "function") rememberModelContextWindows(profile.model_context_windows);
+  if (profile && typeof rememberModelReasoningEfforts === "function") rememberModelReasoningEfforts(profile.model_reasoning_efforts);
   state.cachedInferenceProfilesByAgent.set(agentId, profile || null);
   return profile || null;
 }
@@ -17316,7 +17637,11 @@ async function populateInferenceSettingsForForm(formEl, initial = null) {
     models.forEach((model) => appendSelectOption(modelSelect, model, inferenceModelLabel(model), initialSettings.model_override === model));
     modelSelect.disabled = models.length === 0;
 
-    const reasoningEfforts = Array.isArray(profile?.reasoning_efforts) ? profile.reasoning_efforts : [];
+    const profileReasoningEfforts = Array.isArray(profile?.reasoning_efforts) ? profile.reasoning_efforts : [];
+    const modelForOptions = initialSettings.model_override || profile?.current_model || "";
+    const reasoningEfforts = typeof reasoningEffortOptionsForModel === "function"
+      ? reasoningEffortOptionsForModel(modelForOptions, profileReasoningEfforts)
+      : profileReasoningEfforts;
     reasoningSelect.innerHTML = "";
     appendSelectOption(reasoningSelect, "", t("Agent default ({value})", { value: inferenceReasoningLabel(profile?.current_reasoning_effort) }), !initialSettings.reasoning_effort);
     reasoningEfforts.forEach((effort) => appendSelectOption(reasoningSelect, effort, inferenceReasoningLabel(effort), initialSettings.reasoning_effort === effort));
@@ -18165,6 +18490,33 @@ function addAssistantActionsToMessages() {
 function addEditButtonsToMessages() {
   addUserEditButtonsToMessages();
   addAssistantActionsToMessages();
+}
+
+// The user bubble drawn on send has no message id until the runtime names the
+// stored turn (user_message_id on the final payload). When the answer carries
+// none, the session itself says which user message was last; the id makes the
+// bubble editable and the answer retryable without a reload.
+async function reconcileOptimisticUserMessageId(agentId, sessionId, article) {
+  if (!agentId || !sessionId || !article) return null;
+  try {
+    const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
+    const messages = Array.isArray(data?.messages) ? data.messages : [];
+    const latestUser = [...messages].reverse().find((message) => message && message.role === "user" && message.id);
+    if (!latestUser || article.isConnected === false) return null;
+    const messageId = String(latestUser.id);
+    if (!article.dataset.messageId) {
+      article.dataset.messageId = messageId;
+      delete article.dataset.optimisticUser;
+      const row = article.closest ? article.closest(".message-row") : null;
+      const assistantArticle = row?.nextElementSibling?.querySelector?.("article.assistant-message") || null;
+      if (assistantArticle && !assistantArticle.dataset.userMessageId) assistantArticle.dataset.userMessageId = messageId;
+      addEditButtonsToMessages();
+    }
+    return messageId;
+  } catch (error) {
+    console.warn("Could not resolve the user message id", error);
+    return null;
+  }
 }
 
 // Simple hash function for generating temporary message IDs

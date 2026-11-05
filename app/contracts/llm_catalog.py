@@ -8,6 +8,10 @@ managedProviderModels) and in each runtime's projection.
 """
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+from typing import Any
+
 COPILOT_PROVIDER = "github_copilot"
 AI_PLATFORM_PROVIDER = "ai_platform"
 
@@ -114,8 +118,10 @@ def context_size_label(size: int) -> str:
     return base
 
 
-def context_size_choices() -> list[tuple[int, str]]:
-    return [(size, context_size_label(size)) for size in CONTEXT_SIZE_PRESETS]
+def context_size_choices(provider: str | None = None, model: str | None = None) -> list[tuple[int, str]]:
+    """The presets with their labels: the whole ladder, or what ``model`` takes when one is named."""
+    sizes = context_size_options(provider, model) if model else CONTEXT_SIZE_PRESETS
+    return [(size, context_size_label(size)) for size in sizes]
 
 # Runtime Profiles persist only the user-specific AI Platform credentials.
 # Endpoints and transport headers are deployment-managed in app/config.py and
@@ -127,6 +133,124 @@ AI_PLATFORM_LLM_SUBTREE = {
         "usercase": True,
     },
 }
+
+# Copilot's own catalog (GET /models, which the runtimes surface as
+# GET /api/models) is where the picker's list comes from at run time; the
+# tuple above is the offline default and the labels. A model id the catalog
+# lists but this file does not is therefore legitimate, so validation accepts
+# any plausible Copilot id and leaves the final word to the runtime, which
+# rejects what Copilot does not serve (`invalid_model`). Ids GitHub retired
+# from Copilot (the GPT-4 and GPT-5 lines) are the exception: a profile still
+# holding one is repaired to the default rather than sent.
+RETIRED_COPILOT_MODEL_PREFIXES: tuple[str, ...] = ("gpt-4", "gpt-5")
+_COPILOT_MODEL_ID_RE = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
+
+# The Portal-wide copy of Copilot's catalog (app/services/model_catalog_service.py)
+# registers the ids it lists here. Once it has, the catalog is the rule: a
+# Copilot id is selectable when the catalog lists it (so GPT-5.3-Codex is fine
+# while Copilot still serves it) and nothing else is, which is exactly what the
+# pickers offer. Until a runtime has answered, the plausibility rule stands in.
+_CATALOG_COPILOT_MODELS: set[str] = set()
+# Model id -> context window (``capabilities.limits.max_context_window_tokens``
+# as the runtime reports it). The context-size presets a member may pick for a
+# model follow it (context_size_options); a model without one gets the ladder.
+_CATALOG_CONTEXT_WINDOWS: dict[str, int] = {}
+# Model id -> the reasoning efforts its row lists (``capabilities.supports.
+# reasoning_effort``). The thinking levels a member may pick for a model are
+# those of SUPPORTED_REASONING_EFFORTS the row lists (reasoning_effort_options);
+# a model without a list gets all five.
+_CATALOG_REASONING_EFFORTS: dict[str, tuple[str, ...]] = {}
+_CATALOG_STATE = {"known": False}
+
+
+def register_catalog_models(
+    model_ids,
+    context_windows: Mapping[str, Any] | None = None,
+    reasoning_efforts: Mapping[str, Any] | None = None,
+) -> tuple[str, ...]:
+    """Make ``model_ids`` the catalog's list (replacing the previous one); returns it normalized.
+
+    ``context_windows`` (model id -> window in tokens) is what
+    ``model_context_window`` and the context-size presets read for a model
+    the catalog lists; ``reasoning_efforts`` (model id -> the efforts its row
+    lists) is what the thinking-level options read. Both are replaced along
+    with the list.
+    """
+    normalized = tuple(sorted({str(item).strip().lower() for item in (model_ids or ()) if str(item or "").strip()}))
+    _CATALOG_COPILOT_MODELS.clear()
+    _CATALOG_COPILOT_MODELS.update(normalized)
+    _CATALOG_CONTEXT_WINDOWS.clear()
+    for model_id, window in (context_windows or {}).items():
+        key = str(model_id or "").strip().lower()
+        if key and isinstance(window, int) and not isinstance(window, bool) and window > 0:
+            _CATALOG_CONTEXT_WINDOWS[key] = window
+    _CATALOG_REASONING_EFFORTS.clear()
+    for model_id, efforts in (reasoning_efforts or {}).items():
+        key = str(model_id or "").strip().lower()
+        listed = (
+            tuple(str(effort).strip().lower() for effort in efforts if isinstance(effort, str) and effort.strip())
+            if isinstance(efforts, (list, tuple))
+            else ()
+        )
+        if key and listed:
+            _CATALOG_REASONING_EFFORTS[key] = listed
+    _CATALOG_STATE["known"] = bool(normalized)
+    return normalized
+
+
+def catalog_models_known() -> bool:
+    return _CATALOG_STATE["known"]
+
+
+def catalog_model_ids() -> tuple[str, ...]:
+    return tuple(sorted(_CATALOG_COPILOT_MODELS))
+
+
+def catalog_context_window(model: str | None) -> int | None:
+    """The context window the catalog reports for ``model`` (tokens), or None when it reports none."""
+    return _CATALOG_CONTEXT_WINDOWS.get(str(model or "").strip().lower())
+
+
+def catalog_reasoning_efforts(model: str | None) -> tuple[str, ...] | None:
+    """The reasoning efforts the catalog lists for ``model``, or None when it lists none."""
+    return _CATALOG_REASONING_EFFORTS.get(str(model or "").strip().lower())
+
+
+def clear_catalog_models() -> None:
+    _CATALOG_COPILOT_MODELS.clear()
+    _CATALOG_CONTEXT_WINDOWS.clear()
+    _CATALOG_REASONING_EFFORTS.clear()
+    _CATALOG_STATE["known"] = False
+
+
+def is_retired_copilot_model(model: str | None) -> bool:
+    """Whether ``model`` belongs to a line GitHub retired from Copilot."""
+    text = str(model or "").strip().lower()
+    return bool(text) and text.startswith(RETIRED_COPILOT_MODEL_PREFIXES)
+
+
+def is_plausible_copilot_model_id(model: str | None) -> bool:
+    """A well-formed, lower-case Copilot model id (``gpt-6.2-nova``) that GitHub has not retired."""
+    text = str(model or "").strip()
+    if not text or len(text) > 64 or text != text.lower():
+        return False
+    return bool(_COPILOT_MODEL_ID_RE.match(text)) and not is_retired_copilot_model(text)
+
+
+def is_selectable_model(provider: str | None, model: str | None) -> bool:
+    """Whether a member may pick ``model`` on ``provider``: the catalog's list, or on Copilot any plausible id."""
+    canon = normalize_provider(provider)
+    trimmed = str(model or "").strip()
+    if not trimmed:
+        return False
+    if trimmed in PROVIDER_MODELS.get(canon, ()):
+        return True
+    if canon != COPILOT_PROVIDER:
+        return False
+    if catalog_models_known():
+        return trimmed.lower() in _CATALOG_COPILOT_MODELS
+    return is_plausible_copilot_model_id(trimmed)
+
 
 _PROVIDER_ALIASES = {
     "github_copilot": COPILOT_PROVIDER,
@@ -156,16 +280,112 @@ def default_model_for_provider(provider: str | None) -> str:
 
 
 def model_context_window(provider: str | None, model: str | None) -> int | None:
+    """The largest context ``model`` takes: the catalog's window when it reports one, else the ladder's top for a listed model."""
     normalized_provider = normalize_provider(provider)
     normalized_model = str(model or "").strip()
+    if normalized_provider == COPILOT_PROVIDER:
+        window = catalog_context_window(normalized_model)
+        if window is not None:
+            return window
     if normalized_model not in PROVIDER_MODELS.get(normalized_provider, ()):
         return None
     return MAX_CONTEXT_SIZE
 
 
 def context_size_options(provider: str | None, model: str | None) -> tuple[int, ...]:
-    _ = provider, model
-    return CONTEXT_SIZE_PRESETS
+    """The context sizes a member may pick for ``model``: the presets up to its window, the window itself closing the list.
+
+    A model whose window no catalog has reported gets the whole ladder, as
+    before the catalog existed (the runtime clamps to what the model takes).
+    """
+    window = model_context_window(provider, model)
+    if window is None or window >= MAX_CONTEXT_SIZE:
+        return CONTEXT_SIZE_PRESETS
+    options = [size for size in CONTEXT_SIZE_PRESETS if size <= window]
+    if not options or options[-1] < window:
+        options.append(window)
+    return tuple(options)
+
+
+def default_context_size(provider: str | None, model: str | None) -> int:
+    """``DEFAULT_CONTEXT_SIZE`` when ``model`` offers it, else the largest option below it, else the smallest."""
+    options = context_size_options(provider, model)
+    if DEFAULT_CONTEXT_SIZE in options:
+        return DEFAULT_CONTEXT_SIZE
+    below = [size for size in options if size < DEFAULT_CONTEXT_SIZE]
+    return below[-1] if below else options[0]
+
+
+def effective_context_size(provider: str | None, model: str | None, requested: Any) -> int:
+    """What a stored ``max_context_tokens`` means for ``model``.
+
+    The value itself when the model offers it; the model's largest option
+    when the value is above it (the runtime clamps to the window anyway);
+    the managed default otherwise.
+    """
+    options = context_size_options(provider, model)
+    if isinstance(requested, bool) or not isinstance(requested, int):
+        return default_context_size(provider, model)
+    if requested in options:
+        return requested
+    if requested > options[-1]:
+        return options[-1]
+    return default_context_size(provider, model)
+
+
+def reasoning_effort_options(provider: str | None, model: str | None) -> tuple[str, ...]:
+    """The thinking levels a member may pick for ``model``.
+
+    On Copilot, the levels of SUPPORTED_REASONING_EFFORTS that the model's
+    catalog row lists (a model that takes only low/medium/high is not offered
+    xhigh, which Copilot would refuse with ``invalid_request_body``); all five
+    for a model whose row lists none, or none the runtimes know.
+    """
+    if normalize_provider(provider) == COPILOT_PROVIDER:
+        listed = catalog_reasoning_efforts(model)
+        if listed:
+            offered = tuple(effort for effort in SUPPORTED_REASONING_EFFORTS if effort in listed)
+            if offered:
+                return offered
+    return SUPPORTED_REASONING_EFFORTS
+
+
+def effective_reasoning_effort(provider: str | None, model: str | None, requested: Any) -> str:
+    """What a stored or requested thinking level means for ``model``.
+
+    The level itself when the model offers it; otherwise the nearest lower
+    level it offers, then the nearest higher (the runtime clamps the same
+    way); a blank or unknown level reads as the managed default.
+    """
+    options = reasoning_effort_options(provider, model)
+    wanted = str(requested or "").strip().lower()
+    if wanted not in SUPPORTED_REASONING_EFFORTS:
+        wanted = DEFAULT_REASONING_EFFORT
+    if wanted in options:
+        return wanted
+    index = SUPPORTED_REASONING_EFFORTS.index(wanted)
+    for candidate in reversed(SUPPORTED_REASONING_EFFORTS[:index]):
+        if candidate in options:
+            return candidate
+    for candidate in SUPPORTED_REASONING_EFFORTS[index + 1 :]:
+        if candidate in options:
+            return candidate
+    return options[0]
+
+
+def reasoning_effort_label(value: str) -> str:
+    """The picker label for a thinking level, in the member's language."""
+    from app.i18n import t
+
+    # Literal keys, so scripts/i18n_check.py sees them (the same keys chat_ui.js uses).
+    labels = {"low": t("Low"), "medium": t("Medium"), "high": t("High"), "xhigh": t("Extra high"), "max": t("Max")}
+    key = str(value or "").strip().lower()
+    return labels.get(key, key)
+
+
+def reasoning_effort_choices(provider: str | None = None, model: str | None = None) -> list[tuple[str, str]]:
+    """The thinking levels with their labels: what ``model`` takes, or all five."""
+    return [(effort, reasoning_effort_label(effort)) for effort in reasoning_effort_options(provider, model)]
 
 
 def coerce_to_provider_model(provider: str | None, model: str | None) -> str:
@@ -173,6 +393,11 @@ def coerce_to_provider_model(provider: str | None, model: str | None) -> str:
     canon = normalize_provider(provider)
     trimmed = str(model or "").strip()
     if trimmed in PROVIDER_MODELS.get(canon, ()):
+        return trimmed
+    # A Copilot id this file does not list may still be one the Portal-wide
+    # catalog offers (is_selectable_model); only an id the catalog does not
+    # list, or a retired / malformed one before any catalog, is repaired.
+    if canon == COPILOT_PROVIDER and is_selectable_model(canon, trimmed):
         return trimmed
     return PROVIDER_DEFAULT_MODEL.get(canon, DEFAULT_COPILOT_MODEL)
 

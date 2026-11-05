@@ -7,16 +7,19 @@ from typing import Any, Mapping
 from sqlalchemy.orm import Session
 
 from app.contracts.llm_catalog import (
-    DEFAULT_CONTEXT_SIZE,
+    COPILOT_PROVIDER,
     DEFAULT_REASONING_EFFORT,
-    SUPPORTED_REASONING_EFFORTS,
     context_size_options,
     default_model_for_provider,
+    effective_context_size,
+    effective_reasoning_effort,
     model_context_window,
+    reasoning_effort_options,
 )
 from app.contracts.provider_projection import normalize_model_for_runtime
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.model_catalog_service import current_catalog
 from app.services.runtime_profile_service import RuntimeProfileService
 
 
@@ -33,6 +36,11 @@ class AgentInferenceProfile:
     @property
     def available_models(self) -> tuple[str, ...]:
         return RuntimeProfileService.managed_model_values_for_provider(self.provider)
+
+    @property
+    def reasoning_efforts(self) -> tuple[str, ...]:
+        model = self.current_model or default_model_for_provider(self.provider)
+        return reasoning_effort_options(self.provider, model)
 
     @property
     def supports_reasoning_effort(self) -> bool:
@@ -64,9 +72,14 @@ def resolve_agent_inference_profile(db: Session, agent) -> AgentInferenceProfile
         llm = {}
     provider = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))
     current_model = str(llm.get("model") or "").strip()
-    reasoning_effort = str(llm.get("reasoning_effort") or DEFAULT_REASONING_EFFORT).strip().lower()
-    if reasoning_effort not in SUPPORTED_REASONING_EFFORTS:
-        reasoning_effort = DEFAULT_REASONING_EFFORT
+    if provider == COPILOT_PROVIDER:
+        # The Portal-wide catalog (its stored copy, on a cold process) is what
+        # the context-size presets and their default follow for the model.
+        current_catalog(db)
+    # The stored level as the model takes it (the nearest lower level when the
+    # model does not list it, the way the runtime sends it); the managed
+    # default when none is stored.
+    reasoning_effort = effective_reasoning_effort(provider, current_model, llm.get("reasoning_effort") or DEFAULT_REASONING_EFFORT)
     raw_context = llm.get("max_context_tokens")
     current_context = None
     if (
@@ -76,7 +89,9 @@ def resolve_agent_inference_profile(db: Session, agent) -> AgentInferenceProfile
     ):
         current_context = raw_context
     elif provider and runtime_type != "opencode":
-        current_context = DEFAULT_CONTEXT_SIZE
+        # A stored size above the model's window means the window (the
+        # runtime clamps to it); anything else means the managed default.
+        current_context = effective_context_size(provider, current_model, raw_context)
     return AgentInferenceProfile(
         runtime_profile_id=runtime_profile_id,
         revision=getattr(profile, "revision", None),
@@ -103,7 +118,7 @@ def normalize_agent_inference_overrides(
             raise ValueError("model_override must be a string")
         model = model_value.strip()
         if model:
-            if not RuntimeProfileService.is_managed_model_allowed(profile.provider, model):
+            if not RuntimeProfileService.is_managed_model_allowed(profile.provider, model, db=db):
                 raise ValueError("model_override is not allowed for the agent's current runtime profile provider")
             normalized["model"] = model
 
@@ -115,8 +130,11 @@ def normalize_agent_inference_overrides(
         if reasoning_effort:
             if not profile.supports_reasoning_effort:
                 raise ValueError("reasoning_effort is not supported by the agent's current runtime profile")
-            if reasoning_effort not in SUPPORTED_REASONING_EFFORTS:
-                supported = ", ".join(SUPPORTED_REASONING_EFFORTS)
+            # The levels the chosen model takes (its catalog row), as the picker offers them.
+            selected_model = normalized.get("model") or profile.current_model or default_model_for_provider(profile.provider)
+            offered = reasoning_effort_options(profile.provider, selected_model)
+            if reasoning_effort not in offered:
+                supported = ", ".join(offered)
                 raise ValueError(f"reasoning_effort must be one of: {supported}")
             normalized["reasoning_effort"] = reasoning_effort
 
