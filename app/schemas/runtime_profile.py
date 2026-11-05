@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
-from app.contracts.llm_catalog import SUPPORTED_REASONING_EFFORTS, context_size_options
+from app.contracts.llm_catalog import MAX_CONTEXT_SIZE, SUPPORTED_REASONING_EFFORTS
 
 ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "llm",
@@ -1200,13 +1200,18 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy["reasoning_effort"] = reasoning_effort
         else:
             llm_copy.pop("reasoning_effort", None)
+        raw_context = llm_copy.get("max_context_tokens")
         try:
-            max_context_tokens = int(llm_copy.get("max_context_tokens"))
+            max_context_tokens = None if isinstance(raw_context, bool) else int(raw_context)
         except (TypeError, ValueError):
             max_context_tokens = None
-        # The sizes the model takes (the catalog's window closes the list;
-        # the whole ladder when no catalog describes the model).
-        if max_context_tokens in context_size_options(llm_copy.get("provider"), llm_copy.get("model")):
+        # Any whole number up to the ladder's top is kept: the forms and the
+        # override validation decide what may be stored (a model's catalog
+        # window, 400K say, sits between the presets), the runtime clamps to
+        # the model, and this sanitizer also runs where no catalog is loaded
+        # (a cold worker projecting the runtime config), so it must not drop
+        # a size that was valid when it was saved.
+        if isinstance(max_context_tokens, int) and 0 < max_context_tokens <= MAX_CONTEXT_SIZE:
             llm_copy["max_context_tokens"] = max_context_tokens
         else:
             llm_copy.pop("max_context_tokens", None)

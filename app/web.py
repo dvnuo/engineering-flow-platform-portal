@@ -19,14 +19,13 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.contracts.llm_catalog import (
-    CONTEXT_SIZE_PRESETS,
-    DEFAULT_CONTEXT_SIZE,
     DEFAULT_REASONING_EFFORT,
     PROVIDER_MODELS,
     SUPPORTED_REASONING_EFFORTS,
     context_size_choices,
     context_size_label,
     context_size_options,
+    effective_context_size,
 )
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
@@ -1129,6 +1128,16 @@ def _connector_settings_panel_context(
     raw_config_data = service.effective_config_for(runtime_profile)
     config_data = RuntimeProfileService.merge_with_managed_defaults(raw_config_data)
     view_data = _settings_view_payload(raw_config_data, config_data)
+    # The Model provider form lists the sizes the stored model takes (the
+    # catalog's window closes the list; the whole ladder when no catalog
+    # describes it) and preselects what the stored size means for that model,
+    # so a window value such as 400K is shown and survives the next save.
+    current_catalog(db)
+    llm_config = config_data.get("llm") if isinstance(config_data.get("llm"), dict) else {}
+    context_sizes = context_size_choices(llm_config.get("provider"), llm_config.get("model"))
+    context_size_selected = effective_context_size(
+        llm_config.get("provider"), llm_config.get("model"), llm_config.get("max_context_tokens")
+    )
     return {
         "request": request,
         "connector": settings_entry(spec, raw_config_data, mode),
@@ -1147,7 +1156,8 @@ def _connector_settings_panel_context(
         "connection_guidance": all_guidance(),
         # The Model provider form lists the same presets as the admin defaults,
         # long-context warning included (connectors/llm.html).
-        "context_sizes": context_size_choices(),
+        "context_sizes": context_sizes,
+        "context_size_selected": context_size_selected,
         "status_type": status_type,
         "status_message": status_message,
         "pending_restart_agents": _pending_restart_agents(db, runtime_profile),
@@ -3061,6 +3071,16 @@ def _default_connections_context(
     # The form shows each credential in a password input the admin reveals on
     # purpose; the raw dump below it gets the masked copy instead.
     display_seed = redact_seed_for_display(seed)
+    # The Default context size lists what the seeded model takes and
+    # preselects what the seeded size means for it (the managed default when
+    # nothing is seeded), so neither the first option nor a size the model
+    # cannot take ends up selected.
+    current_catalog(db)
+    seed_llm = seed.get("llm") if isinstance(seed.get("llm"), dict) else {}
+    context_sizes = context_size_choices(seed_llm.get("provider"), seed_llm.get("model"))
+    context_size_selected = effective_context_size(
+        seed_llm.get("provider"), seed_llm.get("model"), seed_llm.get("max_context_tokens")
+    )
     return {
         "request": request,
         "seed": seed,
@@ -3079,14 +3099,14 @@ def _default_connections_context(
         "mobile_default_network": get_settings().mobile_default_network,
         "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
         "reasoning_efforts": list(SUPPORTED_REASONING_EFFORTS),
-        "context_sizes": context_size_choices(),
+        "context_sizes": context_sizes,
         # Neither field offers "leave it to the runtime" any more, because a
         # member's own panel rejects a blank one and would overwrite it on their
         # first save. Something has to be selected when nothing is stored, and
         # it must be the managed default rather than whichever value sorts
         # first -- otherwise saving an untouched form pins everyone to Low/64K.
         "default_reasoning_effort": DEFAULT_REASONING_EFFORT,
-        "default_context_size": DEFAULT_CONTEXT_SIZE,
+        "context_size_selected": context_size_selected,
         "status_type": status_type,
         "status_message": status_message,
     }

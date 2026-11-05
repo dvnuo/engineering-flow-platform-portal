@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -152,8 +154,8 @@ def test_without_a_catalog_validation_falls_back_to_plausible_ids(db):
     assert svc.is_model_allowed("github_copilot", "", db=db) is False
 
 
-@pytest.mark.asyncio
-async def test_ensure_catalog_asks_a_running_assistant_once_and_backs_off_after_a_failure(monkeypatch, db):
+def test_ensure_catalog_asks_a_running_assistant_once_and_backs_off_after_a_failure(monkeypatch, db):
+    # Portal CI has no pytest-asyncio: coroutines run through asyncio.run.
     calls: list[str] = []
 
     async def answering(*, user, agent):
@@ -163,12 +165,12 @@ async def test_ensure_catalog_asks_a_running_assistant_once_and_backs_off_after_
     monkeypatch.setattr(svc, "fetch_runtime_models", answering)
     user = SimpleNamespace(id=7)
 
-    first = await svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="github_copilot")
+    first = asyncio.run(svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="github_copilot"))
     assert first.source == "catalog"
     assert first.ids() == EXPECTED_IDS
     assert calls == ["agent-1"]
     # Fresh: nobody is asked again, whichever assistant loads the picker.
-    second = await svc.ensure_catalog(db, user=user, agent=SimpleNamespace(id="agent-2", status="running"), provider="github_copilot")
+    second = asyncio.run(svc.ensure_catalog(db, user=user, agent=SimpleNamespace(id="agent-2", status="running"), provider="github_copilot"))
     assert second.ids() == EXPECTED_IDS
     assert calls == ["agent-1"]
     assert PlatformSettingRepository(db).get(svc.CATALOG_SETTING_KEY).updated_by_user_id == 7
@@ -182,18 +184,18 @@ async def test_ensure_catalog_asks_a_running_assistant_once_and_backs_off_after_
         return None
 
     monkeypatch.setattr(svc, "fetch_runtime_models", silent)
-    fallen = await svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="github_copilot")
+    fallen = asyncio.run(svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="github_copilot"))
     assert fallen.source == "static"
-    again = await svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="github_copilot")
+    again = asyncio.run(svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="github_copilot"))
     assert again.source == "static"
     # One failed ask, then the backoff holds.
     assert calls[-2:] == ["agent-1", "silent:agent-1"]
 
     svc.reset_catalog_state()
     monkeypatch.setattr(svc, "fetch_runtime_models", answering)
-    stopped = await svc.ensure_catalog(db, user=user, agent=SimpleNamespace(id="agent-3", status="stopped"), provider="github_copilot")
+    stopped = asyncio.run(svc.ensure_catalog(db, user=user, agent=SimpleNamespace(id="agent-3", status="stopped"), provider="github_copilot"))
     assert stopped.source == "static"
-    other = await svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="ai_platform")
+    other = asyncio.run(svc.ensure_catalog(db, user=user, agent=_running_agent(), provider="ai_platform"))
     assert other.source == "static"
     assert calls[-1] == "silent:agent-1"
 
@@ -333,9 +335,45 @@ def test_a_window_between_presets_closes_the_list_and_profile_saves_accept_it():
     _merged, error = _settings_merge_payload({}, {**form, "llm_max_context_tokens": "1000000"})
     assert error.startswith("Context size must be one of: 64K, 128K, 256K, 400K")
 
-    # Without a catalog the ladder is the rule, as before.
+    # Without a catalog the form offers the ladder again, while a stored
+    # window value survives the sanitizer (a cold worker must not drop it).
     clear_catalog_models()
-    assert "max_context_tokens" not in sanitize_runtime_profile_config_dict({"llm": llm})["llm"]
+    assert sanitize_runtime_profile_config_dict({"llm": llm})["llm"]["max_context_tokens"] == 400_000
     merged, error = _settings_merge_payload({}, {**form, "llm_max_context_tokens": "1000000"})
     assert error is None
     assert merged["llm"]["max_context_tokens"] == 1_000_000
+
+
+def test_a_worker_rereads_the_stored_catalog_when_its_copy_is_missing_or_stale(db):
+    # Worker B answered before anything was stored: static.
+    assert svc.current_catalog(db).source == "static"
+    # Worker A stores the catalog (here: written straight to platform_settings).
+    PlatformSettingRepository(db).set_value(svc.CATALOG_SETTING_KEY, svc.project_runtime_models(RUNTIME_PAYLOAD))
+    # Within the re-check interval B does not go back to the database...
+    assert svc.current_catalog(db).source == "static"
+    # ...and once it has passed, B adopts the stored copy, windows included.
+    svc._state["db_checked_at"] = datetime.now(timezone.utc) - svc.DB_RECHECK
+    adopted = svc.current_catalog(db)
+    assert adopted.source == "catalog"
+    assert adopted.ids() == EXPECTED_IDS
+    assert context_size_options("github_copilot", "mai-code-1.1-flash") == (64_000, 128_000, 256_000)
+    # A fresh copy in memory costs no database read.
+    PlatformSettingRepository(db).set_value(svc.CATALOG_SETTING_KEY, {"source": "catalog", "models": [{"id": "gpt-9-zeta", "kind": "model"}]})
+    svc._state["db_checked_at"] = None
+    assert svc.current_catalog(db).ids() == EXPECTED_IDS
+
+
+def test_the_connector_and_admin_forms_render_the_stored_models_sizes(db):
+    from app.web import _default_connections_context
+
+    register_catalog_models(("gpt-5.3-codex",), {"gpt-5.3-codex": 400_000})
+    seed = {"llm": {"provider": "github_copilot", "model": "gpt-5.3-codex", "max_context_tokens": 400_000}}
+    context = _default_connections_context(SimpleNamespace(), db, seed_override=seed)
+    assert [size for size, _label in context["context_sizes"]] == [64_000, 128_000, 256_000, 400_000]
+    assert context["context_size_selected"] == 400_000
+    # A seeded size above the model's window reads as the window; nothing seeded means the managed default.
+    above = _default_connections_context(SimpleNamespace(), db, seed_override={"llm": {**seed["llm"], "max_context_tokens": 1_000_000}})
+    assert above["context_size_selected"] == 400_000
+    unseeded = _default_connections_context(SimpleNamespace(), db, seed_override={})
+    assert [size for size, _label in unseeded["context_sizes"]] == [64_000, 128_000, 256_000, 1_000_000]
+    assert unseeded["context_size_selected"] == 256_000

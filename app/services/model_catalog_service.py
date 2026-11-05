@@ -44,6 +44,9 @@ logger = logging.getLogger(__name__)
 CATALOG_SETTING_KEY = "copilot_model_catalog"
 CATALOG_TTL = timedelta(hours=1)
 FAILURE_BACKOFF = timedelta(minutes=5)
+# How often a process without a fresh copy looks for one in platform_settings
+# (another worker may have stored or refreshed it).
+DB_RECHECK = timedelta(seconds=60)
 FETCH_TIMEOUT_SECONDS = 5.0
 SOURCE_CATALOG = "catalog"
 SOURCE_STATIC = "static"
@@ -57,7 +60,7 @@ _ENTRY_KEYS = ("vendor", "category", "limits", "supports", "billing_threshold_to
 proxy_service = ProxyService()
 
 _lock = threading.Lock()
-_state: dict[str, Any] = {"catalog": None, "loaded_from_db": False, "failed_at": None}
+_state: dict[str, Any] = {"catalog": None, "loaded_from_db": False, "failed_at": None, "db_checked_at": None}
 
 
 @dataclass(frozen=True)
@@ -187,19 +190,33 @@ def project_runtime_models(payload: Any) -> dict[str, Any] | None:
 
 
 def current_catalog(db: Session | None = None) -> ModelCatalog:
-    """The Portal-wide catalog: memory, else the stored copy (once per process), else the static list."""
+    """The Portal-wide catalog: memory, else the stored copy, else the static list.
 
+    The stored copy is (re)read when this process has no fresh copy and has
+    not looked for ``DB_RECHECK``: a worker that started before the first
+    catalog was stored, or whose copy is an hour old, picks up what another
+    worker stored instead of waiting for a fetch of its own. A fresh copy in
+    memory costs no database read.
+    """
+
+    now = datetime.now(timezone.utc)
     with _lock:
         catalog = _state["catalog"]
-        loaded = _state["loaded_from_db"]
-    if catalog is None and db is not None and not loaded:
-        catalog = _load_stored(db)
+        checked_at = _state["db_checked_at"]
+    fresh = catalog is not None and catalog.is_fresh(now)
+    if db is not None and not fresh and (checked_at is None or now - checked_at >= DB_RECHECK):
+        stored = _load_stored(db)
+        adopted = None
         with _lock:
+            _state["db_checked_at"] = now
             _state["loaded_from_db"] = True
-            if catalog is not None and _state["catalog"] is None:
-                _state["catalog"] = catalog
-        if catalog is not None:
-            register_catalog_models(catalog.ids(), catalog.context_windows())
+            current = _state["catalog"]
+            if stored is not None and (current is None or (stored.fetched_at or "") > (current.fetched_at or "")):
+                _state["catalog"] = stored
+                adopted = stored
+            catalog = _state["catalog"]
+        if adopted is not None:
+            register_catalog_models(adopted.ids(), adopted.context_windows())
     return catalog or static_catalog()
 
 
@@ -213,6 +230,7 @@ def store_catalog(db: Session | None, projected: Mapping[str, Any], *, updated_b
         _state["catalog"] = catalog
         _state["loaded_from_db"] = True
         _state["failed_at"] = None
+        _state["db_checked_at"] = datetime.now(timezone.utc)
     register_catalog_models(catalog.ids(), catalog.context_windows())
     if db is not None:
         try:
@@ -229,6 +247,7 @@ def reset_catalog_state() -> None:
         _state["catalog"] = None
         _state["loaded_from_db"] = False
         _state["failed_at"] = None
+        _state["db_checked_at"] = None
     clear_catalog_models()
 
 

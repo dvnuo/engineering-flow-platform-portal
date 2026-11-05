@@ -77,7 +77,13 @@ def test_connector_forms_list_every_preset_from_the_catalog():
 
     web = (ROOT / "app/web.py").read_text(encoding="utf-8")
     assert "Context size must be 64K, 256K, or 1M." not in web
-    assert '"context_sizes": context_size_choices(),' in web
+    # Both forms list the catalogue's sizes for the stored model (the ladder up
+    # to its window, the whole ladder when no catalog describes it), never a
+    # hard-coded tuple, and preselect what the stored size means for it.
+    assert 'context_size_choices(llm_config.get("provider"), llm_config.get("model"))' in web
+    assert 'context_size_choices(seed_llm.get("provider"), seed_llm.get("model"))' in web
+    assert '"context_sizes": context_sizes,' in web
+    assert '"context_size_selected": context_size_selected,' in web
 
 
 def _proxy_client(monkeypatch, *, user, agent):

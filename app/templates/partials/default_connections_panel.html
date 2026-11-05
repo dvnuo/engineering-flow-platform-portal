@@ -111,7 +111,7 @@
         <label class="portal-form-label">
           <span class="portal-form-label">{{ t("Default context size") }}</span>
           <select name="llm_max_context_tokens" class="portal-form-select">
-            {% set current_context = seed.get('llm', {}).get('max_context_tokens') or default_context_size %}
+            {% set current_context = context_size_selected %}
             {% for value, label in context_sizes %}
             <option value="{{ value }}" {% if current_context == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
