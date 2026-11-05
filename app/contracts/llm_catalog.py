@@ -9,6 +9,8 @@ managedProviderModels) and in each runtime's projection.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from typing import Any
 
 COPILOT_PROVIDER = "github_copilot"
 AI_PLATFORM_PROVIDER = "ai_platform"
@@ -116,8 +118,10 @@ def context_size_label(size: int) -> str:
     return base
 
 
-def context_size_choices() -> list[tuple[int, str]]:
-    return [(size, context_size_label(size)) for size in CONTEXT_SIZE_PRESETS]
+def context_size_choices(provider: str | None = None, model: str | None = None) -> list[tuple[int, str]]:
+    """The presets with their labels: the whole ladder, or what ``model`` takes when one is named."""
+    sizes = context_size_options(provider, model) if model else CONTEXT_SIZE_PRESETS
+    return [(size, context_size_label(size)) for size in sizes]
 
 # Runtime Profiles persist only the user-specific AI Platform credentials.
 # Endpoints and transport headers are deployment-managed in app/config.py and
@@ -147,14 +151,28 @@ _COPILOT_MODEL_ID_RE = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
 # while Copilot still serves it) and nothing else is, which is exactly what the
 # pickers offer. Until a runtime has answered, the plausibility rule stands in.
 _CATALOG_COPILOT_MODELS: set[str] = set()
+# Model id -> context window (``capabilities.limits.max_context_window_tokens``
+# as the runtime reports it). The context-size presets a member may pick for a
+# model follow it (context_size_options); a model without one gets the ladder.
+_CATALOG_CONTEXT_WINDOWS: dict[str, int] = {}
 _CATALOG_STATE = {"known": False}
 
 
-def register_catalog_models(model_ids) -> tuple[str, ...]:
-    """Make ``model_ids`` the catalog's list (replacing the previous one); returns it normalized."""
+def register_catalog_models(model_ids, context_windows: Mapping[str, Any] | None = None) -> tuple[str, ...]:
+    """Make ``model_ids`` the catalog's list (replacing the previous one); returns it normalized.
+
+    ``context_windows`` (model id -> window in tokens) is what
+    ``model_context_window`` and the context-size presets read for a model
+    the catalog lists; it is replaced along with the list.
+    """
     normalized = tuple(sorted({str(item).strip().lower() for item in (model_ids or ()) if str(item or "").strip()}))
     _CATALOG_COPILOT_MODELS.clear()
     _CATALOG_COPILOT_MODELS.update(normalized)
+    _CATALOG_CONTEXT_WINDOWS.clear()
+    for model_id, window in (context_windows or {}).items():
+        key = str(model_id or "").strip().lower()
+        if key and isinstance(window, int) and not isinstance(window, bool) and window > 0:
+            _CATALOG_CONTEXT_WINDOWS[key] = window
     _CATALOG_STATE["known"] = bool(normalized)
     return normalized
 
@@ -167,8 +185,14 @@ def catalog_model_ids() -> tuple[str, ...]:
     return tuple(sorted(_CATALOG_COPILOT_MODELS))
 
 
+def catalog_context_window(model: str | None) -> int | None:
+    """The context window the catalog reports for ``model`` (tokens), or None when it reports none."""
+    return _CATALOG_CONTEXT_WINDOWS.get(str(model or "").strip().lower())
+
+
 def clear_catalog_models() -> None:
     _CATALOG_COPILOT_MODELS.clear()
+    _CATALOG_CONTEXT_WINDOWS.clear()
     _CATALOG_STATE["known"] = False
 
 
@@ -229,16 +253,57 @@ def default_model_for_provider(provider: str | None) -> str:
 
 
 def model_context_window(provider: str | None, model: str | None) -> int | None:
+    """The largest context ``model`` takes: the catalog's window when it reports one, else the ladder's top for a listed model."""
     normalized_provider = normalize_provider(provider)
     normalized_model = str(model or "").strip()
+    if normalized_provider == COPILOT_PROVIDER:
+        window = catalog_context_window(normalized_model)
+        if window is not None:
+            return window
     if normalized_model not in PROVIDER_MODELS.get(normalized_provider, ()):
         return None
     return MAX_CONTEXT_SIZE
 
 
 def context_size_options(provider: str | None, model: str | None) -> tuple[int, ...]:
-    _ = provider, model
-    return CONTEXT_SIZE_PRESETS
+    """The context sizes a member may pick for ``model``: the presets up to its window, the window itself closing the list.
+
+    A model whose window no catalog has reported gets the whole ladder, as
+    before the catalog existed (the runtime clamps to what the model takes).
+    """
+    window = model_context_window(provider, model)
+    if window is None or window >= MAX_CONTEXT_SIZE:
+        return CONTEXT_SIZE_PRESETS
+    options = [size for size in CONTEXT_SIZE_PRESETS if size <= window]
+    if not options or options[-1] < window:
+        options.append(window)
+    return tuple(options)
+
+
+def default_context_size(provider: str | None, model: str | None) -> int:
+    """``DEFAULT_CONTEXT_SIZE`` when ``model`` offers it, else the largest option below it, else the smallest."""
+    options = context_size_options(provider, model)
+    if DEFAULT_CONTEXT_SIZE in options:
+        return DEFAULT_CONTEXT_SIZE
+    below = [size for size in options if size < DEFAULT_CONTEXT_SIZE]
+    return below[-1] if below else options[0]
+
+
+def effective_context_size(provider: str | None, model: str | None, requested: Any) -> int:
+    """What a stored ``max_context_tokens`` means for ``model``.
+
+    The value itself when the model offers it; the model's largest option
+    when the value is above it (the runtime clamps to the window anyway);
+    the managed default otherwise.
+    """
+    options = context_size_options(provider, model)
+    if isinstance(requested, bool) or not isinstance(requested, int):
+        return default_context_size(provider, model)
+    if requested in options:
+        return requested
+    if requested > options[-1]:
+        return options[-1]
+    return default_context_size(provider, model)
 
 
 def coerce_to_provider_model(provider: str | None, model: str | None) -> str:

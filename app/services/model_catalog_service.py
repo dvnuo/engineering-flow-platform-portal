@@ -11,7 +11,8 @@ and in ``platform_settings`` (key ``copilot_model_catalog``), so a Portal
 restart does not show the static table first; the static table remains the
 fallback until a runtime has answered. A fetch that fails is not retried for
 a few minutes, and a running assistant is asked again once the copy is an
-hour old.
+hour old. The rows' context windows travel with the list: the context sizes
+a member may pick for a model follow them (``context_size_options``).
 """
 
 from __future__ import annotations
@@ -77,6 +78,16 @@ class ModelCatalog:
     def labels(self) -> dict[str, str]:
         return {str(entry["id"]): str(entry.get("label") or entry["id"]) for entry in self.models}
 
+    def context_windows(self) -> dict[str, int]:
+        """Model id -> context window (tokens), for the rows that report one."""
+        windows: dict[str, int] = {}
+        for entry in self.models:
+            limits = entry.get("limits")
+            window = limits.get("context_window_tokens") if isinstance(limits, Mapping) else None
+            if isinstance(window, int) and not isinstance(window, bool) and window > 0:
+                windows[str(entry["id"])] = window
+        return windows
+
     def is_fresh(self, now: datetime | None = None) -> bool:
         if self.source != SOURCE_CATALOG or not self.fetched_at:
             return False
@@ -94,6 +105,7 @@ class ModelCatalog:
             "provider": COPILOT_PROVIDER,
             "models": [dict(entry) for entry in self.models],
             "model_labels": self.labels(),
+            "model_context_windows": self.context_windows(),
         }
 
     def stored(self) -> dict[str, Any]:
@@ -187,7 +199,7 @@ def current_catalog(db: Session | None = None) -> ModelCatalog:
             if catalog is not None and _state["catalog"] is None:
                 _state["catalog"] = catalog
         if catalog is not None:
-            register_catalog_models(catalog.ids())
+            register_catalog_models(catalog.ids(), catalog.context_windows())
     return catalog or static_catalog()
 
 
@@ -201,7 +213,7 @@ def store_catalog(db: Session | None, projected: Mapping[str, Any], *, updated_b
         _state["catalog"] = catalog
         _state["loaded_from_db"] = True
         _state["failed_at"] = None
-    register_catalog_models(catalog.ids())
+    register_catalog_models(catalog.ids(), catalog.context_windows())
     if db is not None:
         try:
             PlatformSettingRepository(db).set_value(CATALOG_SETTING_KEY, catalog.stored(), updated_by_user_id=updated_by_user_id)

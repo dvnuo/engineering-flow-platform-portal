@@ -149,6 +149,9 @@ class AgentChatModelProfileResponse(BaseModel):
     # Labels for ids the static picker table does not know (the Portal-wide
     # catalog's names), where the list came from and when.
     model_labels: dict[str, str] = Field(default_factory=dict)
+    # Model id -> context window (tokens) from the catalog; the context-size
+    # presets follow it per model (contextSizeOptionsForModel in chat_ui.js).
+    model_context_windows: dict[str, int] = Field(default_factory=dict)
     models_source: str = "static"
     models_fetched_at: Optional[str] = None
 

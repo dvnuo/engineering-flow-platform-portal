@@ -13973,6 +13973,31 @@ function managedModelSupportsTemperature(value) {
   return normalizeManagedModelIdForCapabilities(value) === "gpt-4";
 }
 
+// The connector and admin forms render the whole ladder; once the Portal-wide
+// catalog is known, "Default context size" follows the selected model's
+// window the way the composer does (on updateModelOptions and a model change).
+function updateContextSizeOptions(root) {
+  if (!root || typeof contextSizeOptionsForModel !== "function") return;
+  const modelSelect = root.querySelector("#llm_model");
+  const contextSelect = root.querySelector('select[name="llm_max_context_tokens"]');
+  if (!modelSelect || !contextSelect) return;
+  const options = contextSizeOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "");
+  if (!options.length) return;
+  const listed = Array.from(contextSelect.options).map((option) => Number(option.value));
+  if (listed.length === options.length && listed.every((value, index) => value === options[index])) return;
+  const previous = Number(contextSelect.value || 0);
+  contextSelect.innerHTML = "";
+  options.forEach((tokens) => {
+    const option = document.createElement("option");
+    option.value = String(tokens);
+    option.textContent = typeof inferenceContextLabel === "function" ? inferenceContextLabel(tokens) : String(tokens);
+    contextSelect.appendChild(option);
+  });
+  const largest = options[options.length - 1];
+  const chosen = options.includes(previous) ? previous : (previous > largest ? largest : (options.includes(256000) ? 256000 : largest));
+  contextSelect.value = String(chosen);
+}
+
 function updateTemperatureInputState(root) {
   if (!root) return;
   const modelSelect = root.querySelector("#llm_model");
@@ -14024,6 +14049,9 @@ const managedProviderModels = {
 // see different lists. The static table above is the fallback until a runtime
 // has answered, and the source of the known ids' labels.
 const portalModelLabels = new Map();
+// Model id -> context window (tokens) from the Portal-wide catalog; the
+// context-size presets follow it per model (contextSizeOptionsForModel).
+const portalModelContextWindows = new Map();
 let portalModelCatalog = null;
 let portalModelCatalogPromise = null;
 
@@ -14033,6 +14061,15 @@ function rememberModelLabels(labels) {
     const key = String(id || "").trim();
     const text = String(label || "").trim();
     if (key && text) portalModelLabels.set(key, text);
+  }
+}
+
+function rememberModelContextWindows(windows) {
+  if (!windows || typeof windows !== "object") return;
+  for (const [id, tokens] of Object.entries(windows)) {
+    const key = String(id || "").trim().toLowerCase();
+    const value = Number(tokens);
+    if (key && Number.isFinite(value) && value > 0) portalModelContextWindows.set(key, value);
   }
 }
 
@@ -14065,6 +14102,7 @@ async function ensurePortalModelCatalog({ force = false } = {}) {
     .then((catalog) => {
       portalModelCatalog = catalog && typeof catalog === "object" ? catalog : null;
       if (portalModelCatalog) rememberModelLabels(portalModelCatalog.model_labels);
+      if (portalModelCatalog) rememberModelContextWindows(portalModelCatalog.model_context_windows);
       return portalModelCatalog;
     })
     .catch(() => null)
@@ -14102,10 +14140,18 @@ function inferenceContextLabel(value, fallback = t("Auto")) {
   return tokens > threshold ? t("{size} · Long context 2×", { size: base }) : base;
 }
 
+// Mirrors context_size_options in app/contracts/llm_catalog.py: the presets
+// up to the model's catalog window, the window itself closing the list; the
+// whole ladder for a model whose window no catalog has reported.
 function contextSizeOptionsForModel(model, fallback = []) {
-  void model;
-  const source = managedContextSizes.length ? managedContextSizes : fallback;
-  return Array.from(new Set((source || []).map(Number).filter((value) => Number.isFinite(value) && value > 0)));
+  const source = managedContextSizes.length ? managedContextSizes : (fallback || []);
+  const ladder = Array.from(new Set(source.map(Number).filter((value) => Number.isFinite(value) && value > 0))).sort((a, b) => a - b);
+  const id = String(model || "").trim().toLowerCase();
+  const windowTokens = id && typeof portalModelContextWindows !== "undefined" ? Number(portalModelContextWindows.get(id) || 0) : 0;
+  if (!ladder.length || !(windowTokens > 0) || windowTokens >= ladder[ladder.length - 1]) return ladder;
+  const options = ladder.filter((size) => size <= windowTokens);
+  if (!options.length || options[options.length - 1] < windowTokens) options.push(windowTokens);
+  return options;
 }
 
 function updateComposerInferenceSummary(chatState) {
@@ -14239,6 +14285,7 @@ async function refreshComposerModelProfile(agentId) {
     chatState.profileDefaultMaxContextTokens = Number(payload?.current_max_context_tokens || 0) || null;
     chatState.profileAvailableModels = Array.isArray(payload?.available_models) ? payload.available_models : [];
     if (typeof rememberModelLabels === "function") rememberModelLabels(payload?.model_labels);
+    if (typeof rememberModelContextWindows === "function") rememberModelContextWindows(payload?.model_context_windows);
     chatState.profileReasoningEfforts = Array.isArray(payload?.reasoning_efforts) ? payload.reasoning_efforts : [];
     chatState.profileContextSizes = Array.isArray(payload?.context_sizes) ? payload.context_sizes : [];
     chatState.supportsReasoningEffort = payload?.supports_reasoning_effort === true;
@@ -14849,6 +14896,7 @@ function updateModelOptions(root) {
     el.classList.toggle("hidden", owner !== provider);
   });
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
+  if (typeof updateContextSizeOptions === "function") updateContextSizeOptions(root);
 }
 
 async function runManagedSettingsTest(root, target, button) {
@@ -15067,6 +15115,7 @@ function initializeManagedSettingsRoot(root) {
   root.addEventListener("change", (event) => {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
+    if (event.target?.id === "llm_model" && typeof updateContextSizeOptions === "function") updateContextSizeOptions(root);
     if (event.target?.dataset?.field === "enabled") {
       syncInstanceEnabledState(event.target.closest("[data-instance-item]"));
     }
@@ -17442,6 +17491,8 @@ async function loadInferenceProfileForAgent(agentId) {
   if (!agentId) return null;
   if (state.cachedInferenceProfilesByAgent.has(agentId)) return state.cachedInferenceProfilesByAgent.get(agentId);
   const profile = await api(`/api/agents/${encodeURIComponent(agentId)}/chat-model-profile`);
+  if (profile && typeof rememberModelLabels === "function") rememberModelLabels(profile.model_labels);
+  if (profile && typeof rememberModelContextWindows === "function") rememberModelContextWindows(profile.model_context_windows);
   state.cachedInferenceProfilesByAgent.set(agentId, profile || null);
   return profile || null;
 }

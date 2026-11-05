@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
-from app.contracts.llm_catalog import CONTEXT_SIZE_PRESETS, SUPPORTED_REASONING_EFFORTS
+from app.contracts.llm_catalog import SUPPORTED_REASONING_EFFORTS, context_size_options
 
 ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "llm",
@@ -1204,7 +1204,9 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             max_context_tokens = int(llm_copy.get("max_context_tokens"))
         except (TypeError, ValueError):
             max_context_tokens = None
-        if max_context_tokens in CONTEXT_SIZE_PRESETS:
+        # The sizes the model takes (the catalog's window closes the list;
+        # the whole ladder when no catalog describes the model).
+        if max_context_tokens in context_size_options(llm_copy.get("provider"), llm_copy.get("model")):
             llm_copy["max_context_tokens"] = max_context_tokens
         else:
             llm_copy.pop("max_context_tokens", None)

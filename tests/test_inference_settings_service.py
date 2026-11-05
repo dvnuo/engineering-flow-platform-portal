@@ -4,11 +4,20 @@ from types import SimpleNamespace
 import pytest
 
 import app.services.inference_settings_service as inference_module
+from app.contracts.llm_catalog import register_catalog_models
+from app.services import model_catalog_service as catalog_service
 from app.services.inference_settings_service import (
     apply_inference_overrides_to_runtime_metadata,
     normalize_agent_inference_overrides,
     resolve_agent_inference_profile,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_catalog():
+    catalog_service.reset_catalog_state()
+    yield
+    catalog_service.reset_catalog_state()
 
 
 def _install_profile(monkeypatch, *, runtime_type="native"):
@@ -128,3 +137,37 @@ def test_rejects_unknown_model_and_context_outside_supported_presets(monkeypatch
         {"model_override": "gpt-6-astra", "max_context_tokens": 1_000_000},
     )
     assert normalized["max_context_tokens"] == 1_000_000
+
+
+def test_context_sizes_follow_the_models_catalog_window(monkeypatch):
+    # The catalog says Luna takes 128k, MAI 256k, Codex 400k; Sol's 1.05M
+    # covers the ladder. The profile stores 256k for Luna.
+    register_catalog_models(
+        ("gpt-6.1-sol", "gpt-6-luna", "mai-code-1.1-flash", "gpt-5.3-codex"),
+        {"gpt-6.1-sol": 1_050_000, "gpt-6-luna": 128_000, "mai-code-1.1-flash": 256_000, "gpt-5.3-codex": 400_000},
+    )
+    agent = _install_profile(monkeypatch)
+
+    resolved = resolve_agent_inference_profile(object(), agent)
+    # The presets stop at the model's window, and a stored size above it
+    # means the window (the runtime clamps to it anyway).
+    assert resolved.context_sizes == (64_000, 128_000)
+    assert resolved.current_max_context_tokens == 128_000
+
+    # Overrides are validated against the chosen model's own list: the
+    # window closes it, so Codex offers 400k and refuses 1M.
+    assert normalize_agent_inference_overrides(
+        object(), agent, {"model_override": "gpt-5.3-codex", "max_context_tokens": 400_000}
+    ) == {"model": "gpt-5.3-codex", "max_context_tokens": 400_000}
+    with pytest.raises(ValueError, match="must be one of: 64000, 128000, 256000, 400000$"):
+        normalize_agent_inference_overrides(object(), agent, {"model_override": "gpt-5.3-codex", "max_context_tokens": 1_000_000})
+    with pytest.raises(ValueError, match="must be one of: 64000, 128000, 256000$"):
+        normalize_agent_inference_overrides(object(), agent, {"model_override": "mai-code-1.1-flash", "max_context_tokens": 1_000_000})
+    assert normalize_agent_inference_overrides(
+        object(), agent, {"model_override": "gpt-6.1-sol", "max_context_tokens": 1_000_000}
+    )["max_context_tokens"] == 1_000_000
+    # A model the catalog lists without a window keeps the whole ladder.
+    register_catalog_models(("gpt-6-luna", "gpt-9-zeta"), {"gpt-6-luna": 128_000})
+    assert normalize_agent_inference_overrides(
+        object(), agent, {"model_override": "gpt-9-zeta", "max_context_tokens": 1_000_000}
+    )["max_context_tokens"] == 1_000_000

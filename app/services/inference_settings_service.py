@@ -7,16 +7,18 @@ from typing import Any, Mapping
 from sqlalchemy.orm import Session
 
 from app.contracts.llm_catalog import (
-    DEFAULT_CONTEXT_SIZE,
+    COPILOT_PROVIDER,
     DEFAULT_REASONING_EFFORT,
     SUPPORTED_REASONING_EFFORTS,
     context_size_options,
     default_model_for_provider,
+    effective_context_size,
     model_context_window,
 )
 from app.contracts.provider_projection import normalize_model_for_runtime
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.model_catalog_service import current_catalog
 from app.services.runtime_profile_service import RuntimeProfileService
 
 
@@ -64,6 +66,10 @@ def resolve_agent_inference_profile(db: Session, agent) -> AgentInferenceProfile
         llm = {}
     provider = RuntimeProfileService.normalize_managed_llm_provider(llm.get("provider"))
     current_model = str(llm.get("model") or "").strip()
+    if provider == COPILOT_PROVIDER:
+        # The Portal-wide catalog (its stored copy, on a cold process) is what
+        # the context-size presets and their default follow for the model.
+        current_catalog(db)
     reasoning_effort = str(llm.get("reasoning_effort") or DEFAULT_REASONING_EFFORT).strip().lower()
     if reasoning_effort not in SUPPORTED_REASONING_EFFORTS:
         reasoning_effort = DEFAULT_REASONING_EFFORT
@@ -76,7 +82,9 @@ def resolve_agent_inference_profile(db: Session, agent) -> AgentInferenceProfile
     ):
         current_context = raw_context
     elif provider and runtime_type != "opencode":
-        current_context = DEFAULT_CONTEXT_SIZE
+        # A stored size above the model's window means the window (the
+        # runtime clamps to it); anything else means the managed default.
+        current_context = effective_context_size(provider, current_model, raw_context)
     return AgentInferenceProfile(
         runtime_profile_id=runtime_profile_id,
         revision=getattr(profile, "revision", None),

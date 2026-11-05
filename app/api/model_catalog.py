@@ -29,6 +29,7 @@ class ModelCatalogResponse(BaseModel):
     provider: str = "github_copilot"
     models: list[dict[str, Any]] = Field(default_factory=list)
     model_labels: dict[str, str] = Field(default_factory=dict)
+    model_context_windows: dict[str, int] = Field(default_factory=dict)
 
 
 @router.get("/catalog", response_model=ModelCatalogResponse)

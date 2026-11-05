@@ -347,3 +347,43 @@ def test_once_the_catalog_is_known_it_is_the_rule(_no_catalog):
     assert RuntimeProfileService.is_managed_model_allowed("github_copilot", "gpt-5.3-codex") is True
     assert RuntimeProfileService.is_managed_model_allowed("github_copilot", "gpt-9-zeta") is False
     assert RuntimeProfileService.is_managed_model_allowed("ai_platform", "mai-code-1.1-flash") is False
+
+
+# --- 5. the context-size presets follow the model's window --------------------
+
+
+def test_context_size_options_follow_the_models_catalog_window():
+    script = f"""
+const managedContextSizes = [64000, 128000, 256000, 1000000];
+const portalModelContextWindows = new Map();
+{_extract_js_function(_js(), "rememberModelContextWindows")}
+{_extract_js_function(_js(), "contextSizeOptionsForModel")}
+rememberModelContextWindows({{ "mai-code-1.1-flash": 256000, "gpt-5.3-codex": 400000, "gpt-6.1-sol": 1050000, "tiny-model": 32000, "": 5, "bad": "lots" }});
+console.log(JSON.stringify({{
+  mai: contextSizeOptionsForModel("MAI-Code-1.1-Flash"),
+  codex: contextSizeOptionsForModel("gpt-5.3-codex"),
+  sol: contextSizeOptionsForModel("gpt-6.1-sol"),
+  tiny: contextSizeOptionsForModel("tiny-model"),
+  unknown: contextSizeOptionsForModel("gpt-9-zeta"),
+  blank: contextSizeOptionsForModel(""),
+  remembered: Array.from(portalModelContextWindows.keys()),
+}}));
+"""
+    result = _run_node(script)
+    ladder = [64000, 128000, 256000, 1000000]
+    assert result["mai"] == [64000, 128000, 256000]
+    assert result["codex"] == [64000, 128000, 256000, 400000]
+    assert result["sol"] == ladder
+    assert result["tiny"] == [32000]
+    assert result["unknown"] == ladder
+    assert result["blank"] == ladder
+    assert result["remembered"] == ["mai-code-1.1-flash", "gpt-5.3-codex", "gpt-6.1-sol", "tiny-model"]
+
+    source = _js()
+    # Both routes that carry the windows are remembered; the connector and
+    # admin forms re-filter their Default context size with the model.
+    assert "rememberModelContextWindows(payload?.model_context_windows)" in source
+    assert "rememberModelContextWindows(portalModelCatalog.model_context_windows)" in source
+    assert "rememberModelContextWindows(profile.model_context_windows)" in source
+    assert "updateContextSizeOptions(root)" in _extract_js_function(source, "updateModelOptions")
+    assert 'select[name="llm_max_context_tokens"]' in _extract_js_function(source, "updateContextSizeOptions")

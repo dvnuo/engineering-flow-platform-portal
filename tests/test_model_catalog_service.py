@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.contracts.llm_catalog import COPILOT_MODELS
+from app.contracts.llm_catalog import COPILOT_MODELS, clear_catalog_models, context_size_options, model_context_window, register_catalog_models
 from app.db import Base
 from app.models.user import User
 from app.repositories.platform_setting_repo import PlatformSettingRepository
@@ -34,7 +34,10 @@ RUNTIME_PAYLOAD = {
             "category": "versatile", "limits": {"context_window_tokens": 1_050_000, "prompt_tokens": 922_000, "output_tokens": 128_000},
             "supports": {"tool_calls": True, "vision": True, "reasoning_efforts": ["low", "medium", "high"]}, "billing_threshold_tokens": 272_000,
         },
-        {"id": "mai-code-1.1-flash", "name": "MAI-Code-1.1-Flash", "selectable": True, "known": False, "vendor": "Microsoft"},
+        {
+            "id": "mai-code-1.1-flash", "name": "MAI-Code-1.1-Flash", "selectable": True, "known": False, "vendor": "Microsoft",
+            "limits": {"context_window_tokens": 256_000, "prompt_tokens": 128_000, "output_tokens": 128_000},
+        },
         {"id": "gpt-5.3-codex", "name": "GPT-5.3-Codex", "selectable": True, "known": False, "vendor": "OpenAI"},
         {"id": "claude-sonnet-5.5", "name": "Claude Sonnet 5.5", "selectable": False, "reasons": ["not served on /responses"]},
     ],
@@ -279,5 +282,60 @@ def test_chat_model_profile_serves_the_same_list_to_every_assistant(monkeypatch,
         assert normalize_agent_inference_overrides(db, agent, {"model_override": "gpt-5.3-codex"}) == {"model": "gpt-5.3-codex"}
         with pytest.raises(ValueError, match="not allowed"):
             normalize_agent_inference_overrides(db, agent, {"model_override": "gpt-9-zeta"})
+
+        # The context sizes follow the model's window: MAI's row says 256k,
+        # Codex reports none and keeps the ladder, Luna (the default) is static.
+        assert first["model_context_windows"] == {"gpt-6.1-sol": 1_050_000, "mai-code-1.1-flash": 256_000}
+        assert first["context_sizes"] == [64_000, 128_000, 256_000, 1_000_000]
+        assert normalize_agent_inference_overrides(
+            db, agent, {"model_override": "mai-code-1.1-flash", "max_context_tokens": 256_000}
+        ) == {"model": "mai-code-1.1-flash", "max_context_tokens": 256_000}
+        with pytest.raises(ValueError, match="must be one of: 64000, 128000, 256000$"):
+            normalize_agent_inference_overrides(db, agent, {"model_override": "mai-code-1.1-flash", "max_context_tokens": 1_000_000})
+        assert normalize_agent_inference_overrides(
+            db, agent, {"model_override": "gpt-5.3-codex", "max_context_tokens": 1_000_000}
+        )["max_context_tokens"] == 1_000_000
     finally:
         app.dependency_overrides.clear()
+
+
+def test_context_sizes_follow_the_catalog_windows_and_survive_a_cold_start(db):
+    svc.store_catalog(db, svc.project_runtime_models(RUNTIME_PAYLOAD))
+    assert svc.current_catalog(db).context_windows() == {"gpt-6.1-sol": 1_050_000, "mai-code-1.1-flash": 256_000}
+    assert svc.current_catalog(db).payload()["model_context_windows"]["mai-code-1.1-flash"] == 256_000
+    assert model_context_window("github_copilot", "mai-code-1.1-flash") == 256_000
+    assert context_size_options("github_copilot", "mai-code-1.1-flash") == (64_000, 128_000, 256_000)
+    # Sol's window is above the ladder's top; Codex reports none: the whole ladder.
+    assert context_size_options("github_copilot", "gpt-6.1-sol") == (64_000, 128_000, 256_000, 1_000_000)
+    assert context_size_options("github_copilot", "gpt-5.3-codex") == (64_000, 128_000, 256_000, 1_000_000)
+
+    # A cold process reads the windows back with the list.
+    svc.reset_catalog_state()
+    assert context_size_options("github_copilot", "mai-code-1.1-flash") == (64_000, 128_000, 256_000, 1_000_000)
+    svc.current_catalog(db)
+    assert context_size_options("github_copilot", "mai-code-1.1-flash") == (64_000, 128_000, 256_000)
+
+
+def test_a_window_between_presets_closes_the_list_and_profile_saves_accept_it():
+    from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
+    from app.web import _settings_merge_payload
+
+    register_catalog_models(("gpt-5.3-codex", "tiny-model"), {"gpt-5.3-codex": 400_000, "tiny-model": 32_000})
+    assert context_size_options("github_copilot", "gpt-5.3-codex") == (64_000, 128_000, 256_000, 400_000)
+    assert context_size_options("github_copilot", "tiny-model") == (32_000,)
+
+    llm = {"provider": "github_copilot", "model": "gpt-5.3-codex", "max_context_tokens": 400_000}
+    assert sanitize_runtime_profile_config_dict({"llm": llm})["llm"]["max_context_tokens"] == 400_000
+    form = {"__touch_llm": "1", "llm_provider": "github_copilot", "llm_model": "gpt-5.3-codex", "llm_max_context_tokens": "400000"}
+    merged, error = _settings_merge_payload({}, form)
+    assert error is None
+    assert merged["llm"]["max_context_tokens"] == 400_000
+    _merged, error = _settings_merge_payload({}, {**form, "llm_max_context_tokens": "1000000"})
+    assert error.startswith("Context size must be one of: 64K, 128K, 256K, 400K")
+
+    # Without a catalog the ladder is the rule, as before.
+    clear_catalog_models()
+    assert "max_context_tokens" not in sanitize_runtime_profile_config_dict({"llm": llm})["llm"]
+    merged, error = _settings_merge_payload({}, {**form, "llm_max_context_tokens": "1000000"})
+    assert error is None
+    assert merged["llm"]["max_context_tokens"] == 1_000_000

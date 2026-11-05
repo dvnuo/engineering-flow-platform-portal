@@ -26,9 +26,11 @@ from app.contracts.llm_catalog import (
     SUPPORTED_REASONING_EFFORTS,
     context_size_choices,
     context_size_label,
+    context_size_options,
 )
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
+from app.services.model_catalog_service import current_catalog
 from app.repositories.agent_execution_repo import AgentExecutionRepository
 from app.contracts.runtime_type import (
     RUNTIME_TYPE_DESCRIPTIONS,
@@ -2145,7 +2147,7 @@ def _merge_mobile_advanced_fields(form, mobile_cfg: dict, browserstack_cfg: dict
     return None
 
 
-def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[str]]:
+def _settings_merge_payload(config_payload: dict, form, db: Optional[Session] = None) -> tuple[dict, Optional[str]]:
     def as_bool(value) -> bool:
         return str(value or "").lower() in {"1", "true", "on", "yes"}
     def is_clear(field_name: str) -> bool:
@@ -2179,6 +2181,10 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
 
     llm = (config_payload.get("llm") if isinstance(config_payload.get("llm"), dict) else {}).copy()
     if is_section_touched("llm"):
+        if db is not None:
+            # The context sizes a model takes follow the Portal-wide catalog
+            # (its stored copy, on a cold worker), as the form offered them.
+            current_catalog(db)
         provider_value = (form.get("llm_provider") or "").strip()
         model_value = (form.get("llm_model") or "").strip()
         reasoning_effort_value = (form.get("llm_reasoning_effort") or "").strip().lower()
@@ -2203,8 +2209,11 @@ def _settings_merge_payload(config_payload: dict, form) -> tuple[dict, Optional[
                 max_context_tokens = int(max_context_tokens_value)
             except (TypeError, ValueError):
                 return config_payload, "Context size must be a supported value."
-            if max_context_tokens not in CONTEXT_SIZE_PRESETS:
-                supported = ", ".join(context_size_label(size) for size in CONTEXT_SIZE_PRESETS)
+            # What the form offers for this model: the ladder up to the
+            # catalog's window, or the whole ladder when no catalog describes it.
+            offered = context_size_options(llm.get("provider"), llm.get("model"))
+            if max_context_tokens not in offered:
+                supported = ", ".join(context_size_label(size) for size in offered)
                 return config_payload, f"Context size must be one of: {supported}."
             llm["max_context_tokens"] = max_context_tokens
         if api_key_value:
@@ -3954,7 +3963,7 @@ async def app_connector_test(request: Request, connector_type: str, target: str)
         # Tested as the assistants would see it: a connector in system mode
         # posts no fields of its own, so the Default connectors are what runs.
         config_base = service.effective_config_for(runtime_profile)
-        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        config_payload, merge_error = _settings_merge_payload(config_base, form, db=db)
         if merge_error:
             return JSONResponse({"ok": False, "target": target, "message": merge_error})
 
@@ -3994,7 +4003,7 @@ async def app_connector_save(request: Request, connector_type: str):
                 status_message=f"{spec.label} follows your administrator's Default connectors. Choose Customize to edit it.",
             )
         config_base = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
-        config_payload, merge_error = _settings_merge_payload(config_base, form)
+        config_payload, merge_error = _settings_merge_payload(config_base, form, db=db)
         if merge_error:
             return _connector_panel_response(
                 request, db, spec, runtime_profile, status_type="error", status_message=merge_error
