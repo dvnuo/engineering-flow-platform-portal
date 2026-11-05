@@ -13998,6 +13998,30 @@ function updateContextSizeOptions(root) {
   contextSelect.value = String(chosen);
 }
 
+// The same for "Default thinking level": the levels the selected model's
+// catalog row lists, the stored level clamped to them.
+function updateReasoningEffortOptions(root) {
+  if (!root || typeof reasoningEffortOptionsForModel !== "function") return;
+  const modelSelect = root.querySelector("#llm_model");
+  const effortSelect = root.querySelector('select[name="llm_reasoning_effort"]');
+  if (!modelSelect || !effortSelect) return;
+  const options = reasoningEffortOptionsForModel(modelSelect.value || modelSelect.dataset.currentValue || "");
+  if (!options.length) return;
+  const listed = Array.from(effortSelect.options).map((option) => String(option.value));
+  if (listed.length === options.length && listed.every((value, index) => value === options[index])) return;
+  const previous = String(effortSelect.value || "");
+  effortSelect.innerHTML = "";
+  options.forEach((effort) => {
+    const option = document.createElement("option");
+    option.value = effort;
+    option.textContent = typeof inferenceReasoningLabel === "function" ? inferenceReasoningLabel(effort) : effort;
+    effortSelect.appendChild(option);
+  });
+  effortSelect.value = typeof clampReasoningEffort === "function"
+    ? clampReasoningEffort(previous || "medium", options)
+    : (options.includes(previous) ? previous : options[0]);
+}
+
 function updateTemperatureInputState(root) {
   if (!root) return;
   const modelSelect = root.querySelector("#llm_model");
@@ -14052,6 +14076,9 @@ const portalModelLabels = new Map();
 // Model id -> context window (tokens) from the Portal-wide catalog; the
 // context-size presets follow it per model (contextSizeOptionsForModel).
 const portalModelContextWindows = new Map();
+// Model id -> the reasoning efforts its catalog row lists; the thinking-level
+// options follow it per model (reasoningEffortOptionsForModel).
+const portalModelReasoningEfforts = new Map();
 let portalModelCatalog = null;
 let portalModelCatalogPromise = null;
 
@@ -14070,6 +14097,15 @@ function rememberModelContextWindows(windows) {
     const key = String(id || "").trim().toLowerCase();
     const value = Number(tokens);
     if (key && Number.isFinite(value) && value > 0) portalModelContextWindows.set(key, value);
+  }
+}
+
+function rememberModelReasoningEfforts(efforts) {
+  if (!efforts || typeof efforts !== "object") return;
+  for (const [id, listed] of Object.entries(efforts)) {
+    const key = String(id || "").trim().toLowerCase();
+    const values = Array.isArray(listed) ? listed.map((effort) => String(effort || "").trim().toLowerCase()).filter(Boolean) : [];
+    if (key && values.length) portalModelReasoningEfforts.set(key, values);
   }
 }
 
@@ -14103,6 +14139,7 @@ async function ensurePortalModelCatalog({ force = false } = {}) {
       portalModelCatalog = catalog && typeof catalog === "object" ? catalog : null;
       if (portalModelCatalog) rememberModelLabels(portalModelCatalog.model_labels);
       if (portalModelCatalog) rememberModelContextWindows(portalModelCatalog.model_context_windows);
+      if (portalModelCatalog) rememberModelReasoningEfforts(portalModelCatalog.model_reasoning_efforts);
       return portalModelCatalog;
     })
     .catch(() => null)
@@ -14152,6 +14189,36 @@ function contextSizeOptionsForModel(model, fallback = []) {
   const options = ladder.filter((size) => size <= windowTokens);
   if (!options.length || options[options.length - 1] < windowTokens) options.push(windowTokens);
   return options;
+}
+
+// Mirrors reasoning_effort_options in app/contracts/llm_catalog.py: the
+// levels of the ladder the model's catalog row lists (xhigh is not offered
+// to a model that takes only low/medium/high); the whole ladder for a model
+// whose row lists none.
+function reasoningEffortOptionsForModel(model, fallback = []) {
+  const ladder = managedReasoningEfforts.length ? managedReasoningEfforts.slice() : (fallback || []).slice();
+  const id = String(model || "").trim().toLowerCase();
+  const listed = id && typeof portalModelReasoningEfforts !== "undefined" ? portalModelReasoningEfforts.get(id) : null;
+  if (Array.isArray(listed) && listed.length) {
+    const offered = ladder.filter((effort) => listed.includes(effort));
+    if (offered.length) return offered;
+  }
+  return ladder;
+}
+
+// Mirrors effective_reasoning_effort: the level when offered, else the
+// nearest lower offered level, then the nearest higher; an unknown level
+// reads as medium.
+function clampReasoningEffort(value, options) {
+  const offered = Array.isArray(options) ? options : [];
+  let wanted = String(value || "").trim().toLowerCase();
+  if (!offered.length) return wanted;
+  if (!managedReasoningEfforts.includes(wanted)) wanted = "medium";
+  if (offered.includes(wanted)) return wanted;
+  const index = managedReasoningEfforts.indexOf(wanted);
+  for (let i = index - 1; i >= 0; i -= 1) if (offered.includes(managedReasoningEfforts[i])) return managedReasoningEfforts[i];
+  for (let i = index + 1; i < managedReasoningEfforts.length; i += 1) if (offered.includes(managedReasoningEfforts[i])) return managedReasoningEfforts[i];
+  return offered[0];
 }
 
 function updateComposerInferenceSummary(chatState) {
@@ -14226,9 +14293,13 @@ function renderComposerModelSelectorForAgent(agentId) {
   }
 
   if (dom.chatReasoningSelect && typeof inferenceReasoningLabel === "function") {
-    const reasoningEfforts = chatState.profileReasoningEfforts.length
-      ? chatState.profileReasoningEfforts
-      : (typeof managedReasoningEfforts !== "undefined" ? managedReasoningEfforts : []);
+    // The levels the selected model takes (its catalog row); the whole
+    // ladder when nothing is known about it.
+    const reasoningEfforts = typeof reasoningEffortOptionsForModel === "function"
+      ? reasoningEffortOptionsForModel(dom.chatModelSelect.value, chatState.profileReasoningEfforts)
+      : (chatState.profileReasoningEfforts.length
+        ? chatState.profileReasoningEfforts
+        : (typeof managedReasoningEfforts !== "undefined" ? managedReasoningEfforts : []));
     dom.chatReasoningSelect.innerHTML = "";
     reasoningEfforts.forEach((effort) => {
       const option = document.createElement("option");
@@ -14236,8 +14307,17 @@ function renderComposerModelSelectorForAgent(agentId) {
       option.textContent = inferenceReasoningLabel(effort);
       dom.chatReasoningSelect.appendChild(option);
     });
-    const selectedReasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort || "medium";
-    dom.chatReasoningSelect.value = reasoningEfforts.includes(selectedReasoning) ? selectedReasoning : (reasoningEfforts[0] || "");
+    // A level the model does not take is not sent: the picker shows the
+    // nearest level it does take, and that becomes the session's choice
+    // when it differs from the assistant's default.
+    const wantedReasoning = chatState.reasoningEffortOverride || chatState.profileDefaultReasoningEffort || "medium";
+    const shownReasoning = typeof clampReasoningEffort === "function"
+      ? clampReasoningEffort(wantedReasoning, reasoningEfforts)
+      : (reasoningEfforts.includes(wantedReasoning) ? wantedReasoning : (reasoningEfforts[0] || ""));
+    if (shownReasoning !== wantedReasoning) {
+      chatState.reasoningEffortOverride = shownReasoning === chatState.profileDefaultReasoningEffort ? "" : shownReasoning;
+    }
+    dom.chatReasoningSelect.value = shownReasoning;
     dom.chatReasoningField?.classList.toggle("hidden", !chatState.supportsReasoningEffort);
   }
 
@@ -14286,6 +14366,7 @@ async function refreshComposerModelProfile(agentId) {
     chatState.profileAvailableModels = Array.isArray(payload?.available_models) ? payload.available_models : [];
     if (typeof rememberModelLabels === "function") rememberModelLabels(payload?.model_labels);
     if (typeof rememberModelContextWindows === "function") rememberModelContextWindows(payload?.model_context_windows);
+    if (typeof rememberModelReasoningEfforts === "function") rememberModelReasoningEfforts(payload?.model_reasoning_efforts);
     chatState.profileReasoningEfforts = Array.isArray(payload?.reasoning_efforts) ? payload.reasoning_efforts : [];
     chatState.profileContextSizes = Array.isArray(payload?.context_sizes) ? payload.context_sizes : [];
     chatState.supportsReasoningEffort = payload?.supports_reasoning_effort === true;
@@ -14897,6 +14978,7 @@ function updateModelOptions(root) {
   });
   if (typeof updateTemperatureInputState === "function") updateTemperatureInputState(root);
   if (typeof updateContextSizeOptions === "function") updateContextSizeOptions(root);
+  if (typeof updateReasoningEffortOptions === "function") updateReasoningEffortOptions(root);
 }
 
 async function runManagedSettingsTest(root, target, button) {
@@ -15116,6 +15198,7 @@ function initializeManagedSettingsRoot(root) {
     if (event.target?.id === "llm_provider") updateModelOptions(root);
     if (event.target?.id === "llm_model") updateTemperatureInputState(root);
     if (event.target?.id === "llm_model" && typeof updateContextSizeOptions === "function") updateContextSizeOptions(root);
+    if (event.target?.id === "llm_model" && typeof updateReasoningEffortOptions === "function") updateReasoningEffortOptions(root);
     if (event.target?.dataset?.field === "enabled") {
       syncInstanceEnabledState(event.target.closest("[data-instance-item]"));
     }
@@ -17493,6 +17576,7 @@ async function loadInferenceProfileForAgent(agentId) {
   const profile = await api(`/api/agents/${encodeURIComponent(agentId)}/chat-model-profile`);
   if (profile && typeof rememberModelLabels === "function") rememberModelLabels(profile.model_labels);
   if (profile && typeof rememberModelContextWindows === "function") rememberModelContextWindows(profile.model_context_windows);
+  if (profile && typeof rememberModelReasoningEfforts === "function") rememberModelReasoningEfforts(profile.model_reasoning_efforts);
   state.cachedInferenceProfilesByAgent.set(agentId, profile || null);
   return profile || null;
 }
@@ -17553,7 +17637,11 @@ async function populateInferenceSettingsForForm(formEl, initial = null) {
     models.forEach((model) => appendSelectOption(modelSelect, model, inferenceModelLabel(model), initialSettings.model_override === model));
     modelSelect.disabled = models.length === 0;
 
-    const reasoningEfforts = Array.isArray(profile?.reasoning_efforts) ? profile.reasoning_efforts : [];
+    const profileReasoningEfforts = Array.isArray(profile?.reasoning_efforts) ? profile.reasoning_efforts : [];
+    const modelForOptions = initialSettings.model_override || profile?.current_model || "";
+    const reasoningEfforts = typeof reasoningEffortOptionsForModel === "function"
+      ? reasoningEffortOptionsForModel(modelForOptions, profileReasoningEfforts)
+      : profileReasoningEfforts;
     reasoningSelect.innerHTML = "";
     appendSelectOption(reasoningSelect, "", t("Agent default ({value})", { value: inferenceReasoningLabel(profile?.current_reasoning_effort) }), !initialSettings.reasoning_effort);
     reasoningEfforts.forEach((effort) => appendSelectOption(reasoningSelect, effort, inferenceReasoningLabel(effort), initialSettings.reasoning_effort === effort));

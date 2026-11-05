@@ -100,7 +100,7 @@
         <label class="portal-form-label">
           <span class="portal-form-label">{{ t("Default thinking level") }}</span>
           <select name="llm_reasoning_effort" class="portal-form-select">
-            {% set current_effort = seed.get('llm', {}).get('reasoning_effort') or default_reasoning_effort %}
+            {% set current_effort = reasoning_effort_selected %}
             {# The capitalized value is the English label; an effort this table does not know shows as that. #}
             {% set effort_labels = {"low": t("Low"), "medium": t("Medium"), "high": t("High"), "xhigh": t("Xhigh"), "max": t("Max")} %}
             {% for value in reasoning_efforts %}

@@ -171,3 +171,42 @@ def test_context_sizes_follow_the_models_catalog_window(monkeypatch):
     assert normalize_agent_inference_overrides(
         object(), agent, {"model_override": "gpt-9-zeta", "max_context_tokens": 1_000_000}
     )["max_context_tokens"] == 1_000_000
+
+
+def test_thinking_levels_follow_the_models_catalog_row(monkeypatch):
+    # Copilot refused xhigh for MAI: "Supported values are: minimal, low,
+    # medium, and high." The picker offers the levels the row lists that the
+    # runtimes send; a stored or requested level the model lacks reads as the
+    # nearest level it takes.
+    register_catalog_models(
+        ("gpt-6.1-sol", "gpt-6-luna", "mai-code-1.1-flash"),
+        {},
+        {"gpt-6-luna": ["low", "medium", "high"], "mai-code-1.1-flash": ["minimal", "low", "medium", "high"]},
+    )
+    agent = _install_profile(monkeypatch)  # Luna, stored medium
+
+    resolved = resolve_agent_inference_profile(object(), agent)
+    assert resolved.reasoning_efforts == ("low", "medium", "high")
+    assert resolved.current_reasoning_effort == "medium"
+
+    assert normalize_agent_inference_overrides(object(), agent, {"reasoning_effort": "high"}) == {"reasoning_effort": "high"}
+    with pytest.raises(ValueError, match="reasoning_effort must be one of: low, medium, high$"):
+        normalize_agent_inference_overrides(object(), agent, {"reasoning_effort": "xhigh"})
+    with pytest.raises(ValueError, match="must be one of: low, medium, high$"):
+        normalize_agent_inference_overrides(object(), agent, {"model_override": "mai-code-1.1-flash", "reasoning_effort": "max"})
+    # A model without a list keeps all five.
+    assert normalize_agent_inference_overrides(
+        object(), agent, {"model_override": "gpt-6.1-sol", "reasoning_effort": "max"}
+    ) == {"model": "gpt-6.1-sol", "reasoning_effort": "max"}
+
+    from app.contracts.llm_catalog import effective_reasoning_effort, reasoning_effort_options
+
+    assert reasoning_effort_options("github_copilot", "gpt-6.1-sol") == ("low", "medium", "high", "xhigh", "max")
+    assert effective_reasoning_effort("github_copilot", "gpt-6-luna", "max") == "high"
+    assert effective_reasoning_effort("github_copilot", "gpt-6-luna", "nonsense") == "medium"
+    register_catalog_models(("tiny",), {}, {"tiny": ["xhigh", "max"]})
+    assert effective_reasoning_effort("github_copilot", "tiny", "low") == "xhigh"
+    assert effective_reasoning_effort("github_copilot", "tiny", None) == "xhigh"
+    # A row listing only levels the runtimes do not send offers all five.
+    register_catalog_models(("odd",), {}, {"odd": ["minimal", "none"]})
+    assert reasoning_effort_options("github_copilot", "odd") == ("low", "medium", "high", "xhigh", "max")

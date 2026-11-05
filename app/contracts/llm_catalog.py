@@ -155,15 +155,26 @@ _CATALOG_COPILOT_MODELS: set[str] = set()
 # as the runtime reports it). The context-size presets a member may pick for a
 # model follow it (context_size_options); a model without one gets the ladder.
 _CATALOG_CONTEXT_WINDOWS: dict[str, int] = {}
+# Model id -> the reasoning efforts its row lists (``capabilities.supports.
+# reasoning_effort``). The thinking levels a member may pick for a model are
+# those of SUPPORTED_REASONING_EFFORTS the row lists (reasoning_effort_options);
+# a model without a list gets all five.
+_CATALOG_REASONING_EFFORTS: dict[str, tuple[str, ...]] = {}
 _CATALOG_STATE = {"known": False}
 
 
-def register_catalog_models(model_ids, context_windows: Mapping[str, Any] | None = None) -> tuple[str, ...]:
+def register_catalog_models(
+    model_ids,
+    context_windows: Mapping[str, Any] | None = None,
+    reasoning_efforts: Mapping[str, Any] | None = None,
+) -> tuple[str, ...]:
     """Make ``model_ids`` the catalog's list (replacing the previous one); returns it normalized.
 
     ``context_windows`` (model id -> window in tokens) is what
     ``model_context_window`` and the context-size presets read for a model
-    the catalog lists; it is replaced along with the list.
+    the catalog lists; ``reasoning_efforts`` (model id -> the efforts its row
+    lists) is what the thinking-level options read. Both are replaced along
+    with the list.
     """
     normalized = tuple(sorted({str(item).strip().lower() for item in (model_ids or ()) if str(item or "").strip()}))
     _CATALOG_COPILOT_MODELS.clear()
@@ -173,6 +184,16 @@ def register_catalog_models(model_ids, context_windows: Mapping[str, Any] | None
         key = str(model_id or "").strip().lower()
         if key and isinstance(window, int) and not isinstance(window, bool) and window > 0:
             _CATALOG_CONTEXT_WINDOWS[key] = window
+    _CATALOG_REASONING_EFFORTS.clear()
+    for model_id, efforts in (reasoning_efforts or {}).items():
+        key = str(model_id or "").strip().lower()
+        listed = (
+            tuple(str(effort).strip().lower() for effort in efforts if isinstance(effort, str) and effort.strip())
+            if isinstance(efforts, (list, tuple))
+            else ()
+        )
+        if key and listed:
+            _CATALOG_REASONING_EFFORTS[key] = listed
     _CATALOG_STATE["known"] = bool(normalized)
     return normalized
 
@@ -190,9 +211,15 @@ def catalog_context_window(model: str | None) -> int | None:
     return _CATALOG_CONTEXT_WINDOWS.get(str(model or "").strip().lower())
 
 
+def catalog_reasoning_efforts(model: str | None) -> tuple[str, ...] | None:
+    """The reasoning efforts the catalog lists for ``model``, or None when it lists none."""
+    return _CATALOG_REASONING_EFFORTS.get(str(model or "").strip().lower())
+
+
 def clear_catalog_models() -> None:
     _CATALOG_COPILOT_MODELS.clear()
     _CATALOG_CONTEXT_WINDOWS.clear()
+    _CATALOG_REASONING_EFFORTS.clear()
     _CATALOG_STATE["known"] = False
 
 
@@ -304,6 +331,61 @@ def effective_context_size(provider: str | None, model: str | None, requested: A
     if requested > options[-1]:
         return options[-1]
     return default_context_size(provider, model)
+
+
+def reasoning_effort_options(provider: str | None, model: str | None) -> tuple[str, ...]:
+    """The thinking levels a member may pick for ``model``.
+
+    On Copilot, the levels of SUPPORTED_REASONING_EFFORTS that the model's
+    catalog row lists (a model that takes only low/medium/high is not offered
+    xhigh, which Copilot would refuse with ``invalid_request_body``); all five
+    for a model whose row lists none, or none the runtimes know.
+    """
+    if normalize_provider(provider) == COPILOT_PROVIDER:
+        listed = catalog_reasoning_efforts(model)
+        if listed:
+            offered = tuple(effort for effort in SUPPORTED_REASONING_EFFORTS if effort in listed)
+            if offered:
+                return offered
+    return SUPPORTED_REASONING_EFFORTS
+
+
+def effective_reasoning_effort(provider: str | None, model: str | None, requested: Any) -> str:
+    """What a stored or requested thinking level means for ``model``.
+
+    The level itself when the model offers it; otherwise the nearest lower
+    level it offers, then the nearest higher (the runtime clamps the same
+    way); a blank or unknown level reads as the managed default.
+    """
+    options = reasoning_effort_options(provider, model)
+    wanted = str(requested or "").strip().lower()
+    if wanted not in SUPPORTED_REASONING_EFFORTS:
+        wanted = DEFAULT_REASONING_EFFORT
+    if wanted in options:
+        return wanted
+    index = SUPPORTED_REASONING_EFFORTS.index(wanted)
+    for candidate in reversed(SUPPORTED_REASONING_EFFORTS[:index]):
+        if candidate in options:
+            return candidate
+    for candidate in SUPPORTED_REASONING_EFFORTS[index + 1 :]:
+        if candidate in options:
+            return candidate
+    return options[0]
+
+
+def reasoning_effort_label(value: str) -> str:
+    """The picker label for a thinking level, in the member's language."""
+    from app.i18n import t
+
+    # Literal keys, so scripts/i18n_check.py sees them (the same keys chat_ui.js uses).
+    labels = {"low": t("Low"), "medium": t("Medium"), "high": t("High"), "xhigh": t("Extra high"), "max": t("Max")}
+    key = str(value or "").strip().lower()
+    return labels.get(key, key)
+
+
+def reasoning_effort_choices(provider: str | None = None, model: str | None = None) -> list[tuple[str, str]]:
+    """The thinking levels with their labels: what ``model`` takes, or all five."""
+    return [(effort, reasoning_effort_label(effort)) for effort in reasoning_effort_options(provider, model)]
 
 
 def coerce_to_provider_model(provider: str | None, model: str | None) -> str:

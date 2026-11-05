@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.i18n import N_
 from app.config import get_settings
-from app.contracts.llm_catalog import COPILOT_PROVIDER, SUPPORTED_REASONING_EFFORTS
+from app.contracts.llm_catalog import COPILOT_PROVIDER
 from app.contracts.runtime_type import (
     RUNTIME_TYPE_LABELS,
     InvalidRuntimeType,
@@ -681,12 +681,13 @@ async def get_agent_chat_model_profile(agent_id: str, user=Depends(get_current_u
         current_reasoning_effort=profile.current_reasoning_effort,
         current_max_context_tokens=profile.current_max_context_tokens,
         available_models=list(catalog.ids()) if from_catalog else list(profile.available_models),
-        reasoning_efforts=list(SUPPORTED_REASONING_EFFORTS) if profile.supports_reasoning_effort else [],
+        reasoning_efforts=list(profile.reasoning_efforts) if profile.supports_reasoning_effort else [],
         context_sizes=list(profile.context_sizes) if profile.supports_context_size else [],
         supports_reasoning_effort=profile.supports_reasoning_effort,
         supports_context_size=profile.supports_context_size,
         model_labels=catalog.labels() if from_catalog else {},
         model_context_windows=catalog.context_windows() if from_catalog else {},
+        model_reasoning_efforts=catalog.reasoning_efforts() if from_catalog else {},
         models_source=catalog.source if catalog is not None else "static",
         models_fetched_at=catalog.fetched_at if from_catalog else None,
     )

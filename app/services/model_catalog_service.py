@@ -91,6 +91,19 @@ class ModelCatalog:
                 windows[str(entry["id"])] = window
         return windows
 
+    def reasoning_efforts(self) -> dict[str, list[str]]:
+        """Model id -> the reasoning efforts its row lists, for the rows that list any."""
+        efforts: dict[str, list[str]] = {}
+        for entry in self.models:
+            supports = entry.get("supports")
+            listed = supports.get("reasoning_efforts") if isinstance(supports, Mapping) else None
+            if not isinstance(listed, list):
+                continue
+            clean = [str(effort).strip().lower() for effort in listed if isinstance(effort, str) and effort.strip()]
+            if clean:
+                efforts[str(entry["id"])] = clean
+        return efforts
+
     def is_fresh(self, now: datetime | None = None) -> bool:
         if self.source != SOURCE_CATALOG or not self.fetched_at:
             return False
@@ -109,6 +122,7 @@ class ModelCatalog:
             "models": [dict(entry) for entry in self.models],
             "model_labels": self.labels(),
             "model_context_windows": self.context_windows(),
+            "model_reasoning_efforts": self.reasoning_efforts(),
         }
 
     def stored(self) -> dict[str, Any]:
@@ -216,7 +230,7 @@ def current_catalog(db: Session | None = None) -> ModelCatalog:
                 adopted = stored
             catalog = _state["catalog"]
         if adopted is not None:
-            register_catalog_models(adopted.ids(), adopted.context_windows())
+            register_catalog_models(adopted.ids(), adopted.context_windows(), adopted.reasoning_efforts())
     return catalog or static_catalog()
 
 
@@ -231,7 +245,7 @@ def store_catalog(db: Session | None, projected: Mapping[str, Any], *, updated_b
         _state["loaded_from_db"] = True
         _state["failed_at"] = None
         _state["db_checked_at"] = datetime.now(timezone.utc)
-    register_catalog_models(catalog.ids(), catalog.context_windows())
+    register_catalog_models(catalog.ids(), catalog.context_windows(), catalog.reasoning_efforts())
     if db is not None:
         try:
             PlatformSettingRepository(db).set_value(CATALOG_SETTING_KEY, catalog.stored(), updated_by_user_id=updated_by_user_id)

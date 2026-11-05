@@ -19,13 +19,14 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.contracts.llm_catalog import (
-    DEFAULT_REASONING_EFFORT,
     PROVIDER_MODELS,
-    SUPPORTED_REASONING_EFFORTS,
     context_size_choices,
     context_size_label,
     context_size_options,
     effective_context_size,
+    effective_reasoning_effort,
+    reasoning_effort_choices,
+    reasoning_effort_options,
 )
 from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
@@ -1138,6 +1139,12 @@ def _connector_settings_panel_context(
     context_size_selected = effective_context_size(
         llm_config.get("provider"), llm_config.get("model"), llm_config.get("max_context_tokens")
     )
+    # Likewise the thinking levels: those the stored model's catalog row lists,
+    # with the stored level clamped to them.
+    reasoning_efforts = reasoning_effort_choices(llm_config.get("provider"), llm_config.get("model"))
+    reasoning_effort_selected = effective_reasoning_effort(
+        llm_config.get("provider"), llm_config.get("model"), llm_config.get("reasoning_effort")
+    )
     return {
         "request": request,
         "connector": settings_entry(spec, raw_config_data, mode),
@@ -1158,6 +1165,8 @@ def _connector_settings_panel_context(
         # long-context warning included (connectors/llm.html).
         "context_sizes": context_sizes,
         "context_size_selected": context_size_selected,
+        "reasoning_efforts": reasoning_efforts,
+        "reasoning_effort_selected": reasoning_effort_selected,
         "status_type": status_type,
         "status_message": status_message,
         "pending_restart_agents": _pending_restart_agents(db, runtime_profile),
@@ -2211,7 +2220,8 @@ def _settings_merge_payload(config_payload: dict, form, db: Optional[Session] = 
             else:
                 llm.pop("model", None)
         if "llm_reasoning_effort" in form:
-            if reasoning_effort_value not in SUPPORTED_REASONING_EFFORTS:
+            # The levels the stored model takes (its catalog row), as the form offers them.
+            if reasoning_effort_value not in reasoning_effort_options(llm.get("provider"), llm.get("model")):
                 return config_payload, "Thinking level must be a supported value."
             llm["reasoning_effort"] = reasoning_effort_value
         if "llm_max_context_tokens" in form:
@@ -3081,6 +3091,9 @@ def _default_connections_context(
     context_size_selected = effective_context_size(
         seed_llm.get("provider"), seed_llm.get("model"), seed_llm.get("max_context_tokens")
     )
+    reasoning_effort_selected = effective_reasoning_effort(
+        seed_llm.get("provider"), seed_llm.get("model"), seed_llm.get("reasoning_effort")
+    )
     return {
         "request": request,
         "seed": seed,
@@ -3098,14 +3111,14 @@ def _default_connections_context(
         # What a blank BrowserStack Network means (connectors/_macros.html).
         "mobile_default_network": get_settings().mobile_default_network,
         "llm_providers": [(value, SEED_PROVIDER_LABELS.get(value, value)) for value in sorted(PROVIDER_MODELS)],
-        "reasoning_efforts": list(SUPPORTED_REASONING_EFFORTS),
+        "reasoning_efforts": list(reasoning_effort_options(seed_llm.get("provider"), seed_llm.get("model"))),
         "context_sizes": context_sizes,
         # Neither field offers "leave it to the runtime" any more, because a
         # member's own panel rejects a blank one and would overwrite it on their
         # first save. Something has to be selected when nothing is stored, and
         # it must be the managed default rather than whichever value sorts
         # first -- otherwise saving an untouched form pins everyone to Low/64K.
-        "default_reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "reasoning_effort_selected": reasoning_effort_selected,
         "context_size_selected": context_size_selected,
         "status_type": status_type,
         "status_message": status_message,

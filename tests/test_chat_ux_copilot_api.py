@@ -387,3 +387,51 @@ console.log(JSON.stringify({{
     assert "rememberModelContextWindows(profile.model_context_windows)" in source
     assert "updateContextSizeOptions(root)" in _extract_js_function(source, "updateModelOptions")
     assert 'select[name="llm_max_context_tokens"]' in _extract_js_function(source, "updateContextSizeOptions")
+
+
+def test_thinking_level_options_follow_the_models_catalog_row():
+    script = f"""
+const managedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"];
+const portalModelReasoningEfforts = new Map();
+{_extract_js_function(_js(), "rememberModelReasoningEfforts")}
+{_extract_js_function(_js(), "reasoningEffortOptionsForModel")}
+{_extract_js_function(_js(), "clampReasoningEffort")}
+rememberModelReasoningEfforts({{ "mai-code-1.1-flash": ["minimal", "low", "medium", "high"], "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"], "odd": ["minimal"], "": ["low"] }});
+const mai = reasoningEffortOptionsForModel("MAI-Code-1.1-Flash");
+console.log(JSON.stringify({{
+  mai,
+  sol: reasoningEffortOptionsForModel("gpt-6.1-sol"),
+  odd: reasoningEffortOptionsForModel("odd"),
+  unknown: reasoningEffortOptionsForModel("gpt-9-zeta"),
+  clampedDown: clampReasoningEffort("xhigh", mai),
+  clampedMax: clampReasoningEffort("max", mai),
+  kept: clampReasoningEffort("low", mai),
+  unknownLevel: clampReasoningEffort("extreme", mai),
+  clampedUp: clampReasoningEffort("low", ["xhigh", "max"]),
+  remembered: Array.from(portalModelReasoningEfforts.keys()),
+}}));
+"""
+    result = _run_node(script)
+    assert result["mai"] == ["low", "medium", "high"]
+    assert result["sol"] == ["low", "medium", "high", "xhigh", "max"]
+    assert result["odd"] == ["low", "medium", "high", "xhigh", "max"]
+    assert result["unknown"] == ["low", "medium", "high", "xhigh", "max"]
+    assert result["clampedDown"] == "high"
+    assert result["clampedMax"] == "high"
+    assert result["kept"] == "low"
+    assert result["unknownLevel"] == "medium"
+    assert result["clampedUp"] == "xhigh"
+    assert result["remembered"] == ["mai-code-1.1-flash", "gpt-6.1-sol", "odd"]
+
+    source = _js()
+    assert "rememberModelReasoningEfforts(payload?.model_reasoning_efforts)" in source
+    assert "rememberModelReasoningEfforts(portalModelCatalog.model_reasoning_efforts)" in source
+    assert "rememberModelReasoningEfforts(profile.model_reasoning_efforts)" in source
+    composer = _extract_js_function(source, "renderComposerModelSelectorForAgent")
+    assert "reasoningEffortOptionsForModel(dom.chatModelSelect.value, chatState.profileReasoningEfforts)" in composer
+    assert "clampReasoningEffort(wantedReasoning, reasoningEfforts)" in composer
+    assert "updateReasoningEffortOptions(root)" in _extract_js_function(source, "updateModelOptions")
+    assert 'select[name="llm_reasoning_effort"]' in _extract_js_function(source, "updateReasoningEffortOptions")
+    member_form = (ROOT / "app" / "templates" / "partials" / "connectors" / "llm.html").read_text(encoding="utf-8")
+    assert "{% for value, label in reasoning_efforts %}" in member_form
+    assert 'value="xhigh"' not in member_form, "the member form still hard-codes the thinking levels"

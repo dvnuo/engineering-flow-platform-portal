@@ -152,6 +152,9 @@ class AgentChatModelProfileResponse(BaseModel):
     # Model id -> context window (tokens) from the catalog; the context-size
     # presets follow it per model (contextSizeOptionsForModel in chat_ui.js).
     model_context_windows: dict[str, int] = Field(default_factory=dict)
+    # Model id -> the reasoning efforts the catalog lists; the thinking-level
+    # options follow it per model (reasoningEffortOptionsForModel).
+    model_reasoning_efforts: dict[str, list[str]] = Field(default_factory=dict)
     models_source: str = "static"
     models_fetched_at: Optional[str] = None
 

@@ -668,6 +668,7 @@ def test_agent_chat_model_profile_endpoint_returns_safe_summary(monkeypatch):
             "supports_context_size": True,
             "model_labels": {},
             "model_context_windows": {},
+            "model_reasoning_efforts": {},
             "models_source": "static",
             "models_fetched_at": None,
         }
@@ -714,6 +715,7 @@ def test_agent_chat_model_profile_endpoint_returns_empty_when_profile_missing(mo
             "supports_context_size": False,
             "model_labels": {},
             "model_context_windows": {},
+            "model_reasoning_efforts": {},
             "models_source": "static",
             "models_fetched_at": None,
         }
@@ -739,6 +741,7 @@ def test_agent_chat_model_profile_endpoint_returns_empty_when_profile_missing(mo
             "supports_context_size": False,
             "model_labels": {},
             "model_context_windows": {},
+            "model_reasoning_efforts": {},
             "models_source": "static",
             "models_fetched_at": None,
         }
@@ -787,6 +790,7 @@ def test_agent_chat_model_profile_does_not_infer_provider_model_from_defaults(mo
             "supports_context_size": False,
             "model_labels": {},
             "model_context_windows": {},
+            "model_reasoning_efforts": {},
             "models_source": "static",
             "models_fetched_at": None,
         }

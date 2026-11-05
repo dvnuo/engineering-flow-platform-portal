@@ -13,7 +13,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.contracts.llm_catalog import COPILOT_MODELS, clear_catalog_models, context_size_options, model_context_window, register_catalog_models
+from app.contracts.llm_catalog import (
+    COPILOT_MODELS,
+    clear_catalog_models,
+    context_size_options,
+    model_context_window,
+    reasoning_effort_options,
+    register_catalog_models,
+)
 from app.db import Base
 from app.models.user import User
 from app.repositories.platform_setting_repo import PlatformSettingRepository
@@ -39,6 +46,8 @@ RUNTIME_PAYLOAD = {
         {
             "id": "mai-code-1.1-flash", "name": "MAI-Code-1.1-Flash", "selectable": True, "known": False, "vendor": "Microsoft",
             "limits": {"context_window_tokens": 256_000, "prompt_tokens": 128_000, "output_tokens": 128_000},
+            # What Copilot refuses xhigh for: "Supported values are: minimal, low, medium, and high."
+            "supports": {"tool_calls": True, "reasoning_efforts": ["minimal", "low", "medium", "high"]},
         },
         {"id": "gpt-5.3-codex", "name": "GPT-5.3-Codex", "selectable": True, "known": False, "vendor": "OpenAI"},
         {"id": "claude-sonnet-5.5", "name": "Claude Sonnet 5.5", "selectable": False, "reasons": ["not served on /responses"]},
@@ -297,6 +306,24 @@ def test_chat_model_profile_serves_the_same_list_to_every_assistant(monkeypatch,
         assert normalize_agent_inference_overrides(
             db, agent, {"model_override": "gpt-5.3-codex", "max_context_tokens": 1_000_000}
         )["max_context_tokens"] == 1_000_000
+
+        # The thinking levels follow the row too: MAI lists minimal/low/medium/high,
+        # so the picker offers low/medium/high (minimal is not a level the
+        # runtimes send) and xhigh is refused before Copilot can refuse it.
+        assert first["model_reasoning_efforts"] == {
+            "gpt-6.1-sol": ["low", "medium", "high"],
+            "mai-code-1.1-flash": ["minimal", "low", "medium", "high"],
+        }
+        assert first["reasoning_efforts"] == ["low", "medium", "high", "xhigh", "max"]
+        assert reasoning_effort_options("github_copilot", "mai-code-1.1-flash") == ("low", "medium", "high")
+        assert normalize_agent_inference_overrides(
+            db, agent, {"model_override": "mai-code-1.1-flash", "reasoning_effort": "high"}
+        ) == {"model": "mai-code-1.1-flash", "reasoning_effort": "high"}
+        with pytest.raises(ValueError, match="reasoning_effort must be one of: low, medium, high$"):
+            normalize_agent_inference_overrides(db, agent, {"model_override": "mai-code-1.1-flash", "reasoning_effort": "xhigh"})
+        assert normalize_agent_inference_overrides(
+            db, agent, {"model_override": "gpt-5.3-codex", "reasoning_effort": "xhigh"}
+        )["reasoning_effort"] == "xhigh"
     finally:
         app.dependency_overrides.clear()
 
@@ -366,14 +393,20 @@ def test_a_worker_rereads_the_stored_catalog_when_its_copy_is_missing_or_stale(d
 def test_the_connector_and_admin_forms_render_the_stored_models_sizes(db):
     from app.web import _default_connections_context
 
-    register_catalog_models(("gpt-5.3-codex",), {"gpt-5.3-codex": 400_000})
-    seed = {"llm": {"provider": "github_copilot", "model": "gpt-5.3-codex", "max_context_tokens": 400_000}}
+    register_catalog_models(("gpt-5.3-codex",), {"gpt-5.3-codex": 400_000}, {"gpt-5.3-codex": ["minimal", "low", "medium"]})
+    seed = {"llm": {"provider": "github_copilot", "model": "gpt-5.3-codex", "max_context_tokens": 400_000, "reasoning_effort": "xhigh"}}
     context = _default_connections_context(SimpleNamespace(), db, seed_override=seed)
     assert [size for size, _label in context["context_sizes"]] == [64_000, 128_000, 256_000, 400_000]
     assert context["context_size_selected"] == 400_000
+    # The thinking levels the row lists (minimal is not one the runtimes
+    # send); a seeded xhigh reads as the nearest level offered, medium.
+    assert context["reasoning_efforts"] == ["low", "medium"]
+    assert context["reasoning_effort_selected"] == "medium"
     # A seeded size above the model's window reads as the window; nothing seeded means the managed default.
     above = _default_connections_context(SimpleNamespace(), db, seed_override={"llm": {**seed["llm"], "max_context_tokens": 1_000_000}})
     assert above["context_size_selected"] == 400_000
     unseeded = _default_connections_context(SimpleNamespace(), db, seed_override={})
     assert [size for size, _label in unseeded["context_sizes"]] == [64_000, 128_000, 256_000, 1_000_000]
     assert unseeded["context_size_selected"] == 256_000
+    assert unseeded["reasoning_efforts"] == ["low", "medium", "high", "xhigh", "max"]
+    assert unseeded["reasoning_effort_selected"] == "medium"
