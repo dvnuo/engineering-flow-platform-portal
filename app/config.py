@@ -263,6 +263,9 @@ class Settings(BaseSettings):
     usage_rollup_worker_interval_seconds: int = Field(default=3600, validation_alias="USAGE_ROLLUP_WORKER_INTERVAL_SECONDS")
     usage_rollup_window_days: int = Field(default=3, validation_alias="USAGE_ROLLUP_WINDOW_DAYS")
     execution_retention_days: int = Field(default=365, validation_alias="EXECUTION_RETENTION_DAYS")
+    # A monthly credits guideline per member: above it the Usage panel and the
+    # Context panel say so (0 = no guideline). A notice, not a limit.
+    member_credit_notice_threshold: float = Field(default=0.0, validation_alias="MEMBER_CREDIT_NOTICE_THRESHOLD")
     agent_task_runtime_status_max_bytes: int = Field(default=2_000_000, validation_alias="AGENT_TASK_RUNTIME_STATUS_MAX_BYTES")
     agent_task_runtime_missing_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS")
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")

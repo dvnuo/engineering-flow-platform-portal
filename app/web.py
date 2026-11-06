@@ -3735,11 +3735,16 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
         if not _can_access(agent, user):
             raise HTTPException(status_code=403, detail=N_("Forbidden"))
 
+        # The member's own figures across assistants, from the Portal's rollups:
+        # they do not need the runtime, so they show even when it is off.
+        member_service = MemberManagementService(db)
+        member_usage = member_service.member_usage(user.id, days=30)
+        credit_notice = member_service.credit_notice(user.id)
         # When K8s is disabled, return empty usage
         if not settings.k8s_enabled:
             return templates.TemplateResponse(
                 "partials/usage_panel.html",
-                {"request": request, "agent_id": agent_id, "usage": [], "total_messages": 0, "total_cost": 0},
+                {"request": request, "agent_id": agent_id, "usage": [], "total_messages": 0, "total_cost": 0, "member_usage": member_usage, "credit_notice": credit_notice},
             )
 
         status_code, content, _ = await _forward_runtime(
@@ -3761,6 +3766,8 @@ async def app_agent_usage_panel(request: Request, agent_id: str):
                 "request": request,
                 "usage": payload if isinstance(payload, dict) else {},
                 "quota": await _copilot_quota_for_panel(user=user, agent=agent),
+                "member_usage": member_usage,
+                "credit_notice": credit_notice,
             },
         )
     finally:

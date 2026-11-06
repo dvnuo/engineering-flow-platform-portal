@@ -43,3 +43,12 @@ In the context size presets, 1M is labelled "Long context 2×". Pick it knowing 
 - "Copilot balance this month" in the Context panel shows used / remaining credits and the reset date (from GitHub's quota endpoint, which is not guaranteed to be available).
 - Usage (30 days) in the assistant details shows the last 30 days' requests, tokens and estimated credits.
 - The authoritative numbers are on GitHub's Billing page: [Models and pricing for GitHub Copilot](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing).
+
+## Your usage across assistants
+
+The Usage panel of any assistant starts with your own figures from the
+Portal's records: the credits you have used this month and over the last 30
+days, across every assistant, and which assistants used them. The Context
+panel repeats the month's figure under the Copilot balance. If your
+administrator set a monthly guideline, both say when you are above it; it is
+a notice, nothing stops.
