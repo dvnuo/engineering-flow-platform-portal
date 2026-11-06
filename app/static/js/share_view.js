@@ -188,15 +188,59 @@
     return { path: path, name: String(block.name || block.filename || path.split("/").filter(Boolean).pop() || t("file")) };
   }
 
+  // One compact row per file, as in the chat: a description makes it a closed
+  // disclosure (clamped to one line until opened). The share page has no
+  // assistant to download from, so there are no actions.
   function renderFileBlock(block) {
     var file = fileBlockName(block);
     var description = blockText(block);
-    return "<section class=\"message-block message-block-file\"><div class=\"message-file-card\">"
-      + "<div class=\"message-file-icon\" aria-hidden=\"true\">" + FILE_ICON + "</div>"
-      + "<div class=\"message-file-body\"><div class=\"message-file-name\">" + escapeHtml(file.name) + "</div>"
-      + (file.path ? "<div class=\"message-file-meta\">" + escapeHtml(file.path) + "</div>" : "")
-      + (description ? "<div class=\"message-file-description\">" + escapeHtml(description) + "</div>" : "")
-      + "</div></div></section>";
+    var row = "<span class=\"message-file-icon\" aria-hidden=\"true\">" + FILE_ICON + "</span>"
+      + "<span class=\"message-file-body\"><span class=\"message-file-name\">" + escapeHtml(file.name) + "</span>"
+      + (file.path ? "<span class=\"message-file-meta\">" + escapeHtml(file.path) + "</span>" : "")
+      + (description ? "<span class=\"message-file-description\">" + escapeHtml(description) + "</span>" : "")
+      + "</span>";
+    if (!description) {
+      return "<section class=\"message-block message-block-file\"><div class=\"message-file-card\">" + row + "</div></section>";
+    }
+    return "<details class=\"message-block message-block-file\"><summary class=\"message-file-card\">" + row
+      + "<span class=\"message-file-chevron\" aria-hidden=\"true\"></span></summary></details>";
+  }
+
+  // Four or more files in a row fold into one closed disclosure, as in the chat.
+  var FILE_BLOCK_GROUP_MIN = 4;
+
+  function renderFileBlockGroup(blocks) {
+    var rows = blocks.map(renderFileBlock).join("");
+    if (!rows) return "";
+    var names = blocks.map(function (block) { return fileBlockName(block).name; }).filter(Boolean);
+    var shown = names.slice(0, 3).map(escapeHtml).join(", ");
+    var more = names.length > 3 ? " " + escapeHtml(t("+{n} more", { n: names.length - 3 })) : "";
+    return "<details class=\"message-block message-file-group\"><summary class=\"message-file-group-summary\">"
+      + "<span class=\"message-file-icon\" aria-hidden=\"true\">" + FILE_ICON + "</span>"
+      + "<span class=\"message-file-group-count\">" + escapeHtml(tn(blocks.length, "{n} file", "{n} files")) + "</span>"
+      + "<span class=\"message-file-group-names\">" + shown + more + "</span>"
+      + "<span class=\"message-file-chevron\" aria-hidden=\"true\"></span></summary>"
+      + "<div class=\"message-file-group-body\">" + rows + "</div></details>";
+  }
+
+  function renderBlocks(blocks) {
+    var parts = [];
+    var index = 0;
+    var list = blocks || [];
+    while (index < list.length) {
+      var block = list[index];
+      if (!block || String(block.type || "").toLowerCase() !== "file") {
+        parts.push(renderBlock(block));
+        index += 1;
+        continue;
+      }
+      var end = index;
+      while (end < list.length && list[end] && String(list[end].type || "").toLowerCase() === "file") end += 1;
+      var run = list.slice(index, end);
+      parts.push(run.length >= FILE_BLOCK_GROUP_MIN ? renderFileBlockGroup(run) : run.map(renderBlock).join(""));
+      index = end;
+    }
+    return parts.join("");
   }
 
   function renderBlock(block) {
@@ -223,7 +267,7 @@
   }
 
   function renderAssistantBody(markdown, blocks) {
-    var html = (blocks || []).map(renderBlock).join("");
+    var html = renderBlocks(blocks);
     if (html) return html;
     return renderMarkdown(markdown);
   }

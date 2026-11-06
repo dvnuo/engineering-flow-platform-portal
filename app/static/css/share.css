@@ -166,7 +166,30 @@ body { margin: 0; color: var(--share-text); -webkit-font-smoothing: antialiased;
 .share-msg-body .message-codeblock,
 .share-msg-body .message-table-wrap,
 .share-msg-body .message-callout,
-.share-msg-body .message-file-card { margin: 14px 0; }
+.share-msg-body .message-block-file,
+.share-msg-body .message-file-group { margin: 14px 0; }
+
+/* Files the assistant produced: one compact row each; a description opens on click,
+   and four or more files in a row fold into one disclosure (the chat's layout). */
+.share-msg-body .message-file-card { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--share-line-strong); background: var(--share-tool-bg); min-width: 0; font-size: 13px; line-height: 1.4; }
+.share-msg-body summary.message-file-card,
+.share-msg-body .message-file-group-summary { list-style: none; cursor: pointer; }
+.share-msg-body summary.message-file-card::-webkit-details-marker,
+.share-msg-body .message-file-group-summary::-webkit-details-marker { display: none; }
+.share-msg-body .message-file-icon { flex: 0 0 auto; display: inline-flex; }
+.share-msg-body .message-file-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.share-msg-body .message-file-name { font-weight: 650; color: var(--share-text); overflow-wrap: anywhere; }
+.share-msg-body .message-file-meta { color: var(--share-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-msg-body .message-file-description { color: var(--share-muted); font-size: 12px; overflow-wrap: anywhere; }
+.share-msg-body details.message-block-file:not([open]) .message-file-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.share-msg-body .message-file-chevron { flex: 0 0 auto; width: 7px; height: 7px; margin: 0 4px 0 2px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; color: var(--share-muted); opacity: .8; transform: translateY(-2px) rotate(45deg); transition: transform .18s ease; }
+.share-msg-body details[open] > summary .message-file-chevron { transform: translateY(2px) rotate(225deg); }
+.share-msg-body .message-file-group { border: 1px solid var(--share-line-strong); border-radius: 12px; background: var(--share-tool-bg); min-width: 0; }
+.share-msg-body .message-file-group-summary { display: flex; align-items: center; gap: 10px; padding: 8px 12px; min-width: 0; font-size: 13px; }
+.share-msg-body .message-file-group-count { flex: 0 0 auto; font-weight: 650; color: var(--share-text); }
+.share-msg-body .message-file-group-names { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--share-muted); font-size: 12px; }
+.share-msg-body .message-file-group-body { display: grid; gap: 6px; padding: 0 8px 8px; }
+.share-msg-body .message-file-group-body .message-block-file { margin: 0; }
 
 /* Tool steps, when the switch shows them: quiet notes between the turns. */
 .share-tool { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--share-tool-bg); border: 1px dashed var(--share-line-strong); color: var(--share-muted); }

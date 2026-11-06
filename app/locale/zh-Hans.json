@@ -16,6 +16,7 @@
   "+ Add proxy": "+ 添加代理",
   "+ Add {label} instance": "+ 添加 {label} 实例",
   "+ Add {name} Instance": "+ 添加 {name} 实例",
+  "+{n} more": "还有 {n} 个",
   "12 digits": "12 位数字",
   "12-digit AWS account id": "12 位 AWS 账号 ID",
   "a bridge started for the old address is holding the port and rejects this page. Stop it (end the {program} process, or close the terminal it runs in) and click Start bridge again.": "一个为旧地址启动的桥接程序占用了端口并拒绝这个页面。请停止它（结束 {program} 进程，或关闭运行它的终端），然后再点「启动桥接程序」。",
