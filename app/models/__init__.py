@@ -12,6 +12,7 @@ from app.models.assistant_type import AssistantType
 from app.models.platform_setting import PlatformSetting
 from app.models.delegation_rule import DelegationRule, DelegationRuleRun, DelegationRuleEvent
 from app.models.user_connector import UserConnector
+from app.models.usage_daily_rollup import UsageDailyRollup
 
 __all__ = [
     "UserConnector",
@@ -30,4 +31,5 @@ __all__ = [
     "DelegationRuleEvent",
     "AssistantType",
     "PlatformSetting",
+    "UsageDailyRollup",
 ]

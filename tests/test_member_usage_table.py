@@ -43,10 +43,11 @@ def test_usage_fields_read_both_runtimes_shapes_and_skip_what_is_missing():
         "cached_input_tokens": 800,
         "reasoning_tokens": 40,
         "estimated_credits": 0.75,
+        "credits_source": "estimate",
     }
     # OpenAI names, the billed model from pricing when the payload names none, string numbers.
     openai_shape = {"usage": {"prompt_tokens": "10", "completion_tokens": 5, "estimated_credits": 0.1, "pricing": {"model": "claude-4.5"}}}
-    assert usage_fields_from_payload(openai_shape) == {"model": "claude-4.5", "input_tokens": 10, "output_tokens": 5, "estimated_credits": 0.1}
+    assert usage_fields_from_payload(openai_shape) == {"model": "claude-4.5", "input_tokens": 10, "output_tokens": 5, "estimated_credits": 0.1, "credits_source": "estimate"}
     # A task result nests the block; nothing reported means nothing recorded, never zeros.
     assert usage_fields_from_payload({"result": {"usage": {"input_tokens": 3}, "model": "m"}}) == {"model": "m", "input_tokens": 3}
     assert usage_fields_from_payload({"response": "x"}) == {}

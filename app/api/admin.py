@@ -1,4 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
+import csv
+import io
+from datetime import datetime
+
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.i18n import N_
@@ -13,9 +17,15 @@ from app.services.connector_defaults_sync import sync_followers
 from app.services.runtime_profile_references import seed_config_error
 from app.services.runtime_profile_secret_service import RuntimeProfileSecretService
 from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
+from app.services.usage_insights_service import UsageInsightsService
+from app.services.usage_rollup_service import PERIOD_DAYS_OPTIONS, UsageRollupService
 from app.utils.agent_responses import build_agent_response
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+# CSV rows end with CR LF; the byte-order mark lets Excel open the file as UTF-8.
+CRLF = chr(13) + chr(10)
+BOM = chr(0xFEFF)
 runtime_profile_secret_service = RuntimeProfileSecretService()
 
 
@@ -90,3 +100,61 @@ def put_runtime_profile_seed(
             session_factory=SessionLocal,
         )
     return {"seed": saved, "summary": service.seed_summary(), "changed_connectors": changed}
+
+
+def _usage_period_or_422(days: int) -> int:
+    if days not in PERIOD_DAYS_OPTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("days must be one of 7, 30 or 90"))
+    return int(days)
+
+
+@router.get("/usage/overview")
+def admin_usage_overview(
+    _: object = Depends(require_admin),
+    db: Session = Depends(get_db),
+    days: int = Query(default=30, description="Period: one of 7, 30, 90 days."),
+):
+    """What the platform consumed, how runs went and what members use, over the last ``days`` days.
+
+    Consumption comes from the daily rollups (today and yesterday are refreshed
+    first unless that happened in the last five minutes), quality and
+    adoption from the executions, tasks, rules and member settings.
+    """
+    period = _usage_period_or_422(days)
+    rollups = UsageRollupService(db)
+    rollups.refresh_recent()
+    overview = rollups.overview(period)
+    insights = UsageInsightsService(db)
+    overview["quality"] = insights.quality(period)
+    overview["adoption"] = insights.adoption(period)
+    return overview
+
+
+@router.get("/usage/export.csv")
+def admin_usage_export(
+    _: object = Depends(require_admin),
+    db: Session = Depends(get_db),
+    days: int = Query(default=30),
+    rows: str = Query(default="daily", description="daily: one row per day, member, kind and model; executions: one row per run."),
+):
+    """The period's usage as CSV, for a spreadsheet or Splunk."""
+    period = _usage_period_or_422(days)
+    kind = str(rows or "daily").strip().lower()
+    if kind not in {"daily", "executions"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("rows must be daily or executions"))
+    service = UsageRollupService(db)
+    service.refresh_recent()
+    records = service.daily_rows(period) if kind == "daily" else service.execution_rows(period)
+    buffer = io.StringIO()
+    if records:
+        writer = csv.DictWriter(buffer, fieldnames=list(records[0].keys()), lineterminator=CRLF)
+        writer.writeheader()
+        writer.writerows(records)
+    else:
+        buffer.write(("day,username,kind,model,executions,credits" if kind == "daily" else "created_at,username,kind,status,model,credits") + CRLF)
+    filename = f"efp-usage-{kind}-{period}d-{datetime.utcnow().date().isoformat()}.csv"
+    return Response(
+        content=BOM + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

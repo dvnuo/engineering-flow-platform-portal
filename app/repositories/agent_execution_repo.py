@@ -10,7 +10,17 @@ from app.models.agent_execution import AgentExecution
 ACTIVE_EXECUTION_STATUSES = ("queued", "running", "cancelling")
 TERMINAL_EXECUTION_STATUSES = ("succeeded", "failed", "blocked", "cancelled", "stale")
 # What a run cost, as the runtime reported it; see agent_execution_registry.usage_fields_from_payload.
-USAGE_COLUMNS = ("model", "input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens", "estimated_credits")
+USAGE_COLUMNS = (
+    "model",
+    "input_tokens",
+    "output_tokens",
+    "cached_input_tokens",
+    "reasoning_tokens",
+    "estimated_credits",
+    "actual_credits",
+    "credits_source",
+    "terminal_reason",
+)
 
 
 class AgentExecutionRepository:

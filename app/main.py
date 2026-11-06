@@ -41,6 +41,7 @@ from app.web import router as web_router
 from app.services.delegation_worker import worker_singleton
 from app.services.agent_task_reconcile_worker import agent_task_reconcile_worker_singleton
 from app.services.idle_agent_stop_worker import idle_agent_stop_worker_singleton
+from app.services.usage_rollup_worker import usage_rollup_worker_singleton
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,8 @@ def on_startup() -> None:
         agent_task_reconcile_worker_singleton.start()
     if settings.idle_agent_stop_worker_enabled:
         idle_agent_stop_worker_singleton.start()
+    if settings.usage_rollup_worker_enabled:
+        usage_rollup_worker_singleton.start()
 
 
 @app.on_event("shutdown")
@@ -133,6 +136,7 @@ def shutdown_delegation_worker() -> None:
     worker_singleton.stop()
     agent_task_reconcile_worker_singleton.stop()
     idle_agent_stop_worker_singleton.stop()
+    usage_rollup_worker_singleton.stop()
 
 
 @app.get("/health")

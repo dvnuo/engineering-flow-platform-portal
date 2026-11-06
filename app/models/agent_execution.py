@@ -43,6 +43,13 @@ class AgentExecution(Base):
     cached_input_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     reasoning_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     estimated_credits: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Copilot's own charge when the runtime reported one next to its estimate;
+    # credits_source says which one the credits figure comes from
+    # (copilot_usage or estimate). terminal_reason says why a run ended
+    # short (a budget pause, a step cap), from the final payload.
+    actual_credits: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    credits_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    terminal_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_event_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

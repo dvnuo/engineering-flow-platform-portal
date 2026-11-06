@@ -254,6 +254,15 @@ class Settings(BaseSettings):
     idle_agent_stop_worker_interval_seconds: int = Field(default=600, validation_alias="IDLE_AGENT_STOP_WORKER_INTERVAL_SECONDS")
     idle_agent_stop_worker_batch_size: int = Field(default=100, validation_alias="IDLE_AGENT_STOP_WORKER_BATCH_SIZE")
     agent_idle_stop_after_seconds: int = Field(default=259200, validation_alias="AGENT_IDLE_STOP_AFTER_SECONDS")  # 3 days
+    # Daily usage rollups (app/services/usage_rollup_service.py): the worker
+    # recomputes the last USAGE_ROLLUP_WINDOW_DAYS days every interval and
+    # prunes terminal executions older than EXECUTION_RETENTION_DAYS after
+    # rolling them up (0 keeps every execution).
+    usage_rollup_worker_enabled: bool = Field(default=True, validation_alias="USAGE_ROLLUP_WORKER_ENABLED")
+    usage_rollup_worker_initial_delay_seconds: int = Field(default=60, validation_alias="USAGE_ROLLUP_WORKER_INITIAL_DELAY_SECONDS")
+    usage_rollup_worker_interval_seconds: int = Field(default=3600, validation_alias="USAGE_ROLLUP_WORKER_INTERVAL_SECONDS")
+    usage_rollup_window_days: int = Field(default=3, validation_alias="USAGE_ROLLUP_WINDOW_DAYS")
+    execution_retention_days: int = Field(default=365, validation_alias="EXECUTION_RETENTION_DAYS")
     agent_task_runtime_status_max_bytes: int = Field(default=2_000_000, validation_alias="AGENT_TASK_RUNTIME_STATUS_MAX_BYTES")
     agent_task_runtime_missing_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS")
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")

@@ -10,6 +10,7 @@ from app.models.agent_task import AgentTask
 from app.models.delegation_rule import DelegationRule
 from app.repositories.user_allowlist_repo import UserAllowlistRepository, normalize_username
 from app.repositories.user_repo import UserRepository
+from app.services.usage_rollup_service import credit_value
 
 # The periods the User Management panel offers for its consumption columns.
 PERIOD_DAYS_OPTIONS = (7, 30, 90)
@@ -98,7 +99,8 @@ class MemberManagementService:
         delegation_counts = self._count_by(DelegationRule.owner_user_id)
         period_execution_counts = self._count_by(AgentExecution.created_by_user_id, in_period)
         period_chat_counts = self._count_by(AgentExecution.created_by_user_id, AgentExecution.kind == "chat", in_period)
-        period_credits = self._sum_by(AgentExecution.created_by_user_id, AgentExecution.estimated_credits, in_period)
+        # Copilot's own charge where the runtime reported one, the estimate otherwise.
+        period_credits = self._sum_by(AgentExecution.created_by_user_id, credit_value(), in_period)
         period_input_tokens = self._sum_by(AgentExecution.created_by_user_id, AgentExecution.input_tokens, in_period)
         period_output_tokens = self._sum_by(AgentExecution.created_by_user_id, AgentExecution.output_tokens, in_period)
         period_active_days = self._distinct_days_by(AgentExecution.created_by_user_id, AgentExecution.created_at, in_period)
