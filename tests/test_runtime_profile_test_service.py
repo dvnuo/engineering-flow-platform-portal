@@ -62,7 +62,7 @@ def test_ai_platform_smoke_exchanges_then_calls_chat(monkeypatch):
     svc = RuntimeProfileTestService(_ai_settings())
     calls = []
 
-    async def _fake_http_json_request(*, method, url, headers, payload, timeout):
+    async def _fake_http_json_request(*, method, url, headers, payload, timeout, client_kwargs=None):
         calls.append({"url": url, "headers": headers, "payload": payload})
         if "ib2b" in url:
             return True, "ok", {"issued_token": "JWT-123"}
@@ -99,7 +99,7 @@ def test_ai_platform_smoke_requires_all_profile_credentials():
 def test_ai_platform_smoke_reports_exchange_failure(monkeypatch):
     svc = RuntimeProfileTestService(_ai_settings())
 
-    async def _fake_http_json_request(*, method, url, headers, payload, timeout):
+    async def _fake_http_json_request(*, method, url, headers, payload, timeout, client_kwargs=None):
         return False, "401 unauthorized", None
 
     monkeypatch.setattr(svc, "_http_json_request", _fake_http_json_request)
@@ -171,7 +171,7 @@ def _responses_settings():
 def _record_calls(svc, monkeypatch):
     calls = []
 
-    async def _fake_http_json_request(*, method, url, headers, payload, timeout):
+    async def _fake_http_json_request(*, method, url, headers, payload, timeout, client_kwargs=None):
         calls.append({"url": url, "headers": headers, "payload": payload})
         if "ib2b" in url:
             return True, "ok", {"issued_token": "JWT-123"}

@@ -434,6 +434,41 @@ def test_jira_test_probes_through_the_proxy_the_runtime_would_use(monkeypatch):
     assert ok and _without_verify(_FakeAsyncClient.seen[-1]) == {"timeout": 15.0}
 
 
+def test_llm_test_probes_through_the_proxy_the_runtime_would_use(monkeypatch):
+    """The model provider was the one connector whose Test still left from the Portal's own network."""
+    _FakeAsyncClient.seen = []
+    monkeypatch.setattr(test_service_module.httpx, "AsyncClient", _FakeAsyncClient)
+    service = RuntimeProfileTestService()
+    llm = {"provider": "github_copilot", "model": "gpt-6.1", "api_key": "token"}
+
+    ok, _ = asyncio.run(service._test_llm({"llm": llm, "proxy": list_section(assignments={"llm": "corp-b"})}))
+    assert ok and _without_verify(_FakeAsyncClient.seen[-1]) == {"timeout": 20.0, "proxy": "https://ub:pb@proxy-b.example.test", "trust_env": False}
+
+    ok, _ = asyncio.run(service._test_llm({"llm": llm, "proxy": list_section(assignments={"llm": ""})}))
+    assert ok and _FakeAsyncClient.seen[-1]["proxy"] == "http://ua:pa@proxy-a.example.test:3128"
+
+    ok, _ = asyncio.run(service._test_llm({"llm": llm, "proxy": list_section(assignments={"llm": "none"})}))
+    assert ok and _without_verify(_FakeAsyncClient.seen[-1]) == {"timeout": 20.0, "trust_env": False}
+
+    ok, _ = asyncio.run(service._test_llm({"llm": llm}))
+    assert ok and _without_verify(_FakeAsyncClient.seen[-1]) == {"timeout": 20.0}
+
+
+def test_llm_test_failure_names_the_path_it_took(monkeypatch):
+    class _RefusingClient(_FakeAsyncClient):
+        async def request(self, **kwargs):
+            raise test_service_module.httpx.ConnectError("Connection refused")
+
+    _FakeAsyncClient.seen = []
+    monkeypatch.setattr(test_service_module.httpx, "AsyncClient", _RefusingClient)
+    service = RuntimeProfileTestService()
+    llm = {"provider": "github_copilot", "model": "gpt-6.1", "api_key": "token"}
+    ok, message = asyncio.run(service._test_llm({"llm": llm, "proxy": list_section(assignments={"llm": "corp-b"})}))
+    assert not ok
+    assert message.startswith("github_copilot/gpt-6.1 test failed: Request failed: Connection refused")
+    assert message.endswith("through the proxy at proxy-b.example.test:443 (the Proxy connector's corp-b)")
+
+
 def test_proxy_test_checks_the_named_card(monkeypatch):
     seen = []
 
