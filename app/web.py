@@ -129,6 +129,16 @@ from app.services.usage_insights_service import UsageInsightsService
 from app.services.usage_rollup_service import PERIOD_DAYS_OPTIONS as USAGE_PERIOD_DAYS_OPTIONS
 from app.services.usage_rollup_service import UsageRollupService
 from app.services.usage_rollup_service import normalize_period_days as normalize_usage_period_days
+from app.services.error_log_service import (
+    DEDUP_WINDOW_SECONDS as ERROR_DEDUP_WINDOW_SECONDS,
+    PERIOD_DAYS_OPTIONS as ERROR_PERIOD_DAYS_OPTIONS,
+    SOURCES as ERROR_SOURCES,
+    ErrorLogService,
+    normalize_limit as normalize_error_limit,
+    normalize_period_days as normalize_error_period_days,
+    normalize_source as normalize_error_source,
+    record_error,
+)
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.utils.chat_upload_policy import get_chat_upload_policy
 from app.utils.task_sessions import is_task_session_id as _session_id_is_task_session
@@ -3185,6 +3195,73 @@ async def app_help_topic_panel(request: Request, topic: str = Query(default=""))
     )
 
 
+def _admin_from_cookie_or_raise(request: Request):
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
+    return user
+
+
+@router.get("/app/admin/errors/panel")
+async def app_admin_errors_panel(request: Request):
+    """Administration > Errors: what failed across the platform over the period.
+
+    The same problem is grouped once (fingerprint of source, code and message
+    with ids blanked), then the most recent rows; the filters are the period,
+    the source, a text search and one fingerprint
+    (app/services/error_log_service.py).
+    """
+
+    user = _admin_from_cookie_or_raise(request)
+    params = request.query_params
+    days = normalize_error_period_days(params.get("days"))
+    source = normalize_error_source(params.get("source"))
+    query = str(params.get("q") or "").strip()[:200]
+    fingerprint = str(params.get("fingerprint") or "").strip()[:40]
+    limit = normalize_error_limit(params.get("limit"))
+    db = SessionLocal()
+    try:
+        overview = ErrorLogService(db).overview(days, source=source, query=query, fingerprint=fingerprint, limit=limit)
+    finally:
+        db.close()
+    return templates.TemplateResponse(
+        "partials/admin_errors_panel.html",
+        {
+            "request": request,
+            "current_user": user,
+            "days": days,
+            "period_options": ERROR_PERIOD_DAYS_OPTIONS,
+            "source": source or "",
+            "sources": ERROR_SOURCES,
+            "query": query,
+            "fingerprint": fingerprint,
+            "limit": limit,
+            "overview": overview,
+            "retention_days": int(settings.error_log_retention_days or 0),
+        },
+    )
+
+
+@router.get("/app/admin/errors/{event_id}/panel")
+async def app_admin_error_detail_panel(request: Request, event_id: int):
+    """One error event with its context and detail, for the card under the Recent list."""
+
+    user = _admin_from_cookie_or_raise(request)
+    db = SessionLocal()
+    try:
+        event = ErrorLogService(db).get(event_id)
+    finally:
+        db.close()
+    if not event:
+        raise HTTPException(status_code=404, detail=N_("Error event not found"))
+    return templates.TemplateResponse(
+        "partials/admin_error_detail.html",
+        {"request": request, "current_user": user, "event": event, "copy_text": ErrorLogService.describe(event)},
+    )
+
+
 @router.get("/app/admin/usage/panel")
 async def app_admin_usage_panel(request: Request):
     """Administration > Usage: consumption, quality and adoption over 7, 30 or 90 days.
@@ -4115,6 +4192,20 @@ async def app_connector_test(request: Request, connector_type: str, target: str)
             # The Proxy panel tests one card at a time (chat_ui.js sends its name).
             proxy_name=(form.get("proxy_test_name") or "").strip() or None,
         )
+        if not ok:
+            # To Administration > Errors: one member's wrong token is noise, every
+            # member's Jira test failing on the same day is a signal.
+            record_error(
+                db,
+                source="connector_test",
+                severity="warning",
+                code="%s:%s" % (connector_type, target),
+                message=message or "Connector test failed",
+                user_id=user.id,
+                kind=target,
+                dedup_window_seconds=ERROR_DEDUP_WINDOW_SECONDS,
+                commit=True,
+            )
         return JSONResponse({"ok": bool(ok), "target": target, "message": message})
     finally:
         db.close()

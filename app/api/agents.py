@@ -22,6 +22,7 @@ from app.contracts.runtime_type import (
 from app.db import get_db
 from app.deps import get_current_user
 from app.repositories.audit_repo import AuditRepository
+from app.services.error_log_service import DEDUP_WINDOW_SECONDS as ERROR_DEDUP_WINDOW_SECONDS, record_error
 from app.repositories.agent_repo import AgentRepository
 from app.repositories.assistant_type_repo import AssistantTypeRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
@@ -130,6 +131,23 @@ def _load_writable_agent(agent_id: str, user, db: Session):
     return repo, agent
 
 
+def _record_assistant_failure(db: Session, agent, runtime, *, action: str) -> None:
+    """A runtime status of failed goes to Administration > Errors with the assistant and its owner, committed with the agent row."""
+    if getattr(runtime, "status", None) != "failed":
+        return
+    record_error(
+        db,
+        source="assistant",
+        code=action,
+        message=getattr(runtime, "message", None) or "Assistant runtime %s failed" % action,
+        agent_id=agent.id,
+        agent_name=getattr(agent, "name", None),
+        user_id=getattr(agent, "owner_user_id", None),
+        runtime_type=getattr(agent, "runtime_type", None),
+        dedup_window_seconds=ERROR_DEDUP_WINDOW_SECONDS,
+    )
+
+
 def _delete_agent(repo: AgentRepository, agent, user, db: Session):
     agent.status = "deleting"
     repo.save(agent)
@@ -139,6 +157,7 @@ def _delete_agent(repo: AgentRepository, agent, user, db: Session):
     if runtime.status == "failed":
         agent.status = "failed"
         agent.last_error = runtime.message
+        _record_assistant_failure(db, agent, runtime, action="delete")
         repo.save(agent)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=runtime.message or "Delete failed")
 
@@ -384,6 +403,7 @@ def _refresh_agent_runtime_status(repo: AgentRepository, agent, *, use_cache: bo
     if agent.status != next_status or agent.last_error != runtime.message:
         agent.status = next_status
         agent.last_error = runtime.message
+        _record_assistant_failure(repo.db, agent, runtime, action="status")
         repo.save(agent)
     return runtime
 
@@ -532,6 +552,7 @@ async def create_agent(payload: AgentCreateRequest, user=Depends(get_current_use
     runtime = k8s_service.create_agent_runtime(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
+    _record_assistant_failure(db, agent, runtime, action="create")
     agent.profile_revision_applied = applied_revision
     repo.save(agent)
 
@@ -624,6 +645,7 @@ async def update_agent(agent_id: str, payload: AgentUpdateRequest, user=Depends(
         runtime = k8s_service.update_agent_runtime(agent)
         if runtime.status == "failed":
             agent.last_error = runtime.message
+            _record_assistant_failure(db, agent, runtime, action="update")
             repo.save(agent)
         else:
             agent.last_error = None
@@ -747,6 +769,7 @@ async def start_agent(agent_id: str, user=Depends(get_current_user), db: Session
     runtime = k8s_service.start_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
+    _record_assistant_failure(db, agent, runtime, action="start")
     agent.last_activity_at = datetime.utcnow()
     if runtime.status != "failed":
         agent.profile_revision_applied = applied_revision
@@ -766,6 +789,7 @@ def stop_agent(agent_id: str, user=Depends(get_current_user), db: Session = Depe
     runtime = k8s_service.stop_agent(agent)
     agent.status = runtime.status
     agent.last_error = runtime.message
+    _record_assistant_failure(db, agent, runtime, action="stop")
     repo.save(agent)
     runtime_status_cache.invalidate(agent.id)
     AuditRepository(db).create("stop_agent", "agent", agent.id, user.id)
@@ -793,6 +817,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
     runtime = k8s_service.restart_agent(agent)
     if runtime.status == "failed":
         agent.last_error = runtime.message
+        _record_assistant_failure(db, agent, runtime, action="restart")
         repo.save(agent)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -801,6 +826,7 @@ async def restart_agent(agent_id: str, user=Depends(get_current_user), db: Sessi
 
     agent.status = "restarting"
     agent.last_error = runtime.message
+    _record_assistant_failure(db, agent, runtime, action="restart")
     agent.last_activity_at = datetime.utcnow()
     agent.profile_revision_applied = applied_revision
     repo.save(agent)

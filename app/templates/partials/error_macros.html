@@ -1,0 +1,4 @@
+{# Shared by the Errors panel and its detail card: the source as a label, a timestamp as text. #}
+{% macro source_label(value) %}{% if value == "execution" %}{{ t("Run") }}{% elif value == "assistant" %}{{ t("Assistant") }}{% elif value == "connector_test" %}{{ t("Connector test") }}{% elif value == "portal" %}{{ t("Portal") }}{% elif value == "log" %}{{ t("Log") }}{% else %}{{ value }}{% endif %}{% endmacro %}
+{% macro when(value) %}{{ (value or "-")|replace("T", " ") }}{% endmacro %}
+{% macro severity_dot(value) %}<span class="portal-error-sev{% if value == "warning" %} is-warning{% endif %}" aria-label="{% if value == "warning" %}{{ t("Warning") }}{% else %}{{ t("Error") }}{% endif %}"></span>{% endmacro %}

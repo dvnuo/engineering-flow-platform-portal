@@ -266,6 +266,15 @@ class Settings(BaseSettings):
     # A monthly credits guideline per member: above it the Usage panel and the
     # Context panel say so (0 = no guideline). A notice, not a limit.
     member_credit_notice_threshold: float = Field(default=0.0, validation_alias="MEMBER_CREDIT_NOTICE_THRESHOLD")
+    # The error log (app/services/error_log_service.py), read by Administration >
+    # Errors: failed or stale runs, assistants whose runtime failed, failed
+    # connector tests, Portal responses of 500 or more and warnings or errors
+    # from the Portal's own loggers. Rows older than ERROR_LOG_RETENTION_DAYS
+    # (0 keeps them) and beyond ERROR_LOG_MAX_ROWS (0 = no cap) are pruned hourly.
+    error_log_enabled: bool = Field(default=True, validation_alias="ERROR_LOG_ENABLED")
+    error_log_retention_days: int = Field(default=90, validation_alias="ERROR_LOG_RETENTION_DAYS")
+    error_log_max_rows: int = Field(default=50000, validation_alias="ERROR_LOG_MAX_ROWS")
+    error_log_capture_level: str = Field(default="WARNING", validation_alias="ERROR_LOG_CAPTURE_LEVEL")
     agent_task_runtime_status_max_bytes: int = Field(default=2_000_000, validation_alias="AGENT_TASK_RUNTIME_STATUS_MAX_BYTES")
     agent_task_runtime_missing_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_MISSING_STALE_AFTER_SECONDS")
     agent_task_runtime_unreachable_stale_after_seconds: int = Field(default=300, validation_alias="AGENT_TASK_RUNTIME_UNREACHABLE_STALE_AFTER_SECONDS")

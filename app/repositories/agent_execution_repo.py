@@ -23,6 +23,10 @@ USAGE_COLUMNS = (
 )
 
 
+# A run that ends in one of these is recorded in the error log (warning for stale).
+ERROR_LOG_STATUSES = ("failed", "stale")
+
+
 class AgentExecutionRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -105,6 +109,7 @@ class AgentExecutionRepository:
         usage: dict | None = None,
     ) -> AgentExecution:
         now = datetime.utcnow()
+        previous_status = execution.status
         execution.status = status
         for column, value in (usage or {}).items():
             if column in USAGE_COLUMNS and value is not None:
@@ -129,4 +134,37 @@ class AgentExecutionRepository:
             execution.started_at = now
         if status in TERMINAL_EXECUTION_STATUSES and execution.finished_at is None:
             execution.finished_at = now
+        if status in ERROR_LOG_STATUSES and previous_status != status:
+            self._record_failure(execution)
         return self.save(execution)
+
+    def _record_failure(self, execution: AgentExecution) -> None:
+        """A run that ends failed or stale goes to Administration > Errors, committed with the row (app/services/error_log_service.py)."""
+        from app.services.error_log_service import record_error  # local: the service imports the models, not the repositories
+
+        context = (
+            ("terminal_reason", execution.terminal_reason),
+            ("runtime_status_code", execution.runtime_status_code),
+            ("source", execution.source),
+            ("execution_path", execution.execution_path),
+            ("request_id", execution.request_id),
+            ("runtime_task_id", execution.runtime_task_id),
+            ("result_summary", execution.result_summary),
+        )
+        detail = "\n".join("%s: %s" % (key, value) for key, value in context if value not in (None, ""))
+        record_error(
+            self.db,
+            source="execution",
+            severity="error" if execution.status == "failed" else "warning",
+            code=execution.error_code or execution.terminal_reason,
+            message=execution.error_message or "Run ended %s" % execution.status,
+            detail=detail or None,
+            execution_id=execution.id,
+            task_id=execution.task_id,
+            session_id=execution.session_id,
+            agent_id=execution.agent_id,
+            user_id=execution.owner_user_id or execution.created_by_user_id,
+            runtime_type=execution.runtime_type,
+            model=execution.model,
+            kind=execution.kind,
+        )

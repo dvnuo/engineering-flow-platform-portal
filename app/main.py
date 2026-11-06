@@ -42,11 +42,17 @@ from app.services.delegation_worker import worker_singleton
 from app.services.agent_task_reconcile_worker import agent_task_reconcile_worker_singleton
 from app.services.idle_agent_stop_worker import idle_agent_stop_worker_singleton
 from app.services.usage_rollup_worker import usage_rollup_worker_singleton
+from app.services.error_log_service import ErrorCaptureMiddleware, install_error_log_handler, uninstall_error_log_handler
 
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.debug)
+
+# Added before the request middlewares below, so it sits innermost: an unhandled
+# exception is recorded while the request's log context (trace id) is still
+# bound (app/services/error_log_service.py).
+app.add_middleware(ErrorCaptureMiddleware, enabled=lambda: settings.error_log_enabled)
 
 
 @app.middleware("http")
@@ -97,6 +103,8 @@ async def bind_request_locale(request, call_next):
 @app.on_event("startup")
 def on_startup() -> None:
     setup_logging(logging.DEBUG if settings.debug else logging.INFO)
+    if settings.error_log_enabled:
+        install_error_log_handler(settings)
     assert_portal_schema_ready(engine)
     assert_phase5_schema_compatibility(engine)
     assert_runtime_profile_schema_compatibility(engine)
@@ -137,6 +145,7 @@ def shutdown_delegation_worker() -> None:
     agent_task_reconcile_worker_singleton.stop()
     idle_agent_stop_worker_singleton.stop()
     usage_rollup_worker_singleton.stop()
+    uninstall_error_log_handler()
 
 
 @app.get("/health")

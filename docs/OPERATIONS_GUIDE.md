@@ -685,6 +685,12 @@ Portal HTTP responses include `X-Trace-Id`. Request logs include the method, pat
 
 Logs include redaction, but review exported diagnostic files before sharing them. Send the failing operation, status code, revision, and trace ID rather than a full `.env`, Secret, or connector settings.
 
+### Errors panel
+
+**Administration > Errors** is the first place to look when a member reports a failure. The Portal records, in `error_events`: runs that ended `failed` or `stale` (with the runtime's error code and message), assistants whose runtime failed to create, update, start, stop, restart, delete or report its status, connector **Test** probes that failed (which member, which connector), responses of 500 or more and unhandled exceptions (method, path, traceback), and every WARNING or ERROR from the Portal's own loggers (`app.*`, with the traceback when there is one). Each row carries the member, assistant, runtime, model, session, execution, task, request path and trace id that were known, so a row can be matched to the stdout log line (`trace=`) and to the assistant's pod. Messages pass through the same redaction as the logs; repeats of a Portal, log, assistant or connector event within five minutes for the same member, assistant and path count up instead of adding rows.
+
+The panel groups the period's rows by problem (source, code and message with ids and numbers blanked) and lists the most recent ones; open a row for the detail and **Copy details** for a ticket. `GET /api/admin/errors?days=7&source=execution&q=timeout` returns the same data, `GET /api/admin/errors/{id}` one event, and `GET /api/admin/errors/export.csv?days=7` the period as CSV. `ERROR_LOG_RETENTION_DAYS` (90) and `ERROR_LOG_MAX_ROWS` (50000) bound the table, `ERROR_LOG_CAPTURE_LEVEL` (`WARNING`) sets the lowest log level recorded, and `ERROR_LOG_ENABLED=false` turns the collection off.
+
 ### What to monitor
 
 Track Portal availability and response failures, database storage, persistent-volume capacity, pending/crashing runtime pods, task failures, delegation execution history, and provider/connector reachability. The current app exposes `/health` and `/actuator/health`; this guide does not assume a built-in Prometheus metrics endpoint. Arrange log collection and cluster monitoring through your deployment platform.

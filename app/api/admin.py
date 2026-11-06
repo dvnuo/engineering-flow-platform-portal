@@ -19,6 +19,12 @@ from app.services.runtime_profile_secret_service import RuntimeProfileSecretServ
 from app.services.runtime_profile_seed_service import RuntimeProfileSeedService
 from app.services.usage_insights_service import UsageInsightsService
 from app.services.usage_rollup_service import PERIOD_DAYS_OPTIONS, UsageRollupService
+from app.services.error_log_service import (
+    EXPORT_COLUMNS as ERROR_EXPORT_COLUMNS,
+    PERIOD_DAYS_OPTIONS as ERROR_PERIOD_DAYS_OPTIONS,
+    ErrorLogService,
+    normalize_source as normalize_error_source,
+)
 from app.utils.agent_responses import build_agent_response
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -158,3 +164,67 @@ def admin_usage_export(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _error_period_or_422(days: int) -> int:
+    if days not in ERROR_PERIOD_DAYS_OPTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("days must be one of 1, 7, 30, 90"))
+    return days
+
+
+@router.get("/errors/export.csv")
+def admin_errors_export(
+    _: object = Depends(require_admin),
+    db: Session = Depends(get_db),
+    days: int = Query(default=7),
+    source: str = Query(default=""),
+    q: str = Query(default=""),
+    fingerprint: str = Query(default=""),
+):
+    """The period's error events as CSV, newest first, for a spreadsheet or a ticket."""
+    period = _error_period_or_422(days)
+    records = ErrorLogService(db).export_rows(
+        period, source=normalize_error_source(source), query=q.strip()[:200], fingerprint=fingerprint.strip()[:40]
+    )
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(ERROR_EXPORT_COLUMNS), lineterminator=CRLF)
+    writer.writeheader()
+    writer.writerows(records)
+    filename = f"efp-errors-{period}d-{datetime.utcnow().date().isoformat()}.csv"
+    return Response(
+        content=BOM + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/errors")
+def admin_errors_overview(
+    _: object = Depends(require_admin),
+    db: Session = Depends(get_db),
+    days: int = Query(default=7, description="Period: one of 1, 7, 30, 90 days."),
+    source: str = Query(default="", description="execution, assistant, connector_test, portal or log; empty for all."),
+    q: str = Query(default="", description="Text to find in the message, code, detail, assistant, path, logger or member."),
+    fingerprint: str = Query(default="", description="One problem, as listed under groups."),
+    limit: int = Query(default=100, ge=1, le=1000),
+):
+    """What failed over the last ``days`` days: totals, the same problem grouped once, and the most recent rows.
+
+    Five sources feed it (app/services/error_log_service.py): runs that ended
+    failed or stale, assistants whose runtime failed, connector tests that
+    failed, Portal responses of 500 or more and warnings or errors from the
+    Portal's own loggers.
+    """
+    period = _error_period_or_422(days)
+    return ErrorLogService(db).overview(
+        period, source=normalize_error_source(source), query=q.strip()[:200], fingerprint=fingerprint.strip()[:40], limit=limit
+    )
+
+
+@router.get("/errors/{event_id}")
+def admin_error_detail(event_id: int, _: object = Depends(require_admin), db: Session = Depends(get_db)):
+    """One error event with its context and detail."""
+    event = ErrorLogService(db).get(event_id)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Error event not found"))
+    return event

@@ -7225,3 +7225,169 @@ body.efp-workspace-open { overflow: hidden; }
 .portal-proxy-assignments-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--portal-text-muted); }
 .portal-proxy-assignments-label { align-self: center; font-size: 14px; }
 .portal-proxy-assignments-row .portal-inline-note { display: block; margin-top: 4px; }
+
+/* Administration > Errors: failures the Portal recorded, grouped and recent, with a detail card. */
+.portal-admin-errors-toolbar {
+  flex-wrap: wrap;
+}
+
+.portal-admin-errors-toolbar .portal-form-input {
+  width: 240px;
+  max-width: 100%;
+}
+
+.portal-admin-errors-results {
+  display: grid;
+  gap: 16px;
+}
+
+.portal-admin-errors-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: start;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid var(--portal-border);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.portal-admin-errors-sources {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.portal-error-source {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--portal-border);
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.portal-error-sev {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--portal-danger);
+  vertical-align: middle;
+}
+
+.portal-error-sev.is-warning {
+  background: #d9a21b;
+}
+
+.portal-error-open {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.portal-error-open:hover .portal-error-msg {
+  text-decoration: underline;
+}
+
+.portal-error-msg {
+  display: inline-block;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.portal-error-code {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.portal-admin-errors-table td.is-time,
+.portal-admin-errors-table th {
+  white-space: nowrap;
+}
+
+.portal-admin-errors-table .portal-btn {
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.portal-admin-errors-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 10px;
+}
+
+.portal-admin-error-detail {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--portal-border);
+  border-radius: 12px;
+}
+
+.portal-admin-error-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portal-admin-error-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.portal-admin-error-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.portal-admin-error-message {
+  margin: 10px 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.portal-admin-error-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.portal-admin-error-grid dt {
+  opacity: 0.7;
+}
+
+.portal-admin-error-grid dd {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+
+.portal-admin-error-pre {
+  max-height: 320px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--portal-border);
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

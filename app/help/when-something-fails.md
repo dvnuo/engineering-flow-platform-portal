@@ -43,3 +43,15 @@ yet; the assistant usually trusts it already, so your chats keep working. Your
 credentials are not the problem. Tell your administrator the host named in the
 message: they add the CA to the Portal (`PORTAL_CA_BUNDLE`) and Test agrees
 with the assistant again.
+
+## Administrators: the Errors panel
+
+**Administration > Errors** collects what failed across the platform: runs
+that ended failed or stale, assistants whose runtime would not start,
+connector tests that failed, Portal errors and warnings from the Portal's own
+log. The same problem is grouped once, with how many times it happened, how
+many members and assistants it touched and when it was last seen. Open a row
+for the full message, its context (member, assistant, runtime, model, session,
+task, trace id) and the traceback where there is one, and copy it into a
+ticket. Filter by period, source or text, or export the period as CSV.
+Messages are redacted before they are stored and kept for 90 days by default.
