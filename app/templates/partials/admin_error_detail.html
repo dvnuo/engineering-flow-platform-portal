@@ -1,0 +1,32 @@
+{# One error event with everything the Portal kept about it; htmx swaps it into #admin-error-detail of the Errors panel. #}
+{% from "partials/error_macros.html" import source_label, when, severity_dot with context %}
+<article class="portal-admin-error" data-error-detail="{{ event.id }}">
+  <div class="portal-admin-error-head">
+    <div>
+      <h4>{{ severity_dot(event.severity) }}{{ source_label(event.source) }}{% if event.code %} <small class="is-muted portal-error-code">{{ event.code }}</small>{% endif %}</h4>
+      <small class="is-muted">{% if event.count > 1 %}{{ t("Seen {n} times, first {first}, last {last}", n=event.count, first=when(event.occurred_at), last=when(event.last_seen_at)) }}{% else %}{{ when(event.occurred_at) }}{% endif %} {{ t("UTC") }}</small>
+    </div>
+    <div class="portal-admin-error-actions">
+      <button type="button" class="portal-btn is-secondary" data-copy-error-detail data-copied-label="{{ t('Copied') }}">{{ t("Copy details") }}</button>
+      <button type="button" class="portal-btn is-secondary" data-close-error-detail>{{ t("Close") }}</button>
+    </div>
+  </div>
+  <p class="portal-admin-error-message">{{ event.message }}</p>
+  <dl class="portal-admin-error-grid">
+    {% for label, value in [
+      (t("Member"), event.member),
+      (t("Assistant"), event.agent_name or event.agent_id),
+      (t("Runtime"), event.runtime_type),
+      (t("Model"), event.model),
+      (t("Kind"), event.kind),
+      (t("Session"), event.session_id),
+      (t("Execution"), event.execution_id),
+      (t("Task"), event.task_id),
+      (t("Request"), event.request_path),
+      (t("Logger"), event.logger_name),
+      (t("Trace"), event.trace_id),
+    ] %}{% if value %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endif %}{% endfor %}
+  </dl>
+  {% if event.detail %}<pre class="portal-admin-error-pre">{{ event.detail }}</pre>{% endif %}
+  <textarea class="hidden" data-error-copy-text readonly aria-hidden="true" tabindex="-1">{{ copy_text }}</textarea>
+</article>

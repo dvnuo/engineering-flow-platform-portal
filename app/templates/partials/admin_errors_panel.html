@@ -1,0 +1,118 @@
+{# Administration > Errors: what failed across the platform over the period, the same problem grouped once, then the most recent rows with a detail card. #}
+{% from "partials/error_macros.html" import source_label, when, severity_dot with context %}
+{% macro num(value) %}{{ "{:,}".format(value|int) }}{% endmacro %}
+{% set totals = overview.totals %}
+<div id="admin-errors-panel" class="portal-panel-stack portal-admin-errors" data-period-days="{{ days }}" data-source="{{ source }}" data-fingerprint="{{ fingerprint }}">
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">{{ t("Errors") }}</h5>
+      <p class="portal-panel-note">{{ t("Runs that failed, assistants that would not start, connector tests that failed, Portal errors and warnings from the Portal's own log, from every member. The same problem is grouped once; open a row for the full message and its context.") }}
+        {% if retention_days %}{{ t("Kept for {n} days.", n=retention_days) }}{% else %}{{ t("Kept until pruned by an administrator.") }}{% endif %}</p>
+    </div>
+    <div class="portal-admin-usage-toolbar portal-admin-errors-toolbar" data-admin-errors-filters>
+      <select class="portal-form-select" name="days" aria-label="{{ t('Period') }}" data-admin-errors-period
+              hx-get="/app/admin/errors/panel" hx-include="closest [data-admin-errors-filters]" hx-trigger="change"
+              hx-target="#admin-errors-results" hx-select="#admin-errors-results" hx-swap="outerHTML">
+        {% for option in period_options %}
+        <option value="{{ option }}" {% if option == days %}selected{% endif %}>{% if option == 1 %}{{ t("Last 24 hours") }}{% else %}{{ t("Last {n} days", n=option) }}{% endif %}</option>
+        {% endfor %}
+      </select>
+      <select class="portal-form-select" name="source" aria-label="{{ t('Source') }}" data-admin-errors-source
+              hx-get="/app/admin/errors/panel" hx-include="closest [data-admin-errors-filters]" hx-trigger="change"
+              hx-target="#admin-errors-results" hx-select="#admin-errors-results" hx-swap="outerHTML">
+        <option value="" {% if not source %}selected{% endif %}>{{ t("All sources") }}</option>
+        {% for item in sources %}
+        <option value="{{ item }}" {% if item == source %}selected{% endif %}>{{ source_label(item) }}</option>
+        {% endfor %}
+      </select>
+      <input class="portal-form-input" type="search" name="q" value="{{ query }}" placeholder="{{ t('Search messages') }}" aria-label="{{ t('Search errors') }}" autocomplete="off" data-admin-errors-search
+             hx-get="/app/admin/errors/panel" hx-include="closest [data-admin-errors-filters]" hx-trigger="keyup changed delay:400ms, search"
+             hx-target="#admin-errors-results" hx-select="#admin-errors-results" hx-swap="outerHTML">
+      {% if fingerprint %}<input type="hidden" name="fingerprint" value="{{ fingerprint }}">{% endif %}
+    </div>
+  </div>
+
+  <div id="admin-errors-results" class="portal-admin-errors-results">
+    {% if fingerprint %}
+    <div class="portal-admin-errors-chip" data-admin-errors-fingerprint-chip>
+      <span>{{ t("Showing one problem") }}</span>
+      <button type="button" class="portal-btn is-secondary" hx-get="/app/admin/errors/panel?days={{ days }}&amp;source={{ source }}&amp;q={{ query|urlencode }}" hx-target="#workspace-detail-content" hx-swap="innerHTML">{{ t("Show all") }}</button>
+    </div>
+    {% endif %}
+
+    <div class="portal-admin-summary-grid portal-admin-usage-summary" aria-label="{{ t('Error summary') }}">
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Events") }}</span><strong class="portal-usage-v">{{ num(totals.events) }}</strong><small class="portal-usage-sub">{{ tn(totals.rows, "{n} distinct row", "{n} distinct rows") }}</small></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Errors") }}</span><strong class="portal-usage-v">{{ num(totals.errors) }}</strong><small class="portal-usage-sub">{{ t("{n} warnings", n=totals.warnings) }}</small></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Failed runs") }}</span><strong class="portal-usage-v">{{ num(totals.failed_runs) }}</strong><small class="portal-usage-sub">{{ t("runs that ended failed or stale") }}</small></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Members affected") }}</span><strong class="portal-usage-v">{{ totals.members }}</strong><small class="portal-usage-sub">{{ t("{n} assistants", n=totals.assistants) }}</small></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Last seen") }}</span><strong class="portal-usage-v is-time">{{ when(totals.last_seen_at) }}</strong><small class="portal-usage-sub">{{ t("UTC") }}</small></div>
+    </div>
+
+    <p class="portal-admin-errors-sources" aria-label="{{ t('Events by source') }}">
+      {% for item in overview.by_source %}{% if item.events %}<span class="portal-error-source">{{ source_label(item.source) }} <strong>{{ num(item.events) }}</strong></span> {% endif %}{% endfor %}
+    </p>
+
+    <section class="portal-panel-section" aria-label="{{ t('Most frequent problems') }}">
+      <div class="portal-overview-panel-head">
+        <h3>{{ t("Most frequent") }}</h3>
+        <a class="portal-btn is-secondary" href="/api/admin/errors/export.csv?days={{ days }}&amp;source={{ source }}&amp;q={{ query|urlencode }}&amp;fingerprint={{ fingerprint }}" download data-admin-errors-export>{{ t("Export CSV") }}</a>
+      </div>
+      <div class="portal-data-table-wrap">
+        <table class="portal-data-table portal-admin-usage-table portal-admin-errors-table" data-admin-errors-groups>
+          <thead><tr><th>{{ t("Problem") }}</th><th>{{ t("Source") }}</th><th class="is-number">{{ t("Times") }}</th><th class="is-number">{{ t("Members") }}</th><th class="is-number">{{ t("Assistants") }}</th><th>{{ t("First seen") }}</th><th>{{ t("Last seen") }}</th></tr></thead>
+          <tbody>
+          {% for group in overview.groups %}
+            <tr data-error-fingerprint="{{ group.fingerprint }}">
+              <td>
+                <button type="button" class="portal-error-open" title="{{ group.message }}" hx-get="/app/admin/errors/panel?days={{ days }}&amp;source={{ source }}&amp;q={{ query|urlencode }}&amp;fingerprint={{ group.fingerprint }}" hx-target="#workspace-detail-content" hx-swap="innerHTML">{{ severity_dot(group.severity) }}<span class="portal-error-msg">{{ group.message }}</span></button>
+                {% if group.code %}<small class="is-muted portal-error-code">{{ group.code }}</small>{% endif %}
+              </td>
+              <td><span class="portal-error-source">{{ source_label(group.source) }}</span></td>
+              <td class="is-number">{{ num(group.events) }}</td>
+              <td class="is-number">{{ group.members }}</td>
+              <td class="is-number">{{ group.assistants }}</td>
+              <td class="is-time">{{ when(group.first_seen_at) }}</td>
+              <td class="is-time">{{ when(group.last_seen_at) }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="is-muted">{{ t("No errors recorded in this period.") }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="portal-panel-section" aria-label="{{ t('Recent errors') }}">
+      <div class="portal-overview-panel-head">
+        <h3>{{ t("Recent") }}</h3>
+        <span>{{ tn(overview.recent|length, "{n} row", "{n} rows") }}{% if overview.has_more %} {{ t("(more below)") }}{% endif %}</span>
+      </div>
+      <div id="admin-error-detail" class="portal-admin-error-detail hidden" aria-live="polite"></div>
+      <div class="portal-data-table-wrap">
+        <table class="portal-data-table portal-admin-usage-table portal-admin-errors-table" data-admin-errors-recent>
+          <thead><tr><th>{{ t("When") }}</th><th>{{ t("Source") }}</th><th>{{ t("Member") }}</th><th>{{ t("Assistant") }}</th><th>{{ t("Message") }}</th><th class="is-number">{{ t("Times") }}</th><th></th></tr></thead>
+          <tbody>
+          {% for row in overview.recent %}
+            <tr data-error-id="{{ row.id }}">
+              <td class="is-time">{{ when(row.last_seen_at) }}</td>
+              <td>{{ severity_dot(row.severity) }}<span class="portal-error-source">{{ source_label(row.source) }}</span></td>
+              <td>{{ row.member or "-" }}</td>
+              <td>{{ row.agent_name or "-" }}</td>
+              <td><div class="portal-error-msg" title="{{ row.message }}">{{ row.message }}</div>{% if row.code %}<small class="is-muted portal-error-code">{{ row.code }}</small>{% endif %}</td>
+              <td class="is-number">{{ row.count }}</td>
+              <td><button type="button" class="portal-btn is-secondary" hx-get="/app/admin/errors/{{ row.id }}/panel" hx-target="#admin-error-detail" hx-swap="innerHTML">{{ t("Details") }}</button></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="is-muted">{{ t("No errors recorded in this period.") }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if overview.has_more %}
+      <div class="portal-admin-errors-more">
+        <button type="button" class="portal-btn is-secondary" hx-get="/app/admin/errors/panel?days={{ days }}&amp;source={{ source }}&amp;q={{ query|urlencode }}&amp;fingerprint={{ fingerprint }}&amp;limit={{ limit * 3 }}" hx-target="#workspace-detail-content" hx-swap="innerHTML">{{ t("Show more") }}</button>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+</div>

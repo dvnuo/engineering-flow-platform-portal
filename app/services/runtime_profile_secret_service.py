@@ -4,6 +4,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services.error_log_service import DEDUP_WINDOW_SECONDS as ERROR_DEDUP_WINDOW_SECONDS, record_error
 from app.models.agent import Agent
 from app.schemas.runtime_profile import parse_runtime_profile_config_json
 from app.services.k8s_service import K8sService
@@ -121,6 +122,17 @@ class RuntimeProfileSecretService:
                 if result.status == "failed":
                     failed_agent_ids.append(agent.id)
                     agent.last_error = result.message
+                    record_error(
+                        db,
+                        source="assistant",
+                        code="restart",
+                        message=result.message or "Restart after a connector save failed",
+                        agent_id=agent.id,
+                        agent_name=agent.name,
+                        user_id=agent.owner_user_id,
+                        runtime_type=agent.runtime_type,
+                        dedup_window_seconds=ERROR_DEDUP_WINDOW_SECONDS,
+                    )
                     logger.warning(
                         "connector save restart failed agent_id=%s profile_id=%s message=%s",
                         agent.id,

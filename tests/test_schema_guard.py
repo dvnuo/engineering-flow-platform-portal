@@ -21,6 +21,7 @@ REQUIRED_PORTAL_TABLES = (
     "user_connectors",
     "session_shares",
     "usage_daily_rollups",
+    "error_events",
 )
 
 

@@ -4,6 +4,7 @@ from pathlib import Path
 REQUIRED_NEW_TABLES = {
     "agent_executions",
     "agent_tasks",
+    "error_events",
     "runtime_capability_catalog_snapshots",
     "session_shares",
     "usage_daily_rollups",

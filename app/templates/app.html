@@ -258,6 +258,17 @@
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
+            <button id="errors-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
+                    data-admin-panel="errors"
+                    data-admin-panel-url="/app/admin/errors/panel"
+                    data-admin-panel-title="Errors">
+              <i data-lucide="triangle-alert" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>{{ t("Errors") }}</strong>
+                <small>{{ t("Failures and warnings collected for troubleshooting") }}</small>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+            </button>
           </div>
         </section>
         {% endif %}
@@ -835,6 +846,7 @@
 <script src="{{ static_url('js/efp_cards.js') }}"></script>
 <script src="{{ static_url('js/chat_ui.js') }}"></script>
 <script src="{{ static_url('js/admin_users.js') }}"></script>
+<script src="{{ static_url('js/admin_errors.js') }}"></script>
 <script src="{{ static_url('js/assistant_setup.js') }}"></script>
 <script src="{{ static_url('js/interactive_input.js') }}"></script>
 <script src="{{ static_url('js/assistant_personalization.js') }}"></script>

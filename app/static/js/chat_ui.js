@@ -11980,6 +11980,10 @@ const ADMIN_PANEL_HEADINGS = {
     title: t("Usage"),
     status: t("What the platform consumed, how runs went and what members use"),
   },
+  "errors": {
+    title: t("Errors"),
+    status: t("Failures and warnings collected for troubleshooting"),
+  },
 };
 
 function syncAdminHeaderActions(section) {
