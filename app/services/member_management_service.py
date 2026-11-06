@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import distinct, func, select
+
+from app.config import get_settings
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
@@ -260,4 +262,46 @@ class MemberManagementService:
             "daily": daily,
             "by_model": by_model,
             "by_kind": by_kind,
+            "by_agent": self._usage_by_agent(user_id, start, today),
         }
+
+    def member_month_to_date(self, user_id: int, *, now: datetime | None = None) -> dict[str, Any]:
+        """The member's credits and runs since the first day of the current month, from the rollups."""
+        moment = now or datetime.utcnow()
+        today = moment.date()
+        rollups = UsageRollupService(self.db)
+        rollups.refresh_recent(today=today)
+        month_start = today.replace(day=1)
+        R = UsageDailyRollup
+        row = self.db.execute(
+            select(func.coalesce(func.sum(R.credits), 0.0), func.coalesce(func.sum(R.executions), 0))
+            .where(R.user_id == int(user_id), R.day >= month_start, R.day <= today)
+        ).one()
+        return {"month": today.strftime("%Y-%m"), "credits": round(float(row[0]), 2), "executions": int(row[1])}
+
+    def credit_notice(self, user_id: int, *, now: datetime | None = None) -> dict[str, Any]:
+        """Month-to-date credits against the MEMBER_CREDIT_NOTICE_THRESHOLD guideline (0 = none)."""
+        threshold = float(getattr(get_settings(), "member_credit_notice_threshold", 0) or 0)
+        month = self.member_month_to_date(user_id, now=now)
+        return {
+            **month,
+            "threshold": round(threshold, 2) if threshold > 0 else None,
+            "over": bool(threshold > 0 and month["credits"] >= threshold),
+            "ratio": round(month["credits"] / threshold, 4) if threshold > 0 else None,
+        }
+
+    def _usage_by_agent(self, user_id: int, start, today, limit: int = 8) -> list[dict[str, Any]]:
+        R = UsageDailyRollup
+        rows = self.db.execute(
+            select(R.agent_id, Agent.name, func.coalesce(func.sum(R.executions), 0), func.coalesce(func.sum(R.credits), 0.0))
+            .select_from(R)
+            .outerjoin(Agent, Agent.id == R.agent_id)
+            .where(R.user_id == int(user_id), R.day >= start, R.day <= today, R.agent_id != "")
+            .group_by(R.agent_id, Agent.name)
+            .order_by(func.sum(R.credits).desc(), func.sum(R.executions).desc())
+            .limit(limit)
+        ).all()
+        return [
+            {"agent_id": agent_id, "name": name or agent_id, "executions": int(executions), "credits": round(float(credits), 2)}
+            for agent_id, name, executions, credits in rows
+        ]

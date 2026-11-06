@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.i18n import N_
 from app.config import get_settings
 from app.db import get_db
-from app.deps import require_admin
+from app.deps import get_current_user, require_admin
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.user_allowlist_repo import UserAllowlistRepository, normalize_username
 from app.repositories.user_repo import UserRepository
@@ -93,6 +93,21 @@ def admin_overview(
     if days not in PERIOD_DAYS_OPTIONS:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("days must be one of 7, 30 or 90"))
     return MemberOverviewResponse.model_validate(MemberManagementService(db).build_overview(days=days))
+
+
+@router.get("/me/usage")
+def my_usage(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    days: int = Query(default=DEFAULT_PERIOD_DAYS, description="Period of the figures: one of 7, 30, 90 days."),
+):
+    """The signed-in member's own runs across their assistants, this month's credits and the guideline notice."""
+    if days not in PERIOD_DAYS_OPTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("days must be one of 7, 30 or 90"))
+    service = MemberManagementService(db)
+    usage = service.member_usage(user.id, days=days)
+    usage["notice"] = service.credit_notice(user.id)
+    return usage
 
 
 @router.get("/{user_id}/usage")

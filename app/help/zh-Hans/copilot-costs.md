@@ -38,3 +38,7 @@ order: 25
 - 「上下文」面板中的「本月 Copilot 余额」显示已用 / 剩余额度和重置日期（数据来自 GitHub 的配额接口，该接口不保证始终可用）。
 - 助手详情中的「用量（30 天）」显示最近 30 天的请求数、token 数和估算额度。
 - 权威数字以 GitHub 的 Billing 页面为准：[GitHub Copilot 的模型与定价](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing)。
+
+## 你在所有助手上的用量
+
+任何一个助手的 Usage 面板开头都是你自己的数据，来自 Portal 的记录：你本月和近 30 天在所有助手上用掉的额度，以及是哪些助手用掉的。上下文面板也会在 Copilot 余额下面重复显示本月的数字。如果管理员设置了每月参考额度，两处都会在你超出时提示；这只是提示，不会阻止任何操作。

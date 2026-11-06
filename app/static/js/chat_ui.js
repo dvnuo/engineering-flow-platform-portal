@@ -3131,6 +3131,46 @@ function copilotQuotaChipHtml(summary) {
 }
 // RUNTIME_EVENT_HELPER_END: copilotQuota
 
+// The member's own month, from the Portal's rollups: shown under the Copilot
+// balance in the Context panel, with the guideline the administrator set
+// (MEMBER_CREDIT_NOTICE_THRESHOLD) when there is one. Cached for a few
+// minutes; a failure leaves the line empty rather than noisy.
+const MEMBER_USAGE_CACHE_MS = 5 * 60 * 1000;
+let memberUsageCache = { at: 0, data: null };
+
+function memberCreditLineHtml(notice) {
+  if (!notice || typeof notice !== "object") return "";
+  const credits = Number(notice.credits || 0);
+  const threshold = Number(notice.threshold || 0);
+  const amount = formatCredits(credits) || String(Math.round(credits));
+  const text = threshold > 0
+    ? (notice.over
+      ? t("Your usage this month: {amount} credits, above the {threshold}-credit guideline", { amount, threshold: Math.round(threshold) })
+      : t("Your usage this month: {amount} of a {threshold}-credit guideline", { amount, threshold: Math.round(threshold) }))
+    : t("Your usage this month: {amount} credits", { amount });
+  return `<div class="portal-member-credit-line${notice.over ? " is-warning" : ""}" data-member-credit-notice="${notice.over ? "over" : "ok"}">${escapeHtml(text)}</div>`;
+}
+
+async function renderMemberCreditNotice() {
+  if (typeof document === "undefined") return null;
+  const host = document.getElementById("context-member-usage");
+  if (!host) return null;
+  const now = Date.now();
+  let data = memberUsageCache.data;
+  if (!data || now - memberUsageCache.at > MEMBER_USAGE_CACHE_MS) {
+    try {
+      data = await api("/api/users/me/usage?days=30");
+      memberUsageCache = { at: now, data };
+    } catch (_error) {
+      data = null;
+    }
+  }
+  const live = document.getElementById("context-member-usage");
+  if (!live) return data;
+  live.innerHTML = data ? memberCreditLineHtml(data.notice) : "";
+  return data;
+}
+
 async function renderCopilotQuotaChip(agentId) {
   if (typeof document === "undefined" || !agentId || !document.getElementById("context-quota-chip")) return null;
   let quota = null;
@@ -11545,6 +11585,7 @@ function renderContextUsagePanel(snapshot) {
         <div class="portal-panel-note">${t("Model: {model} · {scope}", { model: safe(modelLabel), scope: safe(scopeLabel) })}</div>
         ${sessionCredits != null ? `<div class="portal-context-credits"><span>${t("This session so far")}</span><strong>${t("≈ {credits} credits", { credits: safe(formatCredits(sessionCredits) || "0") })}</strong></div>` : ""}
         <div id="context-quota-chip" class="portal-quota-chip is-unavailable" data-copilot-quota="loading"><div class="portal-quota-chip-head"><span>${t("Copilot balance this month")}</span><span>${t("Loading…")}</span></div></div>
+        <div id="context-member-usage" class="portal-member-credit-host"></div>
         ${costGuideHtml}
       </div>
       <div class="portal-panel-section">
@@ -11566,6 +11607,7 @@ function renderContextUsagePanel(snapshot) {
   renderIcons();
   // The balance is fetched when the panel opens, never per message.
   if (typeof renderCopilotQuotaChip === "function") void renderCopilotQuotaChip(state.selectedAgentId);
+  if (typeof renderMemberCreditNotice === "function") void renderMemberCreditNotice();
 }
 
 // RUNTIME_EVENT_HELPER_START: contextBillingView
