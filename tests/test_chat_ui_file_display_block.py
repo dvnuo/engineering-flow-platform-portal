@@ -150,7 +150,7 @@ def test_four_or_more_files_in_a_row_fold_into_one_closed_group():
     js = _source()
     helpers = "\n".join(
         _extract_js_function(js, name)
-        for name in FILE_BLOCK_HELPERS + ["fileBlockDisplayName", "renderFileBlockGroup", "renderDisplayBlockSequence", "renderDisplayBlocksToHtml"]
+        for name in FILE_BLOCK_HELPERS + ["fileBlockDisplayName", "buildWorkspaceFilesDownloadUrl", "renderFileBlockGroup", "renderDisplayBlockSequence", "renderDisplayBlocksToHtml"]
     )
     labels_start = js.index("const FILE_BLOCK_TYPE_LABELS")
     labels = js[labels_start: js.index("};", labels_start) + 2]
@@ -186,6 +186,10 @@ def test_four_or_more_files_in_a_row_fold_into_one_closed_group():
                 assert.match(grouped, /<span class="message-file-group-names">shot-1.png, shot-2.png, shot-3.png \+2 more<\/span>/);
                 assert.equal((grouped.match(/message-file-card/g) || []).length, 5, "every file keeps its own row inside the group");
                 assert.equal((grouped.match(/message-file-preview/g) || []).length, 5, "and its preview, still closed");
+                // One archive link for the whole group, every path as its own paths= value.
+                assert.match(grouped, /<a class="portal-btn is-secondary message-file-download-all" href="\/a\/agent-1\/api\/server-files\/download\?paths=runs%2Fshot-1.png&amp;paths=runs%2Fshot-2.png&amp;paths=runs%2Fshot-3.png&amp;paths=runs%2Fshot-4.png&amp;paths=runs%2Fshot-5.png" download rel="noopener">Download all<\/a>/);
+                assert.equal(buildWorkspaceFilesDownloadUrl("agent-1", []), "");
+                assert.equal(buildWorkspaceFilesDownloadUrl(null, ["a.txt"]), "");
 
                 // Three files stay as three rows: a short list reads better than a fold.
                 const three = renderDisplayBlocksToHtml(shots.slice(0, 3));

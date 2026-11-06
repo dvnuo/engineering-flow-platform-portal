@@ -1078,6 +1078,14 @@ function buildWorkspaceFileDownloadUrl(agentId, path) {
   return `/a/${encodeURIComponent(agentId)}/api/server-files/download?paths=${encodeURIComponent(path)}`;
 }
 
+// Several files at once: the runtime zips the paths it is given (one paths=
+// per file) and names the archive itself, so the link carries no name.
+function buildWorkspaceFilesDownloadUrl(agentId, paths) {
+  const cleaned = (Array.isArray(paths) ? paths : []).filter((path) => typeof path === "string" && path);
+  if (!agentId || !cleaned.length) return "";
+  return `/a/${encodeURIComponent(agentId)}/api/server-files/download?${cleaned.map((path) => `paths=${encodeURIComponent(path)}`).join("&")}`;
+}
+
 function buildWorkspaceFileContentUrl(agentId, path) {
   if (!agentId || !path) return "";
   return `/a/${encodeURIComponent(agentId)}/api/server-files/content?path=${encodeURIComponent(path)}`;
@@ -4590,9 +4598,63 @@ function keepAgentTimelineListPinned(listNode) {
   if (listNode.dataset.pinned !== "0") listNode.scrollTop = listNode.scrollHeight;
 }
 
+// After the answer lands, the Working list used to be thrown away. Its rows
+// (tools, reasoning, permissions, compactions) are what a reader opens to see
+// how the assistant got there, so they stay under the answer as one closed
+// disclosure. The snapshot taken at completion holds every row; the live list
+// is the fallback when the article completes before the snapshot exists.
+function runStepsDetailsHtml(timeline) {
+  if (!timeline) return "";
+  const complete = {
+    ...timeline,
+    items: (timeline.items || []).filter((item) => item && !["text", "step"].includes(String(item.kind || "").toLowerCase())),
+    visibleItemCount: Number.MAX_SAFE_INTEGER,
+  };
+  const count = getAgentTimelineRenderableItems(complete).length;
+  if (!count) return "";
+  const rows = renderAgentTimelineRowsHtml(complete);
+  if (!rows) return "";
+  return `<details class="portal-collapsible chat-run-steps" data-run-steps="${count}"><summary class="portal-collapsible-summary"><span>${escapeHtml(tn(count, "{n} step", "{n} steps"))}</span></summary><div class="agent-timeline agent-timeline-steps"><div class="agent-timeline-list">${rows}</div></div></details>`;
+}
+
+function placeRunStepsDetails(article, html) {
+  if (!article) return;
+  article.querySelector("[data-run-steps]")?.remove();
+  if (!html) return;
+  article.insertAdjacentHTML("beforeend", html);
+  const details = article.querySelector("[data-run-steps]");
+  if (details) renderIcons(details);
+}
+
+function collapseAgentTimelineIntoSteps(article, timelineEl) {
+  const listNode = timelineEl.querySelector("[data-agent-timeline-items]");
+  const rows = listNode
+    ? Array.from(listNode.querySelectorAll(".agent-timeline-row")).filter((row) => !row.classList.contains("is-text"))
+    : [];
+  timelineEl.remove();
+  if (!rows.length || article.querySelector("[data-run-steps]")) return;
+  const details = document.createElement("details");
+  details.className = "portal-collapsible chat-run-steps";
+  details.dataset.runSteps = String(rows.length);
+  details.innerHTML = `<summary class="portal-collapsible-summary"><span>${escapeHtml(tn(rows.length, "{n} step", "{n} steps"))}</span></summary><div class="agent-timeline agent-timeline-steps"><div class="agent-timeline-list"></div></div>`;
+  const list = details.querySelector(".agent-timeline-list");
+  rows.forEach((row) => list.appendChild(row));
+  article.appendChild(details);
+}
+
+function renderRunStepsForSnapshot(chatState, requestCtx = {}) {
+  const snapshot = chatState?.lastAgentTimelineSnapshot;
+  if (!snapshot || typeof document === "undefined" || !dom.messageList) return;
+  const article = findAssistantArticleForRequest(requestCtx, { request_id: snapshot.requestId })
+    || findPendingAssistantArticleForTimeline(requestCtx, snapshot);
+  if (!article) return;
+  placeRunStepsDetails(article, runStepsDetailsHtml(snapshot));
+}
+
 function clearAssistantTimelineFromArticle(article) {
   if (!article) return;
-  article.querySelector("[data-agent-timeline='1']")?.remove();
+  const timelineEl = article.querySelector("[data-agent-timeline='1']");
+  if (timelineEl) collapseAgentTimelineIntoSteps(article, timelineEl);
   article.querySelector(".assistant-waiting-indicator")?.remove();
 }
 
@@ -4615,6 +4677,8 @@ function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {
     textById: { ...(timeline.textById || {}) },
     items: (timeline.items || []).map((item) => ({ ...item })),
   };
+  // The answer's article keeps the steps as a closed disclosure.
+  if (typeof renderRunStepsForSnapshot === "function") renderRunStepsForSnapshot(chatState, requestCtx);
   if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
   else chatState.inflightAgentTimeline = null;
 }
@@ -5599,7 +5663,14 @@ function renderFileBlockGroup(blocks) {
   const shown = names.slice(0, 3).map((value) => escapeHtml(value)).join(", ");
   const more = names.length > 3 ? ` ${escapeHtml(t("+{n} more", { n: names.length - 3 }))}` : "";
   const count = escapeHtml(tn(blocks.length, "{n} file", "{n} files"));
-  return `<details class="message-block message-file-group"><summary class="message-file-group-summary"><span class="message-file-icon" aria-hidden="true">${FILE_BLOCK_ICON}</span><span class="message-file-group-count">${count}</span><span class="message-file-group-names">${shown}${more}</span><span class="message-file-chevron" aria-hidden="true"></span></summary><div class="message-file-group-body">${rows}</div></details>`;
+  const paths = blocks
+    .map((block) => parseWorkspaceLinkPath(`workspace:${pickFirstMeaningfulBlockValue(block, ["path", "file_path", "workspace_path"])}`))
+    .filter((path) => path !== null);
+  const archiveUrl = buildWorkspaceFilesDownloadUrl(currentWorkspaceAgentId(), paths);
+  const downloadAllHtml = archiveUrl
+    ? `<a class="portal-btn is-secondary message-file-download-all" href="${escapeHtmlAttr(archiveUrl)}" download rel="noopener">${t("Download all")}</a>`
+    : "";
+  return `<details class="message-block message-file-group"><summary class="message-file-group-summary"><span class="message-file-icon" aria-hidden="true">${FILE_BLOCK_ICON}</span><span class="message-file-group-count">${count}</span><span class="message-file-group-names">${shown}${more}</span>${downloadAllHtml}<span class="message-file-chevron" aria-hidden="true"></span></summary><div class="message-file-group-body">${rows}</div></details>`;
 }
 
 function renderDisplayBlockSequence(blocks) {
