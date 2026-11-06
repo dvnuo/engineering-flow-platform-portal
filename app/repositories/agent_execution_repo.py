@@ -9,6 +9,8 @@ from app.models.agent_execution import AgentExecution
 
 ACTIVE_EXECUTION_STATUSES = ("queued", "running", "cancelling")
 TERMINAL_EXECUTION_STATUSES = ("succeeded", "failed", "blocked", "cancelled", "stale")
+# What a run cost, as the runtime reported it; see agent_execution_registry.usage_fields_from_payload.
+USAGE_COLUMNS = ("model", "input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens", "estimated_credits")
 
 
 class AgentExecutionRepository:
@@ -90,9 +92,13 @@ class AgentExecutionRepository:
         error_message: str | None = None,
         result_summary: str | None = None,
         metadata_json: str | None = None,
+        usage: dict | None = None,
     ) -> AgentExecution:
         now = datetime.utcnow()
         execution.status = status
+        for column, value in (usage or {}).items():
+            if column in USAGE_COLUMNS and value is not None:
+                setattr(execution, column, value)
         if request_id:
             execution.request_id = request_id
         if runtime_task_id:

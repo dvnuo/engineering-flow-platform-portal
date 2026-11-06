@@ -15,6 +15,64 @@ from app.redaction import sanitize_exception_message
 logger = logging.getLogger(__name__)
 
 
+def _usage_int(usage: dict, *keys: str) -> int | None:
+    for key in keys:
+        value = usage.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+    return None
+
+
+def _usage_float(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None  # not NaN
+
+
+def usage_fields_from_payload(payload: Any) -> dict[str, Any]:
+    """The usage columns a runtime's final payload carries, for ``AgentExecutionRepository.mark_status``.
+
+    Both runtimes put the turn's ``usage`` on the final chat payload (native:
+    ``input_tokens`` / ``output_tokens``, the OpenAI names are accepted too;
+    cached and reasoning tokens; ``estimated_credits``; ``pricing.model`` for
+    the model Copilot actually billed) and the model that answered as
+    ``model``. A task's result payload may hold the same block under
+    ``result`` or ``output_payload``. Missing fields are simply absent, so an
+    older runtime image records nothing rather than zeros.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    source = payload
+    usage = source.get("usage")
+    if not isinstance(usage, dict):
+        for key in ("result", "output_payload", "output"):
+            nested = source.get(key)
+            if isinstance(nested, dict) and isinstance(nested.get("usage"), dict):
+                source, usage = nested, nested["usage"]
+                break
+    if not isinstance(usage, dict):
+        usage = {}
+    pricing = usage.get("pricing") if isinstance(usage.get("pricing"), dict) else {}
+    model = source.get("model") or pricing.get("model") or payload.get("model") or source.get("requested_model")
+    fields: dict[str, Any] = {
+        "model": _clean_text(model, limit=128) if isinstance(model, str) else None,
+        "input_tokens": _usage_int(usage, "input_tokens", "prompt_tokens"),
+        "output_tokens": _usage_int(usage, "output_tokens", "completion_tokens"),
+        "cached_input_tokens": _usage_int(usage, "cached_input_tokens", "cache_read_tokens"),
+        "reasoning_tokens": _usage_int(usage, "reasoning_tokens"),
+        "estimated_credits": _usage_float(usage.get("estimated_credits")),
+    }
+    return {key: value for key, value in fields.items() if value is not None}
+
+
 def _clean_text(value: Any, *, limit: int = 500) -> str | None:
     if value is None:
         return None
@@ -172,6 +230,7 @@ def finish_chat_response_best_effort(
             error_code=error_code,
             error_message=error_message,
             result_summary=summary,
+            usage=usage_fields_from_payload(payload),
         )
     except Exception as exc:
         _rollback_best_effort(db)
@@ -284,6 +343,7 @@ def mark_task_execution_status_best_effort(
     error_code: str | None = None,
     error_message: str | None = None,
     result_summary: str | None = None,
+    usage: dict | None = None,
 ) -> None:
     try:
         repo = AgentExecutionRepository(db)
@@ -299,6 +359,7 @@ def mark_task_execution_status_best_effort(
             error_code=error_code,
             error_message=_clean_text(error_message),
             result_summary=_clean_text(result_summary, limit=1000),
+            usage=usage,
         )
     except Exception as exc:
         _rollback_best_effort(db)
@@ -395,6 +456,7 @@ class ChatStreamExecutionObserver:
                         "saw_done_event": self.done_payload is not None,
                     }
                 ),
+                usage=usage_fields_from_payload(self.final_payload),
             )
         except Exception as exc:
             _rollback_best_effort(db)

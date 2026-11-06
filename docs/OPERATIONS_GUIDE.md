@@ -448,6 +448,8 @@ The connector **Test** buttons probe Jira, Confluence, GitHub, Jenkins, Nexus, S
 
 Use **Administration > User Management** to allow members individually or in bulk, assign `user` or `admin`, review their usage, and revoke access. The allowlist name must match the normalized identity returned by sign-in. SSO uses `preferred_username`, with email as a fallback; GitHub uses the login after any configured suffix normalization.
 
+The panel is one table row per member, sortable by any column. Besides the all-time counts (assistants, tasks, delegations) it shows what each member consumed over the selected period (7, 30 or 90 days): runs, chats, the AI-credits estimate, tokens in and out, and the days with any activity. These come from the Portal's `agent_executions` table, which keeps the tokens, credits and model each run reported on its final payload, so they need no assistant to be running; runs made before this version, or by a runtime image that reports no usage, count as zero. **Export CSV** writes the rows currently shown with the same columns. `GET /api/users/admin-overview?days=30` returns the same numbers.
+
 ![Portal User Management panel](screenshots/14-user-management.png)
 
 *The User Management interface in the local demonstration installation. The screenshot uses fictional data; it does not show a configured production runtime. See the [Beginner Guide](BEGINNER_GUIDE.md#15-administration) for the illustrated administration walkthrough and screenshot provenance.*

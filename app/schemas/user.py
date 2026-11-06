@@ -108,10 +108,19 @@ class MemberUsageResponse(BaseModel):
     execution_count: int
     chat_count: int
     delegation_count: int
+    # Over the overview's period (``period_days``): runs, chats, the AI-credits
+    # estimate and tokens the runtimes reported, and days with any run.
+    execution_count_period: int = 0
+    chat_count_period: int = 0
+    credits_period: float = 0.0
+    input_tokens_period: int = 0
+    output_tokens_period: int = 0
+    active_days_period: int = 0
 
 
 class MemberOverviewResponse(BaseModel):
     users: list[MemberUsageResponse]
     allowlist_entries: list[AllowlistResponse]
     pending_allowlist_entries: list[AllowlistResponse]
-    summary: dict[str, int]
+    period_days: int = 30
+    summary: dict[str, int | float]

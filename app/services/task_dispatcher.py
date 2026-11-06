@@ -26,6 +26,7 @@ from app.repositories.agent_task_repo import AgentTaskRepository
 from app.services.agent_execution_registry import (
     mark_task_execution_status_best_effort,
     upsert_task_execution_queued_best_effort,
+    usage_fields_from_payload,
 )
 from app.services.runtime_execution_context_service import RuntimeExecutionContextService
 from app.services.inference_settings_service import apply_inference_overrides_to_runtime_metadata
@@ -318,6 +319,7 @@ class TaskDispatcherService:
             error_code=(parsed_outcome_payload or {}).get("error_code") if isinstance(parsed_outcome_payload, dict) else None,
             error_message=saved.error_message,
             result_summary=saved.summary,
+            usage=usage_fields_from_payload(parsed_outcome_payload),
         )
         return saved
 
