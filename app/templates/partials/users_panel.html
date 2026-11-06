@@ -19,7 +19,7 @@
     <div class="portal-panel-header">
       <div>
         <div class="portal-list-title" id="registered-members-title">{{ t("Registered members") }}</div>
-        <div class="portal-panel-note">{{ t("One row per member: access, what they run, and what it consumed over the selected period. Click a column to sort.") }}</div>
+        <div class="portal-panel-note">{{ t("One row per member: access, what they run, and what it consumed over the selected period. Click a column to sort, a name for the member's daily credits and models.") }}</div>
       </div>
       <span class="portal-panel-subtitle" data-admin-member-result-count>{{ t("{n} shown", n=users|length) }}</span>
     </div>
@@ -32,6 +32,7 @@
           <option value="all">{{ t("All access") }}</option>
           <option value="allowed">{{ t("Allowed") }}</option>
           <option value="blocked">{{ t("Needs access") }}</option>
+          <option value="inactive">{{ t("Inactive in period") }}</option>
         </select>
       </label>
       <div class="portal-admin-member-toolbar-actions">
@@ -73,10 +74,11 @@
             data-member-username="{{ u.username|data_attr }}"
             data-member-name="{{ (u.nickname or u.username)|data_attr }}"
             data-member-access="{% if u.is_allowlisted %}allowed{% else %}blocked{% endif %}"
+            data-member-executions-period="{{ u.execution_count_period }}"
           >
             <td data-sort-value="{{ (u.nickname or u.username)|lower|data_attr }}" data-export-value="{{ (u.nickname or u.username)|data_attr }} (@{{ u.username|data_attr }})">
               <div class="portal-admin-member-identity">
-                <strong>{{ u.nickname or u.username }}{% if u.id == current_user.id %} <span class="portal-admin-role-badge">{{ t("You") }}</span>{% endif %}</strong>
+                <strong><button type="button" class="portal-admin-member-name" data-admin-member-detail="{{ u.id }}" aria-expanded="false" title="{{ t('Show daily credits and models for {username}', username=u.username) }}">{{ u.nickname or u.username }}</button>{% if u.id == current_user.id %} <span class="portal-admin-role-badge">{{ t("You") }}</span>{% endif %}</strong>
                 <small>@{{ u.username }}</small>
               </div>
             </td>

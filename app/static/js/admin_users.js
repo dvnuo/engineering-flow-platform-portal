@@ -109,6 +109,7 @@
 
   function sortMemberTable(root, header) {
     var table = header.closest("table");
+    closeMemberDetails(root);
     var headers = Array.prototype.slice.call(table.querySelectorAll("th[data-sort-key]"));
     var index = Array.prototype.indexOf.call(header.parentNode.children, header);
     var direction = header.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
@@ -128,6 +129,53 @@
     });
     var body = root.querySelector("[data-admin-member-rows]");
     rows.forEach(function (row) { body.appendChild(row); });
+  }
+
+  // ---- the member drawer: daily credits and models under the member's row ----
+
+  function closeMemberDetails(root) {
+    if (!root) return;
+    root.querySelectorAll("tr[data-member-detail-for]").forEach(function (row) { row.remove(); });
+    root.querySelectorAll("[data-admin-member-detail][aria-expanded='true']").forEach(function (button) {
+      button.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  async function toggleMemberDetail(button) {
+    var root = panelRoot(button);
+    var row = button.closest("tr[data-member-id]");
+    if (!root || !row) return;
+    var memberId = button.dataset.adminMemberDetail;
+    var existing = root.querySelector("tr[data-member-detail-for='" + memberId + "']");
+    if (existing) {
+      existing.remove();
+      button.setAttribute("aria-expanded", "false");
+      return;
+    }
+    closeMemberDetails(root);
+    var detail = document.createElement("tr");
+    detail.className = "portal-admin-member-detail";
+    detail.setAttribute("data-member-detail-for", memberId);
+    var cell = document.createElement("td");
+    cell.colSpan = row.children.length;
+    cell.innerHTML = '<div class="portal-inline-state" data-member-usage-target>' + t("Loading…") + "</div>";
+    detail.appendChild(cell);
+    row.insertAdjacentElement("afterend", detail);
+    button.setAttribute("aria-expanded", "true");
+    var target = cell.firstElementChild;
+    var url = "/app/users/" + encodeURIComponent(memberId) + "/usage/panel?days=" + encodeURIComponent(selectedPeriodDays());
+    try {
+      if (window.htmx) {
+        await window.htmx.ajax("GET", url, { target: target, swap: "outerHTML" });
+      } else {
+        var response = await fetch(url);
+        if (!response.ok) throw new Error(await errorMessage(response));
+        target.outerHTML = await response.text();
+      }
+    } catch (error) {
+      target.textContent = error.message;
+      target.classList.add("is-error");
+    }
   }
 
   function csvField(value) {
@@ -171,7 +219,9 @@
     cards.forEach(function (card) {
       var identity = ((card.dataset.memberName || "") + " " + (card.dataset.memberUsername || "")).toLowerCase();
       var matchesQuery = !query || identity.indexOf(query) !== -1;
-      var matchesAccess = access === "all" || card.dataset.memberAccess === access;
+      // "inactive" = no run in the selected period, whatever the access.
+      var matchesAccess = access === "all"
+        || (access === "inactive" ? Number(card.dataset.memberExecutionsPeriod || 0) === 0 : card.dataset.memberAccess === access);
       card.hidden = !(matchesQuery && matchesAccess);
       if (!card.hidden) visible += 1;
     });
@@ -298,6 +348,13 @@
     if (openButton) {
       event.preventDefault();
       openAllowlistModal();
+      return;
+    }
+
+    var detailButton = event.target.closest("[data-admin-member-detail]");
+    if (detailButton) {
+      event.preventDefault();
+      await toggleMemberDetail(detailButton);
       return;
     }
 
