@@ -21,6 +21,7 @@ from app.services.proxy_plan import (
     hostname_of,
     no_proxy_exempts,
 )
+from app.services.tls_trust import describe_verification_failure, trust_context
 
 PGSQL_PROBE_TIMEOUT_SECONDS = 5
 
@@ -111,12 +112,15 @@ class RuntimeProfileTestService:
         Without a configured Proxy connector the Portal keeps probing the way it
         always did (its own environment); with one, the probe goes exactly
         where the runtime's tool goes, the Portal's environment left aside.
+        Every probe verifies TLS against the shared trust context (system
+        store, certifi, PORTAL_CA_BUNDLE), so ``trust_env=False`` changes the
+        path and not what is trusted.
         """
         if choice.kind == KIND_PROXY:
-            return {"proxy": choice.proxy_url, "trust_env": False}
+            return {"proxy": choice.proxy_url, "trust_env": False, "verify": trust_context()}
         if choice.kind == KIND_NONE and plan.configured:
-            return {"trust_env": False}
-        return {}
+            return {"trust_env": False, "verify": trust_context()}
+        return {"verify": trust_context()}
 
     @staticmethod
     def _path_text(choice: ProxyChoice, connector_label: str) -> str:
@@ -263,6 +267,9 @@ class RuntimeProfileTestService:
             else:
                 await asyncio.to_thread(self._tcp_connect, host, port)
         except OSError as exc:
+            verification = describe_verification_failure(exc, host=urlparse(choice.proxy_url).hostname or host) if choice.kind == KIND_PROXY else None
+            if verification:
+                return False, f"PostgreSQL connection failed for {name} at {host}:{port}{path}: {verification}"
             return False, f"PostgreSQL connection failed for {name} at {host}:{port}{path}: {exc}"
         return (
             True,
@@ -302,7 +309,7 @@ class RuntimeProfileTestService:
         try:
             sock.settimeout(PGSQL_PROBE_TIMEOUT_SECONDS)
             if scheme == "https":
-                sock = ssl.create_default_context().wrap_socket(sock, server_hostname=proxy_host)
+                sock = trust_context().wrap_socket(sock, server_hostname=proxy_host)
             request = f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n"
             username, password = unquote(parsed.username or ""), unquote(parsed.password or "")
             if username or password:
@@ -665,10 +672,14 @@ class RuntimeProfileTestService:
         sits under the dict-only helper the older tests use. The failure message
         carries the status and the server's own error text, never the request
         headers. ``client_kwargs`` is the egress (_client_kwargs): the proxy the
-        runtime's tool would use, or none.
+        runtime's tool would use, or none; without one the probe still verifies
+        against the shared trust context. A certificate the Portal does not
+        trust is reported in plain words (app/services/tls_trust.py) because
+        the assistant, trusting its own image, often has no such problem.
         """
+        kwargs = {"verify": trust_context(), **(client_kwargs or {})}
         try:
-            async with httpx.AsyncClient(timeout=timeout, **(client_kwargs or {})) as client:
+            async with httpx.AsyncClient(timeout=timeout, **kwargs) as client:
                 response = await client.request(
                     method=method,
                     url=url,
@@ -676,6 +687,9 @@ class RuntimeProfileTestService:
                     json=json_payload,
                 )
         except Exception as exc:
+            verification = describe_verification_failure(exc, host=urlparse(url).hostname or url)
+            if verification:
+                return False, verification, None
             return False, f"Request failed: {exc}", None
 
         data = None

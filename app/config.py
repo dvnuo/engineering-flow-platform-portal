@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     sso_client_secret: str = Field(default="", validation_alias="SSO_CLIENT_SECRET")
     sso_scope: str = Field(default="read write", validation_alias="SSO_SCOPE")
     sso_verify_tls: bool = Field(default=True, validation_alias="SSO_VERIFY_TLS")
+    # Extra CA certificates (a PEM file or a directory of them) the connector
+    # Test probes trust on top of the container's system store and certifi;
+    # see app/services/tls_trust.py. For an internal CA or a TLS-inspecting
+    # egress proxy that the runtime images already trust.
+    portal_ca_bundle: str = Field(default="", validation_alias="PORTAL_CA_BUNDLE")
     # Outbound proxy settings for the portal's own HTTP calls (see
     # app/services/outbound_http.py): empty = honour HTTP(S)_PROXY / NO_PROXY
     # from the pod environment, "direct" = ignore them, or an explicit proxy

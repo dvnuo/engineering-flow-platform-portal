@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 
 import pytest
 from starlette.datastructures import FormData
@@ -407,6 +408,12 @@ class _FakeAsyncClient:
         return _FakeResponse()
 
 
+def _without_verify(kwargs: dict) -> dict:
+    """The egress arguments alone: every probe also carries the shared TLS trust context (verify)."""
+    assert isinstance(kwargs.get("verify"), ssl.SSLContext), kwargs
+    return {key: value for key, value in kwargs.items() if key != "verify"}
+
+
 def test_jira_test_probes_through_the_proxy_the_runtime_would_use(monkeypatch):
     _FakeAsyncClient.seen = []
     monkeypatch.setattr(test_service_module.httpx, "AsyncClient", _FakeAsyncClient)
@@ -414,17 +421,17 @@ def test_jira_test_probes_through_the_proxy_the_runtime_would_use(monkeypatch):
     jira = {"enabled": True, "instances": [{"name": "main", "url": "https://jira.example.test", "username": "u", "token": "t"}]}
 
     ok, _ = asyncio.run(service._test_jira({"jira": jira, "proxy": list_section(assignments={"jira": "corp-b"})}))
-    assert ok and _FakeAsyncClient.seen[-1] == {"timeout": 15.0, "proxy": "https://ub:pb@proxy-b.example.test", "trust_env": False}
+    assert ok and _without_verify(_FakeAsyncClient.seen[-1]) == {"timeout": 15.0, "proxy": "https://ub:pb@proxy-b.example.test", "trust_env": False}
 
     ok, _ = asyncio.run(service._test_jira({"jira": jira, "proxy": list_section(assignments={"jira": ""})}))
     assert ok and _FakeAsyncClient.seen[-1]["proxy"] == "http://ua:pa@proxy-a.example.test:3128"
 
     ok, _ = asyncio.run(service._test_jira({"jira": jira, "proxy": list_section(assignments={"jira": "none"})}))
-    assert ok and _FakeAsyncClient.seen[-1] == {"timeout": 15.0, "trust_env": False}
+    assert ok and _without_verify(_FakeAsyncClient.seen[-1]) == {"timeout": 15.0, "trust_env": False}
 
     # Without a Proxy connector the Portal probes the way it always did.
     ok, _ = asyncio.run(service._test_jira({"jira": jira}))
-    assert ok and _FakeAsyncClient.seen[-1] == {"timeout": 15.0}
+    assert ok and _without_verify(_FakeAsyncClient.seen[-1]) == {"timeout": 15.0}
 
 
 def test_proxy_test_checks_the_named_card(monkeypatch):
