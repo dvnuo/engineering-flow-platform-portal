@@ -112,6 +112,7 @@ The configured bootstrap administrator is created when missing and automatically
 | `SSO_CLIENT_SECRET` | OIDC client secret, only for confidential clients | (empty) |
 | `SSO_SCOPE` | Scope requested on the authorize redirect | `read write` |
 | `SSO_VERIFY_TLS` | Verify the IdP's TLS certificate during the token exchange. Install your internal CA in the trust store when needed; disabling verification is suitable only for isolated diagnosis | `true` |
+| `PORTAL_CA_BUNDLE` | Extra CA certificates the connector **Test** probes trust: a PEM file or a directory of PEM files, mounted into the Portal pod. The probes verify against the container's system store, certifi and this bundle, so a Jira, Jenkins or proxy behind an internal CA that the runtime images already trust is also trusted by Test; without it the probe reports `TLS certificate verification failed` while the assistant works | (empty) |
 | `GITHUB_USERNAME_SUFFIX` | Enterprise suffix on GitHub logins (`_emucompany` in `12345678_emucompany`); it is stripped so the portal username is the employee id, matching the allowlist and SSO. Empty keeps the GitHub login | (empty) |
 | `GITHUB_PROXY_URL` | How the portal reaches github.com for the Copilot device flow and user lookup: empty honours `HTTP(S)_PROXY`/`NO_PROXY` from the pod environment, `direct` ignores them, or an explicit proxy URL such as `http://proxy.corp:3128` | (empty) |
 | `GITHUB_HTTP_TIMEOUT_SECONDS` | Timeout for those github.com calls | `30` |

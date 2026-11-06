@@ -107,6 +107,11 @@ spec:
               value: ""
             - name: SSO_PROXY_URL
               value: ""
+            # CA certificates the connector Test probes trust on top of the
+            # container's store: a PEM file or a directory mounted from a
+            # ConfigMap or Secret, for an internal CA the runtime images trust.
+            - name: PORTAL_CA_BUNDLE
+              value: ""
             # Recordings' network when neither the administrator's Default
             # connectors (BrowserStack > Advanced) nor the member's BrowserStack
             # connector chooses one: private-managed for apps on the private network.

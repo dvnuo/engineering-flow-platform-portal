@@ -442,6 +442,8 @@ For enterprise GitHub accounts, set `GITHUB_ENTERPRISE_SSO_URL` to your actual e
 
 `GITHUB_PROXY_URL` and `SSO_PROXY_URL` have three modes: empty honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`; `direct` ignores those proxy variables; a proxy URL explicitly selects that proxy. The GitHub call timeout is controlled by `GITHUB_HTTP_TIMEOUT_SECONDS` (default 30).
 
+The connector **Test** buttons probe Jira, Confluence, GitHub, Jenkins, Nexus, Splunk and the proxies from the Portal pod. They verify TLS against the container's system store, Python's `certifi` bundle and `PORTAL_CA_BUNDLE` (a PEM file or a directory of PEM files). When a service or a TLS-inspecting egress proxy presents a certificate from an internal CA, the runtime images usually trust it through their own system store while the Portal does not: Test then reports `TLS certificate verification failed for <host>: self-signed certificate in certificate chain` although the assistant works. Mount that CA into the Portal pod (a ConfigMap or Secret) and point `PORTAL_CA_BUNDLE` at it; the Portal needs no restart beyond the rollout.
+
 ### Allowlist and roles
 
 Use **Administration > User Management** to allow members individually or in bulk, assign `user` or `admin`, review their usage, and revoke access. The allowlist name must match the normalized identity returned by sign-in. SSO uses `preferred_username`, with email as a fallback; GitHub uses the login after any configured suffix normalization.

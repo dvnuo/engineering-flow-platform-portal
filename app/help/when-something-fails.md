@@ -32,3 +32,14 @@ locator: fix it before it fails.
 If it reports that connection settings are not ready, a connector needs
 filling in. Anything mentioning images or capacity is a platform problem —
 contact your administrator.
+
+## A connector Test fails on the certificate
+
+**Test** on a connector card probes the service from the Portal itself, while
+the assistant reaches it from its own runtime. A message starting with *TLS
+certificate verification failed* means the service, or the proxy in front of
+it, presents a certificate from a company CA that the Portal does not trust
+yet; the assistant usually trusts it already, so your chats keep working. Your
+credentials are not the problem. Tell your administrator the host named in the
+message: they add the CA to the Portal (`PORTAL_CA_BUNDLE`) and Test agrees
+with the assistant again.
