@@ -4564,11 +4564,30 @@ function renderAgentTimelineForCurrentRequestNow(agentId, chatState, options = {
   if (listNode) {
     const rows = renderAgentTimelineRowsHtml(timeline);
     listNode.innerHTML = rows || `<div class="agent-timeline-empty">${t("Waiting for runtime events...")}</div>`;
+    keepAgentTimelineListPinned(listNode);
   }
   // Only the timeline's own icons changed; an unscoped pass re-creates every
   // icon in the document (a few hundred on a long conversation).
   renderIcons(timelineEl);
   scrollToBottom();
+}
+
+// The Working list is capped in height (app.css) and scrolls on its own, so a
+// long run no longer stretches the pending bubble over several screens. It
+// follows its newest row until the reader scrolls up inside it, and follows
+// again once they return to the bottom: the rule the chat uses for its tail.
+const AGENT_TIMELINE_PIN_THRESHOLD_PX = 24;
+
+function keepAgentTimelineListPinned(listNode) {
+  if (!listNode) return;
+  if (!listNode.dataset.pinWired) {
+    listNode.dataset.pinWired = "1";
+    listNode.dataset.pinned = "1";
+    listNode.addEventListener("scroll", () => {
+      listNode.dataset.pinned = distanceFromBottom(listNode) <= AGENT_TIMELINE_PIN_THRESHOLD_PX ? "1" : "0";
+    }, { passive: true });
+  }
+  if (listNode.dataset.pinned !== "0") listNode.scrollTop = listNode.scrollHeight;
 }
 
 function clearAssistantTimelineFromArticle(article) {
@@ -5496,6 +5515,9 @@ function renderTableBlock(block) {
   `;
 }
 
+// The page icon on every file row (U+1F4C4), kept as a code point so the source stays ASCII.
+const FILE_BLOCK_ICON = String.fromCodePoint(0x1F4C4);
+
 const FILE_BLOCK_TYPE_LABELS = {
   pptx: "PowerPoint", potx: "PowerPoint template", docx: "Word", xlsx: "Excel", pdf: "PDF",
   md: "Markdown", csv: "CSV", json: "JSON", txt: "Text", html: "HTML", zip: "Archive",
@@ -5519,8 +5541,14 @@ function formatFileBlockMeta(block, name) {
 }
 
 // A file the assistant produced in the workspace (runtime `file` display
-// block). Download goes through the Server Files proxy; "Open folder" shows
-// the surrounding directory in the Server Files panel.
+// block): one compact row (icon, name, path, type and size, Download, Open
+// folder). A card with a description or a preview is a <details>: the row is
+// its summary, the description is clamped to one line until it opens, and the
+// image or video preview sits in the body, so a reply that lists many files
+// stays short. Buttons and links inside the summary act on their own without
+// toggling it (each is the click's own activation target). Download goes
+// through the Server Files proxy; "Open folder" shows the surrounding
+// directory in the Server Files panel.
 function renderFileBlock(block) {
   const rawPath = pickFirstMeaningfulBlockValue(block, ["path", "file_path", "workspace_path"]);
   const path = parseWorkspaceLinkPath(`workspace:${rawPath}`);
@@ -5540,26 +5568,56 @@ function renderFileBlock(block) {
     ? ` <span class="message-file-badge is-${escapeHtmlAttr(action)}">${actionLabel}</span>`
     : "";
   const metaHtml = meta ? ` · ${escapeHtml(meta)}` : "";
-  const descriptionHtml = description ? `<div class="message-file-description">${escapeHtml(description)}</div>` : "";
+  const descriptionHtml = description ? `<span class="message-file-description">${escapeHtml(description)}</span>` : "";
   const previewHtml = fileBlockPreviewHtml(currentWorkspaceAgentId(), path, name);
   const directoryAttr = escapeHtmlAttr(workspaceFileDirectory(path));
-  return `
-    <section class="message-block message-block-file">
-      <div class="message-file-card" data-workspace-file="${escapeHtmlAttr(path)}">
-        <div class="message-file-icon" aria-hidden="true">📄</div>
-        <div class="message-file-body">
-          <div class="message-file-name">${escapeHtml(name)}${badgeHtml}</div>
-          <div class="message-file-meta">${escapeHtml(path)}${metaHtml}</div>
-          ${descriptionHtml}
-        </div>
-        <div class="message-file-actions">
-          ${downloadHtml}
-          <button type="button" class="portal-btn is-secondary message-file-open" data-server-path="${directoryAttr}" title="${t("Open in Server Files")}">${t("Open folder")}</button>
-        </div>
-      </div>
-      ${previewHtml}
-    </section>
-  `;
+  const openHtml = `<button type="button" class="portal-btn is-secondary message-file-open" data-server-path="${directoryAttr}" title="${t("Open in Server Files")}">${t("Open folder")}</button>`;
+  const expandable = Boolean(previewHtml || description);
+  const chevronHtml = expandable ? '<span class="message-file-chevron" aria-hidden="true"></span>' : "";
+  const rowHtml = `<span class="message-file-icon" aria-hidden="true">${FILE_BLOCK_ICON}</span><span class="message-file-body"><span class="message-file-name">${escapeHtml(name)}${badgeHtml}</span><span class="message-file-meta">${escapeHtml(path)}${metaHtml}</span>${descriptionHtml}</span><span class="message-file-actions">${downloadHtml}${openHtml}</span>${chevronHtml}`;
+  if (!expandable) {
+    return `<section class="message-block message-block-file"><div class="message-file-card" data-workspace-file="${escapeHtmlAttr(path)}">${rowHtml}</div></section>`;
+  }
+  const expandedHtml = previewHtml ? `<div class="message-file-expanded">${previewHtml}</div>` : "";
+  return `<details class="message-block message-block-file"><summary class="message-file-card" data-workspace-file="${escapeHtmlAttr(path)}">${rowHtml}</summary>${expandedHtml}</details>`;
+}
+
+// Four or more files in a row fold into one disclosure ("N files"), so a run
+// that reports every screenshot and its video does not fill the screen with
+// cards; the rows inside keep their own Download and preview.
+const FILE_BLOCK_GROUP_MIN = 4;
+
+function fileBlockDisplayName(block) {
+  const rawPath = pickFirstMeaningfulBlockValue(block, ["path", "file_path", "workspace_path"]);
+  return pickFirstMeaningfulBlockValue(block, ["name", "filename"]) || workspaceFileName(String(rawPath || ""));
+}
+
+function renderFileBlockGroup(blocks) {
+  const rows = blocks.map((block) => renderFileBlock(block)).join("");
+  if (!rows) return "";
+  const names = blocks.map((block) => fileBlockDisplayName(block)).filter(Boolean);
+  const shown = names.slice(0, 3).map((value) => escapeHtml(value)).join(", ");
+  const more = names.length > 3 ? ` ${escapeHtml(t("+{n} more", { n: names.length - 3 }))}` : "";
+  const count = escapeHtml(tn(blocks.length, "{n} file", "{n} files"));
+  return `<details class="message-block message-file-group"><summary class="message-file-group-summary"><span class="message-file-icon" aria-hidden="true">${FILE_BLOCK_ICON}</span><span class="message-file-group-count">${count}</span><span class="message-file-group-names">${shown}${more}</span><span class="message-file-chevron" aria-hidden="true"></span></summary><div class="message-file-group-body">${rows}</div></details>`;
+}
+
+function renderDisplayBlockSequence(blocks) {
+  const parts = [];
+  let index = 0;
+  while (index < blocks.length) {
+    if (String(blocks[index]?.type || "").toLowerCase() !== "file") {
+      parts.push(renderSingleDisplayBlock(blocks[index]));
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (end < blocks.length && String(blocks[end]?.type || "").toLowerCase() === "file") end += 1;
+    const run = blocks.slice(index, end);
+    parts.push(run.length >= FILE_BLOCK_GROUP_MIN ? renderFileBlockGroup(run) : run.map((block) => renderSingleDisplayBlock(block)).join(""));
+    index = end;
+  }
+  return parts.join("");
 }
 
 // An image or a video an assistant wrote (a test run's screenshots and session
@@ -5627,7 +5685,7 @@ function renderDisplayBlocksToHtml(blocks, fallbackMarkdown = "") {
     }
     return "";
   }
-  const html = parsedBlocks.map((block) => renderSingleDisplayBlock(block)).join("");
+  const html = renderDisplayBlockSequence(parsedBlocks);
   if (html) return html;
   if (isMeaningfulText(fallbackMarkdown)) {
     return md.render(normalizeMarkdownText(fallbackMarkdown));

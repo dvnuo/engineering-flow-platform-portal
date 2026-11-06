@@ -1366,7 +1366,9 @@ html[data-theme="dark"] .tool-message { background: #0f1726; border-color: #2331
 .agent-timeline-status .portal-running-spinner { width: 12px; height: 12px; border-radius: 999px; border: 2px solid color-mix(in srgb, var(--portal-accent), transparent 70%); border-top-color: var(--portal-accent); animation: portal-spin 900ms linear infinite; flex: 0 0 auto; }
 @keyframes portal-spin { to { transform: rotate(360deg); } }
 .agent-timeline-meta { min-width: 0; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text-muted); text-align: right; }
-.agent-timeline-list { display: grid; gap: 0; min-width: 0; }
+/* Capped and scrolling on its own: a long run shows its last rows here instead
+   of stretching the pending bubble; chat_ui.js keeps it pinned to the newest row. */
+.agent-timeline-list { display: grid; gap: 0; min-width: 0; align-content: start; max-height: 264px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 4px; }
 .agent-timeline-empty { color: var(--portal-text-muted); font-size: 12px; padding: 4px 0; }
 .agent-timeline-row { display: grid; grid-template-columns: 18px minmax(0,1fr); gap: 8px; align-items: start; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--portal-border), transparent 35%); min-width: 0; }
 .agent-timeline-row:first-child { border-top: 0; }
@@ -1409,18 +1411,36 @@ a.message-attachment-file { color: var(--portal-text); }
 .portal-attachment-icon.is-code, .portal-attachment-icon.is-data { background: color-mix(in srgb, var(--portal-text-secondary) 12%, transparent); color: var(--portal-text-secondary); }
 .portal-attachment-icon.is-image { background: color-mix(in srgb, var(--portal-accent) 16%, transparent); color: var(--portal-accent-strong); }
 
-/* Files the assistant produced (runtime `file` display blocks) and workspace: links. */
-.message-file-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); }
-.message-file-icon { flex: 0 0 auto; font-size: 22px; line-height: 1; }
+/* Files the assistant produced (runtime `file` display blocks) and workspace: links.
+   A card is one compact row; a card with a description or a preview is a <details>
+   whose summary is that row: closed, the description is clamped to one line and the
+   preview is hidden, so a reply listing many files stays short. */
+.message-file-card { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--portal-border); background: var(--portal-surface-soft); min-width: 0; }
+summary.message-file-card { list-style: none; cursor: pointer; transition: border-color .15s ease; }
+summary.message-file-card::-webkit-details-marker { display: none; }
+summary.message-file-card:hover, details.message-block-file[open] > summary.message-file-card { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 55%); }
+.message-file-icon { flex: 0 0 auto; font-size: 20px; line-height: 1; }
 .message-file-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .message-file-name { color: var(--portal-text); font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
 .message-file-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--portal-border); color: var(--portal-text-muted); font-size: 10px; font-weight: 600; line-height: 1.4; vertical-align: middle; text-transform: uppercase; letter-spacing: .04em; }
 .message-file-badge.is-created { border-color: color-mix(in srgb, var(--portal-success), var(--portal-border) 45%); color: var(--portal-success); }
 .message-file-badge.is-updated { border-color: color-mix(in srgb, var(--portal-accent), var(--portal-border) 45%); color: var(--portal-accent); }
 .message-file-meta { color: var(--portal-text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.message-file-description { color: var(--portal-text-secondary); font-size: 12px; line-height: 1.4; }
+.message-file-description { color: var(--portal-text-secondary); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+details.message-block-file:not([open]) .message-file-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
 .message-file-actions { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .message-file-actions .portal-btn { font-size: 12px; padding: 4px 10px; text-decoration: none; }
+.message-file-chevron { flex: 0 0 auto; width: 7px; height: 7px; margin: 0 4px 0 2px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; color: var(--portal-text-muted); opacity: .8; transform: translateY(-2px) rotate(45deg); transition: transform .18s ease; }
+details[open] > summary .message-file-chevron { transform: translateY(2px) rotate(225deg); }
+.message-file-expanded { padding: 0 12px 10px; }
+/* Four or more files in a row: one closed disclosure that names the first few. */
+.message-file-group { border: 1px solid var(--portal-border); border-radius: 12px; background: var(--portal-surface-soft); min-width: 0; }
+.message-file-group-summary { display: flex; align-items: center; gap: 10px; padding: 8px 12px; list-style: none; cursor: pointer; min-width: 0; }
+.message-file-group-summary::-webkit-details-marker { display: none; }
+.message-file-group-count { flex: 0 0 auto; color: var(--portal-text); font-size: 13px; font-weight: 650; }
+.message-file-group-names { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text-muted); font-size: 12px; }
+.message-file-group-body { display: grid; gap: 6px; padding: 0 8px 8px; }
+.message-file-group-body .message-block { margin: 0; }
 @media (max-width: 640px) {
   .message-file-card { flex-wrap: wrap; }
   .message-file-actions { width: 100%; justify-content: flex-start; }
@@ -6683,7 +6703,7 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 .portal-progress > i { display: block; height: 100%; width: 0; background: var(--portal-accent); transition: width .2s ease; }
 .composer-pill-btn.is-copied { border-color: var(--portal-success); color: var(--portal-success); }
 
-.message-file-preview { display: block; margin-top: 8px; max-width: 360px; }
+.message-file-preview { display: block; margin-top: 6px; max-width: 360px; }
 .message-file-preview img { display: block; max-width: 100%; max-height: 420px; border-radius: 10px; border: 1px solid var(--portal-border); }
 .message-file-video { display: block; margin-top: 8px; width: 100%; max-width: 480px; max-height: 70vh; border-radius: 10px; background: #000; }
 
