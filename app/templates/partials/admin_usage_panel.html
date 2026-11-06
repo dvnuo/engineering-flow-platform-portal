@@ -1,0 +1,199 @@
+{# Administration > Usage: what the platform consumed, how runs went and what members use, over 7, 30 or 90 days. #}
+{% set totals = overview.totals %}
+{% set quality = overview.quality %}
+{% set adoption = overview.adoption %}
+{% macro pct(value) %}{% if value is none %}-{% else %}{{ '%.0f'|format(value * 100) }}%{% endif %}{% endmacro %}
+{% macro secs(value) %}{% if value is none %}-{% elif value >= 90 %}{{ '%.1f'|format(value / 60) }} min{% else %}{{ '%.0f'|format(value) }} s{% endif %}{% endmacro %}
+{% macro num(value) %}{{ "{:,}".format(value|int) }}{% endmacro %}
+<div id="admin-usage-panel" class="portal-panel-stack portal-admin-usage" data-period-days="{{ days }}">
+  <div class="portal-panel-header">
+    <div>
+      <h5 class="portal-panel-title">{{ t("Usage") }}</h5>
+      <p class="portal-panel-note">{{ t("What the platform consumed, how runs went and what members use, from the Portal's own records. Credits are Copilot's own charge where the runtime reported one, the estimate otherwise.") }}</p>
+    </div>
+    <div class="portal-admin-usage-toolbar">
+      <select class="portal-form-select" name="days" aria-label="{{ t('Period') }}" data-admin-usage-period
+              hx-get="/app/admin/usage/panel" hx-trigger="change" hx-target="#workspace-detail-content" hx-swap="innerHTML">
+        {% for option in period_options %}
+        <option value="{{ option }}" {% if option == days %}selected{% endif %}>{{ t("Last {n} days", n=option) }}</option>
+        {% endfor %}
+      </select>
+      <a class="portal-btn is-secondary" href="/api/admin/usage/export.csv?days={{ days }}&amp;rows=daily" download data-admin-usage-export="daily">{{ t("Export days") }}</a>
+      <a class="portal-btn is-secondary" href="/api/admin/usage/export.csv?days={{ days }}&amp;rows=executions" download data-admin-usage-export="executions">{{ t("Export runs") }}</a>
+    </div>
+  </div>
+
+  <div class="portal-admin-summary-grid portal-admin-usage-summary" aria-label="{{ t('Usage summary') }}">
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Credits") }}</span><strong class="portal-usage-v">{{ '%.1f'|format(totals.credits) }}</strong><small class="portal-usage-sub">{{ t("{n} from Copilot's own charge", n='%.1f'|format(totals.actual_credits)) }}</small></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Executions") }}</span><strong class="portal-usage-v">{{ num(totals.executions) }}</strong><small class="portal-usage-sub">{{ t("{failed} failed", failed=totals.failed) }}</small></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Active members") }}</span><strong class="portal-usage-v">{{ totals.members_active }}</strong><small class="portal-usage-sub">{{ t("of {n} members", n=adoption.members) }}</small></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Tokens in / out") }}</span><strong class="portal-usage-v">{{ num(totals.input_tokens) }} / {{ num(totals.output_tokens) }}</strong><small class="portal-usage-sub">{{ t("cache hit {ratio}", ratio=pct(totals.cache_hit_ratio)) }}</small></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Failure rate") }}</span><strong class="portal-usage-v">{{ pct(totals.failure_rate) }}</strong><small class="portal-usage-sub">{{ t("{n} budget pauses", n=quality.budget_pauses) }}</small></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Rework") }}</span><strong class="portal-usage-v">{{ pct(quality.rework_rate) }}</strong><small class="portal-usage-sub">{{ t("{reworked} of {tasks} tasks rerun or followed up", reworked=quality.tasks_reworked, tasks=quality.tasks) }}</small></div>
+  </div>
+
+  <section class="portal-admin-usage-charts" aria-label="{{ t('Daily trend') }}">
+    {% for chart in charts %}
+    <article class="portal-panel-section portal-usage-chart">
+      <div class="portal-overview-panel-head"><h3>{{ chart.title }}</h3><span>{{ chart.total }}</span></div>
+      <div class="portal-usage-bars" role="img" aria-label="{{ chart.title }}">
+        {% for bar in chart.bars %}
+        <span class="portal-usage-bar{% if bar.value == 0 %} is-empty{% endif %}" style="--h: {{ bar.height }}%" title="{{ bar.day }}: {{ bar.label }}"><i></i></span>
+        {% endfor %}
+      </div>
+      <div class="portal-usage-axis"><span>{{ overview.period_start }}</span><span>{{ overview.period_end }}</span></div>
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="portal-admin-usage-columns" aria-label="{{ t('Consumption') }}">
+    <article class="portal-panel-section">
+      <div class="portal-overview-panel-head"><h3>{{ t("By model") }}</h3><span>{{ tn(overview.by_model|length, "{n} model", "{n} models") }}</span></div>
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Model") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Tokens in") }}</th><th class="is-number">{{ t("Tokens out") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
+        <tbody>
+        {% for row in overview.by_model %}
+          <tr><td>{{ row.model or t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ num(row.input_tokens) }}</td><td class="is-number">{{ num(row.output_tokens) }}</td><td class="is-number">{{ pct(row.failed / row.executions if row.executions else none) }}</td></tr>
+        {% else %}
+          <tr><td colspan="6" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </article>
+    <article class="portal-panel-section">
+      <div class="portal-overview-panel-head"><h3>{{ t("By kind and runtime") }}</h3></div>
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Kind") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Avg duration") }}</th></tr></thead>
+        <tbody>
+        {% for row in overview.by_kind %}
+          <tr><td>{{ tv(row.kind) if row.kind else t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ secs(row.duration_seconds / row.executions if row.executions else none) }}</td></tr>
+        {% endfor %}
+        {% for row in overview.by_runtime %}
+          <tr><td>{{ t("Runtime {name}", name=(row.runtime_type or t("(unknown)"))) }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ secs(row.duration_seconds / row.executions if row.executions else none) }}</td></tr>
+        {% endfor %}
+        {% if not overview.by_kind and not overview.by_runtime %}
+          <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endif %}
+        </tbody>
+      </table></div>
+    </article>
+  </section>
+
+  <section class="portal-admin-usage-columns" aria-label="{{ t('Top consumers') }}">
+    <article class="portal-panel-section">
+      <div class="portal-overview-panel-head"><h3>{{ t("Top members") }}</h3><span>{{ t("by credits") }}</span></div>
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Member") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Tokens in") }}</th></tr></thead>
+        <tbody>
+        {% for row in overview.top_members %}
+          <tr><td><strong>{{ row.display_name }}</strong> <small class="is-muted">@{{ row.username }}</small></td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ num(row.input_tokens) }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </article>
+    <article class="portal-panel-section">
+      <div class="portal-overview-panel-head"><h3>{{ t("Top assistants") }}</h3><span>{{ t("by credits") }}</span></div>
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Assistant") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
+        <tbody>
+        {% for row in overview.top_assistants %}
+          <tr><td><strong>{{ row.name }}</strong>{% if row.agent_type %} <small class="is-muted">{{ row.agent_type }}</small>{% endif %}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ pct(row.failed / row.executions if row.executions else none) }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </article>
+  </section>
+
+  <section class="portal-panel-section portal-admin-usage-quality" aria-labelledby="admin-usage-quality-title">
+    <div class="portal-overview-panel-head"><h3 id="admin-usage-quality-title">{{ t("Quality") }}</h3><span>{{ t("where runs go wrong and how long they take") }}</span></div>
+    <div class="portal-admin-summary-grid">
+      {% for kind, stats in quality.durations.items() %}
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("{kind} duration (p50 / p90)", kind=tv(kind)) }}</span><strong class="portal-usage-v">{{ secs(stats.p50_seconds) }} / {{ secs(stats.p90_seconds) }}</strong><small class="portal-usage-sub">{{ tn(stats.samples, "{n} successful run", "{n} successful runs") }}</small></div>
+      {% endfor %}
+      {% for status, count in quality.by_status.items() %}
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ tv(status) }}</span><strong class="portal-usage-v">{{ num(count) }}</strong></div>
+      {% endfor %}
+    </div>
+    <div class="portal-admin-usage-columns">
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Failures by model") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Failed") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
+        <tbody>
+        {% for row in quality.by_model %}
+          <tr><td>{{ row.model or t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ num(row.failed) }}</td><td class="is-number">{{ pct(row.failure_rate) }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Failures by runtime") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Failed") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
+        <tbody>
+        {% for row in quality.by_runtime %}
+          <tr><td>{{ row.runtime_type or t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ num(row.failed) }}</td><td class="is-number">{{ pct(row.failure_rate) }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="portal-panel-section portal-admin-usage-adoption" aria-labelledby="admin-usage-adoption-title">
+    <div class="portal-overview-panel-head"><h3 id="admin-usage-adoption-title">{{ t("Adoption") }}</h3><span>{{ t("what members actually use") }}</span></div>
+    <div class="portal-admin-summary-grid">
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Members with a chat") }}</span><strong class="portal-usage-v">{{ adoption.members_with_a_chat }} / {{ adoption.members }}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Days to first chat (median)") }}</span><strong class="portal-usage-v">{% if adoption.days_to_first_chat_p50 is none %}-{% else %}{{ '%.1f'|format(adoption.days_to_first_chat_p50) }}{% endif %}</strong></div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Active in the last 30 days") }}</span><strong class="portal-usage-v">{{ adoption.members_active_last_30_days }}</strong></div>
+    </div>
+    <div class="portal-admin-usage-columns">
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Skill") }}</th><th class="is-number">{{ t("Tasks") }}</th><th class="is-number">{{ t("Done") }}</th><th class="is-number">{{ t("Done rate") }}</th></tr></thead>
+        <tbody>
+        {% for row in adoption.skills %}
+          <tr><td>/{{ row.skill_name or t("(none)") }}</td><td class="is-number">{{ num(row.tasks) }}</td><td class="is-number">{{ num(row.done) }}</td><td class="is-number">{{ pct(row.done_rate) }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No tasks in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Delegation source") }}</th><th class="is-number">{{ t("Rules") }}</th><th class="is-number">{{ t("Enabled") }}</th><th class="is-number">{{ t("Tasks started") }}</th></tr></thead>
+        <tbody>
+        {% for row in adoption.delegation_sources %}
+          <tr><td>{{ tv(row.source) }}</td><td class="is-number">{{ row.rules }}</td><td class="is-number">{{ row.enabled }}</td><td class="is-number">{{ row.tasks_started }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No delegations configured.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+    <div class="portal-admin-usage-columns">
+      <div>
+        <div class="portal-detail-label">{{ t("Connectors enabled") }}</div>
+        <div class="portal-usage-connectors">
+          {% for row in adoption.connectors %}
+          <div class="portal-usage-connector-row" title="{{ t('{members} of {profiles} members', members=row.members, profiles=row.profiles) }}">
+            <span>{{ tv(row.label) }}</span>
+            <div class="portal-quota-meter"><span style="width: {% if row.profiles %}{{ (row.members * 100 / row.profiles)|round(1) }}{% else %}0{% endif %}%"></span></div>
+            <strong>{{ row.members }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="portal-data-table-wrap"><table class="portal-data-table portal-admin-usage-table">
+        <thead><tr><th>{{ t("Joined in") }}</th><th class="is-number">{{ t("Members") }}</th><th class="is-number">{{ t("Chatted") }}</th><th class="is-number">{{ t("Active last 30 days") }}</th></tr></thead>
+        <tbody>
+        {% for row in adoption.cohorts %}
+          <tr><td>{{ row.month }}</td><td class="is-number">{{ row.joined }}</td><td class="is-number">{{ row.chatted }}</td><td class="is-number">{{ row.active_last_30_days }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No members yet.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+</div>

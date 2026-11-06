@@ -11863,6 +11863,10 @@ const ADMIN_PANEL_HEADINGS = {
     title: t("Default connectors"),
     status: t("Connector settings every new member starts with"),
   },
+  "usage": {
+    title: t("Usage"),
+    status: t("What the platform consumed, how runs went and what members use"),
+  },
 };
 
 function syncAdminHeaderActions(section) {
