@@ -1,0 +1,52 @@
+{# One member's consumption over the period: a daily credits chart, the models and the kinds of run. Opens under the member's row in User Management. #}
+{% macro num(value) %}{{ "{:,}".format(value|int) }}{% endmacro %}
+{% macro pct(value) %}{% if value is none %}-{% else %}{{ '%.0f'|format(value * 100) }}%{% endif %}{% endmacro %}
+<div class="portal-member-usage" data-member-usage="{{ member.id }}" data-period-days="{{ usage.period_days }}">
+  <div class="portal-member-usage-head">
+    <div>
+      <strong>{{ member.display_name }}</strong>
+      <span class="portal-member-usage-meta">@{{ member.username }} · {{ t("Last {n} days", n=usage.period_days) }}</span>
+    </div>
+    <div class="portal-member-usage-totals">
+      <span><strong>{{ '%.1f'|format(usage.totals.credits) }}</strong> {{ t("credits") }}</span>
+      <span><strong>{{ num(usage.totals.executions) }}</strong> {{ t("executions") }}</span>
+      <span><strong>{{ usage.totals.active_days }}</strong> {{ t("active days") }}</span>
+      <span><strong>{{ num(usage.totals.input_tokens) }}</strong> / <strong>{{ num(usage.totals.output_tokens) }}</strong> {{ t("tokens in / out") }}</span>
+      <span><strong>{{ pct(usage.totals.failure_rate) }}</strong> {{ t("failed") }}</span>
+    </div>
+  </div>
+  <div class="portal-member-usage-grid">
+    <div class="portal-member-usage-chart" role="img" aria-label="{{ t('Credits per day for {name}', name=member.display_name) }}">
+      <div class="portal-member-usage-bars">
+        {% for bar in usage.daily %}
+        <span class="portal-member-usage-bar{% if bar.credits == 0 %} is-empty{% endif %}" style="--h: {{ bar.height }}%" title="{{ bar.day }}: {{ '%.2f'|format(bar.credits) }} {{ t('credits') }}, {{ tn(bar.executions, '{n} execution', '{n} executions') }}"><i></i></span>
+        {% endfor %}
+      </div>
+      <div class="portal-member-usage-axis"><span>{{ usage.period_start }}</span><span>{{ t("Credits per day") }}</span><span>{{ usage.period_end }}</span></div>
+    </div>
+    <div class="portal-data-table-wrap">
+      <table class="portal-data-table portal-member-usage-table">
+        <thead><tr><th>{{ t("Model") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Tokens in") }}</th><th class="is-number">{{ t("Tokens out") }}</th></tr></thead>
+        <tbody>
+        {% for row in usage.by_model %}
+          <tr><td>{{ row.model or t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ num(row.input_tokens) }}</td><td class="is-number">{{ num(row.output_tokens) }}</td></tr>
+        {% else %}
+          <tr><td colspan="5" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="portal-data-table-wrap">
+      <table class="portal-data-table portal-member-usage-table">
+        <thead><tr><th>{{ t("Kind") }}</th><th class="is-number">{{ t("Executions") }}</th><th class="is-number">{{ t("Credits") }}</th><th class="is-number">{{ t("Failure rate") }}</th></tr></thead>
+        <tbody>
+        {% for row in usage.by_kind %}
+          <tr><td>{{ tv(row.kind) if row.kind else t("(unknown)") }}</td><td class="is-number">{{ num(row.executions) }}</td><td class="is-number">{{ '%.1f'|format(row.credits) }}</td><td class="is-number">{{ pct(row.failure_rate) }}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="is-muted">{{ t("No runs in this period.") }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

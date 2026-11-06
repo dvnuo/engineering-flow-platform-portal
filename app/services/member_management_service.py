@@ -9,8 +9,9 @@ from app.models.agent_execution import AgentExecution
 from app.models.agent_task import AgentTask
 from app.models.delegation_rule import DelegationRule
 from app.repositories.user_allowlist_repo import UserAllowlistRepository, normalize_username
+from app.models.usage_daily_rollup import UsageDailyRollup
 from app.repositories.user_repo import UserRepository
-from app.services.usage_rollup_service import credit_value
+from app.services.usage_rollup_service import UsageRollupService, credit_value
 
 # The periods the User Management panel offers for its consumption columns.
 PERIOD_DAYS_OPTIONS = (7, 30, 90)
@@ -171,4 +172,92 @@ class MemberManagementService:
                 "input_tokens_period_total": sum(row["input_tokens_period"] for row in member_rows),
                 "output_tokens_period_total": sum(row["output_tokens_period"] for row in member_rows),
             },
+        }
+
+    def member_usage(self, user_id: int, *, days: int = DEFAULT_PERIOD_DAYS, now: datetime | None = None) -> dict[str, Any]:
+        """One member's runs over the period, from the daily rollups.
+
+        A daily credits series (zero days included, with bar heights as a
+        percentage of the member's busiest day), the models and the kinds of
+        run with their credits and failure rates, and the totals. Today and
+        yesterday are rolled up first unless that happened in the last few
+        minutes, so a run that just finished is counted.
+        """
+        period_days = normalize_period_days(days)
+        today = (now or datetime.utcnow()).date()
+        rollups = UsageRollupService(self.db)
+        rollups.refresh_recent(today=today)
+        start = rollups.period_start(period_days, today=today)
+        R = UsageDailyRollup
+        in_period = (R.user_id == int(user_id), R.day >= start, R.day <= today)
+
+        day_rows = self.db.execute(
+            select(R.day, func.coalesce(func.sum(R.credits), 0.0), func.coalesce(func.sum(R.executions), 0))
+            .where(*in_period)
+            .group_by(R.day)
+        ).all()
+        by_day = {day: (float(credits), int(executions)) for day, credits, executions in day_rows}
+        peak = max((credits for credits, _executions in by_day.values()), default=0.0)
+        daily = []
+        for offset in range(period_days):
+            day = start + timedelta(days=offset)
+            credits, executions = by_day.get(day, (0.0, 0))
+            daily.append(
+                {
+                    "day": day.isoformat(),
+                    "credits": round(credits, 4),
+                    "executions": executions,
+                    "height": round(credits * 100 / peak, 1) if peak > 0 else 0,
+                }
+            )
+
+        def _group(column, label):
+            rows = self.db.execute(
+                select(
+                    column,
+                    func.coalesce(func.sum(R.executions), 0),
+                    func.coalesce(func.sum(R.failed), 0),
+                    func.coalesce(func.sum(R.credits), 0.0),
+                    func.coalesce(func.sum(R.input_tokens), 0),
+                    func.coalesce(func.sum(R.output_tokens), 0),
+                )
+                .where(*in_period)
+                .group_by(column)
+                .order_by(func.sum(R.credits).desc(), func.sum(R.executions).desc())
+                .limit(8)
+            ).all()
+            return [
+                {
+                    label: value or "",
+                    "executions": int(executions),
+                    "failed": int(failed),
+                    "failure_rate": round(int(failed) / int(executions), 4) if int(executions) else None,
+                    "credits": round(float(credits), 2),
+                    "input_tokens": int(input_tokens),
+                    "output_tokens": int(output_tokens),
+                }
+                for value, executions, failed, credits, input_tokens, output_tokens in rows
+            ]
+
+        by_model = _group(R.model, "model")
+        by_kind = _group(R.kind, "kind")
+        executions = sum(row["executions"] for row in by_kind)
+        failed = sum(row["failed"] for row in by_kind)
+        return {
+            "user_id": int(user_id),
+            "period_days": period_days,
+            "period_start": start.isoformat(),
+            "period_end": today.isoformat(),
+            "totals": {
+                "executions": executions,
+                "failed": failed,
+                "failure_rate": round(failed / executions, 4) if executions else None,
+                "credits": round(sum(row["credits"] for row in by_kind), 2),
+                "input_tokens": sum(row["input_tokens"] for row in by_kind),
+                "output_tokens": sum(row["output_tokens"] for row in by_kind),
+                "active_days": sum(1 for row in daily if row["executions"] > 0),
+            },
+            "daily": daily,
+            "by_model": by_model,
+            "by_kind": by_kind,
         }

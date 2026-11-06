@@ -3165,11 +3165,95 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   align-items: flex-end;
   gap: 2px;
   height: 120px;
+/* The member drawer: the member's daily credits and models under their row. */
+.portal-admin-member-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-bottom: 1px dashed color-mix(in srgb, var(--portal-text-muted), transparent 40%);
+}
+
+.portal-admin-member-name:hover,
+.portal-admin-member-name[aria-expanded="true"] {
+  color: var(--portal-accent);
+  border-bottom-color: var(--portal-accent);
+}
+
+.portal-admin-member-table tr.portal-admin-member-detail > td {
+  padding: 0 10px 12px;
+  background: var(--portal-surface-soft);
+  white-space: normal;
+}
+
+.portal-member-usage {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.portal-member-usage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.portal-member-usage-head > div > strong {
+  color: var(--portal-text);
+  font-size: 13px;
+}
+
+.portal-member-usage-meta,
+.portal-member-usage-totals {
+  color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.portal-member-usage-meta {
+  margin-left: 6px;
+}
+
+.portal-member-usage-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.portal-member-usage-totals strong {
+  color: var(--portal-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-member-usage-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .8fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.portal-member-usage-chart {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.portal-member-usage-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 88px;
   padding: 4px 2px 0;
   border-bottom: 1px solid var(--portal-border);
 }
 
 .portal-usage-bar {
+.portal-member-usage-bar {
   flex: 1 1 0;
   min-width: 1px;
   height: 100%;
@@ -3182,6 +3266,11 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   width: 100%;
   height: max(2px, var(--h, 0%));
   border-radius: 3px 3px 0 0;
+.portal-member-usage-bar i {
+  display: block;
+  width: 100%;
+  height: max(2px, var(--h, 0%));
+  border-radius: 2px 2px 0 0;
   background: var(--portal-accent);
   opacity: .85;
 }
@@ -3196,6 +3285,11 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 }
 
 .portal-usage-axis {
+.portal-member-usage-bar.is-empty i {
+  background: var(--portal-border);
+}
+
+.portal-member-usage-axis {
   display: flex;
   justify-content: space-between;
   color: var(--portal-text-muted);
@@ -3238,6 +3332,20 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   text-align: right;
   color: var(--portal-text);
   font-variant-numeric: tabular-nums;
+.portal-member-usage-table th.is-number,
+.portal-member-usage-table td.is-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-member-usage-table .is-muted {
+  color: var(--portal-text-muted);
+}
+
+@media (max-width: 960px) {
+  .portal-member-usage-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .portal-admin-username-list-field textarea {

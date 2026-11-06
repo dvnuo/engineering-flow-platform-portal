@@ -95,6 +95,23 @@ def admin_overview(
     return MemberOverviewResponse.model_validate(MemberManagementService(db).build_overview(days=days))
 
 
+@router.get("/{user_id}/usage")
+def member_usage(
+    user_id: int,
+    _: object = Depends(require_admin),
+    db: Session = Depends(get_db),
+    days: int = Query(default=DEFAULT_PERIOD_DAYS, description="Period of the figures: one of 7, 30, 90 days."),
+):
+    """One member's consumption over the period: daily credits, models, kinds of run (the User Management drawer)."""
+    if days not in PERIOD_DAYS_OPTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("days must be one of 7, 30 or 90"))
+    user = _get_user_or_404(UserRepository(db), user_id)
+    usage = MemberManagementService(db).member_usage(user.id, days=days)
+    usage["username"] = user.username
+    usage["display_name"] = (user.nickname or user.username or "").strip()
+    return usage
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user(user_id: int, _: object = Depends(require_admin), db: Session = Depends(get_db)):
     return UserResponse.model_validate(_get_user_or_404(UserRepository(db), user_id))

@@ -3037,6 +3037,35 @@ def task_detail_panel(request: Request, task_id: str):
         db.close()
 
 
+@router.get("/app/users/{user_id}/usage/panel")
+async def app_member_usage_panel(request: Request, user_id: int):
+    """The usage drawer under a member's row in User Management (admin only)."""
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
+
+    db = SessionLocal()
+    try:
+        member = UserRepository(db).get_by_id(user_id)
+        if not member:
+            raise HTTPException(status_code=404, detail=N_("User not found"))
+        days = normalize_period_days(request.query_params.get("days"))
+        usage = MemberManagementService(db).member_usage(member.id, days=days)
+        return templates.TemplateResponse(
+            "partials/member_usage_drawer.html",
+            {
+                "request": request,
+                "member": {"id": member.id, "username": member.username, "display_name": (member.nickname or member.username or "").strip()},
+                "usage": usage,
+                "days": days,
+            },
+        )
+    finally:
+        db.close()
+
+
 @router.get("/app/users/panel")
 async def app_users_panel(request: Request):
     user = _current_user_from_cookie(request)
