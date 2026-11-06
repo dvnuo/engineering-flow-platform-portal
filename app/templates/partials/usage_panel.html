@@ -13,6 +13,29 @@
     <span class="portal-panel-subtitle">{{ tn(period_days or 30, "Last {n} day", "Last {n} days") }}</span>
   </div>
 
+  {% set member_usage = member_usage if member_usage is mapping else {} %}
+  {% set credit_notice = credit_notice if credit_notice is mapping else {} %}
+  {% if member_usage %}
+  {# The member's own runs across every assistant, from the Portal's records: this needs no runtime. #}
+  <div class="portal-panel-section portal-my-usage" data-my-usage>
+    <div class="portal-detail-label">{{ t("Your usage across assistants") }}</div>
+    {% if credit_notice.over %}
+    <div class="portal-callout is-warning" data-my-usage-notice>{{ t("You have used {credits} credits this month, above the {threshold}-credit guideline. See the cost guide for ways to spend less.", credits='%.1f'|format(credit_notice.credits), threshold='%.0f'|format(credit_notice.threshold)) }}</div>
+    {% endif %}
+    <div class="portal-usage-grid">
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("This month") }}</span><strong class="portal-usage-v">{{ '%.1f'|format(credit_notice.credits or 0) }}</strong>{% if credit_notice.threshold %}<small class="portal-usage-sub">{{ t("guideline {threshold}", threshold='%.0f'|format(credit_notice.threshold)) }}</small>{% endif %}</div>
+      <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Last {n} days", n=member_usage.period_days) }}</span><strong class="portal-usage-v">{{ '%.1f'|format(member_usage.totals.credits) }}</strong><small class="portal-usage-sub">{{ tn(member_usage.totals.executions, "{n} run", "{n} runs") }} · {{ tn(member_usage.totals.active_days, "{n} active day", "{n} active days") }}</small></div>
+    </div>
+    {% if member_usage.by_agent %}
+    <div class="portal-my-usage-agents">
+      {% for row in member_usage.by_agent %}
+      <div class="portal-panel-note"><strong>{{ row.name }}</strong> · {{ '%.1f'|format(row.credits) }} {{ t("credits") }} · {{ tn(row.executions, "{n} run", "{n} runs") }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% set has_global = global.request_count or global.total_cost_usd or global.total_cost or global.total_input_tokens or global.total_output_tokens or global.total_input or global.total_output %}
   {% set has_provider = by_provider|length > 0 %}
   {% set has_model = by_model|length > 0 %}
