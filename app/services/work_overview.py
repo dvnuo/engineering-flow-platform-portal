@@ -12,6 +12,7 @@ from app.models.agent import Agent
 from app.models.agent_task import AgentTask
 from app.models.delegation_rule import DelegationRule, DelegationRuleRun
 from app.repositories.delegation_rule_repo import DelegationRuleRepository
+from app.services.work_visibility import visibility_clause
 
 
 ACTIVE_TASK_STATUSES = {"queued", "running", "pending_restart"}
@@ -273,16 +274,21 @@ class WorkOverviewService:
         return list(self.db.scalars(stmt).all())
 
     def _visible_tasks(self, user, scope: str) -> list[AgentTask]:
+        """"mine": the member's own tasks; "all": those plus the public ones (an admin sees every task)."""
         stmt = select(AgentTask).order_by(AgentTask.updated_at.desc(), AgentTask.created_at.desc())
         if scope == "mine":
             stmt = stmt.where(AgentTask.owner_user_id == user.id)
+        else:
+            visible = visibility_clause(AgentTask, user)
+            if visible is not None:
+                stmt = stmt.where(visible)
         return list(self.db.scalars(stmt).all())
 
     def _visible_delegation_rules(self, user, scope: str) -> list[DelegationRule]:
-        rules = DelegationRuleRepository(self.db).list(limit=5000)
         if scope == "mine":
-            rules = [rule for rule in rules if getattr(rule, "owner_user_id", None) == getattr(user, "id", None)]
-        return rules
+            rules = DelegationRuleRepository(self.db).list(limit=5000)
+            return [rule for rule in rules if getattr(rule, "owner_user_id", None) == getattr(user, "id", None)]
+        return DelegationRuleRepository(self.db).list(limit=5000, user=user)
 
     def _agents_by_ids(self, agent_ids: set[str]) -> dict[str, Agent]:
         cleaned_ids = {agent_id for agent_id in agent_ids if agent_id}

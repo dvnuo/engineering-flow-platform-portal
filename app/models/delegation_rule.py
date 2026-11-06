@@ -31,6 +31,9 @@ class DelegationRule(Base):
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Who may read the rule: "private" (the owner and admins) or "public"
+    # (every member); its tasks inherit it. See app/services/work_visibility.py.
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private", index=True)
     owner_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

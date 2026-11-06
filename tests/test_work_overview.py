@@ -128,3 +128,45 @@ def test_delegation_overview_rolls_up_due_failed_and_recent_runs():
         assert overview["recent_activity"][0]["target_id"] == "rule-1"
     finally:
         db.close()
+
+
+def test_all_scope_shows_own_and_public_work_only_unless_admin():
+    """Another member's private tasks and rules stay out of the overview; public ones and an admin's view include them."""
+    db = _session()
+    db.add_all([
+        User(id=1, username="owner", password_hash="test", role="user"),
+        User(id=2, username="other", password_hash="test", role="user"),
+        User(id=3, username="admin", password_hash="test", role="admin"),
+    ])
+    db.add(_agent("agent-1", owner_user_id=1, name="Agent One"))
+    db.add(_agent("agent-2", owner_user_id=2, name="Agent Two"))
+    now = datetime.utcnow()
+
+    def task(task_id, owner, visibility):
+        return AgentTask(id=task_id, assignee_agent_id=f"agent-{owner}", source="portal", task_type="agent_async_task", title=task_id, status="running", owner_user_id=owner, visibility=visibility, updated_at=now)
+
+    def rule(rule_id, owner, visibility):
+        return DelegationRule(id=rule_id, name=rule_id, enabled=True, source_type="timer", trigger_type="timer", target_agent_id=f"agent-{owner}", task_type="agent_async_task", owner_user_id=owner, visibility=visibility)
+
+    db.add_all([
+        task("t-mine", 1, "private"), task("t-other-private", 2, "private"), task("t-other-public", 2, "public"),
+        rule("r-mine", 1, "private"), rule("r-other-private", 2, "private"), rule("r-other-public", 2, "public"),
+    ])
+    db.commit()
+    try:
+        service = WorkOverviewService(db)
+        member = SimpleNamespace(id=1, role="user")
+        tasks_all = service.build_tasks(member, scope="all")
+        assert tasks_all["total"] == 2
+        assert {item["title"] for item in tasks_all["recent_activity"]} == {"t-mine", "t-other-public"}
+        assert service.build_tasks(member, scope="mine")["total"] == 1
+        rules_all = service.build_delegations(member, scope="all")
+        assert rules_all["total"] == 2
+        assert {row["name"] for row in rules_all["health_rows"]} == {"r-mine", "r-other-public"}
+        assert service.build_delegations(member, scope="mine")["total"] == 1
+
+        admin = SimpleNamespace(id=3, role="admin")
+        assert service.build_tasks(admin, scope="all")["total"] == 3
+        assert service.build_delegations(admin, scope="all")["total"] == 3
+    finally:
+        db.close()

@@ -36,6 +36,7 @@ from app.services.provider_config_resolver import (
 )
 from app.services.task_dispatcher import TaskDispatcherService
 from app.services.inference_settings_service import normalize_agent_inference_overrides
+from app.services.work_visibility import VISIBILITY_PRIVATE, normalize_visibility
 
 
 AGENT_ASYNC_TASK_TYPE = "agent_async_task"
@@ -189,11 +190,19 @@ class DelegationRuleService:
             "task_config_json": self._json(task_config),
             "schedule_json": self._json(schedule),
             "state_json": "{}",
+            "visibility": self._visibility_or_400(payload.visibility),
             "owner_user_id": current_user_id,
             "created_by_user_id": current_user_id,
             "next_run_at": compute_next_run_at(schedule, after=now) if payload.enabled else None,
         }
         return self.repo.create(create_data, current_user_id=current_user_id)
+
+    @staticmethod
+    def _visibility_or_400(value) -> str:
+        try:
+            return normalize_visibility(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("visibility must be 'private' or 'public'")) from exc
 
     def update_rule(self, rule, payload: DelegationRuleUpdate, current_user_id: int) -> object:
         _ = current_user_id
@@ -238,6 +247,8 @@ class DelegationRuleService:
             update_data["trigger_config_json"] = self._json(source_conditions)
         if "enabled" in data:
             update_data["enabled"] = bool(data["enabled"])
+        if "visibility" in data:
+            update_data["visibility"] = self._visibility_or_400(data.get("visibility"))
         if "target_agent_id" in data:
             update_data["target_agent_id"] = target_agent_id
         if "skill_name" in data:
@@ -562,6 +573,8 @@ class DelegationRuleService:
                 assignee_agent_id=rule.target_agent_id,
                 owner_user_id=rule.owner_user_id,
                 created_by_user_id=rule.created_by_user_id,
+                # A rule's tasks are read by whoever may read the rule.
+                visibility=getattr(rule, "visibility", None) or VISIBILITY_PRIVATE,
                 source="delegation",
                 task_type=AGENT_ASYNC_TASK_TYPE,
                 task_family=AGENT_ASYNC_TASK_FAMILY,

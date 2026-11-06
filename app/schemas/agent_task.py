@@ -22,6 +22,8 @@ class AgentTaskCreateRequest(BaseModel):
     status: str = "queued"
     result_payload_json: Optional[str] = None
     retry_count: int = 0
+    # "private" (default: the owner and admins) or "public" (every member).
+    visibility: Optional[str] = None
 
 
 class CreateAgentAsyncTaskRequest(BaseModel):
@@ -31,6 +33,11 @@ class CreateAgentAsyncTaskRequest(BaseModel):
     model_override: Optional[str] = None
     reasoning_effort: Optional[str] = None
     max_context_tokens: Optional[int] = None
+    visibility: Optional[str] = None
+
+
+class AgentTaskVisibilityRequest(BaseModel):
+    visibility: str
 
 
 class CreateAgentTaskFollowupRequest(BaseModel):
@@ -66,6 +73,7 @@ class AgentTaskResponse(BaseModel):
     version_key: Optional[str] = None
     dedupe_key: Optional[str] = None
     status: str
+    visibility: str = "private"
     owner_user_id: Optional[int] = None
     created_by_user_id: Optional[int] = None
     owner_display_name: Optional[str] = None
@@ -94,6 +102,7 @@ class AgentTaskListItemResponse(BaseModel):
     display_title: str
     skill_name: Optional[str] = None
     status: str
+    visibility: str = "private"
     owner_user_id: Optional[int] = None
     created_by_user_id: Optional[int] = None
     owner_display_name: Optional[str] = None

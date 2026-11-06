@@ -15,9 +15,11 @@ from app.schemas.agent_task import (
     AgentTaskListItemResponse,
     AgentTaskResponse,
     AgentTaskReviewRequest,
+    AgentTaskVisibilityRequest,
     CreateAgentAsyncTaskRequest,
     CreateAgentTaskFollowupRequest,
 )
+from app.services.work_visibility import can_see, normalize_visibility
 from app.repositories.audit_repo import AuditRepository
 from app.models.agent_task import AgentTask
 from app.services.efp_cards import MOBILE_RUN_SKILLS, REVIEW_DECISIONS, review_decision_text, scenario_progress
@@ -46,8 +48,15 @@ def _can_write(agent, user) -> bool:
 
 
 def _is_task_visible_to_user(task, user) -> bool:
-    _ = task, user
-    return True
+    """The owner, an admin, or anyone when the task is public (app/services/work_visibility.py)."""
+    return can_see(task, user)
+
+
+def _visibility_or_400(value) -> str:
+    try:
+        return normalize_visibility(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=N_("visibility must be 'private' or 'public'")) from exc
 
 
 def _require_writable_assignee(db: Session, assignee_agent_id: str, user):
@@ -245,6 +254,7 @@ def create_agent_async_task(payload: CreateAgentAsyncTaskRequest, user=Depends(g
 
     assignee_agent = _require_writable_assignee(db, payload.assignee_agent_id, user)
     inference = _normalize_task_inference_or_400(db, assignee_agent, payload)
+    visibility = _visibility_or_400(payload.visibility)
     task_id = str(uuid4())
     task_session_id = f"agent-task:{task_id}"
     task_input = _agent_async_payload(
@@ -260,6 +270,7 @@ def create_agent_async_task(payload: CreateAgentAsyncTaskRequest, user=Depends(g
         assignee_agent_id=assignee_agent.id,
         owner_user_id=assignee_agent.owner_user_id,
         created_by_user_id=user.id,
+        visibility=visibility,
         source="portal",
         task_type=AGENT_ASYNC_TASK_TYPE,
         task_family=AGENT_ASYNC_TASK_FAMILY,
@@ -469,6 +480,7 @@ def create_agent_task(payload: AgentTaskCreateRequest, user=Depends(get_current_
     create_payload = payload.model_dump()
     create_payload["owner_user_id"] = assignee_agent.owner_user_id
     create_payload["created_by_user_id"] = user.id
+    create_payload["visibility"] = _visibility_or_400(create_payload.get("visibility"))
     task = AgentTaskRepository(db).create(**create_payload)
     return _task_response(db, task, user)
 
@@ -498,6 +510,7 @@ def list_my_tasks(
         status=status_filter,
         owner=owner,
         query=q,
+        is_admin=user.role == "admin",
     )
     items = [_task_list_item_response(task, user) for task in tasks]
     _attach_scenario_progress(db, items)
@@ -529,6 +542,36 @@ def get_agent_task(task_id: str, user=Depends(get_current_user), db: Session = D
         if not _is_task_visible_to_user(task, user):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=N_("Task not found"))
 
+    return _task_response(db, task, user)
+
+
+@router.patch("/api/agent-tasks/{task_id}/visibility", response_model=AgentTaskResponse)
+def set_agent_task_visibility(
+    task_id: str,
+    payload: AgentTaskVisibilityRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Make a task private (the owner and admins) or public (every member).
+
+    The owner decides; an admin may also change it, since admins moderate what
+    the whole Portal sees. Other members get 403 on a task they can see and
+    404 on one they cannot, like every other task route.
+    """
+    task = _require_visible_task(db, task_id, user)
+    if not (_can_manage_task(db, task, user) or user.role == "admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=N_("Only the owner can change who sees this task"))
+    visibility = _visibility_or_400(payload.visibility)
+    if task.visibility != visibility:
+        task.visibility = visibility
+        task = AgentTaskRepository(db).save(task)
+        AuditRepository(db).create(
+            "set_task_visibility",
+            "agent_task",
+            task.id,
+            user.id,
+            details={"visibility": visibility},
+        )
     return _task_response(db, task, user)
 
 

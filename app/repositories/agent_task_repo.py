@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.models.agent_task import AgentTask
 from app.models.user import User
+from app.services.work_visibility import VISIBILITY_PUBLIC
 from typing import Optional
 
 
@@ -76,8 +77,12 @@ class AgentTaskRepository:
         status: str | None = None,
         owner: str | None = None,
         query: str | None = None,
+        is_admin: bool = False,
     ) -> list[AgentTask]:
+        """The tasks ``user_id`` may read: their own and the public ones (an admin reads all)."""
         filters = []
+        if not is_admin:
+            filters.append(or_(AgentTask.owner_user_id == user_id, AgentTask.visibility == VISIBILITY_PUBLIC))
         normalized_status = (status or "").strip().lower()
         if normalized_status == "active":
             filters.append(AgentTask.status.in_(["queued", "running", "pending_restart"]))
@@ -128,8 +133,11 @@ class AgentTaskRepository:
         status: str | None = None,
         owner: str | None = None,
         query: str | None = None,
+        is_admin: bool = False,
     ) -> list[dict]:
         filters = []
+        if not is_admin:
+            filters.append(or_(AgentTask.owner_user_id == user_id, AgentTask.visibility == VISIBILITY_PUBLIC))
         normalized_status = (status or "").strip().lower()
         if normalized_status == "active":
             filters.append(AgentTask.status.in_(["queued", "running", "pending_restart"]))
@@ -167,6 +175,7 @@ class AgentTaskRepository:
                 AgentTask.skill_name.label("skill_name"),
                 AgentTask.status.label("status"),
                 AgentTask.owner_user_id.label("owner_user_id"),
+                AgentTask.visibility.label("visibility"),
                 AgentTask.created_by_user_id.label("created_by_user_id"),
                 AgentTask.created_at.label("created_at"),
                 AgentTask.updated_at.label("updated_at"),

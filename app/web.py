@@ -123,6 +123,7 @@ from app.services.runtime_capability_catalog import build_runtime_capability_cat
 from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.work_overview import WorkOverviewService
+from app.services.work_visibility import can_see as _can_see_work
 from app.services.member_management_service import MemberManagementService
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.utils.chat_upload_policy import get_chat_upload_policy
@@ -738,6 +739,10 @@ def _build_agent_async_task_detail_view_model_for_user(task, db=None, user=None)
         "assignee_agent_label": _agent_label_for_task(db, task),
         "owner_user_id": getattr(task, "owner_user_id", None) or "-",
         "owner_display_name": _user_label_for_id(db, getattr(task, "owner_user_id", None)),
+        # Private (the owner and admins) or public (every member); the owner
+        # and admins switch it from the panel.
+        "visibility": getattr(task, "visibility", None) or "private",
+        "can_change_visibility": bool(user is not None and (can_manage_task or getattr(user, "role", "") == "admin")),
         "skill_name": skill_name or "-",
         "task_session_id": getattr(task, "task_session_id", None) or input_obj.get("task_session_id") or "-",
         "root_task_id": root_task_id or "-",
@@ -791,6 +796,8 @@ def _build_task_detail_view_model(task, db=None, user=None) -> dict:
         "is_agent_async": False,
         "display_title": getattr(task, "title", None) or t("Unsupported Task"),
         "display_subtitle": t("Read-only task type"),
+        "visibility": getattr(task, "visibility", None) or "private",
+        "can_change_visibility": False,
         "status_label": status_label,
         "status_tone": _status_tone_from_value(status_label),
         "is_active": False,
@@ -2842,6 +2849,7 @@ def my_tasks_panel(request: Request, scope: str = Query(default="all", pattern="
             limit=task_page_size,
             offset=task_offset,
             owner=scope,
+            is_admin=user.role == "admin",
         )
         summary = {"queued": 0, "running": 0, "done": 0, "blocked": 0, "failed": 0, "stale": 0, "cancelled": 0, "pending_restart": 0, "cancel_failed": 0}
         summary.update(
@@ -2908,6 +2916,7 @@ def my_tasks_list(
             limit=limit,
             offset=offset,
             owner=owner,
+            is_admin=user.role == "admin",
         )
         task_owner_labels = {task.id: _user_label_for_id(db, getattr(task, "owner_user_id", None)) for task in tasks}
         return templates.TemplateResponse(
@@ -2959,7 +2968,7 @@ async def task_result_json_download(request: Request, task_id: str):
     db = SessionLocal()
     try:
         task = AgentTaskRepository(db).get_by_id(task_id)
-        if not task:
+        if not task or not _can_see_work(task, user):
             raise HTTPException(status_code=404, detail=N_("Task not found"))
 
         filename = _safe_task_result_filename(getattr(task, "id", task_id))
@@ -3009,7 +3018,7 @@ def task_detail_panel(request: Request, task_id: str):
     db = SessionLocal()
     try:
         task = AgentTaskRepository(db).get_by_id(task_id)
-        if not task:
+        if not task or not _can_see_work(task, user):
             raise HTTPException(status_code=404, detail=N_("Task not found"))
         return templates.TemplateResponse(
             "partials/task_detail_panel.html",

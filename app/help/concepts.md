@@ -13,12 +13,14 @@ A workspace you chat with, running with your credentials.
 
 Work handed to an assistant to run on its own, tracked to completion instead of
 held in a chat. Use it when the work is long enough that you would rather do
-something else meanwhile.
+something else meanwhile. A task is private (you and administrators) unless
+you make it public from its page, which lets every member open it.
 
 ## Delegation
 
 A rule that starts work automatically — on a GitHub review request, a Jira
-assignment, or a timer.
+assignment, or a timer. Like a task it is private until you make it public,
+and the tasks it starts follow its setting.
 
 ## Scenario run
 
