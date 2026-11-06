@@ -125,6 +125,10 @@ from app.services.session_context_preview import merge_runtime_sessions_with_met
 from app.services.work_overview import WorkOverviewService
 from app.services.work_visibility import can_see as _can_see_work
 from app.services.member_management_service import PERIOD_DAYS_OPTIONS, MemberManagementService, normalize_period_days
+from app.services.usage_insights_service import UsageInsightsService
+from app.services.usage_rollup_service import PERIOD_DAYS_OPTIONS as USAGE_PERIOD_DAYS_OPTIONS
+from app.services.usage_rollup_service import UsageRollupService
+from app.services.usage_rollup_service import normalize_period_days as normalize_usage_period_days
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.utils.chat_upload_policy import get_chat_upload_policy
 from app.utils.task_sessions import is_task_session_id as _session_id_is_task_session
@@ -3150,6 +3154,62 @@ async def app_help_topic_panel(request: Request, topic: str = Query(default=""))
         "partials/help_topic_panel.html",
         {"request": request, "topic": resolved},
     )
+
+
+@router.get("/app/admin/usage/panel")
+async def app_admin_usage_panel(request: Request):
+    """Administration > Usage: consumption, quality and adoption over 7, 30 or 90 days.
+
+    Consumption comes from the daily rollups (today and yesterday refreshed
+    first, at most every five minutes), the rest from the executions, tasks,
+    rules and member settings (app/services/usage_insights_service.py). The
+    bar charts are laid out here, as percentages, so the template stays markup.
+    """
+
+    user = _current_user_from_cookie(request)
+    if not user:
+        raise HTTPException(status_code=401, detail=N_("Unauthorized"))
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail=N_("Forbidden"))
+
+    days = normalize_usage_period_days(request.query_params.get("days"))
+    db = SessionLocal()
+    try:
+        rollups = UsageRollupService(db)
+        rollups.refresh_recent()
+        overview = rollups.overview(days)
+        insights = UsageInsightsService(db)
+        overview["quality"] = insights.quality(days)
+        overview["adoption"] = insights.adoption(days)
+        charts = [
+            _usage_bar_chart(overview["daily"], "credits", title=t("Credits per day"), total="%.1f" % overview["totals"]["credits"], decimals=1),
+            _usage_bar_chart(overview["daily"], "executions", title=t("Executions per day"), total=str(overview["totals"]["executions"]), decimals=0),
+        ]
+        return templates.TemplateResponse(
+            "partials/admin_usage_panel.html",
+            {
+                "request": request,
+                "current_user": user,
+                "days": days,
+                "period_options": USAGE_PERIOD_DAYS_OPTIONS,
+                "overview": overview,
+                "charts": charts,
+            },
+        )
+    finally:
+        db.close()
+
+
+def _usage_bar_chart(daily: list, key: str, *, title: str, total: str, decimals: int) -> dict:
+    """Bar heights as percentages of the period's maximum, one bar per day."""
+    values = [float((row or {}).get(key) or 0) for row in daily]
+    peak = max(values) if values else 0.0
+    bars = []
+    for row, value in zip(daily, values):
+        height = round(value * 100 / peak, 1) if peak > 0 else 0
+        label = ("%.*f" % (decimals, value)) if decimals else str(int(value))
+        bars.append({"day": row.get("day", ""), "value": value, "height": height, "label": label})
+    return {"title": title, "total": total, "bars": bars}
 
 
 @router.get("/app/admin/assistant-types/panel")

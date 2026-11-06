@@ -247,6 +247,17 @@
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
             </button>
+            <button id="usage-nav-item" class="portal-list-row portal-admin-nav-row" type="button"
+                    data-admin-panel="usage"
+                    data-admin-panel-url="/app/admin/usage/panel"
+                    data-admin-panel-title="Usage">
+              <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+              <span class="portal-admin-nav-copy">
+                <strong>{{ t("Usage") }}</strong>
+                <small>{{ t("Consumption, quality and adoption across the platform") }}</small>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 portal-admin-nav-chevron"></i>
+            </button>
           </div>
         </section>
         {% endif %}

@@ -101,9 +101,9 @@ def test_each_panel_has_its_own_title_and_status():
     block = js[js.index("const ADMIN_PANEL_HEADINGS = {") :]
     block = block[: block.index("\n};")]
 
-    for panel in ("users", "assistant-types", "default-connections"):
+    for panel in ("users", "assistant-types", "default-connections", "usage"):
         assert f'"{panel}"' in block, panel
-    assert block.count("title:") == block.count("status:") == 3
+    assert block.count("title:") == block.count("status:") == 4
 
 
 def test_the_title_is_keyed_on_the_panel_not_the_section():
@@ -130,7 +130,7 @@ def test_the_panel_keys_match_the_nav_buttons():
     block = js[js.index("const ADMIN_PANEL_HEADINGS = {") :]
     block = block[: block.index("\n};")]
 
-    for panel in ("assistant-types", "default-connections"):
+    for panel in ("assistant-types", "default-connections", "usage"):
         assert f'data-admin-panel="{panel}"' in html, panel
         assert f'"{panel}"' in block, panel
 
