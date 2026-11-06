@@ -449,7 +449,7 @@ class RuntimeProfileTestService:
             return False, "LLM model is required."
 
         if provider == "ai_platform":
-            return await self._test_ai_platform(llm_cfg, model, runtime_type=runtime_type)
+            return await self._test_ai_platform(llm_cfg, model, runtime_type=runtime_type, config=config)
 
         api_key = str(llm_cfg.get("api_key") or "").strip()
         if not api_key:
@@ -467,7 +467,18 @@ class RuntimeProfileTestService:
             "model": model,
             "messages": [{"role": "user", "content": "ping"}],
         }
-        return await self._provider_request(provider, model, f"{api_base}/chat/completions", headers, payload)
+        # Along the path the runtime's provider client takes: the proxy the
+        # Proxy connector assigns to the model provider, or the default.
+        choice, plan = self._egress(config, "llm", hostname_of(api_base))
+        return await self._provider_request(
+            provider,
+            model,
+            f"{api_base}/chat/completions",
+            headers,
+            payload,
+            client_kwargs=self._client_kwargs(choice, plan),
+            path_text=self._path_text(choice, "the model provider"),
+        )
 
     async def _provider_request(
         self,
@@ -478,6 +489,8 @@ class RuntimeProfileTestService:
         payload: dict,
         *,
         success_label: str = "LLM smoke test OK",
+        client_kwargs: dict | None = None,
+        path_text: str = "",
     ) -> tuple[bool, str]:
         ok, message, _data = await self._http_json_request(
             method="POST",
@@ -485,9 +498,10 @@ class RuntimeProfileTestService:
             headers=headers,
             payload=payload,
             timeout=20.0,
+            client_kwargs=client_kwargs,
         )
         if not ok:
-            return False, f"{provider}/{model} test failed: {message}"
+            return False, f"{provider}/{model} test failed: {message}{path_text}"
         return True, f"{success_label}: {provider}/{model}."
 
     @staticmethod
@@ -501,6 +515,7 @@ class RuntimeProfileTestService:
         model: str,
         *,
         runtime_type: str | None = None,
+        config: dict | None = None,
     ) -> tuple[bool, str]:
         ap = llm_cfg.get("ai_platform") if isinstance(llm_cfg.get("ai_platform"), dict) else {}
         chat = ap.get("chat") if isinstance(ap.get("chat"), dict) else {}
@@ -535,18 +550,21 @@ class RuntimeProfileTestService:
                 return False, "AI Platform username, password, and usercase are required."
             if not (ib2b_host and ib2b_uri):
                 return False, "AI Platform iB2B host/URI are not configured in Portal."
+            exchange_url = self._join_url(ib2b_host, ib2b_uri)
+            exchange_choice, exchange_plan = self._egress(config or {}, "llm", hostname_of(exchange_url))
             ok, message, data = await self._http_json_request(
                 method="POST",
-                url=self._join_url(ib2b_host, ib2b_uri),
+                url=exchange_url,
                 headers={"Content-Type": "application/json", "Accept": "application/json"},
                 payload={
                     "input_token_state": {"token_type": "CREDENTIAL", "username": username, "password": password},
                     "output_token_state": {"token_type": "JWT"},
                 },
                 timeout=20.0,
+                client_kwargs=self._client_kwargs(exchange_choice, exchange_plan),
             )
             if not ok:
-                return False, f"AI Platform token exchange failed: {message}"
+                return False, f"AI Platform token exchange failed: {message}{self._path_text(exchange_choice, 'the model provider')}"
             token = str((data or {}).get("issued_token") or "").strip()
             if not token:
                 return False, "AI Platform token exchange did not return issued_token."
@@ -573,7 +591,16 @@ class RuntimeProfileTestService:
             }
             if usercase:
                 payload["user"] = usercase
-        return await self._provider_request("ai_platform", model, endpoint, headers, payload)
+        choice, plan = self._egress(config or {}, "llm", hostname_of(endpoint))
+        return await self._provider_request(
+            "ai_platform",
+            model,
+            endpoint,
+            headers,
+            payload,
+            client_kwargs=self._client_kwargs(choice, plan),
+            path_text=self._path_text(choice, "the model provider"),
+        )
 
     @staticmethod
     def _join_url(host: str, uri: str) -> str:
