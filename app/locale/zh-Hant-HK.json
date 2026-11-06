@@ -1623,6 +1623,7 @@
   "Route matching work into a writable agent.": "把匹配的工作交給一個可寫入的助手。",
   "Route member traffic through a proxy": "讓成員的流量經過代理",
   "Route the assistant's outbound traffic through a proxy": "讓助手的對外流量經過代理",
+  "rows must be daily or executions": "rows 必須是 daily 或 executions",
   "rule": "規則",
   "Rule Health": "規則健康狀況",
   "Rule {id}": "規則 {id}",

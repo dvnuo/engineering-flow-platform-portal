@@ -37,6 +37,26 @@ def _usage_float(value: Any) -> float | None:
     return number if number == number else None  # not NaN
 
 
+def _credits_source(payload: dict, source: dict, usage: dict) -> str | None:
+    """Where the credits figure comes from: the runtime's own label, else inferred from what it sent."""
+    explicit = payload.get("credits_source") or source.get("credits_source")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()[:32]
+    if _usage_float(usage.get("actual_credits")) is not None:
+        return "copilot_usage"
+    if _usage_float(usage.get("estimated_credits")) is not None:
+        return "estimate"
+    return None
+
+
+def _terminal_reason(payload: dict, source: dict) -> str | None:
+    for key in ("terminal_reason", "incomplete_reason"):
+        value = payload.get(key) or source.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:64]
+    return None
+
+
 def usage_fields_from_payload(payload: Any) -> dict[str, Any]:
     """The usage columns a runtime's final payload carries, for ``AgentExecutionRepository.mark_status``.
 
@@ -69,6 +89,9 @@ def usage_fields_from_payload(payload: Any) -> dict[str, Any]:
         "cached_input_tokens": _usage_int(usage, "cached_input_tokens", "cache_read_tokens"),
         "reasoning_tokens": _usage_int(usage, "reasoning_tokens"),
         "estimated_credits": _usage_float(usage.get("estimated_credits")),
+        "actual_credits": _usage_float(usage.get("actual_credits")),
+        "credits_source": _credits_source(payload, source, usage),
+        "terminal_reason": _terminal_reason(payload, source),
     }
     return {key: value for key, value in fields.items() if value is not None}
 

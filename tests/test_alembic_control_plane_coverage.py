@@ -6,6 +6,7 @@ REQUIRED_NEW_TABLES = {
     "agent_tasks",
     "runtime_capability_catalog_snapshots",
     "session_shares",
+    "usage_daily_rollups",
     "user_connectors",
 }
 
