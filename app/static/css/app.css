@@ -3159,52 +3159,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .portal-admin-member-toolbar-actions .portal-form-select {
   width: auto;
 }
-
-/* Administration > Usage: bar charts per day, breakdown tables, connector meters. */
-.portal-admin-usage-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.portal-admin-usage-toolbar .portal-form-select {
-  width: auto;
-}
-
-.portal-admin-usage-toolbar .portal-btn {
-  text-decoration: none;
-}
-
-.portal-admin-usage-summary {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-}
-
-.portal-usage-sub {
-  display: block;
-  margin-top: 3px;
-  color: var(--portal-text-muted);
-  font-size: 11px;
-}
-
-.portal-admin-usage-charts,
-.portal-admin-usage-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 12px;
-  align-items: start;
-}
-
-.portal-usage-chart {
-  display: grid;
-  gap: 8px;
-}
-
-.portal-usage-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 120px;
 /* The member drawer: the member's daily credits and models under their row. */
 .portal-admin-member-name {
   padding: 0;
@@ -3292,8 +3246,100 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   border-bottom: 1px solid var(--portal-border);
 }
 
-.portal-usage-bar {
 .portal-member-usage-bar {
+  flex: 1 1 0;
+  min-width: 1px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.portal-member-usage-bar i {
+  display: block;
+  width: 100%;
+  height: max(2px, var(--h, 0%));
+  border-radius: 2px 2px 0 0;
+  background: var(--portal-accent);
+  opacity: .85;
+}
+
+.portal-member-usage-bar.is-empty i {
+  background: var(--portal-border);
+}
+
+.portal-member-usage-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--portal-text-muted);
+  font-size: 11px;
+}
+
+.portal-member-usage-table th.is-number,
+.portal-member-usage-table td.is-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-member-usage-table .is-muted {
+  color: var(--portal-text-muted);
+}
+
+@media (max-width: 960px) {
+  .portal-member-usage-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Administration > Usage: bar charts per day, breakdown tables, connector meters. */
+.portal-admin-usage-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.portal-admin-usage-toolbar .portal-form-select {
+  width: auto;
+}
+
+.portal-admin-usage-toolbar .portal-btn {
+  text-decoration: none;
+}
+
+.portal-admin-usage-summary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.portal-usage-sub {
+  display: block;
+  margin-top: 3px;
+  color: var(--portal-text-muted);
+  font-size: 11px;
+}
+
+.portal-admin-usage-charts,
+.portal-admin-usage-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.portal-usage-chart {
+  display: grid;
+  gap: 8px;
+}
+
+.portal-usage-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+  padding: 4px 2px 0;
+  border-bottom: 1px solid var(--portal-border);
+}
+
+.portal-usage-bar {
   flex: 1 1 0;
   min-width: 1px;
   height: 100%;
@@ -3306,11 +3352,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   width: 100%;
   height: max(2px, var(--h, 0%));
   border-radius: 3px 3px 0 0;
-.portal-member-usage-bar i {
-  display: block;
-  width: 100%;
-  height: max(2px, var(--h, 0%));
-  border-radius: 2px 2px 0 0;
   background: var(--portal-accent);
   opacity: .85;
 }
@@ -3325,11 +3366,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 }
 
 .portal-usage-axis {
-.portal-member-usage-bar.is-empty i {
-  background: var(--portal-border);
-}
-
-.portal-member-usage-axis {
   display: flex;
   justify-content: space-between;
   color: var(--portal-text-muted);
@@ -3372,20 +3408,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   text-align: right;
   color: var(--portal-text);
   font-variant-numeric: tabular-nums;
-.portal-member-usage-table th.is-number,
-.portal-member-usage-table td.is-number {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.portal-member-usage-table .is-muted {
-  color: var(--portal-text-muted);
-}
-
-@media (max-width: 960px) {
-  .portal-member-usage-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .portal-admin-username-list-field textarea {
