@@ -77,12 +77,86 @@
     return response.json();
   }
 
+  // The panel keeps the period its consumption columns are summed over.
+  function selectedPeriodDays() {
+    var root = document.getElementById("admin-users-panel");
+    var select = root && root.querySelector("[data-admin-member-period]");
+    return String(select && select.value || root && root.dataset.periodDays || "30");
+  }
+
   async function reloadPanel(message, isError) {
-    await htmx.ajax("GET", "/app/users/panel", {
+    await htmx.ajax("GET", "/app/users/panel?days=" + encodeURIComponent(selectedPeriodDays()), {
       target: "#workspace-detail-content",
       swap: "innerHTML",
     });
     feedback(document.getElementById("admin-users-panel"), message, isError);
+  }
+
+  // ---- the member table: sorting by a column, export of what is shown ----
+
+  function memberRows(root) {
+    var body = root && root.querySelector("[data-admin-member-rows]");
+    return body ? Array.prototype.slice.call(body.querySelectorAll("tr[data-member-id]")) : [];
+  }
+
+  function cellSortValue(cell) {
+    if (!cell) return "";
+    var raw = cell.dataset.sortValue;
+    if (raw === undefined) return cell.textContent.trim().toLowerCase();
+    var number = Number(raw);
+    return Number.isFinite(number) && raw.trim() !== "" ? number : String(raw).toLowerCase();
+  }
+
+  function sortMemberTable(root, header) {
+    var table = header.closest("table");
+    var headers = Array.prototype.slice.call(table.querySelectorAll("th[data-sort-key]"));
+    var index = Array.prototype.indexOf.call(header.parentNode.children, header);
+    var direction = header.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
+    // Numbers sort descending first (the big consumers on top), text ascending.
+    if (header.getAttribute("aria-sort") === "none" || !header.getAttribute("aria-sort")) {
+      direction = header.dataset.sortType === "number" ? "descending" : "ascending";
+    }
+    headers.forEach(function (th) { th.setAttribute("aria-sort", th === header ? direction : "none"); });
+    var rows = memberRows(root);
+    var sign = direction === "ascending" ? 1 : -1;
+    rows.sort(function (a, b) {
+      var left = cellSortValue(a.children[index]);
+      var right = cellSortValue(b.children[index]);
+      if (left === right) return 0;
+      if (typeof left === "number" && typeof right === "number") return (left - right) * sign;
+      return String(left).localeCompare(String(right)) * sign;
+    });
+    var body = root.querySelector("[data-admin-member-rows]");
+    rows.forEach(function (row) { body.appendChild(row); });
+  }
+
+  function csvField(value) {
+    var text = String(value === undefined || value === null ? "" : value).replace(/\s+/g, " ").trim();
+    return /[",\n;]/.test(text) ? "\"" + text.replace(/"/g, "\"\"") + "\"" : text;
+  }
+
+  function exportMembersCsv(root) {
+    var table = root && root.querySelector("[data-admin-member-table]");
+    if (!table) return;
+    var headers = Array.prototype.slice.call(table.querySelectorAll("thead th"))
+      .filter(function (th) { return !th.hasAttribute("data-no-export"); })
+      .map(function (th) { return csvField(th.dataset.exportLabel || th.textContent); });
+    var lines = [headers.join(",")];
+    memberRows(root).forEach(function (row) {
+      if (row.hidden) return;
+      var cells = Array.prototype.slice.call(row.children).filter(function (td) { return !td.hasAttribute("data-no-export"); });
+      lines.push(cells.map(function (td) { return csvField(td.dataset.exportValue !== undefined ? td.dataset.exportValue : td.textContent); }).join(","));
+    });
+    var blob = new Blob([String.fromCharCode(0xFEFF) + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+    var link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "efp-members-" + selectedPeriodDays() + "d-" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    window.setTimeout(function () {
+      URL.revokeObjectURL(link.href);
+      link.remove();
+    }, 0);
   }
 
   function applyMemberFilters(root) {
@@ -164,6 +238,10 @@
       applyMemberFilters(panelRoot(event.target));
       return;
     }
+    if (event.target.closest("[data-admin-member-period]")) {
+      await reloadPanel("", false);
+      return;
+    }
 
     var option = event.target.closest("[data-admin-role-option]");
     if (!option) return;
@@ -220,6 +298,20 @@
     if (openButton) {
       event.preventDefault();
       openAllowlistModal();
+      return;
+    }
+
+    var sortHeader = event.target.closest("#admin-users-panel th[data-sort-key]");
+    if (sortHeader) {
+      event.preventDefault();
+      sortMemberTable(panelRoot(sortHeader), sortHeader);
+      return;
+    }
+
+    var exportButton = event.target.closest("[data-admin-member-export]");
+    if (exportButton) {
+      event.preventDefault();
+      exportMembersCsv(panelRoot(exportButton));
       return;
     }
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.i18n import N_
@@ -20,7 +20,7 @@ from app.schemas.user import (
 )
 from app.services.access_control_service import AccessControlService
 from app.services.auth_service import hash_password
-from app.services.member_management_service import MemberManagementService
+from app.services.member_management_service import DEFAULT_PERIOD_DAYS, PERIOD_DAYS_OPTIONS, MemberManagementService
 from app.services.runtime_profile_service import RuntimeProfileService
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -85,8 +85,14 @@ def list_users(_: object = Depends(require_admin), db: Session = Depends(get_db)
 
 
 @router.get("/admin-overview", response_model=MemberOverviewResponse)
-def admin_overview(_: object = Depends(require_admin), db: Session = Depends(get_db)):
-    return MemberOverviewResponse.model_validate(MemberManagementService(db).build_overview())
+def admin_overview(
+    _: object = Depends(require_admin),
+    db: Session = Depends(get_db),
+    days: int = Query(default=DEFAULT_PERIOD_DAYS, description="Period of the consumption columns: one of 7, 30, 90 days."),
+):
+    if days not in PERIOD_DAYS_OPTIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=N_("days must be one of 7, 30 or 90"))
+    return MemberOverviewResponse.model_validate(MemberManagementService(db).build_overview(days=days))
 
 
 @router.get("/{user_id}", response_model=UserResponse)

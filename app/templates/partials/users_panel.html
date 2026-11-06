@@ -1,4 +1,4 @@
-<div id="admin-users-panel" class="portal-panel-stack portal-admin-users">
+<div id="admin-users-panel" class="portal-panel-stack portal-admin-users" data-period-days="{{ period_days }}">
   <div class="portal-panel-header">
     <div>
       <h5 class="portal-panel-title">{{ t("Member administration") }}</h5>
@@ -11,13 +11,15 @@
     <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Members") }}</span><strong class="portal-usage-v">{{ summary.total_users }}</strong></div>
     <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Allowed") }}</span><strong class="portal-usage-v">{{ summary.allowed_users }}</strong></div>
     <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Administrators") }}</span><strong class="portal-usage-v" data-admin-summary-admins>{{ summary.admin_users }}</strong></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Active, last {n} days", n=period_days) }}</span><strong class="portal-usage-v">{{ summary.active_members_period }}</strong></div>
+    <div class="portal-usage-card"><span class="portal-usage-k">{{ t("Credits, last {n} days", n=period_days) }}</span><strong class="portal-usage-v">{{ '%.1f'|format(summary.credits_period_total) }}</strong></div>
   </div>
 
   <section class="portal-admin-members-section" aria-labelledby="registered-members-title">
     <div class="portal-panel-header">
       <div>
         <div class="portal-list-title" id="registered-members-title">{{ t("Registered members") }}</div>
-        <div class="portal-panel-note">{{ t("Search members, review usage, and manage access where the work happens.") }}</div>
+        <div class="portal-panel-note">{{ t("One row per member: access, what they run, and what it consumed over the selected period. Click a column to sort.") }}</div>
       </div>
       <span class="portal-panel-subtitle" data-admin-member-result-count>{{ t("{n} shown", n=users|length) }}</span>
     </div>
@@ -32,104 +34,126 @@
           <option value="blocked">{{ t("Needs access") }}</option>
         </select>
       </label>
+      <div class="portal-admin-member-toolbar-actions">
+        <select class="portal-form-select" aria-label="{{ t('Period of the consumption columns') }}" data-admin-member-period>
+          {% for option in period_options %}
+          <option value="{{ option }}" {% if option == period_days %}selected{% endif %}>{{ t("Last {n} days", n=option) }}</option>
+          {% endfor %}
+        </select>
+        <button class="portal-btn is-secondary" type="button" data-admin-member-export title="{{ t('Download the rows shown as a CSV file') }}">{{ t("Export CSV") }}</button>
+      </div>
     </div>
 
     {% if users %}
-    <div class="portal-panel-stack portal-admin-member-list">
-      {% for u in users %}
-        <article
-          class="portal-panel-section portal-admin-member-card"
-          data-member-id="{{ u.id }}"
-          data-member-username="{{ u.username|data_attr }}"
-          data-member-name="{{ (u.nickname or u.username)|data_attr }}"
-          data-member-access="{% if u.is_allowlisted %}allowed{% else %}blocked{% endif %}"
-        >
-          <div class="portal-panel-header portal-admin-member-heading">
-            <div>
-              <div class="portal-list-title">
-                {{ u.nickname or u.username }}
-                {% if u.id == current_user.id %}<span class="portal-admin-role-badge">{{ t("You") }}</span>{% endif %}
+    <div class="portal-data-table-wrap portal-admin-member-table-wrap">
+      <table class="portal-data-table portal-admin-member-table" data-admin-member-table>
+        <thead>
+          <tr>
+            <th data-sort-key="member" data-sort-type="text" aria-sort="none">{{ t("Member") }}</th>
+            <th data-sort-key="access" data-sort-type="text" aria-sort="none">{{ t("Access") }}</th>
+            <th class="is-number" data-sort-key="assistants" data-sort-type="number" aria-sort="none">{{ t("Assistants") }}</th>
+            <th class="is-number" data-sort-key="executions" data-sort-type="number" aria-sort="none" title="{{ t('Chat turns and task runs in the last {n} days', n=period_days) }}">{{ t("Executions") }}</th>
+            <th class="is-number" data-sort-key="chats" data-sort-type="number" aria-sort="none" title="{{ t('Chat turns in the last {n} days', n=period_days) }}">{{ t("Chats") }}</th>
+            <th class="is-number" data-sort-key="tasks" data-sort-type="number" aria-sort="none" title="{{ t('Completed / all tasks') }}">{{ t("Tasks") }}</th>
+            <th class="is-number" data-sort-key="delegations" data-sort-type="number" aria-sort="none">{{ t("Delegations") }}</th>
+            <th class="is-number" data-sort-key="credits" data-sort-type="number" aria-sort="none" title="{{ t('AI-credits estimate the runtimes reported in the last {n} days', n=period_days) }}">{{ t("Credits") }}</th>
+            <th class="is-number" data-sort-key="tokens-in" data-sort-type="number" aria-sort="none" title="{{ t('Input tokens in the last {n} days', n=period_days) }}">{{ t("Tokens in") }}</th>
+            <th class="is-number" data-sort-key="tokens-out" data-sort-type="number" aria-sort="none" title="{{ t('Output tokens in the last {n} days', n=period_days) }}">{{ t("Tokens out") }}</th>
+            <th class="is-number" data-sort-key="active-days" data-sort-type="number" aria-sort="none" title="{{ t('Days with any run in the last {n} days', n=period_days) }}">{{ t("Active days") }}</th>
+            <th data-sort-key="last-active" data-sort-type="text" aria-sort="none">{{ t("Last active") }}</th>
+            <th data-sort-key="joined" data-sort-type="text" aria-sort="none">{{ t("Joined") }}</th>
+            <th data-no-export>{{ t("Manage") }}</th>
+          </tr>
+        </thead>
+        <tbody data-admin-member-rows>
+          {% for u in users %}
+          <tr
+            class="portal-admin-member-row"
+            data-member-id="{{ u.id }}"
+            data-member-username="{{ u.username|data_attr }}"
+            data-member-name="{{ (u.nickname or u.username)|data_attr }}"
+            data-member-access="{% if u.is_allowlisted %}allowed{% else %}blocked{% endif %}"
+          >
+            <td data-sort-value="{{ (u.nickname or u.username)|lower|data_attr }}" data-export-value="{{ (u.nickname or u.username)|data_attr }} (@{{ u.username|data_attr }})">
+              <div class="portal-admin-member-identity">
+                <strong>{{ u.nickname or u.username }}{% if u.id == current_user.id %} <span class="portal-admin-role-badge">{{ t("You") }}</span>{% endif %}</strong>
+                <small>@{{ u.username }}</small>
               </div>
-              <div class="portal-panel-note">@{{ u.username }} · {{ t("Joined {date}", date=local_datetime(u.created_at, style='date'))|safe }}</div>
-            </div>
-            <div class="portal-admin-status-badges">
-              <span class="portal-admin-status-badge {% if u.is_allowlisted %}is-success{% else %}is-danger{% endif %}">
-                {% if u.is_allowlisted %}{{ t("Allowlisted") }}{% else %}{{ t("Blocked by allowlist") }}{% endif %}
-              </span>
-            </div>
-          </div>
-
-          <div class="portal-admin-usage-grid" aria-label="{{ t('Usage for {username}', username=u.username) }}">
-            <div><span>{{ t("Assistants") }}</span><strong>{{ u.assistant_count }}</strong></div>
-            <div><span>{{ t("Tasks") }}</span><strong>{{ u.task_count }}</strong></div>
-            <div><span>{{ t("Completed") }}</span><strong>{{ u.completed_task_count }}</strong></div>
-            <div><span>{{ t("Executions") }}</span><strong>{{ u.execution_count }}</strong></div>
-            <div><span>{{ t("Chats") }}</span><strong>{{ u.chat_count }}</strong></div>
-            <div><span>{{ t("Delegations") }}</span><strong>{{ u.delegation_count }}</strong></div>
-          </div>
-
-          <div class="portal-admin-activity-row">
-            <span>{{ t("Last sign-in: {time}", time=local_datetime(u.last_login_at, empty=t("Never")))|safe }}</span>
-            <span>{{ t("Last activity: {time}", time=local_datetime(u.last_activity_at, empty=t("No activity")))|safe }}</span>
-          </div>
-
-          <div class="portal-admin-member-controls">
-            <label class="portal-admin-role-control">
-              <span>{{ t("Role") }}</span>
-              <div
-                class="portal-role-toggle"
-                role="radiogroup"
-                aria-label="{{ t('Role for {username}', username=u.username) }}"
-                data-admin-role-group
-                data-user-id="{{ u.id }}"
-                data-original-role="{{ u.role }}"
-              >
-                <label class="portal-role-option">
-                  <input
-                    type="radio"
-                    name="role-{{ u.id }}"
-                    value="user"
-                    data-admin-role-option
-                    {% if u.role != 'admin' %}checked{% endif %}
-                    {% if u.id == current_user.id %}disabled{% endif %}
-                  />
-                  <span>{{ t("User") }}</span>
+            </td>
+            <td data-sort-value="{% if u.is_allowlisted %}0{% else %}1{% endif %}">
+              <span class="portal-admin-status-badge {% if u.is_allowlisted %}is-success{% else %}is-danger{% endif %}">{% if u.is_allowlisted %}{{ t("Allowlisted") }}{% else %}{{ t("Blocked by allowlist") }}{% endif %}</span>
+            </td>
+            <td class="is-number" data-sort-value="{{ u.assistant_count }}">{{ u.assistant_count }}</td>
+            <td class="is-number" data-sort-value="{{ u.execution_count_period }}">{{ u.execution_count_period }}</td>
+            <td class="is-number" data-sort-value="{{ u.chat_count_period }}">{{ u.chat_count_period }}</td>
+            <td class="is-number" data-sort-value="{{ u.task_count }}" data-export-value="{{ u.completed_task_count }} / {{ u.task_count }}">{{ u.completed_task_count }} / {{ u.task_count }}</td>
+            <td class="is-number" data-sort-value="{{ u.delegation_count }}">{{ u.delegation_count }}</td>
+            <td class="is-number" data-sort-value="{{ u.credits_period }}">{{ '%.1f'|format(u.credits_period) }}</td>
+            <td class="is-number" data-sort-value="{{ u.input_tokens_period }}" data-export-value="{{ u.input_tokens_period }}">{{ "{:,}".format(u.input_tokens_period) }}</td>
+            <td class="is-number" data-sort-value="{{ u.output_tokens_period }}" data-export-value="{{ u.output_tokens_period }}">{{ "{:,}".format(u.output_tokens_period) }}</td>
+            <td class="is-number" data-sort-value="{{ u.active_days_period }}">{{ u.active_days_period }}</td>
+            <td class="is-muted" data-sort-value="{{ u.last_activity_at.isoformat() if u.last_activity_at else '' }}" title="{{ t('Last sign-in: {time}', time=local_datetime(u.last_login_at, empty=t('Never')))|striptags }}">{{ local_datetime(u.last_activity_at, empty=t("No activity"))|safe }}</td>
+            <td class="is-muted" data-sort-value="{{ u.created_at.isoformat() if u.created_at else '' }}">{{ local_datetime(u.created_at, style='date')|safe }}</td>
+            <td data-no-export>
+              <div class="portal-admin-member-controls">
+                <label class="portal-admin-role-control">
+                  <span>{{ t("Role") }}</span>
+                  <div
+                    class="portal-role-toggle"
+                    role="radiogroup"
+                    aria-label="{{ t('Role for {username}', username=u.username) }}"
+                    data-admin-role-group
+                    data-user-id="{{ u.id }}"
+                    data-original-role="{{ u.role }}"
+                  >
+                    <label class="portal-role-option">
+                      <input
+                        type="radio"
+                        name="role-{{ u.id }}"
+                        value="user"
+                        data-admin-role-option
+                        {% if u.role != 'admin' %}checked{% endif %}
+                        {% if u.id == current_user.id %}disabled{% endif %}
+                      />
+                      <span>{{ t("User") }}</span>
+                    </label>
+                    <label class="portal-role-option">
+                      <input
+                        type="radio"
+                        name="role-{{ u.id }}"
+                        value="admin"
+                        data-admin-role-option
+                        {% if u.role == 'admin' %}checked{% endif %}
+                        {% if u.id == current_user.id %}disabled{% endif %}
+                      />
+                      <span>{{ t("Admin") }}</span>
+                    </label>
+                  </div>
                 </label>
-                <label class="portal-role-option">
-                  <input
-                    type="radio"
-                    name="role-{{ u.id }}"
-                    value="admin"
-                    data-admin-role-option
-                    {% if u.role == 'admin' %}checked{% endif %}
-                    {% if u.id == current_user.id %}disabled{% endif %}
-                  />
-                  <span>{{ t("Admin") }}</span>
-                </label>
+                <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}{{ t("Current account") }}{% endif %}</span>
+                <div class="portal-admin-member-actions">
+                  {% if u.allowlist_entry_id and u.id != current_user.id %}
+                  <button
+                    class="portal-btn is-danger"
+                    type="button"
+                    data-remove-allowlist="{{ u.allowlist_entry_id }}"
+                    data-allowlist-username="{{ u.username|data_attr }}"
+                  >{{ t("Revoke") }}</button>
+                  {% elif not u.is_allowlisted %}
+                  <button
+                    class="portal-btn is-secondary"
+                    type="button"
+                    data-allow-member
+                    data-username="{{ u.username|data_attr }}"
+                  >{{ t("Allow") }}</button>
+                  {% endif %}
+                </div>
               </div>
-            </label>
-            <span class="portal-admin-role-status" data-admin-role-status aria-live="polite">{% if u.id == current_user.id %}{{ t("Current account") }}{% endif %}</span>
-            <div class="portal-admin-member-actions">
-              {% if u.allowlist_entry_id and u.id != current_user.id %}
-              <button
-                class="portal-btn is-danger"
-                type="button"
-                data-remove-allowlist="{{ u.allowlist_entry_id }}"
-                data-allowlist-username="{{ u.username|data_attr }}"
-              >{{ t("Revoke") }}</button>
-              {% elif not u.is_allowlisted %}
-              <button
-                class="portal-btn is-secondary"
-                type="button"
-                data-allow-member
-                data-username="{{ u.username|data_attr }}"
-              >{{ t("Allow") }}</button>
-              {% endif %}
-            </div>
-          </div>
-
-        </article>
-      {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
     <div class="portal-panel-empty" data-admin-member-filter-empty hidden>{{ t("No members match this search.") }}</div>
     {% else %}

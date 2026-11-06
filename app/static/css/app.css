@@ -3021,11 +3021,103 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   .portal-role-option > span { transition: none; }
 }
 
-.portal-admin-member-list {
+/* One row per member. The wrap scrolls sideways on a narrow pane; numbers are
+   right-aligned; a sortable header shows its direction. */
+.portal-admin-member-table-wrap {
+  overflow: auto;
+}
+
+.portal-admin-member-table th,
+.portal-admin-member-table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* The member stays in view while the wide table scrolls sideways. */
+.portal-admin-member-table th:first-child,
+.portal-admin-member-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--portal-surface);
+  box-shadow: 1px 0 0 var(--portal-border);
+}
+
+.portal-admin-member-table th:first-child {
+  z-index: 2;
+  background: var(--portal-surface-soft);
+}
+
+.portal-admin-member-table th,
+.portal-admin-member-table td {
+  padding: 8px 10px;
+}
+
+.portal-admin-member-table th.is-number,
+.portal-admin-member-table td.is-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal-admin-member-table th[data-sort-key] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.portal-admin-member-table th[data-sort-key]:hover {
+  color: var(--portal-text);
+}
+
+.portal-admin-member-table th[data-sort-key]::after {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 5px;
+  vertical-align: middle;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0;
+}
+
+.portal-admin-member-table th[aria-sort="descending"]::after {
+  opacity: .8;
+}
+
+.portal-admin-member-table th[aria-sort="ascending"]::after {
+  opacity: .8;
+  transform: rotate(180deg);
+}
+
+.portal-admin-member-table .portal-admin-member-identity {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
-  gap: 10px;
-  align-items: start;
+  gap: 2px;
+  min-width: 160px;
+}
+
+.portal-admin-member-table .portal-admin-member-identity strong {
+  color: var(--portal-text);
+  font-size: 13px;
+}
+
+.portal-admin-member-table .portal-admin-member-identity small {
+  color: var(--portal-text-muted);
+  font-size: 11px;
+}
+
+.portal-admin-member-table td.is-muted {
+  color: var(--portal-text-muted);
+}
+
+.portal-admin-member-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal-admin-member-toolbar-actions .portal-form-select {
+  width: auto;
 }
 
 .portal-admin-username-list-field textarea {
@@ -3075,7 +3167,8 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 
 .portal-admin-member-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 420px) 160px;
+  grid-template-columns: minmax(220px, 420px) 160px auto;
+  align-items: center;
   gap: 10px;
 }
 
@@ -3083,7 +3176,7 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   min-width: 0;
 }
 
-.portal-admin-member-card[hidden],
+.portal-admin-member-table tr[hidden],
 [data-admin-member-filter-empty][hidden] {
   display: none;
 }
@@ -3178,38 +3271,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   background: color-mix(in srgb, #ef4444 9%, transparent);
 }
 
-.portal-admin-usage-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 14px 0;
-}
-
-.portal-admin-usage-grid > div {
-  display: grid;
-  gap: 3px;
-  border: 1px solid var(--portal-border);
-  border-radius: 10px;
-  padding: 9px;
-  background: color-mix(in srgb, var(--portal-surface) 88%, var(--portal-app-bg));
-}
-
-.portal-admin-usage-grid span,
-.portal-admin-activity-row {
-  color: var(--portal-text-muted);
-  font-size: 11px;
-}
-
-.portal-admin-usage-grid strong {
-  color: var(--portal-text);
-  font-size: 16px;
-}
-
-.portal-admin-activity-row {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  margin-bottom: 14px;
-}
 
 .portal-admin-member-controls {
   display: grid;
@@ -3218,6 +3279,19 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   gap: 10px;
   padding-top: 12px;
   border-top: 1px solid var(--portal-border);
+}
+
+/* Inside a table cell the row has no separator of its own. */
+.portal-admin-member-table td .portal-admin-member-controls {
+  grid-template-columns: auto minmax(96px, auto) auto;
+  width: max-content;
+  gap: 10px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.portal-admin-member-table td:last-child {
+  min-width: 300px;
 }
 
 .portal-admin-role-status {
@@ -3265,9 +3339,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
     justify-content: flex-start;
   }
 
-  .portal-admin-usage-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 
   .portal-admin-member-heading {
     align-items: flex-start;

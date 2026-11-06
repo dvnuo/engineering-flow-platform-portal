@@ -124,7 +124,7 @@ from app.services.runtime_profile_test_service import RuntimeProfileTestService
 from app.services.session_context_preview import merge_runtime_sessions_with_metadata
 from app.services.work_overview import WorkOverviewService
 from app.services.work_visibility import can_see as _can_see_work
-from app.services.member_management_service import MemberManagementService
+from app.services.member_management_service import PERIOD_DAYS_OPTIONS, MemberManagementService, normalize_period_days
 from app.utils.runtime_proxy_query import _filter_runtime_file_upload_query_items
 from app.utils.chat_upload_policy import get_chat_upload_policy
 from app.utils.task_sessions import is_task_session_id as _session_id_is_task_session
@@ -3043,12 +3043,15 @@ async def app_users_panel(request: Request):
 
     db = SessionLocal()
     try:
-        overview = MemberManagementService(db).build_overview()
+        # The consumption columns' period (7, 30 or 90 days); the panel's
+        # period select reloads it with ?days=.
+        overview = MemberManagementService(db).build_overview(days=normalize_period_days(request.query_params.get("days")))
         return templates.TemplateResponse(
             "partials/users_panel.html",
             {
                 "request": request,
                 "current_user": user,
+                "period_options": PERIOD_DAYS_OPTIONS,
                 **overview,
             },
         )
