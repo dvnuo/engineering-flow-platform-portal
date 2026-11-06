@@ -3027,10 +3027,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
   overflow: auto;
 }
 
-.portal-admin-member-table {
-  min-width: 1180px;
-}
-
 .portal-admin-member-table th,
 .portal-admin-member-table td {
   vertical-align: middle;
