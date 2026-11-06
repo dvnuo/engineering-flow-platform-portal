@@ -33,6 +33,9 @@ class AgentTask(Base):
     version_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     dedupe_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    # Who may read the task: "private" (the owner and admins) or "public"
+    # (every member); see app/services/work_visibility.py.
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private", index=True)
     owner_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     runtime_request_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)

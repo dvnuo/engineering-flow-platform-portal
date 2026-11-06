@@ -32,6 +32,30 @@
     <div><span>{{ t("Status") }}</span><strong>{{ tv(task_view_model.status_label|replace('_', ' ')) }}</strong></div>
     <div><span>{{ t("Agent") }}</span><strong>{{ task_view_model.assignee_agent_label }}</strong></div>
     <div><span>{{ t("Owner") }}</span><strong>{{ task_view_model.owner_display_name }}</strong></div>
+    <div class="portal-task-visibility-cell">
+      <span>{{ t("Visibility") }}</span>
+      {% if task_view_model.can_change_visibility %}
+      <div
+        class="portal-role-toggle portal-visibility-toggle"
+        role="radiogroup"
+        aria-label="{{ t('Who can see this task') }}"
+        data-task-visibility-group
+        data-task-id="{{ task.id }}"
+        data-original-visibility="{{ task_view_model.visibility }}"
+      >
+        <label class="portal-role-option" title="{{ t('Only you and administrators') }}">
+          <input type="radio" name="task-visibility-{{ task.id }}" value="private" data-task-visibility-option {% if task_view_model.visibility != 'public' %}checked{% endif %} />
+          <span>{{ t("Private") }}</span>
+        </label>
+        <label class="portal-role-option" title="{{ t('Every member of the Portal') }}">
+          <input type="radio" name="task-visibility-{{ task.id }}" value="public" data-task-visibility-option {% if task_view_model.visibility == 'public' %}checked{% endif %} />
+          <span>{{ t("Public") }}</span>
+        </label>
+      </div>
+      {% else %}
+      <strong>{% if task_view_model.visibility == 'public' %}{{ t("Public") }}{% else %}{{ t("Private") }}{% endif %}</strong>
+      {% endif %}
+    </div>
     <div><span>{{ t("Skill") }}</span><strong>/{{ task_view_model.skill_name }}</strong></div>
     <div><span>{{ t("Duration") }}</span><strong>{{ task_view_model.duration_label }}</strong></div>
   </section>

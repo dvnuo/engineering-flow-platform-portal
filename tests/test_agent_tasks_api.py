@@ -144,8 +144,9 @@ def test_owner_can_create_task_for_owned_agent():
         cleanup()
 
 
-def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
-    client, db, owned_agent, other_agent, _admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
+def test_get_my_tasks_lists_own_and_public_tasks_with_owner_management_flags():
+    """A member's list: their own tasks and the public ones; an admin's: every task."""
+    client, db, owned_agent, other_agent, admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
     try:
         owned_task = AgentTask(
             assignee_agent_id=owned_agent.id,
@@ -167,6 +168,7 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
             title="Created task",
             task_type="created",
             status="running",
+            visibility="public",
             summary="Shared work created by owner",
         )
         hidden_task = AgentTask(
@@ -185,21 +187,21 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
         response = client.get("/api/my/tasks")
         assert response.status_code == 200
         by_type = {item["task_type"]: item for item in response.json()}
-        assert set(by_type) == {"owned", "created", "hidden"}
+        assert set(by_type) == {"owned", "created"}, "the other member's private task is not listed"
         assert by_type["owned"]["owner_display_name"] == owner_user.username
         assert by_type["owned"]["can_manage"] is True
+        assert by_type["owned"]["visibility"] == "private"
         assert by_type["owned"]["display_title"] == "Owned review task"
         assert "input_payload_json" not in by_type["owned"]
         assert "result_payload_json" not in by_type["owned"]
         assert "summary" not in by_type["owned"]
         assert by_type["created"]["owner_display_name"] == other_user.username
         assert by_type["created"]["can_manage"] is False
-        assert by_type["hidden"]["owner_display_name"] == other_user.username
-        assert by_type["hidden"]["can_manage"] is False
+        assert by_type["created"]["visibility"] == "public"
 
-        paged = client.get("/api/my/tasks?limit=2&offset=0")
+        paged = client.get("/api/my/tasks?limit=1&offset=0")
         assert paged.status_code == 200
-        assert len(paged.json()) == 2
+        assert len(paged.json()) == 1
 
         active = client.get("/api/my/tasks?status=active")
         assert active.status_code == 200
@@ -207,7 +209,7 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
 
         attention = client.get("/api/my/tasks?status=attention")
         assert attention.status_code == 200
-        assert [item["task_type"] for item in attention.json()] == ["hidden"]
+        assert attention.json() == []
 
         mine = client.get("/api/my/tasks?owner=mine")
         assert mine.status_code == 200
@@ -215,13 +217,19 @@ def test_get_my_tasks_lists_all_tasks_with_owner_management_flags():
 
         searched = client.get("/api/my/tasks?q=deployment")
         assert searched.status_code == 200
-        assert [item["task_type"] for item in searched.json()] == ["hidden"]
+        assert searched.json() == []
+
+        set_user(admin_user)
+        everything = client.get("/api/my/tasks")
+        assert {item["task_type"] for item in everything.json()} == {"owned", "created", "hidden"}
+        assert [item["task_type"] for item in client.get("/api/my/tasks?status=attention").json()] == ["hidden"]
+        assert [item["task_type"] for item in client.get("/api/my/tasks?q=deployment").json()] == ["hidden"]
     finally:
         cleanup()
 
 
 def test_get_agent_task_detail_visibility_rules():
-    client, db, owned_agent, other_agent, _admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
+    client, db, owned_agent, other_agent, admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
     try:
         visible_task = AgentTask(
             assignee_agent_id=owned_agent.id,
@@ -245,10 +253,65 @@ def test_get_agent_task_detail_visibility_rules():
         set_user(owner_user)
         allowed = client.get(f"/api/agent-tasks/{visible_task.id}")
         assert allowed.status_code == 200
+        assert allowed.json()["visibility"] == "private"
 
+        # Another member's private task does not exist for this member.
+        assert client.get(f"/api/agent-tasks/{hidden_task.id}").status_code == 404
+
+        hidden_task.visibility = "public"
+        db.commit()
         visible_to_all = client.get(f"/api/agent-tasks/{hidden_task.id}")
         assert visible_to_all.status_code == 200
         assert visible_to_all.json()["can_manage"] is False
+        assert visible_to_all.json()["visibility"] == "public"
+
+        hidden_task.visibility = "private"
+        db.commit()
+        set_user(admin_user)
+        assert client.get(f"/api/agent-tasks/{hidden_task.id}").status_code == 200
+    finally:
+        cleanup()
+
+
+def test_owner_or_admin_sets_task_visibility_and_others_cannot():
+    client, db, owned_agent, _other_agent, admin_user, owner_user, other_user, set_user, cleanup = _build_client_with_overrides()
+    try:
+        task = AgentTask(assignee_agent_id=owned_agent.id, owner_user_id=owner_user.id, source="portal", task_type="shareable", status="done")
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        # Invisible to another member: 404, not 403, so the id leaks nothing.
+        set_user(other_user)
+        assert client.patch(f"/api/agent-tasks/{task.id}/visibility", json={"visibility": "public"}).status_code == 404
+
+        set_user(owner_user)
+        bad = client.patch(f"/api/agent-tasks/{task.id}/visibility", json={"visibility": "team"})
+        assert bad.status_code == 400
+        shared = client.patch(f"/api/agent-tasks/{task.id}/visibility", json={"visibility": "public"})
+        assert shared.status_code == 200
+        assert shared.json()["visibility"] == "public"
+        db.refresh(task)
+        assert task.visibility == "public"
+
+        # Visible now, but only the owner (or an admin) decides.
+        set_user(other_user)
+        assert client.get(f"/api/agent-tasks/{task.id}").status_code == 200
+        assert client.patch(f"/api/agent-tasks/{task.id}/visibility", json={"visibility": "private"}).status_code == 403
+
+        set_user(admin_user)
+        hidden = client.patch(f"/api/agent-tasks/{task.id}/visibility", json={"visibility": "private"})
+        assert hidden.status_code == 200 and hidden.json()["visibility"] == "private"
+
+        # A task created through the API takes the requested visibility, private by default.
+        set_user(owner_user)
+        created = client.post(
+            "/api/agent-tasks",
+            json={"assignee_agent_id": owned_agent.id, "source": "portal", "task_type": "review", "visibility": "public"},
+        )
+        assert created.status_code == 200 and created.json()["visibility"] == "public"
+        default = client.post("/api/agent-tasks", json={"assignee_agent_id": owned_agent.id, "source": "portal", "task_type": "review"})
+        assert default.status_code == 200 and default.json()["visibility"] == "private"
     finally:
         cleanup()
 

@@ -19,6 +19,8 @@ class DelegationRuleCreate(BaseModel):
     model_override: Optional[str] = None
     reasoning_effort: Optional[str] = None
     max_context_tokens: Optional[int] = None
+    # "private" (default: the owner and admins) or "public" (every member); its tasks inherit it.
+    visibility: Optional[str] = None
 
     @field_validator("name", "target_agent_id", "skill_name", "source")
     @classmethod
@@ -54,6 +56,7 @@ class DelegationRuleUpdate(BaseModel):
     model_override: Optional[str] = None
     reasoning_effort: Optional[str] = None
     max_context_tokens: Optional[int] = None
+    visibility: Optional[str] = None
 
     @field_validator("name", "target_agent_id", "skill_name", "source")
     @classmethod
@@ -114,6 +117,7 @@ class DelegationRuleRead(BaseModel):
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     locked_until: Optional[datetime] = None
+    visibility: str = "private"
     owner_user_id: Optional[int] = None
     created_by_user_id: Optional[int] = None
     owner_display_name: Optional[str] = None
@@ -154,6 +158,7 @@ class DelegationRuleRead(BaseModel):
                 "last_run_at": getattr(value, "last_run_at", None),
                 "next_run_at": getattr(value, "next_run_at", None),
                 "locked_until": getattr(value, "locked_until", None),
+                "visibility": getattr(value, "visibility", None) or "private",
                 "owner_user_id": getattr(value, "owner_user_id", None),
                 "created_by_user_id": getattr(value, "created_by_user_id", None),
                 "created_at": getattr(value, "created_at", None),
@@ -187,6 +192,7 @@ class DelegationRuleListItemRead(BaseModel):
     target_agent_id: str
     source: str
     trigger_type: str
+    visibility: str = "private"
     owner_user_id: Optional[int] = None
     created_by_user_id: Optional[int] = None
     owner_display_name: Optional[str] = None

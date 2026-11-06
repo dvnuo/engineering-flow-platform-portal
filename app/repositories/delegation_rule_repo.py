@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.models.delegation_rule import DelegationRule, DelegationRuleEvent, DelegationRuleRun
 from app.models.user import User
+from app.services.work_visibility import visibility_clause
 
 
 class DelegationRuleRepository:
@@ -44,7 +45,8 @@ class DelegationRuleRepository:
     def get(self, rule_id: str) -> DelegationRule | None:
         return self.db.get(DelegationRule, rule_id)
 
-    def list(self, limit: int = 100, offset: int = 0, enabled: bool | None = None) -> list[DelegationRule]:
+    def list(self, limit: int = 100, offset: int = 0, enabled: bool | None = None, user=None) -> list[DelegationRule]:
+        """Rules newest first; with ``user``, only the ones they may read (their own and the public ones)."""
         if limit <= 0:
             return []
         collected: list[DelegationRule] = []
@@ -54,6 +56,9 @@ class DelegationRuleRepository:
             stmt = select(DelegationRule).order_by(DelegationRule.created_at.desc()).offset(batch_offset).limit(batch_size)
             if enabled is not None:
                 stmt = stmt.where(DelegationRule.enabled.is_(enabled))
+            visible = visibility_clause(DelegationRule, user) if user is not None else None
+            if visible is not None:
+                stmt = stmt.where(visible)
             rows = list(self.db.scalars(stmt).all())
             if not rows:
                 break
@@ -66,7 +71,7 @@ class DelegationRuleRepository:
             batch_offset += len(rows)
         return collected
 
-    def list_summaries(self, limit: int = 100, offset: int = 0, enabled: bool | None = None) -> list[dict]:
+    def list_summaries(self, limit: int = 100, offset: int = 0, enabled: bool | None = None, user=None) -> list[dict]:
         if limit <= 0:
             return []
         collected: list[dict] = []
@@ -84,6 +89,7 @@ class DelegationRuleRepository:
                     DelegationRule.last_run_at.label("last_run_at"),
                     DelegationRule.next_run_at.label("next_run_at"),
                     DelegationRule.owner_user_id.label("owner_user_id"),
+                    DelegationRule.visibility.label("visibility"),
                     DelegationRule.created_by_user_id.label("created_by_user_id"),
                     DelegationRule.created_at.label("created_at"),
                     DelegationRule.updated_at.label("updated_at"),
@@ -101,6 +107,9 @@ class DelegationRuleRepository:
             )
             if enabled is not None:
                 stmt = stmt.where(DelegationRule.enabled.is_(enabled))
+            visible = visibility_clause(DelegationRule, user) if user is not None else None
+            if visible is not None:
+                stmt = stmt.where(visible)
             rows = [dict(row._mapping) for row in self.db.execute(stmt).all()]
             if not rows:
                 break

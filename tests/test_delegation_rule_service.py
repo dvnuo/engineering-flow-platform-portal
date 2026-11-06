@@ -991,3 +991,27 @@ def test_get_or_create_event_by_dedupe_handles_unique_conflict():
     assert created1 is True
     assert created2 is False
     assert event1.id == event2.id
+
+
+@pytest.mark.parametrize("visibility, expected", [("public", "public"), (None, "private")])
+def test_a_rules_tasks_take_the_rules_visibility(visibility, expected):
+    db = _session()
+    user, agent = _create_user_agent(db, username="u-visibility")
+    svc = DelegationRuleService(db)
+    svc.dispatcher.dispatch_task_in_background = lambda task_id: None
+    rule = svc.create_rule(
+        DelegationRuleCreate(
+            name="rule-visibility",
+            target_agent_id=agent.id,
+            skill_name="custom-skill",
+            source="timer",
+            task_prompt="Run the scheduled portal review.",
+            schedule={"type": "cron", "expression": "30 9 * * 1-5", "timezone": "Asia/Shanghai"},
+            visibility=visibility,
+        ),
+        current_user_id=user.id,
+    )
+    assert rule.visibility == expected
+    asyncio.run(svc.run_rule_once(rule.id, triggered_by="test"))
+    task = db.query(AgentTask).one()
+    assert task.visibility == expected, "a rule's tasks take the rule's visibility"

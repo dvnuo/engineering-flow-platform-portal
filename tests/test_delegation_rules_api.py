@@ -426,12 +426,14 @@ def test_delegation_rule_detail_survives_deleted_target_agent():
         cleanup()
 
 
-def test_non_owner_can_view_delegation_but_not_manage():
+def test_a_private_delegation_is_invisible_to_others_until_its_owner_makes_it_public():
     client, db, agents, cleanup = _build_client_with_overrides()
     try:
         create_resp = client.post("/api/delegation-rules", json=_payload(agents.both.id, "github_pr_review"))
         assert create_resp.status_code == 200
         created = create_resp.json()
+        assert created["visibility"] == "private"
+        assert client.post("/api/delegation-rules", json={**_payload(agents.both.id, "timer"), "task_prompt": "x", "visibility": "team"}).status_code == 400
 
         other = User(username="viewer", password_hash="pw", role="user", is_active=True)
         db.add(other)
@@ -441,18 +443,30 @@ def test_non_owner_can_view_delegation_but_not_manage():
         from app.main import app
         import app.api.delegation_rules as api_module
 
-        app.dependency_overrides[api_module.get_current_user] = lambda: SimpleNamespace(
-            id=other.id,
-            role=other.role,
-            username=other.username,
-            nickname=other.username,
-        )
+        owner_override = app.dependency_overrides[api_module.get_current_user]
+        viewer_override = lambda: SimpleNamespace(id=other.id, role=other.role, username=other.username, nickname=other.username)  # noqa: E731
+        app.dependency_overrides[api_module.get_current_user] = viewer_override
 
+        # Private: the viewer's list leaves it out and its routes answer 404, not 403.
+        assert created["id"] not in {item["id"] for item in client.get("/api/delegation-rules").json()}
+        assert client.get(f"/api/delegation-rules/{created['id']}").status_code == 404
+        assert client.get(f"/api/delegation-rules/{created['id']}/runs").status_code == 404
+        assert client.get(f"/api/delegation-rules/{created['id']}/events").status_code == 404
+        assert client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Nope"}).status_code == 404
+        assert client.delete(f"/api/delegation-rules/{created['id']}").status_code == 404
+
+        # The owner makes it public.
+        app.dependency_overrides[api_module.get_current_user] = owner_override
+        shared = client.patch(f"/api/delegation-rules/{created['id']}", json={"visibility": "public"})
+        assert shared.status_code == 200 and shared.json()["visibility"] == "public"
+
+        app.dependency_overrides[api_module.get_current_user] = viewer_override
         list_resp = client.get("/api/delegation-rules")
         assert list_resp.status_code == 200
         listed = {item["id"]: item for item in list_resp.json()}
         assert created["id"] in listed
         assert listed[created["id"]]["can_manage"] is False
+        assert listed[created["id"]]["visibility"] == "public"
         assert listed[created["id"]]["owner_display_name"] == "owner"
         assert listed[created["id"]]["source"] == created["source"]
         assert "task_prompt" not in listed[created["id"]]
@@ -465,12 +479,14 @@ def test_non_owner_can_view_delegation_but_not_manage():
         assert detail_resp.json()["can_manage"] is False
         assert "task_prompt" in detail_resp.json()
 
-        patch_resp = client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Nope"})
-        assert patch_resp.status_code == 403
+        # Visible now, but still only the owner manages it (visibility included).
+        assert client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Nope"}).status_code == 403
+        assert client.patch(f"/api/delegation-rules/{created['id']}", json={"visibility": "private"}).status_code == 403
+        assert client.delete(f"/api/delegation-rules/{created['id']}").status_code == 403
 
-        delete_resp = client.delete(f"/api/delegation-rules/{created['id']}")
-        assert delete_resp.status_code == 403
-
+        # An admin reads every rule, private ones included, and still does not manage it.
+        app.dependency_overrides[api_module.get_current_user] = owner_override
+        assert client.patch(f"/api/delegation-rules/{created['id']}", json={"visibility": "private"}).json()["visibility"] == "private"
         admin_non_owner = User(username="admin-viewer", password_hash="pw", role="admin", is_active=True)
         db.add(admin_non_owner)
         db.commit()
@@ -485,6 +501,7 @@ def test_non_owner_can_view_delegation_but_not_manage():
         admin_detail_resp = client.get(f"/api/delegation-rules/{created['id']}")
         assert admin_detail_resp.status_code == 200
         assert admin_detail_resp.json()["can_manage"] is False
+        assert created["id"] in {item["id"] for item in client.get("/api/delegation-rules").json()}
 
         admin_patch_resp = client.patch(f"/api/delegation-rules/{created['id']}", json={"name": "Still Nope"})
         assert admin_patch_resp.status_code == 403

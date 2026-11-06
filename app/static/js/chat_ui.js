@@ -12160,6 +12160,7 @@ function renderTaskNavList(errorMessage = "", { preserveScroll = false } = {}) {
       </div>
       <div class="portal-task-row-meta">
         <span>${t("Owner {owner}", { owner: safe(ownerLabel) })}</span>
+        ${visibilityChipHtml(task.visibility)}
         ${timeLabel ? `<span>${safe(timeLabel)}</span>` : ""}
       </div>
       ${taskNavScenarioProgressHtml(task.scenario_progress)}
@@ -16279,6 +16280,7 @@ function renderDelegationRuleNavList(rules = null) {
       </div>
       <div class="portal-task-row-meta">
         <span>${t("Owner {owner}", { owner: safe(ownerLabel) })}</span>
+        ${visibilityChipHtml(rule.visibility)}
         <span>${safe(timeLabel)}</span>
       </div>
     `;
@@ -16919,6 +16921,7 @@ async function openDelegationRulePanel(ruleId, { updateRoute = true } = {}) {
         <section class="portal-task-metrics portal-delegation-metrics">
           <div><span>${t("Source")}</span><strong>${safe(sourceLabel)}</strong></div>
           <div><span>${t("Owner")}</span><strong>${safe(ownerLabel)}</strong></div>
+          <div><span>${t("Visibility")}</span><strong>${visibilityLabel(detail.visibility)}</strong></div>
           <div><span>${t("Schedule")}</span><strong>${safe(scheduleLabel)}</strong></div>
           <div><span>${t("Last Run")}</span><strong>${safe(delegationDisplayTime(detail.last_run_at))}</strong></div>
           <div><span>${t("Next Run")}</span><strong>${safe(delegationDisplayTime(detail.next_run_at))}</strong></div>
@@ -17041,6 +17044,7 @@ async function openCreateDelegationRuleModal() {
             <label class="portal-form-label"><span class="portal-form-label">${t("Name")}</span><input class="portal-form-input" name="name" required /></label>
             <label class="portal-form-label"><span class="portal-form-label">${t("Agent")}</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
             ${inferenceSettingsFieldsHtml()}
+            ${visibilityToggleFieldsHtml("private")}
             <label class="portal-toggle-field"><span>${t("Enabled")}</span><span class="toggle-switch" aria-label="${t("Enabled")}"><input type="checkbox" name="enabled" checked /><span class="toggle-slider"></span></span></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
@@ -17120,6 +17124,7 @@ async function openEditDelegationRuleModal(ruleId) {
           data-current-step="basics"
           data-rule-id="${escapeHtmlAttr(detail.id)}"
           data-original-name="${escapeHtmlAttr(detail.name || "")}"
+          data-original-visibility="${escapeHtmlAttr(detail.visibility || "private")}"
           data-original-target-agent-id="${escapeHtmlAttr(currentAgentId)}"
           data-original-source="${escapeHtmlAttr(sourceValue)}"
           data-original-source-scope="${delegationJsonAttr(sourceScope)}"
@@ -17159,6 +17164,7 @@ async function openEditDelegationRuleModal(ruleId) {
             <label class="portal-form-label"><span class="portal-form-label">${t("Name")}</span><input class="portal-form-input" name="name" value="${escapeHtmlAttr(detail.name || "")}" required /></label>
             <label class="portal-form-label"><span class="portal-form-label">${t("Agent")}</span><select class="portal-form-select" name="target_agent_id" required>${agentOptions}</select></label>
             ${inferenceSettingsFieldsHtml()}
+            ${visibilityToggleFieldsHtml(detail.visibility)}
             <label class="portal-toggle-field"><span>${t("Enabled")}</span><span class="toggle-switch" aria-label="${t("Enabled")}"><input type="checkbox" name="enabled" ${detail.enabled ? "checked" : ""} /><span class="toggle-slider"></span></span></label>
           </section>
           <section class="create-agent-step-panel hidden" data-wizard-step-panel="source">
@@ -17211,6 +17217,7 @@ async function submitCreateDelegationRule(formEl) {
     interval_seconds: schedule.type === "interval" ? schedule.interval_seconds : Number(fd.get("interval_seconds") || 60),
     schedule,
     enabled: fd.get("enabled") !== null,
+    visibility: selectedVisibility(fd),
     ...collectInferenceSettings(formEl),
   };
   if (isDelegationTimerSource(source)) payload.task_prompt = collectDelegationTaskPrompt(formEl);
@@ -17258,6 +17265,8 @@ async function submitEditDelegationRule(formEl) {
   if (schedule.type === "interval" && intervalSeconds !== Number(formEl.dataset.originalIntervalSeconds || 60)) payload.interval_seconds = intervalSeconds;
   if (isDelegationTimerSource(source) && taskPrompt !== originalTaskPrompt) payload.task_prompt = taskPrompt;
   if (enabled !== (formEl.dataset.originalEnabled === "true")) payload.enabled = enabled;
+  const visibility = selectedVisibility(fd);
+  if (visibility !== String(formEl.dataset.originalVisibility || "private")) payload.visibility = visibility;
   if (modelOverride !== String(formEl.dataset.originalModelOverride || "")) payload.model_override = modelOverride || null;
   if (reasoningEffort !== String(formEl.dataset.originalReasoningEffort || "")) payload.reasoning_effort = reasoningEffort || null;
   if (maxContextTokens !== (Number(formEl.dataset.originalMaxContextTokens || 0) || null)) payload.max_context_tokens = maxContextTokens;
@@ -17362,6 +17371,7 @@ function renderTaskCreateReview(formEl) {
     [t("Context"), selectedOptionLabel(formEl, "max_context_tokens") || t("Automatic")],
     [t("Skill"), selectedOptionLabel(formEl, "skill_name") || t("Not selected")],
     [t("Task Content"), wizardPreviewText(formEl?.querySelector('[name="task_content"]')?.value)],
+    [t("Visibility"), visibilityLabel(formEl?.querySelector('[name="visibility"]:checked')?.value)],
     [t("Mode"), t("Background task")],
   ]);
 }
@@ -17398,6 +17408,7 @@ function renderDelegationReview(formEl) {
     [t("Source Filters"), delegationConditionSummaryLabel(source, scope, conditions)],
     [t("Skill"), selectedOptionLabel(formEl, "skill_name") || t("Not selected")],
     [t("Schedule"), delegationScheduleSummaryForForm(formEl)],
+    [t("Visibility"), visibilityLabel(formEl?.querySelector('[name="visibility"]:checked')?.value)],
     [t("Enabled"), formEl?.querySelector('[name="enabled"]')?.checked ? t("Yes") : t("No")],
   ];
   if (isDelegationTimerSource(source)) {
@@ -17767,11 +17778,58 @@ async function submitCreateAgentAsyncTask(formEl) {
       assignee_agent_id: String(fd.get("assignee_agent_id") || "").trim(),
       skill_name: String(fd.get("skill_name") || "").trim(),
       task_content: String(fd.get("task_content") || "").trim(),
+      visibility: selectedVisibility(fd),
       ...collectInferenceSettings(formEl),
     }),
   });
   await refreshMyTasks();
   await openTaskDetailInMain(created.id);
+}
+
+// Who may read a task or a delegation: "private" (the owner and admins, the
+// default) or "public" (every member); app/services/work_visibility.py.
+function selectedVisibility(formData) {
+  return String(formData?.get?.("visibility") || "").trim() === "public" ? "public" : "private";
+}
+
+function visibilityLabel(value) {
+  return String(value || "").trim().toLowerCase() === "public" ? t("Public") : t("Private");
+}
+
+function visibilityChipHtml(value) {
+  if (String(value || "").trim().toLowerCase() !== "public") return "";
+  return `<span class="portal-visibility-chip" title="${t("Every member of the Portal")}">${t("Public")}</span>`;
+}
+
+function visibilityToggleFieldsHtml(value, { label = t("Visibility"), ariaLabel = t("Who can see this delegation") } = {}) {
+  const isPublic = String(value || "").trim().toLowerCase() === "public";
+  return `<div class="portal-visibility-field"><span class="portal-form-label">${label}</span><div class="portal-role-toggle portal-visibility-toggle" role="radiogroup" aria-label="${ariaLabel}"><label class="portal-role-option" title="${t("Only you and administrators")}"><input type="radio" name="visibility" value="private" ${isPublic ? "" : "checked"} /><span>${t("Private")}</span></label><label class="portal-role-option" title="${t("Every member of the Portal")}"><input type="radio" name="visibility" value="public" ${isPublic ? "checked" : ""} /><span>${t("Public")}</span></label></div></div>`;
+}
+
+// The task detail's Private / Public pills: saved at once, put back on failure
+// so the control never shows a state the server did not accept.
+async function handleTaskVisibilityChange(option) {
+  const group = option.closest("[data-task-visibility-group]");
+  if (!group) return;
+  const taskId = String(group.dataset.taskId || "").trim();
+  const previous = String(group.dataset.originalVisibility || "private");
+  const next = option.value === "public" ? "public" : "private";
+  if (!taskId || previous === next) return;
+  group.classList.add("is-saving");
+  try {
+    const updated = await api(`/api/agent-tasks/${encodeURIComponent(taskId)}/visibility`, {
+      method: "PATCH",
+      body: JSON.stringify({ visibility: next }),
+    });
+    group.dataset.originalVisibility = updated.visibility || next;
+    showToast(updated.visibility === "public" ? t("Every member can now see this task.") : t("Only you and administrators can see this task now."), { variant: "success" });
+    await refreshMyTasks();
+  } catch (error) {
+    group.querySelectorAll("[data-task-visibility-option]").forEach((input) => { input.checked = input.value === previous; });
+    showToast(t("Unable to change visibility: {error}", { error: error.message }), { variant: "error" });
+  } finally {
+    group.classList.remove("is-saving");
+  }
 }
 
 async function submitContinueAgentTask(formEl) {
@@ -19011,6 +19069,10 @@ function bindEvents() {
   });
   dom.taskNavList?.addEventListener("scroll", () => {
     if (state.activeNavSection === "tasks") loadMoreTasksIfNeeded();
+  });
+  document.addEventListener("change", (event) => {
+    const option = event.target.closest("[data-task-visibility-option]");
+    if (option) handleTaskVisibilityChange(option);
   });
   dom.taskOwnerFilter?.addEventListener("change", async () => {
     state.taskFilters.owner = dom.taskOwnerFilter.value || "all";

@@ -26,7 +26,7 @@ class _FakeTaskListRepo:
     def __init__(self, _db, tasks):
         self._tasks = tasks
 
-    def list_visible_to_user(self, *, user_id, limit=None, offset=0, owner=None):
+    def list_visible_to_user(self, *, user_id, limit=None, offset=0, owner=None, **_kwargs):
         _ = (user_id, owner)
         window = self._tasks[offset:]
         if limit is not None:
@@ -363,3 +363,32 @@ def test_tasks_panel_uses_incremental_task_cards(monkeypatch):
     assert "Task 20" in next_html
     assert "Task 40" not in next_html
     assert 'hx-get="/app/tasks/list?offset=40&limit=20&owner=all&content_target=%23workspace-detail-content"' in next_html
+
+
+def test_task_detail_panel_hides_another_members_private_task(monkeypatch):
+    """A private task of someone else is 404 on the panel and the result download; a public one opens read-only."""
+    task = _agent_async_task("done")
+    task.owner_user_id = 99
+    task.visibility = "private"
+    client = _setup_task_client(monkeypatch, task, can_manage_task=False)
+    assert client.get("/app/tasks/async-task-1/panel").status_code == 404
+    assert client.get("/app/tasks/async-task-1/result.json").status_code == 404
+
+    task.visibility = "public"
+    response = client.get("/app/tasks/async-task-1/panel")
+    assert response.status_code == 200
+    assert "Public" in response.text
+    assert "data-task-visibility-group" not in response.text, "only the owner gets the Private / Public pills"
+
+
+def test_task_detail_panel_lets_the_owner_switch_visibility(monkeypatch):
+    task = _agent_async_task("done")
+    task.owner_user_id = 11
+    task.visibility = "private"
+    client = _setup_task_client(monkeypatch, task, can_manage_task=True)
+    html = client.get("/app/tasks/async-task-1/panel").text
+    assert 'data-task-visibility-group' in html
+    assert 'data-original-visibility="private"' in html
+    assert 'name="task-visibility-async-task-1" value="private" data-task-visibility-option checked' in html
+    assert 'name="task-visibility-async-task-1" value="public" data-task-visibility-option ' in html
+    assert "Who can see this task" in html
