@@ -152,3 +152,37 @@ def test_task_execution_upsert_does_not_count_existing_row_as_conflict():
         assert metadata["would_conflict_same_session"] is False
     finally:
         db.close()
+
+
+def test_chat_stream_observer_records_a_stopped_run_as_cancelled_without_an_error_row(monkeypatch):
+    from app.models.error_event import ErrorEvent
+
+    db, session_factory, _user, agent = _db_session()
+    try:
+        execution = AgentExecutionRepository(db).create(
+            agent_id=agent.id,
+            session_id="session-1",
+            request_id="req-stopped",
+            kind="chat",
+            status="running",
+            source="portal",
+            runtime_type="native",
+        )
+        import app.services.agent_execution_registry as registry_module
+
+        monkeypatch.setattr(registry_module, "SessionLocal", session_factory)
+        observer = ChatStreamExecutionObserver(execution.id)
+        observer.feed(b'event: final\ndata: {"completion_state":"cancelled","status":"cancelled","response":"the first words"}\n\n')
+        observer.feed(b'event: done\ndata: {"ok":true}\n\n')
+        observer.finish(status_code=200)
+
+        db.refresh(execution)
+        updated = db.get(AgentExecution, execution.id)
+        # The member stopped it: its own terminal status, not "stale" and not
+        # a row in Administration > Errors.
+        assert updated.status == "cancelled"
+        assert updated.error_code == "chat_cancelled"
+        assert updated.result_summary == "the first words"
+        assert db.query(ErrorEvent).count() == 0
+    finally:
+        db.close()

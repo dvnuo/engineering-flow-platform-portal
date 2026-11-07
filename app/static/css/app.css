@@ -1006,6 +1006,26 @@ html[data-chat-width="full"] .portal-conversation-main { --portal-chat-width: ma
 .message-cost-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; width: min(100%, calc(var(--portal-chat-width, 980px) - 60px)); padding: 8px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--portal-warning), var(--portal-border) 45%); background: color-mix(in srgb, var(--portal-warning), var(--portal-surface) 90%); color: var(--portal-text-secondary); font-size: 12px; }
 .message-cost-notice-btn { border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text); border-radius: 999px; height: 26px; padding: 0 12px; font-size: 12px; cursor: pointer; }
 .message-cost-notice-btn:hover { background: var(--portal-surface-soft); }
+
+/* A reply the member stopped: what streamed in stays, under a note. */
+.assistant-stopped-note { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 2px 8px; border-radius: 999px; border: 1px dashed var(--portal-border); color: var(--portal-text-secondary); font-size: 12px; }
+.assistant-stopped-note svg { width: 12px; height: 12px; flex: 0 0 auto; }
+.message-surface-assistant.is-stopped .message-markdown:empty { display: none; }
+
+/* The message waiting for the current reply to finish (queueComposerMessageForAgent). */
+.portal-queued-message { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border-radius: 10px; border: 1px dashed var(--portal-border); background: var(--portal-surface-soft); color: var(--portal-text-secondary); font-size: 12px; }
+.portal-queued-message.hidden { display: none; }
+.portal-queued-message-label { font-weight: 600; color: var(--portal-text); }
+.portal-queued-message-text { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--portal-text); }
+.portal-queued-message-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.portal-queued-message-btn { border: 1px solid var(--portal-border); background: var(--portal-surface); color: var(--portal-text); border-radius: 999px; height: 24px; padding: 0 10px; font-size: 12px; line-height: 1; cursor: pointer; }
+.portal-queued-message-btn:hover { background: var(--portal-surface-soft); }
+.portal-queued-message-btn.is-primary { border-color: var(--portal-accent); color: var(--portal-accent); }
+#abort-chat-run-btn.is-busy { opacity: 0.7; cursor: progress; }
+
+/* The timeline of a stopped run: closed, neither green nor red. */
+.agent-timeline-chip.is-cancelled { border-color: var(--portal-border); color: var(--portal-text-secondary); }
+.agent-timeline-row.is-cancelled .agent-timeline-icon { color: var(--portal-text-secondary); }
 .message-author { font-weight: 600; color: var(--portal-text-secondary); }
 .message-surface { padding: 14px 16px; border-radius: var(--portal-radius-lg); border: 1px solid var(--portal-border); }
 .message-surface-user { background: rgba(91,140,255,.12); border-color: rgba(91,140,255,.28); color: var(--portal-text); }

@@ -29,6 +29,7 @@ const dom = {
   chatStatus: document.getElementById("chat-status"),
   sendChatBtn: document.getElementById("send-chat-btn"),
   abortChatRunBtn: document.getElementById("abort-chat-run-btn"),
+  composerQueuedMessage: document.getElementById("composer-queued-message"),
   uploadInput: document.getElementById("upload-input"),
   detailToggle: document.getElementById("detail-toggle"),
   toolPanel: document.getElementById("tool-panel"),
@@ -874,6 +875,12 @@ function createDefaultChatState() {
     contextUsage: null,
     contextUsageLoading: false,
     compactingContext: false,
+    // A message typed while a reply was in flight, waiting for its turn
+    // (queueComposerMessageForAgent). ``interrupt`` means the member asked
+    // for it to go now, so the send also stops whatever is still running.
+    queuedMessage: null,
+    queuedFlushScheduled: false,
+    sendInterruptsActiveRun: false,
   };
 }
 
@@ -982,7 +989,11 @@ function syncSelectedAgentChatActionControls() {
   // first (see prepareSelectedAssistantForSend).
   setButtonDisabled(dom.homeStartChatBtn, disabled && !wakeable, disabled && !wakeable ? title : "");
   if (dom.homeStartChatBtn) dom.homeStartChatBtn.textContent = needsStart && wakeable ? t("Start & chat") : t("New Chat");
-  if (dom.sendChatBtn) dom.sendChatBtn.disabled = busy || (needsStart && !wakeable);
+  // Send stays live while a reply is in flight: the message waits under the
+  // composer and goes when the reply finishes (queueComposerMessageForAgent).
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = needsStart && !wakeable;
+  if (typeof renderQueuedComposerMessage === "function") renderQueuedComposerMessage(agentId);
+  if (typeof updateChatInputPlaceholder === "function") updateChatInputPlaceholder();
 }
 
 
@@ -2094,6 +2105,13 @@ function updateChatInputPlaceholder() {
     dom.chatInput.placeholder = pendingIntent.acceptsText
       ? t("Type your answer, or use the card above")
       : pendingIntent.reason;
+    return;
+  }
+
+  // A reply is in flight: what gets typed now waits for it (see
+  // queueComposerMessageForAgent), and the composer says so.
+  if (typeof hasActiveChatRequestForAgent === "function" && hasActiveChatRequestForAgent(state.selectedAgentId)) {
+    dom.chatInput.placeholder = t("Type the next message; it is sent when this reply finishes");
     return;
   }
 
@@ -3565,6 +3583,8 @@ function normalizeRuntimeEvent(payload) {
   if (ts == null) ts = Date.now() / 1000;
 
   const stateValue = String(candidate?.state || mergedData.state || "").toLowerCase();
+  const cancelledByState = stateValue === "cancelled" || stateValue === "canceled";
+  const cancelledByType = rawType === "execution.cancelled" || rawType === "session.next.step.cancelled" || rawType === "chat.cancelled";
   const failedByState = ["failed", "failure", "error"].includes(stateValue);
   const failedByType = rawType === "execution.failed" || rawType === "session.next.step.failed";
   const failedByResult = rawType === "tool_result" && mergedData.success === false;
@@ -3578,7 +3598,12 @@ function normalizeRuntimeEvent(payload) {
     mergedData.attempt = mergedData.attempt ?? candidate?.status?.attempt;
     mergedData.message = mergedData.message || candidate?.status?.message || "Provider API retrying";
   }
-  if (failedByState || failedByType || failedByResult) {
+  if (cancelledByState || cancelledByType) {
+    // A stop the member asked for: terminal, but neither a failure nor a
+    // completion, so the timeline and the transcript can say "stopped".
+    lifecycleType = "execution.cancelled";
+    if (cancelledByType) normalizedType = "execution.cancelled";
+  } else if (failedByState || failedByType || failedByResult) {
     lifecycleType = "execution.failed";
     if (failedByType) normalizedType = "execution.failed";
   } else if (completionByType || completionByState) {
@@ -4129,6 +4154,24 @@ function reduceAgentTimelineStepEvent(timeline, event, type) {
     });
     return true;
   }
+  if (type === "session.next.step.cancelled" || type === "execution.cancelled" || type === "chat.cancelled") {
+    timeline.completed = true;
+    timeline.status = "cancelled";
+    timeline.completedAt = Date.now();
+    upsertAgentTimelineItem(timeline, stepId, {
+      kind: "step",
+      status: "cancelled",
+      title: t("Agent step stopped"),
+      icon: "square",
+      createdAt: event.created_at,
+    }, {
+      status: "cancelled",
+      title: t("Agent step stopped"),
+      summary: truncateAgentTimelineText(data.message || data.reason || t("Stopped by you.")),
+      icon: "square",
+    });
+    return true;
+  }
   if (type === "session.next.step.failed" || type === "execution.failed" || type === "chat.failed") {
     timeline.completed = true;
     timeline.status = "failed";
@@ -4441,7 +4484,7 @@ function reduceAgentTimelineEvent(chatState, event) {
   if (
     type === "session.next.prompted"
     || type.startsWith("session.next.step.")
-    || ["execution.started", "execution.completed", "execution.failed", "chat.started", "chat.completed", "chat.failed", "complete"].includes(type)
+    || ["execution.started", "execution.completed", "execution.failed", "execution.cancelled", "chat.started", "chat.completed", "chat.failed", "chat.cancelled", "complete"].includes(type)
   ) {
     const stepType = type === "complete" ? "execution.completed" : type;
     changed = reduceAgentTimelineStepEvent(timeline, event, stepType);
@@ -4509,8 +4552,9 @@ function renderAgentTimelineRowsHtml(timeline) {
     const statusText = status === "running" ? t("running")
       : status === "completed" ? t("completed")
         : status === "failed" ? t("failed")
-          : status === "pending" ? t("pending")
-            : status;
+          : status === "cancelled" ? t("stopped")
+            : status === "pending" ? t("pending")
+              : status;
     return `<div class="agent-timeline-row is-${safe(kind)} is-${safe(status)}${item.weak ? " is-weak" : ""}"><span class="agent-timeline-icon"><i data-lucide="${safe(icon)}"></i></span><div class="agent-timeline-row-main"><div class="agent-timeline-row-head"><span class="agent-timeline-title">${safe(title)}</span><span class="agent-timeline-chip is-${safe(status)}">${safe(statusText)}</span></div>${summary ? `<div class="agent-timeline-summary">${safe(truncateAgentTimelineText(summary, 280))}</div>` : ""}${detail}</div></div>`;
   }).join("");
 }
@@ -4598,11 +4642,14 @@ function renderAgentTimelineForCurrentRequestNow(agentId, chatState, options = {
     article.appendChild(created);
     return created;
   })();
-  const statusText = timeline.status === "failed" ? t("Failed") : (timeline.completed ? t("Completed") : t("Working"));
+  const statusText = timeline.status === "failed" ? t("Failed")
+    : timeline.status === "cancelled" ? t("Stopped")
+      : (timeline.completed ? t("Completed") : t("Working"));
   const statusNode = timelineEl.querySelector("[data-agent-timeline-status-text]");
   if (statusNode) statusNode.textContent = statusText;
   timelineEl.classList.toggle("is-completed", Boolean(timeline.completed));
   timelineEl.classList.toggle("is-failed", timeline.status === "failed");
+  timelineEl.classList.toggle("is-cancelled", timeline.status === "cancelled");
   const spinner = timelineEl.querySelector(".portal-running-spinner");
   if (spinner) spinner.style.display = timeline.completed ? "none" : "";
   const meta = [timeline.agent, timeline.model].map((value) => String(value || "").trim()).filter(Boolean).join(" / ");
@@ -4705,7 +4752,10 @@ function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {
   const finalText = String(finalPayload?.response || "");
   if (finalText) timeline.assistantText = finalText;
   timeline.completed = true;
-  timeline.status = String(finalPayload?.completion_state || "").toLowerCase() === "failed" ? "failed" : "completed";
+  const finalCompletionState = String(finalPayload?.completion_state || "").toLowerCase();
+  timeline.status = finalCompletionState === "failed"
+    ? "failed"
+    : finalCompletionState === "cancelled" ? "cancelled" : "completed";
   timeline.completedAt = Date.now();
   clearAgentTimelineRevealTimer(timeline);
   advanceAgentTimelineReveal(timeline, Infinity);
@@ -5122,12 +5172,15 @@ function handleAgentEventMessage(raw, socketCtx = {}) {
   const isTerminalRuntimeEvent = (
     type === "execution.completed"
     || type === "execution.failed"
+    || type === "execution.cancelled"
     || type === "session.next.step.ended"
     || type === "session.next.step.failed"
+    || type === "session.next.step.cancelled"
     || type === "skill_complete"
     || isCompletion
     || lifecycleType === "execution.completed"
     || lifecycleType === "execution.failed"
+    || lifecycleType === "execution.cancelled"
   );
 
   if (isTerminalRuntimeEvent) {
@@ -8668,6 +8721,15 @@ async function submitChatForSelectedAgent() {
   const agentIdAtSend = state.selectedAgentId;
   const chatState = ensureChatState(agentIdAtSend);
   if (!agentIdAtSend || !chatState) return;
+  // A message typed while the assistant is still answering waits its turn
+  // (queueComposerMessageForAgent); only when it cannot be queued does the
+  // guard below say why nothing was sent.
+  if (
+    typeof hasActiveChatRequestForAgent === "function"
+    && typeof queueComposerMessageForAgent === "function"
+    && hasActiveChatRequestForAgent(agentIdAtSend)
+    && queueComposerMessageForAgent(agentIdAtSend)
+  ) return;
   if (!guardNoActiveChatRequestForAgent(agentIdAtSend, "send another message")) return;
   if (chatState.wakeInFlight) {
     showToast(t("Starting the assistant… your message will be sent when it is ready."));
@@ -8780,6 +8842,10 @@ async function submitChatForSelectedAgent() {
     ...(modelOverride && modelOverride !== defaultModel ? { model_override: modelOverride } : {}),
     ...(reasoningEffort && reasoningEffort !== defaultReasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     ...(contextValue > 0 && contextValue !== defaultContextValue ? { max_context_tokens: contextValue } : {}),
+    // "Send now" on a queued message: the runtime stops the run still
+    // answering this session before it starts this one, so the stop and the
+    // new message cannot race each other.
+    ...(chatState.sendInterruptsActiveRun ? { interrupt_in_flight_run: true } : {}),
   };
   // Connectors ride at the top level (the proxy drops client metadata) and only
   // name the tab that is sending; the proxy decides what is actually enabled.
@@ -8925,7 +8991,11 @@ async function submitChatForSelectedAgent() {
       runtime_events: payload?.runtime_events || [],
     });
   } catch (error) {
-    await handleAgentChatFailure(agentIdAtSend, requestCtx, error);
+    if (error?.sessionBusy && typeof handleSessionBusyRefusal === "function") {
+      await handleSessionBusyRefusal(agentIdAtSend, requestCtx, error.sessionBusy);
+    } else {
+      await handleAgentChatFailure(agentIdAtSend, requestCtx, error);
+    }
   } finally {
     localClearWaitingForRuntimeEventsTimer(requestCtx);
   }
@@ -9233,7 +9303,7 @@ function isCompletedFinalPayload(payload) {
 
 function isNonSuccessFinalPayload(payload) {
   const state = getCompletionState(payload);
-  return ["blocked", "error", "failed", "incomplete", "pending", "empty_final"].includes(state) || payload?.ok === false;
+  return ["blocked", "error", "failed", "incomplete", "pending", "empty_final", "cancelled"].includes(state) || payload?.ok === false;
 }
 
 function finalResponseText(payload) {
@@ -9875,7 +9945,7 @@ function mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload = {}) {
   const chatState = ensureChatState(agentId);
   if (!chatState) return;
   const completionState = getCompletionState(finalPayload) || (finalPayload?.ok === false ? "error" : "");
-  const status = ["blocked", "incomplete", "error", "failed", "empty_final"].includes(completionState)
+  const status = ["blocked", "incomplete", "error", "failed", "empty_final", "cancelled"].includes(completionState)
     ? (completionState === "failed" ? "error" : completionState)
     : "completed";
   const existing = chatState.lastEventStreamSnapshot || chatState.inflightEventStream || { events: [] };
@@ -9907,7 +9977,7 @@ function mergeFinalStreamSnapshot(agentId, requestCtx, finalPayload = {}) {
 }
 function terminalStatusFromCompletionState(completionState) {
   if (completionState === "failed") return "error";
-  if (["blocked", "incomplete", "error", "empty_final"].includes(completionState)) return completionState;
+  if (["blocked", "incomplete", "error", "empty_final", "cancelled"].includes(completionState)) return completionState;
   return completionState || "completed";
 }
 function finalizeTerminalStreamState(agentId, requestCtx, finalPayload = {}) {
@@ -9952,6 +10022,7 @@ function setTerminalCompletionStatus(finalPayload = {}) {
   if (completionState === "blocked") setChatStatus(reason ? t("Blocked: {reason}", { reason }) : t("Blocked"), true);
   else if (completionState === "incomplete") setChatStatus(reason ? t("Incomplete: {reason}", { reason }) : t("Incomplete"), true);
   else if (completionState === "error" || completionState === "failed") setChatStatus(reason ? t("Error: {reason}", { reason }) : t("Error"), true);
+  else if (completionState === "cancelled") setChatStatus(t("Stopped."));
   else if (completionState === "empty_final") setChatStatus(t("Empty final response"), true);
   else setChatStatus(t("Finished with non-success state: {state}", { state: completionState }), true);
 }
@@ -9973,9 +10044,80 @@ function chatRunIsWaitingForUserInput(finalPayload = {}) {
   }
 }
 
+function markAssistantArticleStopped(article, { spoke = true } = {}) {
+  if (!article || typeof document === "undefined") return null;
+  article.classList.add("is-stopped");
+  article.dataset.stopped = "1";
+  article.querySelector(":scope > .assistant-stopped-note")?.remove();
+  const note = document.createElement("div");
+  note.className = "assistant-stopped-note";
+  const icon = document.createElement("i");
+  icon.setAttribute("data-lucide", "square");
+  icon.setAttribute("aria-hidden", "true");
+  icon.className = "w-3.5 h-3.5";
+  const text = document.createElement("span");
+  text.textContent = spoke ? t("Stopped by you.") : t("Stopped before the assistant replied.");
+  note.append(icon, text);
+  article.appendChild(note);
+  if (typeof renderIcons === "function") renderIcons(article);
+  return note;
+}
+
+function assistantGroupWasStopped(entry) {
+  const messages = Array.isArray(entry?.messages) ? entry.messages : [];
+  return messages.some((message) => (
+    String(message?.status || "").toLowerCase() === "cancelled"
+    || message?.metadata?.cancelled === true
+  ));
+}
+
+/**
+ * The run ended because the member stopped it: not a failure, not an
+ * incomplete answer. What had streamed in stays in the row, under a
+ * "stopped" note, instead of the failure diagnostic the other non-success
+ * states draw; with nothing streamed the empty row says it stopped early.
+ */
+function finalizeStoppedChatResponse(agentId, requestCtx, finalPayload = {}) {
+  if (!requestCtx || requestCtx.stopFinalized) return false;
+  requestCtx.stopFinalized = true;
+  requestCtx.sawFinal = true;
+  clearWaitingForRuntimeEventsTimer(requestCtx);
+  cancelAssistantTypewriter(requestCtx);
+  const reqId = requestCtx.clientRequestId || requestCtx.requestId || "";
+  const pendingArticle = findPendingAssistantArticle(reqId);
+  const onScreen = String(pendingArticle?.querySelector(".message-markdown")?.dataset?.md || "").trim();
+  const spoken = String(finalPayload?.response || "").trim()
+    || String(requestCtx.streamedText || "").trim()
+    || onScreen;
+  const payload = {
+    ...finalPayload,
+    response: spoken,
+    completion_state: "cancelled",
+    cancel_reason: finalPayload?.cancel_reason || "user_cancelled",
+    request_id: finalPayload?.request_id || requestCtx.clientRequestId,
+    session_id: finalPayload?.session_id || requestCtx.sessionIdAtSend || "",
+  };
+  requestCtx.streamIncomplete = true;
+  requestCtx.terminalPayload = payload;
+  if (pendingArticle && transcriptAcceptsLiveWrite(agentId, requestCtx.sessionIdAtSend)) {
+    finalizePendingAssistantRow(agentId, requestCtx, payload);
+    markAssistantArticleStopped(pendingArticle, { spoke: Boolean(spoken) });
+  }
+  mergeFinalStreamSnapshot(agentId, requestCtx, payload);
+  finalizeTerminalStreamState(agentId, requestCtx, payload);
+  if (state.selectedAgentId === agentId) setChatStatus(t("Stopped."));
+  cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
+  showToast(t("Stopped current response."));
+  return true;
+}
+
 function finalizeNonSuccessChatResponse(agentId, requestCtx, finalPayload = {}, source = "final") {
   const failureSources = new Set(["error", "stream_error", "runtime_error"]);
   const completionState = getCompletionState(finalPayload);
+  if (completionState === "cancelled" && typeof finalizeStoppedChatResponse === "function") {
+    finalizeStoppedChatResponse(agentId, requestCtx, finalPayload);
+    return;
+  }
   const failed = failureSources.has(source) || completionState === "error" || completionState === "failed";
   // Every path that reports a run as incomplete comes through here, including
   // three that reach it directly without passing `handleIncompleteChatStream`.
@@ -10079,34 +10221,259 @@ function clearWaitingForRuntimeEventsTimer(requestCtx) {
   }
 }
 
+// ===== queued composer message ==============================================
+//
+// A message typed while the assistant is still answering is not refused: it
+// waits under the composer and goes the moment the reply finishes. "Send now"
+// stops the reply first; the send then carries interrupt_in_flight_run, so the
+// runtime makes the stop and the new message one step and they cannot race.
+
+function queuedComposerMessagePreview(text, attachmentCount = 0) {
+  const trimmed = String(text || "").replace(/\s+/g, " ").trim();
+  if (trimmed) return trimmed.length > 120 ? `${trimmed.slice(0, 119)}…` : trimmed;
+  return attachmentCount ? t("Attachment") : "";
+}
+
+function queueComposerMessageForAgent(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState || !dom.chatInput || agentId !== state.selectedAgentId) return false;
+  if (chatState.queuedMessage) {
+    showToast(t("One message is already waiting. Edit or discard it first."));
+    return true;
+  }
+  const pendingFiles = Array.isArray(chatState.pendingFiles) ? chatState.pendingFiles.slice() : [];
+  if (pendingFiles.some((pf) => pf.status === "uploading" || pf.status === "parsing")) {
+    showToast(t("Wait for the files to finish uploading, then send again."));
+    return true;
+  }
+  const text = String(dom.chatInput.value || "").trim();
+  if (!text && !pendingFiles.length) return false;
+  chatState.queuedMessage = {
+    text,
+    pendingFiles,
+    sessionId: chatState.sessionId || "",
+    interrupt: false,
+    queuedAt: Date.now(),
+  };
+  chatState.pendingFiles = [];
+  if (typeof renderInputPreview === "function") renderInputPreview();
+  dom.chatInput.value = "";
+  dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+  if (typeof resetChatInputHeight === "function") resetChatInputHeight();
+  if (typeof clearDraftForAgent === "function") clearDraftForAgent(agentId);
+  renderQueuedComposerMessage(agentId);
+  setChatStatus(t("Queued. It is sent when the current reply finishes."));
+  return true;
+}
+
+function renderQueuedComposerMessage(agentId) {
+  const container = dom.composerQueuedMessage
+    || (typeof document !== "undefined" ? document.getElementById("composer-queued-message") : null);
+  if (!container) return;
+  const chatState = agentId ? ensureChatState(agentId) : null;
+  const queued = agentId && agentId === state.selectedAgentId ? chatState?.queuedMessage : null;
+  if (!queued) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+  const preview = queuedComposerMessagePreview(queued.text, (queued.pendingFiles || []).length);
+  container.classList.remove("hidden");
+  container.innerHTML = `<span class="portal-queued-message-label">${escapeHtml(t("Queued"))}</span>`
+    + `<span class="portal-queued-message-text">${escapeHtml(preview)}</span>`
+    + `<span class="portal-queued-message-actions">`
+    + `<button type="button" class="portal-queued-message-btn is-primary" data-queued-action="send-now" title="${escapeHtmlAttr(t("Stop the current reply and send this now"))}">${escapeHtml(t("Send now"))}</button>`
+    + `<button type="button" class="portal-queued-message-btn" data-queued-action="edit">${escapeHtml(t("Edit"))}</button>`
+    + `<button type="button" class="portal-queued-message-btn" data-queued-action="discard" aria-label="${escapeHtmlAttr(t("Discard queued message"))}">&times;</button>`
+    + `</span>`;
+  // The reply it waited for is over: send it, once the caller has finished
+  // closing that reply.
+  if (!hasActiveChatRequestForAgent(agentId) && !chatState.queuedFlushScheduled && typeof setTimeout === "function") {
+    chatState.queuedFlushScheduled = true;
+    setTimeout(() => { void flushQueuedComposerMessage(agentId); }, 0);
+  }
+}
+
+function restoreQueuedIntoComposer(chatState, queued) {
+  if (!chatState) return;
+  chatState.pendingFiles = Array.isArray(queued?.pendingFiles) ? queued.pendingFiles.slice() : [];
+  if (typeof renderInputPreview === "function") renderInputPreview();
+  if (dom.chatInput) {
+    dom.chatInput.value = String(queued?.text || "");
+    dom.chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  if (typeof syncChatInputHeight === "function") syncChatInputHeight();
+}
+
+async function flushQueuedComposerMessage(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return false;
+  chatState.queuedFlushScheduled = false;
+  const queued = chatState.queuedMessage;
+  if (!queued || hasActiveChatRequestForAgent(agentId) || agentId !== state.selectedAgentId || !dom.chatInput) return false;
+  chatState.queuedMessage = null;
+  renderQueuedComposerMessage(agentId);
+  restoreQueuedIntoComposer(chatState, queued);
+  if (queued.sessionId && String(chatState.sessionId || "") !== String(queued.sessionId)) {
+    // The conversation changed under it: the text goes back to the composer
+    // rather than to a session the member did not write it for.
+    showToast(t("Your queued message was moved back to the composer."));
+    return false;
+  }
+  chatState.sendInterruptsActiveRun = Boolean(queued.interrupt);
+  try {
+    await submitChatForSelectedAgent();
+  } finally {
+    chatState.sendInterruptsActiveRun = false;
+  }
+  return true;
+}
+
+function restoreQueuedMessageToComposer(agentId) {
+  const chatState = ensureChatState(agentId);
+  const queued = chatState?.queuedMessage;
+  if (!queued) return false;
+  chatState.queuedMessage = null;
+  renderQueuedComposerMessage(agentId);
+  restoreQueuedIntoComposer(chatState, queued);
+  if (typeof focusComposer === "function") focusComposer();
+  setChatStatus(hasActiveChatRequestForAgent(agentId) ? t("Working...") : t("Ready"));
+  return true;
+}
+
+function discardQueuedMessage(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState?.queuedMessage) return false;
+  chatState.queuedMessage = null;
+  renderQueuedComposerMessage(agentId);
+  showToast(t("Queued message discarded."));
+  return true;
+}
+
+async function interruptAndSendQueuedMessage(agentId) {
+  const chatState = ensureChatState(agentId);
+  const queued = chatState?.queuedMessage;
+  if (!queued) return false;
+  queued.interrupt = true;
+  if (hasActiveChatRequestForAgent(agentId)) {
+    // The stop settles the run; the queue flushes as the run closes.
+    await abortActiveChatRequestForSelectedAgent();
+    return true;
+  }
+  return flushQueuedComposerMessage(agentId);
+}
+
+async function readSessionBusyRefusal(resp) {
+  if (!resp || resp.status !== 409 || typeof resp.clone !== "function") return null;
+  try {
+    const body = await resp.clone().json();
+    return body && body.error === "session_busy" ? body : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function handleSessionBusyRefusal(agentIdAtSend, requestCtx, refusal = {}) {
+  // The runtime is still answering an earlier message of this session that
+  // this page did not know about (another tab, a reconnect that missed it).
+  // Take the typed message back, queue it, and follow the run that is there.
+  const chatState = ensureChatState(agentIdAtSend);
+  if (!chatState) return;
+  clearWaitingForRuntimeEventsTimer(requestCtx);
+  stopRecoveredRunPolling(requestCtx);
+  clearPersistedInflightChatRun(agentIdAtSend, requestCtx?.clientRequestId || "");
+  if (chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
+  chatState.inflightEventStream = null;
+  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
+  else chatState.inflightAgentTimeline = null;
+  if (transcriptAcceptsLiveWrite(agentIdAtSend, requestCtx?.sessionIdAtSend)) {
+    removeTemporaryAssistantRows({ requestId: requestCtx?.clientRequestId, onlyEmpty: false });
+    removeLatestOptimisticUserRow();
+  }
+  const queued = {
+    text: String(requestCtx?.backupMessage || ""),
+    pendingFiles: Array.isArray(requestCtx?.backupPendingFiles) ? requestCtx.backupPendingFiles.slice() : [],
+    sessionId: requestCtx?.sessionIdAtSend || chatState.sessionId || "",
+    interrupt: false,
+    queuedAt: Date.now(),
+  };
+  chatState.queuedMessage = queued;
+  setChatSubmittingForAgent(agentIdAtSend, false, { suppressSync: true });
+  const activeRequestId = String(refusal?.active_request_id || "");
+  const sessionId = requestCtx?.sessionIdAtSend || chatState.sessionId || "";
+  let joined = false;
+  if (activeRequestId && sessionId && typeof recoverInflightChatRunForAgent === "function") {
+    joined = await recoverInflightChatRunForAgent(agentIdAtSend, sessionId, {
+      latest_event_state: "running",
+      last_execution_id: activeRequestId,
+      request_id: activeRequestId,
+    }, { render: agentIdAtSend === state.selectedAgentId, pendingText: "Working" });
+  }
+  if (!joined) {
+    // Nothing to wait for after all: the message goes back to the composer.
+    chatState.queuedMessage = null;
+    restoreQueuedIntoComposer(chatState, queued);
+    setChatStatus(t("The assistant is still answering a previous message. Try again in a moment."), true);
+    showToast(t("The assistant is still answering a previous message. Try again in a moment."));
+  } else if (state.selectedAgentId === agentIdAtSend) {
+    setChatStatus(t("Joined the reply in progress; your message is sent when it finishes."));
+  }
+  syncSelectedAgentChatActionControls();
+}
+
+function setStopRunButtonBusy(busy) {
+  if (!dom.abortChatRunBtn) return;
+  dom.abortChatRunBtn.disabled = Boolean(busy);
+  dom.abortChatRunBtn.setAttribute("aria-busy", busy ? "true" : "false");
+  dom.abortChatRunBtn.classList.toggle("is-busy", Boolean(busy));
+}
+
 async function abortActiveChatRequestForSelectedAgent() {
   const agentId = state.selectedAgentId;
   const chatState = ensureChatState(agentId);
   const req = chatState?.currentRequest;
   if (!agentId || !chatState || !req) return;
-
+  if (req.cancelRequested) return;
+  req.cancelRequested = true;
+  req.cancelRequestedAt = Date.now();
+  // handleAgentChatFailure reads this: a stream that breaks while the member
+  // is stopping the run is not something to reconnect to.
+  req.aborted = true;
   clearWaitingForRuntimeEventsTimer(req);
   cancelAssistantTypewriter(req);
-  if (req.abortController && typeof req.abortController.abort === "function") {
-    req.abortController.abort();
-  }
+  setStopRunButtonBusy(true);
+  setChatStatus(t("Stopping…"));
   const requestId = req.clientRequestId || req.requestId || "";
   const sessionId = req.sessionIdAtSend || chatState.sessionId || "";
+  // The runtime stops the run (at its next checkpoint, or by force after a
+  // grace period) and answers once it has settled. Meanwhile the stream
+  // delivers the run's own final event, which finishes the row as stopped
+  // (finalizeStoppedChatResponse). The composer stays locked until then: the
+  // old fire-and-forget unlock let a new message race the stop.
+  let outcome = null;
   if (requestId) {
     const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
-    void agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/cancel${query}`, { method: "POST" }).catch(() => {});
+    try {
+      outcome = await agentApiFor(agentId, `/api/chat/runs/${encodeURIComponent(requestId)}/cancel${query}`, { method: "POST" });
+    } catch (error) {
+      outcome = { ok: false, error: String(error?.message || error || "") };
+    }
   }
-  stopRecoveredRunPolling(req);
-  clearPersistedInflightChatRun(agentId, requestId);
-  req.aborted = true;
-  req.streamFailed = true;
-  chatState.currentRequest = null;
-  chatState.inflightEventStream = null;
-  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
-  else chatState.inflightAgentTimeline = null;
-  setChatSubmittingForAgent(agentId, false);
-  setChatStatus(t("Stopped current response."));
-  showToast(t("Stopped current response."));
+  setStopRunButtonBusy(false);
+  const confirmed = Boolean(outcome && (
+    outcome.ok === true
+    || outcome.settled === true
+    || outcome.terminal === true
+    || /chat_run_not_found/.test(String(outcome.error || ""))
+  ));
+  if (chatState.currentRequest === req && !req.stopFinalized && !req.streamCompleted) {
+    // The final event has not arrived (or never will, with the runtime
+    // unreachable): close the row here with what had streamed in.
+    finalizeStoppedChatResponse(agentId, req, { response: req.streamedText || "" });
+  }
+  if (!confirmed) {
+    showToast(t("The runtime did not confirm the stop; the reply may still finish in the background."), { variant: "error" });
+  }
   syncSelectedAgentChatActionControls();
 }
 
@@ -10115,6 +10482,9 @@ function normalizeChatRunStatus(status) {
 }
 
 async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data) {
+  // The row was already closed as stopped (the member asked, the runtime
+  // confirmed); whatever the stream still carries is history.
+  if (requestCtx?.stopFinalized) return "event";
   const outerType = normalizeChatStreamEventName(eventName);
   const eventData = normalizeChatStreamEventData(data);
   const embeddedType = normalizeChatStreamEventName(eventData.type || eventData.event_type || eventData?.data?.type || eventData?.data?.event_type || eventData.event || "");
@@ -10132,7 +10502,7 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     ? isNonSuccessFinalPayload
     : (payload) => {
       const state = localGetCompletionState(payload);
-      return ["blocked", "error", "failed", "incomplete", "pending", "empty_final"].includes(state) || payload?.ok === false;
+      return ["blocked", "error", "failed", "incomplete", "pending", "empty_final", "cancelled"].includes(state) || payload?.ok === false;
     };
   const localFinalResponseText = (typeof finalResponseText === "function")
     ? finalResponseText
@@ -10353,6 +10723,11 @@ async function handleChatStreamEvent(agentIdAtSend, requestCtx, eventName, data)
     requestCtx.streamFinalPayload = eventData;
     requestCtx.streamFinalCompletionState = localGetCompletionState(eventData);
     if (requestCtx.streamCompleted) return "final";
+    if (localGetCompletionState(eventData) === "cancelled" && typeof finalizeStoppedChatResponse === "function") {
+      // The member stopped the run; the runtime closed it and said so.
+      finalizeStoppedChatResponse(agentIdAtSend, requestCtx, eventData);
+      return "final_non_success";
+    }
     if (localIsNonSuccessFinalPayload(eventData)) {
       if (typeof finalizeNonSuccessChatResponse === "function") {
         finalizeNonSuccessChatResponse(agentIdAtSend, requestCtx, eventData, "stream_final");
@@ -10480,6 +10855,16 @@ async function trySubmitChatStreamForSelectedAgent(agentIdAtSend, requestCtx, re
   const resp = await fetch(`/a/${agentIdAtSend}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   if ([404,405,501].includes(resp.status) || !resp.body) return 'unsupported';
   if (!resp.ok) {
+    // 409 session_busy: the runtime is still answering an earlier message of
+    // this session. Not a failure; the caller queues this one behind it.
+    if (typeof readSessionBusyRefusal === "function") {
+      const refusal = await readSessionBusyRefusal(resp);
+      if (refusal) {
+        const busyError = new Error(t("The assistant is still answering a previous message."));
+        busyError.sessionBusy = refusal;
+        throw busyError;
+      }
+    }
     throw new Error(await handleErrorResponse(resp));
   }
   requestCtx.usedStream = true;
@@ -12617,6 +13002,11 @@ function renderChatHistory(messages, metadata = {}) {
       content.dataset.displayBlocks = JSON.stringify(getAssistantGroupDisplayBlocks(entry));
       article.appendChild(content);
       row.appendChild(article);
+      // A reply the member stopped keeps what it had said, under a note; the
+      // runtime stores the message with status "cancelled".
+      if (typeof assistantGroupWasStopped === "function" && typeof markAssistantArticleStopped === "function" && assistantGroupWasStopped(entry)) {
+        markAssistantArticleStopped(article, { spoke: Boolean(markdown.trim()) });
+      }
       if (entry === lastAssistantEntry && typeof budgetPauseInfo === "function" && typeof applyBudgetPauseNotice === "function") {
         const budgetPause = budgetPauseInfo(last) || budgetPauseInfo(last?.metadata);
         if (budgetPause) applyBudgetPauseNotice(row, budgetPause);
@@ -12664,6 +13054,13 @@ function settleMessageRows() {
 function deriveSessionRecoveryNotice(metadata = {}) {
   const latestEventType = typeof metadata.latest_event_type === "string" ? metadata.latest_event_type : "";
   const latestEventState = typeof metadata.latest_event_state === "string" ? metadata.latest_event_state : "";
+  const completionState = String(metadata.completion_state || "").trim().toLowerCase();
+
+  // A reply the member stopped is not something to recover from or warn
+  // about: the transcript shows it as stopped.
+  if (latestEventType === "chat.cancelled" || latestEventState === "cancelled" || completionState === "cancelled") {
+    return null;
+  }
 
   if (latestEventType === "chat.failed" || latestEventState === "error") {
     return {
@@ -12682,7 +13079,8 @@ function deriveSessionRecoveryNotice(metadata = {}) {
   return null;
 }
 
-const RUNNING_CHAT_RUN_STATES = new Set(["running", "accepted", "queued", "in_progress"]);
+// "cancelling": the runtime is stopping the run and has not settled it yet.
+const RUNNING_CHAT_RUN_STATES = new Set(["running", "accepted", "queued", "in_progress", "cancelling"]);
 
 function normalizeChatRunState(value) {
   return String(value || "").trim().toLowerCase();
@@ -20141,6 +20539,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   dom.abortChatRunBtn?.addEventListener("click", async (event) => {
     event.preventDefault();
     await abortActiveChatRequestForSelectedAgent();
+  });
+  dom.composerQueuedMessage?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-queued-action]");
+    if (!button) return;
+    event.preventDefault();
+    const action = button.dataset.queuedAction;
+    if (action === "send-now") await interruptAndSendQueuedMessage(state.selectedAgentId);
+    else if (action === "edit") restoreQueuedMessageToComposer(state.selectedAgentId);
+    else if (action === "discard") discardQueuedMessage(state.selectedAgentId);
   });
 
   // Drag and drop file upload
