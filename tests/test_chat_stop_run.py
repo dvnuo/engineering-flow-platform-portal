@@ -299,5 +299,323 @@ def test_chat_payload_to_terminal_records_a_stopped_run_as_cancelled():
     )
     assert (status, code, message, summary) == ("cancelled", "chat_cancelled", None, "the first words")
 
+
+# ------------------------------------------- editing the message of a stopped reply
+
+
+def test_stop_offers_the_message_back_and_send_replaces_the_stopped_turn():
+    stopped = _extract_js_function(CHAT_JS, "finalizeStoppedChatResponse")
+    assert "offerStoppedMessageForResend(agentId, requestCtx, payload)" in stopped
+
+    submit = _extract_js_function(CHAT_JS, "submitChatForSelectedAgent")
+    attachments_idx = submit.index("buildAttachmentsFromChatState(agentIdAtSend, chatState)")
+    replace_idx = submit.index("replaceStoppedTurnBeforeSend(agentIdAtSend, chatState)")
+    request_idx = submit.index('const requestMessage = messageAtSend || "[attachment]"')
+    assert attachments_idx < replace_idx < request_idx
+
+    controls = _extract_js_function(CHAT_JS, "syncSelectedAgentChatActionControls")
+    assert "renderReplaceStoppedChip(agentId)" in controls
+
+    marker = _extract_js_function(CHAT_JS, "markAssistantArticleStopped")
+    assert '"data-stopped-action", "edit-resend"' in marker
+
+    retry = _extract_js_function(CHAT_JS, "retryAssistantMessage")
+    assert "pendingFilesFromUserArticle(userArticle)" in retry
+    assert "chatState.pendingFiles = []" not in retry
+
+    history = _extract_js_function(CHAT_JS, "renderChatHistory")
+    assert "article.dataset.attachments = JSON.stringify(compactAttachmentsForArticle(normalizedAttachments))" in history
+    bubble = _extract_js_function(CHAT_JS, "buildUserMessageArticle")
+    assert "data-attachments=" in bubble
+
+    default_state = _extract_js_function(CHAT_JS, "createDefaultChatState")
+    assert "replaceStoppedTurn: null" in default_state
+    assert 'id="composer-replace-stopped"' in APP_HTML
+
+
+def test_a_stopped_message_returns_to_the_composer_for_editing():
+    script = """
+const state = { selectedAgentId: "agent-A", chatStatesByAgent: new Map(), agentSessionIds: new Map() };
+const container = {
+  hidden: true,
+  innerHTML: "",
+  classList: {
+    add(name) { if (name === "hidden") container.hidden = true; },
+    remove(name) { if (name === "hidden") container.hidden = false; },
+  },
+};
+const userArticle = { dataset: { optimisticUser: "1", clientRequestId: "req-1" } };
+const dom = {
+  chatInput: { value: "", dispatchEvent() {} },
+  composerReplaceStopped: container,
+  messageList: { querySelector(selector) { return selector.includes('data-client-request-id="req-1"') ? userArticle : null; } },
+};
+const calls = { editButtons: 0, reconciled: [], focus: 0 };
+function escapeHtml(value) { return String(value ?? ""); }
+function escapeHtmlAttr(value) { return String(value ?? ""); }
+function renderInputPreview() {}
+function syncChatInputHeight() {}
+function focusComposer() { calls.focus += 1; }
+function addEditButtonsToMessages() { calls.editButtons += 1; }
+async function reconcileOptimisticUserMessageId(agentId, sessionId, article) {
+  calls.reconciled.push(sessionId);
+  article.dataset.messageId = "msg-from-session";
+  return "msg-from-session";
+}
+function getLatestOptimisticUserArticle() { return userArticle; }
+""" + _functions(
+        "createDefaultChatState",
+        "ensureChatState",
+        "restoreQueuedIntoComposer",
+        "cssAttributeValue",
+        "findUserArticleForStoppedTurn",
+        "setReplaceStoppedTurn",
+        "renderReplaceStoppedChip",
+        "offerStoppedMessageForResend",
+        "dismissReplaceStoppedTurn",
+    ) + """
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+(async () => {
+  const chatState = ensureChatState("agent-A");
+  chatState.sessionId = "s-1";
+  const requestCtx = {
+    clientRequestId: "req-1",
+    sessionIdAtSend: "s-1",
+    backupMessage: "first question",
+    backupPendingFiles: [{ status: "uploaded", name: "a.txt", file_id: "f1" }],
+  };
+  const offered = offerStoppedMessageForResend("agent-A", requestCtx, { user_message_id: "msg-u1" });
+  const afterStop = {
+    offered,
+    input: dom.chatInput.value,
+    files: chatState.pendingFiles.length,
+    chipShown: !container.hidden,
+    chipText: container.innerHTML.includes("Sending replaces the stopped message."),
+    turn: chatState.replaceStoppedTurn && chatState.replaceStoppedTurn.userMessageId,
+    bubbleId: userArticle.dataset.messageId,
+    stillOptimistic: "optimisticUser" in userArticle.dataset,
+    editButtons: calls.editButtons,
+    focus: calls.focus,
+  };
+  dismissReplaceStoppedTurn("agent-A");
+  const afterDismiss = { chipShown: !container.hidden, turn: chatState.replaceStoppedTurn, input: dom.chatInput.value };
+  // Something typed during the reply is the next message: nothing is restored.
+  chatState.pendingFiles = [];
+  dom.chatInput.value = "next question";
+  const typedOffered = offerStoppedMessageForResend("agent-A", requestCtx, { user_message_id: "msg-u1" });
+  const afterTyped = { offered: typedOffered, input: dom.chatInput.value, turn: chatState.replaceStoppedTurn };
+  // A stop made for "Send now" leaves the queued message in charge.
+  dom.chatInput.value = "";
+  chatState.queuedMessage = { text: "queued" };
+  const queuedOffered = offerStoppedMessageForResend("agent-A", requestCtx, { user_message_id: "msg-u1" });
+  const afterQueued = { offered: queuedOffered, input: dom.chatInput.value, turn: chatState.replaceStoppedTurn };
+  chatState.queuedMessage = null;
+  // No id on the final (a forced stop): the session is asked for it.
+  delete userArticle.dataset.messageId;
+  const forcedOffered = offerStoppedMessageForResend("agent-A", requestCtx, {});
+  await tick();
+  const afterForced = { offered: forcedOffered, reconciled: calls.reconciled.slice(), bubbleId: userArticle.dataset.messageId, chipShown: !container.hidden };
+  // The conversation changes under it: the chip goes, the text stays.
+  chatState.sessionId = "s-2";
+  renderReplaceStoppedChip("agent-A");
+  const afterSwitch = { chipShown: !container.hidden, turn: chatState.replaceStoppedTurn, input: dom.chatInput.value };
+  console.log(JSON.stringify({ afterStop, afterDismiss, afterTyped, afterQueued, afterForced, afterSwitch }));
+})();
+"""
+    data = _run_node(script)
+    assert data["afterStop"] == {
+        "offered": True,
+        "input": "first question",
+        "files": 1,
+        "chipShown": True,
+        "chipText": True,
+        "turn": "msg-u1",
+        "bubbleId": "msg-u1",
+        "stillOptimistic": False,
+        "editButtons": 1,
+        "focus": 1,
+    }
+    assert data["afterDismiss"] == {"chipShown": False, "turn": None, "input": "first question"}
+    assert data["afterTyped"] == {"offered": False, "input": "next question", "turn": None}
+    assert data["afterQueued"] == {"offered": False, "input": "", "turn": None}
+    assert data["afterForced"] == {"offered": True, "reconciled": ["s-1"], "bubbleId": "msg-from-session", "chipShown": True}
+    assert data["afterSwitch"] == {"chipShown": False, "turn": None, "input": "first question"}
+
+
+def test_sending_the_edited_message_replaces_the_stopped_turn():
+    script = """
+const state = { selectedAgentId: "agent-A", chatStatesByAgent: new Map(), agentSessionIds: new Map() };
+const container = { hidden: true, innerHTML: "", classList: { add() { container.hidden = true; }, remove() { container.hidden = false; } } };
+const userArticle = { dataset: { messageId: "msg-u1" } };
+const dom = {
+  chatInput: { value: "edited question", dispatchEvent() {} },
+  composerReplaceStopped: container,
+  messageList: { querySelector(selector) { return selector.includes('data-message-id="msg-u1"') ? userArticle : null; } },
+};
+const calls = { fetches: [], truncated: [], toasts: [], status: [] };
+let sessionMessages = [];
+let deleteOk = true;
+function escapeHtml(value) { return String(value ?? ""); }
+function escapeHtmlAttr(value) { return String(value ?? ""); }
+function showToast(message) { calls.toasts.push(message); }
+function setChatStatus(message) { calls.status.push(message); }
+function currentSessionIdForAgent() { return "s-1"; }
+function getHistoryUserVisibleContent(message) { return String(message.content || ""); }
+function truncateDomFromUserArticle(article) { calls.truncated.push(article); }
+async function agentApiFor(agentId, path) { return { messages: sessionMessages }; }
+async function fetch(url) {
+  calls.fetches.push(url);
+  return { ok: deleteOk, async json() { return { success: deleteOk }; } };
+}
+""" + _functions(
+        "createDefaultChatState",
+        "ensureChatState",
+        "cssAttributeValue",
+        "findUserArticleForStoppedTurn",
+        "setReplaceStoppedTurn",
+        "renderReplaceStoppedChip",
+        "latestUserMessageInSession",
+        "replaceStoppedTurnBeforeSend",
+    ) + """
+(async () => {
+  const chatState = ensureChatState("agent-A");
+  chatState.sessionId = "s-1";
+  // The stopped message is the last one of the session: it goes, this one replaces it.
+  sessionMessages = [{ role: "user", id: "msg-u1", content: "first question" }, { role: "assistant", id: "msg-a1", status: "cancelled" }];
+  setReplaceStoppedTurn("agent-A", chatState, { userMessageId: "msg-u1", sessionId: "s-1", text: "first question" });
+  const replaced = await replaceStoppedTurnBeforeSend("agent-A", chatState);
+  const afterReplace = { result: replaced, fetches: calls.fetches.slice(), truncated: calls.truncated.length, turn: chatState.replaceStoppedTurn, toasts: calls.toasts.length, chipShown: !container.hidden };
+  // Someone sent a newer message meanwhile: nothing is deleted, this goes as a new message.
+  calls.fetches = [];
+  sessionMessages = [{ role: "user", id: "msg-u1", content: "first question" }, { role: "user", id: "msg-u2", content: "from another tab" }];
+  setReplaceStoppedTurn("agent-A", chatState, { userMessageId: "msg-u1", sessionId: "s-1", text: "first question" });
+  const newer = await replaceStoppedTurnBeforeSend("agent-A", chatState);
+  const afterNewer = { result: newer, fetches: calls.fetches.length, turn: chatState.replaceStoppedTurn, toasts: calls.toasts.length };
+  // No id known (an older runtime): the last user message with the same text is it.
+  calls.fetches = [];
+  sessionMessages = [{ role: "user", id: "msg-u9", content: "first question" }];
+  setReplaceStoppedTurn("agent-A", chatState, { userMessageId: "", clientRequestId: "req-x", sessionId: "s-1", text: "first question" });
+  const byText = await replaceStoppedTurnBeforeSend("agent-A", chatState);
+  const afterByText = { result: byText, fetches: calls.fetches.slice() };
+  // The runtime refuses the deletion: sent as a new message, and said so.
+  calls.fetches = [];
+  deleteOk = false;
+  sessionMessages = [{ role: "user", id: "msg-u1", content: "first question" }];
+  setReplaceStoppedTurn("agent-A", chatState, { userMessageId: "msg-u1", sessionId: "s-1", text: "first question" });
+  const refused = await replaceStoppedTurnBeforeSend("agent-A", chatState);
+  const afterRefused = { result: refused, fetches: calls.fetches.length, turn: chatState.replaceStoppedTurn, toasts: calls.toasts.length };
+  // A second Send while the first replacement is under way does nothing.
+  deleteOk = true;
+  setReplaceStoppedTurn("agent-A", chatState, { userMessageId: "msg-u1", sessionId: "s-1", text: "first question" });
+  chatState.replaceStoppedTurn.replacing = true;
+  const busy = await replaceStoppedTurnBeforeSend("agent-A", chatState);
+  console.log(JSON.stringify({ afterReplace, afterNewer, afterByText, afterRefused, busy }));
+})();
+"""
+    data = _run_node(script)
+    assert data["afterReplace"]["result"] == "replaced"
+    assert data["afterReplace"]["fetches"] == ["/a/agent-A/api/sessions/s-1/messages/msg-u1/delete-from-here"]
+    assert data["afterReplace"]["truncated"] == 1
+    assert data["afterReplace"]["turn"] is None
+    assert data["afterReplace"]["toasts"] == 0
+    assert data["afterReplace"]["chipShown"] is False
+    assert data["afterNewer"] == {"result": "sent-as-new", "fetches": 0, "turn": None, "toasts": 1}
+    assert data["afterByText"] == {"result": "replaced", "fetches": ["/a/agent-A/api/sessions/s-1/messages/msg-u9/delete-from-here"]}
+    assert data["afterRefused"] == {"result": "sent-as-new", "fetches": 1, "turn": None, "toasts": 2}
+    assert data["busy"] == "busy"
+
+
+def test_edit_and_resend_from_a_stopped_row_brings_text_and_files_back():
+    script = """
+const state = { selectedAgentId: "agent-A", chatStatesByAgent: new Map(), agentSessionIds: new Map() };
+const container = { hidden: true, innerHTML: "", classList: { add() { container.hidden = true; }, remove() { container.hidden = false; } } };
+const dom = { chatInput: { value: "", dispatchEvent() {} }, composerReplaceStopped: container };
+const calls = { confirms: 0, toasts: [] };
+let confirmAnswer = true;
+let shownContent = "first question";
+const attachments = [{ file_id: "f1", name: "a.txt", content_type: "text/plain", size: 12, type: "file", parsed: true }];
+const userArticle = { dataset: { messageId: "msg-u1", attachments: JSON.stringify(attachments) } };
+const userRow = { previousElementSibling: null, querySelector(selector) { return selector === 'article[data-local-user="1"]' ? userArticle : null; } };
+const assistantRow = { previousElementSibling: userRow, querySelector() { return null; } };
+const assistantArticle = { closest(selector) { return selector === ".message-row" ? assistantRow : null; } };
+function escapeHtml(value) { return String(value ?? ""); }
+function escapeHtmlAttr(value) { return String(value ?? ""); }
+function showToast(message) { calls.toasts.push(message); }
+function renderInputPreview() {}
+function syncChatInputHeight() {}
+function hasActiveChatRequestForAgent() { return false; }
+function getUserArticleContent() { return shownContent; }
+async function showConfirm() { calls.confirms += 1; return confirmAnswer; }
+""" + _functions(
+        "createDefaultChatState",
+        "ensureChatState",
+        "restoreQueuedIntoComposer",
+        "findPrecedingUserArticle",
+        "compactAttachmentsForArticle",
+        "pendingFilesFromAttachments",
+        "userArticleAttachments",
+        "pendingFilesFromUserArticle",
+        "setReplaceStoppedTurn",
+        "renderReplaceStoppedChip",
+        "beginEditAndResendFromStoppedRow",
+    ) + """
+(async () => {
+  const chatState = ensureChatState("agent-A");
+  chatState.sessionId = "s-1";
+  const began = await beginEditAndResendFromStoppedRow("agent-A", assistantArticle);
+  const first = {
+    began,
+    input: dom.chatInput.value,
+    files: chatState.pendingFiles.map((pf) => [pf.file_id, pf.status, pf.uploadedData.parsed]),
+    turn: chatState.replaceStoppedTurn && [chatState.replaceStoppedTurn.userMessageId, chatState.replaceStoppedTurn.sessionId],
+    confirms: calls.confirms,
+    chipShown: !container.hidden,
+  };
+  // Something else is in the composer: the member is asked before it is replaced.
+  chatState.replaceStoppedTurn = null;
+  chatState.pendingFiles = [];
+  dom.chatInput.value = "something else";
+  confirmAnswer = false;
+  const declined = await beginEditAndResendFromStoppedRow("agent-A", assistantArticle);
+  const second = { began: declined, input: dom.chatInput.value, confirms: calls.confirms, turn: chatState.replaceStoppedTurn };
+  // An attachment-only message: the placeholder is not text to edit, the file is.
+  dom.chatInput.value = "";
+  shownContent = "[attachment]";
+  const filesOnly = await beginEditAndResendFromStoppedRow("agent-A", assistantArticle);
+  const third = { began: filesOnly, input: dom.chatInput.value, files: chatState.pendingFiles.length };
+  // Nothing to bring back.
+  chatState.replaceStoppedTurn = null;
+  chatState.pendingFiles = [];
+  userArticle.dataset.attachments = "";
+  const empty = await beginEditAndResendFromStoppedRow("agent-A", assistantArticle);
+  const fourth = { began: empty, toasts: calls.toasts.length };
+  const compact = compactAttachmentsForArticle([{ file_id: "f1", name: "a.txt" }, { name: "no-id" }, { id: "img1", type: "image", url: "/files/img1", previewUrl: "blob:x" }]);
+  const restored = pendingFilesFromAttachments(compact);
+  const roundTrip = {
+    ids: compact.map((item) => item.file_id),
+    restored: restored.map((pf) => [pf.file_id, pf.isImage, pf.previewUrl, pf.status]),
+    badJson: userArticleAttachments({ dataset: { attachments: "{not json" } }),
+  };
+  console.log(JSON.stringify({ first, second, third, fourth, roundTrip }));
+})();
+"""
+    data = _run_node(script)
+    assert data["first"] == {
+        "began": True,
+        "input": "first question",
+        "files": [["f1", "uploaded", True]],
+        "turn": ["msg-u1", "s-1"],
+        "confirms": 0,
+        "chipShown": True,
+    }
+    assert data["second"] == {"began": False, "input": "something else", "confirms": 1, "turn": None}
+    assert data["third"] == {"began": True, "input": "", "files": 1}
+    assert data["fourth"] == {"began": False, "toasts": 1}
+    assert data["roundTrip"] == {
+        "ids": ["f1", "img1"],
+        "restored": [["f1", False, None, "uploaded"], ["img1", True, "blob:x", "uploaded"]],
+        "badJson": [],
+    }
+
     failed = _chat_payload_to_terminal(status_code=200, payload={"completion_state": "error", "error": "boom"})
     assert failed[0] == "failed"

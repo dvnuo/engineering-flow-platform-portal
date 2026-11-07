@@ -30,6 +30,7 @@ const dom = {
   sendChatBtn: document.getElementById("send-chat-btn"),
   abortChatRunBtn: document.getElementById("abort-chat-run-btn"),
   composerQueuedMessage: document.getElementById("composer-queued-message"),
+  composerReplaceStopped: document.getElementById("composer-replace-stopped"),
   uploadInput: document.getElementById("upload-input"),
   detailToggle: document.getElementById("detail-toggle"),
   toolPanel: document.getElementById("tool-panel"),
@@ -881,6 +882,9 @@ function createDefaultChatState() {
     queuedMessage: null,
     queuedFlushScheduled: false,
     sendInterruptsActiveRun: false,
+    // The message of a reply the member stopped, back in the composer:
+    // sending it replaces the stopped turn (replaceStoppedTurnBeforeSend).
+    replaceStoppedTurn: null,
   };
 }
 
@@ -993,6 +997,7 @@ function syncSelectedAgentChatActionControls() {
   // composer and goes when the reply finishes (queueComposerMessageForAgent).
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = needsStart && !wakeable;
   if (typeof renderQueuedComposerMessage === "function") renderQueuedComposerMessage(agentId);
+  if (typeof renderReplaceStoppedChip === "function") renderReplaceStoppedChip(agentId);
   if (typeof updateChatInputPlaceholder === "function") updateChatInputPlaceholder();
 }
 
@@ -2483,7 +2488,12 @@ function buildUserMessageArticle(text, attachments = [], options = {}) {
     }).join('')}</div>`;
   }
 
-  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user user-message" data-local-user="1" data-optimistic-user="1"${clientRequestAttr}><div class="message-body">${safe(text)}</div>${attachmentHtml}</article></div>`;
+  // What "Edit and resend" and Retry need to send the same files again.
+  const attachmentsAttr = (attachments.length > 0 && typeof compactAttachmentsForArticle === "function")
+    ? ` data-attachments="${escapeHtmlAttr(JSON.stringify(compactAttachmentsForArticle(attachments)))}"`
+    : "";
+
+  return `<div class="message-row message-row-user"><div class="message-meta message-meta-user"><span class="message-author">${escapeHtml(getCurrentUserDisplayName())}</span><span class="message-timestamp">${now}</span></div><article class="message-surface message-surface-user user-message" data-local-user="1" data-optimistic-user="1"${clientRequestAttr}${attachmentsAttr}><div class="message-body">${safe(text)}</div>${attachmentHtml}</article></div>`;
 }
 
 function getAssistantDisplayGroupKey(message, lastUserMessageId, index) {
@@ -8799,6 +8809,13 @@ async function submitChatForSelectedAgent() {
   const messageAtSend = rawMessageAtSend.trim();
   const attachmentsAtSend = buildAttachmentsFromChatState(agentIdAtSend, chatState);
   if (!messageAtSend && attachmentsAtSend.length === 0) return;
+  // The message of a stopped reply, edited: the stopped turn goes first so
+  // this one takes its place (replaceStoppedTurnBeforeSend). It comes after
+  // the checks above, so nothing is replaced for a send that would not go.
+  if (chatState.replaceStoppedTurn && typeof replaceStoppedTurnBeforeSend === "function") {
+    const replaced = await replaceStoppedTurnBeforeSend(agentIdAtSend, chatState);
+    if (replaced === "busy") return;
+  }
   const requestMessage = messageAtSend || "[attachment]";
   const displayMessage = messageAtSend || t("📎 Attachment");
   const sessionIdAtSend = ensureChatSessionId(agentIdAtSend);
@@ -10044,6 +10061,304 @@ function chatRunIsWaitingForUserInput(finalPayload = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Editing the message of a stopped reply
+//
+// A stop usually means the member wants to say it differently. Once the row
+// is closed as stopped, the message that started it -- text and attachments
+// -- goes back into the composer, and sending it replaces the stopped turn:
+// the stored user message, what the assistant had said and the tool calls it
+// left are deleted first (delete-from-here, the call Retry makes), then the
+// edited message goes as a fresh turn. Until then the stopped turn stays in
+// the transcript: a stop is not always a redo, and what the tools already did
+// stays on record. The chip under the composer says what Send will do; its
+// x keeps the stopped turn and sends what is typed as a new message.
+//
+// Attachments are already uploaded (a file gets its id when it is picked) and
+// a message only names them, so the same ids go again; the runtime rebuilds
+// their context on the next send.
+
+function compactAttachmentsForArticle(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  const compact = [];
+  list.forEach((attachment) => {
+    if (!attachment || typeof attachment !== "object") return;
+    const fileId = String(attachment.file_id || attachment.fileId || attachment.id || "").trim();
+    if (!fileId) return;
+    const previewUrl = typeof attachment.previewUrl === "string" && attachment.previewUrl.startsWith("blob:")
+      ? attachment.previewUrl
+      : "";
+    compact.push({
+      file_id: fileId,
+      name: String(attachment.name || attachment.filename || ""),
+      content_type: String(attachment.content_type || attachment.contentType || attachment.mime || ""),
+      size: typeof attachment.size === "number" && Number.isFinite(attachment.size) ? attachment.size : null,
+      type: String(attachment.type || ""),
+      url: String(attachment.url || ""),
+      previewUrl,
+      parsed: attachment.parsed === true,
+      parse_error: String(attachment.parse_error || ""),
+    });
+  });
+  return compact;
+}
+
+function pendingFilesFromAttachments(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  const restored = [];
+  list.forEach((attachment) => {
+    if (!attachment || typeof attachment !== "object") return;
+    const fileId = String(attachment.file_id || attachment.fileId || attachment.id || "").trim();
+    if (!fileId) return;
+    const name = String(attachment.name || attachment.filename || fileId);
+    const contentType = String(attachment.content_type || attachment.contentType || attachment.mime || "");
+    const isImage = String(attachment.type || "").toLowerCase() === "image" || contentType.toLowerCase().startsWith("image/");
+    const url = String(attachment.url || "")
+      || (typeof attachmentFileUrl === "function" ? String(attachmentFileUrl({ file_id: fileId }) || "") : "");
+    const size = typeof attachment.size === "number" && Number.isFinite(attachment.size) ? attachment.size : undefined;
+    restored.push({
+      id: typeof generateFileId === "function" ? generateFileId() : `restored-${fileId}`,
+      file: null,
+      file_id: fileId,
+      name,
+      isImage,
+      previewUrl: isImage ? (String(attachment.previewUrl || "") || url || null) : null,
+      status: "uploaded",
+      error: "",
+      parseError: String(attachment.parse_error || ""),
+      parseData: null,
+      uploadedData: { file_id: fileId, name, content_type: contentType, size, url, parsed: attachment.parsed === true },
+    });
+  });
+  return restored;
+}
+
+function userArticleAttachments(article) {
+  const raw = String(article?.dataset?.attachments || article?.getAttribute?.("data-attachments") || "");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function pendingFilesFromUserArticle(article) {
+  return pendingFilesFromAttachments(userArticleAttachments(article));
+}
+
+function cssAttributeValue(value) {
+  const text = String(value ?? "");
+  return typeof CSS !== "undefined" && CSS && typeof CSS.escape === "function" ? CSS.escape(text) : text;
+}
+
+function findUserArticleForStoppedTurn(turn) {
+  if (!dom.messageList || !turn) return null;
+  const userMessageId = String(turn.userMessageId || "");
+  if (userMessageId) {
+    const byId = dom.messageList.querySelector(`article[data-local-user="1"][data-message-id="${cssAttributeValue(userMessageId)}"]`);
+    if (byId) return byId;
+  }
+  const clientRequestId = String(turn.clientRequestId || "");
+  if (clientRequestId) {
+    const byRequest = dom.messageList.querySelector(`article[data-local-user="1"][data-client-request-id="${cssAttributeValue(clientRequestId)}"]`);
+    if (byRequest) return byRequest;
+  }
+  return null;
+}
+
+// The composer's content is this message, sent in place of the stopped turn.
+function setReplaceStoppedTurn(agentId, chatState, turn) {
+  chatState.replaceStoppedTurn = {
+    userMessageId: String(turn?.userMessageId || ""),
+    clientRequestId: String(turn?.clientRequestId || ""),
+    sessionId: String(turn?.sessionId || chatState.sessionId || ""),
+    text: String(turn?.text || ""),
+    replacing: false,
+  };
+  renderReplaceStoppedChip(agentId);
+}
+
+function offerStoppedMessageForResend(agentId, requestCtx, payload = {}) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState || !requestCtx) return false;
+  const text = String(requestCtx.backupMessage || "");
+  const files = Array.isArray(requestCtx.backupPendingFiles) ? requestCtx.backupPendingFiles.slice() : [];
+  const sessionId = String(requestCtx.sessionIdAtSend || chatState.sessionId || "");
+  const clientRequestId = String(requestCtx.clientRequestId || requestCtx.requestId || "");
+  const userMessageId = String(payload?.user_message_id || "");
+  // The bubble drawn on send gets its stored id now, so Edit and Retry work
+  // on it without a reload (handleAgentChatSuccess does the same).
+  const userArticle = findUserArticleForStoppedTurn({ userMessageId, clientRequestId })
+    || (typeof getLatestOptimisticUserArticle === "function" ? getLatestOptimisticUserArticle() : null);
+  if (userArticle && userArticle.dataset) {
+    if (userMessageId && !userArticle.dataset.messageId) {
+      userArticle.dataset.messageId = userMessageId;
+      delete userArticle.dataset.optimisticUser;
+      if (typeof addEditButtonsToMessages === "function") addEditButtonsToMessages();
+    } else if (!userArticle.dataset.messageId && sessionId && typeof reconcileOptimisticUserMessageId === "function") {
+      void reconcileOptimisticUserMessageId(agentId, sessionId, userArticle);
+    }
+  }
+  // Only the request that sent the message has it; a run joined from another
+  // tab does not.
+  if (!text && !files.length) return false;
+  if (agentId !== state.selectedAgentId) return false;
+  // "Send now" on a queued message stopped this reply: the queued message is
+  // what goes next, not this one.
+  if (chatState.queuedMessage) return false;
+  // Something typed meanwhile is the member's next message. The stopped row's
+  // "Edit and resend" still brings this one back on request.
+  if (String(dom.chatInput?.value || "").trim() || (chatState.pendingFiles || []).length) return false;
+  restoreQueuedIntoComposer(chatState, { text, pendingFiles: files });
+  setReplaceStoppedTurn(agentId, chatState, {
+    userMessageId: userMessageId || String(userArticle?.dataset?.messageId || ""),
+    clientRequestId,
+    sessionId,
+    text,
+  });
+  if (typeof focusComposer === "function") focusComposer();
+  return true;
+}
+
+function renderReplaceStoppedChip(agentId) {
+  const container = dom.composerReplaceStopped
+    || (typeof document !== "undefined" ? document.getElementById("composer-replace-stopped") : null);
+  if (!container) return;
+  const chatState = agentId ? ensureChatState(agentId) : null;
+  let turn = agentId && agentId === state.selectedAgentId ? chatState?.replaceStoppedTurn : null;
+  if (turn && turn.sessionId && chatState.sessionId && String(turn.sessionId) !== String(chatState.sessionId)) {
+    // The conversation changed under it: what is typed is a new message there.
+    chatState.replaceStoppedTurn = null;
+    turn = null;
+  }
+  if (!turn) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+  const keepTitle = t("Keep the stopped message; send this as a new message instead");
+  container.classList.remove("hidden");
+  container.innerHTML = `<span class="portal-queued-message-label">${escapeHtml(t("Edit and resend"))}</span>`
+    + `<span class="portal-queued-message-text">${escapeHtml(t("Sending replaces the stopped message."))}</span>`
+    + `<span class="portal-queued-message-actions">`
+    + `<button type="button" class="portal-queued-message-btn" data-replace-stopped-action="keep" title="${escapeHtmlAttr(keepTitle)}" aria-label="${escapeHtmlAttr(keepTitle)}">&times;</button>`
+    + `</span>`;
+}
+
+function dismissReplaceStoppedTurn(agentId) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState) return;
+  chatState.replaceStoppedTurn = null;
+  renderReplaceStoppedChip(agentId);
+}
+
+// "Edit and resend" on a stopped row, live or rebuilt from history.
+async function beginEditAndResendFromStoppedRow(agentId, assistantArticle) {
+  const chatState = ensureChatState(agentId);
+  if (!chatState || !assistantArticle) return false;
+  if (typeof hasActiveChatRequestForAgent === "function" && hasActiveChatRequestForAgent(agentId)) {
+    showToast(t("Please wait for the current response to finish"));
+    return false;
+  }
+  const row = typeof assistantArticle.closest === "function" ? assistantArticle.closest(".message-row") : null;
+  const userArticle = row ? findPrecedingUserArticle(row) : null;
+  if (!userArticle) {
+    showToast(t("Cannot retry this message yet"));
+    return false;
+  }
+  const shown = String(getUserArticleContent(userArticle) || "").trim();
+  // An attachment-only message shows a placeholder, not text to edit.
+  const text = shown === "[attachment]" || shown === t("📎 Attachment") ? "" : shown;
+  const files = pendingFilesFromUserArticle(userArticle);
+  if (!text && !files.length) {
+    showToast(t("Original message is empty"));
+    return false;
+  }
+  const typed = String(dom.chatInput?.value || "").trim();
+  if ((typed && typed !== text) || (chatState.pendingFiles || []).length) {
+    const ok = typeof showConfirm === "function"
+      ? await showConfirm({ title: t("Edit and resend"), message: t("Replace what is in the composer with the stopped message?"), confirmText: t("Replace") })
+      : true;
+    if (!ok) return false;
+  }
+  restoreQueuedIntoComposer(chatState, { text, pendingFiles: files });
+  setReplaceStoppedTurn(agentId, chatState, {
+    userMessageId: String(userArticle.dataset?.messageId || ""),
+    clientRequestId: String(userArticle.dataset?.clientRequestId || ""),
+    sessionId: String(chatState.sessionId || ""),
+    text,
+  });
+  if (typeof focusComposer === "function") focusComposer();
+  return true;
+}
+
+async function latestUserMessageInSession(agentId, sessionId) {
+  const data = await agentApiFor(agentId, `/api/sessions/${encodeURIComponent(sessionId)}`);
+  const messages = Array.isArray(data?.messages) ? data.messages : [];
+  const latest = [...messages].reverse().find((message) => message && message.role === "user" && message.id);
+  if (!latest) return null;
+  const content = typeof getHistoryUserVisibleContent === "function"
+    ? getHistoryUserVisibleContent(latest)
+    : String(latest.content || "");
+  return { id: String(latest.id), text: String(content || "").trim() };
+}
+
+// Sending the edited message: the stopped turn goes first. Returns "replaced",
+// "sent-as-new" (the turn could not be replaced, so the message goes as a new
+// one and a toast says so) or "busy" (a replacement is already under way).
+async function replaceStoppedTurnBeforeSend(agentId, chatState) {
+  const turn = chatState?.replaceStoppedTurn;
+  if (!turn) return "none";
+  if (turn.replacing) return "busy";
+  const sessionId = String(chatState.sessionId || currentSessionIdForAgent(agentId) || "");
+  const dropTurn = () => {
+    if (chatState.replaceStoppedTurn === turn) chatState.replaceStoppedTurn = null;
+    renderReplaceStoppedChip(agentId);
+  };
+  if (!sessionId || (turn.sessionId && String(turn.sessionId) !== sessionId)) {
+    dropTurn();
+    return "sent-as-new";
+  }
+  const sendAsNew = () => {
+    dropTurn();
+    showToast(t("The stopped message could not be replaced; this is sent as a new message."));
+    return "sent-as-new";
+  };
+  turn.replacing = true;
+  setChatStatus(t("Replacing the stopped message…"));
+  try {
+    const userArticle = findUserArticleForStoppedTurn(turn);
+    let userMessageId = String(turn.userMessageId || userArticle?.dataset?.messageId || "");
+    // Only the last user message of the session can be replaced: a newer one
+    // (sent from another tab, say) would go with it.
+    const latest = await latestUserMessageInSession(agentId, sessionId);
+    if (!userMessageId && latest && latest.text === String(turn.text || "").trim()) userMessageId = latest.id;
+    if (!userMessageId || !latest || latest.id !== userMessageId) return sendAsNew();
+    const response = await fetch(`/a/${agentId}/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(userMessageId)}/delete-from-here`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    let result = {};
+    try {
+      result = await response.json();
+    } catch (_error) {
+      result = {};
+    }
+    if (!response.ok || !result.success) return sendAsNew();
+    const article = userArticle || findUserArticleForStoppedTurn({ userMessageId });
+    if (article && typeof truncateDomFromUserArticle === "function") truncateDomFromUserArticle(article);
+    dropTurn();
+    return "replaced";
+  } catch (_error) {
+    return sendAsNew();
+  } finally {
+    turn.replacing = false;
+  }
+}
+
 function markAssistantArticleStopped(article, { spoke = true } = {}) {
   if (!article || typeof document === "undefined") return null;
   article.classList.add("is-stopped");
@@ -10057,7 +10372,14 @@ function markAssistantArticleStopped(article, { spoke = true } = {}) {
   icon.className = "w-3.5 h-3.5";
   const text = document.createElement("span");
   text.textContent = spoke ? t("Stopped by you.") : t("Stopped before the assistant replied.");
-  note.append(icon, text);
+  // The way back to the message that started it (beginEditAndResendFromStoppedRow).
+  const resend = document.createElement("button");
+  resend.setAttribute("type", "button");
+  resend.className = "assistant-stopped-resend";
+  resend.setAttribute("data-stopped-action", "edit-resend");
+  resend.setAttribute("title", t("Put the message back in the composer; sending it replaces this stopped reply"));
+  resend.textContent = t("Edit and resend");
+  note.append(icon, text, resend);
   article.appendChild(note);
   if (typeof renderIcons === "function") renderIcons(article);
   return note;
@@ -10107,6 +10429,9 @@ function finalizeStoppedChatResponse(agentId, requestCtx, finalPayload = {}) {
   finalizeTerminalStreamState(agentId, requestCtx, payload);
   if (state.selectedAgentId === agentId) setChatStatus(t("Stopped."));
   cleanupChatStreamRequest(agentId, requestCtx, { keepStatus: true });
+  // The message that started it goes back to the composer, to be edited and
+  // sent in its place (offerStoppedMessageForResend).
+  if (typeof offerStoppedMessageForResend === "function") offerStoppedMessageForResend(agentId, requestCtx, payload);
   showToast(t("Stopped current response."));
   return true;
 }
@@ -12941,6 +13266,10 @@ function renderChatHistory(messages, metadata = {}) {
       const article = document.createElement("article"); article.className = "message-surface message-surface-user"; article.dataset.localUser = "1"; if (message.id) article.dataset.messageId = message.id; if (message.metadata?.internal_model_content_hidden) article.dataset.internalModelContentHidden = "1";
       const content = document.createElement("div"); content.className = "message-body"; content.textContent = getHistoryUserVisibleContent(message); article.appendChild(content);
       const normalizedAttachments = Array.isArray(message.attachments) ? message.attachments : [];
+      if (normalizedAttachments.length > 0 && article.dataset && typeof compactAttachmentsForArticle === "function") {
+        // What "Edit and resend" and Retry need to send the same files again.
+        article.dataset.attachments = JSON.stringify(compactAttachmentsForArticle(normalizedAttachments));
+      }
       if (normalizedAttachments.length > 0) {
         const attachmentDiv = document.createElement("div"); attachmentDiv.className = "message-attachments";
         normalizedAttachments.forEach((attachment) => {
@@ -19030,8 +19359,12 @@ async function retryAssistantMessage(row) {
       return;
     }
 
+    // The attachments of the original message go with it: they are already
+    // uploaded, and the runtime rebuilds their context on the next send.
+    const retryFiles = typeof pendingFilesFromUserArticle === "function" ? pendingFilesFromUserArticle(userArticle) : [];
     truncateDomFromUserArticle(userArticle);
-    if (chatState) chatState.pendingFiles = [];
+    if (chatState) chatState.pendingFiles = retryFiles;
+    if (typeof renderInputPreview === "function") renderInputPreview();
     if (dom.chatInput) dom.chatInput.value = content;
     setChatStatus(t("Retrying..."));
     await submitChatForSelectedAgent();
@@ -20548,6 +20881,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (action === "send-now") await interruptAndSendQueuedMessage(state.selectedAgentId);
     else if (action === "edit") restoreQueuedMessageToComposer(state.selectedAgentId);
     else if (action === "discard") discardQueuedMessage(state.selectedAgentId);
+  });
+  dom.composerReplaceStopped?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-replace-stopped-action]");
+    if (!button) return;
+    event.preventDefault();
+    dismissReplaceStoppedTurn(state.selectedAgentId);
+  });
+  dom.messageList?.addEventListener("click", async (event) => {
+    const button = event.target.closest('[data-stopped-action="edit-resend"]');
+    if (!button) return;
+    event.preventDefault();
+    await beginEditAndResendFromStoppedRow(state.selectedAgentId, button.closest("article"));
   });
 
   // Drag and drop file upload
