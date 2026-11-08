@@ -245,7 +245,9 @@ def test_sending_to_a_paused_assistant_wakes_it_first():
     assert 'WAKEABLE_AGENT_STATUSES = new Set(["stopped", "starting", "creating", "pending", "restarting"])' in CHAT_JS
 
     controls = _extract_js_function(CHAT_JS, "syncSelectedAgentChatActionControls")
-    assert "dom.sendChatBtn.disabled = busy || (needsStart && !wakeable)" in controls
+    # Send stays live while a reply is in flight (the message is queued), so
+    # only an assistant that cannot be woken disables it.
+    assert "dom.sendChatBtn.disabled = needsStart && !wakeable" in controls
     assert '"Start & chat"' in controls
 
     sync_state = _extract_js_function(CHAT_JS, "syncSelectedAgentState")

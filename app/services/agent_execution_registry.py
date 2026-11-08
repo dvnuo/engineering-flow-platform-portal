@@ -163,6 +163,10 @@ def _chat_payload_to_terminal(
     error_text = _clean_text(payload.get("error") or payload.get("detail") or payload.get("message"))
     summary = _clean_text(payload.get("summary") or payload.get("response") or payload.get("final_response"))
 
+    if completion_state in {"cancelled", "canceled"}:
+        # The member stopped the run: a terminal outcome of its own, neither a
+        # failure (no Errors row) nor a stale stream.
+        return "cancelled", "chat_cancelled", None, summary
     if ok_value is False or completion_state in {"error", "failed", "failure"}:
         return "failed", incomplete_reason or "chat_failed", error_text or "Chat execution failed", summary
     if completion_state == "incomplete":
