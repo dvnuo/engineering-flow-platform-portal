@@ -418,7 +418,9 @@ def test_connector_panel_renders_guided_steps(db_session, users, monkeypatch):
         # The local bridge's two capabilities, each with its own card.
         assert "Local bridge" in html and "Browser automation" in html and "Mobile recording" in html
         assert 'data-connector-status="mobile"' in html and 'href="#/connectors/browserstack"' in html
-        assert "efp-bridge register --origin" in html and "browser serve" not in html
+        # The installer asks for no address: the Start bridge link carries it.
+        assert "efp-bridge register</code>" in html and "register --origin" not in html and "browser serve" not in html
+        assert "when it asks for the Portal address" not in html and "it asks nothing" in html
         # The test client sends no browser User-Agent, so Windows x64 is offered
         # first; every other system stays one click away.
         assert "efp-bridge-windows-amd64.zip" in html and "Download for Windows (x64)" in html

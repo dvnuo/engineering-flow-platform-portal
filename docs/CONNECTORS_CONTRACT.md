@@ -230,7 +230,7 @@ Rules
 Protocol link: `efp-bridge://start?origin=<urlencoded Portal origin>&port=8765[&url=<urlencoded start page>]`
 runs `efp-bridge launch "<url>"`, which starts `efp-bridge serve --origin … --port … --url …`
 if it is not already running and asks a running bridge whose window is closed to reopen it
-(registration: `efp-bridge register --origin <origin>`). The bridge launches
+(registration: `efp-bridge register`; the link carries the origin, and `--origin` only stores the default of a manual serve). The bridge launches
 Chrome directly on the start page, so the window opens with that single tab. The `url`
 parameter is `LOCAL_BRIDGE_BROWSER_START_URL` (§8) resolved by the page against its own origin; it
 must be absolute http(s) and is omitted when the setting is empty (the bridge then opens the
@@ -338,7 +338,7 @@ clients that need the whole document can use `GET`/`PATCH /api/runtime-profile` 
 | Portal env | `LOCAL_BRIDGE_VERSION` | empty | shown on the panel |
 | Portal env | `LOCAL_BRIDGE_BROWSER_START_URL` | empty → Portal origin | first tab of the EFP window when the bridge opens or reopens it; absolute http(s) URL or a path resolved against the Portal origin; sent as the link's `url` and as `session.ensure{url}` |
 | Portal env | `CONNECTORS_ENABLED` | `true` | when false, hides the local connectors: omitted from the Connectors list and `/api/connectors`, 404 from their API routes, and no chat **Browser** toggle. The Connectors menu and the settings connectors are unaffected |
-| efp-bridge | `EFP_BRIDGE_PORT`, `EFP_BRIDGE_ALLOWED_ORIGIN` (config `bridge.port`, `bridge.allowed_origin`) | 8765, empty | defaults of `efp-bridge serve`; `efp-bridge register` stores the origin |
+| efp-bridge | `EFP_BRIDGE_PORT`, `EFP_BRIDGE_ALLOWED_ORIGIN` (config `bridge.port`, `bridge.allowed_origin`) | 8765, empty | defaults of `efp-bridge serve`; `efp-bridge register --origin` or the first start link stores the origin |
 | runtime | `enable_browser_tool` (Portal-managed runtime field) | false | registers the tool |
 
 ## 9. Timeline rendering (Portal)
