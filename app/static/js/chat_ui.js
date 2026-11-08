@@ -13634,12 +13634,14 @@ async function openServerFilesAt(path) {
   await loadServerFiles(path || undefined);
 }
 
+// The first crumb is the root directory's real path (the runtime's root_path,
+// "/workspace" on the pods), not a "Workspace" label: members read the label
+// as a directory name and send the assistant looking for `Workspace/...`,
+// which a case-sensitive filesystem does not have.
 function buildServerFilesBreadcrumb(path, rootPath) {
   const normalizedRoot = String(rootPath || '/').replace(/\/+$/, '') || '/';
   const normalizedPath = String(path || normalizedRoot || '').replace(/\/+$/, '');
-  const workspaceCrumb = normalizedRoot
-    ? `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="${escapeHtmlAttr(normalizedRoot)}">${t("Workspace")}</a>`
-    : `<a href="#" class="portal-link-inline portal-breadcrumb-link" data-server-path="/">${t("Workspace")}</a>`;
+  const workspaceCrumb = `<a href="#" class="portal-link-inline portal-breadcrumb-link portal-breadcrumb-root" data-server-path="${escapeHtmlAttr(normalizedRoot)}">${escapeHtml(normalizedRoot)}</a>`;
   const breadcrumbParts = [
     workspaceCrumb
   ];
