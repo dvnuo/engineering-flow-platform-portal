@@ -156,6 +156,7 @@
     ["#llm_model", t("Model used when a message does not override it")],
     ['select[name="llm_reasoning_effort"]', t("Default reasoning effort. Higher is slower but better on hard problems.")],
     ['select[name="llm_max_context_tokens"]', t("Largest context window your assistants may use by default")],
+    ['input[name="llm_max_steps"]', t("Model calls one message may take before the assistant pauses and offers Continue; blank follows the default")],
     ['input[name="llm_api_key"]', t("Filled in automatically after you authorize GitHub Copilot below")],
     ["[data-copilot-auth-button]", t("Get a Copilot token through GitHub's device flow — always uses github.com")],
     ["[data-copilot-copy-button]", t("Copy this code, then paste it on the GitHub page")],

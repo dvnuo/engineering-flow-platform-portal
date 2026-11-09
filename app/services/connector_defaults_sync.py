@@ -15,7 +15,8 @@ from datetime import datetime
 from app.db import SessionLocal
 from app.repositories.audit_repo import AuditRepository
 from app.repositories.runtime_profile_repo import RuntimeProfileRepository
-from app.services.connector_defaults_service import following_types, stored_connector_modes
+from app.schemas.runtime_profile import parse_runtime_profile_config_json
+from app.services.connector_defaults_service import follows_changed_defaults, stored_connector_modes
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,8 @@ def sync_followers(
     try:
         repo = RuntimeProfileRepository(db)
         for profile in repo.list_all():
-            if not following_types(stored_connector_modes(profile.connector_modes_json), changed):
+            member_config = parse_runtime_profile_config_json(profile.config_json, fallback_to_empty=True)
+            if not follows_changed_defaults(member_config, stored_connector_modes(profile.connector_modes_json), changed):
                 continue
             summary["members"] += 1
             try:

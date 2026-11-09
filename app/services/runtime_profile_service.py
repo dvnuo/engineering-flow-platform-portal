@@ -187,6 +187,12 @@ class RuntimeProfileService:
             return self.normalize_persisted_config_json(None)
         managed = {section for spec in SETTINGS_CONNECTORS for section in spec.managed_sections}
         own = {section: value for section, value in seed.items() if section not in managed}
+        # The model provider's step limit is followed, not copied
+        # (connector_defaults_service.with_default_step_limit), so a later
+        # change by the administrator reaches this member too.
+        llm = own.get("llm")
+        if isinstance(llm, dict) and "max_steps" in llm:
+            own["llm"] = {key: value for key, value in llm.items() if key != "max_steps"}
         return self.normalize_persisted_config_json(json.dumps(own))
 
     # ----------------------------------------------------------- connector modes

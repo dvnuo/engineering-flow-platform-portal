@@ -98,6 +98,29 @@ COPILOT_LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 CONTEXT_SIZE_PRESETS: tuple[int, ...] = (64_000, 128_000, 256_000, 1_000_000)
 DEFAULT_CONTEXT_SIZE = 256_000
 MAX_CONTEXT_SIZE = CONTEXT_SIZE_PRESETS[-1]
+# How many model calls one chat message may take before the assistant stops,
+# summarizes and the Portal offers Continue. Stored as ``llm.max_steps``; the
+# runtimes read it as the loop cap (``max_iterations`` on native, the agent's
+# ``steps`` on OpenCode). Blank in both forms leaves the runtime's own default,
+# which is what the placeholder shows.
+DEFAULT_MAX_STEPS = 30
+MAX_STEPS_LIMIT = 500
+
+
+def parse_max_steps(value: Any) -> int | None:
+    """``value`` as a step limit, a whole number from 1 to ``MAX_STEPS_LIMIT``; anything else is None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text.isdigit():
+            return None
+        parsed = int(text)
+    elif isinstance(value, int):
+        parsed = value
+    else:
+        return None
+    return parsed if 1 <= parsed <= MAX_STEPS_LIMIT else None
 
 
 def context_size_label(size: int) -> str:

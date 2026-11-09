@@ -36,7 +36,7 @@ In the context size presets, 1M is labelled "Long context 2×". Pick it knowing 
 2. **Paste fewer large files.** Pasted content is resent on every step; letting the assistant read the parts it needs is cheaper.
 3. **Keep reasoning effort at Medium.** It is enough for everyday work; raise it to High per session in Run settings when a task needs it.
 4. **Keep the model on Auto.** Copilot picks a cheaper model for simple requests and takes 10% off.
-5. **Watch for the "Paused" notice.** When one message exceeds the credits limit or the step limit, the assistant stops and explains; click "Continue" only if you want it to carry on.
+5. **Watch for the "Paused" notice.** When one message exceeds the credits limit or the step limit, the assistant stops and explains; click "Continue" only if you want it to carry on. The step limit is Max steps per message in Connectors > Model provider; your administrator sets the default.
 
 ## Checking your balance
 

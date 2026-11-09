@@ -1,3 +1,5 @@
+import pytest
+
 from app.web import _settings_merge_payload
 
 
@@ -919,3 +921,29 @@ def test_settings_merge_finalize_drops_stale_runtime_internal_fields():
     for field_name in old_fields:
         assert field_name not in merged
     assert merged["github"] == {"enabled": True, "api_token": "ghp"}
+
+
+def test_settings_merge_stores_a_max_steps_limit_and_a_blank_follows_the_default():
+    merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_max_steps": " 60 "})
+    assert error is None
+    assert merged["llm"]["max_steps"] == 60
+
+    # Blank means "follow the administrator's default": the row keeps no value.
+    merged, error = _settings_merge_payload(
+        {"llm": {"max_steps": 60, "model": "gpt-6-luna"}}, {"__touch_llm": "1", "llm_max_steps": ""}
+    )
+    assert error is None
+    assert "max_steps" not in merged["llm"]
+    assert merged["llm"]["model"] == "gpt-6-luna"
+
+    # A form without the field leaves the stored value alone.
+    merged, error = _settings_merge_payload({"llm": {"max_steps": 60}}, {"__touch_llm": "1"})
+    assert error is None
+    assert merged["llm"]["max_steps"] == 60
+
+
+@pytest.mark.parametrize("value", ["0", "501", "lots", "2.5", "-3"])
+def test_settings_merge_rejects_a_max_steps_outside_the_range(value):
+    merged, error = _settings_merge_payload({}, {"__touch_llm": "1", "llm_max_steps": value})
+    assert error == "Max steps per message must be a whole number from 1 to 500."
+    assert "llm" not in merged

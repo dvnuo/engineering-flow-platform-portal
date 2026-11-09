@@ -9,6 +9,11 @@
         <label class="portal-form-label"><span class="portal-form-label">{{ t("Default thinking level") }}</span><select name="llm_reasoning_effort" class="portal-form-select">{% for value, label in reasoning_efforts %}<option value="{{ value }}" {{ 'selected' if reasoning_effort_selected == value else '' }}>{{ label }}</option>{% endfor %}</select></label>
         <label class="portal-form-label"><span class="portal-form-label">{{ t("Default context size") }}</span><select name="llm_max_context_tokens" class="portal-form-select">{% for size, size_label in context_sizes %}<option value="{{ size }}" {{ 'selected' if context_size_selected == size else '' }}>{{ size_label }}</option>{% endfor %}</select></label>
       </div>
+      {# A blank step limit follows the administrator's Default connectors (the
+         placeholder names what that is), so the field shows the row's own value only. #}
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label"><span class="portal-form-label">{{ t("Max steps per message") }}</span><input type="number" name="llm_max_steps" value="{{ max_steps_own or '' }}" placeholder="{{ t('Default {value}', value=max_steps_default) }}" min="1" max="{{ max_steps_limit }}" step="1" class="portal-form-input" /></label>
+      </div>
       {# The chat model cannot see images. Attached screenshots and documents are
          analyzed through Productivity Suite in the member's own browser (the
          Local bridge connector); no model-provider setting is involved. #}

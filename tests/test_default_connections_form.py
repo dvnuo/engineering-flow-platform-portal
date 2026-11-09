@@ -566,3 +566,25 @@ def test_a_seed_without_credentials_still_leaves_them_to_the_member():
 
     for field in SENSITIVE_FIELD_NAMES:
         assert f'"{field}"' not in config_json, field
+
+
+def test_the_step_limit_field_names_the_runtime_default_as_its_placeholder():
+    # Blank leaves the runtime's own default, so the field says what that is
+    # instead of preselecting a number nobody chose.
+    html = _panel_html()
+
+    assert 'name="llm_max_steps"' in html
+    assert 'placeholder="Default 30"' in html
+    assert 'max="500"' in html
+
+
+def test_a_seeded_step_limit_comes_back_into_the_form():
+    html = _panel_html(seed={"llm": {"max_steps": 60}})
+
+    assert re.search(r'name="llm_max_steps"[^>]*value="60"', html)
+
+
+def test_max_steps_is_stored_as_a_number_within_range():
+    assert _seed_config_from_form(_form({"llm_max_steps": "60"}))["llm"]["max_steps"] == 60
+    for value in ("", "0", "501", "lots"):
+        assert "max_steps" not in _seed_config_from_form(_form({"llm_max_steps": value})).get("llm", {}), value
