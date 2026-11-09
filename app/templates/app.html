@@ -464,21 +464,31 @@
                     </div>
                   </details>
                   {% if connectors_enabled %}
-                  {# The pill switches the browser on or off for this chat; hovering or
-                     focusing it shows which EFP window the assistant drives (the shared
-                     one, or its own) and lets the member change that. #}
+                  {# A split pill: its main part switches the browser on or off for this
+                     chat, and the arrow next to it opens the panel that says which EFP
+                     window the assistant drives (the shared one, or its own) and lets
+                     the member change that. Click only, like Run settings: nothing
+                     opens on hover or focus. #}
                   <div id="composer-browser-wrap" class="composer-browser-wrap hidden">
                     <button type="button"
                             id="composer-browser-toggle"
-                            class="composer-pill-btn composer-connector-toggle"
+                            class="composer-pill-btn composer-connector-toggle composer-pill-split-main"
                             data-state="hidden"
                             aria-pressed="false"
-                            aria-haspopup="dialog"
-                            aria-expanded="false"
-                            aria-controls="composer-browser-popover"
                             title="{{ t('Let the assistant use your local browser') }}">
                       <i data-lucide="globe" class="w-4 h-4"></i>
                       <span id="composer-browser-toggle-text">{{ t("Browser") }}</span>
+                    </button>
+                    <button type="button"
+                            id="composer-browser-menu"
+                            class="composer-pill-btn composer-connector-toggle composer-pill-split-menu hidden"
+                            data-state="hidden"
+                            aria-haspopup="dialog"
+                            aria-expanded="false"
+                            aria-controls="composer-browser-popover"
+                            aria-label="{{ t('Browser window for this assistant') }}"
+                            title="{{ t('Browser window for this assistant') }}">
+                      <i data-lucide="chevron-down" class="w-4 h-4"></i>
                     </button>
                     <div id="composer-browser-popover"
                          class="composer-inference-popover composer-browser-popover hidden"

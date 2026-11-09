@@ -5,7 +5,9 @@ The page asks the port that answered last before it sweeps the range, shares
 one probe between the Portal's tabs through localStorage, waits longer and
 longer between looks while the bridge is offline, and names a bridge session
 per assistant once the member gave that assistant an own window. These tests
-drive those functions with stubbed pings, storage, and timers.
+drive those functions with stubbed pings, storage, and timers; the last one
+drives the window panel behind the Browser pill's arrow against a small fake
+DOM.
 """
 
 import shutil
@@ -286,4 +288,174 @@ def test_an_assistant_drives_the_shared_window_unless_given_its_own():
           assert.equal(state.localBridge.probedAt, 0);
           console.log("ok");
         })().catch((error) => { console.error(error); process.exit(1); });
+        """))
+
+
+PANEL_FUNCTIONS = [
+    "toggleElements",
+    "applyToggleView",
+    "popoverAllowed",
+    "windowPopoverOpen",
+    "openWindowPopover",
+    "closeWindowPopover",
+    "toggleWindowPopover",
+    "bindWindowPopover",
+]
+
+
+# A composer in miniature: the wrap holding the pill's two buttons and the
+# panel with its radios, inside the chat form. Each node keeps classes,
+# attributes, and listeners; an event fired on a node bubbles to its parents
+# and then to the document, as in a browser.
+PANEL_HARNESS = r"""
+const assert = require("node:assert/strict");
+const TOGGLE_ID = "composer-browser-toggle";
+const TOGGLE_TEXT_ID = "composer-browser-toggle-text";
+const WRAP_ID = "composer-browser-wrap";
+const MENU_ID = "composer-browser-menu";
+const POPOVER_ID = "composer-browser-popover";
+const byId = {};
+const documentListeners = {};
+globalThis.document = {
+  visibilityState: "visible",
+  activeElement: null,
+  getElementById: (id) => byId[id] || null,
+  addEventListener: (type, fn) => { (documentListeners[type] = documentListeners[type] || []).push(fn); },
+  handle: (type, event) => { (documentListeners[type] || []).forEach((fn) => fn(event)); },
+};
+function node(id, parent, { radio = "" } = {}) {
+  const listeners = {};
+  const classes = new Set();
+  const self = {
+    id, parent, attrs: {}, dataset: {}, title: "", textContent: "", checked: false, value: radio,
+    classList: {
+      add: (name) => { classes.add(name); },
+      remove: (name) => { classes.delete(name); },
+      contains: (name) => classes.has(name),
+      toggle: (name, force) => { const on = force === undefined ? !classes.has(name) : Boolean(force); if (on) classes.add(name); else classes.delete(name); return on; },
+    },
+    setAttribute: (name, value) => { self.attrs[name] = String(value); },
+    getAttribute: (name) => (name in self.attrs ? self.attrs[name] : null),
+    addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
+    handle: (type, event) => { (listeners[type] || []).forEach((fn) => fn(event)); },
+    contains: (other) => { for (let n = other; n; n = n.parent) if (n === self) return true; return false; },
+    focus: () => { document.activeElement = self; },
+    closest: (selector) => (radio && selector.startsWith('input[name="composer-browser-window"]') ? self : null),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    fire: (type, props = {}) => {
+      const event = { type, target: self, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...props };
+      for (let n = self; n; n = n.parent) n.handle(type, event);
+      document.handle(type, event);
+      return event;
+    },
+  };
+  byId[id] = self;
+  return self;
+}
+const root = node("root", null);
+const form = node("chat-form", root);
+const elsewhere = node("elsewhere", root);
+const wrap = node(WRAP_ID, form);
+const button = node(TOGGLE_ID, wrap);
+const text = node(TOGGLE_TEXT_ID, button);
+const menu = node(MENU_ID, wrap);
+const popover = node(POPOVER_ID, wrap);
+const shared = node("window-shared", popover, { radio: "shared" });
+const own = node("window-own", popover, { radio: "own" });
+shared.checked = true;
+popover.classList.add("hidden");
+popover.querySelector = (selector) => (selector.endsWith(":checked") ? [shared, own].find((input) => input.checked) || null : null);
+button.dataset.state = "on";
+const rendered = [];
+function renderWindowPopover(agentId) { rendered.push(agentId); }
+const choices = [];
+function onWindowChoice(choice) { choices.push(choice); }
+function openAssistantWindow() {}
+function currentAgentId() { return "A"; }
+"""
+
+
+def _panel_script(body: str) -> str:
+    src = BRIDGE_SRC.read_text(encoding="utf-8")
+    return PANEL_HARNESS + "\n".join(_extract_js_function(src, name) for name in PANEL_FUNCTIONS) + textwrap.dedent(body)
+
+
+def test_the_window_panel_opens_by_click_and_closes_on_escape_or_a_click_elsewhere():
+    _run(_panel_script(r"""
+        bindWindowPopover();
+        assert.equal(wrap.dataset.popoverBound, "1");
+        // Hover and focus open nothing: the pill has no such listeners.
+        wrap.fire("mouseenter");
+        menu.fire("focusin");
+        assert.equal(windowPopoverOpen(), false);
+
+        // A click on the arrow opens the panel on the current assistant's
+        // choice and leaves focus where it is; the next click closes it.
+        let event = menu.fire("click", { detail: 1 });
+        assert.ok(event.defaultPrevented);
+        assert.equal(windowPopoverOpen(), true);
+        assert.equal(menu.getAttribute("aria-expanded"), "true");
+        assert.deepEqual(rendered, ["A"]);
+        assert.equal(document.activeElement, null);
+        menu.fire("click", { detail: 1 });
+        assert.equal(windowPopoverOpen(), false);
+        assert.equal(menu.getAttribute("aria-expanded"), "false");
+
+        // Enter or Space on the arrow (a click with detail 0) hands focus to
+        // the chosen radio, so the arrow keys move the choice.
+        menu.fire("click", { detail: 0 });
+        assert.equal(windowPopoverOpen(), true);
+        assert.equal(document.activeElement, shared);
+
+        // A mousedown inside the panel leaves it open; one anywhere else
+        // closes it.
+        own.fire("mousedown");
+        assert.equal(windowPopoverOpen(), true);
+        elsewhere.fire("mousedown");
+        assert.equal(windowPopoverOpen(), false);
+
+        // Escape closes an open panel and puts focus back on the arrow; with
+        // the panel closed, Escape is not the pill's to handle.
+        menu.fire("click", { detail: 0 });
+        event = own.fire("keydown", { key: "Escape" });
+        assert.ok(event.defaultPrevented);
+        assert.equal(windowPopoverOpen(), false);
+        assert.equal(document.activeElement, menu);
+        event = menu.fire("keydown", { key: "Escape" });
+        assert.equal(event.defaultPrevented, false);
+
+        // Enter on a radio picks that window instead of submitting the chat
+        // form around the panel.
+        menu.fire("click", { detail: 0 });
+        event = own.fire("keydown", { key: "Enter" });
+        assert.ok(event.defaultPrevented);
+        assert.equal(own.checked, true);
+        assert.deepEqual(choices, ["own"]);
+
+        // Focus moving within the pill keeps the panel; focus leaving it
+        // closes the panel.
+        own.fire("focusout", { relatedTarget: menu });
+        assert.equal(windowPopoverOpen(), true);
+        own.fire("focusout", { relatedTarget: elsewhere });
+        assert.equal(windowPopoverOpen(), false);
+
+        // The arrow is the pill's other half once there is a window to talk
+        // about (on, off, or offline); before the connector is set up the
+        // pill is a single button and the arrow opens nothing.
+        applyToggleView({ mode: "on", label: "Browser on" });
+        assert.equal(menu.classList.contains("hidden"), false);
+        assert.equal(wrap.classList.contains("has-menu"), true);
+        assert.equal(menu.dataset.state, "on");
+        menu.fire("click", { detail: 1 });
+        assert.equal(windowPopoverOpen(), true);
+        applyToggleView({ mode: "setup", label: "Set up browser" });
+        assert.equal(menu.classList.contains("hidden"), true);
+        assert.equal(wrap.classList.contains("has-menu"), false);
+        assert.equal(windowPopoverOpen(), false);
+        menu.fire("click", { detail: 1 });
+        assert.equal(windowPopoverOpen(), false);
+        applyToggleView({ mode: "offline", label: "Local bridge offline" });
+        assert.equal(menu.classList.contains("hidden"), false);
+        console.log("ok");
         """))

@@ -56,9 +56,8 @@
   const TOGGLE_ID = "composer-browser-toggle";
   const TOGGLE_TEXT_ID = "composer-browser-toggle-text";
   const WRAP_ID = "composer-browser-wrap";
+  const MENU_ID = "composer-browser-menu";
   const POPOVER_ID = "composer-browser-popover";
-  const POPOVER_OPEN_DELAY_MS = 250;
-  const POPOVER_CLOSE_DELAY_MS = 320;
   const PANEL_ROOT_ID = "connector-panel-root";
 
   const modules = new Map();
@@ -800,8 +799,8 @@
   // ---- browser window per assistant ----------------------------------------
   //
   // An assistant drives the shared EFP window (the bridge's default session)
-  // unless the member picks an own window for it in the popover under the
-  // composer's Browser pill: its commands then name the session
+  // unless the member picks an own window for it in the panel behind the
+  // arrow next to the composer's Browser pill: its commands then name the session
   // agent-<assistant id>, which the bridge creates on the first command as a
   // separate Chrome window and profile. Assistants with own windows work at
   // the same time without touching each other's tabs; each window is signed
@@ -844,15 +843,16 @@
     const button = document.getElementById(TOGGLE_ID);
     const text = document.getElementById(TOGGLE_TEXT_ID);
     const wrap = document.getElementById(WRAP_ID);
+    const menu = document.getElementById(MENU_ID);
     const popover = document.getElementById(POPOVER_ID);
-    return button ? { button, text, wrap, popover } : null;
+    return button ? { button, text, wrap, menu, popover } : null;
   }
 
   function applyToggleView(view) {
     const elements = toggleElements();
     if (!elements) return;
-    const { button, text, wrap } = elements;
-    // The wrap holds the popover too, so hiding it hides both.
+    const { button, text, wrap, menu } = elements;
+    // The wrap holds the arrow and the panel too, so hiding it hides all three.
     (wrap || button).classList.toggle("hidden", view.mode === "hidden");
     button.dataset.state = view.mode;
     button.setAttribute("aria-pressed", view.mode === "on" ? "true" : "false");
@@ -860,7 +860,15 @@
     button.classList.toggle("is-muted", view.mode === "offline" || view.mode === "setup");
     button.title = view.title || "";
     if (text) text.textContent = view.label || t("Browser");
-    if (!popoverAllowed()) closeWindowPopover();
+    // The arrow is the pill's other half while there is a window to talk
+    // about; until the connector is set up the pill is a single button.
+    const allowed = popoverAllowed();
+    if (menu) {
+      menu.dataset.state = view.mode;
+      menu.classList.toggle("hidden", !allowed);
+    }
+    if (wrap) wrap.classList.toggle("has-menu", Boolean(menu) && allowed);
+    if (!allowed) closeWindowPopover();
   }
 
   async function renderToggle({ probe = true } = {}) {
@@ -892,10 +900,12 @@
       return;
     }
     resetOfflineBackoff();
+    // The pill names an own window, so which assistants work apart from the
+    // shared window shows without opening the panel.
     const own = windowChoice(agentId) === WINDOW_OWN;
     applyToggleView({
       mode: "on",
-      label: t("Browser on"),
+      label: own ? t("Browser on · own window") : t("Browser on"),
       title: own
         ? t("The assistant can read and operate its own EFP browser window in this chat. Click to switch off.")
         : t("The assistant can read and operate your EFP browser window in this chat. Click to switch off."),
@@ -985,12 +995,9 @@
     await renderToggle({ probe: true });
   }
 
-  // ---- window popover (hover or focus on the Browser pill) -------------------
+  // ---- window panel (the arrow next to the Browser pill) ---------------------
 
-  let popoverOpenTimer = null;
-  let popoverCloseTimer = null;
-
-  // The popover has something to say once the connector is set up: which
+  // The panel has something to say once the connector is set up: which
   // window this assistant drives and whether that window is open.
   function popoverAllowed() {
     const elements = toggleElements();
@@ -1032,35 +1039,37 @@
     if (openButton) openButton.classList.toggle("hidden", !lb.alive || alive === true);
   }
 
-  function openWindowPopover() {
-    window.clearTimeout(popoverCloseTimer);
-    popoverCloseTimer = null;
+  function windowPopoverOpen() {
+    const elements = toggleElements();
+    return Boolean(elements && elements.popover && !elements.popover.classList.contains("hidden"));
+  }
+
+  // Opens the panel with its radios on the current choice. With `focus` (the
+  // arrow was pressed from the keyboard) the chosen radio takes focus, so the
+  // arrow keys move the choice; a click leaves focus where it is, like the
+  // Run settings panel next to it.
+  function openWindowPopover({ focus = false } = {}) {
     const elements = toggleElements();
     if (!popoverAllowed()) return;
     renderWindowPopover(currentAgentId());
     elements.popover.classList.remove("hidden");
-    elements.button.setAttribute("aria-expanded", "true");
+    if (elements.menu) elements.menu.setAttribute("aria-expanded", "true");
+    if (focus) {
+      const checked = elements.popover.querySelector('input[name="composer-browser-window"]:checked');
+      if (checked) checked.focus();
+    }
   }
 
   function closeWindowPopover() {
-    window.clearTimeout(popoverOpenTimer);
-    popoverOpenTimer = null;
     const elements = toggleElements();
     if (!elements || !elements.popover) return;
     elements.popover.classList.add("hidden");
-    elements.button.setAttribute("aria-expanded", "false");
+    if (elements.menu) elements.menu.setAttribute("aria-expanded", "false");
   }
 
-  function scheduleWindowPopoverOpen() {
-    window.clearTimeout(popoverCloseTimer);
-    window.clearTimeout(popoverOpenTimer);
-    popoverOpenTimer = window.setTimeout(openWindowPopover, POPOVER_OPEN_DELAY_MS);
-  }
-
-  function scheduleWindowPopoverClose() {
-    window.clearTimeout(popoverOpenTimer);
-    window.clearTimeout(popoverCloseTimer);
-    popoverCloseTimer = window.setTimeout(closeWindowPopover, POPOVER_CLOSE_DELAY_MS);
+  function toggleWindowPopover(options) {
+    if (windowPopoverOpen()) closeWindowPopover();
+    else openWindowPopover(options);
   }
 
   async function onWindowChoice(choice) {
@@ -1095,35 +1104,35 @@
     }
   }
 
+  // The panel opens and closes by a click on the arrow (Enter and Space on
+  // it included), closes on a click anywhere else, on Escape, and when focus
+  // leaves it, and never opens on hover or focus alone: a pointer crossing
+  // the toolbar or a Tab through the composer shows nothing.
   function bindWindowPopover() {
     const elements = toggleElements();
-    if (!elements || !elements.wrap || !elements.popover || elements.wrap.dataset.popoverBound === "1") return;
-    const { wrap, popover, button } = elements;
+    if (!elements || !elements.wrap || !elements.popover || !elements.menu || elements.wrap.dataset.popoverBound === "1") return;
+    const { wrap, popover, menu } = elements;
     wrap.dataset.popoverBound = "1";
-    wrap.addEventListener("mouseenter", scheduleWindowPopoverOpen);
-    wrap.addEventListener("mouseleave", scheduleWindowPopoverClose);
-    let focusReturning = false;
-    wrap.addEventListener("focusin", () => {
-      window.clearTimeout(popoverCloseTimer);
-      // Focus handed back to the pill by Escape must not reopen what Escape
-      // just closed.
-      if (focusReturning) {
-        focusReturning = false;
-        return;
-      }
-      openWindowPopover();
+    menu.addEventListener("click", (event) => {
+      event.preventDefault();
+      // A click's detail counts mouse clicks; Enter and Space report 0.
+      toggleWindowPopover({ focus: event.detail === 0 });
+    });
+    document.addEventListener("mousedown", (event) => {
+      if (windowPopoverOpen() && !wrap.contains(event.target)) closeWindowPopover();
     });
     wrap.addEventListener("focusout", (event) => {
-      if (!wrap.contains(event.relatedTarget)) scheduleWindowPopoverClose();
+      if (event.relatedTarget && !wrap.contains(event.relatedTarget)) closeWindowPopover();
     });
     wrap.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
+        if (!windowPopoverOpen()) return;
+        event.preventDefault();
         closeWindowPopover();
-        focusReturning = popover.contains(document.activeElement);
-        button.focus();
+        menu.focus();
         return;
       }
-      // The popover sits inside the chat form, where Enter on a radio would
+      // The panel sits inside the chat form, where Enter on a radio would
       // submit the draft (Chrome's implicit submission); it picks the window.
       if (event.key === "Enter" && popover.contains(event.target)) {
         event.preventDefault();
@@ -1441,6 +1450,8 @@
       onToggleClick();
     });
     document.addEventListener("portal:agent-selected", () => {
+      // A panel left open belongs to the assistant just left.
+      closeWindowPopover();
       resetOfflineBackoff();
       renderToggle({ probe: true });
     });
