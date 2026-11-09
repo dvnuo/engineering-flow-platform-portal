@@ -48,8 +48,11 @@ def test_no_steps_disclosure_is_left_in_the_code():
 
 
 def test_every_completion_path_clears_the_working_list():
-    # The three places that turn a pending bubble into a finished one.
-    assert JS.count("clearAssistantTimelineFromArticle(article);") == 3
+    # The three functions that turn a pending bubble into a finished one: the
+    # completed branch of the live row update, the final-payload finaliser and
+    # the incomplete/failed finaliser.
+    for name in ("updateOrCreateAssistantRowForRequest", "finalizePendingAssistantRow", "finalizeIncompleteAssistantRow"):
+        assert "clearAssistantTimelineFromArticle(article);" in _extract_js_function(JS, name), name
     # The selector the removal uses is the marker the markup sets, in both
     # places that create the list.
     build = _extract_js_function(JS, "buildPendingAssistantArticle")
