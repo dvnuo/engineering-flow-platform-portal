@@ -19,12 +19,15 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.contracts.llm_catalog import (
+    DEFAULT_MAX_STEPS,
+    MAX_STEPS_LIMIT,
     PROVIDER_MODELS,
     context_size_choices,
     context_size_label,
     context_size_options,
     effective_context_size,
     effective_reasoning_effort,
+    parse_max_steps,
     reasoning_effort_choices,
     reasoning_effort_options,
 )
@@ -89,6 +92,7 @@ from app.services.connector_defaults_service import (
     MODE_SYSTEM,
     changed_connector_types,
     connector_mode,
+    default_step_limit,
     managed_slice,
     sanitized_seed,
 )
@@ -1166,6 +1170,13 @@ def _connector_settings_panel_context(
     reasoning_effort_selected = effective_reasoning_effort(
         llm_config.get("provider"), llm_config.get("model"), llm_config.get("reasoning_effort")
     )
+    # The Model provider's step limit: the row's own value in the field and
+    # what a blank one follows as its placeholder, the administrator's default
+    # or, failing that, the runtime's (with_default_step_limit).
+    seed = service.read_seed()
+    own_config = parse_runtime_profile_config_json(runtime_profile.config_json, fallback_to_empty=True)
+    max_steps_own = default_step_limit(own_config)
+    max_steps_default = default_step_limit(seed) or DEFAULT_MAX_STEPS
     return {
         "request": request,
         "connector": settings_entry(spec, raw_config_data, mode),
@@ -1175,7 +1186,7 @@ def _connector_settings_panel_context(
         "connector_managed": bool(spec.managed_sections),
         "connector_mode": mode,
         "connector_follows_system": bool(spec.managed_sections) and mode == MODE_SYSTEM,
-        "admin_defaults_available": bool(managed_slice(spec, sanitized_seed(service.read_seed()))),
+        "admin_defaults_available": bool(managed_slice(spec, sanitized_seed(seed))),
         "appium_inspector_available": _hosted_inspector_available(),
         # The proxy the local bridge uses to reach BrowserStack from the
         # member's computer, kept in their Local bridge connector.
@@ -1188,6 +1199,9 @@ def _connector_settings_panel_context(
         "context_size_selected": context_size_selected,
         "reasoning_efforts": reasoning_efforts,
         "reasoning_effort_selected": reasoning_effort_selected,
+        "max_steps_own": max_steps_own,
+        "max_steps_default": max_steps_default,
+        "max_steps_limit": MAX_STEPS_LIMIT,
         "status_type": status_type,
         "status_message": status_message,
         "pending_restart_agents": _pending_restart_agents(db, runtime_profile),
@@ -1614,6 +1628,10 @@ def _seed_config_from_form(form, errors: Optional[list[str]] = None) -> dict:
     context_tokens = text("llm_max_context_tokens")
     if context_tokens.isdigit():
         llm["max_context_tokens"] = int(context_tokens)
+    # Blank leaves the runtime's default; members who set none follow this.
+    max_steps = parse_max_steps(text("llm_max_steps"))
+    if max_steps is not None:
+        llm["max_steps"] = max_steps
     # A credential is read only while its fields are shown, so a hidden one
     # cannot be seeded where the admin cannot see it: the AI Platform account
     # whenever AI Platform chat needs it, the Copilot key whenever the
@@ -2257,6 +2275,16 @@ def _settings_merge_payload(config_payload: dict, form, db: Optional[Session] = 
                 supported = ", ".join(context_size_label(size) for size in offered)
                 return config_payload, f"Context size must be one of: {supported}."
             llm["max_context_tokens"] = max_context_tokens
+        if "llm_max_steps" in form:
+            max_steps_text = (form.get("llm_max_steps") or "").strip()
+            if not max_steps_text:
+                # Blank follows the administrator's default (with_default_step_limit).
+                llm.pop("max_steps", None)
+            else:
+                max_steps = parse_max_steps(max_steps_text)
+                if max_steps is None:
+                    return config_payload, f"Max steps per message must be a whole number from 1 to {MAX_STEPS_LIMIT}."
+                llm["max_steps"] = max_steps
         if api_key_value:
             llm["api_key"] = api_key_value
         elif "llm_api_key" in form or is_clear("llm_api_key_clear"):
@@ -3175,6 +3203,10 @@ def _default_connections_context(
         # first -- otherwise saving an untouched form pins everyone to Low/64K.
         "reasoning_effort_selected": reasoning_effort_selected,
         "context_size_selected": context_size_selected,
+        # The step limit field: blank leaves the runtime's default, which is
+        # what its placeholder names.
+        "max_steps_default": DEFAULT_MAX_STEPS,
+        "max_steps_limit": MAX_STEPS_LIMIT,
         "status_type": status_type,
         "status_message": status_message,
     }

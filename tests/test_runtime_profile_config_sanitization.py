@@ -810,3 +810,13 @@ def test_opencode_runtime_profile_context_config_omits_efp_instruction_texts():
     assert projected["jira"]["enabled"] is True
     assert projected["github"]["api_token"] == "ghp"
     assert projected["aws"]["domain"] == "HBEU"
+
+
+def test_llm_max_steps_is_kept_within_range_and_dropped_otherwise():
+    # The Model provider's step limit: a whole number the form's range allows,
+    # from a string as the form posts it or an int as the row stores it.
+    assert sanitize_runtime_profile_config_dict({"llm": {"max_steps": " 60 "}})["llm"] == {"max_steps": 60}
+    assert sanitize_runtime_profile_config_dict({"llm": {"max_steps": 500}})["llm"] == {"max_steps": 500}
+    # Nothing else is stored: no 0 for "unlimited", no float, no flag.
+    for nonsense in (0, -1, 501, "lots", "2.5", 2.5, True, None):
+        assert "llm" not in sanitize_runtime_profile_config_dict({"llm": {"max_steps": nonsense}}), nonsense

@@ -118,6 +118,13 @@
           </select>
         </label>
       </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="portal-form-label">
+          <span class="portal-form-label">{{ t("Default max steps per message") }}</span>
+          <input type="number" name="llm_max_steps" value="{{ seed.get('llm', {}).get('max_steps', '') }}" placeholder="{{ t('Default {value}', value=max_steps_default) }}" min="1" max="{{ max_steps_limit }}" step="1" class="portal-form-input" />
+        </label>
+      </div>
+      <p class="portal-panel-note">{{ t("How many model calls one chat message may take before the assistant pauses and offers Continue. Members who leave theirs blank follow this value; blank here leaves the runtime's own default.") }}</p>
 
       {# A credential belongs to the provider it authenticates against, so each block only shows --
          and is only read on save -- while that provider is selected. With no default provider

@@ -7,6 +7,7 @@ from app.repositories.runtime_profile_repo import RuntimeProfileRepository
 from app.schemas.runtime_profile import (
     parse_runtime_profile_config_json,
 )
+from app.services.connector_defaults_service import with_default_step_limit
 from app.services.runtime_profile_service import RuntimeProfileService
 from app.services.runtime_profile_context_projection import (
     build_runtime_profile_context_config,
@@ -37,6 +38,11 @@ class RuntimeExecutionContextService:
             parsed_config = parse_runtime_profile_config_json(getattr(profile, "config_json", None))
         except ValueError:
             return runtime_profile_id, None, {}
+        # A row without a Model provider step limit of its own follows the
+        # Default connectors' one here as it does in the pod Secret
+        # (effective_config_for), so a change by the administrator reaches
+        # the next message without a restart.
+        parsed_config = with_default_step_limit(parsed_config, RuntimeProfileService(db).read_seed())
 
         authorization_metadata = {}
         runtime_type = normalize_runtime_type_or_default(getattr(agent, "runtime_type", None))

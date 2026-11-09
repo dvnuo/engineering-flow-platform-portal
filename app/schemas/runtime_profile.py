@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
-from app.contracts.llm_catalog import MAX_CONTEXT_SIZE, SUPPORTED_REASONING_EFFORTS
+from app.contracts.llm_catalog import MAX_CONTEXT_SIZE, SUPPORTED_REASONING_EFFORTS, parse_max_steps
 
 ALLOWED_RUNTIME_PROFILE_SECTIONS = {
     "llm",
@@ -43,6 +43,7 @@ PORTAL_MANAGED_FIELD_TREE = {
         "max_tokens": True,
         "reasoning_effort": True,
         "max_context_tokens": True,
+        "max_steps": True,
         # Only per-user credentials are persisted. AI Platform endpoints and
         # transport headers come from app/config.py at runtime projection time.
         "ai_platform": {
@@ -1215,6 +1216,13 @@ def sanitize_runtime_profile_config_dict(data: dict) -> dict:
             llm_copy["max_context_tokens"] = max_context_tokens
         else:
             llm_copy.pop("max_context_tokens", None)
+        # The step limit is a whole number within the form's range or nothing:
+        # a blank one means "the default", never 0 or "unlimited".
+        max_steps = parse_max_steps(llm_copy.get("max_steps"))
+        if max_steps is not None:
+            llm_copy["max_steps"] = max_steps
+        else:
+            llm_copy.pop("max_steps", None)
         # The retired image analysis block is never kept.
         llm_copy.pop("vision", None)
         llm = llm_copy

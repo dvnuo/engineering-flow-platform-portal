@@ -30,6 +30,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from app.contracts.llm_catalog import parse_max_steps
 from app.schemas.runtime_profile import sanitize_runtime_profile_config_dict
 from app.services.connector_registry import SETTINGS_CONNECTORS, ConnectorSpec
 
@@ -71,6 +72,42 @@ def managed_slice(spec: ConnectorSpec, config: Mapping[str, Any] | None) -> dict
         for section in spec.managed_sections
         if isinstance(source.get(section), dict) and source[section]
     }
+
+
+def default_step_limit(config: Mapping[str, Any] | None) -> int | None:
+    """The Model provider's step limit (``llm.max_steps``) a config sets, if any."""
+
+    llm = config.get("llm") if isinstance(config, Mapping) else None
+    return parse_max_steps(llm.get("max_steps")) if isinstance(llm, Mapping) else None
+
+
+def has_own_step_limit(member_config: Mapping[str, Any] | None) -> bool:
+    """Whether the row sets the Model provider's step limit itself."""
+
+    return default_step_limit(member_config) is not None
+
+
+def with_default_step_limit(config: Mapping[str, Any] | None, seed: Mapping[str, Any] | None) -> dict:
+    """``config`` with the Default connectors' step limit where the row sets none.
+
+    No mode governs the model provider: its values are always the member's
+    own. The step limit is the one value of it an administrator sets for
+    everyone, so a row without one follows the Default connectors and keeps
+    following when they change (``changed_connector_types`` names ``llm``
+    then); a row with its own keeps it.
+    """
+
+    result = {key: copy.deepcopy(value) for key, value in dict(config or {}).items()}
+    if has_own_step_limit(result):
+        return result
+    limit = default_step_limit(seed)
+    if limit is None:
+        return result
+    llm = result.get("llm")
+    llm = dict(llm) if isinstance(llm, Mapping) else {}
+    llm["max_steps"] = limit
+    result["llm"] = llm
+    return result
 
 
 def parse_connector_modes(raw: str | None) -> dict[str, str]:
@@ -144,7 +181,7 @@ def effective_config(
                 config[section] = copy.deepcopy(value)
             else:
                 config.pop(section, None)
-    return config
+    return with_default_step_limit(config, seed_config)
 
 
 def backfill_connector_modes(member_config: Mapping[str, Any] | None, seed: Mapping[str, Any] | None) -> dict[str, str]:
@@ -174,7 +211,13 @@ def changed_connector_types(old_seed: Mapping[str, Any] | None, new_seed: Mappin
 
     before = sanitized_seed(old_seed)
     after = sanitized_seed(new_seed)
-    return [spec.type for spec in managed_specs() if managed_slice(spec, before) != managed_slice(spec, after)]
+    changed = [spec.type for spec in managed_specs() if managed_slice(spec, before) != managed_slice(spec, after)]
+    # The model provider has no mode, but every row without a step limit of
+    # its own follows the seed's (with_default_step_limit), so a change to
+    # that reaches those members like a managed connector's would.
+    if default_step_limit(before) != default_step_limit(after):
+        changed.append("llm")
+    return changed
 
 
 def following_types(modes: Mapping[str, str] | None, candidate_types: list[str] | None = None) -> list[str]:
@@ -185,6 +228,22 @@ def following_types(modes: Mapping[str, str] | None, candidate_types: list[str] 
     return [spec.type for spec in specs if spec.type in wanted and connector_mode(spec, modes) == MODE_SYSTEM]
 
 
+def follows_changed_defaults(
+    member_config: Mapping[str, Any] | None,
+    modes: Mapping[str, str] | None,
+    changed_types: list[str],
+) -> bool:
+    """Whether a change to ``changed_types`` of the Default connectors reaches this row.
+
+    A managed connector reaches the row in system mode; the model provider's
+    step limit reaches every row that sets none of its own.
+    """
+
+    if following_types(modes, changed_types):
+        return True
+    return "llm" in changed_types and not has_own_step_limit(member_config)
+
+
 __all__ = [
     "CONNECTOR_MODES",
     "MODE_CUSTOM",
@@ -192,12 +251,16 @@ __all__ = [
     "backfill_connector_modes",
     "changed_connector_types",
     "connector_mode",
+    "default_step_limit",
     "dump_connector_modes",
     "effective_config",
+    "follows_changed_defaults",
     "following_types",
+    "has_own_step_limit",
     "managed_slice",
     "managed_specs",
     "parse_connector_modes",
     "sanitized_seed",
     "stored_connector_modes",
+    "with_default_step_limit",
 ]
