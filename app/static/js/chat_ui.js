@@ -856,7 +856,6 @@ function createDefaultChatState() {
     pendingFiles: [],
     inflightEventStream: null,
     inflightAgentTimeline: null,
-    lastAgentTimelineSnapshot: null,
     lastEventStreamSnapshot: null,
     draftText: "",
     needsReload: false,
@@ -4695,92 +4694,25 @@ function keepAgentTimelineListPinned(listNode) {
   if (listNode.dataset.pinned !== "0") listNode.scrollTop = listNode.scrollHeight;
 }
 
-// After the answer lands, the Working list used to be thrown away. Its rows
-// (tools, reasoning, permissions, compactions) are what a reader opens to see
-// how the assistant got there, so they stay under the answer as one closed
-// disclosure. The snapshot taken at completion holds every row; the live list
-// is the fallback when the article completes before the snapshot exists.
-function runStepsDetailsHtml(timeline) {
-  if (!timeline) return "";
-  const complete = {
-    ...timeline,
-    items: (timeline.items || []).filter((item) => item && !["text", "step"].includes(String(item.kind || "").toLowerCase())),
-    visibleItemCount: Number.MAX_SAFE_INTEGER,
-  };
-  const count = getAgentTimelineRenderableItems(complete).length;
-  if (!count) return "";
-  const rows = renderAgentTimelineRowsHtml(complete);
-  if (!rows) return "";
-  return `<details class="portal-collapsible chat-run-steps" data-run-steps="${count}"><summary class="portal-collapsible-summary"><span>${escapeHtml(tn(count, "{n} step", "{n} steps"))}</span></summary><div class="agent-timeline agent-timeline-steps"><div class="agent-timeline-list">${rows}</div></div></details>`;
-}
-
-function placeRunStepsDetails(article, html) {
-  if (!article) return;
-  article.querySelector("[data-run-steps]")?.remove();
-  if (!html) return;
-  article.insertAdjacentHTML("beforeend", html);
-  const details = article.querySelector("[data-run-steps]");
-  if (details) renderIcons(details);
-}
-
-function collapseAgentTimelineIntoSteps(article, timelineEl) {
-  const listNode = timelineEl.querySelector("[data-agent-timeline-items]");
-  const rows = listNode
-    ? Array.from(listNode.querySelectorAll(".agent-timeline-row")).filter((row) => !row.classList.contains("is-text"))
-    : [];
-  timelineEl.remove();
-  if (!rows.length || article.querySelector("[data-run-steps]")) return;
-  const details = document.createElement("details");
-  details.className = "portal-collapsible chat-run-steps";
-  details.dataset.runSteps = String(rows.length);
-  details.innerHTML = `<summary class="portal-collapsible-summary"><span>${escapeHtml(tn(rows.length, "{n} step", "{n} steps"))}</span></summary><div class="agent-timeline agent-timeline-steps"><div class="agent-timeline-list"></div></div>`;
-  const list = details.querySelector(".agent-timeline-list");
-  rows.forEach((row) => list.appendChild(row));
-  article.appendChild(details);
-}
-
-function renderRunStepsForSnapshot(chatState, requestCtx = {}) {
-  const snapshot = chatState?.lastAgentTimelineSnapshot;
-  if (!snapshot || typeof document === "undefined" || !dom.messageList) return;
-  const article = findAssistantArticleForRequest(requestCtx, { request_id: snapshot.requestId })
-    || findPendingAssistantArticleForTimeline(requestCtx, snapshot);
-  if (!article) return;
-  placeRunStepsDetails(article, runStepsDetailsHtml(snapshot));
-}
-
+// When the answer lands, the Working list goes with it: it is a progress view
+// for the run in flight, and nothing of the run's events outlives the answer.
+// The transcript is rebuilt from stored messages, which renderChatHistory
+// draws without step rows, so the live answer and the reloaded answer match.
+// (portal#512 folded the list into an "N steps" disclosure under the answer;
+// portal#520 removed it at the product owner's request.)
 function clearAssistantTimelineFromArticle(article) {
   if (!article) return;
-  const timelineEl = article.querySelector("[data-agent-timeline='1']");
-  if (timelineEl) collapseAgentTimelineIntoSteps(article, timelineEl);
+  article.querySelector("[data-agent-timeline='1']")?.remove();
   article.querySelector(".assistant-waiting-indicator")?.remove();
 }
 
-function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {}) {
-  if (!chatState?.inflightAgentTimeline) return;
-  const timeline = chatState.inflightAgentTimeline;
-  if (!agentTimelineMatchesRequest(timeline, requestCtx)) return;
-  const finalText = String(finalPayload?.response || "");
-  if (finalText) timeline.assistantText = finalText;
-  timeline.completed = true;
-  const finalCompletionState = String(finalPayload?.completion_state || "").toLowerCase();
-  timeline.status = finalCompletionState === "failed"
-    ? "failed"
-    : finalCompletionState === "cancelled" ? "cancelled" : "completed";
-  timeline.completedAt = Date.now();
-  clearAgentTimelineRevealTimer(timeline);
-  advanceAgentTimelineReveal(timeline, Infinity);
-  chatState.lastAgentTimelineSnapshot = {
-    ...timeline,
-    eventsById: { ...(timeline.eventsById || {}) },
-    toolsByCallId: { ...(timeline.toolsByCallId || {}) },
-    reasoningById: { ...(timeline.reasoningById || {}) },
-    textById: { ...(timeline.textById || {}) },
-    items: (timeline.items || []).map((item) => ({ ...item })),
-  };
-  // The answer's article keeps the steps as a closed disclosure.
-  if (typeof renderRunStepsForSnapshot === "function") renderRunStepsForSnapshot(chatState, requestCtx);
-  if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
-  else chatState.inflightAgentTimeline = null;
+// The run is over: drop the in-flight timeline state (its reveal timer with
+// it) so the next run starts clean. Nothing of it is kept. The snapshot this
+// used to copy here was read only by the removed steps disclosure.
+function finalizeAgentTimelineState(chatState, requestCtx = {}) {
+  const timeline = chatState?.inflightAgentTimeline;
+  if (!timeline || !agentTimelineMatchesRequest(timeline, requestCtx)) return;
+  dropInflightAgentTimelineState(chatState);
 }
 
 function syncAgentTimelineAssistantTextFromStream(chatState, requestCtx = {}, text = "") {
@@ -10025,7 +9957,7 @@ function finalizeTerminalStreamState(agentId, requestCtx, finalPayload = {}) {
     completedAt: Date.now(),
   };
   if (typeof finalizeAgentTimelineState === "function") {
-    finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
+    finalizeAgentTimelineState(chatState, requestCtx);
   }
   chatState.inflightEventStream = null;
   if (chatState.currentRequest?.clientRequestId === requestCtx?.clientRequestId) chatState.currentRequest = null;
@@ -11500,7 +11432,7 @@ async function handleAgentChatSuccess(agentIdAtSend, requestCtx, payload, option
   };
   chatState.lastEventStreamSnapshot = finalStreamSnapshot;
   if (typeof finalizeAgentTimelineState === "function") {
-    finalizeAgentTimelineState(chatState, requestCtx, payload);
+    finalizeAgentTimelineState(chatState, requestCtx);
   }
   chatState.currentRequest = null;
   chatState.inflightEventStream = null;
@@ -19182,7 +19114,7 @@ function completeEditedMessageRequest(agentId, requestCtx, finalPayload = {}, { 
     chatState.inflightEventStream = null;
   }
   if (typeof finalizeAgentTimelineState === "function") {
-    finalizeAgentTimelineState(chatState, requestCtx, finalPayload);
+    finalizeAgentTimelineState(chatState, requestCtx);
   }
   if (chatState.currentRequest?.clientRequestId === requestId) chatState.currentRequest = null;
   setChatSubmittingForAgent(agentId, false);
