@@ -1466,11 +1466,6 @@ details[open] > summary .message-file-chevron { transform: translateY(2px) rotat
 .message-file-group-body { display: grid; gap: 6px; padding: 0 8px 8px; }
 .message-file-group-body .message-block { margin: 0; }
 
-/* The run's steps under a finished answer: closed by default, the same rows the Working list showed. */
-.chat-run-steps { margin-top: 10px; padding: 6px 12px; }
-.chat-run-steps > .portal-collapsible-summary { font-size: 12px; color: var(--portal-text-secondary); }
-.chat-run-steps .agent-timeline { margin-top: 6px; border-top: 0; padding-top: 0; }
-.chat-run-steps .agent-timeline-list { max-height: 320px; }
 .message-file-group-summary .message-file-download-all { flex: 0 0 auto; font-size: 12px; padding: 4px 10px; text-decoration: none; }
 @media (max-width: 640px) {
   .message-file-card { flex-wrap: wrap; }

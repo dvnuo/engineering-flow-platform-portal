@@ -4695,77 +4695,14 @@ function keepAgentTimelineListPinned(listNode) {
   if (listNode.dataset.pinned !== "0") listNode.scrollTop = listNode.scrollHeight;
 }
 
-// After the answer lands, the Working list used to be thrown away. The steps
-// of the run (the tools it called, the permissions and questions it raised)
-// are what a reader opens to see how the assistant got there, so they stay
-// under the answer as one closed disclosure. Reasoning summaries, context
-// compactions and provider retries are how the answer was produced, not steps
-// the reader retraces: they show on the live Working list while the run is on
-// and leave nothing behind, so an answer that only thought ends clean, as it
-// does after a reload. The snapshot taken at completion holds every row; the
-// live list is the fallback when the article completes before the snapshot
-// exists.
-function isRunStepTimelineItem(item) {
-  const kind = String(item?.kind || "").toLowerCase();
-  return kind === "tool" || kind === "permission";
-}
-
-function isRunStepTimelineRow(row) {
-  return row.classList.contains("is-tool") || row.classList.contains("is-permission");
-}
-
-function runStepsDetailsHtml(timeline) {
-  if (!timeline) return "";
-  const complete = {
-    ...timeline,
-    items: (timeline.items || []).filter(isRunStepTimelineItem),
-    visibleItemCount: Number.MAX_SAFE_INTEGER,
-  };
-  const count = getAgentTimelineRenderableItems(complete).length;
-  if (!count) return "";
-  const rows = renderAgentTimelineRowsHtml(complete);
-  if (!rows) return "";
-  return `<details class="portal-collapsible chat-run-steps" data-run-steps="${count}"><summary class="portal-collapsible-summary"><span>${escapeHtml(tn(count, "{n} step", "{n} steps"))}</span></summary><div class="agent-timeline agent-timeline-steps"><div class="agent-timeline-list">${rows}</div></div></details>`;
-}
-
-function placeRunStepsDetails(article, html) {
-  if (!article) return;
-  article.querySelector("[data-run-steps]")?.remove();
-  if (!html) return;
-  article.insertAdjacentHTML("beforeend", html);
-  const details = article.querySelector("[data-run-steps]");
-  if (details) renderIcons(details);
-}
-
-function collapseAgentTimelineIntoSteps(article, timelineEl) {
-  const listNode = timelineEl.querySelector("[data-agent-timeline-items]");
-  const rows = listNode
-    ? Array.from(listNode.querySelectorAll(".agent-timeline-row")).filter(isRunStepTimelineRow)
-    : [];
-  timelineEl.remove();
-  if (!rows.length || article.querySelector("[data-run-steps]")) return;
-  const details = document.createElement("details");
-  details.className = "portal-collapsible chat-run-steps";
-  details.dataset.runSteps = String(rows.length);
-  details.innerHTML = `<summary class="portal-collapsible-summary"><span>${escapeHtml(tn(rows.length, "{n} step", "{n} steps"))}</span></summary><div class="agent-timeline agent-timeline-steps"><div class="agent-timeline-list"></div></div>`;
-  const list = details.querySelector(".agent-timeline-list");
-  rows.forEach((row) => list.appendChild(row));
-  article.appendChild(details);
-}
-
-function renderRunStepsForSnapshot(chatState, requestCtx = {}) {
-  const snapshot = chatState?.lastAgentTimelineSnapshot;
-  if (!snapshot || typeof document === "undefined" || !dom.messageList) return;
-  const article = findAssistantArticleForRequest(requestCtx, { request_id: snapshot.requestId })
-    || findPendingAssistantArticleForTimeline(requestCtx, snapshot);
-  if (!article) return;
-  placeRunStepsDetails(article, runStepsDetailsHtml(snapshot));
-}
-
+// When the answer lands, the Working list goes with it. It is a progress view
+// for the run in flight; a finished answer shows the answer alone, the same
+// as it does after a reload (history carries no step rows). A folded
+// "N steps" disclosure under the answer was tried (portal#512) and removed
+// again at the member's request: it made a plain answer look unfinished.
 function clearAssistantTimelineFromArticle(article) {
   if (!article) return;
-  const timelineEl = article.querySelector("[data-agent-timeline='1']");
-  if (timelineEl) collapseAgentTimelineIntoSteps(article, timelineEl);
+  article.querySelector("[data-agent-timeline='1']")?.remove();
   article.querySelector(".assistant-waiting-indicator")?.remove();
 }
 
@@ -4791,8 +4728,6 @@ function finalizeAgentTimelineState(chatState, requestCtx = {}, finalPayload = {
     textById: { ...(timeline.textById || {}) },
     items: (timeline.items || []).map((item) => ({ ...item })),
   };
-  // The answer's article keeps the steps as a closed disclosure.
-  if (typeof renderRunStepsForSnapshot === "function") renderRunStepsForSnapshot(chatState, requestCtx);
   if (typeof dropInflightAgentTimelineState === "function") dropInflightAgentTimelineState(chatState);
   else chatState.inflightAgentTimeline = null;
 }
