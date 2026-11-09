@@ -363,6 +363,7 @@ const menu = node(MENU_ID, wrap);
 const popover = node(POPOVER_ID, wrap);
 const shared = node("window-shared", popover, { radio: "shared" });
 const own = node("window-own", popover, { radio: "own" });
+const openButton = node("window-open", popover);
 shared.checked = true;
 popover.classList.add("hidden");
 popover.querySelector = (selector) => (selector.endsWith(":checked") ? [shared, own].find((input) => input.checked) || null : null);
@@ -426,11 +427,15 @@ def test_the_window_panel_opens_by_click_and_closes_on_escape_or_a_click_elsewhe
         assert.equal(event.defaultPrevented, false);
 
         // Enter on a radio picks that window instead of submitting the chat
-        // form around the panel.
+        // form around the panel; Enter on the panel's Open window button is
+        // left to the button, which activates on it.
         menu.fire("click", { detail: 0 });
         event = own.fire("keydown", { key: "Enter" });
         assert.ok(event.defaultPrevented);
         assert.equal(own.checked, true);
+        assert.deepEqual(choices, ["own"]);
+        event = openButton.fire("keydown", { key: "Enter" });
+        assert.equal(event.defaultPrevented, false);
         assert.deepEqual(choices, ["own"]);
 
         // Focus moving within the pill keeps the panel; focus leaving it

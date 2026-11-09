@@ -983,7 +983,12 @@
     if (mode === "offline") {
       applyToggleView({ mode: "offline", label: t("Starting browser…"), title: t("Starting the local bridge and its Chrome window.") });
       const probe = await ensureBrowserSession({ agentId });
-      if (!probe.alive) window.location.hash = "#/connectors/local_bridge?step=2";
+      if (!probe.alive) {
+        // The setup steps replace the chat; a panel left open would wait
+        // there for the member's return.
+        closeWindowPopover();
+        window.location.hash = "#/connectors/local_bridge?step=2";
+      }
       await renderToggle({ probe: false });
       return;
     }
@@ -1133,11 +1138,13 @@
         return;
       }
       // The panel sits inside the chat form, where Enter on a radio would
-      // submit the draft (Chrome's implicit submission); it picks the window.
+      // submit the draft (Chrome's implicit submission); it picks the window
+      // instead. Enter on the panel's Open window button is the button's own.
       if (event.key === "Enter" && popover.contains(event.target)) {
-        event.preventDefault();
         const input = event.target.closest('input[name="composer-browser-window"]');
-        if (input && !input.checked) {
+        if (!input) return;
+        event.preventDefault();
+        if (!input.checked) {
           input.checked = true;
           onWindowChoice(input.value);
         }

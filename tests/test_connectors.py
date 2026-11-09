@@ -484,7 +484,17 @@ def test_browser_window_panel_opens_by_click_not_hover():
     # The two buttons read as one pill: the arrow has no left border, and the
     # toggle loses its right rounding while the arrow is shown.
     assert ".composer-browser-wrap.has-menu .composer-pill-split-main" in css
-    assert ".composer-pill-split-menu {" in css and "border-left: 0;" in css[css.index(".composer-pill-split-menu {"):]
+    menu_rule_start = css.index(".composer-pill-split-menu {")
+    menu_rule = css[menu_rule_start:css.index("}", menu_rule_start)]
+    assert "border-left: 0;" in menu_rule
+    # The two buttons sit in a box of their own, apart from the panel, so
+    # hovering either half lifts both halves and only the halves: a pointer
+    # over the panel, or over the Open window button inside it, lifts nothing
+    # else.
+    html = Path("app/templates/app.html").read_text(encoding="utf-8")
+    assert html.index('class="composer-pill-split"') < html.index('id="composer-browser-toggle"') < html.index('id="composer-browser-menu"') < html.index('id="composer-browser-popover"')
+    assert ".composer-pill-split:hover > .composer-pill-btn" in css
+    assert ".composer-browser-wrap:hover .composer-pill-btn" not in css
     # An own window shows on the pill itself.
     assert 't("Browser on · own window")' in js
 

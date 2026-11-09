@@ -6884,11 +6884,18 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 /* Browser window per assistant: the Browser pill is split in two. Its main
    part is the on/off toggle; the arrow next to it opens the panel that says
    which window the assistant drives (the shared EFP window or its own) and
-   whether it is open. The two buttons read as one pill: the arrow has no
-   left border, so the toggle's right border is the divider, and the whole
-   pill lifts on hover rather than one half of it. */
+   whether it is open. The two buttons sit in a box of their own, apart from
+   the panel, and read as one pill: the arrow has no left border, so the
+   toggle's right border is the divider, and hovering either half lifts both
+   rather than one of them. Each half keeps its own hover colour, since the
+   halves do different things. */
 .composer-browser-wrap {
   position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.composer-pill-split {
   display: inline-flex;
   align-items: stretch;
 }
@@ -6906,11 +6913,9 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
   padding: 0 7px 0 5px;
 }
 
-.composer-browser-wrap .composer-pill-btn:hover {
-  transform: none;
-}
-
-.composer-browser-wrap:hover .composer-pill-btn {
+/* Only the halves' own box: a pointer over the panel, or over the Open
+   window button inside it, moves nothing but that button. */
+.composer-pill-split:hover > .composer-pill-btn {
   transform: translateY(-1px);
 }
 
