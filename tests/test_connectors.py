@@ -457,6 +457,10 @@ def test_app_page_exposes_connectors_menu_when_enabled():
     # with the choice as radios and a way to open that window.
     toggle = html[html.index('id="composer-browser-toggle"'):html.index('id="composer-browser-menu"')]
     assert "aria-haspopup" not in toggle and "aria-expanded" not in toggle
+    # The pill's icon says which window the assistant drives (the globe for
+    # the shared window, a window for its own); its text stays "Browser".
+    assert 'data-lucide="globe" data-browser-icon="shared"' in toggle
+    assert 'data-lucide="app-window" data-browser-icon="own" class="w-4 h-4 hidden"' in toggle
     menu = html[html.index('id="composer-browser-menu"'):html.index('id="composer-browser-popover"')]
     assert 'aria-haspopup="dialog"' in menu and 'aria-expanded="false"' in menu
     assert 'aria-controls="composer-browser-popover"' in menu and 'data-lucide="chevron-down"' in menu
@@ -495,8 +499,44 @@ def test_browser_window_panel_opens_by_click_not_hover():
     assert html.index('class="composer-pill-split"') < html.index('id="composer-browser-toggle"') < html.index('id="composer-browser-menu"') < html.index('id="composer-browser-popover"')
     assert ".composer-pill-split:hover > .composer-pill-btn" in css
     assert ".composer-browser-wrap:hover .composer-pill-btn" not in css
-    # An own window shows on the pill itself.
-    assert 't("Browser on · own window")' in js
+
+
+def test_browser_pill_keeps_its_name_and_says_what_a_click_does():
+    from pathlib import Path
+
+    js = Path("app/static/js/connectors/local_bridge.js").read_text(encoding="utf-8")
+    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
+    html = Path("app/templates/app.html").read_text(encoding="utf-8")
+    # On or off, the pill reads "Browser", like the other composer pills: the
+    # tint says which (aria-pressed for a screen reader), so neither a state
+    # word nor a window suffix is in the text.
+    for label in ('t("Browser on")', 't("Browser off")', 'own window")'):
+        assert label not in js
+    # Off is a plain pill, like Attach; only on is tinted. On is not colour
+    # alone: it is set heavier too, and keeps a cue of its own where the
+    # system replaces colours.
+    assert '.composer-connector-toggle[data-state="off"]' not in css
+    on_rule_start = css.index('.composer-connector-toggle[data-state="on"] {')
+    assert "font-weight: 600;" in css[on_rule_start:css.index("}", on_rule_start)]
+    forced = css.index("@media (forced-colors: active)", on_rule_start)
+    assert '.composer-connector-toggle[data-state="on"]' in css[forced:css.index("}", forced)]
+    # The text changes only where a click does something other than
+    # switching: setting the connector up, starting the browser.
+    assert 't("Set up browser")' in js and 't("Start browser")' in js
+    assert 't("Local bridge offline")' not in js
+    # Which window the assistant drives shows as the pill's icon and in the
+    # arrow's label, not in the text; the panel calls the two windows
+    # "Shared window" and "Own window".
+    assert "icon.dataset.browserIcon" in js
+    assert 't("Browser window: own")' in js and 't("Browser window: shared")' in js
+    assert 't("Shared window")' in html and 't("Own window")' in html
+    assert "Own window for this assistant" not in html and "Shared EFP window" not in html
+    # Implementation words stay out of the panel: a member picks a window,
+    # not a bridge session, a Chrome profile or an EFP anything.
+    popover_start = html.index('id="composer-browser-popover"')
+    popover = html[popover_start:html.index("{% endif %}", popover_start)]
+    for word in ("EFP", "Chrome", "profile", "bridge"):
+        assert word not in popover
 
 
 # ---------------------------------------------------------------------------

@@ -465,10 +465,11 @@
                   </details>
                   {% if connectors_enabled %}
                   {# A split pill: its main part switches the browser on or off for this
-                     chat, and the arrow next to it opens the panel that says which EFP
-                     window the assistant drives (the shared one, or its own) and lets
-                     the member change that. Click only, like Run settings: nothing
-                     opens on hover or focus. #}
+                     chat (its text stays "Browser"; the tint says which, and the icon
+                     says which window the assistant drives), and the arrow next to it
+                     opens the panel that names that window (the shared one, or its own)
+                     and lets the member change it. Click only, like Run settings:
+                     nothing opens on hover or focus. #}
                   <div id="composer-browser-wrap" class="composer-browser-wrap hidden">
                     <div class="composer-pill-split">
                       <button type="button"
@@ -477,7 +478,8 @@
                               data-state="hidden"
                               aria-pressed="false"
                               title="{{ t('Let the assistant use your local browser') }}">
-                        <i data-lucide="globe" class="w-4 h-4"></i>
+                        <i data-lucide="globe" data-browser-icon="shared" class="w-4 h-4"></i>
+                        <i data-lucide="app-window" data-browser-icon="own" class="w-4 h-4 hidden"></i>
                         <span id="composer-browser-toggle-text">{{ t("Browser") }}</span>
                       </button>
                       <button type="button"
@@ -487,8 +489,8 @@
                               aria-haspopup="dialog"
                               aria-expanded="false"
                               aria-controls="composer-browser-popover"
-                              aria-label="{{ t('Browser window for this assistant') }}"
-                              title="{{ t('Browser window for this assistant') }}">
+                              aria-label="{{ t('Browser window') }}"
+                              title="{{ t('Browser window') }}">
                         <i data-lucide="chevron-down" class="w-4 h-4"></i>
                       </button>
                     </div>
@@ -496,19 +498,19 @@
                          class="composer-inference-popover composer-browser-popover hidden"
                          role="dialog"
                          aria-labelledby="composer-browser-popover-title">
-                      <div id="composer-browser-popover-title" class="composer-inference-title">{{ t("Browser window for this assistant") }}</div>
+                      <div id="composer-browser-popover-title" class="composer-inference-title">{{ t("Browser window") }}</div>
                       <label class="composer-browser-option">
                         <input type="radio" name="composer-browser-window" value="shared" checked>
                         <span class="composer-browser-option-text">
-                          <strong>{{ t("Shared EFP window") }}</strong>
-                          <small>{{ t("One window and one sign-in for every assistant; they take turns in it.") }}</small>
+                          <strong>{{ t("Shared window") }}</strong>
+                          <small>{{ t("All assistants use the same window and take turns in it.") }}</small>
                         </span>
                       </label>
                       <label class="composer-browser-option">
                         <input type="radio" name="composer-browser-window" value="own">
                         <span class="composer-browser-option-text">
-                          <strong>{{ t("Own window for this assistant") }}</strong>
-                          <small>{{ t("A separate Chrome window and profile: sign in there once. This assistant then works while others use the shared window.") }}</small>
+                          <strong>{{ t("Own window") }}</strong>
+                          <small>{{ t("A separate window for this assistant: it works while others use the shared window. Sign in there once.") }}</small>
                         </span>
                       </label>
                       <div class="composer-browser-window-state">

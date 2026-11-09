@@ -37,7 +37,7 @@ The page adds a **top-level** `connectors` object to `POST /a/{agent_id}/api/cha
 
 Rules
 - Only local connector types the user has **enabled** in Connectors are sent. Settings connectors never travel in this object; they reach the runtime through the pod Secret (§7.1).
-- The current Local bridge page also requires a Chromium browser, the chat's **Browser on** toggle, and a reachable bridge. Keep the originating Portal tab open while a request is running.
+- The current Local bridge page also requires a Chromium browser, the chat's **Browser** toggle switched on, and a reachable bridge. Keep the originating Portal tab open while a request is running.
 - `client_id`: 1–64 chars, `[A-Za-z0-9_-]`.
 - Absent or invalid `connectors` means "no connectors for this turn".
 - The same top-level object rides on `POST /a/{agent_id}/api/sessions/{session_id}/question/respond` and
@@ -227,8 +227,9 @@ Rules
 - Requests for the same `session` are executed one at a time; requests for different sessions
   run at the same time.
 - `session` names the browser session a command runs in. The page sends `default` (the shared
-  EFP window) for an assistant unless the member picked *Own window for this assistant* in the
-  panel the arrow next to the composer's Browser pill opens; then every command of that assistant, `session.ensure`
+  EFP window) for an assistant unless the member picked *Own window* in the panel the arrow next
+  to the composer's Browser pill opens (the pill then shows a window icon instead of the globe, and
+  the arrow's label reads *Browser window: own*); then every command of that assistant, `session.ensure`
   included, names `agent-<assistant id>` (letters, digits, dot, underscore, and hyphen; anything
   else in the id becomes a hyphen). The bridge creates a session it has not seen on its first
   command: a separate Chrome window on a profile under `~/.efp/browser/profiles/<session>`,
