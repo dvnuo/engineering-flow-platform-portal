@@ -199,7 +199,8 @@ def _session_turn_request_session_id(method: str, subpath: str) -> str | None:
     forwarded untouched, so the regenerated turn ran without the chat post's
     server-owned metadata: no identity block and no reply language. They get
     the same enrichment as an answer to a card. Connectors still come only
-    from a body's ``connectors`` hint, which the edit form does not send.
+    from a body's ``connectors`` hint; the edit form sends the same hint as
+    a chat post, so the browser tool stays available to the regenerated turn.
     """
     if method.upper() != "POST":
         return None

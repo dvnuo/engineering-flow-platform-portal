@@ -132,6 +132,28 @@ def test_permission_answer_gets_the_same_treatment(monkeypatch):
     assert forwarded["metadata"]["enable_browser_tool"] is True
 
 
+def test_message_edit_carries_the_tab_that_may_relay_browser_requests(monkeypatch):
+    # Editing a message regenerates the answer as a chat turn of its own; the
+    # edit form sends the same connectors hint as a chat post, so the browser
+    # tool is not reported disabled right after an edit.
+    response, captured = _post(
+        monkeypatch,
+        "api/sessions/s-3/messages/m-1/edit/async",
+        {
+            "content": "edited text",
+            "request_id": "e-1",
+            "connectors": {"local_bridge": {"client_id": "tab-edit", "protocol_version": 1}},
+        },
+    )
+    assert response.status_code == 202
+    assert captured["subpath"] == "api/sessions/s-3/messages/m-1/edit/async"
+    forwarded = json.loads(captured["body"])
+    assert forwarded["content"] == "edited text"
+    assert "connectors" not in forwarded
+    assert forwarded["metadata"]["connectors"]["local_bridge"]["client_id"] == "tab-edit"
+    assert forwarded["metadata"]["enable_browser_tool"] is True
+
+
 def test_answer_without_a_hint_or_an_enabled_connector_injects_none(monkeypatch):
     response, captured = _post(
         monkeypatch,

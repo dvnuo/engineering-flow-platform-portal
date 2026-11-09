@@ -292,6 +292,18 @@ def test_message_edit_handler_uses_async_endpoint():
     assert 'pendingText: "Editing..."' not in handler
 
 
+def test_message_edit_handler_sends_the_same_connectors_hint_as_a_chat_post():
+    # The regenerated answer may need the browser tool; the hint names the tab
+    # that relays bridge requests, exactly as submitChatForSelectedAgent does.
+    source = _src()
+    handler = _extract_message_edit_submit_handler(source)
+    submit = _extract_js_function(source, "submitChatForSelectedAgent")
+
+    assert "window.portalConnectors.chatRequestConnectors(agentId)" in handler
+    assert "editBody.connectors = editConnectors" in handler
+    assert "window.portalConnectors.chatRequestConnectors(agentIdAtSend)" in submit
+
+
 def test_message_edit_handler_does_not_replace_regular_submit_flow():
     source = _src()
     submit = _extract_js_function(source, "submitChatForSelectedAgent")
