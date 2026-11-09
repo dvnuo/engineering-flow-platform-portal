@@ -19661,8 +19661,9 @@ function bindEvents() {
     // (submitChatForSelectedAgent). Without it the proxy injects no
     // `metadata.connectors`, and the runtime's browser tool answers
     // connector_disabled right after an edit although the bridge is up.
-    if (window.portalConnectors && typeof window.portalConnectors.chatRequestConnectors === "function") {
-      const editConnectors = window.portalConnectors.chatRequestConnectors(agentId);
+    const portalConnectors = typeof window !== "undefined" ? window.portalConnectors : null;
+    if (portalConnectors && typeof portalConnectors.chatRequestConnectors === "function") {
+      const editConnectors = portalConnectors.chatRequestConnectors(agentId);
       if (editConnectors && typeof editConnectors === "object" && Object.keys(editConnectors).length) {
         editBody.connectors = editConnectors;
       }

@@ -299,8 +299,10 @@ def test_message_edit_handler_sends_the_same_connectors_hint_as_a_chat_post():
     handler = _extract_message_edit_submit_handler(source)
     submit = _extract_js_function(source, "submitChatForSelectedAgent")
 
-    assert "window.portalConnectors.chatRequestConnectors(agentId)" in handler
+    assert "portalConnectors.chatRequestConnectors(agentId)" in handler
     assert "editBody.connectors = editConnectors" in handler
+    # The Node harness of the other tests here has no `window`.
+    assert 'typeof window !== "undefined" ? window.portalConnectors : null' in handler
     assert "window.portalConnectors.chatRequestConnectors(agentIdAtSend)" in submit
 
 
