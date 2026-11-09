@@ -4169,8 +4169,12 @@ function agentTimelineInputObject(value) {
 function agentTimelineToolTarget(inputValue, targetKeys = []) {
   const input = agentTimelineInputObject(inputValue);
   if (!input) {
-    // A bare string argument (a command, a query) is the target itself.
-    return typeof inputValue === "string" ? truncateAgentTimelineText(inputValue, 96) : "";
+    if (typeof inputValue !== "string") return "";
+    // Arguments still streaming in (a JSON prefix) are not a target yet; a
+    // bare string argument (a command, a query) is the target itself.
+    const first = inputValue.trimStart().charAt(0);
+    if (first === "{" || first === "[") return "";
+    return truncateAgentTimelineText(inputValue, 96);
   }
   if (Array.isArray(input)) return "";
   const fallbackKeys = ["file_path", "path", "file", "command", "query", "pattern", "url", "name", "title", "summary", "subject", "id", "description", "prompt", "text", "message"];
@@ -4434,7 +4438,9 @@ function reduceAgentTimelineToolEvent(timeline, event, type) {
   const namedTool = getAgentTimelineField(event, ["tool", "tool_name", "toolName", "name"]);
   if (namedTool) item.toolName = String(namedTool);
   else if (!item.toolName) item.toolName = toolName;
-  if (!item.startedAtMs) item.startedAtMs = Date.now();
+  // The clock starts when the page sees the call running, so a call replayed
+  // from the stored transcript already finished has no measured time.
+  if (status === "running" && !item.startedAtMs) item.startedAtMs = Date.now();
 
   if (type === "session.next.tool.input.started") {
     const inputValue = agentTimelineInputValue(event);
@@ -4465,7 +4471,8 @@ function reduceAgentTimelineToolEvent(timeline, event, type) {
   }
   if ((status === "completed" || status === "failed") && !item.durationMs) {
     const reported = Number(data.duration_ms ?? data.durationMs ?? data.elapsed_ms);
-    item.durationMs = Number.isFinite(reported) && reported >= 0 ? reported : Math.max(0, Date.now() - item.startedAtMs);
+    if (Number.isFinite(reported) && reported >= 0) item.durationMs = reported;
+    else if (item.startedAtMs) item.durationMs = Math.max(0, Date.now() - item.startedAtMs);
   }
 
   // Recomputed on every event of the call: the arguments may land after the
