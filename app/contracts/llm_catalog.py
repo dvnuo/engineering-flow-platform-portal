@@ -103,8 +103,8 @@ MAX_CONTEXT_SIZE = CONTEXT_SIZE_PRESETS[-1]
 # runtimes read it as the loop cap (``max_iterations`` on native, the agent's
 # ``steps`` on OpenCode). Blank in both forms leaves the runtime's own default,
 # which is what the placeholder shows.
-DEFAULT_MAX_STEPS = 30
-MAX_STEPS_LIMIT = 500
+DEFAULT_MAX_STEPS = 100
+MAX_STEPS_LIMIT = 99999
 
 
 def parse_max_steps(value: Any) -> int | None:
