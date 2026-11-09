@@ -212,7 +212,7 @@ CONNECTOR_GUIDANCE: dict[str, dict[str, Any]] = {
         "steps": [
             N_("Download the EFP local bridge package for your system from Connectors → Local bridge (Windows, macOS, or Linux; it holds the efp-bridge program, mobile-auto for mobile recordings, the installer, and a README) and unzip it into the bin folder of your home directory (%USERPROFILE%\\bin on Windows, ~/bin on macOS or Linux), overwriting any files already there."),
             N_("Run the installer in the unzipped folder (double-click install-bridge.cmd on Windows; ./install-bridge.sh on macOS or Linux); it asks nothing. Then click Start bridge on the panel, which passes this Portal's address to the bridge, and allow the efp-bridge link when Chrome asks. A Chrome window titled EFP opens with the Portal as its only tab."),
-            N_("Browser automation: click Test connection. It lists the tabs of the EFP browser window; sign in to your work sites in that window once. Switch Enabled on and save; new chats show a Browser toggle in the composer."),
+            N_("Browser automation: click Test connection. It lists the tabs of the EFP browser window; sign in to your work sites in that window once. Switch Enabled on and save; new chats show a Browser toggle in the composer. Hover over that toggle to give an assistant its own browser window instead of the shared one."),
             N_("Mobile recording: nothing more to install. Add your BrowserStack username and access key under Connectors → BrowserStack, then choose Recording in an assistant's chat."),
         ],
         "troubleshooting": [

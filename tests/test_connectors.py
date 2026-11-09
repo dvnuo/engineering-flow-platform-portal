@@ -451,6 +451,12 @@ def test_app_page_exposes_connectors_menu_when_enabled():
     assert 'id="connectors-nav-section"' in html
     assert 'id="composer-browser-toggle"' in html
     assert "js/connectors/local_bridge.js" in html
+    # The pill's popover: which EFP window the assistant drives (shared or
+    # its own), with the choice as radios and a way to open that window.
+    assert 'id="composer-browser-popover"' in html
+    assert html.count('name="composer-browser-window"') == 2
+    assert 'value="shared" checked' in html and 'value="own"' in html
+    assert "data-browser-window-open" in html and "data-browser-window-state" in html
 
 
 # ---------------------------------------------------------------------------

@@ -464,15 +464,47 @@
                     </div>
                   </details>
                   {% if connectors_enabled %}
-                  <button type="button"
-                          id="composer-browser-toggle"
-                          class="composer-pill-btn composer-connector-toggle hidden"
-                          data-state="hidden"
-                          aria-pressed="false"
-                          title="{{ t('Let the assistant use your local browser') }}">
-                    <i data-lucide="globe" class="w-4 h-4"></i>
-                    <span id="composer-browser-toggle-text">{{ t("Browser") }}</span>
-                  </button>
+                  {# The pill switches the browser on or off for this chat; hovering or
+                     focusing it shows which EFP window the assistant drives (the shared
+                     one, or its own) and lets the member change that. #}
+                  <div id="composer-browser-wrap" class="composer-browser-wrap hidden">
+                    <button type="button"
+                            id="composer-browser-toggle"
+                            class="composer-pill-btn composer-connector-toggle"
+                            data-state="hidden"
+                            aria-pressed="false"
+                            aria-haspopup="dialog"
+                            aria-expanded="false"
+                            aria-controls="composer-browser-popover"
+                            title="{{ t('Let the assistant use your local browser') }}">
+                      <i data-lucide="globe" class="w-4 h-4"></i>
+                      <span id="composer-browser-toggle-text">{{ t("Browser") }}</span>
+                    </button>
+                    <div id="composer-browser-popover"
+                         class="composer-inference-popover composer-browser-popover hidden"
+                         role="dialog"
+                         aria-labelledby="composer-browser-popover-title">
+                      <div id="composer-browser-popover-title" class="composer-inference-title">{{ t("Browser window for this assistant") }}</div>
+                      <label class="composer-browser-option">
+                        <input type="radio" name="composer-browser-window" value="shared" checked>
+                        <span class="composer-browser-option-text">
+                          <strong>{{ t("Shared EFP window") }}</strong>
+                          <small>{{ t("One window and one sign-in for every assistant; they take turns in it.") }}</small>
+                        </span>
+                      </label>
+                      <label class="composer-browser-option">
+                        <input type="radio" name="composer-browser-window" value="own">
+                        <span class="composer-browser-option-text">
+                          <strong>{{ t("Own window for this assistant") }}</strong>
+                          <small>{{ t("A separate Chrome window and profile: sign in there once. This assistant then works while others use the shared window.") }}</small>
+                        </span>
+                      </label>
+                      <div class="composer-browser-window-state">
+                        <span data-browser-window-state></span>
+                        <button type="button" class="composer-pill-btn composer-pill-btn--small hidden" data-browser-window-open>{{ t("Open window") }}</button>
+                      </div>
+                    </div>
+                  </div>
                   {% endif %}
                 </div>
 
