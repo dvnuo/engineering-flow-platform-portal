@@ -6865,14 +6865,13 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
 }
 
 /* ===== Connectors (Connectors menu + composer browser toggle) ===== */
+/* The pill reads "Browser" on and off; the tint says which. Off is a plain
+   pill like Attach (no rule of its own), on is tinted, and the states in
+   which a click does something else (set up, start) are dashed. */
 .composer-connector-toggle[data-state="on"] {
   border-color: color-mix(in srgb, var(--portal-cta-bg), transparent 30%);
   background: color-mix(in srgb, var(--portal-cta-bg) 16%, var(--portal-surface-muted) 84%);
   color: var(--portal-text);
-}
-
-.composer-connector-toggle[data-state="off"] {
-  opacity: 0.8;
 }
 
 .composer-connector-toggle[data-state="offline"],

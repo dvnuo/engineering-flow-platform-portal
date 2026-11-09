@@ -316,6 +316,7 @@ const MENU_ID = "composer-browser-menu";
 const POPOVER_ID = "composer-browser-popover";
 const byId = {};
 const documentListeners = {};
+globalThis.t = (key) => key;
 globalThis.document = {
   visibilityState: "visible",
   activeElement: null,
@@ -359,6 +360,14 @@ const elsewhere = node("elsewhere", root);
 const wrap = node(WRAP_ID, form);
 const button = node(TOGGLE_ID, wrap);
 const text = node(TOGGLE_TEXT_ID, button);
+// The pill's two icons: the globe for the shared window, a window for an own
+// one; one of them is hidden at a time.
+const iconShared = node("icon-shared", button);
+iconShared.dataset.browserIcon = "shared";
+const iconOwn = node("icon-own", button);
+iconOwn.dataset.browserIcon = "own";
+iconOwn.classList.add("hidden");
+button.querySelectorAll = (selector) => (selector === "[data-browser-icon]" ? [iconShared, iconOwn] : []);
 const menu = node(MENU_ID, wrap);
 const popover = node(POPOVER_ID, wrap);
 const shared = node("window-shared", popover, { radio: "shared" });
@@ -447,20 +456,41 @@ def test_the_window_panel_opens_by_click_and_closes_on_escape_or_a_click_elsewhe
 
         // The arrow is the pill's other half once there is a window to talk
         // about (on, off, or offline); before the connector is set up the
-        // pill is a single button and the arrow opens nothing.
-        applyToggleView({ mode: "on", label: "Browser on" });
+        // pill is a single button and the arrow opens nothing. The pill
+        // reads "Browser" unless a label says otherwise; which window the
+        // assistant drives shows as the icon and in the arrow's label.
+        applyToggleView({ mode: "on", label: "Browser" });
+        assert.equal(text.textContent, "Browser");
         assert.equal(menu.classList.contains("hidden"), false);
         assert.equal(wrap.classList.contains("has-menu"), true);
         assert.equal(menu.dataset.state, "on");
+        assert.equal(menu.title, "Browser window: shared");
+        assert.equal(menu.getAttribute("aria-label"), "Browser window: shared");
+        assert.equal(iconShared.classList.contains("hidden"), false);
+        assert.equal(iconOwn.classList.contains("hidden"), true);
         menu.fire("click", { detail: 1 });
         assert.equal(windowPopoverOpen(), true);
+        applyToggleView({ mode: "on", own: true, label: "Browser" });
+        assert.equal(text.textContent, "Browser");
+        assert.equal(menu.title, "Browser window: own");
+        assert.equal(menu.getAttribute("aria-label"), "Browser window: own");
+        assert.equal(iconShared.classList.contains("hidden"), true);
+        assert.equal(iconOwn.classList.contains("hidden"), false);
         applyToggleView({ mode: "setup", label: "Set up browser" });
+        assert.equal(text.textContent, "Set up browser");
         assert.equal(menu.classList.contains("hidden"), true);
         assert.equal(wrap.classList.contains("has-menu"), false);
         assert.equal(windowPopoverOpen(), false);
+        assert.equal(iconShared.classList.contains("hidden"), false);
+        assert.equal(iconOwn.classList.contains("hidden"), true);
         menu.fire("click", { detail: 1 });
         assert.equal(windowPopoverOpen(), false);
-        applyToggleView({ mode: "offline", label: "Local bridge offline" });
+        applyToggleView({ mode: "offline", own: true, label: "Start browser" });
+        assert.equal(text.textContent, "Start browser");
         assert.equal(menu.classList.contains("hidden"), false);
+        assert.equal(iconOwn.classList.contains("hidden"), false);
+        applyToggleView({ mode: "off" });
+        assert.equal(text.textContent, "Browser");
+        assert.equal(iconShared.classList.contains("hidden"), false);
         console.log("ok");
         """))

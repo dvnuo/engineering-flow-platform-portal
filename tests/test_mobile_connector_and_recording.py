@@ -404,7 +404,7 @@ def test_the_page_drives_the_local_bridge_not_portal():
         assert marker in js, marker
     assert "Device (optional)" not in js and "params.form_factor" not in js
     assert 't("Sending {name} on to BrowserStack\u2026")' not in js, "the wait names its length"
-    # The chat composer's "Local bridge offline" keeps up: the panel tells it
+    # The chat composer's "Start browser" pill keeps up: the panel tells it
     # when the bridge appears, and the composer looks again while offline.
     assert "window.portalConnectors.refreshToggle()" in js
     bridge_js = Path("app/static/js/connectors/local_bridge.js").read_text(encoding="utf-8")

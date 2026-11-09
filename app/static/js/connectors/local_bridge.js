@@ -848,6 +848,13 @@
     return button ? { button, text, wrap, menu, popover } : null;
   }
 
+  // The pill's look for one state. Its text is "Browser" whether the browser
+  // is on or off: the tint says which (aria-pressed for a screen reader), as
+  // for the other composer pills. The text changes only where a click does
+  // something other than switching: set the connector up, start the browser.
+  // `own` says the assistant drives a window of its own, which shows as the
+  // pill's icon (a window instead of the globe) and in the arrow's label, so
+  // it is seen without opening the panel.
   function applyToggleView(view) {
     const elements = toggleElements();
     if (!elements) return;
@@ -860,12 +867,19 @@
     button.classList.toggle("is-muted", view.mode === "offline" || view.mode === "setup");
     button.title = view.title || "";
     if (text) text.textContent = view.label || t("Browser");
+    const own = Boolean(view.own);
+    button.querySelectorAll("[data-browser-icon]").forEach((icon) => {
+      icon.classList.toggle("hidden", icon.dataset.browserIcon !== (own ? "own" : "shared"));
+    });
     // The arrow is the pill's other half while there is a window to talk
     // about; until the connector is set up the pill is a single button.
     const allowed = popoverAllowed();
     if (menu) {
       menu.dataset.state = view.mode;
       menu.classList.toggle("hidden", !allowed);
+      const windowLabel = own ? t("Browser window: own") : t("Browser window: shared");
+      menu.title = windowLabel;
+      menu.setAttribute("aria-label", windowLabel);
     }
     if (wrap) wrap.classList.toggle("has-menu", Boolean(menu) && allowed);
     if (!allowed) closeWindowPopover();
@@ -884,31 +898,34 @@
       return;
     }
     if (!localBridgeEnabled()) {
-      applyToggleView({ mode: "setup", label: t("Set up browser"), title: t("Let the assistant use your local browser: open Connectors to set it up.") });
+      applyToggleView({ mode: "setup", label: t("Set up browser"), title: t("Open Connectors to set up the browser.") });
       return;
     }
+    // Which window the assistant drives shows on the pill (icon, arrow label)
+    // in every state that has a window to talk about, on or off.
+    const own = windowChoice(agentId) === WINDOW_OWN;
     if (!toggleOn(agentId)) {
-      applyToggleView({ mode: "off", label: t("Browser off"), title: t("The assistant will not use your local browser in this chat. Click to switch on.") });
+      applyToggleView({ mode: "off", own, label: t("Browser"), title: t("The assistant does not use the browser in this chat. Click to switch on.") });
       renderWindowPopover(agentId);
       return;
     }
     const status = probe ? await probeLocalBridge() : { alive: state.localBridge.alive };
     if (!status.alive) {
-      applyToggleView({ mode: "offline", label: t("Local bridge offline"), title: t("The local bridge is not running. Click to open the setup steps.") });
+      // A click starts the browser, so the pill says that rather than
+      // naming the bridge, which members need not know about.
+      applyToggleView({ mode: "offline", own, label: t("Start browser"), title: t("The browser is not running on this computer. Click to start it.") });
       renderWindowPopover(agentId);
       scheduleOfflineRecheck();
       return;
     }
     resetOfflineBackoff();
-    // The pill names an own window, so which assistants work apart from the
-    // shared window shows without opening the panel.
-    const own = windowChoice(agentId) === WINDOW_OWN;
     applyToggleView({
       mode: "on",
-      label: own ? t("Browser on · own window") : t("Browser on"),
+      own,
+      label: t("Browser"),
       title: own
-        ? t("The assistant can read and operate its own EFP browser window in this chat. Click to switch off.")
-        : t("The assistant can read and operate your EFP browser window in this chat. Click to switch off."),
+        ? t("The assistant uses its own browser window in this chat. Click to switch off.")
+        : t("The assistant can use the browser in this chat. Click to switch off."),
     });
     renderWindowPopover(agentId);
   }
@@ -981,7 +998,7 @@
       return;
     }
     if (mode === "offline") {
-      applyToggleView({ mode: "offline", label: t("Starting browser…"), title: t("Starting the local bridge and its Chrome window.") });
+      applyToggleView({ mode: "offline", own: windowChoice(agentId) === WINDOW_OWN, label: t("Starting…"), title: t("Starting the browser on this computer.") });
       const probe = await ensureBrowserSession({ agentId });
       if (!probe.alive) {
         // The setup steps replace the chat; a panel left open would wait
@@ -1025,7 +1042,7 @@
     let text;
     let tone = "";
     if (!lb.alive) {
-      text = t("Local bridge offline");
+      text = t("Browser not running");
     } else if (alive === true) {
       const entry = lb.sessions[session];
       text = tn(entry ? entry.tabCount : 0, "Window open ({n} tab)", "Window open ({n} tabs)");
