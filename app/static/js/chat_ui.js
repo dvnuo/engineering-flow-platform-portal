@@ -19656,6 +19656,18 @@ function bindEvents() {
     if (reasoningEffort && reasoningEffort !== defaultReasoningEffort) editBody.reasoning_effort = reasoningEffort;
     const maxContextTokens = Number(chatState?.maxContextTokensOverride || dom.chatContextSelect?.value || 0);
     if (maxContextTokens > 0) editBody.max_context_tokens = maxContextTokens;
+    // The regenerated answer is a chat turn like any other, so it names the
+    // tab that may relay browser requests the same way a chat post does
+    // (submitChatForSelectedAgent). Without it the proxy injects no
+    // `metadata.connectors`, and the runtime's browser tool answers
+    // connector_disabled right after an edit although the bridge is up.
+    const portalConnectors = typeof window !== "undefined" ? window.portalConnectors : null;
+    if (portalConnectors && typeof portalConnectors.chatRequestConnectors === "function") {
+      const editConnectors = portalConnectors.chatRequestConnectors(agentId);
+      if (editConnectors && typeof editConnectors === "object" && Object.keys(editConnectors).length) {
+        editBody.connectors = editConnectors;
+      }
+    }
     setChatStatus(t("Saving edited message..."));
     let accepted = false;
 
