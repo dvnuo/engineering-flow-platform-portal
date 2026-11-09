@@ -6881,26 +6881,55 @@ html[data-theme="dark"] .portal-auth-method-icon--github { background: #f6f8fa; 
   color: var(--portal-text-muted);
 }
 
-/* Browser window per assistant: hovering or focusing the Browser pill shows
+/* Browser window per assistant: the Browser pill is split in two. Its main
+   part is the on/off toggle; the arrow next to it opens the panel that says
    which window the assistant drives (the shared EFP window or its own) and
-   whether it is open. The strip under the popover bridges the gap to the
-   pill so the pointer can travel into it. */
+   whether it is open. The two buttons sit in a box of their own, apart from
+   the panel, and read as one pill: the arrow has no left border, so the
+   toggle's right border is the divider, and hovering either half lifts both
+   rather than one of them. Each half keeps its own hover colour, since the
+   halves do different things. */
 .composer-browser-wrap {
   position: relative;
   display: inline-flex;
+  align-items: stretch;
+}
+
+.composer-pill-split {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.composer-browser-wrap.has-menu .composer-pill-split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding-right: 10px;
+}
+
+.composer-pill-split-menu {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0;
+  padding: 0 7px 0 5px;
+}
+
+/* Only the halves' own box: a pointer over the panel, or over the Open
+   window button inside it, moves nothing but that button. */
+.composer-pill-split:hover > .composer-pill-btn {
+  transform: translateY(-1px);
+}
+
+.composer-pill-split-menu[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--portal-border-strong), transparent 10%);
+  background: color-mix(in srgb, var(--portal-surface-soft) 90%, transparent);
+}
+
+.composer-pill-split-menu[aria-expanded="true"] svg {
+  transform: rotate(180deg);
 }
 
 .composer-browser-popover {
   width: min(340px, calc(100vw - 48px));
-}
-
-.composer-browser-popover::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: 12px;
 }
 
 .composer-browser-option {

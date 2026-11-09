@@ -451,12 +451,52 @@ def test_app_page_exposes_connectors_menu_when_enabled():
     assert 'id="connectors-nav-section"' in html
     assert 'id="composer-browser-toggle"' in html
     assert "js/connectors/local_bridge.js" in html
-    # The pill's popover: which EFP window the assistant drives (shared or
-    # its own), with the choice as radios and a way to open that window.
+    # The pill is split: its main part is the on/off toggle and announces no
+    # popup, and the arrow next to it (a button of its own) opens the panel
+    # that says which EFP window the assistant drives (shared or its own),
+    # with the choice as radios and a way to open that window.
+    toggle = html[html.index('id="composer-browser-toggle"'):html.index('id="composer-browser-menu"')]
+    assert "aria-haspopup" not in toggle and "aria-expanded" not in toggle
+    menu = html[html.index('id="composer-browser-menu"'):html.index('id="composer-browser-popover"')]
+    assert 'aria-haspopup="dialog"' in menu and 'aria-expanded="false"' in menu
+    assert 'aria-controls="composer-browser-popover"' in menu and 'data-lucide="chevron-down"' in menu
     assert 'id="composer-browser-popover"' in html
     assert html.count('name="composer-browser-window"') == 2
     assert 'value="shared" checked' in html and 'value="own"' in html
     assert "data-browser-window-open" in html and "data-browser-window-state" in html
+
+
+def test_browser_window_panel_opens_by_click_not_hover():
+    from pathlib import Path
+
+    js = Path("app/static/js/connectors/local_bridge.js").read_text(encoding="utf-8")
+    css = Path("app/static/css/app.css").read_text(encoding="utf-8")
+    # The arrow's click toggles the panel; a pointer crossing the pill or a
+    # Tab through the composer opens nothing, so no delays bridge the gap
+    # between pill and panel either.
+    assert 'menu.addEventListener("click"' in js
+    for listener in ('"mouseenter"', '"mouseleave"', '"focusin"'):
+        assert listener not in js
+    assert "POPOVER_OPEN_DELAY_MS" not in js and "POPOVER_CLOSE_DELAY_MS" not in js
+    assert ".composer-browser-popover::before" not in css
+    # A click anywhere else closes it, as for the Run settings panel.
+    assert 'document.addEventListener("mousedown"' in js
+    # The two buttons read as one pill: the arrow has no left border, and the
+    # toggle loses its right rounding while the arrow is shown.
+    assert ".composer-browser-wrap.has-menu .composer-pill-split-main" in css
+    menu_rule_start = css.index(".composer-pill-split-menu {")
+    menu_rule = css[menu_rule_start:css.index("}", menu_rule_start)]
+    assert "border-left: 0;" in menu_rule
+    # The two buttons sit in a box of their own, apart from the panel, so
+    # hovering either half lifts both halves and only the halves: a pointer
+    # over the panel, or over the Open window button inside it, lifts nothing
+    # else.
+    html = Path("app/templates/app.html").read_text(encoding="utf-8")
+    assert html.index('class="composer-pill-split"') < html.index('id="composer-browser-toggle"') < html.index('id="composer-browser-menu"') < html.index('id="composer-browser-popover"')
+    assert ".composer-pill-split:hover > .composer-pill-btn" in css
+    assert ".composer-browser-wrap:hover .composer-pill-btn" not in css
+    # An own window shows on the pill itself.
+    assert 't("Browser on · own window")' in js
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ For installation and use, see the [Beginner Guide](BEGINNER_GUIDE.md). Portal co
 | connector_type | Stable string id, e.g. `local_bridge`, `jira`, `llm`. |
 | kind | `local` (needs the chat page as a bridge to the user's machine) or `settings` (the runtime talks to the service directly with credentials delivered through the pod Secret at boot). |
 | client_id | Random id generated per Portal browser tab (`sessionStorage`). Identifies which tab (and therefore which machine) executes local requests for one chat turn. |
-| session | The browser session on the member's computer a bridge command runs in: `default`, the shared EFP window, or `agent-<assistant id>` when the member gave that assistant an own window (the popover under the composer's Browser pill; kept per assistant in `localStorage`). The bridge creates a session it has not seen on its first command, as a separate Chrome window and profile. |
+| session | The browser session on the member's computer a bridge command runs in: `default`, the shared EFP window, or `agent-<assistant id>` when the member gave that assistant an own window (the panel behind the arrow next to the composer's Browser pill; kept per assistant in `localStorage`). The bridge creates a session it has not seen on its first command, as a separate Chrome window and profile. |
 | bridge | The page-side dispatcher plus the local program it talks to. For `local_bridge` (shown as **Local bridge**) the local program is `efp-bridge` from `engineering-flow-platform-tools` (its `docs/BRIDGE.md`): browser automation for the runtime's `browser` tool, and mobile recording, which the Mobile testing panel calls directly. |
 
 ## 1. Chat request (page → Portal)
@@ -228,14 +228,14 @@ Rules
   run at the same time.
 - `session` names the browser session a command runs in. The page sends `default` (the shared
   EFP window) for an assistant unless the member picked *Own window for this assistant* in the
-  popover under the composer's Browser pill; then every command of that assistant, `session.ensure`
+  panel the arrow next to the composer's Browser pill opens; then every command of that assistant, `session.ensure`
   included, names `agent-<assistant id>` (letters, digits, dot, underscore, and hyphen; anything
   else in the id becomes a hyphen). The bridge creates a session it has not seen on its first
   command: a separate Chrome window on a profile under `~/.efp/browser/profiles/<session>`,
   signed in on its own. The choice is kept per assistant in this browser
   (`localStorage` key `efp.connectors.local_bridge.window:<assistant id>`); it is not sent to the
   Portal or the runtime, which know nothing about sessions. An own window opens on the first
-  browser action of a chat, or at once from the popover (and when the choice is made while the
+  browser action of a chat, or at once from that panel (and when the choice is made while the
   browser is on for the chat); its first tab is the configured start page, or the Portal on that
   assistant (`/app#/assistants/<id>`) when none is configured. Nothing closes such a window; the
   member does, and the next command reopens it.
